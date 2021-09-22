@@ -698,6 +698,27 @@ func removePeer(ctx native.Context, args removePeerArgs) (removePeerRets, error)
 	return removePeerRets{Result: true}, nil
 }
 
+type GrantPermissionArgs struct {
+	AccountId string
+	Permission string
+}
+
+type GrantPermissionRets struct {
+	Result bool
+}
+
+func grantPermission(ctx native.Context, args GrantPermissionArgs) (GrantPermissionRets, error) {
+	err := iroha.GrantPermission(args.AccountId, args.Permission)
+	if err != nil {
+		return GrantPermissionRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "GrantPermission",
+		"account", args.AccountId, "Permission", args.Permission)
+
+	return GrantPermissionRets{Result: true}, nil
+}
+
 type getPeersArgs struct {
 }
 

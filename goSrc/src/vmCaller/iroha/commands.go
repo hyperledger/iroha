@@ -176,6 +176,17 @@ func DetachRole(account string, role string) error {
 	return handleErrors(commandResult, err, "DetachRole")
 }
 
+func GrantPermission(account string, permission string) error {
+	perm := pb.GrantablePermission_value[permission]
+	command := &pb.Command{Command: &pb.Command_GrantPermission{
+		GrantPermission: &pb.GrantPermission{
+			AccountId: account,
+			Permission:  pb.GrantablePermission(perm),
+		}}}
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
+	return handleErrors(commandResult, err, "DetachRole")
+}
+
 
 
 // -----------------------Iroha queries---------------------------------------
