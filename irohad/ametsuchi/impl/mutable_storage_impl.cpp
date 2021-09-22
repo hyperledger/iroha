@@ -135,7 +135,6 @@ namespace iroha::ametsuchi {
       return "Tried to commit mutable storage twice.";
     }
     if (not ledger_state_) {
-      assert(ledger_state_);
       return "Tried to commit mutable storage with no blocks applied.";
     }
     return block_storage_->forEach([&block_storage](auto const &block)
