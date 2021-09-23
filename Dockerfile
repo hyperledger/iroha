@@ -31,17 +31,11 @@ COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 ARG PROFILE=
-FROM cargo-chef as cacher
+FROM cargo-chef as builder
 WORKDIR /iroha
 COPY --from=planner /iroha/recipe.json recipe.json
 RUN cargo chef cook $PROFILE --recipe-path recipe.json
-
-FROM rust-base as builder
-ARG PROFILE
-WORKDIR /iroha
 COPY . .
-COPY --from=cacher /iroha/target .
-COPY --from=cacher $CARGO_HOME $CARGO_HOME
 RUN cargo build $PROFILE --all
 
 FROM $BASE_IMAGE
