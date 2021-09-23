@@ -117,6 +117,10 @@ DEFINE_string(metrics_port,
               "",
               "Prometeus HTTP server listens port, disabled by default");
 
+DEFINE_bool(exit_after_init,
+              false,
+              "Use this flag to reindex WSV and exit");
+
 std::sig_atomic_t caught_signal = 0;
 std::promise<void> exit_requested;
 
@@ -457,6 +461,10 @@ int main(int argc, char *argv[]) {
       log->critical("Irohad startup failed: {}", error->error);
       daemon_status_notifier->notify(::iroha::utility_service::Status::kFailed);
       return EXIT_FAILURE;
+    }
+
+    if(FLAGS_exit_after_init){
+      return EXIT_SUCCESS;
     }
 
     auto handler = [](int s) { caught_signal = s; };
