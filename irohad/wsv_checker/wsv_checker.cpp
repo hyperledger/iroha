@@ -88,13 +88,19 @@ namespace {
   }
 }  // namespace
 
+static bool ValidateNonEmpty(const char *flagname, std::string const &str) {
+  return not str.empty();
+}
 // NOLINTNEXTLINE
 DEFINE_string(pg_opt,
-              "dbname=iroha_default host=localhost port=5432 user=postgres "
-              "password=postgres",
+              "",
+              // "dbname=iroha_default host=localhost port=5432 user=postgres "
+              // "password=postgres",
               "Specify Postgres options line as in Irohad config file");
+DEFINE_validator(pg_opt, &ValidateNonEmpty);
 // NOLINTNEXTLINE
-DEFINE_string(rocksdb_path, "rocks.db", "Specify path to RocksDB");
+DEFINE_string(rocksdb_path, "", "Specify path to RocksDB");
+DEFINE_validator(rocksdb_path, &ValidateNonEmpty);
 
 logger::LoggerManagerTreePtr getDefaultLogManager() {
   return std::make_shared<logger::LoggerManagerTree>(logger::LoggerConfig{
@@ -163,10 +169,10 @@ expected::Result<void> initialize() try {
     PRINT_NAME_HAVE_DIFFERENT(name, x, y); \
     return false;                          \
   }
-#define CHECK_EQUALS_NAMED(type, name, x, y)                 \
-  if ((x) != (y)) {                                          \
-    TYPES_PRINT_NAME_HAVE_DIFFERENT(type, (name), (x), (y)); \
-    checked_result = false;                                  \
+#define CHECK_EQUALS_NAMED(type, name, x, y)               \
+  if ((x) != (y)) {                                        \
+    TYPES_PRINT_NAME_HAVE_DIFFERENT(type, (name), x, (y)); \
+    checked_result = false;                                \
   }
 #define CHECK_EQUALS_STR(type, name, x, y)               \
   if ((x) != (y)) {                                      \
@@ -302,9 +308,10 @@ struct Role {
     return Role{std::string{get_unquoted_key(key)}, std::string(val)};
   }
   bool check_equals(Role const &o) const {
+    bool checked_result = true;
     CHECK_EQUALS_RETURN("Role-s", name, o.name)
-    CHECK_EQUALS_RETURN("Role-s", permissions, o.permissions)
-    return true;
+    CHECK_EQUALS_NAMED("Role", name, permissions, o.permissions)
+    return checked_result;
   }
 };
 struct AssetPrecision {
@@ -341,8 +348,9 @@ struct AssetQuantity {
   }
   bool check_equals(AssetQuantity const &o) const {
     CHECK_EQUALS_RETURN("AssetQuantity-s", name, o.name)
-    CHECK_EQUALS_RETURN("AssetQuantity-s", quantity, o.quantity)
-    return true;
+    bool checked_result = true;
+    CHECK_EQUALS_NAMED("AssetQuantity", name, quantity, o.quantity);
+    return checked_result;
   }
 };
 struct GrantablePermissions {
@@ -430,7 +438,9 @@ struct Account {
     CHECK_EQUALS_NAMED("Accounts", name, quorum, o.quorum)
     if (assetsquantity.size() != o.assetsquantity.size()) {
       fmt::print(
-          "Accounts have different sizes of assetsquantity: '{}' and '{}'\n",
+          "Accounts '{}' have different sizes of assetsquantity: '{}' and "
+          "'{}'\n",
+          name,
           assetsquantity.size(),
           o.assetsquantity.size());
       ++inequalities_counter;
@@ -440,7 +450,7 @@ struct Account {
             assetsquantity, o.assetsquantity, [](auto const &l, auto const &r) {
               return l.check_equals(r);
             })) {
-      fmt::print("Accounts have different assetsquantity\n");
+      fmt::print("Accounts '{}' have different assetsquantity\n", name);
       ++inequalities_counter;
       return false;
     }
@@ -522,12 +532,13 @@ struct Domain {
   }
   bool check_equals(Domain const &other) const {
     if (name != other.name) {
-      cout << "Domain names differ: '" << name << "' vs '" << other.name << "'";
+      cout << "Domain names differ: '" << name << "' vs '" << other.name << "'"
+           << endl;
       return false;
     }
     if (default_role != other.default_role) {
       cout << "Domain default_role differ: '" << default_role << "' vs '"
-           << other.default_role << "'";
+           << other.default_role << "'" << endl;
       return false;
     }
     if (not std::equal(
@@ -778,7 +789,10 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
             total_transactions_count =
                 std::stoull(std::string(val));  // fixme do not create string
           } else if (key_starts_with_and_drop(RDB_ACCOUNTS)) {
-            // auto& acc = find_account_by_id(std::string(accid));
+#if 0
+            auto accid = get_unquoted_key(key);
+            auto& acc = find_account_by_id(std::string(accid));
+            (void)acc;
             if (key_starts_with_and_drop(RDB_F_TOTAL_COUNT)) {
               // TODO select count(*) from tx_positions where
               // creator_id='did@identity' and asset_id is NULL
@@ -790,12 +804,22 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
               // This is to validate DB layout
               key = {};
             } else {
+              fmt::print("Wrong RocksDB layout: unexpected key '{}'\n",
+                         string_view(it->key().data() + key_sz,
+                                     it->key().size() - key_sz));
+              std::abort();
               assert(0 and "Wrong DB layout- unexpected key");
             }
+#endif
+            key = {};
           } else if (key_starts_with_and_drop(RDB_STATUSES)) {
             // This is to validate DB layout
             key = {};
           } else {
+            fmt::print("Wrong RocksDB layout: unexpected key '{}'\n",
+                       string_view(it->key().data() + key_sz,
+                                   it->key().size() - key_sz));
+            std::abort();
             assert(
                 0
                 and "Wrong DB layout - unexpected key under RDB_TRANSACTIONS");
@@ -1034,10 +1058,10 @@ int wsv_check() try {
             "░░░░░░░██████▓▓▓▒▓▓▒▒▓▓▒▒▒▓█▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░\n"
             "░░░░░▒█████▓▓▓▓▓▓▓▓█▓▓▒▒▒▒▒▒▓█▓▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░\n";
     // clang-format on
-    cout << "~~~ WSV-s are same. Enjoy Iroha with RocksDB ~~~";
+    cout << "~~~ WSV-s are same. Enjoy Iroha with RocksDB ~~~" << endl;
     return 0;
   } else {
-    cout << "~~~ WSV-s DIFFER!!! ~~~";
+    cout << "~~~ WSV-s DIFFER!!! ~~~" << endl;
     return 1;
   }
 
