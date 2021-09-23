@@ -1,9 +1,7 @@
 version: "3.3"
 services:
   iroha:
-    build:
-      context: .
-    image: iroha:debug
+    image: iroha1/iroha:iroha2-dev
     environment:
       TORII_P2P_ADDR: iroha:1337
       TORII_API_URL: iroha:8080
@@ -16,9 +14,7 @@ services:
     command: ./iroha_cli --submit-genesis
 
   iroha2:
-    depends_on:
-      - iroha
-    image: iroha:debug
+    image: iroha1/iroha:iroha2-dev
     environment:
       TORII_P2P_ADDR: iroha2:1338
       TORII_API_URL: iroha2:8081
@@ -30,9 +26,7 @@ services:
       - "8081:8081"
 
   iroha3:
-    depends_on:
-      - iroha
-    image: iroha:debug
+    image: iroha1/iroha:iroha2-dev
     environment:
       TORII_P2P_ADDR: iroha3:1339
       TORII_API_URL: iroha3:8082
@@ -44,9 +38,7 @@ services:
       - "8082:8082"
 
   iroha4:
-    depends_on:
-      - iroha
-    image: iroha:debug
+    image: iroha1/iroha:iroha2-dev
     environment:
       TORII_P2P_ADDR: iroha4:1340
       TORII_API_URL: iroha4:8083

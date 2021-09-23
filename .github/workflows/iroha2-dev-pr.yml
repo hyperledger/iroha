@@ -1,26 +1,27 @@
 name: Iroha 2 dev branch pull requests workflow
+
 on:
   pull_request:
     branches: [iroha2-dev]
+
 env:
-  CACHE_PATHS: |
-    ~/.cargo/registry
-    ~/.cargo/git
-    ~/.rustup
-    target
-    iroha/target
-    iroha_client/target
+  CARGO_TERM_COLOR: always
 
 jobs:
   check:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.54-buster
+    container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-check-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-check
+
       - name: Install dependencies
         run: |
           apt-get update
@@ -53,14 +54,19 @@ jobs:
 
   test:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.54-buster
+    container: rust:1.55-buster
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-test-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-test
+
       - name: Install dependencies
         run: |
           apt-get update
@@ -70,18 +76,23 @@ jobs:
             clang \
             llvm-dev
       - name: Run tests
-        run: cargo test --workspace --no-fail-fast -- --test-threads=1
+        run: cargo test --workspace --no-fail-fast -- --test-threads=4
 
-  test-iroha_network-mock:
+  test-consensus-with-mock:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.54-buster
+    container: rust:1.55-buster
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-test-network-mock-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-test-network-mock-
+
       - name: Install dependencies
         run: |
           apt-get update
@@ -91,18 +102,23 @@ jobs:
             clang \
             llvm-dev
       - name: Run iroha tests with network mock
-        run: cargo test --features mock -- --ignored --test-threads=1
+        run: cargo test --features mock -- --ignored
         working-directory: iroha/test_network
 
-  test-deadlock_detection:
+  test-deadlock-detection:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.54-buster
+    container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-deadlock-detection-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-deadlock-detection-
+
       - name: Install dependencies
         run: |
           apt-get update
@@ -123,12 +139,24 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
+          path: |
+              ~/.cargo
+              target/
+          key: iroha2-rust-docker-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-docker-
+      - uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: iroha2-buildx-${{ github.sha }}
+          restore-keys: |
+            iroha2-buildx-
+      - run: docker buildx create --use
+
       - name: Install latest rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.54
+          toolchain: 1.55
       - name: Install dependencies
         if: ${{ false }}
         run: |
@@ -141,6 +169,15 @@ jobs:
       - name: Build Client CLI
         run: cargo build
         working-directory: iroha_client_cli
+      - name: Build and push Iroha Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: false
+          tags: iroha1/iroha:iroha2-dev
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new
+
       - name: Setup docker test environment
         run: ./scripts/setup_docker_test_env.sh
       - name: Docker compose genesis test
@@ -149,26 +186,36 @@ jobs:
         run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
       - name: Cleanup docker test environment
         run: ./scripts/cleanup_docker_test_env.sh
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
 
   print-telemetry:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.54-buster
+    container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-telemetry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-telemetry-
+
       - name: Run debug tests and save telemetry
         env:
           TELEMETRY_FILE: ../target/telemetry/debug.json.lz4
         run: |
           mkdir -p target/telemetry
-          cargo test -p iroha_client --all-features --test unstable_network || true
+          cargo test -p iroha_client --all-features -- unstable_network || true
       - name: Run release tests and save telemetry
         env:
           TELEMETRY_FILE: ../target/telemetry/release.json.lz4
-        run: cargo test -p iroha_client --all-features --test unstable_network --release || true
+        run: cargo test -p iroha_client --all-features --release -- unstable_network || true
       - name: Install script dependencies
         run: |
           apt-get update
@@ -240,7 +287,7 @@ jobs:
   # 2  Coverage bot can have results from `iroha2-dev` to report accurate coverage changes.
   coverage:
     runs-on: [self-hosted, Linux]
-    container: rust:1.54-buster
+    container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
       - name: Install dependencies
@@ -263,7 +310,7 @@ jobs:
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTC_BOOTSTRAP: 1
       - name: Run tests
-        run: cargo test --workspace -- --test-threads=1
+        run: cargo test --workspace --no-fail-fast -- --test-threads=1 || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTC_BOOTSTRAP: 1
@@ -277,14 +324,19 @@ jobs:
 
   bench:
     runs-on: [self-hosted, Linux]
-    container: rust:1.54-buster
+    container: rust:1.55-buster
     if: ${{ false }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-bench-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-bench-
+
       - name: Install dependencies
         run: |
           apt-get update

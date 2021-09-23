@@ -5,18 +5,12 @@ on:
     branches: [iroha2]
 
 env:
-  CACHE_PATHS: |
-    ~/.cargo/registry
-    ~/.cargo/git
-    ~/.rustup
-    target
-    iroha/target
-    iroha_client/target
+  CARGO_TERM_COLOR: always
 
 jobs:
   coverage:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.54-buster
+    container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
       - name: Set nightly toolchain
@@ -54,10 +48,6 @@ jobs:
     runs-on: [self-hosted, Linux] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
       - name: Run benchmarks
         run: cargo bench --workspace --verbose
 
@@ -66,10 +56,6 @@ jobs:
     runs-on: [self-hosted, Linux] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
       - name: Test
         run: cargo test --workspace --release --verbose -- --test-threads=1
       - name: Build

@@ -1,25 +1,18 @@
 name: Iroha 2 main branch pull requests workflow
+
 on:
   pull_request:
     branches: [iroha2]
+
 env:
-  CACHE_PATHS: |
-    ~/.cargo/registry
-    ~/.cargo/git
-    ~/.rustup
-    target
-    iroha/target
-    iroha_client/target
+  CARGO_TERM_COLOR: always
+
 jobs:
   long-tests:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
+    container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
       - name: Install dependencies
         run: |
           apt-get update
@@ -30,14 +23,11 @@ jobs:
             llvm-dev
       - name: Run long tests
         run: cargo test --workspace --verbose --no-fail-fast -- --ignored --test-threads=1 long
+
   test-docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
       - name: Install dependencies
         run: |
           apt-get update
@@ -49,7 +39,7 @@ jobs:
       - name: Install latest rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.52
+          toolchain: 1.55
       - name: Build Client CLI
         run: cargo build --verbose
         working-directory: iroha_client_cli
