@@ -656,15 +656,22 @@ jobs:
             || true
           echo ::endgroup::
 
+          ## ToDo enable (remove colon ':') when blockchain store will appear
+          echo ::group::'Tool tests'
+          : ctest -R '^tool_' --parallel 1 --output-on-failure --no-tests=error --timeout 200 \
+            | tee ctest_tool.out \
+            || true
+          echo ::endgroup::
+
           ## TODO --repeat until-fail:5 instead of until-pass !!
           echo ::group::'Integration tests'
-          ctest -E '^module_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:5 \
+          ctest -E '^module_' -E '^tool_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:5 \
             | tee ctest_integration.out \
             || true
           echo ::endgroup::
 
           tests_passed=true
-          for t in module integration ;do
+          for t in module integration tool ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
               echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
@@ -933,15 +940,22 @@ jobs:
             || true
           echo ::endgroup::
 
+          ## ToDo enable (remove colon ':') when blockchain store will appear
+          echo ::group::'Tool tests'
+          : ctest -R '^tool_' --parallel 1 --output-on-failure --no-tests=error --timeout 200 \
+            | tee ctest_tool.out \
+            || true
+          echo ::endgroup::
+
           ## TODO --repeat until-fail:5 instead of until-pass !!
           echo ::group::'Integration tests'
-          ctest -E '^module_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:5 \
+          ctest -E '^module_' -E '^tool_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:5 \
             | tee ctest_integration.out \
             || true
           echo ::endgroup::
 
           tests_passed=true
-          for t in module integration ;do
+          for t in module integration tool ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
               echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
@@ -1204,15 +1218,22 @@ jobs:
             || true
           echo ::endgroup::
 
+          ## ToDo enable (remove colon ':') when blockchain store will appear
+          echo ::group::'Tool tests'
+          : ctest -R '^tool_' --parallel 1 --output-on-failure --no-tests=error --timeout 200 \
+            | tee ctest_tool.out \
+            || true
+          echo ::endgroup::
+
           ## TODO --repeat until-fail:5 instead of until-pass !!
           echo ::group::'Integration tests'
-          ctest -E '^module_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:5 \
+          ctest -E '^module_' -E '^tool_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:5 \
             | tee ctest_integration.out \
             || true
           echo ::endgroup::
 
           tests_passed=true
-          for t in module integration ;do
+          for t in module integration tool ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
               echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
