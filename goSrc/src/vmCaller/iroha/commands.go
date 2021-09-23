@@ -431,8 +431,7 @@ func GetAccountTransactions(accountID string, txPaginationMeta *iroha_model.TxPa
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAccountTransactions{
-			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID,
-															   PaginationMeta: &txPagination}}}}
+			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID, PaginationMeta: &txPagination}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
 	if err != nil {
 		return []*pb.Transaction{}, err
