@@ -1062,6 +1062,9 @@ int wsv_check() try {
     return 0;
   } else {
     cout << "~~~ WSV-s DIFFER!!! ~~~" << endl;
+    cout << "For future investigation use difftool on files rocksdb.wsv and postgres.wsv. Just like:" << endl;
+    cout << "   diff <(tail -n+2 postgres.wsv) <(tail -n+2 rockdb.wsv)" << endl;
+    cout << "(Here command tail is to drop first line.)" << endl;
     return 1;
   }
 
