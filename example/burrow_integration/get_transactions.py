@@ -187,7 +187,6 @@ def make_initial_transactions():
 tx_hash, first_time, last_time, ft_p, lt_p=make_initial_transactions()
 hash = create_contract()
 address = integration_helpers.get_engine_receipts_address(hash)
-integration_helpers.get_engine_receipts_result(hash)
 print('get account transactions results: ')
 hash = get_account_transactions(address, 3, 3)
 integration_helpers.get_engine_receipts_result(hash)
