@@ -123,12 +123,12 @@ def get_pending_transactions(address, first_tx_time, last_tx_time):
     return hex_hash
 
 @integration_helpers.trace
-def get_transaction(address):
+def get_transaction(address, tx_hash: str):
     params = integration_helpers.get_first_four_bytes_of_keccak(b'getTransaction(string)')
     no_of_param = 1
     for x in range(no_of_param):
         params = params + integration_helpers.left_padded_address_of_param(x, no_of_param)
-    params = params + integration_helpers.argument_encoding('67619a99012600432ac15225373d192dba4b6d5f47dbf89daa8ec9fd9bee8c48')  # transaction hash 
+    params = params + integration_helpers.argument_encoding(tx_hash)  # transaction hash 
     tx = iroha.transaction(
         [
             iroha.command(
@@ -187,6 +187,7 @@ def make_initial_transactions():
 tx_hash, first_time, last_time, ft_p, lt_p=make_initial_transactions()
 hash = create_contract()
 address = integration_helpers.get_engine_receipts_address(hash)
+integration_helpers.get_engine_receipts_result(hash)
 print('get account transactions results: ')
 hash = get_account_transactions(address, 3, 3)
 integration_helpers.get_engine_receipts_result(hash)
