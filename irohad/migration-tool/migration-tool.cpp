@@ -63,7 +63,9 @@ DEFINE_string(block_store_path,
 // NOLINTNEXTLINE
 DEFINE_string(rocksdb_path, "", "Specify path to RocksDB");
 // NOLINTNEXTLINE
-DEFINE_bool(force, false, "override blocks in RocksDB blockstore if exist");
+DEFINE_bool(drop_state,
+            false,
+            "override blocks in RocksDB blockstore if exist");
 // NOLINTNEXTLINE
 DEFINE_string(export_to,
               "NOEXPORT",
@@ -81,15 +83,16 @@ DEFINE_string(export_to,
     fmt::print("\n");                                         \
     return 1;                                                 \
   }
-#define CHECK_TRY_GET_VALUE(name, ...)                                         \
-  typename decltype(__VA_ARGS__)::ValueInnerType name;                         \
-  if (auto _tmp_gen_var = (__VA_ARGS__);                                       \
-      iroha::expected::hasError(_tmp_gen_var)) {                               \
-    fmt::print("ERROR in " __FILE__ ":" STR(__LINE__) " - {}. Try --force.\n", \
-               _tmp_gen_var.assumeError());                                    \
-    return 1;                                                                  \
-  } else {                                                                     \
-    name = std::move(_tmp_gen_var.assumeValue());                              \
+#define CHECK_TRY_GET_VALUE(name, ...)                                \
+  typename decltype(__VA_ARGS__)::ValueInnerType name;                \
+  if (auto _tmp_gen_var = (__VA_ARGS__);                              \
+      iroha::expected::hasError(_tmp_gen_var)) {                      \
+    fmt::print("ERROR in " __FILE__                                   \
+               ":" STR(__LINE__) " - {}. May be try --drop_state.\n", \
+               _tmp_gen_var.assumeError());                           \
+    return 1;                                                         \
+  } else {                                                            \
+    name = std::move(_tmp_gen_var.assumeValue());                     \
   }
 
 template <>
@@ -202,7 +205,8 @@ expected::Result<std::shared_ptr<iroha::ametsuchi::Storage>, std::string>
 makeStorage() {
   IROHA_EXPECTED_TRY_GET_VALUE(
       rdb_port,
-      RdbConnectionInit::init(StartupWsvDataPolicy::kReuse,
+      RdbConnectionInit::init(FLAGS_drop_state ? StartupWsvDataPolicy::kDrop
+                                               : StartupWsvDataPolicy::kReuse,
                               RocksDbOptions{FLAGS_rocksdb_path},
                               log_manager));
   auto db_context_ =
@@ -260,11 +264,12 @@ expected::Result<void, std::string> restoreWsv() {
   IROHA_EXPECTED_TRY_GET_VALUE(storage, makeStorage());
   IROHA_EXPECTED_TRY_GET_VALUE(
       flat, makeFlatFileBlockStorage(FLAGS_block_store_path));
+  const bool wait_for_new_blocks = false;
   IROHA_EXPECTED_TRY_GET_VALUE(
       ledger_state,
       wsv_restorer->restoreWsv(
           *storage,
-          false,
+          wait_for_new_blocks,
           std::make_shared<FlatBlockQuery>(*flat, log),
           std::make_shared<InMemoryBlockStorageFactory>()));
   assert(ledger_state);
