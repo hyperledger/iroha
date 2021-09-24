@@ -27,7 +27,7 @@ name: Iroha1
 on:
   push:
     branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
-    tags: [ 'v*' ]
+    tags:
   pull_request:
     branches: [ main, support/1.*, edge, develop ]  ## target branches
   workflow_dispatch:
@@ -37,8 +37,8 @@ on:
         description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
         required: false
         default: '/build'
-  issue_comment:
-    types: [created, edited]
+  # issue_comment:
+  #   types: [created, edited]
   schedule:
     - cron: '12 22 * * *'
 
@@ -48,7 +48,8 @@ jobs:
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    #container: ubuntu:latest  ## This is required as barrier between AWS-hosted runners and GitHub-hosted runners - they have different set of software, so run in container
     name: Check if github workflows were properly made from sources
     steps:
       - &step_detect_commented_pr
@@ -78,7 +79,8 @@ jobs:
 
   pr_comment_reaction_rocket:
     ## Just to react to valid comment with rocket
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    #container: ubuntu:latest
     if: ${{ github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') }}
@@ -111,10 +113,11 @@ jobs:
   ## At the moment there are several options:
   ## - default on pushes, pull requests
   ## - on comment to pull request according to comment message (chat-ops)
-  ## - TODO on workflow_dispatch according to its build_spec
-  ## - TODO all on schedule
+  ## - on workflow_dispatch according to its build_spec
+  ## - on schedule '/build all'
   generate_matrixes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    #container: ubuntu:latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') ) }}
@@ -175,7 +178,9 @@ jobs:
           echo "::set-output name=matrix_ubuntu_debug::$(cat matrix_ubuntu_debug)"
           echo "::set-output name=matrix_macos::$(cat matrix_macos)"
           echo "::set-output name=matrix_windows::$(cat matrix_windows)"
-      ##TODO report errors and warnings as answer as issue comment (chat-ops)
+          echo "::set-output name=matrix_dockerimage_release::$(cat matrix_dockerimage_release)"
+          echo "::set-output name=matrix_dockerimage_debug::$(cat matrix_dockerimage_debug)"
+      ##TODO report errors and warnings as answer to issue comment (chat-ops)
       -
         name: Reaction confused
         if: failure() && github.event.comment
@@ -202,6 +207,8 @@ jobs:
       matrix_ubuntu_debug:   ${{steps.matrixes.outputs.matrix_ubuntu_debug}}
       matrix_macos:          ${{steps.matrixes.outputs.matrix_macos}}
       matrix_windows:        ${{steps.matrixes.outputs.matrix_windows}}
+      matrix_dockerimage_release: ${{steps.matrixes.outputs.matrix_dockerimage_release}}
+      matrix_dockerimage_debug:   ${{steps.matrixes.outputs.matrix_dockerimage_debug}}
 
   ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
   ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
@@ -209,7 +216,7 @@ jobs:
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
-    runs-on: ubuntu-latest #[ self-hosted, Linux ]
+    runs-on: ubuntu-20.04 #ubuntu-latest #[ self-hosted, Linux ]
     env: &env_dockerhub
       DOCKERHUB_ORG:      hyperledger   ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -280,14 +287,12 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=schedule
-            type=edge,branch=support/1.2.x
             type=edge,branch=develop
-            type=edge,branch=test-ci
-            type=sha,prefix=commit-,format=short
-            type=sha,prefix=commit-,format=long
+          #  type=semver,pattern={{version}}
+          #  type=semver,pattern={{major}}.{{minor}}
+          #  type=sha,prefix=commit-,format=short
+          #  type=sha,prefix=commit-,format=long
         ## Docker image will be pushed with tags:
         ##  - hash of file Dockerfile.builder
         ##  - branchname, when branch is pushed
@@ -376,7 +381,7 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ]
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
     ## Container is taken from previous job
     container: #&container
       image: &container_image ${{needs.Docker-iroha-builder.outputs.container}}
@@ -492,6 +497,7 @@ jobs:
           -GNinja
           ${{ matrix.CMAKE_USE }}
           -DTESTING=ON
+          -DBENCHMARKING=ON
           -DPACKAGE_DEB=ON
           #-DCMAKE_VERBOSE_MAKEFILE=ON
       - &step_cmake_build
@@ -561,37 +567,38 @@ jobs:
         timeout-minutes: 40
         name: CTest
         run: |
-          set -xeuo pipefail
+          echo ::group::'boilerplate'
+          set -euo pipefail
           if test $(uname) = Darwin ;then
             ## This is a common portable solution, but Debian and Ubuntu have their own wrappers
             initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database
             postgres -D $PWD/postgres_database -p5432 2>&1 >/tmp/postgres.log & { sleep .3; kill -0 $!; }  ## use pg_ctl no need &
-          else
+          else  ## Debian or Ubuntu
+            ## Need to go debian-specific way because
+            ## initdb is not allowed to be run as root, but we need to run as root
+            ## because GitHub actions runners have much issues with permissions.
             mkdir postgres_database && chown iroha-ci postgres_database
             echo /usr/lib/postgresql/12/bin/initdb --locale=C --encoding=UTF-8 --username=postgres $PWD/postgres_database | su iroha-ci
             echo /usr/lib/postgresql/12/bin/pg_ctl start -D $PWD/postgres_database --log=$PWD/postgres_database/log       | su iroha-ci
-          #   ## Need to go debian-specific way because
-          #   ## initdb is not allowed to be run as root, but we need to run as root
-          #   ## because GitHub actions runners have much issues with permissions.
-          #   cat <<END >/etc/postgresql/12/main/pg_hba.conf
-          #     # TYPE  DATABASE        USER            ADDRESS                 METHOD
-          #     local   all             all                                     trust
-          #     host    all             all             127.0.0.1/32            trust
-          #     host    all             all             ::1/128                 trust
-          #     local   replication     all                                     trust
-          #     host    replication     all             127.0.0.1/32            trust
-          #     host    replication     all             ::1/128                 trust
-          # END
-          #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
-          #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
+            #   ## Need to go debian-specific way because
+            #   ## initdb is not allowed to be run as root, but we need to run as root
+            #   ## because GitHub actions runners have much issues with permissions.
+            #   cat <<END >/etc/postgresql/12/main/pg_hba.conf
+            #     # TYPE  DATABASE        USER            ADDRESS                 METHOD
+            #     local   all             all                                     trust
+            #     host    all             all             127.0.0.1/32            trust
+            #     host    all             all             ::1/128                 trust
+            #     local   replication     all                                     trust
+            #     host    replication     all             127.0.0.1/32            trust
+            #     host    replication     all             ::1/128                 trust
+            # END
+            #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
+            #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
           ## Run module_* tests in parallel and others subsequently
           cd build
           ## FIXME dissallow to fail, remove '||true' after ctest
           cat | sort -u >ALLOW_TO_FAIL <<END
-          integration_add_peer_test
-          regression_regression_test
-          system_irohad_test
           END
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
@@ -609,22 +616,29 @@ jobs:
               comma=', '
             done
           }
-          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
+          echo ::endgroup::
+
+          echo ::group::'Module tests'
+          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 \
             | tee ctest_module.out \
             || true
-          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
+          echo ::endgroup::
+
+          ## TODO --repeat until-fail:5 instead of until-pass !!
+          echo ::group::'Integration tests'
+          ctest -E '^module_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:5 \
             | tee ctest_integration.out \
             || true
+          echo ::endgroup::
+
           tests_passed=true
           for t in module integration ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              #${t^^}  ## FixMe install bash 5.0 on macos
               echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
-              #${t^^}  ## FixMe install bash 5.0 on macos
               echo "::warning::The following $t tests FAILED and ALLOWED TO FAIL: $o"
             fi
           done
@@ -782,9 +796,13 @@ jobs:
     needs:
       - build-UR
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ]  ## or ubuntu-latest
-    strategy: *strategy_ubuntu_release
-    if: *if_ubuntu_release
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    # strategy: *strategy_ubuntu_release
+    # if: *if_ubuntu_release
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_release ) }}
+    if:       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_release ).include[0] }}
     env: &env_dockerhub_release
       <<: *env_dockerhub
       IMAGE_NAME: iroha
@@ -834,7 +852,7 @@ jobs:
         with:
           <<: *step_docker_build_and_push_with
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && ( matrix.dockerpush == '' || matrix.dockerpush == 'yes' ) }}
+          push: ${{ steps.docker_login.outcome == 'success' && matrix.CC == 'gcc-9' }}
       - <<: *step_docker_build_and_push_ghcr
         with:
           <<: *step_docker_build_and_push_ghcr-with
@@ -846,5 +864,9 @@ jobs:
     needs:
       - build-UD
       - generate_matrixes
-    strategy: *strategy_ubuntu_debug
-    if: *if_ubuntu_debug
+    # strategy: *strategy_ubuntu_debug
+    # if: *if_ubuntu_debug
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_debug ) }}
+    if:       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_debug ).include[0] }}

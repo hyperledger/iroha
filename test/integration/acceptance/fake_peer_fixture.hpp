@@ -72,9 +72,11 @@ struct FakePeerFixture : AcceptanceFixture,
     itf_->initPipeline(common_constants::kAdminKeypair);
   }
 
+  void TearDown() override {
+    itf_.reset();
+  }
+
   std::vector<std::shared_ptr<FakePeer>> fake_peers_;
 };
-
-INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(FakePeerFixture);
 
 #endif  // IROHA_FAKE_PEER_FIXTURE_HPP
