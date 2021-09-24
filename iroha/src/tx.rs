@@ -181,7 +181,7 @@ impl AcceptedTransaction {
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("Failed to get System Time.");
 
-        (current_time - Duration::from_millis(self.payload.creation_time))
+        current_time.saturating_sub(Duration::from_millis(self.payload.creation_time))
             > min(
                 Duration::from_millis(self.payload.time_to_live_ms),
                 transaction_time_to_live,
