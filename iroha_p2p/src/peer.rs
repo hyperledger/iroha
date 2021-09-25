@@ -6,6 +6,11 @@ use std::{
 use async_stream::stream;
 use futures::Stream;
 use iroha_actor::{broker::Broker, Actor, Context, ContextHandler, Handler};
+use iroha_crypto::ursa::{
+    encryption::symm::{Encryptor, SymmetricEncryptor},
+    kex::KeyExchangeScheme,
+    keys::{PrivateKey, PublicKey},
+};
 use iroha_logger::{debug, info, warn};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
@@ -20,11 +25,6 @@ use tokio::{
         oneshot,
         oneshot::{Receiver, Sender},
     },
-};
-use ursa::{
-    encryption::symm::{Encryptor, SymmetricEncryptor},
-    kex::KeyExchangeScheme,
-    keys::{PrivateKey, PublicKey},
 };
 
 use crate::{
