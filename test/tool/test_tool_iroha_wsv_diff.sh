@@ -14,9 +14,9 @@ while test $# -gt 0 ;do
         -rocksdb_path)     ROCKSDB_PATH="$2";     shift ;;
         -pg_opt)           PG_OPT="$2";           shift ;;
         -bin_dir)          BIN_DIR="$2";          shift ;;
-        -wsv_checker)      WSV_CHECKER="$2";      shift ;;
+        -iroha_wsv_diff)      iroha_wsv_diff="$2";      shift ;;
         -irohad)           IROHAD="$2";           shift ;;
-        -migration_tool)   MIGRATION_TOOL="$2";   shift ;;
+        -iroha_migrate)   iroha_migrate="$2";   shift ;;
         -filter)           FILTER="$2";           shift ;;
         -drop_state)       DROP_STATE="$1" ;;
         -dry_run|-list)    DRY_RUN=1 ;;
@@ -34,9 +34,9 @@ BIN_DIR=${BIN_DIR:=$PWD/bin}
 echo "---- RUNNING TESTS WITH PARAMETERS: ----"
 echo ROCKSDB_PATH=${ROCKSDB_PATH:=$PWD/rocksdb}
 echo PG_OPT=\'${PG_OPT:="dbname=iroha_data host=localhost port=5432 user=postgres password=postgres"}\'
-echo WSV_CHECKER=${WSV_CHECKER:=$BIN_DIR/wsv_checker}
+echo iroha_wsv_diff=${iroha_wsv_diff:=$BIN_DIR/iroha_wsv_diff}
 echo IROHAD=${IROHAD:=$BIN_DIR/irohad}
-echo MIGRATION_TOOL=${MIGRATION_TOOL:=$BIN_DIR/migration-tool}
+echo iroha_migrate=${iroha_migrate:=$BIN_DIR/iroha_migrate}
 echo BLOCK_STORE_PATH=${BLOCK_STORE_PATH:=}
 echo FILTER=\'${FILTER:='.*'}\'
 echo DROP_STATE=${DROP_STATE:=}'  # Countinue reindexing blocks if wsv corresponds to blockstore or drop state to reindex from genesis block'
@@ -56,26 +56,26 @@ untrap_debug(){
 }
 
 ######################################################
-test_equal_wsv_DESCRIPTION="Successful test. Make 2 WSVs postgres and rocks, than assert with wsv_checker they are same."
+test_equal_wsv_DESCRIPTION="Successful test. Make 2 WSVs postgres and rocks, than assert with iroha_wsv_diff they are same."
 test_equal_wsv()(
     set -euo pipefail
 
-    jq <$SCRIPT_DIR/irohad.for.wsv_checker.config ".pg_opt=\"$PG_OPT\" | .block_store_path=\"$BLOCK_STORE_PATH\"" | tee config
+    jq <$SCRIPT_DIR/irohad.restore_wsv.config ".pg_opt=\"$PG_OPT\" | .block_store_path=\"$BLOCK_STORE_PATH\"" | tee config
 
     ## Make WSV in postgres database from block store
     time $IROHAD -config config -exit_after_init $DROP_STATE -keypair_name $SCRIPT_DIR/../../example/node0
 
     ## Make WSV in rocks database from block store
-    time $MIGRATION_TOOL -block_store_path="$BLOCK_STORE_PATH" -rocksdb_path "$ROCKSDB_PATH" $DROP_STATE
+    time $iroha_migrate -block_store_path="$BLOCK_STORE_PATH" -rocksdb_path "$ROCKSDB_PATH" $DROP_STATE
 
-    $WSV_CHECKER -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH"
+    $iroha_wsv_diff -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH"
 
     # ## No difference in dumps expected
     diff <(tail -n+2 rockdb.wsv) <(tail -n+2 postgres.wsv)
 )
 
 ######################################################
-test_wrong_permissions_and_asset_amount_DESCRIPTION="Change role permissions and account_has_asset amount, than assert wsv_checker detects changes. Expects WSV of 7000 blocks from sxxanet."
+test_wrong_permissions_and_asset_amount_DESCRIPTION="Change role permissions and account_has_asset amount, than assert iroha_wsv_diff detects changes. Expects WSV of 7000 blocks from sxxanet."
 test_wrong_permissions_and_asset_amount()(
     set -euo pipefail
 
@@ -90,21 +90,21 @@ update account_has_asset set amount = 0.0 where account_id = 'superuser@bootstra
 END
     trap 'echo clean-up; psql_with_params <revert1.sql >/dev/null' EXIT
 
-    if ! $WSV_CHECKER -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH" | tee log ;then
+    if ! $iroha_wsv_diff -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH" | tee log ;then
         grep -Fq <log '~~~ WSV-s DIFFER!!! ~~~'
         grep -Fq <log "Role-s 'client' have different permissions: '00000000000001110100100100000100100100011010111010000' and '00000000000001110100100100000100100100011010111010011'"
         grep -Fq <log 'Wsv-s have different roles.'
         grep -Fq <log "AssetQuantity-s 'xor#sora' have different quantity: '0.0' and '1234567.0'"
         grep -Fq <log 'Wsv-s have different domains.'
-        echo "SUCCESS! wsv_checker test on wrong hacked database passed!"
+        echo "SUCCESS! iroha_wsv_diff test on wrong hacked database passed!"
     else
-        echo "FAIL! wsv_checker test on wrong hacked database has NOT shown errors!"
+        echo "FAIL! iroha_wsv_diff test on wrong hacked database has NOT shown errors!"
         false
     fi
 )
 
 ##################################################################
-test_odd_domain_account_role_DESCRIPTION="Add WRONG_ROLE,WRONG_ACCOUNT,WRONG_DOMAIN, than assert wsv_checker detects changes. Expects WSV of 7000 blocks from sxxanet."
+test_odd_domain_account_role_DESCRIPTION="Add WRONG_ROLE,WRONG_ACCOUNT,WRONG_DOMAIN, than assert iroha_wsv_diff detects changes. Expects WSV of 7000 blocks from sxxanet."
 test_odd_domain_account_role()(
     set -euo pipefail
 
@@ -132,15 +132,15 @@ END
 END
     trap 'echo "clean-up."; psql_with_params <revert2.sql >/dev/null' EXIT
 
-    if ! $WSV_CHECKER -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH" | tee log ;then
+    if ! $iroha_wsv_diff -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH" | tee log ;then
         grep -Fq <log '~~~ WSV-s DIFFER!!! ~~~' log
         grep -Fq <log "Role-s have different name: 'add_can_get_peers_perm_notary' and 'WRONG_ROLE'"
         grep -Fq <log 'Wsv-s have different roles.'
         grep -Fq <log "Domain names differ: 'bootstrap' vs 'WRONG_DOMAIN'"
         grep -Fq <log 'Wsv-s have different domains.'
-        echo "SUCCESS! wsv_checker test on wrong hacked database passed!"
+        echo "SUCCESS! iroha_wsv_diff test on wrong hacked database passed!"
     else
-        echo "FAIL! wsv_checker test on wrong hacked database has NOT shown errors!"
+        echo "FAIL! iroha_wsv_diff test on wrong hacked database has NOT shown errors!"
         false
     fi
 )
@@ -237,4 +237,6 @@ fi
 
 if test ${#ALL_TESTS[@]} -eq ${#PASSED_TESTS[@]} ;then
     echo "HOORAY. all tests PASSED."
+else
+    exit 1
 fi
