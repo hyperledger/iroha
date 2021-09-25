@@ -22,7 +22,8 @@ void RocksDBIndexer::txHashStatus(const TxPosition &position,
                                   const HashType &tx_hash,
                                   bool is_committed) {
   RocksDbCommon common(db_context_);
-  common.valueBuffer() = is_committed ? "TRUE" : "FALSE";
+  common.valueBuffer() =
+      is_committed ? "TRUE" : "FALSE";  // TODO USE ONLY ONE BYTE T OR F
   common.valueBuffer() += '#';
   common.valueBuffer() += std::to_string(position.height);
   common.valueBuffer() += '#';
@@ -94,8 +95,5 @@ void RocksDBIndexer::txPositions(
 }
 
 iroha::expected::Result<void, std::string> RocksDBIndexer::flush() {
-  RocksDbCommon common(db_context_);
-  if (!common.commit().ok())
-    return expected::makeError("Unable to flush transactions data.");
   return {};
 }
