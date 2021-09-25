@@ -28,7 +28,9 @@ using namespace prometheus;
 Metrics::Metrics(std::string const &listen_addr,
                  std::shared_ptr<iroha::ametsuchi::Storage> storage,
                  logger::LoggerPtr const &logger)
-    : storage_(storage), logger_(logger) {
+    : storage_(storage),
+      logger_(logger),
+      uptime_start_timepoint_(std::chrono::system_clock::now()) {
   static const std::regex full_matcher(
       "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-"
       "9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]):[0-9]+$");
@@ -135,4 +137,38 @@ Metrics::Metrics(std::string const &listen_addr,
             number_of_peers.Increment(peers_diff);
             domains_number.Increment(domains_diff);
           });
+
+  auto calc_uptime_ms = [uptime_start_timepoint_(uptime_start_timepoint_)] {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now() - uptime_start_timepoint_)
+        .count();
+  };
+  auto &uptime_ms_gauge = BuildGauge()
+                              .Name("uptime_ms")
+                              .Help("Milliseconds since Irohad started")
+                              .Register(*registry_);
+  auto &uptime_ms = uptime_ms_gauge.Add({});
+  uptime_ms.Set(calc_uptime_ms());
+
+  uptime_thread_ =
+      std::thread([&uptime_ms,
+                   calc_uptime_ms{std::move(calc_uptime_ms)},
+                   this,
+                   wregistry{std::weak_ptr<Registry>(registry_)}]() {
+        // Metrics values are stored inside and owned by registry,
+        // capture them by reference is legal.
+        while (not this->uptime_thread_cancelation_flag_.test()) {
+          {
+            std::shared_ptr<Registry> registry{wregistry};  // throw if expired
+            uptime_ms.Set(calc_uptime_ms());
+          }  // unlock registry at this point
+          std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+      });
+}
+
+Metrics::~Metrics() {
+  uptime_thread_cancelation_flag_.test_and_set();
+  if (uptime_thread_.joinable())
+    uptime_thread_.join();
 }
