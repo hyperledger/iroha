@@ -17,6 +17,7 @@
 #include "backend/protobuf/block.hpp"
 #include "common/bind.hpp"
 #include "common/result.hpp"
+#include "common/result_try.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
 #include "validation/chain_validator.hpp"
@@ -101,7 +102,7 @@ namespace {
    */
   iroha::ametsuchi::CommitResult reindexBlocks(
       iroha::ametsuchi::Storage &storage,
-      std::unique_ptr<iroha::ametsuchi::MutableStorage> &mutable_storage,
+      std::unique_ptr<iroha::ametsuchi::MutableStorage> &&mutable_storage,
       iroha::ametsuchi::BlockQuery &block_query,
       shared_model::validation::AbstractValidator<
           shared_model::interface::Block> &interface_validator,
@@ -163,115 +164,116 @@ namespace iroha::ametsuchi {
       bool wait_for_new_blocks,
       std::shared_ptr<BlockQuery> bq,
       std::shared_ptr<BlockStorageFactory> bsf) {
-    return storage.createCommandExecutor() |
-               [this,
-                &storage,
-                wait_for_new_blocks,
-                bq{std::move(bq)},
-                bsf{std::move(bsf)}](
-                   std::shared_ptr<CommandExecutor> command_executor)
-               -> CommitResult {
-      std::shared_ptr<BlockStorageFactory> block_storage_factory{
-          bsf ? std::move(bsf) : std::make_shared<BlockStorageStubFactory>()};
+    IROHA_EXPECTED_TRY_GET_VALUE(command_executor_uniq,
+                                 storage.createCommandExecutor());
+    std::shared_ptr command_executor(std::move(command_executor_uniq));
 
-      CommitResult res;
-      auto block_query = bq ? bq : storage.getBlockQuery();
-      auto last_block_in_storage = block_query->getTopBlockHeight();
+    std::shared_ptr<BlockStorageFactory> block_storage_factory{
+        bsf ? std::move(bsf) : std::make_shared<BlockStorageStubFactory>()};
 
+    CommitResult res = "restoreWsv(): not executed";
+    auto block_query = bq ? bq : storage.getBlockQuery();
+    if (not block_query) {
+      return expected::makeError("Cannot create BlockQuery");
+    }
+    auto last_block_in_storage = block_query->getTopBlockHeight();
+
+    do {
+      const auto wsv_ledger_state = storage.getLedgerState();
+
+      shared_model::interface::types::HeightType wsv_ledger_height;
+      if (wsv_ledger_state) {
+        const auto &wsv_top_block_info =
+            wsv_ledger_state.value()->top_block_info;
+        wsv_ledger_height = wsv_top_block_info.height;
+        if (wsv_ledger_height > last_block_in_storage) {
+          return fmt::format(
+              "WSV state (height {}) is more recent "
+              "than block storage (height {}).",
+              wsv_ledger_height,
+              last_block_in_storage);
+        }
+
+        auto check_top_block =
+            block_query->getBlock(wsv_top_block_info.height)
+                .match(
+                    [&wsv_top_block_info](const auto &block_from_block_storage)
+                        -> expected::Result<void, std::string> {
+                      if (block_from_block_storage.value->hash()
+                          != wsv_top_block_info.top_hash) {
+                        return fmt::format(
+                            "The hash of block applied to WSV ({}) "
+                            "does not match the hash of the block "
+                            "from block storage ({}).",
+                            wsv_top_block_info.top_hash,
+                            block_from_block_storage.value->hash());
+                      }
+                      return expected::Value<void>{};
+                    },
+                    [](expected::Error<BlockQuery::GetBlockError> &&error)
+                        -> expected::Result<void, std::string> {
+                      return std::move(error).error.message;
+                    });
+        if (hasError(check_top_block)) {
+          return fmt::format(
+              "WSV top block (height {}) check failed: {} "
+              "Please check that WSV matches block storage "
+              "or avoid reusing WSV.",
+              wsv_ledger_height,
+              check_top_block.assumeError());
+        }
+      } else {
+        wsv_ledger_height = 0;
+      }
+
+      /// Commit reindexed blocks every 1000 blocks. For reliability.
+      /// When doing reindex of huge blockchain and the procedure is interrupted
+      /// it is important to continue from last commit point to save time.
       do {
-        res = storage.createMutableStorage(command_executor,
-                                           *block_storage_factory)
-            | [this, &storage, &block_query, &last_block_in_storage](
-                  auto &&mutable_storage) -> CommitResult {
-          if (not block_query) {
-            return expected::makeError("Cannot create BlockQuery");
-          }
-
-          const auto wsv_ledger_state = storage.getLedgerState();
-
-          shared_model::interface::types::HeightType wsv_ledger_height;
-          if (wsv_ledger_state) {
-            const auto &wsv_top_block_info =
-                wsv_ledger_state.value()->top_block_info;
-            wsv_ledger_height = wsv_top_block_info.height;
-            if (wsv_ledger_height > last_block_in_storage) {
-              return fmt::format(
-                  "WSV state (height {}) is more recent "
-                  "than block storage (height {}).",
-                  wsv_ledger_height,
-                  last_block_in_storage);
-            }
-            // check that a block with that height is present in the block
-            // storage and that its hash matches
-            auto check_top_block =
-                block_query->getBlock(wsv_top_block_info.height)
-                    .match(
-                        [&wsv_top_block_info](
-                            const auto &block_from_block_storage)
-                            -> expected::Result<void, std::string> {
-                          if (block_from_block_storage.value->hash()
-                              != wsv_top_block_info.top_hash) {
-                            return fmt::format(
-                                "The hash of block applied to WSV ({}) "
-                                "does not match the hash of the block "
-                                "from block storage ({}).",
-                                wsv_top_block_info.top_hash,
-                                block_from_block_storage.value->hash());
-                          }
-                          return expected::Value<void>{};
-                        },
-                        [](expected::Error<BlockQuery::GetBlockError> &&error)
-                            -> expected::Result<void, std::string> {
-                          return std::move(error).error.message;
-                        });
-            if (hasError(check_top_block)) {
-              return fmt::format(
-                  "WSV top block (height {}) check failed: {} "
-                  "Please check that WSV matches block storage "
-                  "or avoid reusing WSV.",
-                  wsv_ledger_height,
-                  check_top_block.assumeError());
-            }
-          } else {
-            wsv_ledger_height = 0;
-          }
-
-          return reindexBlocks(storage,
-                               mutable_storage,
-                               *block_query,
-                               *interface_validator_,
-                               *proto_validator_,
-                               *validator_,
-                               wsv_ledger_height + 1,
-                               last_block_in_storage);
-        };
+        auto commit_height =
+            std::min(wsv_ledger_height + 1000, last_block_in_storage);
+        IROHA_EXPECTED_TRY_GET_VALUE(
+            mutable_storage,
+            storage.createMutableStorage(command_executor,
+                                         *block_storage_factory));
+        res = reindexBlocks(storage,
+                            std::move(mutable_storage),
+                            *block_query,
+                            *interface_validator_,
+                            *proto_validator_,
+                            *validator_,
+                            wsv_ledger_height + 1,
+                            commit_height);
         if (hasError(res)) {
           break;
         }
+        wsv_ledger_height = commit_height;
+        if (commit_height == last_block_in_storage)
+          break;
+      } while (1);
 
-        while (wait_for_new_blocks) {
-          std::this_thread::sleep_for(kWaitForBlockTime);
-          block_query->reloadBlockstore();
-          auto new_last_block = block_query->getTopBlockHeight();
+      while (wait_for_new_blocks) {
+        std::this_thread::sleep_for(kWaitForBlockTime);
+        block_query->reloadBlockstore();
+        auto new_last_block = block_query->getTopBlockHeight();
 
-          // try to load block to ensure it is written completely
+        // Try to load block to ensure it is written completely
+        auto block_result = block_query->getBlock(new_last_block);
+        while (hasError(block_result)
+               && (new_last_block > last_block_in_storage)) {
+          --new_last_block;
           auto block_result = block_query->getBlock(new_last_block);
-          while (hasError(block_result)
-                 && (new_last_block > last_block_in_storage)) {
-            --new_last_block;
-            auto block_result = block_query->getBlock(new_last_block);
-          };
+        };
 
-          if (new_last_block > last_block_in_storage) {
-            last_block_in_storage = new_last_block;
-            log_->info("Blockstore has new blocks from {} to {}, restore them.",
-                       last_block_in_storage,
-                       new_last_block);
-            break;
-          }
+        if (new_last_block > last_block_in_storage) {
+          log_->info("Blockstore has new blocks from {} to {}, restore them.",
+                     last_block_in_storage,
+                     new_last_block);
+          last_block_in_storage = new_last_block;
+          break;
         }
-      } while (wait_for_new_blocks);
-      return res;
-    };
+      }
+    } while (wait_for_new_blocks);
+    return res;
   }
 }  // namespace iroha::ametsuchi
