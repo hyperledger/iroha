@@ -319,7 +319,7 @@ int main(int argc, char *argv[]) try {
     CHECK_RETURN_FMT(iroha::expected::hasValue(wsv), "{}", wsv.assumeError());
     fmt::print(
         "Success! WSV in RocksDB was build.\nNext step check consintancy with "
-        "Postgres WSV using wsv_checker.\n");
+        "Postgres WSV using iroha_wsv_diff.\n");
     return 0;
   }
 } catch (std::exception const &ex) {

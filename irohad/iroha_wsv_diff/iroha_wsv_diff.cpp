@@ -651,7 +651,7 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
           assert(key.empty());
           schema_version = std::string{val};
           assert(schema_version == "1#2#0" &&
-                  "This version of wsv_checker can check WSV in RocksDB of version 1.2.0 only");
+                  "This version of iroha_wsv_diff can check WSV in RocksDB of version 1.2.0 only");
         } else if (key_starts_with_and_drop(RDB_NETWORK)) {
           if (key_starts_with_and_drop(RDB_PEERS)) {
             if (key_starts_with_and_drop(RDB_ADDRESS)) {
