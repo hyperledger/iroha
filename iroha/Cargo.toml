@@ -53,7 +53,6 @@ tokio-stream = { version = "0.1.6", features = ["fs"]}
 tracing = "0.1"
 crossbeam-queue = "0.3"
 warp = "0.3"
-ursa = "=0.3.6"
 structopt = { version = "0.3", optional = true }
 thiserror = "1.0.28"
 

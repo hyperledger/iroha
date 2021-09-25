@@ -4,11 +4,11 @@
 
 use std::{io, net::AddrParseError};
 
+use iroha_crypto::ursa::{encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256};
 use iroha_derive::FromVariant;
 pub use network::{ConnectPeer, NetworkBase, Post};
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
-use ursa::{encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256};
 
 /// Network is a main p2p start point.
 pub mod network;

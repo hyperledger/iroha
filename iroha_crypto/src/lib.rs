@@ -1,5 +1,7 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
 
+pub use ursa;
+
 pub mod multihash;
 mod varint;
 

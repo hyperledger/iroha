@@ -27,7 +27,6 @@ futures = { version = "0.3" }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 parity-scale-codec = { version = "2", features = ["derive"] }
-ursa = "=0.3.6"
 aead = "0.3.2"
 thiserror = "1.0.28"
 

@@ -10,7 +10,10 @@ use iroha_actor::{
     broker::{Broker, BrokerMessage},
     Actor, Addr, Context, ContextHandler, Handler,
 };
-use iroha_crypto::PublicKey;
+use iroha_crypto::{
+    ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme},
+    PublicKey,
+};
 use iroha_logger::{debug, info, warn};
 use parity_scale_codec::{Decode, Encode};
 use rand::prelude::SliceRandom;
@@ -21,7 +24,6 @@ use tokio::{
         oneshot::{Receiver, Sender},
     },
 };
-use ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme};
 
 use crate::{
     peer::{Peer, PeerId},
