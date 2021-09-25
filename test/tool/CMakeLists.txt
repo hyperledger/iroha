@@ -4,7 +4,7 @@
 add_test(NAME tool_iroha_migrate_and_export
         COMMAND
           ${CMAKE_CURRENT_LIST_DIR}/test_tool_migration.sh
-          -migration_tool ${CMAKE_BINARY_DIR}/bin/migration-tool
+          -iroha_migrate ${CMAKE_BINARY_DIR}/bin/iroha_migrate
           -block_store_path ${CMAKE_CURRENT_LIST_DIR}/block_store_7000
           -rocksdb_path /tmp/test.rocksdb
         WORKING_DIRECTORY
@@ -13,7 +13,7 @@ add_test(NAME tool_iroha_migrate_and_export
 
 add_test(NAME tool_iroha_migrate_wrong_args
         COMMAND
-          ${CMAKE_BINARY_DIR}/bin/migration-tool
+          ${CMAKE_BINARY_DIR}/bin/iroha_migrate
         WORKING_DIRECTORY
           ${CMAKE_SOURCE_DIR}
         )
@@ -22,17 +22,17 @@ set_tests_properties(tool_iroha_migrate_wrong_args PROPERTIES FAIL_REGULAR_EXPRE
 
 ## Must be run after tool_iroha_migrate_and_export
 ## Should never run in parallel
-add_test(NAME tool_wsv_checker_wrong_args
+add_test(NAME tool_iroha_wsv_diff_wrong_args
         COMMAND
-          ${CMAKE_BINARY_DIR}/bin/wsv_checker
+          ${CMAKE_BINARY_DIR}/bin/iroha_wsv_diff
         )
-set_tests_properties(tool_wsv_checker_wrong_args PROPERTIES WILL_FAIL true)
-set_tests_properties(tool_wsv_checker_wrong_args PROPERTIES FAIL_REGULAR_EXPRESSION "ERROR:")
+set_tests_properties(tool_iroha_wsv_diff_wrong_args PROPERTIES WILL_FAIL true)
+set_tests_properties(tool_iroha_wsv_diff_wrong_args PROPERTIES FAIL_REGULAR_EXPRESSION "ERROR:")
 
-## Several test cases for wsv_checker
-add_test(NAME tool_wsv_checker
+## Several test cases for iroha_wsv_diff
+add_test(NAME tool_iroha_wsv_diff
         COMMAND
-          ${CMAKE_CURRENT_LIST_DIR}/test_tool_wsv_checker.sh
+          ${CMAKE_CURRENT_LIST_DIR}/test_tool_iroha_wsv_diff.sh
           -block_store_path ${CMAKE_CURRENT_LIST_DIR}/block_store_7000
           -bin_dir ${CMAKE_BINARY_DIR}/bin
         WORKING_DIRECTORY

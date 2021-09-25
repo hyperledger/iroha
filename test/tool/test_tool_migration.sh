@@ -14,8 +14,8 @@ while test $# -gt 0 ;do
             ROCKSDB_PATH=$2
             shift
         ;;
-        -migration_tool)
-            MIGRATION_TOOL=$2
+        -iroha_migrate)
+            iroha_migrate=$2
             shift
         ;;
     esac
@@ -24,8 +24,8 @@ done
 
 ## Migrate and export blocks back, assert they are same
 
-$MIGRATION_TOOL -block_store_path $BLOCK_STORE_PATH -rocksdb_path $ROCKSDB_PATH
+$iroha_migrate -block_store_path $BLOCK_STORE_PATH -rocksdb_path $ROCKSDB_PATH
 
-$MIGRATION_TOOL -export_to /tmp/block_store_7000_exported  -rocksdb_path $ROCKSDB_PATH
+$iroha_migrate -export_to /tmp/block_store_7000_exported  -rocksdb_path $ROCKSDB_PATH
 
 diff -ur /tmp/block_store_7000_exported $BLOCK_STORE_PATH
