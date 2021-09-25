@@ -265,6 +265,33 @@ var (
 			PermFlag: permission.Call,
 			F:        getAccountAssetTransactions,
 		},
+		native.Function{
+			Comment: `
+				* @notice Grant Permission
+				* @param account  
+				* @param permission`,
+			PermFlag: permission.Call,
+			F:       grantPermission,
+		},
+		native.Function{
+			Comment: `
+				* @notice Revoke Permission
+				* @param account  
+				* @param permission`,
+			PermFlag: permission.Call,
+			F:       revokePermission,
+		},
+		native.Function{
+			Comment: `
+				* @notice Compare And Set Account Detail
+				* @param account  
+				* @param key
+				* @param value
+				* @param old_value
+				* @param check_empty	`,
+			PermFlag: permission.Call,
+			F:       compareAndSetAccountDetail,
+		},
 	)
 )
 
@@ -696,6 +723,67 @@ func removePeer(ctx native.Context, args removePeerArgs) (removePeerRets, error)
 		"peer key", args.PeerKey)
 
 	return removePeerRets{Result: true}, nil
+}
+
+type GrantPermissionArgs struct {
+	AccountId string
+	Permission string
+}
+
+type GrantPermissionRets struct {
+	Result bool
+}
+
+func grantPermission(ctx native.Context, args GrantPermissionArgs) (GrantPermissionRets, error) {
+	err := iroha.GrantPermission(args.AccountId, args.Permission)
+	if err != nil {
+		return GrantPermissionRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "GrantPermission",
+		"account", args.AccountId, "Permission", args.Permission)
+
+	return GrantPermissionRets{Result: true}, nil
+}
+
+type RevokePermissionArgs = GrantPermissionArgs
+type RevokePermissionRets = GrantPermissionRets 
+
+func revokePermission(ctx native.Context, args RevokePermissionArgs) (RevokePermissionRets, error) {
+	err := iroha.RevokePermission(args.AccountId, args.Permission)
+	if err != nil {
+		return RevokePermissionRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "RevokePermission",
+		"account", args.AccountId, "Permission", args.Permission)
+
+	return RevokePermissionRets{Result: true}, nil
+}
+
+type compareAndSetAccountDetailArgs struct {
+	AccountId string
+	Key string
+	Value string
+	OldValue string
+	CheckEmpty bool
+}
+
+type compareAndSetAccountDetailRets struct {
+	Result bool
+}
+
+func compareAndSetAccountDetail(ctx native.Context, args compareAndSetAccountDetailArgs) (compareAndSetAccountDetailRets, error) {
+	err := iroha.CompareAndSetAccountDetail(args.AccountId, args.Key, args.Value, args.OldValue, args.CheckEmpty)
+	if err != nil {
+		return compareAndSetAccountDetailRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "CompareAndSetAccountDetail",
+		"account", args.AccountId, "key", args.Key, "value", args.Value,
+		"old value", args.OldValue, "check empty", args.CheckEmpty)
+
+	return compareAndSetAccountDetailRets{Result: true}, nil
 }
 
 type getPeersArgs struct {

@@ -176,6 +176,64 @@ func DetachRole(account string, role string) error {
 	return handleErrors(commandResult, err, "DetachRole")
 }
 
+func GrantPermission(account string, permission string) error {
+	perm := pb.GrantablePermission_value[permission]
+	command := &pb.Command{Command: &pb.Command_GrantPermission{
+		GrantPermission: &pb.GrantPermission{
+			AccountId: account,
+			Permission:  pb.GrantablePermission(perm),
+		}}}
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
+	return handleErrors(commandResult, err, "DetachRole")
+}
+
+func RevokePermission(account string, permission string) error {
+	perm := pb.GrantablePermission_value[permission]
+	command := &pb.Command{Command: &pb.Command_RevokePermission{
+		RevokePermission: &pb.RevokePermission{
+			AccountId: account,
+			Permission:  pb.GrantablePermission(perm),
+		}}}
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
+	return handleErrors(commandResult, err, "DetachRole")
+}
+
+// func MakeCompareAndSetAccountDetailArgs(account string, key string, value string, oldValue string, checkEmpty string) (pb.Command, error) {
+// 	cmd= pb.Command{Command:&pb.Command_Compa}
+// 	if len(oldValue) == 0 {
+// 		return pb.Command{Command: &pb.Command_CompareAndSetAccountDetail{
+// 		CompareAndSetAccountDetail: &pb.CompareAndSetAccountDetail{
+// 			AccountId: account,
+// 			Key: key,
+// 			Value: value,
+// 			OptOldValue: &pb.CompareAndSetAccountDetail_OldValue{oldValue},
+// 			CheckEmpty:  
+// 		}}}, nil
+// 	}
+// }
+
+
+func MakeCompareAndSetAccountDetailArgs(account string, key string, value string, oldValue string, checkEmpty bool) (pb.Command, error) {
+	cmd1 := &pb.CompareAndSetAccountDetail{
+		Value: value,
+		AccountId: account,
+	}
+	if len(oldValue) != 0 {
+		cmd1.OptOldValue = &pb.CompareAndSetAccountDetail_OldValue{oldValue}
+	}
+	cmd1.CheckEmpty = checkEmpty
+	cmd := pb.Command{Command:&pb.Command_CompareAndSetAccountDetail{CompareAndSetAccountDetail: cmd1}}
+	
+	fmt.Println(cmd)
+	return cmd, nil
+}
+
+func CompareAndSetAccountDetail(account string, key string, value string, oldValue string, checkEmpty bool) error {
+	command, err := MakeCompareAndSetAccountDetailArgs(account, key, value, oldValue, checkEmpty)
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, &command)
+	return handleErrors(commandResult, err, "DetachRole")
+}
+
 // -----------------------Iroha queries---------------------------------------
 
 // Queries asset balance of an account
