@@ -44,36 +44,43 @@ jobs:
     container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
-      - name: Check Dockerhub credentials
-        run: |
-          set -x
-          test -n "${{ secrets.DOCKERHUB_ORG }}"
-          test -n "${{ secrets.DOCKERHUB_USERNAME }}"
-          test -n "${{ secrets.DOCKERHUB_TOKEN }}"
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build and push Iroha Docker image
-        uses: docker/build-push-action@v1.1.0
+        uses: docker/build-push-action@v2
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
-          tags: iroha2-dev
-          build_args: TARGET_DIR=release,PROFILE=--release
-      - name: Build and push Iroha Client CLI Docker image
-        uses: docker/build-push-action@v1.1.0
+          context: .
+          push: true
+          tags: iroha1/iroha:iroha2-dev
+          build-args:
+            - TARGET_DIR=release
+            - PROFILE=--release
+
+      - name: Build and push Iroha client cli Docker image
+        uses: docker/build-push-action@v2
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
-          tags: iroha2-client-cli-dev
-          build_args: BIN=iroha_client_cli,TARGET_DIR=release,PROFILE=--release
+          context: .
+          push: true
+          tags: iroha1/iroha:iroha2-client-cli-dev
+          build-args:
+            - TARGET_DIR=release
+            - PROFILE=--release
+            - BIN=iroha_client_cli
+
       - name: Build and push Iroha Crypto CLI Docker image
-        uses: docker/build-push-action@v1.1.0
+        uses: docker/build-push-action@v2
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_ORG }}/iroha
-          tags: iroha2-crypto-cli-dev
-          build_args: BIN=iroha_crypto_cli,TARGET_DIR=release,PROFILE=--release
+          context: .
+          push: true
+          tags: iroha1/iroha:iroha2-crypto-cli-dev
+          build-args:
+            - TARGET_DIR=release
+            - PROFILE=--release
+            - BIN=iroha_crypto_cli
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.

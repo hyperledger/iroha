@@ -76,7 +76,7 @@ jobs:
             clang \
             llvm-dev
       - name: Run tests
-        run: cargo test --workspace --no-fail-fast -- --test-threads=4
+        run: cargo test --workspace --no-fail-fast
 
   test-consensus-with-mock:
     runs-on: [self-hosted, Linux] #ubuntu-latest

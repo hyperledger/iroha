@@ -133,13 +133,11 @@ impl Queue {
                 }
             };
 
-            if !is_leader || sig_condition {
-                return Some(entry.remove());
-            }
-
-            // MST case:
-            // if signature is not passed, put it to behind
             seen.push(hash);
+
+            if !is_leader || sig_condition {
+                return Some(entry.get().clone());
+            }
         }
     }
 
@@ -213,12 +211,10 @@ mod tests {
 
     use std::{
         collections::{BTreeMap, BTreeSet},
-        sync::Arc,
         thread,
         time::Duration,
     };
 
-    use dashmap::DashSet;
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
 
     use super::*;
@@ -423,8 +419,9 @@ mod tests {
     fn get_available_txs_on_leader() {
         let max_block_tx = 2;
 
-        let alice_key_1 = KeyPair::generate().expect("Failed to generate keypair.");
-        let alice_key_2 = KeyPair::generate().expect("Failed to generate keypair.");
+        let alice_key_1 = KeyPair::generate().unwrap();
+        let alice_key_2 = KeyPair::generate().unwrap();
+
         let mut domain = Domain::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
         let mut account = Account::new(account_id.clone());
@@ -442,73 +439,60 @@ mod tests {
         });
 
         let bob_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let alice_tx_1 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_1));
+        let alice_tx_1 = accepted_tx("alice", "wonderland", 1000, Some(&alice_key_1));
         thread::sleep(Duration::from_millis(10));
-        let alice_tx_2 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_2));
+        let alice_tx_2 = accepted_tx("alice", "wonderland", 1000, Some(&alice_key_2));
         thread::sleep(Duration::from_millis(10));
-        let alice_tx_3 = accepted_tx("alice", "wonderland", 100_000, Some(&bob_key));
+        let alice_tx_3 = accepted_tx("alice", "wonderland", 1000, Some(&bob_key));
         thread::sleep(Duration::from_millis(10));
-        let alice_tx_4 = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key_1));
+        let alice_tx_4 = accepted_tx("alice", "wonderland", 1000, Some(&alice_key_1));
         queue.push(alice_tx_1.clone(), &wsv).unwrap();
         queue.push(alice_tx_2.clone(), &wsv).unwrap();
         queue.push(alice_tx_3, &wsv).unwrap();
         queue.push(alice_tx_4, &wsv).unwrap();
-        let output_txs: Vec<_> = queue
+        let output_txs = queue
             .pop_avaliable(true, &wsv)
             .into_iter()
             .map(|tx| tx.hash())
-            .collect();
+            .collect::<Vec<_>>();
+
         assert_eq!(output_txs, vec![alice_tx_1.hash(), alice_tx_2.hash()]);
-        assert_eq!(queue.queue.len(), 2);
     }
 
     #[test]
-    fn test_multithreaded() {
-        let maximum_transactions_in_block = 100;
-        let maximum_transactions_in_queue = 10_000;
-        let transaction_time_to_live_ms = 10_000_000;
-        let producer_threads = 8;
-        let produce_txs_per_thread = 1000;
+    fn transactions_available_after_pop() {
+        let max_block_tx = 2;
 
-        let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            alice_key.public_key.clone(),
-        )));
-        let q = Arc::new(Queue::from_configuration(&QueueConfiguration {
-            maximum_transactions_in_block,
-            maximum_transactions_in_queue,
-            transaction_time_to_live_ms,
-        }));
-        let hashes = Arc::new(DashSet::new());
+        let alice_key_1 = KeyPair::generate().unwrap();
+        let alice_key_2 = KeyPair::generate().unwrap();
 
-        let handles = std::iter::repeat_with(|| {
-            let q = Arc::clone(&q);
-            let hashes = Arc::clone(&hashes);
-            let wsv = Arc::clone(&wsv);
-            let alice = alice_key.clone();
+        let mut domain = Domain::new("wonderland");
+        let account_id = AccountId::new("alice", "wonderland");
+        let mut account = Account::new(account_id.clone());
+        account.signatories.push(alice_key_1.public_key.clone());
+        account.signatories.push(alice_key_2.public_key.clone());
+        domain.accounts.insert(account_id, account);
+        let mut domains = BTreeMap::new();
+        domains.insert("wonderland".to_string(), domain);
 
-            std::thread::spawn(move || {
-                for _ in 0..produce_txs_per_thread {
-                    let tx = accepted_tx("alice", "wonderland", 10_000_000, Some(&alice));
-                    assert!(hashes.insert(tx.hash()));
-                    q.push(tx, &wsv).unwrap();
-                }
-            })
-        })
-        .take(producer_threads as usize)
-        .collect::<Vec<_>>();
+        let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
+        let queue = Queue::from_configuration(&QueueConfiguration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+        });
 
-        let mut cnt = producer_threads * produce_txs_per_thread;
+        let a = queue
+            .pop_avaliable(true, &wsv)
+            .into_iter()
+            .map(|tx| tx.hash())
+            .collect::<Vec<_>>();
+        let b = queue
+            .pop_avaliable(true, &wsv)
+            .into_iter()
+            .map(|tx| tx.hash())
+            .collect::<Vec<_>>();
 
-        while cnt > 0 {
-            q.pop_avaliable(true, &wsv)
-                .iter()
-                .map(VersionedAcceptedTransaction::hash)
-                .for_each(|hash| {
-                    hashes.remove(&hash).unwrap();
-                    cnt -= 1;
-                });
-        }
-        handles.into_iter().for_each(|h| h.join().unwrap());
+        assert_eq!(a, b);
     }
 }
