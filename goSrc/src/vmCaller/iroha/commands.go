@@ -213,22 +213,25 @@ func RevokePermission(account string, permission string) error {
 // }
 
 
-func MakeCompareAndSetAccountDetailArgs(account string, key string, value string, oldValue string, checkEmpty bool) (pb.Command, error) {
+func MakeCompareAndSetAccountDetailArgs(account string, key string, value string, oldValue string, checkEmpty string) (pb.Command, error) {
 	cmd1 := &pb.CompareAndSetAccountDetail{
+		Key: key,
 		Value: value,
 		AccountId: account,
 	}
 	if len(oldValue) != 0 {
 		cmd1.OptOldValue = &pb.CompareAndSetAccountDetail_OldValue{oldValue}
 	}
-	cmd1.CheckEmpty = checkEmpty
+	if checkEmpty=="true" {
+		cmd1.CheckEmpty = true
+	} else {
+		cmd1.CheckEmpty = false
+	}
 	cmd := pb.Command{Command:&pb.Command_CompareAndSetAccountDetail{CompareAndSetAccountDetail: cmd1}}
-	
-	fmt.Println(cmd)
 	return cmd, nil
 }
 
-func CompareAndSetAccountDetail(account string, key string, value string, oldValue string, checkEmpty bool) error {
+func CompareAndSetAccountDetail(account string, key string, value string, oldValue string, checkEmpty string) error {
 	command, err := MakeCompareAndSetAccountDetailArgs(account, key, value, oldValue, checkEmpty)
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, &command)
 	return handleErrors(commandResult, err, "DetachRole")

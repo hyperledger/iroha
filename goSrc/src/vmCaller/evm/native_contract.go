@@ -766,7 +766,7 @@ type compareAndSetAccountDetailArgs struct {
 	Key string
 	Value string
 	OldValue string
-	CheckEmpty bool
+	CheckEmpty string
 }
 
 type compareAndSetAccountDetailRets struct {
