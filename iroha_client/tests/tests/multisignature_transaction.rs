@@ -12,7 +12,7 @@ use test_network::*;
 
 #[allow(clippy::too_many_lines)]
 #[test]
-#[ignore]
+#[ignore = "FIXME"]
 fn multisignature_transactions_should_wait_for_all_signatures() {
     let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1);
     let pipeline_time = Configuration::pipeline_time();
