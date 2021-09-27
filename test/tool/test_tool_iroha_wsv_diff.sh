@@ -60,7 +60,7 @@ test_equal_wsv_DESCRIPTION="Successful test. Make 2 WSVs postgres and rocks, tha
 test_equal_wsv()(
     set -euo pipefail
 
-    jq <$SCRIPT_DIR/irohad.for.iroha_wsv_diff.config ".pg_opt=\"$PG_OPT\" | .block_store_path=\"$BLOCK_STORE_PATH\"" | tee config
+    jq <$SCRIPT_DIR/irohad.restore_wsv.config ".pg_opt=\"$PG_OPT\" | .block_store_path=\"$BLOCK_STORE_PATH\"" | tee config
 
     ## Make WSV in postgres database from block store
     time $IROHAD -config config -exit_after_init $DROP_STATE -keypair_name $SCRIPT_DIR/../../example/node0
@@ -237,4 +237,6 @@ fi
 
 if test ${#ALL_TESTS[@]} -eq ${#PASSED_TESTS[@]} ;then
     echo "HOORAY. all tests PASSED."
+else
+    exit 1
 fi
