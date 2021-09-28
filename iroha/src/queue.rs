@@ -5,7 +5,6 @@ use std::time::Duration;
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::Result;
-use iroha_data_model::prelude::*;
 
 use self::config::QueueConfiguration;
 use crate::{prelude::*, wsv::WorldTrait};
@@ -39,8 +38,8 @@ impl Queue {
     }
 
     /// Returns all pending transactions.
-    pub fn all_transactions(&'_ self) -> Vec<VersionedAcceptedTransaction> {
-        self.txs.iter().map(|e| e.value().clone()).collect()
+    pub fn all_transactions(&self) -> Vec<VersionedAcceptedTransaction> {
+        self.txs.iter().map(|t| t.value().clone()).collect()
     }
 
     /// Pushes transaction into queue
@@ -96,7 +95,11 @@ impl Queue {
     /// Pops single transaction.
     ///
     /// Records unsigned transaction in seen.
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    #[allow(
+        clippy::expect_used,
+        clippy::unwrap_in_result,
+        clippy::cognitive_complexity
+    )]
     fn pop<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
@@ -106,7 +109,8 @@ impl Queue {
             let hash = self.queue.pop()?;
             let entry = match self.txs.entry(hash) {
                 Entry::Occupied(entry) => entry,
-                Entry::Vacant(_) => unreachable!(),
+                // As practice shows this code is not `unreachable!()`. When transactions are submitted quickly it can be reached.
+                Entry::Vacant(_) => continue,
             };
 
             if entry.get().is_expired(self.ttl) {
@@ -115,6 +119,7 @@ impl Queue {
                 continue;
             }
             if entry.get().is_in_blockchain(wsv) {
+                iroha_logger::warn!("Transaction is already committed or rejected.");
                 entry.remove_entry();
                 continue;
             }
@@ -122,7 +127,7 @@ impl Queue {
             let sig_condition = match entry.get().check_signature_condition(wsv) {
                 Ok(condition) => condition,
                 Err(error) => {
-                    iroha_logger::error!(%error, "Not passed signature condition");
+                    iroha_logger::error!(%error, "Error in signature condition validation");
                     entry.remove_entry();
                     continue;
                 }
@@ -206,7 +211,7 @@ mod tests {
         time::Duration,
     };
 
-    use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
+    use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 
     use super::*;
     use crate::wsv::World;
@@ -474,12 +479,12 @@ mod tests {
         });
 
         let a = queue
-            .pop_avaliable(true, &wsv)
+            .get_transactions_for_block(&wsv)
             .into_iter()
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();
         let b = queue
-            .pop_avaliable(true, &wsv)
+            .get_transactions_for_block(&wsv)
             .into_iter()
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();

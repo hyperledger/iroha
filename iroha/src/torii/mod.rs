@@ -70,9 +70,10 @@ pub enum Error {
     /// Error while getting or setting configuration
     #[error("Configuration error")]
     Config(#[source] ConfigError),
-    /// Queue is full
-    #[error("Queue is full")]
-    FullQueue,
+    //TODO: Have specific errors for each case in queue push failure
+    /// Failed to push into queue.
+    #[error("Failed to push into queue")]
+    PushIntoQueue,
 }
 
 impl Reply for Error {
@@ -84,7 +85,7 @@ impl Reply for Error {
                 ExecuteQuery(_)
                 | RequestPendingTransactions(_)
                 | DecodeRequestPendingTransactions(_)
-                | FullQueue
+                | PushIntoQueue
                 | EncodePendingTransactions(_) => StatusCode::INTERNAL_SERVER_ERROR,
                 TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) | ValidateQuery(_) => {
                     StatusCode::BAD_REQUEST
@@ -242,7 +243,7 @@ async fn handle_instructions<W: WorldTrait>(
     state
         .queue
         .push(transaction, &*state.wsv)
-        .map_err(|_| Error::FullQueue)
+        .map_err(|_| Error::PushIntoQueue)
         .map(|()| Empty)
 }
 
