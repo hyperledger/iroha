@@ -51,7 +51,15 @@ pub fn web_socket_connect<U>(url: U) -> Result<WebSocketStream>
 where
     U: AsRef<str>,
 {
-    let (stream, _) = tungstenite::connect(url.as_ref())?;
+    #[allow(clippy::string_add)]
+    let url = if let Some(url) = url.as_ref().strip_prefix("https://") {
+        "wss://".to_owned() + url
+    } else if let Some(url) = url.as_ref().strip_prefix("http://") {
+        "ws://".to_owned() + url
+    } else {
+        return Err(eyre!("No schema in web socket url provided"));
+    };
+    let (stream, _) = tungstenite::connect(url)?;
     Ok(stream)
 }
 

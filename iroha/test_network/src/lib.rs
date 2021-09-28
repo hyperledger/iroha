@@ -642,7 +642,11 @@ impl TestClientConfiguration for ClientConfiguration {
     fn test(api_url: &str) -> Self {
         let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
             .expect("Failed to load configuration.");
-        configuration.torii_api_url = api_url.to_owned();
+        if !api_url.starts_with("http") {
+            configuration.torii_api_url = "http://".to_owned() + api_url;
+        } else {
+            configuration.torii_api_url = api_url.to_owned();
+        }
         configuration
     }
 }

@@ -140,7 +140,7 @@ impl Client {
         let transaction: VersionedTransaction = transaction.into();
         let transaction_bytes: Vec<u8> = transaction.encode_versioned()?;
         let response = http_client::post::<_, Vec<(String, String)>, _, _>(
-            &format!("http://{}{}", self.torii_url, uri::TRANSACTION),
+            &format!("{}{}", self.torii_url, uri::TRANSACTION),
             transaction_bytes,
             vec![],
         )
@@ -262,7 +262,7 @@ impl Client {
         let request = QueryRequest::new(request.into(), self.account_id.clone());
         let request: VersionedSignedQueryRequest = request.sign(&self.key_pair)?.into();
         let response = http_client::post(
-            &format!("http://{}{}", self.torii_url, uri::QUERY),
+            &format!("{}{}", self.torii_url, uri::QUERY),
             request.encode_versioned()?,
             pagination,
         )?;
@@ -298,7 +298,7 @@ impl Client {
     /// Fails if subscribing to websocket fails
     pub fn listen_for_events(&mut self, event_filter: EventFilter) -> Result<EventIterator> {
         EventIterator::new(
-            &format!("ws://{}{}", self.torii_url, uri::SUBSCRIPTION),
+            &format!("{}{}", self.torii_url, uri::SUBSCRIPTION),
             event_filter,
         )
     }
@@ -319,7 +319,7 @@ impl Client {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
             let response = http_client::get(
-                &format!("http://{}{}", self.torii_url, uri::PENDING_TRANSACTIONS),
+                &format!("{}{}", self.torii_url, uri::PENDING_TRANSACTIONS),
                 Vec::new(),
                 pagination.clone(),
             )?;
