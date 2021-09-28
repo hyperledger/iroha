@@ -282,7 +282,16 @@ async fn handle_pending_transactions<W: WorldTrait>(
     state: ToriiState<W>,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
-    Ok(Scale(state.queue.waiting().paginate(pagination).collect()))
+    Ok(Scale(
+        state
+            .queue
+            .all_transactions()
+            .into_iter()
+            .map(VersionedAcceptedTransaction::into_inner_v1)
+            .map(Transaction::from)
+            .paginate(pagination)
+            .collect(),
+    ))
 }
 
 #[derive(Clone, Debug, Deserialize)]

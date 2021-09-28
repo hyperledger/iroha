@@ -38,13 +38,9 @@ impl Queue {
         }
     }
 
-    /// Returns all pending transactions paginated
-    pub fn waiting(&'_ self) -> impl Iterator<Item = Transaction> + '_ {
-        self.txs
-            .iter()
-            .map(|e| e.value().clone())
-            .map(VersionedAcceptedTransaction::into_inner_v1)
-            .map(Transaction::from)
+    /// Returns all pending transactions.
+    pub fn all_transactions(&'_ self) -> Vec<VersionedAcceptedTransaction> {
+        self.txs.iter().map(|e| e.value().clone()).collect()
     }
 
     /// Pushes transaction into queue
@@ -103,7 +99,6 @@ impl Queue {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn pop<W: WorldTrait>(
         &self,
-        is_leader: bool,
         wsv: &WorldStateView<W>,
         seen: &mut Vec<Hash>,
     ) -> Option<VersionedAcceptedTransaction> {
@@ -135,27 +130,23 @@ impl Queue {
 
             seen.push(hash);
 
-            if !is_leader || sig_condition {
-                return Some(entry.get().clone());
+            if sig_condition {
+                return Some(entry.remove());
             }
         }
     }
 
-    /// Pops transactions till it fills whole block or till the end of queue.
-    ///
-    /// `is_leader` is neaded for checking whether we can transmit transaction which do not pass
-    /// signature condition.
+    /// Gets transactions till they fill whole block or till the end of queue.
     ///
     /// BEWARE: Shouldn't be called concurently, as it can become inconsistent
     #[allow(clippy::missing_panics_doc, clippy::unwrap_in_result)]
-    pub fn pop_avaliable<W: WorldTrait>(
+    pub fn get_transactions_for_block<W: WorldTrait>(
         &self,
-        is_leader: bool,
         wsv: &WorldStateView<W>,
     ) -> Vec<VersionedAcceptedTransaction> {
         let mut seen = Vec::new();
 
-        let out = std::iter::repeat_with(|| self.pop(is_leader, wsv, &mut seen))
+        let out = std::iter::repeat_with(|| self.pop(wsv, &mut seen))
             .take_while(Option::is_some)
             .map(Option::unwrap)
             .take(self.txs_in_block)
@@ -354,7 +345,7 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
 
-        let available = queue.pop_avaliable(false, &wsv);
+        let available = queue.get_transactions_for_block(&wsv);
         assert_eq!(available.len(), max_block_tx as usize);
     }
 
@@ -371,7 +362,7 @@ mod tests {
             maximum_transactions_in_queue: 100,
         });
         assert!(queue.push(tx, &wsv).is_err());
-        assert_eq!(queue.pop_avaliable(false, &wsv).len(), 0);
+        assert_eq!(queue.get_transactions_for_block(&wsv).len(), 0);
     }
 
     #[test]
@@ -401,7 +392,7 @@ mod tests {
             )
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
-        assert_eq!(queue.pop_avaliable(false, &wsv).len(), 1);
+        assert_eq!(queue.get_transactions_for_block(&wsv).len(), 1);
 
         let wsv = WorldStateView::new(World::new());
 
@@ -412,7 +403,7 @@ mod tests {
             )
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
-        assert_eq!(queue.pop_avaliable(false, &wsv).len(), 0);
+        assert_eq!(queue.get_transactions_for_block(&wsv).len(), 0);
     }
 
     #[test]
@@ -450,8 +441,8 @@ mod tests {
         queue.push(alice_tx_2.clone(), &wsv).unwrap();
         queue.push(alice_tx_3, &wsv).unwrap();
         queue.push(alice_tx_4, &wsv).unwrap();
-        let output_txs = queue
-            .pop_avaliable(true, &wsv)
+        let output_txs: Vec<_> = queue
+            .get_transactions_for_block(&wsv)
             .into_iter()
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();

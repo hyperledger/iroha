@@ -56,6 +56,10 @@ pub struct UpdateNetworkTopology;
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
 pub struct Voting;
 
+/// Message reminder for gossip
+#[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
+pub struct Gossip;
+
 /// Message reminder for peer (re)connection.
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
 pub struct ConnectPeers;
@@ -136,6 +140,7 @@ pub trait SumeragiTrait:
     + ContextHandler<IsLeader, Result = bool>
     + ContextHandler<GetLeader, Result = PeerId>
     + ContextHandler<NetworkMessage, Result = ()>
+    + Handler<Gossip, Result = ()>
     + Debug
 {
     /// Genesis for sending genesis txs
@@ -210,7 +215,9 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sumeragi<G, W> {
 }
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
+/// And will create a block if is leader and the voting is not already in progress.
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
+pub const TX_GOSSIP_INTERVAL: Duration = Duration::from_millis(200);
 /// The interval of peers (re)connection.
 pub const PEERS_CONNECT_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -250,10 +257,19 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<Voting> for Sumeragi<G, W> {
         if self.voting_in_progress().await {
             return;
         }
-        let txs = self.queue.pop_avaliable(self.is_leader(), &*self.wsv);
+        let txs = self.queue.get_transactions_for_block(&*self.wsv);
         if let Err(error) = self.round(txs).await {
             iroha_logger::error!(%error, "Round failed");
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<Gossip> for Sumeragi<G, W> {
+    type Result = ();
+    async fn handle(&mut self, Gossip: Gossip) {
+        let txs = self.queue.all_transactions();
+        self.gossip_transactions(&txs[..]).await;
     }
 }
 
@@ -290,6 +306,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> ContextHandler<Init> for Sumeragi<G,
         self.update_network_topology().await;
         ctx.notify_every::<ConnectPeers>(PEERS_CONNECT_INTERVAL);
         ctx.notify_every::<Voting>(TX_RETRIEVAL_INTERVAL);
+        ctx.notify_every::<Gossip>(TX_GOSSIP_INTERVAL);
     }
 }
 
@@ -458,7 +475,6 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<G, W> {
             return Ok(());
         }
 
-        self.gossip_transactions(&transactions).await;
         if let Role::Leader = self.topology.role(&self.peer_id) {
             let block = PendingBlock::new(transactions).chain(
                 self.block_height,
