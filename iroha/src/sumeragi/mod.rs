@@ -216,8 +216,9 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sumeragi<G, W> {
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 /// And will create a block if is leader and the voting is not already in progress.
-pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
-pub const TX_GOSSIP_INTERVAL: Duration = Duration::from_millis(200);
+pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(200);
+/// The interval at which sumeragi forwards txs from `queue` to other peers.
+pub const TX_GOSSIP_INTERVAL: Duration = Duration::from_millis(100);
 /// The interval of peers (re)connection.
 pub const PEERS_CONNECT_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -568,7 +569,6 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<G, W> {
             self.topology.role(&self.peer_id),
             transactions.len(),
         );
-        let leader = self.topology.leader().clone();
         let this_peer = self.peer_id.clone();
         let peers = self.topology.sorted_peers().to_vec();
         let transactions = transactions.to_vec();
@@ -576,7 +576,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<G, W> {
         // TODO: send transactions in batch not to crowd message channels.
         for peer in &peers {
             for transaction in &transactions {
-                if peer != &leader && peer != &this_peer {
+                if peer != &this_peer {
                     let message = VersionedMessage::from(Message::from(TransactionForwarded::new(
                         transaction,
                         &this_peer,

@@ -314,6 +314,7 @@ pub mod utils {
                 self.broker.subscribe::<CommitBlock, _>(ctx);
                 self.broker.subscribe::<NetworkMessage, _>(ctx);
                 self.broker.subscribe::<Voting, _>(ctx);
+                self.broker.subscribe::<Gossip, _>(ctx);
                 ctx.notify_every::<ConnectPeers>(PEERS_CONNECT_INTERVAL);
             }
         }
@@ -394,6 +395,7 @@ pub mod utils {
                      + Handler<Voting, Result = ()>
                      + Handler<ConnectPeers, Result = ()>
                      + Handler<NetworkMessage, Result = ()>
+                     + Handler<Gossip, Result = ()>
         );
 
         #[derive(Debug, Clone, Copy, Default, Message)]
@@ -567,7 +569,7 @@ async fn blocks_applied(channels: &mut [mpsc::Receiver<Stored>], n: usize) {
     assert_eq!(out, vec![n; channels.len()]);
 }
 
-async fn send_tx<W, G, S, K, B>(network: &Network<W, G, S, K, B>, to_leader: bool)
+async fn start_round_with_tx<W, G, S, K, B>(network: &Network<W, G, S, K, B>, to_leader: bool)
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
@@ -590,6 +592,29 @@ where
         .await;
 }
 
+async fn put_tx_in_queue<W, G, S, K, B>(network: &Network<W, G, S, K, B>, to_leader: bool)
+where
+    W: WorldTrait,
+    G: GenesisNetworkTrait,
+    S: SumeragiTrait<GenesisNetwork = G, World = W> + Handler<sumeragi::Round>,
+    K: KuraTrait<World = W>,
+    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+{
+    let tx = world::sign_tx(vec![]);
+    let leader = network.send(|iroha| &iroha.sumeragi, IsLeader).await;
+    let (_, peer) = leader
+        .into_iter()
+        .zip(network.peers())
+        .find(|(leader, _)| if to_leader { *leader } else { !*leader })
+        .unwrap();
+    peer.iroha
+        .as_ref()
+        .unwrap()
+        .queue
+        .push(tx, &*peer.iroha.as_ref().unwrap().wsv)
+        .unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn all_peers_commit_block() {
@@ -609,7 +634,7 @@ async fn all_peers_commit_block() {
         .collect::<Vec<_>>();
 
     // Send tx to leader
-    send_tx(&network, true).await;
+    start_round_with_tx(&network, true).await;
     time::sleep(Duration::from_secs(2)).await;
 
     blocks_applied(&mut channels, 1).await;
@@ -634,7 +659,7 @@ async fn change_view_on_commit_timeout() {
         .collect::<Vec<_>>();
 
     // send to leader
-    send_tx(&network, true).await;
+    start_round_with_tx(&network, true).await;
     time::sleep(Duration::from_secs(2)).await;
 
     blocks_applied(&mut channels, 0).await;
@@ -673,7 +698,12 @@ async fn change_view_on_tx_receipt_timeout() {
         .collect::<Vec<_>>();
 
     // send to not leader
-    send_tx(&network, false).await;
+    put_tx_in_queue(&network, false).await;
+
+    // Let peers gossip tx.
+    for peer in network.peers() {
+        peer.iroha.as_ref().unwrap().sumeragi.do_send(Gossip).await;
+    }
 
     // Wait while tx is gossiped
     time::sleep(Duration::from_millis(500)).await;
@@ -714,7 +744,7 @@ async fn change_view_on_block_creation_timeout() {
         .collect::<Vec<_>>();
 
     // send to not leader
-    send_tx(&network, false).await;
+    start_round_with_tx(&network, false).await;
     time::sleep(Duration::from_secs(2)).await;
 
     blocks_applied(&mut channels, 0).await;
@@ -747,7 +777,7 @@ async fn not_enough_votes() {
         .collect::<Vec<_>>();
 
     // send to not leader
-    send_tx(&network, true).await;
+    start_round_with_tx(&network, true).await;
     time::sleep(Duration::from_secs(2)).await;
 
     blocks_applied(&mut channels, 0).await;
