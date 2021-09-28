@@ -30,8 +30,8 @@ WORKDIR /iroha
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-ARG PROFILE=
 FROM cargo-chef as builder
+ARG PROFILE
 WORKDIR /iroha
 COPY --from=planner /iroha/recipe.json recipe.json
 RUN cargo chef cook $PROFILE --recipe-path recipe.json
