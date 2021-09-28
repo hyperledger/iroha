@@ -13,15 +13,6 @@ jobs:
     container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-              ${{ env.CARGO_HOME }}
-              target/
-          key: iroha2-rust-archive-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-              iroha2-rust-archive-
-
       - name: Install dependencies
         run: |
           apt-get update
@@ -129,13 +120,6 @@ jobs:
     container: rust:1.52-buster
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.RUST_CACHE_PATHS }}
-          key: iroha2-rust-publish-artifacts-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-              iroha2-rust-publish-artifacts-
-
       - name: Run schema generation
         run: |
           mkdir -p target/schema

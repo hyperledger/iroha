@@ -128,7 +128,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
         .expect("Failed to load configuration.");
-    configuration.torii_api_url = peer.api_address.clone();
+    configuration.torii_api_url = "http://".to_owned() + &peer.api_address;
     let mut iroha_client = Client::new(&configuration);
     let _ = iroha_client
         .submit_all(vec![
