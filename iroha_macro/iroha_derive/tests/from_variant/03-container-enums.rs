@@ -1,6 +1,8 @@
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    sync::{Arc, Mutex, RwLock},
+};
 
 struct Variant1;
 struct Variant2;
