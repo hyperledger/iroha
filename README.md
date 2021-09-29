@@ -27,6 +27,7 @@ Iroha has the following features:
 * [Rust](https://www.rust-lang.org/learn/get-started)
 * [Docker](https://docs.docker.com/get-docker/)
 * [Docker Compose](https://docs.docker.com/compose/install/)
+* [Nix flakes](https://nixos.wiki/wiki/flakes#Installing_flakes) with [direnv](https://github.com/nix-community/nix-direnv)
 
 ### Start Peers
 
