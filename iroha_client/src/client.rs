@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     convert::{TryFrom, TryInto},
     fmt::{self, Debug, Formatter},
     sync::mpsc,
@@ -34,6 +35,8 @@ pub struct Client {
     pub transaction_status_timeout: Duration,
     /// Current account
     pub account_id: AccountId,
+    /// Http headers which will be appended to each request
+    pub headers: http_client::Headers,
 }
 
 /// Representation of `Iroha` client.
@@ -52,6 +55,25 @@ impl Client {
                 configuration.transaction_status_timeout_ms,
             ),
             account_id: configuration.account_id.clone(),
+            headers: HashMap::default(),
+        }
+    }
+
+    /// Constructor for client
+    pub fn with_headers(configuration: &Configuration, headers: HashMap<String, String>) -> Self {
+        Self {
+            torii_url: configuration.torii_api_url.clone(),
+            max_instruction_number: configuration.max_instruction_number,
+            key_pair: KeyPair {
+                public_key: configuration.public_key.clone(),
+                private_key: configuration.private_key.clone(),
+            },
+            proposed_transaction_ttl_ms: configuration.transaction_time_to_live_ms,
+            transaction_status_timeout: Duration::from_millis(
+                configuration.transaction_status_timeout_ms,
+            ),
+            account_id: configuration.account_id.clone(),
+            headers,
         }
     }
 
@@ -139,10 +161,11 @@ impl Client {
         let hash = transaction.hash();
         let transaction: VersionedTransaction = transaction.into();
         let transaction_bytes: Vec<u8> = transaction.encode_versioned()?;
-        let response = http_client::post::<_, Vec<(String, String)>, _, _>(
+        let response = http_client::post(
             &format!("{}{}", self.torii_url, uri::TRANSACTION),
             transaction_bytes,
-            vec![],
+            Vec::<(String, String)>::new(),
+            self.headers.clone(),
         )
         .wrap_err_with(|| {
             format!(
@@ -265,6 +288,7 @@ impl Client {
             &format!("{}{}", self.torii_url, uri::QUERY),
             request.encode_versioned()?,
             pagination,
+            self.headers.clone(),
         )?;
         if response.status() != StatusCode::OK {
             return Err(eyre!(
@@ -300,6 +324,7 @@ impl Client {
         EventIterator::new(
             &format!("{}{}", self.torii_url, uri::SUBSCRIPTION),
             event_filter,
+            self.headers.clone(),
         )
     }
 
@@ -322,6 +347,7 @@ impl Client {
                 &format!("{}{}", self.torii_url, uri::PENDING_TRANSACTIONS),
                 Vec::new(),
                 pagination.clone(),
+                self.headers.clone(),
             )?;
             if response.status() == StatusCode::OK {
                 let pending_transactions: PendingTransactions =
@@ -382,8 +408,12 @@ impl EventIterator {
     ///
     /// # Errors
     /// Fails if connecting and sending subscription to web socket fails
-    pub fn new(url: &str, event_filter: EventFilter) -> Result<EventIterator> {
-        let mut stream = http_client::web_socket_connect(url)?;
+    pub fn new(
+        url: &str,
+        event_filter: EventFilter,
+        headers: http_client::Headers,
+    ) -> Result<EventIterator> {
+        let mut stream = http_client::web_socket_connect(url, headers)?;
         stream.write_message(WebSocketMessage::Binary(
             VersionedEventSocketMessage::from(EventSocketMessage::from(SubscriptionRequest(
                 event_filter,

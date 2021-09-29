@@ -24,6 +24,8 @@ iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
 iroha_config = { path = "../iroha_config" }
 iroha_version = { version = "=0.1.0", path = "../iroha_version" }
+iroha_telemetry = { path = "../iroha_telemetry" }
+
 eyre = "0.6.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -31,18 +33,18 @@ attohttpc = "0.16.3"
 http = "0.2.1"
 tungstenite = { version = "0.12.0", features = ["tls-vendored"] }
 tracing = "0.1"
-iroha_telemetry = { path = "../iroha_telemetry" }
 
 [dev-dependencies]
 iroha = { path = "../iroha", features = ["dev-telemetry", "telemetry"] }
 iroha_data_model = { path = "../iroha_data_model" }
+iroha_permissions_validators = { version = "=0.1.0", path = "../iroha_permissions_validators" }
+test_network = { path = "../iroha/test_network" }
+
 async-trait = "0.1.31"
 color-eyre = "0.5.11"
 criterion = "0.3"
 futures = "0.3.4"
 tempfile = "3"
-test_network = { path = "../iroha/test_network" }
-iroha_permissions_validators = { version = "=0.1.0", path = "../iroha_permissions_validators" }
 rand = "0.7.3"
 unique_port = "0.1.0"
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
