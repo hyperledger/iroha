@@ -27,8 +27,12 @@ pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telem
     {
         return None;
     }
+
     let level = configuration.max_log_level.into();
-    let subscriber_builder = tracing_subscriber::fmt().with_test_writer();
+    let subscriber_builder = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_max_level(tracing_subscriber::filter::LevelFilter::TRACE);
+
     if configuration.compact_mode {
         let subscriber = subscriber_builder.compact().finish();
         let (subscriber, receiver) = TelemetryLayer::from_capacity(
