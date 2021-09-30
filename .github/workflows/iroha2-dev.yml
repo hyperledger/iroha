@@ -24,24 +24,23 @@ jobs:
       - name: Build
         run: cargo build --release --verbose
       - name: Archive build
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: cargo-build-release
           path: target/release/iroha_cli
       - name: Archive Client CLI build
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: cargo-client-cli-build-release
           path: target/release/iroha_client_cli
       - name: Archive Crypto CLI build
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: cargo-crypto-cli-build-release
           path: target/release/iroha_crypto_cli
 
   deploy:
-    runs-on: [self-hosted, Linux]
-    container: rust:1.55-buster
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Login to DockerHub
@@ -55,7 +54,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: iroha1/iroha:iroha2-dev
+          tags: hyperledger/iroha2:dev
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
@@ -65,7 +64,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: iroha1/iroha:iroha2-client-cli-dev
+          tags: hyperledger/iroha2:client-cli-dev
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
@@ -76,7 +75,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: iroha1/iroha:iroha2-crypto-cli-dev
+          tags: hyperledger/iroha2:crypto-cli-dev
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
@@ -124,7 +123,7 @@ jobs:
 
   publish-artifacts:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
+    container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
       - name: Run schema generation

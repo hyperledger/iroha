@@ -35,7 +35,7 @@ jobs:
         id: coverage
         uses: actions-rs/grcov@v0.1
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: code-coverage-report
           path: ${{ steps.coverage.outputs.report }}
@@ -53,7 +53,7 @@ jobs:
 
   deploy:
     needs: [coverage, bench]
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Test
@@ -61,41 +61,52 @@ jobs:
       - name: Build
         run: cargo build --release --verbose
       - name: Archive build
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: cargo-build-release
           path: target/release/iroha
       - name: Archive Client CLI build
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: cargo-client-cli-build-release
           path: target/release/iroha_client_cli
       - name: Archive Crypto CLI build
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: cargo-crypto-cli-build-release
           path: target/release/iroha_crypto_cli
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and push Iroha Docker image
-        uses: docker/build-push-action@v1.1.0
+        uses: docker/build-push-action@v2
         with:
-          username: humb1t
-          password: ${{ secrets.DOCKERHUB }}
-          repository: hyperledger/iroha
-          tags: iroha2
-          build_args: TARGET_DIR=release,PROFILE=--release
-      - name: Build and push Iroha CLI Docker image
-        uses: docker/build-push-action@v1.1.0
+          context: .
+          push: true
+          tags: hyperledger/iroha2
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+      - name: Build and push Iroha client cli Docker image
+        uses: docker/build-push-action@v2
         with:
-          username: humb1t
-          password: ${{ secrets.DOCKERHUB }}
-          repository: hyperledger/iroha
-          tags: iroha2-cli
-          build_args: BIN=iroha_client_cli,TARGET_DIR=release,PROFILE=--release
+          context: .
+          push: true
+          tags: hyperledger/iroha2:client-cli
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+            BIN=iroha_client_cli
       - name: Build and push Iroha Crypto CLI Docker image
-        uses: docker/build-push-action@v1.1.0
+        uses: docker/build-push-action@v2
         with:
-          username: humb1t
-          password: ${{ secrets.DOCKERHUB }}
-          repository: hyperledger/iroha
-          tags: iroha2-crypto-cli
-          build_args: BIN=iroha_crypto_cli,TARGET_DIR=release,PROFILE=--release
+          context: .
+          push: true
+          tags: hyperledger/iroha2:crypto-cli
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+            BIN=iroha_crypto_cli
