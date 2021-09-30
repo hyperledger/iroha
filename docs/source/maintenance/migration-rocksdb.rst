@@ -12,7 +12,7 @@ Here is how
 How to migrate
 ==============
 
-After you built Iroha (or simply run it) after version Iroha 1.3 you already have the migration tools as a separate executable!
+After you built Iroha (or simply pull the `Docker image <https://hub.docker.com/r/hyperledger/iroha>`_) version 1.3 (or later)  you already have the migration tools as a separate executable!
 By default, after building, Iroha stores binaries to ``BUILD_DIR/bin/``. 
 
 Just run the ``iroha_migrate`` with the following flags:
