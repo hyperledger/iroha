@@ -71,8 +71,8 @@ pub enum Error {
     #[error("Configuration error")]
     Config(#[source] ConfigError),
     /// Failed to push into queue.
-    #[error("Failed to push into queue: `{0}`")]
-    PushIntoQueue(#[source] queue::Error),
+    #[error("Failed to push into queue")]
+    PushIntoQueue(#[source] Box<queue::Error>),
 }
 
 impl Reply for Error {
@@ -93,7 +93,21 @@ impl Reply for Error {
             }
         }
 
-        reply::with_status(self.to_string(), status_code(&self)).into_response()
+        fn to_string(mut err: &dyn std::error::Error) -> String {
+            let mut s = "Error:\n".to_owned();
+            let mut idx = 0;
+
+            loop {
+                s += &format!("    {}: {}\n", idx, &err.to_string());
+                idx += 1;
+                match err.source() {
+                    Some(e) => err = e,
+                    None => return s,
+                }
+            }
+        }
+
+        reply::with_status(to_string(&self), status_code(&self)).into_response()
     }
 }
 
@@ -239,11 +253,17 @@ async fn handle_instructions<W: WorldTrait>(
     )
     .map_err(Error::AcceptTransaction)?;
     #[allow(clippy::map_err_ignore)]
-    let push_result = state.queue.push(transaction, &*state.wsv);
+    let push_result = state
+        .queue
+        .push(transaction, &*state.wsv)
+        .map_err(|(_, err)| err);
     if let Err(ref err) = push_result {
-        iroha_logger::warn!("Failed to push to queue: {}", err)
+        iroha_logger::warn!(%err, "Failed to push to queue")
     }
-    push_result.map_err(Error::PushIntoQueue).map(|()| Empty)
+    push_result
+        .map_err(Box::new)
+        .map_err(Error::PushIntoQueue)
+        .map(|()| Empty)
 }
 
 #[iroha_futures::telemetry_future]
@@ -285,7 +305,7 @@ async fn handle_pending_transactions<W: WorldTrait>(
     Ok(Scale(
         state
             .queue
-            .all_transactions()
+            .all_transactions(&*state.wsv)
             .into_iter()
             .map(VersionedAcceptedTransaction::into_inner_v1)
             .map(Transaction::from)
@@ -336,10 +356,10 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::R
     let mut consumer = Consumer::new(stream).await?;
 
     while let Ok(change) = events.recv().await {
-        iroha_logger::trace!("Event occurred: {:?}", change);
+        iroha_logger::trace!(event = ?change, "Event occurred");
 
         if let Err(err) = consumer.consume(&change).await {
-            iroha_logger::error!("Failed to notify client: {}. Closed connection.", err);
+            iroha_logger::error!(%err, "Failed to notify client. Closed connection.");
             break;
         }
     }
@@ -415,7 +435,7 @@ mod tests {
     use std::{convert::TryInto, iter, time::Duration};
 
     use futures::future::FutureExt;
-    use tokio::{sync::broadcast, time};
+    use tokio::time;
 
     use super::*;
     use crate::{config::Configuration, queue::Queue, wsv::World};
@@ -432,7 +452,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        let (events, _) = broadcast::channel(100);
+        let (events, _) = tokio::sync::broadcast::channel(100);
         let wsv = Arc::new(WorldStateView::new(World::with(
             ('a'..'z')
                 .map(|name| name.to_string())
