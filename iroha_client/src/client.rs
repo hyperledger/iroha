@@ -188,8 +188,8 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_blocking(&mut self, instruction: Instruction) -> Result<Hash> {
-        self.submit_all_blocking(vec![instruction])
+    pub fn submit_blocking(&mut self, instruction: impl Into<Instruction>) -> Result<Hash> {
+        self.submit_all_blocking(vec![instruction.into()])
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
@@ -209,10 +209,10 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking_with_metadata(
         &mut self,
-        instruction: Instruction,
+        instruction: impl Into<Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<Hash> {
-        self.submit_all_blocking_with_metadata(vec![instruction], metadata)
+        self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
     }
 
     /// Submits and waits until the transaction is either rejected or committed.

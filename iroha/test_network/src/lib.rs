@@ -341,10 +341,11 @@ where
                 ..configuration.torii_configuration
             },
             logger_configuration: LoggerConfiguration {
-                #[cfg(profile = "bench")]
-                max_log_level: LevelEnv::ERROR,
-                #[cfg(not(profile = "bench"))]
-                max_log_level: LevelEnv::INFO,
+                //#[cfg(profile = "bench")]
+                //max_log_level: LevelEnv::ERROR,
+                //#[cfg(not(profile = "bench"))]
+                //max_log_level: LevelEnv::INFO,
+                max_log_level: LevelEnv::TRACE,
                 compact_mode: false,
                 ..LoggerConfiguration::default()
             },

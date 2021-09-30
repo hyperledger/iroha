@@ -73,7 +73,8 @@ Configuration of iroha is done via options in the following document. Here is de
   },
   "TELEMETRY": {
     "telemetry_file": null
-  }
+  },
+  "EVENT_QUEUE_SIZE": 10000
 }
 ```
 
@@ -105,6 +106,16 @@ Has type `u32`. Can be configured via environment variable `BLOCK_SYNC_BATCH_SIZ
 The time between peer sharing its latest block hash with other peers in milliseconds.
 
 Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PERIOD_MS`
+
+```json
+10000
+```
+
+## `event_queue_size`
+
+Size of event queue
+
+Has type `usize`. Can be configured via environment variable `IROHA_EVENT_QUEUE_SIZE`
 
 ```json
 10000

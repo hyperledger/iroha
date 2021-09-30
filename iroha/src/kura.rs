@@ -41,7 +41,7 @@ pub struct Kura<W: WorldTrait> {
 }
 
 /// Generic kura trait for mocks
-pub trait KuraTrait: Actor + Handler<StoreBlock> {
+pub trait KuraTrait: Actor + ContextHandler<StoreBlock, Result = ()> {
     /// World for applying blocks which have been stored on disk
     type World: WorldTrait;
 

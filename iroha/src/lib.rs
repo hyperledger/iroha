@@ -20,13 +20,14 @@ pub mod wsv;
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+use async_broadcast as mpmc;
 use eyre::{eyre, Result, WrapErr};
 use genesis::GenesisNetworkTrait;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_data_model::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed};
-use tokio::{sync::broadcast, task::JoinHandle};
+use tokio::task::JoinHandle;
 use wsv::{World, WorldTrait};
 
 use crate::{
@@ -190,7 +191,7 @@ where
             .expect("Unable to start P2P-network");
         let network_addr = network.start().await;
 
-        let (events_sender, _) = broadcast::channel(100);
+        let (events_sender, events_receiver) = mpmc::broadcast(config.event_queue_size);
         let wsv = Arc::new(WorldStateView::from_config(
             config.wsv_configuration,
             W::with(
@@ -250,7 +251,7 @@ where
             Arc::clone(&wsv),
             Arc::clone(&queue),
             query_validator,
-            events_sender,
+            events_receiver,
         );
         let torii = Some(torii);
         Ok(Self {

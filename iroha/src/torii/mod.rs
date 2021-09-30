@@ -21,7 +21,7 @@ use warp::{
 mod utils;
 
 use crate::{
-    event::{Consumer, EventsSender},
+    event::{Consumer, EventsReceiver},
     prelude::*,
     queue::Queue,
     smartcontracts::{
@@ -35,7 +35,7 @@ use crate::{
 pub struct Torii<W: WorldTrait> {
     config: ToriiConfiguration,
     wsv: Arc<WorldStateView<W>>,
-    events: EventsSender,
+    events: EventsReceiver,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     queue: Arc<Queue>,
 }
@@ -108,7 +108,7 @@ impl<W: WorldTrait> Torii<W> {
         wsv: Arc<WorldStateView<W>>,
         queue: Arc<Queue>,
         query_validator: Arc<IsQueryAllowedBoxed<W>>,
-        events: EventsSender,
+        events: EventsReceiver,
     ) -> Self {
         Self {
             config,
@@ -286,7 +286,7 @@ async fn handle_pending_transactions<W: WorldTrait>(
     Ok(Scale(
         state
             .queue
-            .all_transactions()
+            .all_transactions(&*state.wsv)
             .into_iter()
             .map(VersionedAcceptedTransaction::into_inner_v1)
             .map(Transaction::from)
@@ -332,15 +332,14 @@ async fn handle_get_configuration(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
-    let mut events = events.subscribe();
+async fn handle_subscription(mut events: EventsReceiver, stream: WebSocket) -> eyre::Result<()> {
     let mut consumer = Consumer::new(stream).await?;
 
     while let Ok(change) = events.recv().await {
-        iroha_logger::trace!("Event occurred: {:?}", change);
+        iroha_logger::trace!(event = ?change, "Event occurred");
 
         if let Err(err) = consumer.consume(&change).await {
-            iroha_logger::error!("Failed to notify client: {}. Closed connection.", err);
+            iroha_logger::error!(%err, "Failed to notify client. Closed connection.");
             break;
         }
     }
@@ -416,7 +415,7 @@ mod tests {
     use std::{convert::TryInto, iter, time::Duration};
 
     use futures::future::FutureExt;
-    use tokio::{sync::broadcast, time};
+    use tokio::time;
 
     use super::*;
     use crate::{config::Configuration, queue::Queue, wsv::World};
@@ -433,7 +432,7 @@ mod tests {
         config
             .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
             .expect("Failed to load trusted peers.");
-        let (events, _) = broadcast::channel(100);
+        let (_, events) = async_broadcast::broadcast(100);
         let wsv = Arc::new(WorldStateView::new(World::with(
             ('a'..'z')
                 .map(|name| name.to_string())

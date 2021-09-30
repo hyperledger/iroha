@@ -4,17 +4,18 @@
 
 use std::{convert::TryInto, fmt::Debug, time::Duration};
 
+use async_broadcast as mpmc;
 use eyre::{eyre, Result, WrapErr};
 use futures::{SinkExt, StreamExt};
 use iroha_data_model::events::{prelude::*, SubscriptionRequest};
 use iroha_version::prelude::*;
-use tokio::{sync::broadcast, time};
+use tokio::time;
 use warp::ws::{self, WebSocket};
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
-pub type EventsSender = broadcast::Sender<Event>;
+pub type EventsSender = mpmc::Sender<Event>;
 /// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
-pub type EventsReceiver = broadcast::Receiver<Event>;
+pub type EventsReceiver = mpmc::Receiver<Event>;
 
 #[cfg(test)]
 const TIMEOUT: Duration = Duration::from_millis(10_000);

@@ -3,7 +3,7 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::{iter, time::SystemTime};
+use std::{borrow::Borrow, iter, time::SystemTime};
 
 use dashmap::{iter::Iter as MapIter, mapref::one::Ref as MapRef, DashMap};
 use eyre::Result;
@@ -60,6 +60,10 @@ impl Chain {
     /// Latest block reference and its height.
     pub fn latest_block(&self) -> Option<MapRef<u64, VersionedCommittedBlock>> {
         self.blocks.get(&(self.blocks.len() as u64))
+    }
+
+    pub fn nth(&self, n: u64) -> Option<MapRef<u64, VersionedCommittedBlock>> {
+        self.blocks.get(&n)
     }
 
     /// Length of the blockchain.
@@ -367,6 +371,19 @@ pub struct ValidBlock {
 }
 
 impl ValidBlock {
+    pub fn contains(&self, tx: impl Borrow<VersionedAcceptedTransaction>) -> bool {
+        let hash = tx.borrow().hash();
+        self.transactions
+            .iter()
+            .map(VersionedValidTransaction::hash)
+            .chain(
+                self.rejected_transactions
+                    .iter()
+                    .map(VersionedRejectedTransaction::hash),
+            )
+            .any(|h| h == hash)
+    }
+
     /// # Errors
     /// Asserts specific instruction number of instruction constraint
     pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {

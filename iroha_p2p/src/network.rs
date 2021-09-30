@@ -16,7 +16,6 @@ use iroha_crypto::{
 };
 use iroha_logger::{debug, info, warn};
 use parity_scale_codec::{Decode, Encode};
-use rand::prelude::SliceRandom;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{
@@ -214,17 +213,9 @@ where
 
     async fn handle(&mut self, msg: Post<T>) {
         match self.peers.get(&msg.id.public_key) {
-            Some(peers) => {
-                let connection = {
-                    let mut rng = rand::thread_rng();
-                    peers.choose(&mut rng)
-                };
-                if let Some(connection) = connection {
-                    connection.0.do_send(msg).await;
-                }
-            }
+            Some(peers) if !peers.is_empty() => peers[0].0.do_send(msg).await,
             None if msg.id.public_key == self.public_key => debug!("Not sending message to myself"),
-            None => info!(
+            Some(_) | None => info!(
                 "Didn't find peer to send message, have only {} connections!",
                 self.peers.len()
             ),

@@ -5,6 +5,7 @@ use std::time::Duration;
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::Result;
+use thiserror::Error;
 
 use self::config::QueueConfiguration;
 use crate::{prelude::*, wsv::WorldTrait};
@@ -25,6 +26,20 @@ pub struct Queue {
     ttl: Duration,
 }
 
+/// Queue push error
+#[derive(Error, Debug)]
+pub enum Error {
+    /// Queue is full
+    #[error("Queue is full")]
+    Full(VersionedAcceptedTransaction),
+    /// Transaction expired
+    #[error("Transaction is expired")]
+    Expired(VersionedAcceptedTransaction),
+    /// Transaction is already in blockchain
+    #[error("Transaction is already applied")]
+    InBlockchain(VersionedAcceptedTransaction),
+}
+
 impl Queue {
     /// Makes queue from configuration
     pub fn from_configuration(cfg: &QueueConfiguration) -> Self {
@@ -37,9 +52,24 @@ impl Queue {
         }
     }
 
+    fn is_pending<W: WorldTrait>(
+        &self,
+        tx: &VersionedAcceptedTransaction,
+        wsv: &WorldStateView<W>,
+    ) -> bool {
+        !tx.is_expired(self.ttl) && !tx.is_in_blockchain(wsv)
+    }
+
     /// Returns all pending transactions.
-    pub fn all_transactions(&self) -> Vec<VersionedAcceptedTransaction> {
-        self.txs.iter().map(|t| t.value().clone()).collect()
+    pub fn all_transactions<W: WorldTrait>(
+        &self,
+        wsv: &WorldStateView<W>,
+    ) -> Vec<VersionedAcceptedTransaction> {
+        self.txs
+            .iter()
+            .filter(|e| self.is_pending(e.value(), wsv))
+            .map(|e| e.value().clone())
+            .collect()
     }
 
     /// Pushes transaction into queue
@@ -54,19 +84,16 @@ impl Queue {
         &self,
         tx: VersionedAcceptedTransaction,
         wsv: &WorldStateView<W>,
-    ) -> Result<(), VersionedAcceptedTransaction> {
+    ) -> Result<(), Error> {
         if tx.is_expired(self.ttl) {
-            iroha_logger::warn!("Transaction expired");
-            return Err(tx);
+            return Err(Error::Expired(tx));
         }
         if tx.is_in_blockchain(wsv) {
-            iroha_logger::warn!("Transaction is already applied");
-            return Err(tx);
+            return Err(Error::InBlockchain(tx));
         }
 
         if self.txs.len() >= self.max_txs {
-            iroha_logger::warn!("Transaction queue is full");
-            return Err(tx);
+            return Err(Error::Full(tx));
         }
 
         let hash = tx.hash();
@@ -84,12 +111,15 @@ impl Queue {
         };
 
         entry.insert(tx);
-        self.queue.push(hash).map_err(|hash| {
-            self.txs
-                .remove(&hash)
-                .expect("Inserted just before match")
-                .1
-        })
+        self.queue
+            .push(hash)
+            .map_err(|hash| {
+                self.txs
+                    .remove(&hash)
+                    .expect("Inserted just before match")
+                    .1
+            })
+            .map_err(Error::Full)
     }
 
     /// Pops single transaction.
@@ -109,7 +139,8 @@ impl Queue {
             let hash = self.queue.pop()?;
             let entry = match self.txs.entry(hash) {
                 Entry::Occupied(entry) => entry,
-                // As practice shows this code is not `unreachable!()`. When transactions are submitted quickly it can be reached.
+                // As practice shows this code is not `unreachable!()`.
+                // When transactions are submitted quickly it can be reached.
                 Entry::Vacant(_) => continue,
             };
 

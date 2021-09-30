@@ -2,6 +2,7 @@
 //! state.
 
 use std::{
+    borrow::Borrow,
     fmt::Debug,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -151,6 +152,24 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.blocks
             .latest_block()
             .map_or(Hash([0_u8; 32]), |block_entry| block_entry.value().hash())
+    }
+
+    /// Is block recently committed
+    pub fn recently_committed(&self, block: impl Borrow<VersionedValidBlock>) -> bool {
+        const RECENTLY: u64 = 10;
+
+        let hash = block.borrow().hash();
+        let height = self.height();
+        let from = if height < RECENTLY {
+            0
+        } else {
+            height - RECENTLY
+        };
+
+        (from..=height)
+            .rev()
+            .filter_map(|i| self.blocks.nth(i))
+            .any(|b| b.value().hash() == hash)
     }
 
     /// Height of blockchain

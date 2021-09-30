@@ -40,6 +40,7 @@ iroha_telemetry = { path = "../iroha_telemetry", optional = true }
 iroha_schema = { path = "../iroha_schema"}
 
 async-trait = "0.1"
+async-broadcast = "^0.3.4"
 chrono = "0.4"
 dashmap = { version = "4.0" }
 eyre = "0.6.5"

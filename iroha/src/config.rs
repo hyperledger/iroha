@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// Configuration parameters container.
-#[derive(Clone, Default, Deserialize, Serialize, Debug, Configurable)]
+#[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]
@@ -59,6 +59,28 @@ pub struct Configuration {
     /// Configuration for telemetry
     #[config(inner)]
     pub telemetry: telemetry::Configuration,
+    /// Size of event queue
+    pub event_queue_size: usize,
+}
+
+impl Default for Configuration {
+    fn default() -> Self {
+        Self {
+            public_key: PublicKey::default(),
+            private_key: PrivateKey::default(),
+            kura_configuration: KuraConfiguration::default(),
+            sumeragi_configuration: SumeragiConfiguration::default(),
+            torii_configuration: ToriiConfiguration::default(),
+            block_sync_configuration: BlockSyncConfiguration::default(),
+            queue_configuration: QueueConfiguration::default(),
+            logger_configuration: LoggerConfiguration::default(),
+            genesis_configuration: GenesisConfiguration::default(),
+            wsv_configuration: WorldStateViewConfiguration::default(),
+            #[cfg(feature = "telemetry")]
+            telemetry: telemetry::Configuration::default(),
+            event_queue_size: 10_000,
+        }
+    }
 }
 
 impl Configuration {

@@ -14,4 +14,5 @@ mod restart_peer;
 mod transfer_asset;
 mod tx_history;
 mod tx_rollback;
+mod tx_status;
 mod unstable_network;
