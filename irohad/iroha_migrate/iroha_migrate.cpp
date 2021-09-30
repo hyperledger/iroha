@@ -318,7 +318,7 @@ int main(int argc, char *argv[]) try {
     auto wsv = restoreWsv();
     CHECK_RETURN_FMT(iroha::expected::hasValue(wsv), "{}", wsv.assumeError());
     fmt::print(
-        "Success! WSV in RocksDB was build.\nNext step check consintancy with "
+        "Success! WSV in RocksDB was build.\nNext step check consistency with "
         "Postgres WSV using iroha_wsv_diff.\n");
     return 0;
   }
