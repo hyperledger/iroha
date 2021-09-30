@@ -16,7 +16,6 @@ use iroha_crypto::{
 };
 use iroha_logger::{debug, info, warn};
 use parity_scale_codec::{Decode, Encode};
-use rand::prelude::SliceRandom;
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::{
@@ -214,19 +213,11 @@ where
 
     async fn handle(&mut self, msg: Post<T>) {
         match self.peers.get(&msg.id.public_key) {
-            Some(peers) => {
-                let connection = {
-                    let mut rng = rand::thread_rng();
-                    peers.choose(&mut rng)
-                };
-                if let Some(connection) = connection {
-                    connection.0.do_send(msg).await;
-                }
-            }
+            Some(peers) if !peers.is_empty() => peers[0].0.do_send(msg).await,
             None if msg.id.public_key == self.public_key => debug!("Not sending message to myself"),
-            None => info!(
-                "Didn't find peer to send message, have only {} connections!",
-                self.peers.len()
+            Some(_) | None => warn!(
+                id=?msg.id,
+                "Didn't find peer to send message",
             ),
         }
     }
@@ -252,30 +243,23 @@ where
                     let connection = Connection(peer, connection_id);
                     peers.push(connection);
                 }
-                let count = self
-                    .peers
-                    .iter()
-                    .filter(|(_, conn)| !conn.is_empty())
-                    .count();
+                let count = self.peers.values().filter(|conn| !conn.is_empty()).count();
+                let addr: &str = &self.listen_addr;
                 info!(
-                    "[{}] Connected new peer, peers: {}, new: {}",
-                    &self.listen_addr,
+                    addr,
+                    "Connected new peer, peers: {}, new: {}",
                     count,
                     self.new_peers.len(),
                 );
             }
             Disconnected(id, connection_id) => {
-                info!("Peer disconnected: {:?}, {}", &id, connection_id);
+                info!(?id, "Peer disconnected: {}", connection_id);
                 let connections = self.peers.entry(id.public_key).or_default();
                 connections.retain(|connection| connection.1 != connection_id);
                 // If this connection didn't have the luck to connect
                 self.new_peers.remove(&connection_id);
                 self.broker.issue_send(StopSelf::Peer(connection_id)).await;
-                let count = self
-                    .peers
-                    .iter()
-                    .filter(|(_, conn)| !conn.is_empty())
-                    .count();
+                let count = self.peers.values().filter(|conn| !conn.is_empty()).count();
                 info!(
                     "[{}] Disconnected peer {}, peers: {}",
                     &self.listen_addr, &id.address, count

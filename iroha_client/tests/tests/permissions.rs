@@ -66,7 +66,7 @@ fn permissions_disallow_asset_transfer() {
         IdBox::AssetId(AssetId::new(asset_definition_id, alice_id.clone())),
     );
     let err = iroha_client
-        .submit_blocking(transfer_asset.into())
+        .submit_blocking(transfer_asset)
         .expect_err("Transaction was not rejected.");
     let rejection_reason = err
         .downcast_ref::<PipelineRejectionReason>()
@@ -129,7 +129,7 @@ fn permissions_disallow_asset_burn() {
     );
 
     let err = iroha_client
-        .submit_blocking(burn_asset.into())
+        .submit_blocking(burn_asset)
         .expect_err("Transaction was not rejected.");
     let rejection_reason = err
         .downcast_ref::<PipelineRejectionReason>()
