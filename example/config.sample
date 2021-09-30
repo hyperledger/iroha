@@ -1,9 +1,9 @@
 {
-  "torii_port": 50051,
-  "internal_port": 10001,
+  "torii_port": 51051,
+  "internal_port": 11001,
   "database": {
      "type": "rocksdb",
-     "path": "/path/to/wsv/folder"
+     "path": "/tmp/wsv"
   },
   "max_proposal_size": 10,
   "proposal_delay": 5000,
