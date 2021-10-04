@@ -25,6 +25,9 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     let rt = Runtime::test();
     rt.block_on(peer.start_with_config_permissions_dir(configuration.clone(), AllowAll, &temp_dir));
 
+    // Wait for genesis to be committed.
+    thread::sleep(pipeline_time * 2);
+
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(

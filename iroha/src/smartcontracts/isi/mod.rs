@@ -43,23 +43,23 @@ pub enum Error {
 #[derive(Debug, Clone, Error)]
 pub enum FindError {
     /// Failed to find asset
-    #[error("Failed to find asset")]
+    #[error("Failed to find asset: `{0}`")]
     Asset(AssetId),
     /// Failed to find asset definition
-    #[error("Failed to find asset definition")]
+    #[error("Failed to find asset definition: `{0}`")]
     AssetDefinition(AssetDefinitionId),
     /// Failed to find account
-    #[error("Failed to find account")]
+    #[error("Failed to find account: `{0}`")]
     Account(AccountId),
     /// Failed to find domain
-    #[error("Failed to find domain")]
+    #[error("Failed to find domain: `{0}`")]
     Domain(Name),
     /// Failed to find metadata key
     #[error("Failed to find metadata key")]
     MetadataKey(Name),
     /// Failed to find Role by id.
     #[cfg(feature = "roles")]
-    #[error("Failed to find role by id")]
+    #[error("Failed to find role by id: `{0}`")]
     Role(RoleId),
     /// Block with supplied parent hash not found. More description in a string.
     #[error("Block not found")]
