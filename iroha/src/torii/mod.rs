@@ -23,7 +23,7 @@ mod utils;
 use crate::{
     event::{Consumer, EventsSender},
     prelude::*,
-    queue::Queue,
+    queue::{self, Queue},
     smartcontracts::{
         isi::query::VerifiedQueryRequest, permissions::IsQueryAllowedBoxed, query::AcceptQueryError,
     },
@@ -70,10 +70,9 @@ pub enum Error {
     /// Error while getting or setting configuration
     #[error("Configuration error")]
     Config(#[source] ConfigError),
-    //TODO: Have specific errors for each case in queue push failure
     /// Failed to push into queue.
-    #[error("Failed to push into queue")]
-    PushIntoQueue,
+    #[error("Failed to push into queue: `{0}`")]
+    PushIntoQueue(#[source] queue::Error),
 }
 
 impl Reply for Error {
@@ -85,7 +84,7 @@ impl Reply for Error {
                 ExecuteQuery(_)
                 | RequestPendingTransactions(_)
                 | DecodeRequestPendingTransactions(_)
-                | PushIntoQueue
+                | PushIntoQueue(_)
                 | EncodePendingTransactions(_) => StatusCode::INTERNAL_SERVER_ERROR,
                 TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) | ValidateQuery(_) => {
                     StatusCode::BAD_REQUEST
@@ -240,11 +239,11 @@ async fn handle_instructions<W: WorldTrait>(
     )
     .map_err(Error::AcceptTransaction)?;
     #[allow(clippy::map_err_ignore)]
-    state
-        .queue
-        .push(transaction, &*state.wsv)
-        .map_err(|_| Error::PushIntoQueue)
-        .map(|()| Empty)
+    let push_result = state.queue.push(transaction, &*state.wsv);
+    if let Err(ref err) = push_result {
+        iroha_logger::warn!("Failed to push to queue: {}", err)
+    }
+    push_result.map_err(Error::PushIntoQueue).map(|()| Empty)
 }
 
 #[iroha_futures::telemetry_future]

@@ -177,8 +177,9 @@ impl Client {
             Ok(hash)
         } else {
             Err(eyre!(
-                "Failed to submit instructions with HTTP status: {}",
-                response.status()
+                "Failed to submit instructions with HTTP status: {}. Response body: {}",
+                response.status(),
+                String::from_utf8_lossy(response.body())
             ))
         }
     }

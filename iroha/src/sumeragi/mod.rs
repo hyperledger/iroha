@@ -841,7 +841,7 @@ pub mod message {
         time::{Duration, Instant, SystemTime},
     };
 
-    use eyre::{eyre, Result, WrapErr};
+    use eyre::{Result, WrapErr};
     use iroha_actor::broker::Broker;
     use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
     use iroha_data_model::prelude::*;
@@ -855,6 +855,7 @@ pub mod message {
     use super::view_change;
     use crate::{
         genesis::GenesisNetworkTrait,
+        queue,
         sumeragi::{NetworkMessage, Role, Sumeragi, Topology, VotingBlock},
         wsv::WorldTrait,
         VersionedAcceptedTransaction, VersionedValidBlock,
@@ -1378,15 +1379,13 @@ pub mod message {
                 .send_to(&sumeragi.broker, &self.peer)
                 .await;
             }
-            sumeragi
-                .queue
-                .push(self.transaction, &*sumeragi.wsv)
-                .map_err(|tx| {
-                    eyre!(
-                        "Failed to push tx into queue. Queue is full. Hash = {:?}",
-                        tx.hash()
-                    )
-                })
+            let hash = self.transaction.hash();
+            let push_result = sumeragi.queue.push(self.transaction, &*sumeragi.wsv);
+            match push_result {
+                Ok(()) | Err(queue::Error::AlreadyInBlockchain) => Ok(()),
+                Err(err) => Err(err)
+                    .wrap_err_with(|| format!("Failed to push tx into queue. Hash = {}", hash)),
+            }
         }
     }
 

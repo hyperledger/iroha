@@ -4,10 +4,27 @@ use std::time::Duration;
 
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
-use eyre::Result;
+use eyre::{Report, Result};
 
 use self::config::QueueConfiguration;
 use crate::{prelude::*, wsv::WorldTrait};
+
+/// Queue error.
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    /// Transaction expired.
+    #[error("Transaction expired.")]
+    TransactionExpired,
+    /// Transaction is already in blockchain.
+    #[error("Transaction is already in blockchain.")]
+    AlreadyInBlockchain,
+    /// Failure during signature condition execution.
+    #[error("Failure during signature condition execution: `{0}`")]
+    SignatureConditionExecution(#[source] Report),
+    /// The transaction queue is full.
+    #[error("The transaction queue is full.")]
+    QueueIsFull,
+}
 
 /// Lockfree queue for transactions
 ///
@@ -42,9 +59,26 @@ impl Queue {
         self.txs.iter().map(|t| t.value().clone()).collect()
     }
 
-    /// Pushes transaction into queue
+    fn check_tx<W: WorldTrait>(
+        &self,
+        tx: &VersionedAcceptedTransaction,
+        wsv: &WorldStateView<W>,
+    ) -> Result<(), Error> {
+        if tx.is_expired(self.ttl) {
+            Err(Error::TransactionExpired)
+        } else if tx.is_in_blockchain(wsv) {
+            Err(Error::AlreadyInBlockchain)
+        } else if let Err(err) = tx.check_signature_condition(wsv) {
+            Err(Error::SignatureConditionExecution(err))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Pushes transaction into queue.
+    ///
     /// # Errors
-    /// Returns transaction if queue is full
+    /// See [`Error`]
     #[allow(
         clippy::unwrap_in_result,
         clippy::expect_used,
@@ -54,19 +88,13 @@ impl Queue {
         &self,
         tx: VersionedAcceptedTransaction,
         wsv: &WorldStateView<W>,
-    ) -> Result<(), VersionedAcceptedTransaction> {
-        if tx.is_expired(self.ttl) {
-            iroha_logger::warn!("Transaction expired");
-            return Err(tx);
+    ) -> Result<(), Error> {
+        // Should always check transactions to prevent eternal gossiping of wrong txs.
+        if let Err(error) = self.check_tx(&tx, wsv) {
+            return Err(error);
         }
-        if tx.is_in_blockchain(wsv) {
-            iroha_logger::warn!("Transaction is already applied");
-            return Err(tx);
-        }
-
         if self.txs.len() >= self.max_txs {
-            iroha_logger::warn!("Transaction queue is full");
-            return Err(tx);
+            return Err(Error::QueueIsFull);
         }
 
         let hash = tx.hash();
@@ -84,12 +112,11 @@ impl Queue {
         };
 
         entry.insert(tx);
-        self.queue.push(hash).map_err(|hash| {
-            self.txs
-                .remove(&hash)
-                .expect("Inserted just before match")
-                .1
-        })
+        if self.queue.push(hash).is_err() {
+            self.txs.remove(&hash).expect("Inserted just before match");
+            return Err(Error::QueueIsFull);
+        }
+        Ok(())
     }
 
     /// Pops single transaction.
@@ -112,38 +139,29 @@ impl Queue {
                 // As practice shows this code is not `unreachable!()`. When transactions are submitted quickly it can be reached.
                 Entry::Vacant(_) => continue,
             };
-
-            if entry.get().is_expired(self.ttl) {
-                iroha_logger::warn!("Transaction expired");
+            if let Err(error) = self.check_tx(entry.get(), wsv) {
+                iroha_logger::warn!("Transaction dropped from queue due to: {}", error);
                 entry.remove_entry();
                 continue;
             }
-            if entry.get().is_in_blockchain(wsv) {
-                iroha_logger::warn!("Transaction is already committed or rejected.");
+            let sig_condition = if let Ok(condition) = entry.get().check_signature_condition(wsv) {
+                condition
+            } else {
                 entry.remove_entry();
                 continue;
-            }
-
-            let sig_condition = match entry.get().check_signature_condition(wsv) {
-                Ok(condition) => condition,
-                Err(error) => {
-                    iroha_logger::error!(%error, "Error in signature condition validation");
-                    entry.remove_entry();
-                    continue;
-                }
             };
 
             seen.push(hash);
 
             if sig_condition {
-                return Some(entry.remove());
+                return Some(entry.get().clone());
             }
         }
     }
 
     /// Gets transactions till they fill whole block or till the end of queue.
     ///
-    /// BEWARE: Shouldn't be called concurently, as it can become inconsistent
+    /// BEWARE: Shouldn't be called in parallel with itself.
     #[allow(clippy::missing_panics_doc, clippy::unwrap_in_result)]
     pub fn get_transactions_for_block<W: WorldTrait>(
         &self,
@@ -161,7 +179,6 @@ impl Queue {
         seen.into_iter()
             .try_for_each(|hash| self.queue.push(hash))
             .expect("As we never exceed the number of transactions pending");
-
         out
     }
 }
@@ -206,12 +223,14 @@ mod tests {
     #![allow(clippy::restriction, clippy::all, clippy::pedantic)]
 
     use std::{
-        collections::{BTreeMap, BTreeSet},
+        iter,
+        sync::Arc,
         thread,
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
+    use rand::Rng;
 
     use super::*;
     use crate::wsv::World;
@@ -252,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn push_available_tx() {
+    fn push_tx() {
         let queue = Queue::from_configuration(&QueueConfiguration {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
@@ -263,32 +282,58 @@ mod tests {
         ));
 
         queue
-            .push(accepted_tx("account", "domain", 100_000, None), &wsv)
+            .push(accepted_tx("alice", "wonderland", 100_000, None), &wsv)
             .expect("Failed to push tx into queue");
     }
 
     #[test]
-    fn push_available_tx_overflow() {
-        let max_max_txs = 10;
+    fn push_tx_overflow() {
+        let max_txs_in_queue = 10;
         let queue = Queue::from_configuration(&QueueConfiguration {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: max_max_txs,
+            maximum_transactions_in_queue: max_txs_in_queue,
         });
         let wsv = WorldStateView::new(world_with_test_domains(
             KeyPair::generate().unwrap().public_key,
         ));
 
-        for _ in 0..max_max_txs {
+        for _ in 0..max_txs_in_queue {
             queue
-                .push(accepted_tx("account", "domain", 100_000, None), &wsv)
+                .push(accepted_tx("alice", "wonderland", 100_000, None), &wsv)
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
-        assert!(queue
-            .push(accepted_tx("account", "domain", 100_000, None), &wsv)
-            .is_err());
+        assert!(matches!(
+            queue.push(accepted_tx("alice", "wonderland", 100_000, None), &wsv),
+            Err(Error::QueueIsFull)
+        ));
+    }
+
+    #[test]
+    fn push_tx_signature_condition_failure() {
+        let max_txs_in_queue = 10;
+        let queue = Queue::from_configuration(&QueueConfiguration {
+            maximum_transactions_in_block: 2,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: max_txs_in_queue,
+        });
+        let wsv = WorldStateView::new(world_with_test_domains(
+            KeyPair::generate().unwrap().public_key,
+        ));
+        let mut domain = wsv.domain_mut("wonderland").unwrap();
+        domain
+            .accounts
+            .get_mut(&<Account as Identifiable>::Id::new("alice", "wonderland"))
+            .unwrap()
+            .signature_check_condition = SignatureCheckCondition(0_u32.into());
+        drop(domain);
+
+        assert!(matches!(
+            queue.push(accepted_tx("alice", "wonderland", 100_000, None), &wsv),
+            Err(Error::SignatureConditionExecution(_))
+        ));
     }
 
     #[test]
@@ -300,7 +345,7 @@ mod tests {
         });
         let tx = Transaction::new(
             Vec::new(),
-            <Account as Identifiable>::Id::new("account", "domain"),
+            <Account as Identifiable>::Id::new("alice", "wonderland"),
             100_000,
         );
         let get_tx = || {
@@ -355,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn drop_tx_if_in_blockchain() {
+    fn push_tx_already_in_blockchain() {
         let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let wsv = WorldStateView::new(world_with_test_domains(alice_key.public_key.clone()));
@@ -366,8 +411,28 @@ mod tests {
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
         });
-        assert!(queue.push(tx, &wsv).is_err());
+        assert!(matches!(
+            queue.push(tx, &wsv),
+            Err(Error::AlreadyInBlockchain)
+        ));
+        assert_eq!(queue.txs.len(), 0);
+    }
+
+    #[test]
+    fn get_tx_drop_if_in_blockchain() {
+        let max_block_tx = 2;
+        let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let wsv = WorldStateView::new(world_with_test_domains(alice_key.public_key.clone()));
+        let tx = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
+        let queue = Queue::from_configuration(&QueueConfiguration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100,
+        });
+        queue.push(tx.clone(), &wsv).unwrap();
+        wsv.transactions.insert(tx.hash());
         assert_eq!(queue.get_transactions_for_block(&wsv).len(), 0);
+        assert_eq!(queue.txs.len(), 0);
     }
 
     #[test]
@@ -399,7 +464,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(101));
         assert_eq!(queue.get_transactions_for_block(&wsv).len(), 1);
 
-        let wsv = WorldStateView::new(World::new());
+        let wsv = WorldStateView::new(world_with_test_domains(alice_key.public_key.clone()));
 
         queue
             .push(
@@ -407,76 +472,27 @@ mod tests {
                 &wsv,
             )
             .expect("Failed to push tx into queue");
-        std::thread::sleep(Duration::from_millis(101));
+        std::thread::sleep(Duration::from_millis(210));
         assert_eq!(queue.get_transactions_for_block(&wsv).len(), 0);
     }
 
-    #[test]
-    fn get_available_txs_on_leader() {
-        let max_block_tx = 2;
-
-        let alice_key_1 = KeyPair::generate().unwrap();
-        let alice_key_2 = KeyPair::generate().unwrap();
-
-        let mut domain = Domain::new("wonderland");
-        let account_id = AccountId::new("alice", "wonderland");
-        let mut account = Account::new(account_id.clone());
-        account.signatories.push(alice_key_1.public_key.clone());
-        account.signatories.push(alice_key_2.public_key.clone());
-        domain.accounts.insert(account_id, account);
-        let mut domains = BTreeMap::new();
-        domains.insert("wonderland".to_string(), domain);
-
-        let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
-        let queue = Queue::from_configuration(&QueueConfiguration {
-            maximum_transactions_in_block: max_block_tx,
-            transaction_time_to_live_ms: 100_000,
-            maximum_transactions_in_queue: 100,
-        });
-
-        let bob_key = KeyPair::generate().expect("Failed to generate keypair.");
-        let alice_tx_1 = accepted_tx("alice", "wonderland", 1000, Some(&alice_key_1));
-        thread::sleep(Duration::from_millis(10));
-        let alice_tx_2 = accepted_tx("alice", "wonderland", 1000, Some(&alice_key_2));
-        thread::sleep(Duration::from_millis(10));
-        let alice_tx_3 = accepted_tx("alice", "wonderland", 1000, Some(&bob_key));
-        thread::sleep(Duration::from_millis(10));
-        let alice_tx_4 = accepted_tx("alice", "wonderland", 1000, Some(&alice_key_1));
-        queue.push(alice_tx_1.clone(), &wsv).unwrap();
-        queue.push(alice_tx_2.clone(), &wsv).unwrap();
-        queue.push(alice_tx_3, &wsv).unwrap();
-        queue.push(alice_tx_4, &wsv).unwrap();
-        let output_txs: Vec<_> = queue
-            .get_transactions_for_block(&wsv)
-            .into_iter()
-            .map(|tx| tx.hash())
-            .collect::<Vec<_>>();
-
-        assert_eq!(output_txs, vec![alice_tx_1.hash(), alice_tx_2.hash()]);
-    }
-
+    // Queue should only drop transactions which are already committed or ttl expired.
+    // Others should stay in the queue until that moment.
     #[test]
     fn transactions_available_after_pop() {
-        let max_block_tx = 2;
-
-        let alice_key_1 = KeyPair::generate().unwrap();
-        let alice_key_2 = KeyPair::generate().unwrap();
-
-        let mut domain = Domain::new("wonderland");
-        let account_id = AccountId::new("alice", "wonderland");
-        let mut account = Account::new(account_id.clone());
-        account.signatories.push(alice_key_1.public_key.clone());
-        account.signatories.push(alice_key_2.public_key.clone());
-        domain.accounts.insert(account_id, account);
-        let mut domains = BTreeMap::new();
-        domains.insert("wonderland".to_string(), domain);
-
-        let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
+        let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let wsv = WorldStateView::new(world_with_test_domains(alice_key.public_key.clone()));
         let queue = Queue::from_configuration(&QueueConfiguration {
-            maximum_transactions_in_block: max_block_tx,
+            maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
         });
+        queue
+            .push(
+                accepted_tx("alice", "wonderland", 100_000, Some(&alice_key)),
+                &wsv,
+            )
+            .expect("Failed to push tx into queue");
 
         let a = queue
             .get_transactions_for_block(&wsv)
@@ -488,7 +504,69 @@ mod tests {
             .into_iter()
             .map(|tx| tx.hash())
             .collect::<Vec<_>>();
-
+        assert_eq!(a.len(), 1);
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn concurrent_stress_test() {
+        let max_block_tx = 10;
+        let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
+            alice_key.public_key.clone(),
+        )));
+        let queue = Arc::new(Queue::from_configuration(&QueueConfiguration {
+            maximum_transactions_in_block: max_block_tx,
+            transaction_time_to_live_ms: 100_000,
+            maximum_transactions_in_queue: 100_000_000,
+        }));
+
+        let start_time = Instant::now();
+        let run_for = Duration::from_secs(5);
+
+        let queue_arc_clone_1 = Arc::clone(&queue);
+        let queue_arc_clone_2 = Arc::clone(&queue);
+        let wsv_arc_clone_1 = Arc::clone(&wsv);
+        let wsv_arc_clone_2 = Arc::clone(&wsv);
+
+        // Spawn a thread where we push transactions
+        let push_txs_handle = thread::spawn(move || {
+            while start_time.elapsed() < run_for {
+                let tx = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
+                match queue_arc_clone_1.push(tx, &wsv_arc_clone_1) {
+                    Ok(()) => (),
+                    Err(Error::QueueIsFull) => (),
+                    Err(err) => panic!("{}", err),
+                }
+            }
+        });
+
+        // Spawn a thread where we get_transactions_for_block and add them to WSV
+        let get_txs_handle = thread::spawn(move || {
+            while start_time.elapsed() < run_for {
+                for tx in queue_arc_clone_2.get_transactions_for_block(&wsv_arc_clone_2) {
+                    wsv_arc_clone_2.transactions.insert(tx.hash());
+                }
+                // Simulate random small delays
+                thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0, 25)));
+            }
+        });
+
+        push_txs_handle.join().unwrap();
+        get_txs_handle.join().unwrap();
+
+        // Last update for queue to drop invalid txs.
+        let _ = queue.get_transactions_for_block(&wsv);
+
+        // Validate the queue state.
+        let array_queue: Vec<_> = iter::repeat_with(|| queue.queue.pop())
+            .take_while(Option::is_some)
+            .map(Option::unwrap)
+            .collect();
+
+        assert_eq!(array_queue.len(), queue.txs.len());
+        for tx in array_queue {
+            assert!(queue.txs.contains_key(&tx));
+        }
     }
 }
