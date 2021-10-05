@@ -1,5 +1,5 @@
 [package]
-name = "iroha"
+name = "iroha_core"
 version = "0.1.0"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2018"

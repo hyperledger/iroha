@@ -8,7 +8,7 @@ use std::{
 };
 
 use color_eyre::eyre::WrapErr;
-use iroha::config::Configuration;
+use iroha_core::config::Configuration;
 use iroha_config::Configurable;
 use serde_json::{Map, Value};
 

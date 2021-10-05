@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha::{
+use iroha_core::{
     prelude::*,
     sumeragi::view_change,
     tx::AcceptedTransaction,

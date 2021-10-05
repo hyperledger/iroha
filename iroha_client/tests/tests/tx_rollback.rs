@@ -2,7 +2,7 @@
 
 use std::thread;
 
-use iroha::config::Configuration;
+use iroha_core::config::Configuration;
 use iroha_client::client;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};

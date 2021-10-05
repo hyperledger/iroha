@@ -2,7 +2,7 @@
 
 use std::{thread, time::Duration};
 
-use iroha::{
+use iroha_core::{
     config::Configuration,
     genesis::{GenesisNetwork, GenesisNetworkTrait},
 };

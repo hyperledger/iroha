@@ -2,7 +2,7 @@
 
 use std::{thread, time::Duration};
 
-use iroha::{config::Configuration, prelude::*};
+use iroha_core::{config::Configuration, prelude::*};
 use iroha_client::{
     client::{self, Client},
     config::Configuration as ClientConfiguration,

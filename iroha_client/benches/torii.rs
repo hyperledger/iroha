@@ -3,7 +3,7 @@
 use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use iroha::{
+use iroha_core::{
     config::Configuration,
     genesis::{GenesisNetwork, GenesisNetworkTrait},
     prelude::*,

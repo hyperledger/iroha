@@ -56,9 +56,9 @@ cp ./target/debug/iroha_cli iroha_deploy
 
 Copy and if necessary edit config, genesis and trusted peers.
 ```bash
-cp ./iroha/config.json iroha_deploy
-cp ./iroha/genesis.json iroha_deploy
-cp ./iroha/trusted_peers.json iroha_deploy
+cp ./iroha_core/config.json iroha_deploy
+cp ./iroha_core/genesis.json iroha_deploy
+cp ./iroha_core/trusted_peers.json iroha_deploy
 ```
 
 Depending on how many peers you plan to run, update the config:

@@ -3,7 +3,7 @@
 use std::thread;
 
 use eyre::Result;
-use iroha::{config::Configuration, prelude::*};
+use iroha_core::{config::Configuration, prelude::*};
 use iroha_client::client;
 use iroha_data_model::prelude::*;
 use test_network::*;

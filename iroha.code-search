@@ -1,0 +1,15 @@
+# Query: iroha
+# Flags: CaseSensitive WordMatch
+
+5 results - 3 files
+
+.gitignore:
+  32: docker/build/iroha.tar
+  36: docker/tiny/iroha/
+  39: iroha.conf
+
+docs/source/conf.py:
+  155:     (master_doc, 'iroha', documentation,
+
+docs/source/references/api_spec.md:
+  137: - `Metrics` - `iroha::maintenance::Metrics`

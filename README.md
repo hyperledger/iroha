@@ -41,7 +41,7 @@ More details about different ways to use Iroha application can be found [here](h
 With the `docker-compose` instance running,
 
 ```bash
-cp iroha_client/config.json target/debug/
+cp client/config.json target/debug/
 cd target/debug
 ./iroha_client_cli --help
 ```

@@ -11,7 +11,7 @@ When you need to add some functionality to Iroha, use this guide to develop a ne
 
 ### 1. Create new Rust module inside Iroha crate
 
-Inside `iroha/src/lib.rs` add a declaration of your new module.
+Inside `iroha_core/src/lib.rs` add a declaration of your new module.
 For example, for `bridge` module we add the following declaration,
 
 ```rust
@@ -23,8 +23,8 @@ so for you module `x` you would add `pub mod x;`.
 You should also place your new module under the [Cargo feature](https://doc.rust-lang.org/cargo/reference/features.html) so other developers would be able to turn it on and off when needed.
 
 Now, create a separate file for your module.
-For `bridge` module it will be `iroha/src/bridge.rs`.
-Likewise, for your module `x` you will need to create a new file `iroha/src/x.rs`.
+For `bridge` module it will be `iroha_core/src/bridge.rs`.
+Likewise, for your module `x` you will need to create a new file `iroha_core/src/x.rs`.
 
 ### 2. Add documentation
 

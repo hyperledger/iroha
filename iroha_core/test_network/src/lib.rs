@@ -11,7 +11,7 @@ use std::{convert::TryFrom, fmt::Debug, thread, time::Duration};
 
 use eyre::{Error, Result};
 use futures::future;
-use iroha::{
+use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     config::Configuration,
     genesis::{GenesisNetwork, GenesisNetworkTrait},

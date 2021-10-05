@@ -2,7 +2,7 @@
 
 use std::thread;
 
-use iroha::{config::Configuration, prelude::AllowAll};
+use iroha_core::{config::Configuration, prelude::AllowAll};
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::{private_blockchain, public_blockchain};

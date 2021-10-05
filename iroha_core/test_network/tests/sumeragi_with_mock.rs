@@ -9,7 +9,7 @@ use std::{fmt::Debug, num::NonZeroU64, ops::Deref, path::Path, sync::Arc, time::
 
 use async_trait::async_trait;
 use eyre::Result;
-use iroha::{
+use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait, ContinueSync},
     event::EventsSender,
     genesis::{config::GenesisConfiguration, GenesisNetworkTrait},
@@ -35,7 +35,7 @@ pub mod utils {
     use super::*;
 
     pub mod genesis {
-        use iroha::IrohaNetwork;
+        use iroha_core::IrohaNetwork;
 
         use super::*;
 
@@ -72,7 +72,7 @@ pub mod utils {
     }
 
     pub mod kura {
-        use iroha::{kura::Mode, sumeragi};
+        use iroha_core::{kura::Mode, sumeragi};
 
         use super::*;
 
@@ -128,7 +128,7 @@ pub mod utils {
     pub mod sumeragi {
         use std::{fmt::Debug, marker::PhantomData, ops::DerefMut};
 
-        use iroha::{
+        use iroha_core::{
             smartcontracts::permissions::IsQueryAllowedBoxed, IrohaNetwork, NetworkMessage,
         };
         use iroha_actor::Message;
@@ -493,7 +493,7 @@ pub mod utils {
     pub mod world {
         use std::ops::{Deref, DerefMut};
 
-        use iroha::{prelude::*, tx::Domain, wsv::WorldTrait};
+        use iroha_core::{prelude::*, tx::Domain, wsv::WorldTrait};
         use iroha_data_model::{prelude::*, world::World};
         use once_cell::sync::Lazy;
 

@@ -9,7 +9,7 @@ use std::{
 
 use eyre::{eyre, Error, Result, WrapErr};
 use http_client::WebSocketStream;
-use iroha::{smartcontracts::Query, wsv::World};
+use iroha_core::{smartcontracts::Query, wsv::World};
 use iroha_crypto::{Hash, KeyPair};
 use iroha_dsl::prelude::*;
 use iroha_logger::log;
@@ -560,7 +560,7 @@ pub mod transaction {
 }
 
 /// URI that `Client` uses to route outgoing requests.
-//TODO: remove duplication with `iroha::torii::uri`.
+//TODO: remove duplication with `iroha_core::torii::uri`.
 pub mod uri {
     //! Module with uri constants
 

@@ -1,7 +1,7 @@
 #![allow(missing_docs, clippy::restriction)]
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha::sumeragi::network_topology;
+use iroha_core::sumeragi::network_topology;
 use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
 

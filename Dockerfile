@@ -26,24 +26,24 @@ FROM rust-base as cargo-chef
 RUN cargo install cargo-chef
 
 FROM cargo-chef as planner
-WORKDIR /iroha
+WORKDIR /iroha_core
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM cargo-chef as builder
 ARG PROFILE
-WORKDIR /iroha
-COPY --from=planner /iroha/recipe.json recipe.json
+WORKDIR /iroha_core
+COPY --from=planner /iroha_core/recipe.json recipe.json
 RUN cargo chef cook $PROFILE --recipe-path recipe.json
 COPY . .
 RUN cargo build $PROFILE --all
 
 FROM $BASE_IMAGE
-COPY iroha/config.json .
-COPY iroha/trusted_peers.json .
-COPY iroha/genesis.json .
+COPY iroha_core/config.json .
+COPY iroha_core/trusted_peers.json .
+COPY iroha_core/genesis.json .
 ARG BIN=iroha_cli
 ARG TARGET_DIR=debug
-COPY --from=builder /iroha/target/$TARGET_DIR/$BIN .
+COPY --from=builder /iroha_core/target/$TARGET_DIR/$BIN .
 ENV IROHA_TARGET_BIN=$BIN
 CMD ./$IROHA_TARGET_BIN

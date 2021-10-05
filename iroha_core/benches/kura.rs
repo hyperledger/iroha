@@ -4,7 +4,7 @@ use std::num::NonZeroU64;
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha::{
+use iroha_core::{
     kura::{config::KuraConfiguration, BlockStore},
     prelude::*,
     wsv::World,

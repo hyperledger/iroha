@@ -1358,48 +1358,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b33c9a5c599d67d051c4dc25eb1b6b4ef715d1763c20c85c688717a1734f204e"
 
 [[package]]
-name = "iroha"
-version = "0.1.0"
-dependencies = [
- "async-stream",
- "async-trait",
- "byte-unit",
- "chrono",
- "criterion",
- "crossbeam-queue",
- "dashmap",
- "eyre",
- "futures",
- "hex",
- "hex-literal",
- "iroha_actor",
- "iroha_config",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_derive",
- "iroha_futures",
- "iroha_logger",
- "iroha_macro",
- "iroha_p2p",
- "iroha_schema",
- "iroha_telemetry",
- "iroha_version",
- "maplit",
- "parity-scale-codec",
- "rand 0.7.3",
- "serde",
- "serde_json",
- "structopt",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tracing",
- "unique_port",
- "warp",
-]
-
-[[package]]
 name = "iroha_actor"
 version = "0.1.0"
 dependencies = [
@@ -1421,7 +1379,7 @@ name = "iroha_cli"
 version = "0.1.0"
 dependencies = [
  "color-eyre",
- "iroha",
+ "iroha_core",
  "iroha_logger",
  "iroha_permissions_validators",
  "structopt",
@@ -1440,8 +1398,8 @@ dependencies = [
  "eyre",
  "futures",
  "http",
- "iroha",
  "iroha_config",
+ "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
  "iroha_derive",
@@ -1494,6 +1452,48 @@ dependencies = [
  "quote",
  "syn",
  "trybuild",
+]
+
+[[package]]
+name = "iroha_core"
+version = "0.1.0"
+dependencies = [
+ "async-stream"
+ "async-trait",
+ "byte-unit",
+ "chrono",
+ "criterion",
+ "crossbeam-queue",
+ "dashmap",
+ "eyre",
+ "futures",
+ "hex",
+ "hex-literal",
+ "iroha_actor",
+ "iroha_config",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_derive",
+ "iroha_futures",
+ "iroha_logger",
+ "iroha_macro",
+ "iroha_p2p",
+ "iroha_schema",
+ "iroha_telemetry",
+ "iroha_version",
+ "maplit",
+ "parity-scale-codec",
+ "rand 0.7.3",
+ "serde",
+ "serde_json",
+ "structopt",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "unique_port",
+ "warp",
 ]
 
 [[package]]
@@ -1561,8 +1561,8 @@ name = "iroha_docs"
 version = "0.1.0"
 dependencies = [
  "color-eyre",
- "iroha",
  "iroha_config",
+ "iroha_core",
  "serde_json",
 ]
 
@@ -1570,8 +1570,8 @@ dependencies = [
 name = "iroha_dsl"
 version = "0.1.0"
 dependencies = [
- "iroha",
  "iroha_client",
+ "iroha_core",
  "iroha_data_model",
  "port_check",
  "tempfile",
@@ -1643,7 +1643,7 @@ dependencies = [
 name = "iroha_permissions_validators"
 version = "0.1.0"
 dependencies = [
- "iroha",
+ "iroha_core",
  "iroha_data_model",
  "iroha_macro",
  "maplit",
@@ -1666,7 +1666,7 @@ name = "iroha_schema_bin"
 version = "0.1.0"
 dependencies = [
  "eyre",
- "iroha",
+ "iroha_core",
  "iroha_data_model",
  "iroha_schema",
  "serde_json",
@@ -2891,10 +2891,10 @@ dependencies = [
  "color-eyre",
  "eyre",
  "futures",
- "iroha",
  "iroha_actor",
  "iroha_client",
  "iroha_config",
+ "iroha_core",
  "iroha_data_model",
  "iroha_logger",
  "iroha_p2p",

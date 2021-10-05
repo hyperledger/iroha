@@ -10,7 +10,7 @@ edition = "2018"
 roles = ["iroha_data_model/roles"]
 
 [dependencies]
-iroha = { path = "../iroha"}
+iroha_core = { path = "../iroha_core"}
 iroha_data_model = { path = "../iroha_data_model" }
 iroha_macro = { path = "../iroha_macro" }
 

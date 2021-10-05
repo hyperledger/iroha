@@ -4,7 +4,7 @@
 
 use std::{collections::BTreeMap, convert::TryInto};
 
-use iroha::{
+use iroha_core::{
     prelude::*,
     smartcontracts::{
         permissions::{
@@ -1891,7 +1891,7 @@ pub mod public_blockchain {
 
         use std::collections::{BTreeMap, BTreeSet};
 
-        use iroha::wsv::World;
+        use iroha_core::wsv::World;
         use maplit::{btreemap, btreeset};
 
         use super::*;

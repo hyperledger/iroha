@@ -2,7 +2,7 @@
 
 use std::{str::FromStr, thread, time::Duration};
 
-use iroha::{config::Configuration, prelude::*};
+use iroha_core::{config::Configuration, prelude::*};
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;

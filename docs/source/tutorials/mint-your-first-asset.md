@@ -16,7 +16,7 @@ Use this tutorial to master Iroha Special Instructions in general and `MintAsset
 Inside `path_to_your_project/Cargo.toml` add a new dependency:
 
 ```toml
-iroha = "2.0.0"
+iroha_core = "2.0.0"
 ```
 
 ### 2. Find a place where you need to mint an asset

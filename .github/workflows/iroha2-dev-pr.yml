@@ -103,7 +103,7 @@ jobs:
             llvm-dev
       - name: Run iroha tests with network mock
         run: cargo test --features mock -- --ignored
-        working-directory: iroha/test_network
+        working-directory: iroha_core/test_network
 
   test-deadlock-detection:
     runs-on: [self-hosted, Linux] #ubuntu-latest
