@@ -185,7 +185,7 @@ Run in terminal:
 
   git clone https://github.com/hyperledger/iroha.git
   iroha/vcpkg/build_iroha_deps.sh
-  iroha/vcpkg-build/vcpkg integrate install
+  vcpkg-build/vcpkg integrate install
 
 After the installation of vcpkg you will be provided with a CMake build parameter like
 ``-DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
@@ -212,30 +212,18 @@ Save it somewhere for later use and move to `Building Iroha <#build-process>`_ s
 Build Process
 =============
 
-Cloning the Repository
-^^^^^^^^^^^^^^^^^^^^^^
-This step is currently unnecessary since you have already cloned Iroha in the previous step.
-But if you want, you can clone the `Iroha repository <https://github.com/hyperledger/iroha>`_ to the
-directory of your choice.
-
-.. code-block:: shell
-
-  git clone -b master https://github.com/hyperledger/iroha
-  cd iroha
-
-.. hint:: If you have installed the prerequisites with Docker, you don't need
-  to clone Iroha again, because when you run ``run-iroha-dev.sh`` it attaches
-  to Iroha source code folder. Feel free to edit source code files with your
-  host environment and build it within docker container.
-
-
 Building Iroha
 ^^^^^^^^^^^^^^
 
-To build Iroha, use these commands:
+Cloning the repository is currently unnecessary since you have already cloned Iroha in the previous step.
+But if you want, you can clone the `Iroha repository <https://github.com/hyperledger/iroha>`_ to the
+directory of your choice by using the ``git clone -b master https://github.com/hyperledger/iroha`` command.
+
+Now, to build Iroha, use these commands:
 
 .. code-block:: shell
 
+  cd iroha
   mkdir build
   cd build
   cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja" ..
@@ -245,6 +233,7 @@ To build Iroha, use these commands:
 
 .. code-block:: shell
 
+  cd iroha
   mkdir build
   cd build
   cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja" ..
@@ -262,6 +251,8 @@ Number of threads will be defined differently depending on the platform:
 .. note:: When building on Windows do not execute this from the Power Shell. Better use x64 Native tools command prompt.
 
 Now Iroha is built. Although, if you like, you can build it with additional parameters described below.
+
+If you are content with the results, you can move to the next step and `run an Iroha instance <../deploy/single.html>`_. 
 
 CMake Parameters
 ^^^^^^^^^^^^^^^^
