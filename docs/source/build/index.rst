@@ -110,6 +110,12 @@ Use this code to install environment dependencies on Debian-based Linux distro.
   build-essential ninja-build \
   git ca-certificates tar curl unzip cmake
 
+.. Important:: If you would like to use `Burrow integration <../integrations/burrow.html>`_ you will also need GO. Install it following the instructions on `the official website <https://golang.org/doc/install>`_ and then use the following command:
+
+.. code-block:: shell
+
+  go get github.com/golang/protobuf/protoc-gen-go
+
 .. note::  If you are willing to actively develop Iroha and to build shared
   libraries, please consider installing the
   `latest release <https://cmake.org/download/>`_ of CMake.
@@ -132,6 +138,12 @@ to install all environment dependencies with Homebrew:
 .. hint:: To install the Homebrew itself please run
 
   ``ruby -e "$(curl -fsSL https://raw.githubusercontent.com/homebrew/install/master/install)"``
+
+.. Important:: If you would like to use `Burrow integration <../integrations/burrow.html>`_ you will also need GO. Install it following the instructions on `the official website <https://golang.org/doc/install>`_ and then use the following command:
+
+.. code-block:: shell
+
+  go get github.com/golang/protobuf/protoc-gen-go
 
 Now you are ready to `install Iroha dependencies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
 
