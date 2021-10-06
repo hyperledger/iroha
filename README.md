@@ -54,14 +54,26 @@ More details about Iroha Client CLI can be found [here](https://github.com/hyper
 
 ## Project Structure
 
-Iroha project consists of the following crates:
+Iroha project mainly consists of the following crates:
 
-* [Iroha](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha/README.md) application for Peers deployment.
-* [Iroha Client](https://github.com/hyperledger/iroha/blob/iroha2-dev/client/README.md) Rust Library.
-* [Iroha Client Command Line Interface](https://github.com/hyperledger/iroha/blob/iroha2-dev/client_cli/README.md).
-* [Iroha Macro](https://github.com/hyperledger/iroha/blob/iroha2-dev/macro/README.md) Rust Library with macroses.
-* [Iroha Network](https://github.com/hyperledger/iroha/blob/iroha2-dev/network/README.md) Web Protocol Library.
-* [Iroha Substrate](https://github.com/hyperledger/iroha/blob/iroha2-dev/substrate/README.md) application.
+* [`iroha`](cli) is CLI binary for peer deployment
+* [`iroha_actor`](actor) provide message passing model among Iroha components
+* [`iroha_client`](client) provide library for building peer operating clients
+* [`iroha_client_cli`](client_cli) is a client implementation: CLI binary for peer operation
+* [`iroha_config`](config) support configurations
+* [`iroha_core`](core) is the primary library
+* [`iroha_crypto`](crypto) support cryptographic aspects of Iroha
+* [`iroha_crypto_cli`](crypto_cli) generate cryptographic keys
+* [`iroha_data_model`](data_model) define common data models in Iroha
+* [`iroha_dsl`](dsl) provide declarative API for various requests
+* [`iroha_futures`](futures) support asynchronous aspects of Iroha
+* [`iroha_logger`](logger) serve logging with various layers and levels
+* [`iroha_macro`](macro) provide macros for code writing
+* [`iroha_p2p`](p2p) define network interface between peers
+* [`iroha_permissions_validators`](permissions_validators) check permissions on various requests
+* [`iroha_substrate`](substrate) bridge substrate `XClaim` external module
+* [`iroha_telemetry`](telemetry) provide telemetry monitoring and analysis
+* [`iroha_version`](version) provide versioning of a message between peers for non-simultaneous system updates
 
 ### Want to help us develop Iroha?
 

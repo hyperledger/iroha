@@ -1447,7 +1447,7 @@ dependencies = [
 name = "iroha_core"
 version = "0.1.0"
 dependencies = [
- "async-stream"
+ "async-stream",
  "async-trait",
  "byte-unit",
  "chrono",
