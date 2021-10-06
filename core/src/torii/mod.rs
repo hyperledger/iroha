@@ -503,7 +503,7 @@ mod tests {
                 QueryBox::FindAllDomains(Default::default()),
                 AccountId::new("alice", "wonderland"),
             )
-            .sign(&keys)
+            .sign(keys.clone())
             .expect("Failed to sign query with keys")
             .try_into()
             .expect("Failed to verify");
@@ -536,7 +536,7 @@ mod tests {
             QueryBox::FindAllDomains(Default::default()),
             AccountId::new("bob", "wonderland"),
         )
-        .sign(&keys)
+        .sign(keys.clone())
         .expect("Failed to sign query with keys")
         .try_into()
         .expect("Failed to verify");

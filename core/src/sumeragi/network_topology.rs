@@ -2,24 +2,27 @@
 
 use std::{collections::HashSet, convert::TryInto, iter};
 
-use eyre::{eyre, Result};
-use iroha_crypto::{Hash, Signature};
-use iroha_data_model::prelude::PeerId;
+use eyre::{eyre, Context, Result};
+use iroha_crypto::{Hash, HashOf, SignatureOf};
+use iroha_data_model::{prelude::PeerId, transaction::VersionedTransaction};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 use super::view_change::{self, ProofChain as ViewChangeProofs};
-use crate::block::EmptyChainHash;
+use crate::block::{EmptyChainHash, VersionedCommittedBlock, VersionedValidBlock};
 
 /// Sorts peers based on the `hash`.
-pub fn sort_peers_by_hash(peers: Vec<PeerId>, hash: Hash) -> Vec<PeerId> {
+pub fn sort_peers_by_hash(
+    peers: Vec<PeerId>,
+    hash: &HashOf<VersionedCommittedBlock>,
+) -> Vec<PeerId> {
     sort_peers_by_hash_and_counter(peers, hash, 0)
 }
 
 /// Sorts peers based on the `hash` and `counter` combined as a seed.
 pub fn sort_peers_by_hash_and_counter(
     mut peers: Vec<PeerId>,
-    hash: Hash,
+    hash: &HashOf<VersionedCommittedBlock>,
     counter: u64,
 ) -> Vec<PeerId> {
     peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
@@ -135,7 +138,7 @@ impl GenesisBuilder {
             sorted_peers,
             max_faults: max_faults.try_into()?,
             reshuffle_after_n_view_changes,
-            at_block: EmptyChainHash.into(),
+            at_block: EmptyChainHash::default().into(),
             view_change_proofs: ViewChangeProofs::empty(),
         })
     }
@@ -151,7 +154,7 @@ pub struct Builder {
 
     reshuffle_after_n_view_changes: Option<u64>,
 
-    at_block: Option<Hash>,
+    at_block: Option<HashOf<VersionedCommittedBlock>>,
 
     view_change_proofs: ViewChangeProofs,
 }
@@ -181,7 +184,7 @@ impl Builder {
     }
 
     /// Set the latest committed block.
-    pub fn at_block(mut self, block: Hash) -> Self {
+    pub fn at_block(mut self, block: HashOf<VersionedCommittedBlock>) -> Self {
         self.at_block = Some(block);
         self
     }
@@ -211,11 +214,11 @@ impl Builder {
                 if self.view_change_proofs.len() as u64 > reshuffle_after_n_view_changes {
                     sort_peers_by_hash_and_counter(
                         peers,
-                        at_block,
+                        &at_block,
                         self.view_change_proofs.len() as u64,
                     )
                 } else {
-                    let peers = sort_peers_by_hash(peers, at_block);
+                    let peers = sort_peers_by_hash(peers, &at_block);
                     shift_peers_by_n(peers, self.view_change_proofs.len() as u64)
                 };
             Ok(Topology {
@@ -245,7 +248,7 @@ pub struct Topology {
 
     reshuffle_after_n_view_changes: u64,
 
-    at_block: Hash,
+    at_block: HashOf<VersionedCommittedBlock>,
 
     view_change_proofs: ViewChangeProofs,
 }
@@ -269,11 +272,11 @@ impl Topology {
 
     /// Apply new committed block hash.
     #[allow(clippy::expect_used)]
-    pub fn apply_block(&mut self, block_hash: Hash) {
+    pub fn apply_block(&mut self, block: HashOf<VersionedCommittedBlock>) {
         *self = self
             .clone()
             .into_builder()
-            .at_block(block_hash)
+            .at_block(block)
             .with_view_changes(ViewChangeProofs::empty())
             .build()
             .expect("Given a valid Topology, it is impossible to have error here.")
@@ -361,9 +364,9 @@ impl Topology {
     /// Fails if there are no such peer with this key and if signature verification fails
     pub fn verify_signature_with_role(
         &self,
-        signature: &Signature,
+        signature: &SignatureOf<VersionedTransaction>,
         role: Role,
-        message_payload: &[u8],
+        tx: &HashOf<VersionedTransaction>,
     ) -> Result<()> {
         if role
             .peers(self)
@@ -374,15 +377,19 @@ impl Topology {
         } else {
             Err(eyre!("No {:?} with this public key exists.", role))
         }
-        .and(signature.verify(message_payload))
+        .and_then(|()| {
+            signature
+                .verify_hash(tx)
+                .wrap_err("Transaction signature check failed")
+        })
     }
 
     /// Returns signatures of the peers with the specified `roles` from all `signatures`.
-    pub fn filter_signatures_by_roles(
-        &self,
-        roles: &[Role],
-        signatures: &[Signature],
-    ) -> Vec<Signature> {
+    pub fn filter_signatures_by_roles<'a>(
+        &'a self,
+        roles: &'a [Role],
+        signatures: impl IntoIterator<Item = &'a SignatureOf<VersionedValidBlock>> + 'a,
+    ) -> Vec<SignatureOf<VersionedValidBlock>> {
         let roles: HashSet<Role> = roles.iter().copied().collect();
         let public_keys: Vec<_> = roles
             .iter()
@@ -390,7 +397,7 @@ impl Topology {
             .map(|peer| peer.public_key)
             .collect();
         signatures
-            .iter()
+            .into_iter()
             .filter(|signature| public_keys.contains(&signature.public_key))
             .cloned()
             .collect()
@@ -407,8 +414,8 @@ impl Topology {
     }
 
     /// Block hash on which this topology is based.
-    pub const fn at_block(&self) -> Hash {
-        self.at_block
+    pub const fn at_block(&self) -> &HashOf<VersionedCommittedBlock> {
+        &self.at_block
     }
 
     /// Number of view changes.
@@ -557,32 +564,36 @@ mod tests {
     #[test]
     fn different_order() {
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash(peers.clone(), Hash([1_u8; 32]));
-        let peers_2 = sort_peers_by_hash(peers, Hash([2_u8; 32]));
+        let peers_1 = sort_peers_by_hash(peers.clone(), &HashOf::from_hash(Hash([1_u8; 32])));
+        let peers_2 = sort_peers_by_hash(peers, &HashOf::from_hash(Hash([2_u8; 32])));
         assert_ne!(peers_1, peers_2);
     }
 
     #[test]
     fn same_order() {
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash(peers.clone(), Hash([2_u8; 32]));
-        let peers_2 = sort_peers_by_hash(peers, Hash([2_u8; 32]));
+        let peers_1 = sort_peers_by_hash(peers.clone(), &HashOf::from_hash(Hash([2_u8; 32])));
+        let peers_2 = sort_peers_by_hash(peers, &HashOf::from_hash(Hash([2_u8; 32])));
         assert_eq!(peers_1, peers_2);
     }
 
     #[test]
     fn same_order_by_hash_and_counter() {
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), Hash([2_u8; 32]), 1);
-        let peers_2 = sort_peers_by_hash_and_counter(peers, Hash([2_u8; 32]), 1);
+        let peers_1 =
+            sort_peers_by_hash_and_counter(peers.clone(), &HashOf::from_hash(Hash([2_u8; 32])), 1);
+        let peers_2 =
+            sort_peers_by_hash_and_counter(peers, &HashOf::from_hash(Hash([2_u8; 32])), 1);
         assert_eq!(peers_1, peers_2);
     }
 
     #[test]
     fn different_order_by_hash_and_counter() {
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), Hash([2_u8; 32]), 1);
-        let peers_2 = sort_peers_by_hash_and_counter(peers, Hash([2_u8; 32]), 2);
+        let peers_1 =
+            sort_peers_by_hash_and_counter(peers.clone(), &HashOf::from_hash(Hash([2_u8; 32])), 1);
+        let peers_2 =
+            sort_peers_by_hash_and_counter(peers, &HashOf::from_hash(Hash([2_u8; 32])), 2);
         assert_ne!(peers_1, peers_2);
     }
 }

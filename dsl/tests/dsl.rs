@@ -130,7 +130,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         .expect("Failed to load configuration.");
     configuration.torii_api_url = "http://".to_owned() + &peer.api_address;
     let mut iroha_client = Client::new(&configuration);
-    let _ = iroha_client
+    iroha_client
         .submit_all(vec![
             RegisterBox::new(IdentifiableBox::Domain(Domain::new("exchange").into())).into(),
             RegisterBox::new(IdentifiableBox::Domain(Domain::new("company").into())).into(),

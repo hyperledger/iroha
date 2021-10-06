@@ -662,7 +662,7 @@ pub mod account {
 
     use eyre::{eyre, Error, Result};
     //TODO: get rid of it?
-    use iroha_crypto::prelude::*;
+    use iroha_crypto::SignatureOf;
     use iroha_derive::Io;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -676,6 +676,7 @@ pub mod account {
         expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
         metadata::Metadata,
         permissions::PermissionToken,
+        transaction::Payload,
         world::World,
         Identifiable, Name, PublicKey, Value,
     };
@@ -940,7 +941,7 @@ pub mod account {
         /// returns if the needed signatures are gathered.
         pub fn check_signature_condition<'a>(
             &'a self,
-            signatures: impl IntoIterator<Item = &'a Signature>,
+            signatures: impl IntoIterator<Item = &'a SignatureOf<Payload>>,
         ) -> EvaluatesTo<bool> {
             let transaction_signatories: Signatories = signatures
                 .into_iter()
@@ -1950,7 +1951,7 @@ pub mod transaction {
     };
 
     use eyre::{eyre, Result};
-    use iroha_crypto::prelude::*;
+    use iroha_crypto::{prelude::*, HashOf, SignatureOf, SignaturesOf};
     use iroha_derive::Io;
     use iroha_schema::prelude::*;
     use iroha_version::{
@@ -1994,7 +1995,7 @@ pub mod transaction {
         /// [`Transaction`] payload.
         pub payload: Payload,
         /// [`Transaction`]'s [`Signature`]s.
-        pub signatures: BTreeSet<Signature>,
+        pub signatures: BTreeSet<SignatureOf<Payload>>,
     }
 
     /// Iroha [`Transaction`] payload.
@@ -2046,8 +2047,8 @@ pub mod transaction {
         }
 
         /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
-        pub fn hash(&self) -> Hash {
-            self.as_inner_v1().hash()
+        pub fn hash(&self) -> HashOf<Self> {
+            self.as_inner_v1().hash().transmute()
         }
 
         /// Checks if number of instructions in payload exceeds maximum
@@ -2114,9 +2115,8 @@ pub mod transaction {
         }
 
         /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
-        pub fn hash(&self) -> Hash {
-            let bytes: Vec<u8> = self.payload.clone().into();
-            Hash::new(&bytes)
+        pub fn hash(&self) -> HashOf<Transaction> {
+            HashOf::new(&self.payload).transmute()
         }
 
         /// Checks if number of instructions in payload exceeds maximum
@@ -2133,7 +2133,7 @@ pub mod transaction {
         /// Fails if signature creation fails
         pub fn sign(self, key_pair: &KeyPair) -> Result<Transaction> {
             let mut signatures = self.signatures.clone();
-            signatures.insert(Signature::new(key_pair.clone(), self.hash().as_ref())?);
+            signatures.insert(SignatureOf::new(key_pair.clone(), &self.payload)?);
             Ok(Transaction {
                 payload: self.payload,
                 signatures,
@@ -2297,10 +2297,9 @@ pub mod transaction {
         }
 
         /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
-        pub fn hash(&self) -> Hash {
-            self.as_inner_v1().hash()
+        pub fn hash(&self) -> HashOf<VersionedTransaction> {
+            self.as_inner_v1().hash().transmute()
         }
-
         /// Returns payload of transaction
         pub const fn payload(&self) -> &Payload {
             match self {
@@ -2353,7 +2352,7 @@ pub mod transaction {
         /// [`Transaction`] payload.
         pub payload: Payload,
         /// [`Transaction`]'s [`Signature`]s.
-        pub signatures: BTreeSet<Signature>,
+        pub signatures: SignaturesOf<Payload>,
         /// The reason for rejecting this transaction during the validation pipeline.
         pub rejection_reason: TransactionRejectionReason,
     }
@@ -2366,9 +2365,8 @@ pub mod transaction {
         }
 
         /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
-        pub fn hash(&self) -> Hash {
-            let bytes: Vec<u8> = self.payload.clone().into();
-            Hash::new(&bytes)
+        pub fn hash(&self) -> HashOf<Transaction> {
+            HashOf::new(&self.payload).transmute()
         }
     }
 

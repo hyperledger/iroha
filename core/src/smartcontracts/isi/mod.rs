@@ -15,6 +15,7 @@ use std::{
 };
 
 use eyre::{eyre, Result};
+use iroha_crypto::HashOf;
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_derive::FromVariant;
 use thiserror::Error;
@@ -113,7 +114,7 @@ pub enum MathError {
 
 /// Block with parent hash not found struct
 #[derive(Debug, Clone, Copy)]
-pub struct ParentHashNotFound(pub Hash);
+pub struct ParentHashNotFound(pub HashOf<VersionedCommittedBlock>);
 
 impl Display for ParentHashNotFound {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

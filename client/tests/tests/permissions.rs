@@ -54,7 +54,7 @@ fn permissions_disallow_asset_transfer() {
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
     );
-    let _ = iroha_client
+    iroha_client
         .submit(mint_asset)
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);

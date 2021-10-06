@@ -2,7 +2,8 @@
 
 use std::{convert::TryFrom, error::Error as StdError, fmt};
 
-use eyre::{eyre, Error, Result};
+use eyre::{eyre, Result};
+use iroha_crypto::{SignatureOf, SignatureVerificationFail};
 use iroha_data_model::{prelude::*, query};
 use iroha_derive::Io;
 use iroha_version::{scale::DecodeVersioned, Version};
@@ -24,7 +25,7 @@ pub struct VerifiedQueryRequest {
     /// Payload.
     payload: query::Payload,
     /// Signature of the client who sends this query.
-    signature: Signature,
+    signature: SignatureOf<query::Payload>,
 }
 
 impl VerifiedQueryRequest {
@@ -56,10 +57,10 @@ impl VerifiedQueryRequest {
 }
 
 impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
-    type Error = Error;
+    type Error = SignatureVerificationFail<query::Payload>;
 
-    fn try_from(query: SignedQueryRequest) -> Result<Self> {
-        query.signature.verify(query.hash().as_ref()).map(|_| Self {
+    fn try_from(query: SignedQueryRequest) -> Result<Self, Self::Error> {
+        query.signature.verify(&query.payload).map(|_| Self {
             payload: query.payload,
             signature: query.signature,
         })
@@ -120,7 +121,7 @@ pub enum AcceptQueryError {
     DecodeVersionedSignedQuery(#[source] Box<iroha_version::error::Error>),
     /// Failed to verify query request
     #[error("Failed to verify query request")]
-    VerifyQuery(eyre::Error),
+    VerifyQuery(#[source] SignatureVerificationFail<query::Payload>),
 }
 
 impl AcceptQueryError {

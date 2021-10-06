@@ -3,6 +3,7 @@
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use iroha_actor::{broker::*, prelude::*, Context};
+use iroha_crypto::SignatureOf;
 use iroha_data_model::prelude::*;
 
 use self::{
@@ -187,7 +188,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
             && network_topology
                 .filter_signatures_by_roles(
                     &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                    &block.verified_signatures(),
+                    block.verified_signatures().map(SignatureOf::transmute_ref),
                 )
                 .len()
                 >= network_topology.min_votes_for_commit() as usize
@@ -248,14 +249,14 @@ pub mod message {
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct LatestBlock {
         /// Block hash
-        pub hash: Hash,
+        pub hash: HashOf<VersionedCommittedBlock>,
         /// Peer id
         pub peer_id: PeerId,
     }
 
     impl LatestBlock {
         /// Default constructor
-        pub const fn new(hash: Hash, peer_id: PeerId) -> Self {
+        pub const fn new(hash: HashOf<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
             Self { hash, peer_id }
         }
     }
@@ -264,14 +265,14 @@ pub mod message {
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct GetBlocksAfter {
         /// Block hash
-        pub hash: Hash,
+        pub hash: HashOf<VersionedCommittedBlock>,
         /// Peer id
         pub peer_id: PeerId,
     }
 
     impl GetBlocksAfter {
         /// Default constructor
-        pub const fn new(hash: Hash, peer_id: PeerId) -> Self {
+        pub const fn new(hash: HashOf<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
             Self { hash, peer_id }
         }
     }

@@ -23,6 +23,7 @@ impl<W: WorldTrait> Query<W> for FindTransactionByHash {
             .hash
             .evaluate(wsv, &Context::default())
             .wrap_err("Failed to get hash")?;
+        let hash = HashOf::from_hash(hash);
         if !wsv.has_transaction(&hash) {
             return Err(eyre!("Transaction not found"));
         };

@@ -39,7 +39,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     );
     for _ in 0..n_validators {
         block = block
-            .sign(&KeyPair::generate().expect("Failed to generate KeyPair."))
+            .sign(KeyPair::generate().expect("Failed to generate KeyPair."))
             .unwrap();
     }
     let block = block.commit();
@@ -49,7 +49,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     )
     .await
     .unwrap();
-    let _ = block_store.write(&block).await.unwrap();
+    block_store.write(&block).await.unwrap();
     let metadata = fs::metadata(
         block_store
             .get_block_path(NonZeroU64::new(1_u64).unwrap())

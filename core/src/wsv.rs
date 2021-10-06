@@ -13,6 +13,7 @@ use dashmap::{
     DashSet,
 };
 use eyre::Result;
+use iroha_crypto::HashOf;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use tokio::task;
 
@@ -88,7 +89,7 @@ pub struct WorldStateView<W: WorldTrait> {
     /// Blockchain.
     blocks: Arc<Chain>,
     /// Hashes of transactions
-    pub transactions: DashSet<Hash>,
+    pub transactions: DashSet<HashOf<VersionedTransaction>>,
 }
 
 impl<W: WorldTrait + Default> Default for WorldStateView<W> {
@@ -131,26 +132,28 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[iroha_futures::telemetry_future]
     #[iroha_logger::log(skip(self, block))]
     pub async fn apply(&self, block: VersionedCommittedBlock) {
-        for transaction in &block.as_inner_v1().transactions {
-            if let Err(error) = transaction.proceed(self) {
+        for tx in &block.as_inner_v1().transactions {
+            if let Err(error) = tx.proceed(self) {
                 iroha_logger::warn!(%error, "Failed to proceed transaction on WSV");
             }
-            let _ = self.transactions.insert(transaction.hash());
+            self.transactions.insert(tx.hash());
             // Yeild control cooperatively to the task scheduler.
             // The transaction processing is a long CPU intensive task, so this should be included here.
             task::yield_now().await;
         }
-        for rejected_transaction in &block.as_inner_v1().rejected_transactions {
-            let _ = self.transactions.insert(rejected_transaction.hash());
+        for tx in &block.as_inner_v1().rejected_transactions {
+            self.transactions.insert(tx.hash());
         }
         self.blocks.push(block);
     }
 
     /// Hash of latest block
-    pub fn latest_block_hash(&self) -> Hash {
+    pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
         self.blocks
             .latest_block()
-            .map_or(Hash([0_u8; 32]), |block_entry| block_entry.value().hash())
+            .map_or(HashOf::from_hash(Hash([0_u8; 32])), |block| {
+                block.value().hash()
+            })
     }
 
     /// Height of blockchain
@@ -166,7 +169,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Block with `hash` was not found.
     pub fn blocks_after(
         &self,
-        hash: Hash,
+        hash: HashOf<VersionedCommittedBlock>,
         max_blocks: u32,
     ) -> Result<Vec<VersionedCommittedBlock>> {
         let from_pos = self
@@ -379,25 +382,28 @@ impl<W: WorldTrait> WorldStateView<W> {
         f(asset_definition_entry)
     }
 
-    /// Checks if this `transaction_hash` is already committed or rejected.
-    pub fn has_transaction(&self, transaction_hash: &Hash) -> bool {
-        self.transactions.get(transaction_hash).is_some()
+    /// Checks if this `tx` is already committed or rejected.
+    pub fn has_transaction(&self, hash: &HashOf<VersionedTransaction>) -> bool {
+        self.transactions.contains(hash)
     }
 
     /// Find a transaction by provided hash
-    pub fn transaction_value_by_hash(&self, transaction_hash: &Hash) -> Option<TransactionValue> {
+    pub fn transaction_value_by_hash(
+        &self,
+        hash: &HashOf<VersionedTransaction>,
+    ) -> Option<TransactionValue> {
         self.blocks.iter().find_map(|b| {
             b.as_inner_v1()
                 .rejected_transactions
                 .iter()
-                .find(|e| e.hash() == *transaction_hash)
+                .find(|e| e.hash() == *hash)
                 .cloned()
                 .map(TransactionValue::RejectedTransaction)
                 .ok_or_else(|| {
                     b.as_inner_v1()
                         .transactions
                         .iter()
-                        .find(|e| e.hash() == *transaction_hash)
+                        .find(|e| e.hash() == *hash)
                         .cloned()
                         .map(VersionedTransaction::from)
                         .map(TransactionValue::Transaction)

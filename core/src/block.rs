@@ -3,11 +3,11 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::{iter, time::SystemTime};
+use std::{collections::BTreeSet, iter, marker::PhantomData, time::SystemTime};
 
 use dashmap::{iter::Iter as MapIter, mapref::one::Ref as MapRef, DashMap};
-use eyre::Result;
-use iroha_crypto::{KeyPair, Signatures};
+use eyre::{Context, Result};
+use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
 use iroha_data_model::{events::prelude::*, transaction::prelude::*};
 use iroha_derive::Io;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
@@ -17,18 +17,27 @@ use crate::{
     merkle::MerkleTree,
     prelude::*,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
-    sumeragi::{network_topology::Topology, view_change::ProofChain as ViewChangeProofs},
+    sumeragi::{
+        network_topology::Topology,
+        view_change::{Proof, ProofChain as ViewChangeProofs},
+    },
     tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
     wsv::WorldTrait,
 };
 
 /// The chain of the previous block hash if there is no previous block - the blockchain is empty.
 #[derive(Debug, Clone, Copy)]
-pub struct EmptyChainHash;
+pub struct EmptyChainHash<T>(PhantomData<T>);
 
-impl From<EmptyChainHash> for Hash {
-    fn from(EmptyChainHash: EmptyChainHash) -> Hash {
-        Hash([0_u8; 32])
+impl<T> Default for EmptyChainHash<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T> From<EmptyChainHash<T>> for HashOf<T> {
+    fn from(EmptyChainHash(PhantomData): EmptyChainHash<T>) -> Self {
+        Self::from_hash(Hash([0_u8; 32]))
     }
 }
 
@@ -105,9 +114,9 @@ impl PendingBlock {
     pub fn chain(
         self,
         height: u64,
-        previous_block_hash: Hash,
+        previous_block_hash: HashOf<VersionedCommittedBlock>,
         view_change_proofs: ViewChangeProofs,
-        invalidated_blocks_hashes: Vec<Hash>,
+        invalidated_blocks_hashes: Vec<HashOf<VersionedValidBlock>>,
     ) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
@@ -115,8 +124,8 @@ impl PendingBlock {
                 timestamp: self.timestamp,
                 height: height + 1,
                 previous_block_hash,
-                transactions_merkle_root_hash: Hash([0_u8; 32]),
-                rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
+                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
                 view_change_proofs,
                 invalidated_blocks_hashes,
                 genesis_topology: None,
@@ -131,9 +140,9 @@ impl PendingBlock {
             header: BlockHeader {
                 timestamp: self.timestamp,
                 height: 1,
-                previous_block_hash: EmptyChainHash.into(),
-                transactions_merkle_root_hash: Hash([0_u8; 32]),
-                rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
+                previous_block_hash: EmptyChainHash::default().into(),
+                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
                 view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: Some(genesis_topology),
@@ -148,9 +157,9 @@ impl PendingBlock {
             header: BlockHeader {
                 timestamp: self.timestamp,
                 height: 1,
-                previous_block_hash: EmptyChainHash.into(),
-                transactions_merkle_root_hash: Hash([0_u8; 32]),
-                rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
+                previous_block_hash: EmptyChainHash::default().into(),
+                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
                 view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,
@@ -177,26 +186,20 @@ pub struct BlockHeader {
     pub height: u64,
     /// Hash of a previous block in the chain.
     /// Is an array of zeros for the first block.
-    pub previous_block_hash: Hash,
+    pub previous_block_hash: HashOf<VersionedCommittedBlock>,
     /// Hash of merkle tree root of the tree of valid transactions' hashes.
-    pub transactions_merkle_root_hash: Hash,
+    pub transactions_hash: HashOf<MerkleTree<VersionedTransaction>>,
     /// Hash of merkle tree root of the tree of rejected transactions' hashes.
-    pub rejected_transactions_merkle_root_hash: Hash,
+    pub rejected_transactions_hash: HashOf<MerkleTree<VersionedTransaction>>,
     /// Number of view changes after the previous block was committed and before this block was committed.
     pub view_change_proofs: ViewChangeProofs,
     /// Hashes of the blocks that were rejected by consensus.
-    pub invalidated_blocks_hashes: Vec<Hash>,
+    pub invalidated_blocks_hashes: Vec<HashOf<VersionedValidBlock>>,
     /// Genesis topology
     pub genesis_topology: Option<Topology>,
 }
 
 impl BlockHeader {
-    /// Calculate hash of the current block header.
-    pub fn hash(&self) -> Hash {
-        let bytes: Vec<u8> = self.into();
-        Hash::new(&bytes)
-    }
-
     /// Checks if it's a header of a genesis block.
     pub const fn is_genesis(&self) -> bool {
         self.height == 1
@@ -211,48 +214,48 @@ impl ChainedBlock {
         is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
         is_query_allowed: &IsQueryAllowedBoxed<W>,
     ) -> VersionedValidBlock {
-        let mut transactions = Vec::new();
-        let mut rejected_transactions = Vec::new();
-        for transaction in self.transactions {
-            match transaction.validate(
+        let mut txs = Vec::new();
+        let mut rejected = Vec::new();
+        for tx in self.transactions {
+            match tx.validate(
                 wsv,
                 is_instruction_allowed,
                 is_query_allowed,
                 self.header.is_genesis(),
             ) {
-                Ok(transaction) => transactions.push(transaction),
-                Err(transaction) => {
+                Ok(tx) => txs.push(tx),
+                Err(tx) => {
                     iroha_logger::warn!(
-                        "Transaction validation failed: {}",
-                        transaction.as_inner_v1().rejection_reason
+                        reason = %tx.as_inner_v1().rejection_reason,
+                        "Transaction validation failed",
                     );
-                    rejected_transactions.push(transaction)
+                    rejected.push(tx)
                 }
             }
         }
         let mut header = self.header;
-        header.transactions_merkle_root_hash = transactions
+        header.transactions_hash = txs
             .iter()
             .map(VersionedValidTransaction::hash)
-            .collect::<MerkleTree>()
+            .collect::<MerkleTree<_>>()
             .root_hash();
-        header.rejected_transactions_merkle_root_hash = rejected_transactions
+        header.rejected_transactions_hash = rejected
             .iter()
             .map(VersionedRejectedTransaction::hash)
-            .collect::<MerkleTree>()
+            .collect::<MerkleTree<_>>()
             .root_hash();
         ValidBlock {
             header,
-            rejected_transactions,
-            transactions,
-            signatures: Signatures::default(),
+            rejected_transactions: rejected,
+            transactions: txs,
+            signatures: BTreeSet::default(),
         }
         .into()
     }
 
     /// Calculate hash of the current block.
-    pub fn hash(&self) -> Hash {
-        self.header.hash()
+    pub fn hash(&self) -> HashOf<Self> {
+        HashOf::new(&self.header).transmute()
     }
 }
 
@@ -303,20 +306,24 @@ impl VersionedValidBlock {
     }
 
     /// Calculate hash of the current block.
-    pub fn hash(&self) -> Hash {
-        self.as_inner_v1().header.hash()
+    pub fn hash(&self) -> HashOf<Self> {
+        self.as_inner_v1().hash().transmute()
     }
 
     /// Sign this block and get [`VersionedValidBlock`](`Self`).
     /// # Errors
     /// Look at [`ValidBlock`](`ValidBlock`) for more info
-    pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedValidBlock> {
+    pub fn sign(self, key_pair: KeyPair) -> Result<VersionedValidBlock> {
         self.into_inner_v1().sign(key_pair).map(Into::into)
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
-    pub fn verified_signatures(&self) -> Vec<Signature> {
-        self.as_inner_v1().verified_signatures()
+    pub fn verified_signatures(
+        &'_ self,
+    ) -> impl Iterator<Item = &'_ SignatureOf<VersionedValidBlock>> + '_ {
+        self.as_inner_v1()
+            .verified_signatures()
+            .map(SignatureOf::transmute_ref)
     }
 
     /// Checks if there are no transactions in this block.
@@ -340,15 +347,15 @@ impl VersionedValidBlock {
     pub fn validation_check<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
-        latest_block_hash: Hash,
-        latest_view_change_hash: Hash,
+        latest_block: &HashOf<VersionedCommittedBlock>,
+        latest_view_change: &HashOf<Proof>,
         block_height: u64,
         max_instruction_number: u64,
     ) -> bool {
         !self.is_empty()
             && !self.has_committed_transactions(wsv)
-            && latest_block_hash == self.header().previous_block_hash
-            && latest_view_change_hash == self.header().view_change_proofs.latest_hash()
+            && latest_block == &self.header().previous_block_hash
+            && latest_view_change == &self.header().view_change_proofs.latest_hash()
             && block_height + 1 == self.header().height
             && self.check_instruction_len(max_instruction_number).is_ok()
     }
@@ -365,7 +372,7 @@ pub struct ValidBlock {
     /// Array of transactions.
     pub transactions: Vec<VersionedValidTransaction>,
     /// Signatures of peers which approved this block.
-    pub signatures: Signatures,
+    pub signatures: BTreeSet<SignatureOf<Self>>,
 }
 
 impl ValidBlock {
@@ -392,7 +399,9 @@ impl ValidBlock {
             header: self.header,
             rejected_transactions: self.rejected_transactions,
             transactions: self.transactions,
-            signatures: self.signatures,
+            signatures: SignaturesOf::from_iter_unchecked(
+                self.signatures.into_iter().map(SignatureOf::transmute),
+            ),
         }
     }
 
@@ -420,23 +429,27 @@ impl ValidBlock {
     }
 
     /// Calculate hash of the current block.
-    pub fn hash(&self) -> Hash {
-        self.header.hash()
+    pub fn hash(&self) -> HashOf<Self> {
+        HashOf::new(&self.header).transmute()
     }
 
     /// Sign this block and get `ValidBlock`.
     ///
     /// # Errors
     /// Fails if generating signature fails
-    pub fn sign(mut self, key_pair: &KeyPair) -> Result<ValidBlock> {
-        let signature = Signature::new(key_pair.clone(), self.hash().as_ref())?;
-        self.signatures.add(signature);
+    pub fn sign(mut self, key_pair: KeyPair) -> Result<ValidBlock> {
+        self.signatures.insert(
+            SignatureOf::from_hash(key_pair, &self.hash()).wrap_err("Failed to sign block")?,
+        );
         Ok(self)
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
-    pub fn verified_signatures(&self) -> Vec<Signature> {
-        self.signatures.verified(self.hash().as_ref())
+    pub fn verified_signatures(&'_ self) -> impl Iterator<Item = &'_ SignatureOf<ValidBlock>> + '_ {
+        let hash = self.hash();
+        self.signatures
+            .iter()
+            .filter(move |sign| sign.verify_hash(&hash).is_ok())
     }
 
     /// Checks if there are no transactions in this block.
@@ -472,7 +485,7 @@ impl From<&ValidBlock> for Vec<Event> {
                 PipelineEvent::new(
                     PipelineEntityType::Transaction,
                     PipelineStatus::Validating,
-                    transaction.hash(),
+                    transaction.hash().into(),
                 )
                 .into()
             })
@@ -485,7 +498,7 @@ impl From<&ValidBlock> for Vec<Event> {
                         PipelineEvent::new(
                             PipelineEntityType::Transaction,
                             PipelineStatus::Validating,
-                            transaction.hash(),
+                            transaction.hash().into(),
                         )
                         .into()
                     }),
@@ -494,7 +507,7 @@ impl From<&ValidBlock> for Vec<Event> {
                 PipelineEvent::new(
                     PipelineEntityType::Block,
                     PipelineStatus::Validating,
-                    block.hash(),
+                    block.hash().into(),
                 )
                 .into(),
             ))
@@ -528,8 +541,8 @@ impl VersionedCommittedBlock {
 
     /// Calculate hash of the current block.
     /// `VersionedCommitedBlock` should have the same hash as `VersionedCommitedBlock`.
-    pub fn hash(&self) -> Hash {
-        self.as_inner_v1().hash()
+    pub fn hash(&self) -> HashOf<Self> {
+        self.as_inner_v1().hash().transmute()
     }
 
     /// Returns header of valid block
@@ -538,8 +551,10 @@ impl VersionedCommittedBlock {
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
-    pub fn verified_signatures(&self) -> Vec<Signature> {
-        self.as_inner_v1().verified_signatures()
+    pub fn verified_signatures(&'_ self) -> impl Iterator<Item = &'_ SignatureOf<Self>> + '_ {
+        self.as_inner_v1()
+            .verified_signatures()
+            .map(SignatureOf::transmute_ref)
     }
 }
 
@@ -555,19 +570,19 @@ pub struct CommittedBlock {
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedValidTransaction>,
     /// Signatures of peers which approved this block
-    pub signatures: Signatures,
+    pub signatures: SignaturesOf<Self>,
 }
 
 impl CommittedBlock {
     /// Calculate hash of the current block.
     /// `CommitedBlock` should have the same hash as `ValidBlock`.
-    pub fn hash(&self) -> Hash {
-        self.header.hash()
+    pub fn hash(&self) -> HashOf<Self> {
+        HashOf::new(&self.header).transmute()
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
-    pub fn verified_signatures(&self) -> Vec<Signature> {
-        self.signatures.verified(self.hash().as_ref())
+    pub fn verified_signatures(&'_ self) -> impl Iterator<Item = &'_ SignatureOf<Self>> + '_ {
+        self.signatures.verified_by_hash(self.hash())
     }
 }
 
@@ -580,6 +595,7 @@ impl From<CommittedBlock> for ValidBlock {
             signatures,
         }: CommittedBlock,
     ) -> Self {
+        let signatures = signatures.into_iter().map(SignatureOf::transmute).collect();
         Self {
             header,
             rejected_transactions,
@@ -613,7 +629,7 @@ impl From<&CommittedBlock> for Vec<Event> {
                     PipelineStatus::Rejected(
                         transaction.as_inner_v1().rejection_reason.clone().into(),
                     ),
-                    transaction.hash(),
+                    transaction.hash().into(),
                 )
                 .into()
             });
@@ -621,7 +637,7 @@ impl From<&CommittedBlock> for Vec<Event> {
             PipelineEvent::new(
                 PipelineEntityType::Transaction,
                 PipelineStatus::Committed,
-                transaction.hash(),
+                transaction.hash().into(),
             )
             .into()
         });
@@ -637,7 +653,7 @@ impl From<&CommittedBlock> for Vec<Event> {
                     PipelineStatus::Rejected(PipelineRejectionReason::Block(
                         BlockRejectionReason::ConsensusBlockRejection,
                     )),
-                    hash,
+                    hash.into(),
                 )
                 .into()
             });
@@ -645,7 +661,7 @@ impl From<&CommittedBlock> for Vec<Event> {
             PipelineEvent::new(
                 PipelineEntityType::Block,
                 PipelineStatus::Committed,
-                block.hash(),
+                block.hash().into(),
             )
             .into(),
         );
@@ -659,10 +675,14 @@ impl From<&CommittedBlock> for Vec<Event> {
 
 #[cfg(test)]
 mod tests {
-    use iroha_crypto::{Hash, Signatures};
+    #![allow(clippy::restriction)]
+
+    use std::collections::BTreeSet;
+
+    use iroha_crypto::KeyPair;
 
     use crate::{
-        block::{BlockHeader, ValidBlock},
+        block::{BlockHeader, EmptyChainHash, ValidBlock},
         sumeragi::view_change,
     };
 
@@ -672,18 +692,20 @@ mod tests {
             header: BlockHeader {
                 timestamp: 0,
                 height: 0,
-                previous_block_hash: Hash([0_u8; 32]),
-                transactions_merkle_root_hash: Hash([0_u8; 32]),
-                rejected_transactions_merkle_root_hash: Hash([0_u8; 32]),
+                previous_block_hash: EmptyChainHash::default().into(),
+                transactions_hash: EmptyChainHash::default().into(),
+                rejected_transactions_hash: EmptyChainHash::default().into(),
                 view_change_proofs: view_change::ProofChain::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,
             },
             rejected_transactions: vec![],
             transactions: vec![],
-            signatures: Signatures::default(),
-        };
+            signatures: BTreeSet::default(),
+        }
+        .sign(KeyPair::generate().unwrap())
+        .unwrap();
         let commited_block = valid_block.clone().commit();
-        assert_eq!(valid_block.hash(), commited_block.hash())
+        assert_eq!(valid_block.hash().transmute(), commited_block.hash())
     }
 }

@@ -91,6 +91,15 @@ fn generics(generics: &Generics) -> (TokenStream2, Vec<TokenStream2>, TokenStrea
         ..
     } = generics;
     let ident_params = params.iter().map(generic_ident).collect::<Vec<_>>();
+
+    let where_clause = match where_clause {
+        Some(where_clause) => quote! {
+            #where_clause
+            #(#ident_params : iroha_schema::IntoSchema,)*
+        },
+        None => quote! { where #(#ident_params : iroha_schema::IntoSchema,)* },
+    };
+
     if params.is_empty() {
         (quote! {}, vec![], quote! {})
     } else {

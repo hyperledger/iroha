@@ -1,5 +1,5 @@
 #[derive(iroha_schema::IntoSchema)]
-struct Foo<V: iroha_schema::IntoSchema + Sized> {
+struct Foo<V> {
     _value: Option<V>,
 }
 
