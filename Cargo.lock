@@ -1358,6 +1358,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b33c9a5c599d67d051c4dc25eb1b6b4ef715d1763c20c85c688717a1734f204e"
 
 [[package]]
+name = "iroha"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "iroha_core",
+ "iroha_logger",
+ "iroha_permissions_validators",
+ "structopt",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "iroha_actor"
 version = "0.1.0"
 dependencies = [
@@ -1372,19 +1385,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "trybuild",
-]
-
-[[package]]
-name = "iroha_cli"
-version = "0.1.0"
-dependencies = [
- "color-eyre",
- "iroha_core",
- "iroha_logger",
- "iroha_permissions_validators",
- "structopt",
- "tokio",
- "tracing",
 ]
 
 [[package]]

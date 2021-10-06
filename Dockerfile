@@ -42,7 +42,7 @@ FROM $BASE_IMAGE
 COPY iroha_core/config.json .
 COPY iroha_core/trusted_peers.json .
 COPY iroha_core/genesis.json .
-ARG BIN=iroha_cli
+ARG BIN=iroha
 ARG TARGET_DIR=debug
 COPY --from=builder /iroha_core/target/$TARGET_DIR/$BIN .
 ENV IROHA_TARGET_BIN=$BIN

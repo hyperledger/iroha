@@ -1,7 +1,7 @@
 [workspace]
 members = [
   "iroha_core",
-  "iroha_cli",
+  "iroha",
   "iroha_client",
   "iroha_client_cli",
   "iroha_crypto",

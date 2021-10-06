@@ -29,7 +29,7 @@ All examples below are Unix oriented, to run them on Windows replace `./iroha_cl
 
 ## Examples
 
-Full description and list of commands detailed in `iroha_cli --help`.
+Full description and list of commands detailed in `iroha --help`.
 
 ```
 $: ./iroha_client_cli --help

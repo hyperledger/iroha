@@ -27,7 +27,7 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: cargo-build-release
-          path: target/release/iroha_cli
+          path: target/release/iroha
       - name: Archive Client CLI build
         uses: actions/upload-artifact@v2
         with:
