@@ -8,7 +8,7 @@ edition = "2018"
 
 [features]
 default = []
-telemetry = ["futures_derive/telemetry"]
+telemetry = ["iroha_futures_derive/telemetry"]
 
 [dependencies]
 rand = "0.8"
@@ -17,4 +17,4 @@ serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
 tokio-stream = { version = "0.1.6", features = ["fs"]}
 iroha_logger = { path = "../logger" }
-futures_derive = { path = "derive" }
+iroha_futures_derive = { path = "derive" }

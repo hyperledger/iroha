@@ -16,7 +16,7 @@ once_cell = "1"
 dashmap = "4"
 eyre = "0.6.5"
 futures = "0.3"
-actor_derive = { path = "derive" }
+iroha_actor_derive = { path = "derive" }
 tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread"]}
 iroha_logger = { path = "../logger" }
 thiserror = "1.0.28"

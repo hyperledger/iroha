@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub use futures_derive::*;
+pub use iroha_futures_derive::*;
 use iroha_logger::telemetry::{Telemetry, TelemetryFields};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -1,5 +1,5 @@
 [package]
-name = "futures_derive"
+name = "iroha_futures_derive"
 version = "0.1.0"
 authors = ["i1i1"]
 edition = "2018"

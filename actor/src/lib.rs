@@ -10,6 +10,9 @@ use std::{
     time::Duration,
 };
 
+use actor_id::*;
+use envelope::{Envelope, EnvelopeProxy, SyncEnvelopeProxy, ToEnvelope};
+use futures::{Stream, StreamExt};
 /// Derive macro for message:
 /// ```rust
 /// use iroha_actor::Message;
@@ -21,10 +24,7 @@ use std::{
 /// #[message(result = "i32")]
 /// struct MessageResponse(i32);
 /// ```
-pub use actor_derive::Message;
-use actor_id::*;
-use envelope::{Envelope, EnvelopeProxy, SyncEnvelopeProxy, ToEnvelope};
-use futures::{Stream, StreamExt};
+pub use iroha_actor_derive::Message;
 use iroha_logger::InstrumentFutures;
 use thiserror::Error;
 use tokio::{

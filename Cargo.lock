@@ -3,16 +3,6 @@
 version = 3
 
 [[package]]
-name = "actor_derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1041,17 +1031,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "futures_derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn",
- "trybuild",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1374,17 +1353,27 @@ dependencies = [
 name = "iroha_actor"
 version = "0.1.0"
 dependencies = [
- "actor_derive",
  "async-trait",
  "dashmap",
  "eyre",
  "futures",
+ "iroha_actor_derive",
  "iroha_logger",
  "once_cell",
  "petgraph",
  "thiserror",
  "tokio",
  "trybuild",
+]
+
+[[package]]
+name = "iroha_actor_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1583,13 +1572,24 @@ dependencies = [
 name = "iroha_futures"
 version = "0.1.0"
 dependencies = [
- "futures_derive",
+ "iroha_futures_derive",
  "iroha_logger",
  "rand 0.8.4",
  "serde",
  "serde_json",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "iroha_futures_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "trybuild",
 ]
 
 [[package]]
