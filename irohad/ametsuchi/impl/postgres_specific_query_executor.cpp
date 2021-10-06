@@ -452,16 +452,16 @@ namespace iroha {
                  SELECT DISTINCT ROW_NUMBER() OVER({1}) AS row, hash, ts, height, index
                  FROM tx_positions
                  WHERE
-                 {3} -- related_txs
-                 {6} -- time interval begin
-                 {7} -- time interval end
-                 {8} -- height begin
-                 {9} -- height end
-                 {2} -- ordering
+                 {2} -- related_txs
+                 {5} -- time interval begin
+                 {6} -- time interval end
+                 {7} -- height begin
+                 {8} -- height end
+                 {1} -- ordering
                  ),
-               total_size AS (SELECT COUNT(*) FROM my_txs) {4}
+               total_size AS (SELECT COUNT(*) FROM my_txs) {3}
                SELECT my_txs.height, my_txs.index, count, perm FROM my_txs
-               {5}
+               {4}
                RIGHT OUTER JOIN has_perms ON TRUE
                JOIN total_size ON TRUE
                LIMIT :page_size)";
