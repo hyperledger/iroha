@@ -188,14 +188,14 @@ pub mod pipeline {
         fmt::{Display, Formatter, Result as FmtResult},
     };
 
-    use iroha_crypto::{Hash, Signature};
+    use iroha_crypto::{Hash, SignatureVerificationFail};
     use iroha_derive::FromVariant;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
     use thiserror::Error;
 
-    use crate::isi::Instruction;
+    use crate::{isi::Instruction, transaction::Payload};
 
     /// Event filter.
     #[derive(Debug, Decode, Encode, Deserialize, Serialize, Copy, Clone, IntoSchema)]
@@ -259,27 +259,6 @@ pub mod pipeline {
         /// Transaction.
         Transaction,
     }
-
-    /// Transaction was reject during verification of signature
-    #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, IntoSchema)]
-    pub struct SignatureVerificationFail {
-        /// Signature which verification has failed
-        pub signature: Signature,
-        /// Error which happened during verification
-        pub reason: String,
-    }
-
-    impl Display for SignatureVerificationFail {
-        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-            write!(
-                f,
-                "Failed to verify signatures because of signature {}: {}",
-                self.signature.public_key, self.reason,
-            )
-        }
-    }
-
-    impl StdError for SignatureVerificationFail {}
 
     /// Transaction was reject because it doesn't satisfy signature condition
     #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, IntoSchema)]
@@ -398,7 +377,7 @@ pub mod pipeline {
         InstructionExecution(#[source] InstructionExecutionFail),
         /// Failed to verify signatures.
         #[error("Transaction rejected due to signature verification")]
-        SignatureVerification(#[source] SignatureVerificationFail),
+        SignatureVerification(#[source] SignatureVerificationFail<Payload>),
         /// Genesis account can sign only transactions in the genesis block.
         #[error("Genesis account can sign only transactions in the genesis block.")]
         UnexpectedGenesisAccountSignature,
@@ -467,9 +446,8 @@ pub mod pipeline {
         pub use super::{
             BlockRejectionReason, EntityType as PipelineEntityType, Event as PipelineEvent,
             EventFilter as PipelineEventFilter, InstructionExecutionFail, NotPermittedFail,
-            RejectionReason as PipelineRejectionReason, SignatureVerificationFail,
-            Status as PipelineStatus, TransactionRejectionReason,
-            UnsatisfiedSignatureConditionFail,
+            RejectionReason as PipelineRejectionReason, Status as PipelineStatus,
+            TransactionRejectionReason, UnsatisfiedSignatureConditionFail,
         };
     }
 

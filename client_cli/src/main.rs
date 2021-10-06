@@ -145,7 +145,7 @@ pub fn submit(
         _ => tx,
     };
 
-    let _ = iroha_client
+    iroha_client
         .submit_transaction(tx)
         .wrap_err("Failed to submit transaction.")?;
     Ok(())

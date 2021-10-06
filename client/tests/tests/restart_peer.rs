@@ -34,7 +34,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
     let mut iroha_client = Client::test(&peer.api_address);
-    let _ = iroha_client
+    iroha_client
         .submit(create_asset)
         .expect("Failed to prepare state.");
     thread::sleep(pipeline_time * 2);
@@ -47,7 +47,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
             account_id.clone(),
         )),
     );
-    let _ = iroha_client
+    iroha_client
         .submit(mint_asset)
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);

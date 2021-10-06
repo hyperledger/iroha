@@ -11,6 +11,7 @@ use std::{
 use async_trait::async_trait;
 use futures::{Stream, StreamExt, TryStreamExt};
 use iroha_actor::{broker::*, prelude::*};
+use iroha_crypto::HashOf;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -34,7 +35,7 @@ pub struct StoreBlock(pub VersionedCommittedBlock);
 
 /// Gets hash of some specific block by height
 #[derive(Clone, Copy, Debug, Message)]
-#[message(result = "Option<Hash>")]
+#[message(result = "Option<HashOf<VersionedCommittedBlock>>")]
 pub struct GetBlockHash {
     height: usize,
 }
@@ -45,7 +46,7 @@ pub struct GetBlockHash {
 pub struct Kura<W: WorldTrait> {
     mode: Mode,
     block_store: BlockStore,
-    merkle_tree: MerkleTree,
+    merkle_tree: MerkleTree<VersionedCommittedBlock>,
     wsv: Arc<WorldStateView<W>>,
     broker: Broker,
     mailbox: usize,
@@ -56,7 +57,7 @@ pub struct Kura<W: WorldTrait> {
 pub trait KuraTrait:
     Actor
     + ContextHandler<StoreBlock, Result = ()>
-    + ContextHandler<GetBlockHash, Result = Option<Hash>>
+    + ContextHandler<GetBlockHash, Result = Option<HashOf<VersionedCommittedBlock>>>
 {
     /// World for applying blocks which have been stored on disk
     type World: WorldTrait;
@@ -130,13 +131,10 @@ impl<W: WorldTrait> Actor for Kura<W> {
         match self.init().await {
             Ok(blocks) => {
                 self.wsv.init(blocks).await;
-                let latest_block_hash = self.wsv.latest_block_hash();
+                let last_block = self.wsv.latest_block_hash();
                 let height = self.wsv.height();
                 self.broker
-                    .issue_send(sumeragi::Init {
-                        latest_block_hash,
-                        height,
-                    })
+                    .issue_send(sumeragi::Init { last_block, height })
                     .await;
             }
             Err(error) => {
@@ -149,7 +147,7 @@ impl<W: WorldTrait> Actor for Kura<W> {
 
 #[async_trait::async_trait]
 impl<W: WorldTrait> Handler<GetBlockHash> for Kura<W> {
-    type Result = Option<Hash>;
+    type Result = Option<HashOf<VersionedCommittedBlock>>;
     async fn handle(&mut self, GetBlockHash { height }: GetBlockHash) -> Self::Result {
         if height == 0 {
             return None;
@@ -187,14 +185,17 @@ impl<W: WorldTrait> Kura<W> {
         self.merkle_tree = blocks
             .iter()
             .map(VersionedCommittedBlock::hash)
-            .collect::<MerkleTree>();
+            .collect::<MerkleTree<_>>();
         Ok(blocks)
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
     #[iroha_futures::telemetry_future]
     #[iroha_logger::log("INFO", skip(self, block))]
-    pub async fn store(&mut self, block: VersionedCommittedBlock) -> Result<Hash> {
+    pub async fn store(
+        &mut self,
+        block: VersionedCommittedBlock,
+    ) -> Result<HashOf<VersionedCommittedBlock>> {
         match self.block_store.write(&block).await {
             Ok(hash) => {
                 //TODO: shouldn't we add block hash to merkle tree here?
@@ -213,7 +214,7 @@ impl<W: WorldTrait> Kura<W> {
                 self.merkle_tree = blocks
                     .iter()
                     .map(VersionedCommittedBlock::hash)
-                    .collect::<MerkleTree>();
+                    .collect::<MerkleTree<_>>();
                 Err(error)
             }
         }
@@ -330,7 +331,10 @@ impl BlockStore {
     /// * Any FS errors or write errors (HW/insufficient permissions)
     ///
     #[iroha_futures::telemetry_future]
-    pub async fn write(&self, block: &VersionedCommittedBlock) -> Result<Hash> {
+    pub async fn write(
+        &self,
+        block: &VersionedCommittedBlock,
+    ) -> Result<HashOf<VersionedCommittedBlock>> {
         let height = NonZeroU64::new(block.header().height).ok_or(Error::ZeroBlock)?;
         let path = self.get_block_path(height).await?;
         let mut file = BufWriter::new(
@@ -548,7 +552,7 @@ mod tests {
                 &AllowAll.into(),
                 &AllowAll.into(),
             )
-            .sign(&keypair)
+            .sign(keypair)
             .expect("Failed to sign blocks.")
             .commit();
         assert!(BlockStore::new(
@@ -580,7 +584,7 @@ mod tests {
                 &AllowAll.into(),
                 &AllowAll.into(),
             )
-            .sign(&keypair)
+            .sign(keypair.clone())
             .expect("Failed to sign blocks.")
             .commit();
         for height in 1_u64..=n {
@@ -595,7 +599,7 @@ mod tests {
                     &AllowAll.into(),
                     &AllowAll.into(),
                 )
-                .sign(&keypair)
+                .sign(keypair.clone())
                 .expect("Failed to sign blocks.")
                 .commit();
         }
@@ -625,7 +629,7 @@ mod tests {
                 &AllowAll.into(),
                 &AllowAll.into(),
             )
-            .sign(&keypair)
+            .sign(keypair)
             .expect("Failed to sign blocks.")
             .commit();
         let dir = tempfile::tempdir().unwrap();
@@ -640,8 +644,7 @@ mod tests {
         .await
         .unwrap();
         kura.init().await.expect("Failed to init Kura.");
-        let _ = kura
-            .store(block)
+        kura.store(block)
             .await
             .expect("Failed to store block into Kura.");
     }
@@ -666,7 +669,7 @@ mod tests {
                 &AllowAll.into(),
                 &AllowAll.into(),
             )
-            .sign(&keypair)
+            .sign(keypair.clone())
             .expect("Failed to sign blocks.")
             .commit();
         let hash = block_store
@@ -685,7 +688,7 @@ mod tests {
                 &AllowAll.into(),
                 &AllowAll.into(),
             )
-            .sign(&keypair)
+            .sign(keypair)
             .expect("Failed to sign blocks.")
             .commit();
 
@@ -714,7 +717,7 @@ mod tests {
                 &AllowAll.into(),
                 &AllowAll.into(),
             )
-            .sign(&keypair)
+            .sign(keypair.clone())
             .expect("Failed to sign blocks.")
             .commit();
         let hash = block_store
@@ -728,7 +731,7 @@ mod tests {
                 &AllowAll.into(),
                 &AllowAll.into(),
             )
-            .sign(&keypair)
+            .sign(keypair)
             .expect("Failed to sign blocks.")
             .commit();
 

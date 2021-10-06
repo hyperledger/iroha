@@ -4,11 +4,11 @@
 
 use std::{
     cmp::min,
-    collections::BTreeSet,
     time::{Duration, SystemTime},
 };
 
 use eyre::{Result, WrapErr};
+use iroha_crypto::{HashOf, SignaturesOf};
 pub use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
@@ -58,8 +58,8 @@ impl VersionedAcceptedTransaction {
     }
 
     /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> Hash {
-        self.as_inner_v1().hash()
+    pub fn hash(&self) -> HashOf<VersionedTransaction> {
+        self.as_inner_v1().hash().transmute()
     }
 
     /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
@@ -105,7 +105,7 @@ impl VersionedAcceptedTransaction {
 
     /// Checks if this transaction has already been committed or rejected.
     pub fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
-        self.as_inner_v1().is_in_blockchain(wsv)
+        wsv.has_transaction(&self.hash())
     }
 
     /// # Errors
@@ -133,7 +133,7 @@ pub struct AcceptedTransaction {
     /// Payload of this transaction.
     pub payload: Payload,
     /// Signatures for this transaction.
-    pub signatures: BTreeSet<Signature>,
+    pub signatures: SignaturesOf<Payload>,
 }
 
 impl AcceptedTransaction {
@@ -154,23 +154,18 @@ impl AcceptedTransaction {
         transaction
             .check_instruction_len(max_instruction_number)
             .wrap_err("Failed to accept transaction")?;
-
-        for signature in &transaction.signatures {
-            signature
-                .verify(transaction.hash().as_ref())
-                .wrap_err("Failed to verify signatures")?;
-        }
+        let signatures = SignaturesOf::from_iter(&transaction.payload, transaction.signatures)
+            .wrap_err("Failed to verify transaction signatures")?;
 
         Ok(Self {
             payload: transaction.payload,
-            signatures: transaction.signatures,
+            signatures,
         })
     }
 
     /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> Hash {
-        let bytes: Vec<u8> = self.payload.clone().into();
-        Hash::new(&bytes)
+    pub fn hash(&self) -> HashOf<Transaction> {
+        HashOf::new(&self.payload).transmute()
     }
 
     /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
@@ -202,18 +197,9 @@ impl AcceptedTransaction {
         if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
         }
+
         self.signatures
-            .iter()
-            .map(|signature| {
-                signature.verify(self.hash().as_ref()).map_err(|reason| {
-                    SignatureVerificationFail {
-                        signature: signature.clone(),
-                        // TODO: Should here also be iroha_error::Error?
-                        reason: reason.to_string(),
-                    }
-                })
-            })
-            .collect::<Result<Vec<()>, _>>()
+            .verify(&self.payload)
             .map_err(TransactionRejectionReason::SignatureVerification)?;
 
         let option_reason = match self.check_signature_condition(wsv) {
@@ -325,11 +311,6 @@ impl AcceptedTransaction {
             rejection_reason,
         }
     }
-
-    /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
-        wsv.has_transaction(&self.hash())
-    }
 }
 
 impl From<VersionedAcceptedTransaction> for VersionedTransaction {
@@ -344,7 +325,7 @@ impl From<AcceptedTransaction> for Transaction {
     fn from(transaction: AcceptedTransaction) -> Self {
         Transaction {
             payload: transaction.payload,
-            signatures: transaction.signatures,
+            signatures: transaction.signatures.into_iter().collect(),
         }
     }
 }
@@ -365,12 +346,6 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 }
 
 impl IsInBlockchain for VersionedRejectedTransaction {
-    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
-        self.as_inner_v1().is_in_blockchain(wsv)
-    }
-}
-
-impl IsInBlockchain for RejectedTransaction {
     fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         wsv.has_transaction(&self.hash())
     }
@@ -409,13 +384,13 @@ impl VersionedValidTransaction {
     }
 
     /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> Hash {
-        self.as_inner_v1().hash()
+    pub fn hash(&self) -> HashOf<VersionedTransaction> {
+        self.as_inner_v1().hash().transmute()
     }
 
     /// Checks if this transaction has already been committed or rejected.
     pub fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
-        self.as_inner_v1().is_in_blockchain(wsv)
+        wsv.has_transaction(&self.hash())
     }
 
     /// # Errors
@@ -440,7 +415,7 @@ impl VersionedValidTransaction {
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct ValidTransaction {
     payload: Payload,
-    signatures: BTreeSet<Signature>,
+    signatures: SignaturesOf<Payload>,
 }
 
 impl ValidTransaction {
@@ -464,14 +439,8 @@ impl ValidTransaction {
     }
 
     /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> Hash {
-        let bytes: Vec<u8> = self.payload.clone().into();
-        Hash::new(&bytes)
-    }
-
-    /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
-        wsv.has_transaction(&self.hash())
+    pub fn hash(&self) -> HashOf<Transaction> {
+        HashOf::new(&self.payload).transmute()
     }
 }
 

@@ -22,6 +22,7 @@ iroha_data_model = { path = "../data_model" }
 [dev-dependencies]
 iroha_core = { path = "../core" }
 iroha_client = { version = "=0.1.0", path = "../client" }
+
 test_network = { path = "../core/test_network" }
 port_check = "0.1.5"
 tempfile = "3"

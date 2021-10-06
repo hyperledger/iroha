@@ -5,7 +5,7 @@
 use std::{convert::TryFrom, time::SystemTime};
 
 use eyre::Result;
-use iroha_crypto::prelude::*;
+use iroha_crypto::{prelude::*, SignatureOf};
 use iroha_derive::{FromVariant, Io};
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
@@ -139,7 +139,7 @@ pub struct SignedQueryRequest {
     /// Payload
     pub payload: Payload,
     /// Signature of the client who sends this query.
-    pub signature: Signature,
+    pub signature: SignatureOf<Payload>,
 }
 
 declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
@@ -184,28 +184,16 @@ impl QueryRequest {
         }
     }
 
-    /// `Hash` of this request.
-    pub fn hash(&self) -> Hash {
-        self.payload.hash()
-    }
-
     /// Consumes self and returns a signed `QueryReuest`.
     ///
     /// # Errors
     /// Fails if signature creation fails.
-    pub fn sign(self, key_pair: &KeyPair) -> Result<SignedQueryRequest> {
-        let hash = self.hash();
+    pub fn sign(self, key_pair: KeyPair) -> Result<SignedQueryRequest> {
+        let signature = SignatureOf::new(key_pair, &self.payload)?;
         Ok(SignedQueryRequest {
             payload: self.payload,
-            signature: Signature::new(key_pair.clone(), hash.as_ref())?,
+            signature,
         })
-    }
-}
-
-impl SignedQueryRequest {
-    /// `Hash` of this request.
-    pub fn hash(&self) -> Hash {
-        self.payload.hash()
     }
 }
 

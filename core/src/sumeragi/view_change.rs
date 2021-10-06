@@ -3,89 +3,99 @@
 
 use std::{collections::HashSet, fmt::Display};
 
-use eyre::Result;
-use iroha_crypto::{Hash, KeyPair, PublicKey, Signature, Signatures};
-use iroha_data_model::prelude::PeerId;
+use eyre::{Context, Result};
+use iroha_crypto::{HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
+use iroha_data_model::{prelude::PeerId, transaction::VersionedTransaction};
 use iroha_derive::*;
 use parity_scale_codec::{Decode, Encode};
 
 use super::message::TransactionReceipt;
-use crate::block::EmptyChainHash;
+use crate::block::{EmptyChainHash, VersionedCommittedBlock, VersionedValidBlock};
 
 /// The proof of a view change. It needs to be signed by f+1 peers for proof to be valid and view change to happen.
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct Proof {
     payload: ProofPayload,
-    signatures: Signatures,
+    signatures: SignaturesOf<Self>,
 }
 
 impl Proof {
+    fn hash(&self) -> HashOf<Self> {
+        HashOf::new(&self.payload).transmute()
+    }
+
+    fn from_payload(payload: ProofPayload, key_pair: KeyPair) -> Result<Self> {
+        let signatures = SignaturesOf::new(key_pair, &payload)
+            .wrap_err("Failed to create proof of view change")?
+            .transmute();
+        Ok(Self {
+            signatures,
+            payload,
+        })
+    }
+
     /// Constructor for `CommitTimeout` view change suggestion.
+    /// # Errors
+    /// Fails if signing failed.
     pub fn commit_timeout(
-        voting_block_hash: Hash,
-        previous_proof: Hash,
-        latest_block: Hash,
-    ) -> Self {
-        let voting_block_hash = Box::new(voting_block_hash);
-        Self {
-            signatures: Signatures::default(),
-            payload: ProofPayload {
-                reason: Reason::CommitTimeout(CommitTimeout { voting_block_hash }),
-                previous_proof,
-                latest_block,
-            },
-        }
+        hash: HashOf<VersionedValidBlock>,
+        previous_proof: HashOf<Self>,
+        latest_block: HashOf<VersionedCommittedBlock>,
+        key_pair: KeyPair,
+    ) -> Result<Self> {
+        let payload = ProofPayload {
+            reason: Reason::CommitTimeout(CommitTimeout { hash }),
+            previous_proof,
+            latest_block,
+        };
+        Self::from_payload(payload, key_pair)
     }
 
     /// Constructor for `BlockCreationTimeout` view change suggestion.
+    /// # Errors
+    /// Can fail due to signing
     pub fn block_creation_timeout(
         transaction_receipt: TransactionReceipt,
-        previous_proof: Hash,
-        latest_block: Hash,
-    ) -> Self {
-        Self {
-            signatures: Signatures::default(),
-            payload: ProofPayload {
-                reason: Reason::from(BlockCreationTimeout {
-                    transaction_receipt,
-                }),
-                previous_proof,
-                latest_block,
-            },
-        }
+        previous_proof: HashOf<Self>,
+        latest_block: HashOf<VersionedCommittedBlock>,
+        key_pair: KeyPair,
+    ) -> Result<Self> {
+        let payload = ProofPayload {
+            reason: Reason::from(BlockCreationTimeout {
+                transaction_receipt,
+            }),
+            previous_proof,
+            latest_block,
+        };
+        Self::from_payload(payload, key_pair)
     }
 
     /// Constructor for `NoTransactionReceiptReceived` view change suggestion.
+    /// # Errors
+    /// Can fail due to signing
     pub fn no_transaction_receipt_received(
-        transaction_hash: Hash,
-        previous_proof: Hash,
-        latest_block: Hash,
-    ) -> Self {
-        let transaction_hash = Box::new(transaction_hash);
-        Self {
-            signatures: Signatures::default(),
-            payload: ProofPayload {
-                reason: Reason::NoTransactionReceiptReceived(NoTransactionReceiptReceived {
-                    transaction_hash,
-                }),
-                previous_proof,
-                latest_block,
-            },
-        }
+        transaction_hash: HashOf<VersionedTransaction>,
+        previous_proof: HashOf<Self>,
+        latest_block: HashOf<VersionedCommittedBlock>,
+        key_pair: KeyPair,
+    ) -> Result<Self> {
+        let payload = ProofPayload {
+            reason: Reason::NoTransactionReceiptReceived(NoTransactionReceiptReceived {
+                transaction_hash,
+            }),
+            previous_proof,
+            latest_block,
+        };
+        Self::from_payload(payload, key_pair)
     }
 
-    /// Hash of the proof `payload`.
-    pub fn hash(&self) -> Hash {
-        let bytes: Vec<u8> = self.payload.clone().into();
-        Hash::new(&bytes)
-    }
     /// Signs this message with the peer's public and private key.
     /// This way peers vote for changing the view - changing the roles of peers.
     ///
     /// # Errors
     /// Can fail during creation of signature
-    pub fn sign(mut self, key_pair: &KeyPair) -> Result<Proof> {
-        let signature = Signature::new(key_pair.clone(), self.hash().as_ref())?;
+    pub fn sign(mut self, key_pair: KeyPair) -> Result<Proof> {
+        let signature = SignatureOf::new(key_pair, &self.payload)?.transmute();
         self.signatures.add(signature);
         Ok(self)
     }
@@ -98,8 +108,7 @@ impl Proof {
             .collect();
         let n_signatures = self
             .signatures
-            .verified(self.hash().as_ref())
-            .iter()
+            .verified_by_hash(self.hash())
             .filter(|signature| peer_public_keys.contains(&signature.public_key))
             .count();
         // See Whitepaper for the information on this limit.
@@ -110,9 +119,13 @@ impl Proof {
     }
 
     /// Should be checked by validators before signing the proof.
-    pub fn has_same_state(&self, latest_block: Hash, latest_view_change: Hash) -> bool {
-        self.payload.latest_block == latest_block
-            && self.payload.previous_proof == latest_view_change
+    pub fn has_same_state(
+        &self,
+        latest_block: &HashOf<VersionedCommittedBlock>,
+        latest_view_change: &HashOf<Proof>,
+    ) -> bool {
+        &self.payload.latest_block == latest_block
+            && &self.payload.previous_proof == latest_view_change
     }
 
     /// The `Reason` of this view change. Why should topology change?
@@ -121,7 +134,7 @@ impl Proof {
     }
 
     /// Signatures of peers who signed this proof - therefore voting for this view change.
-    pub const fn signatures(&self) -> &Signatures {
+    pub const fn signatures(&self) -> &SignaturesOf<Self> {
         &self.signatures
     }
 }
@@ -130,9 +143,9 @@ impl Proof {
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct ProofPayload {
     ///
-    previous_proof: Hash,
+    previous_proof: HashOf<Proof>,
     /// Latest committed block hash.
-    latest_block: Hash,
+    latest_block: HashOf<VersionedCommittedBlock>,
     ///
     reason: Reason,
 }
@@ -159,17 +172,17 @@ impl Display for Reason {
 }
 
 /// Block `CommitTimeout` reason for a view change.
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Clone, Debug, Io, Encode, Decode, Copy)]
 pub struct CommitTimeout {
     /// The hash of the block in discussion in this round.
-    pub voting_block_hash: Box<Hash>,
+    pub hash: HashOf<VersionedValidBlock>,
 }
 
 /// `NoTransactionReceiptReceived` (from leader) reason for a view change.
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Clone, Debug, Io, Encode, Decode, Copy)]
 pub struct NoTransactionReceiptReceived {
     /// The hash of the transaction for which there was no `TransactionReceipt`.
-    pub transaction_hash: Box<Hash>,
+    pub transaction_hash: HashOf<VersionedTransaction>,
 }
 
 /// `BlockCreationTimeout` reason for a view change.
@@ -196,11 +209,12 @@ impl ProofChain {
         &self,
         peers: &HashSet<PeerId>,
         max_faults: u32,
-        latest_block: Hash,
+        latest_block: &HashOf<VersionedCommittedBlock>,
     ) -> bool {
-        let mut previous_proof: Hash = EmptyChainHash.into();
+        let mut previous_proof = EmptyChainHash::default().into();
         for proof in &self.proofs {
-            if proof.has_same_state(latest_block, previous_proof) && proof.verify(peers, max_faults)
+            if proof.has_same_state(latest_block, &previous_proof)
+                && proof.verify(peers, max_faults)
             {
                 previous_proof = proof.hash();
             } else {
@@ -226,10 +240,10 @@ impl ProofChain {
     }
 
     /// The hash of the latest view change.
-    pub fn latest_hash(&self) -> Hash {
+    pub fn latest_hash(&self) -> HashOf<Proof> {
         self.proofs
             .last()
-            .map_or(EmptyChainHash.into(), Proof::hash)
+            .map_or(EmptyChainHash::default().into(), Proof::hash)
     }
 }
 
@@ -237,15 +251,21 @@ impl ProofChain {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use iroha_crypto::{Hash, HashOf};
+
     use super::*;
 
     #[test]
     fn proof_is_valid() -> Result<()> {
-        let proof = Proof::commit_timeout(Hash([1_u8; 32]), Hash([2_u8; 32]), Hash([3_u8; 32]));
         let key_pair_1 = KeyPair::generate()?;
         let key_pair_2 = KeyPair::generate()?;
-        let proof = proof.sign(&key_pair_1)?;
-        let proof = proof.sign(&key_pair_2)?;
+        let proof = Proof::commit_timeout(
+            HashOf::from_hash(Hash([1_u8; 32])),
+            HashOf::from_hash(Hash([2_u8; 32])),
+            HashOf::from_hash(Hash([3_u8; 32])),
+            key_pair_1.clone(),
+        )?
+        .sign(key_pair_2.clone())?;
         let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
         let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
         let peers = maplit::hashset![peer_1, peer_2];
@@ -255,10 +275,14 @@ mod tests {
 
     #[test]
     fn proof_has_not_enough_signatures() -> Result<()> {
-        let proof = Proof::commit_timeout(Hash([1_u8; 32]), Hash([2_u8; 32]), Hash([3_u8; 32]));
         let key_pair_1 = KeyPair::generate()?;
         let key_pair_2 = KeyPair::generate()?;
-        let proof = proof.sign(&key_pair_1)?;
+        let proof = Proof::commit_timeout(
+            HashOf::from_hash(Hash([1_u8; 32])),
+            HashOf::from_hash(Hash([2_u8; 32])),
+            HashOf::from_hash(Hash([3_u8; 32])),
+            key_pair_1.clone(),
+        )?;
         let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
         let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
         let peers = maplit::hashset![peer_1, peer_2];
@@ -268,12 +292,16 @@ mod tests {
 
     #[test]
     fn proof_has_not_enough_valid_signatures() -> Result<()> {
-        let proof = Proof::commit_timeout(Hash([1_u8; 32]), Hash([2_u8; 32]), Hash([3_u8; 32]));
         let key_pair_1 = KeyPair::generate()?;
         let key_pair_2 = KeyPair::generate()?;
         let key_pair_3 = KeyPair::generate()?;
-        let proof = proof.sign(&key_pair_1)?;
-        let proof = proof.sign(&key_pair_3)?;
+        let proof = Proof::commit_timeout(
+            HashOf::from_hash(Hash([1_u8; 32])),
+            HashOf::from_hash(Hash([2_u8; 32])),
+            HashOf::from_hash(Hash([3_u8; 32])),
+            key_pair_1.clone(),
+        )?
+        .sign(key_pair_3)?;
         let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
         let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
         let peers = maplit::hashset![peer_1, peer_2];
@@ -288,16 +316,19 @@ mod tests {
         let key_pair_2 = KeyPair::generate()?;
         let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
         let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
-        let latest_block = Hash([3_u8; 32]);
+        let latest_block = HashOf::from_hash(Hash([3_u8; 32]));
         for i in 0..10 {
-            let proof =
-                Proof::commit_timeout(Hash([i; 32]), proof_chain.latest_hash(), latest_block);
-            let proof = proof.sign(&key_pair_1)?;
-            let proof = proof.sign(&key_pair_2)?;
+            let proof = Proof::commit_timeout(
+                HashOf::from_hash(Hash([i; 32])),
+                proof_chain.latest_hash(),
+                latest_block,
+                key_pair_1.clone(),
+            )?
+            .sign(key_pair_2.clone())?;
             proof_chain.push(proof);
         }
         let peers = maplit::hashset![peer_1, peer_2];
-        assert!(proof_chain.verify_with_state(&peers, 1, latest_block));
+        assert!(proof_chain.verify_with_state(&peers, 1, &latest_block));
         Ok(())
     }
 
@@ -308,20 +339,24 @@ mod tests {
         let key_pair_2 = KeyPair::generate()?;
         let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
         let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
-        let latest_block = Hash([3_u8; 32]);
+        let latest_block = HashOf::from_hash(Hash([3_u8; 32]));
         for i in 0..10 {
             let latest_proof_hash = if i == 2 {
-                Hash([0_u8; 32])
+                HashOf::from_hash(Hash([0_u8; 32]))
             } else {
                 proof_chain.latest_hash()
             };
-            let proof = Proof::commit_timeout(Hash([i; 32]), latest_proof_hash, latest_block);
-            let proof = proof.sign(&key_pair_1)?;
-            let proof = proof.sign(&key_pair_2)?;
+            let proof = Proof::commit_timeout(
+                HashOf::from_hash(Hash([i; 32])),
+                latest_proof_hash,
+                latest_block,
+                key_pair_1.clone(),
+            )?
+            .sign(key_pair_2.clone())?;
             proof_chain.push(proof);
         }
         let peers = maplit::hashset![peer_1, peer_2];
-        assert!(!proof_chain.verify_with_state(&peers, 1, latest_block));
+        assert!(!proof_chain.verify_with_state(&peers, 1, &latest_block));
         Ok(())
     }
 }

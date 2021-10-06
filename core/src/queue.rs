@@ -5,6 +5,8 @@ use std::time::Duration;
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
+use iroha_crypto::HashOf;
+use iroha_data_model::transaction::VersionedTransaction;
 use thiserror::Error;
 
 use self::config::QueueConfiguration;
@@ -15,8 +17,8 @@ use crate::{prelude::*, wsv::WorldTrait};
 /// Multiple producers, single consumer
 #[derive(Debug)]
 pub struct Queue {
-    queue: ArrayQueue<Hash>,
-    txs: DashMap<Hash, VersionedAcceptedTransaction>,
+    queue: ArrayQueue<HashOf<VersionedTransaction>>,
+    txs: DashMap<HashOf<VersionedTransaction>, VersionedAcceptedTransaction>,
     /// Length of dashmap.
     ///
     /// DashMap right now just iterates over itself and calculates its length like this:
@@ -123,7 +125,7 @@ impl Queue {
                     .get_mut()
                     .as_mut_inner_v1()
                     .signatures
-                    .append(&mut tx.into_inner_v1().signatures);
+                    .merge(tx.into_inner_v1().signatures);
                 return Ok(());
             }
             Entry::Vacant(entry) => entry,
@@ -149,7 +151,7 @@ impl Queue {
     fn pop<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
-        seen: &mut Vec<Hash>,
+        seen: &mut Vec<HashOf<VersionedTransaction>>,
     ) -> Option<VersionedAcceptedTransaction> {
         loop {
             let hash = self.queue.pop()?;

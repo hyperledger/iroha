@@ -10,7 +10,7 @@ use std::{
 use eyre::{eyre, Error, Result, WrapErr};
 use http_client::WebSocketStream;
 use iroha_core::{smartcontracts::Query, wsv::World};
-use iroha_crypto::{Hash, KeyPair};
+use iroha_crypto::{HashOf, KeyPair};
 use iroha_dsl::prelude::*;
 use iroha_logger::log;
 use iroha_version::prelude::*;
@@ -109,7 +109,10 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     #[log]
-    pub fn submit(&mut self, instruction: impl Into<Instruction> + Debug) -> Result<Hash> {
+    pub fn submit(
+        &mut self,
+        instruction: impl Into<Instruction> + Debug,
+    ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all(vec![instruction.into()])
     }
 
@@ -118,7 +121,10 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<Hash> {
+    pub fn submit_all(
+        &mut self,
+        instructions: Vec<Instruction>,
+    ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
@@ -133,7 +139,7 @@ impl Client {
         &mut self,
         instruction: Instruction,
         metadata: UnlimitedMetadata,
-    ) -> Result<Hash> {
+    ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_with_metadata(vec![instruction], metadata)
     }
 
@@ -147,7 +153,7 @@ impl Client {
         &mut self,
         instructions: Vec<Instruction>,
         metadata: UnlimitedMetadata,
-    ) -> Result<Hash> {
+    ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_transaction(self.build_transaction(instructions, metadata)?)
     }
 
@@ -156,10 +162,13 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_transaction(&mut self, transaction: Transaction) -> Result<Hash> {
+    pub fn submit_transaction(
+        &mut self,
+        transaction: Transaction,
+    ) -> Result<HashOf<VersionedTransaction>> {
         transaction.check_instruction_len(self.max_instruction_number)?;
-        let hash = transaction.hash();
         let transaction: VersionedTransaction = transaction.into();
+        let hash = transaction.hash();
         let transaction_bytes: Vec<u8> = transaction.encode_versioned()?;
         let response = http_client::post(
             &format!("{}{}", self.torii_url, uri::TRANSACTION),
@@ -189,7 +198,10 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_blocking(&mut self, instruction: impl Into<Instruction>) -> Result<Hash> {
+    pub fn submit_blocking(
+        &mut self,
+        instruction: impl Into<Instruction>,
+    ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking(vec![instruction.into()])
     }
 
@@ -198,7 +210,10 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    pub fn submit_all_blocking(&mut self, instructions: Vec<Instruction>) -> Result<Hash> {
+    pub fn submit_all_blocking(
+        &mut self,
+        instructions: Vec<Instruction>,
+    ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
     }
 
@@ -212,7 +227,7 @@ impl Client {
         &mut self,
         instruction: impl Into<Instruction>,
         metadata: UnlimitedMetadata,
-    ) -> Result<Hash> {
+    ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
     }
 
@@ -226,7 +241,7 @@ impl Client {
         &mut self,
         instructions: Vec<Instruction>,
         metadata: UnlimitedMetadata,
-    ) -> Result<Hash> {
+    ) -> Result<HashOf<VersionedTransaction>> {
         struct EventListenerInitialized;
 
         let mut client = self.clone();
@@ -236,7 +251,7 @@ impl Client {
         let hash = transaction.hash();
         let _handle = thread::spawn(move || -> eyre::Result<()> {
             let event_iterator = client
-                .listen_for_events(PipelineEventFilter::by_hash(hash).into())
+                .listen_for_events(PipelineEventFilter::by_hash(hash.into()).into())
                 .wrap_err("Failed to establish event listener connection.")?;
             init_sender
                 .send(EventListenerInitialized)
@@ -249,7 +264,7 @@ impl Client {
                             .send(Err(reason))
                             .wrap_err("Failed to send through event channel.")?,
                         PipelineStatus::Committed => event_sender
-                            .send(Ok(hash))
+                            .send(Ok(hash.transmute()))
                             .wrap_err("Failed to send through event channel.")?,
                     }
                 }
@@ -259,7 +274,7 @@ impl Client {
         init_receiver
             .recv()
             .wrap_err("Failed to receive init message.")?;
-        let _ = self.submit_transaction(transaction)?;
+        self.submit_transaction(transaction)?;
         event_receiver
             .recv_timeout(self.transaction_status_timeout)
             .map_or_else(
@@ -284,7 +299,7 @@ impl Client {
     {
         let pagination: Vec<_> = pagination.into();
         let request = QueryRequest::new(request.into(), self.account_id.clone());
-        let request: VersionedSignedQueryRequest = request.sign(&self.key_pair)?.into();
+        let request: VersionedSignedQueryRequest = request.sign(self.key_pair.clone())?.into();
         let response = http_client::post(
             &format!("{}{}", self.torii_url, uri::QUERY),
             request.encode_versioned()?,
@@ -549,6 +564,8 @@ pub mod domain {
 
 pub mod transaction {
     //! Module with queries for transactions
+    use iroha_crypto::Hash;
+
     use super::*;
 
     /// Get query to retrieve transactions for account

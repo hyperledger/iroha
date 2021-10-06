@@ -2,29 +2,26 @@
 
 pub use ursa;
 
+mod hash;
 pub mod multihash;
+mod signature;
 mod varint;
 
 use std::{
-    collections::BTreeMap,
     convert::{TryFrom, TryInto},
     fmt::{self, Debug, Display, Formatter},
     str::FromStr,
 };
 
 use eyre::{eyre, Error, Result, WrapErr};
+pub use hash::*;
 use iroha_schema::IntoSchema;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode};
 use serde::{de::Error as SerdeError, Deserialize, Serialize};
+pub use signature::*;
 use ursa::{
-    blake2::{
-        digest::{Update, VariableOutput},
-        VarBlake2b,
-    },
-    keys::{
-        KeyGenOption as UrsaKeyGenOption, PrivateKey as UrsaPrivateKey, PublicKey as UrsaPublicKey,
-    },
+    keys::{KeyGenOption as UrsaKeyGenOption, PrivateKey as UrsaPrivateKey},
     signatures::{
         bls::{normal::Bls as BlsNormal, small::Bls as BlsSmall},
         ed25519::Ed25519Sha512,
@@ -41,61 +38,6 @@ pub const SECP_256_K1: &str = "secp256k1";
 pub const BLS_NORMAL: &str = "bls_normal";
 /// bls small
 pub const BLS_SMALL: &str = "bls_small";
-
-/// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
-#[derive(
-    Eq,
-    PartialEq,
-    Clone,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    Ord,
-    PartialOrd,
-    Copy,
-    Hash,
-    IntoSchema,
-)]
-pub struct Hash(pub [u8; Self::LENGTH]);
-
-impl Hash {
-    /// Length of hash
-    pub const LENGTH: usize = 32;
-
-    /// new hash from bytes
-    #[allow(clippy::expect_used)]
-    pub fn new(bytes: &[u8]) -> Self {
-        let vec_hash = VarBlake2b::new(Self::LENGTH)
-            .expect("Failed to initialize variable size hash")
-            .chain(bytes)
-            .finalize_boxed();
-        let mut hash = [0; Self::LENGTH];
-        hash.copy_from_slice(&vec_hash);
-        Hash(hash)
-    }
-}
-
-impl Display for Hash {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let Hash(bytes) = self;
-        write!(f, "{}", hex::encode(bytes))
-    }
-}
-
-impl Debug for Hash {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let Hash(bytes) = self;
-        write!(f, "{}", hex::encode(bytes))
-    }
-}
-
-impl AsRef<[u8]> for Hash {
-    fn as_ref(&self) -> &[u8] {
-        let Hash(bytes) = self;
-        bytes
-    }
-}
 
 /// Algorithm for hashing
 #[derive(Clone, Copy, Debug)]
@@ -389,220 +331,18 @@ impl Display for PrivateKey {
     }
 }
 
-/// Represents signature of the data (`Block` or `Transaction` for example).
-#[derive(Clone, Encode, Decode, Serialize, Deserialize, PartialOrd, Ord, IntoSchema)]
-pub struct Signature {
-    /// Public key that is used for verification. Payload is verified by algorithm
-    /// that corresponds with the public key's digest function.
-    pub public_key: PublicKey,
-    /// Actual signature payload is placed here.
-    signature: Vec<u8>,
-}
-
-impl Signature {
-    /// Creates new [`Signature`] by signing payload via [`KeyPair::private_key`].
-    ///
-    /// # Errors
-    /// Fails if decoding digest of key pair fails
-    pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Signature> {
-        let private_key = UrsaPrivateKey(key_pair.private_key.payload.clone());
-        let algorithm: Algorithm = key_pair.public_key.digest_function.parse()?;
-        let signature = match algorithm {
-            Algorithm::Ed25519 => Ed25519Sha512::new().sign(payload, &private_key),
-            Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().sign(payload, &private_key),
-            Algorithm::BlsSmall => BlsSmall::new().sign(payload, &private_key),
-            Algorithm::BlsNormal => BlsNormal::new().sign(payload, &private_key),
-        }
-        .map_err(|e| eyre!("Failed to sign payload: {}", e))?;
-        Ok(Signature {
-            public_key: key_pair.public_key,
-            signature,
-        })
-    }
-
-    /// Verify `message` using signed data and [`KeyPair::public_key`].
-    ///
-    /// # Errors
-    /// Fails if decoding digest of key pair fails or if message didn't pass verification
-    pub fn verify(&self, payload: &[u8]) -> Result<()> {
-        let public_key = UrsaPublicKey(self.public_key.payload.clone());
-        let algorithm: Algorithm = self.public_key.digest_function.parse()?;
-        let result = match algorithm {
-            Algorithm::Ed25519 => {
-                Ed25519Sha512::new().verify(payload, &self.signature, &public_key)
-            }
-            Algorithm::Secp256k1 => {
-                EcdsaSecp256k1Sha256::new().verify(payload, &self.signature, &public_key)
-            }
-            Algorithm::BlsSmall => BlsSmall::new().verify(payload, &self.signature, &public_key),
-            Algorithm::BlsNormal => BlsNormal::new().verify(payload, &self.signature, &public_key),
-        };
-        match result {
-            Ok(true) => Ok(()),
-            _ => Err(eyre!("Signature did not pass verification: {}")),
-        }
-    }
-}
-
-impl PartialEq for Signature {
-    fn eq(&self, other: &Self) -> bool {
-        self.public_key == other.public_key && self.signature.clone() == other.signature.clone()
-    }
-}
-
-impl Eq for Signature {}
-
-impl Debug for Signature {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Signature")
-            .field("public_key", &self.public_key)
-            .field("signature", &hex::encode_upper(self.signature.as_slice()))
-            .finish()
-    }
-}
-
-/// Container for multiple signatures.
-#[derive(Debug, Clone, Encode, Decode, Default, IntoSchema)]
-pub struct Signatures {
-    signatures: BTreeMap<PublicKey, Signature>,
-}
-
-impl Signatures {
-    /// Adds multiple signatures and replaces the duplicates.
-    pub fn append(&mut self, signatures: &[Signature]) {
-        for signature in signatures.iter().cloned() {
-            self.add(signature.clone());
-        }
-    }
-
-    /// Adds a signature. If the signature with this key was present, replaces it.
-    pub fn add(&mut self, signature: Signature) {
-        let _option = self
-            .signatures
-            .insert(signature.public_key.clone(), signature);
-    }
-
-    /// Whether signatures contain a signature with the specified `public_key`
-    pub fn contains(&self, public_key: &PublicKey) -> bool {
-        self.signatures.contains_key(public_key)
-    }
-
-    /// Removes all signatures
-    pub fn clear(&mut self) {
-        self.signatures.clear();
-    }
-
-    /// Returns signatures that have passed verification.
-    pub fn verified(&self, payload: &[u8]) -> Vec<Signature> {
-        self.signatures
-            .iter()
-            .map(|(_, signature)| signature)
-            .filter(|signature| signature.verify(payload).is_ok())
-            .cloned()
-            .collect()
-    }
-
-    /// Returns all signatures.
-    pub fn values(&self) -> Vec<Signature> {
-        self.signatures
-            .iter()
-            .map(|(_, signature)| signature)
-            .cloned()
-            .collect()
-    }
-
-    /// Number of signatures.
-    pub fn len(&self) -> usize {
-        self.signatures.len()
-    }
-
-    /// Checks if there is no signatures.
-    pub fn is_empty(&self) -> bool {
-        self.signatures.is_empty()
-    }
-}
-
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    pub use super::{Hash, KeyPair, PrivateKey, PublicKey, Signature, Signatures};
+    pub use super::{Hash, KeyPair, PrivateKey, PublicKey, Signature};
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
 
-    use hex_literal::hex;
     use serde::Deserialize;
-    use ursa::blake2::{
-        digest::{Update, VariableOutput},
-        VarBlake2b,
-    };
 
     use super::*;
-
-    #[test]
-    fn create_signature_ed25519() {
-        let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(Algorithm::Ed25519),
-        )
-        .expect("Failed to generate key pair.");
-        let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
-        assert!(signature.verify(message).is_ok())
-    }
-
-    #[test]
-    fn create_signature_secp256k1() {
-        let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(Algorithm::Secp256k1),
-        )
-        .expect("Failed to generate key pair.");
-        let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
-        assert!(signature.verify(message).is_ok())
-    }
-
-    #[test]
-    fn create_signature_bls_normal() {
-        let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(Algorithm::BlsNormal),
-        )
-        .expect("Failed to generate key pair.");
-        let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
-        assert!(signature.verify(message).is_ok())
-    }
-
-    #[test]
-    fn create_signature_bls_small() {
-        let key_pair = KeyPair::generate_with_configuration(
-            KeyGenConfiguration::default().with_algorithm(Algorithm::BlsSmall),
-        )
-        .expect("Failed to generate key pair.");
-        let message = b"Test message to sign.";
-        let signature =
-            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
-        assert!(signature.verify(message).is_ok())
-    }
-
-    #[test]
-    fn blake2_32b() {
-        let mut hasher = VarBlake2b::new(32).unwrap();
-        hasher.update(hex!("6920616d2064617461"));
-        hasher.finalize_variable(|res| {
-            assert_eq!(
-                res[..],
-                hex!("ba67336efd6a3df3a70eeb757860763036785c182ff4cf587541a0068d09f5b2")[..]
-            );
-        })
-    }
 
     #[test]
     fn display_public_key() {

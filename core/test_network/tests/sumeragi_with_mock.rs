@@ -32,6 +32,8 @@ use tokio::{sync::mpsc, time};
 use utils::{genesis, kura, kura::*, sumeragi, world};
 
 pub mod utils {
+    use iroha_crypto::HashOf;
+
     use super::*;
 
     pub mod genesis {
@@ -106,7 +108,7 @@ pub mod utils {
                 self.broker.subscribe::<StoreBlock, _>(ctx);
                 self.broker
                     .issue_send(sumeragi::Init {
-                        latest_block_hash: Hash([0; 32]),
+                        last_block: HashOf::from_hash(Hash([0; 32])),
                         height: 0,
                     })
                     .await;
@@ -127,14 +129,14 @@ pub mod utils {
 
         #[async_trait::async_trait]
         impl<W: WorldTrait> Handler<GetBlockHash> for CountStored<W> {
-            type Result = Option<Hash>;
+            type Result = Option<HashOf<VersionedCommittedBlock>>;
             async fn handle(&mut self, _: GetBlockHash) -> Self::Result {
                 panic!("Shouldn't be called here!")
             }
         }
 
-        #[derive(Debug, iroha_actor::Message, Clone, Copy, PartialEq, Eq)]
-        pub struct Stored(pub Hash);
+        #[derive(Debug, iroha_actor::Message, Clone, PartialEq, Eq, Copy)]
+        pub struct Stored(pub HashOf<VersionedCommittedBlock>);
     }
 
     pub mod sumeragi {
@@ -384,17 +386,11 @@ pub mod utils {
             W: WorldTrait,
         {
             type Result = ();
-            async fn handle(
-                &mut self,
-                Init {
-                    latest_block_hash,
-                    height,
-                }: Init,
-            ) {
+            async fn handle(&mut self, Init { last_block, height }: Init) {
                 self.connect_peers().await;
 
-                if height != 0 && latest_block_hash != Hash([0; 32]) {
-                    self.init(latest_block_hash, height);
+                if height != 0 && *last_block != Hash([0; 32]) {
+                    self.init(last_block, height);
                 } else if let Some(genesis_network) = self.genesis_network.take() {
                     let addr = self.network.clone();
                     if let Err(err) = genesis_network.submit_transactions(&mut self, addr).await {
@@ -455,7 +451,7 @@ pub mod utils {
         }
 
         #[derive(Debug, Clone, Copy, Message)]
-        #[message(result = "Vec<Hash>")]
+        #[message(result = "Vec<HashOf<VersionedValidBlock>>")]
         pub struct InvalidBlocks;
 
         #[async_trait::async_trait]
@@ -466,7 +462,7 @@ pub mod utils {
             G: GenesisNetworkTrait,
             W: WorldTrait,
         {
-            type Result = Vec<Hash>;
+            type Result = Vec<HashOf<VersionedValidBlock>>;
             async fn handle(&mut self, _: InvalidBlocks) -> Self::Result {
                 self.invalidated_blocks_hashes.clone()
             }

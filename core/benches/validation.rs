@@ -132,7 +132,7 @@ fn chain_blocks(criterion: &mut Criterion) {
             success_count += 1;
             let new_block = block.clone().chain(
                 success_count,
-                previous_block_hash,
+                previous_block_hash.transmute(),
                 view_change::ProofChain::empty(),
                 Vec::new(),
             );
@@ -154,7 +154,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     let mut success_count = 0;
     let mut failures_count = 0;
     let _ = criterion.bench_function("sign_block", |b| {
-        b.iter(|| match block.clone().sign(&key_pair) {
+        b.iter(|| match block.clone().sign(key_pair.clone()) {
             Ok(_) => success_count += 1,
             Err(_) => failures_count += 1,
         });

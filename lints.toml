@@ -16,6 +16,7 @@ deny = [
     'rust_2018_idioms',
     'trivial_casts',
     'trivial_numeric_casts',
+    'unconditional_recursion',
     'unsafe_code',
     'unused',
     'unused_import_braces',
