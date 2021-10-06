@@ -909,10 +909,6 @@ type getAccountTransactionsRets struct {
 }
 
 func getAccountTransactions(ctx native.Context, args GetAccountTransactionsArgs) (getAccountTransactionsRets, error) {
-	fmt.Println("entering get transactions")
-	fmt.Println("############33")
-	fmt.Println(args.Ordering)
-	fmt.Println("##############")
 	paginationMetaArg := iroha_model.TxPaginationMeta{ PageSize: &args.PageSize, FirstTxHash: &args.PageSize, Ordering: &args.Ordering,
 		FirstTxTime: &args.FirstTxTime, LastTxTime: &args.LastTxTime, FirstTxHeight: &args.FirstTxHeight, LastTxHeight: &args.LastTxHeight}
 	transactions, err := iroha.GetAccountTransactions(args.Account, &paginationMetaArg)
@@ -986,17 +982,12 @@ type getTransactionsRets struct {
 }
 
 func getTransactions(ctx native.Context, args GetTransactionsArgs) (getTransactionsRets, error) {
-	fmt.Println("getting transactions")
-	fmt.Println(args.Hashes)
 	transactions, err := iroha.GetTransactions(args.Hashes)
 	if err != nil {
 		return getTransactionsRets{}, err
 	}
 	ctx.Logger.Trace.Log("function", "GetTransactions", "hashes", args.Hashes)
 	result, err := json.Marshal(transactions)
-	fmt.Println("################")
-	fmt.Println(result)
-	fmt.Println(err)
 	return getTransactionsRets{Result: string(result)}, nil
 }
 
