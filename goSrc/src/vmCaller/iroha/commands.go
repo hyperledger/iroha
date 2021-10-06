@@ -223,6 +223,21 @@ func CompareAndSetAccountDetail(account string, key string, value string, oldVal
 	return handleErrors(commandResult, err, "DetachRole")
 }
 
+func CreateRole(roleName string, permissions string) error {
+	var perms_enc []string
+	json.Unmarshal([]byte(permissions), &perms_enc)
+	var pb_perms = make([]pb.RolePermission, len(perms_enc))
+	for i, perm := range perms_enc {
+		pb_perms[i] = pb.RolePermission(pb.RolePermission_value[perm])
+	}
+	command := &pb.Command{Command: &pb.Command_CreateRole{
+		CreateRole: &pb.CreateRole{
+			RoleName: roleName,
+			Permissions:  pb_perms,
+		}}}
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
+	return handleErrors(commandResult, err, "DetachRole")
+}
 // -----------------------Iroha queries---------------------------------------
 
 // Queries asset balance of an account

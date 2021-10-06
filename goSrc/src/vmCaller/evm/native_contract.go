@@ -295,9 +295,17 @@ var (
 		native.Function{
 			Comment: `
 				* @notice Get Transactions
-				* @param tx hashes  `,
+				* @param tx hashes`,
 			PermFlag: permission.Call,
 			F:       getTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Create Role
+				* @param role name
+				* @param permissions`,
+			PermFlag: permission.Call,
+			F:       createRole,
 		},
 	)
 )
@@ -791,6 +799,27 @@ func compareAndSetAccountDetail(ctx native.Context, args compareAndSetAccountDet
 		"old value", args.OldValue, "check empty", args.CheckEmpty)
 
 	return compareAndSetAccountDetailRets{Result: true}, nil
+}
+
+type createRoleArgs struct {
+	RoleName string
+	Permissions string
+}
+
+type createRoleRets struct {
+	Result bool
+}
+
+func createRole(ctx native.Context, args createRoleArgs) (createRoleRets, error) {
+	err := iroha.CreateRole(args.RoleName, args.Permissions)
+	if err != nil {
+		return createRoleRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "CreateRole",
+		"Role Name", args.RoleName, "Permissions", args.Permissions)
+
+	return createRoleRets{Result: true}, nil
 }
 
 type getPeersArgs struct {

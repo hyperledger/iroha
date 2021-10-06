@@ -30,7 +30,6 @@ func MakeTxPaginationMeta(txMeta *TxPaginationMeta) (pb.TxPaginationMeta, error)
 	if len(*txMeta.Ordering)!=0 {
 		var ordering []OrderingField
 		json.Unmarshal([]byte(*txMeta.Ordering), &ordering)
-		fmt.Println(ordering)
 		var pb_ord = make([]*pb.Ordering_FieldOrdering, len(ordering))
 		for i, p_order := range ordering {
 			ord_field := pb.Ordering_FieldOrdering{}
