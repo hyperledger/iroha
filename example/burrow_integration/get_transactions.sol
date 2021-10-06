@@ -10,46 +10,46 @@ contract Transaction {
     }
 
     // Queries the balance in _asset of an Iroha _account
-    function getAccountTransactions(string memory _account, string memory _pageSize, string memory _firstTxHash, string memory _ordering, string memory _firstTxTime, string memory _lastTxTime, string memory _firstTxHeight, string memory _lastTxHeight) public returns (bytes memory result) {
+    function getAccountTransactions(string memory _account, string memory _pageSize, string memory _firstTxHash, string memory _firstTxTime, string memory _lastTxTime, string memory _firstTxHeight, string memory _lastTxHeight, string memory _ordering) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
             "getAccountTransactions(string,string,string,string,string,string,string,string)",
             _account,
             _pageSize,
             _firstTxHash,
-            _ordering,
             _firstTxTime,
             _lastTxTime,
             _firstTxHeight,
-            _lastTxHeight);
+            _lastTxHeight,
+            _ordering);
         (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
         require(success, "Error calling service contract function");
         result = ret;
     }
 
-    function getAccountAssetTransactions(string memory _account, string memory _asset, string memory _pageSize, string memory _firstTxHash, string memory _ordering, string memory _firstTxTime, string memory _lastTxTime, string memory _firstTxHeight, string memory _lastTxHeight) public returns (bytes memory result) {
+    function getAccountAssetTransactions(string memory _account, string memory _asset, string memory _pageSize, string memory _firstTxHash, string memory _firstTxTime, string memory _lastTxTime, string memory _firstTxHeight, string memory _lastTxHeight, string memory _ordering) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
             "getAccountAssetTransactions(string,string,string,string,string,string,string,string,string)",
             _account,
             _asset,
             _pageSize,
             _firstTxHash,
-            _ordering,
             _firstTxTime,
             _lastTxTime,
             _firstTxHeight,
-            _lastTxHeight);
+            _lastTxHeight,
+            _ordering);
         (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
         require(success, "Error calling service contract function");
         result = ret;
     }
-    function getPendingTransactions(string memory _pageSize, string memory _firstTxHash, string memory _ordering, string memory _firstTxTime, string memory _lastTxTime) public returns (bytes memory result) {
+    function getPendingTransactions(string memory _pageSize, string memory _firstTxHash, string memory _firstTxTime, string memory _lastTxTime, string memory _ordering,) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
             "getPendingTransactions(string,string,string,string,string)",
             _pageSize,
             _firstTxHash,
-            _ordering,
             _firstTxTime,
-            _lastTxTime);
+            _lastTxTime,
+            _ordering);
         (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
         require(success, "Error calling service contract function");
         result = ret;

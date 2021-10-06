@@ -924,9 +924,9 @@ func getAccountTransactions(ctx native.Context, args GetAccountTransactionsArgs)
 type GetPendingTransactionsArgs struct {
 	PageSize string
 	FirstTxHash string
-	Ordering string 
 	FirstTxTime string
 	LastTxTime string
+	Ordering string 
 }
 
 type getPendingTransactionsRets struct {
@@ -950,11 +950,11 @@ type GetAccountAssetTransactionsArgs struct {
 	AssetId string
 	PageSize string
 	FirstTxHash string
-	Ordering string 
 	FirstTxTime string
 	LastTxTime string
 	FirstTxHeight string
 	LastTxHeight string
+	Ordering string 
 }
 
 type getAccountAssetTransactionsRets struct {

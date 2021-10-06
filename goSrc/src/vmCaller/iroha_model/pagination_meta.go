@@ -32,13 +32,9 @@ func MakeTxPaginationMeta(txMeta *TxPaginationMeta) (pb.TxPaginationMeta, error)
 		json.Unmarshal([]byte(*txMeta.Ordering), &ordering)
 		var pb_ord = make([]*pb.Ordering_FieldOrdering, len(ordering))
 		for i, p_order := range ordering {
-			ord_field := pb.Ordering_FieldOrdering{}
-			ord_field.Direction = pb.Direction(pb.Direction_value[p_order.Direction])
-			ord_field.Field = pb.Field(pb.Field_value[p_order.Field])
-			pb_ord[i] = &ord_field
+			pb_ord[i] = &pb.Ordering_FieldOrdering{Field: pb.Field(pb.Field_value[p_order.Field]), Direction: pb.Direction(pb.Direction_value[p_order.Direction])}
 		}
-		order := pb.Ordering{}
-		order.Sequence = pb_ord
+		order := pb.Ordering{Sequence: pb_ord}
 		TxPaginationMeta.Ordering= &order
 	}
 	// check page size
