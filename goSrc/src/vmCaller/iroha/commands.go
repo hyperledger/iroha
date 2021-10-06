@@ -185,7 +185,7 @@ func GrantPermission(account string, permission string) error {
 			Permission:  pb.GrantablePermission(perm),
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	return handleErrors(commandResult, err, "DetachRole")
+	return handleErrors(commandResult, err, "GrantPermission")
 }
 
 func RevokePermission(account string, permission string) error {
@@ -196,7 +196,7 @@ func RevokePermission(account string, permission string) error {
 			Permission:  pb.GrantablePermission(perm),
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	return handleErrors(commandResult, err, "DetachRole")
+	return handleErrors(commandResult, err, "RevokePermission")
 }
 
 func MakeCompareAndSetAccountDetailArgs(account string, key string, value string, oldValue string, checkEmpty string) (pb.Command, error) {
@@ -220,7 +220,7 @@ func MakeCompareAndSetAccountDetailArgs(account string, key string, value string
 func CompareAndSetAccountDetail(account string, key string, value string, oldValue string, checkEmpty string) error {
 	command, err := MakeCompareAndSetAccountDetailArgs(account, key, value, oldValue, checkEmpty)
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, &command)
-	return handleErrors(commandResult, err, "DetachRole")
+	return handleErrors(commandResult, err, "CompareAndSetAccountDetail")
 }
 
 func CreateRole(roleName string, permissions string) error {
@@ -236,7 +236,7 @@ func CreateRole(roleName string, permissions string) error {
 			Permissions:  pb_perms,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	return handleErrors(commandResult, err, "DetachRole")
+	return handleErrors(commandResult, err, "CreateRole")
 }
 // -----------------------Iroha queries---------------------------------------
 
