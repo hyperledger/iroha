@@ -174,6 +174,7 @@ func (w *EngineWrapper) Execute(caller, callee crypto.Address, input []byte) ([]
 		Value:  0,
 		Gas:    &gas,
 	}
+	fmt.Println(input)
 	output, err := w.engine.Execute(w.state, blockchain.New(), w.eventSink, params, calleeAccount.EVMCode)
 
 	if err != nil {

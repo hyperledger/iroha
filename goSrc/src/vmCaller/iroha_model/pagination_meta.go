@@ -7,6 +7,7 @@ import (
 	"time"
 	pb "iroha.protocol"
 	"github.com/golang/protobuf/ptypes"
+	"encoding/json"
 )
 
 type TxPaginationMeta struct{
@@ -19,8 +20,28 @@ type TxPaginationMeta struct{
 	LastTxHeight *string
 }
 
+type OrderingField struct {
+	Field string `json:"field"`
+	Direction string `json:"direction"`
+}
+
 func MakeTxPaginationMeta(txMeta *TxPaginationMeta) (pb.TxPaginationMeta, error) {
 	TxPaginationMeta := pb.TxPaginationMeta{}
+	if len(*txMeta.Ordering)!=0 {
+		var ordering []OrderingField
+		json.Unmarshal([]byte(*txMeta.Ordering), &ordering)
+		fmt.Println(ordering)
+		var pb_ord = make([]*pb.Ordering_FieldOrdering, len(ordering))
+		for i, p_order := range ordering {
+			ord_field := pb.Ordering_FieldOrdering{}
+			ord_field.Direction = pb.Direction(pb.Direction_value[p_order.Direction])
+			ord_field.Field = pb.Field(pb.Field_value[p_order.Field])
+			pb_ord[i] = &ord_field
+		}
+		order := pb.Ordering{}
+		order.Sequence = pb_ord
+		TxPaginationMeta.Ordering= &order
+	}
 	// check page size
 	size, err := strconv.ParseUint(*txMeta.PageSize, 10, 32)
 	if err != nil {

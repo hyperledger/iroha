@@ -14,6 +14,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	pb "iroha.protocol"
 	"vmCaller/iroha_model"
+	"encoding/json"
 )
 
 var (
@@ -197,21 +198,6 @@ func RevokePermission(account string, permission string) error {
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
 	return handleErrors(commandResult, err, "DetachRole")
 }
-
-// func MakeCompareAndSetAccountDetailArgs(account string, key string, value string, oldValue string, checkEmpty string) (pb.Command, error) {
-// 	cmd= pb.Command{Command:&pb.Command_Compa}
-// 	if len(oldValue) == 0 {
-// 		return pb.Command{Command: &pb.Command_CompareAndSetAccountDetail{
-// 		CompareAndSetAccountDetail: &pb.CompareAndSetAccountDetail{
-// 			AccountId: account,
-// 			Key: key,
-// 			Value: value,
-// 			OptOldValue: &pb.CompareAndSetAccountDetail_OldValue{oldValue},
-// 			CheckEmpty:  
-// 		}}}, nil
-// 	}
-// }
-
 
 func MakeCompareAndSetAccountDetailArgs(account string, key string, value string, oldValue string, checkEmpty string) (pb.Command, error) {
 	cmd1 := &pb.CompareAndSetAccountDetail{
@@ -557,27 +543,42 @@ func GetAccountAssetTransactions(accountId string, domainId string, txPagination
 	}
 }
 
-func GetTransactions(hashes []byte) ([]*pb.Transaction, error) {
+func GetTransactions(hashes string) ([]*pb.Transaction, error) {
 	metaPayload := MakeQueryPayloadMeta()
+	var hashes_decoded []string
+	json.Unmarshal([]byte(hashes), &hashes_decoded)
+	fmt.Println(hashes_decoded)
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetTransactions{
-			GetTransactions: &pb.GetTransactions{}}}}
+			GetTransactions: &pb.GetTransactions{TxHashes: []string{
+				"21406001431a4de2a2ae0f3406845fe0ec69c33ddd80bd8b380d76c3ac767eae",
+				"bbf268e36be9ad2b07cb7d551c0926e98d321301d91c26aacca7c4ed5b1cdf7e",
+			}}}}}
+	fmt.Println(query)
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	fmt.Println(queryResponse)
+	fmt.Println(err)
 	if err != nil {
+		fmt.Println("error returned")
 		return []*pb.Transaction{}, err
 	}
+	fmt.Println("dupa")
 	switch response := queryResponse.Response.(type) {
 	case *pb.QueryResponse_ErrorResponse:
+		fmt.Println("error response")
 		return []*pb.Transaction{}, fmt.Errorf(
 			"ErrorResponse in GetTransactions: %d, %v",
 			response.ErrorResponse.ErrorCode,
 			response.ErrorResponse.Message,
 		)
-	case *pb.QueryResponse_TransactionsPageResponse:
-		transactionsPageResponse := queryResponse.GetTransactionsPageResponse()
-		return transactionsPageResponse.Transactions, nil
+	case *pb.QueryResponse_TransactionsResponse:
+		fmt.Println("GOOD")
+		transactionsResponse := queryResponse.GetTransactionsResponse()
+		fmt.Println(transactionsResponse)
+		return transactionsResponse.Transactions, nil
 	default:
+		fmt.Println("WRONG")
 		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetTransactions")
 	}
 }
