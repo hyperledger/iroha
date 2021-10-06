@@ -56,22 +56,6 @@ When server is ready to transmit events it sends: `SubscriptionAccepted`
 
 Server sends `Event` and expects `EventReceived` after each, before sending the next event.
 
-### Metrics
-
-**Protocol**: HTTP
-
-**Encoding**: Parity Scale Codec
-
-**Endpoint**: `/metrics`
-
-**Method**: `GET`
-
-**Expects**: -
-
-**Responses**:
-- 200 OK - Metrics Calculated Successfully. Body: `Metrics`
-- 500 Internal Server Error - Failed to get metrics
-
 ### Configuration
 
 **Protocol**: HTTP
@@ -134,4 +118,3 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 - `SubscriptionAccepted` - `iroha_data_model::events::EventSocketMessage::SubscriptionAccepted`
 - `Event` - `iroha_data_model::events::EventSocketMessage::Event`
 - `EventReceived` - `iroha_data_model::events::EventSocketMessage::EventReceived`
-- `Metrics` - `iroha::maintenance::Metrics`

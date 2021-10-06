@@ -29,14 +29,11 @@ CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles/*
 cmake-build-debu/*
-docker/build/iroha.tar
 cmake-build-debug/*
 external/*
 core/infra/protobuf
-docker/tiny/iroha/
 include/generated/*
 .scannerwork/
-iroha.conf
 peers.list
 cmake-build*
 
