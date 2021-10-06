@@ -37,7 +37,7 @@ Iroha Special Instructions executed on behalf of an authority - Account.
 If you already has an account to store assets on - feel free to skip these step.
 If not - you will need to receive Account's Key Pair with permissions to Register an Account.
 
-TL;DR - after [configuration of Iroha CLI](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_client_cli/README.md)
+TL;DR - after [configuration of Iroha CLI](https://github.com/hyperledger/iroha/blob/iroha2-dev/client_cli/README.md)
 run this command:
 
 ```bash

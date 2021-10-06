@@ -42,7 +42,7 @@ jobs:
           toolchain: 1.55
       - name: Build Client CLI
         run: cargo build --verbose
-        working-directory: iroha_client_cli
+        working-directory: client_cli
       - name: Setup docker test environment
         run: ./scripts/setup_docker_test_env.sh
       - name: Docker compose genesis test

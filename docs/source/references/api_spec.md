@@ -123,7 +123,7 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 
 ## Reference Iroha Client Implementation
 
-[Iroha client in Rust.](../../../iroha_client)
+[Iroha client in Rust.](../../../client)
 
 ## Iroha Structures
 

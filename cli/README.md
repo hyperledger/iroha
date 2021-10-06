@@ -15,7 +15,7 @@ based on predefined configuration.
 ### Generating Keys
 
 Before deployment each Peer should generate own pair of crypthographic keys. In our example we will use `Ed25519` and 
-[iroha_crypto_cli](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_crypto_cli/README.md) tool. This tool is a recommended way to generate iroha keys.
+[iroha_crypto_cli](https://github.com/hyperledger/iroha/blob/iroha2-dev/crypto_cli/README.md) tool. This tool is a recommended way to generate iroha keys.
 
 ```bash
 ./iroha_crypto_cli
@@ -40,7 +40,7 @@ All the commands are assumed to be executed in the root directory of the clone o
 #### Make a Directory for Deployment
 
 ```bash
-mkdir iroha_deploy
+mkdir deploy
 ```
 
 #### Build Iroha Binary
@@ -49,16 +49,16 @@ Build and copy Iroha binary into the directory.
 
 ```bash
 cargo build
-cp ./target/debug/iroha iroha_deploy
+cp ./target/debug/iroha deploy
 ```
 
 #### Copy configs
 
 Copy and if necessary edit config, genesis and trusted peers.
 ```bash
-cp ./iroha_core/config.json iroha_deploy
-cp ./iroha_core/genesis.json iroha_deploy
-cp ./iroha_core/trusted_peers.json iroha_deploy
+cp ./core/config.json deploy
+cp ./core/genesis.json deploy
+cp ./core/trusted_peers.json deploy
 ```
 
 Depending on how many peers you plan to run, update the config:
@@ -72,7 +72,7 @@ Also update the `PUBLIC_KEY`, `PRIVATE_KEY`, `TORII_P2P_ADDR` and `TORII_API_URL
 Start Iroha peer. It can be done either with `--genesis` param to specify `genesis.json` location or without. Pay attention that for multipeer setup only one peer should be started with `--genesis` param.  
 
 ```bash
-cd iroha_deploy
+cd deploy
 ./iroha --submit-genesis
 ```
 

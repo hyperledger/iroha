@@ -4,7 +4,7 @@ error[E0119]: conflicting implementations of trait `std::convert::From<Variant1>
 11 | #[derive(iroha_derive::FromVariant)]
    |          ^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `Enum`
    |
-  ::: $WORKSPACE/iroha_macro/iroha_derive/tests/from_variant/02-double-from.rs
+  ::: $WORKSPACE/macro/derive/tests/from_variant/02-double-from.rs
    |
    | impl std::convert::From<Variant1> for Enum {
    | ------------------------------------------ first implementation here

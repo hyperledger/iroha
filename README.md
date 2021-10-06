@@ -41,23 +41,27 @@ More details about different ways to use Iroha application can be found [here](h
 With the `docker-compose` instance running,
 
 ```bash
+<<<<<<< HEAD
 cp client/config.json target/debug/
+=======
+cp core/config.json target/debug/
+>>>>>>> 1d532220 (Fix paths in files outside cargo)
 cd target/debug
 ./iroha_client_cli --help
 ```
 
-More details about Iroha Client CLI can be found [here](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_client_cli/README.md).
+More details about Iroha Client CLI can be found [here](https://github.com/hyperledger/iroha/blob/iroha2-dev/client_cli/README.md).
 
 ## Project Structure
 
 Iroha project consists of the following crates:
 
 * [Iroha](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha/README.md) application for Peers deployment.
-* [Iroha Client](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_client/README.md) Rust Library.
-* [Iroha Client Command Line Interface](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_client_cli/README.md).
-* [Iroha Macro](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_macro/README.md) Rust Library with macroses.
-* [Iroha Network](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_network/README.md) Web Protocol Library.
-* [Iroha Substrate](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_substrate/README.md) application.
+* [Iroha Client](https://github.com/hyperledger/iroha/blob/iroha2-dev/client/README.md) Rust Library.
+* [Iroha Client Command Line Interface](https://github.com/hyperledger/iroha/blob/iroha2-dev/client_cli/README.md).
+* [Iroha Macro](https://github.com/hyperledger/iroha/blob/iroha2-dev/macro/README.md) Rust Library with macroses.
+* [Iroha Network](https://github.com/hyperledger/iroha/blob/iroha2-dev/network/README.md) Web Protocol Library.
+* [Iroha Substrate](https://github.com/hyperledger/iroha/blob/iroha2-dev/substrate/README.md) application.
 
 ### Want to help us develop Iroha?
 
