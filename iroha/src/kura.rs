@@ -235,6 +235,10 @@ pub enum Error {
     InconsequentialBlockWrite,
 }
 
+/// Maximum buffer for block deserialization (hardcoded 500Kb for now)
+/// TODO: make it configurable
+static BUFFER_SIZE_LIMIT: u64 = 512_000;
+
 impl BlockStore {
     /// Initialize block storage at `path`.
     ///
@@ -301,9 +305,8 @@ impl BlockStore {
         );
         let hash = block.hash();
         let serialized_block: Vec<u8> = block.encode_versioned()?;
-        #[allow(clippy::cast_possible_truncation)]
-        let block_size = serialized_block.len() as u32;
-        file.write_u32_le(block_size).await?;
+        let block_size = serialized_block.len() as u64;
+        file.write_u64_le(block_size).await?;
         file.write_all(&serialized_block).await?;
         file.flush().await?;
         Ok(hash)
@@ -320,8 +323,12 @@ impl BlockStore {
         if file_stream.fill_buf().await?.is_empty() {
             return Ok(None);
         }
-        let len = file_stream.read_u32_le().await?;
-        let mut buffer = vec![0; len as usize];
+        let len = file_stream.read_u64_le().await?;
+        if len > BUFFER_SIZE_LIMIT {
+            return Err(Error::IO(std::io::ErrorKind::OutOfMemory.into()));
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let mut buffer: Vec<u8> = vec![0; len as usize];
         let _len = file_stream.read_exact(&mut buffer).await?;
         Ok(Some(VersionedCommittedBlock::decode_versioned(&buffer)?))
     }
