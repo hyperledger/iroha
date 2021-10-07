@@ -4,7 +4,7 @@
  */
 
 #include "backend/protobuf/proto_query_response_factory.hpp"
-
+#include <iostream>
 #include "backend/protobuf/block.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "backend/protobuf/query_responses/proto_block_query_response.hpp"
@@ -251,6 +251,7 @@ shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
         auto *protocol_specific_response =
             protocol_query_response.mutable_transactions_page_response();
         for (const auto &tx : transactions) {
+          std::cout<<tx.get()->createdTime()<<std::endl;
           *protocol_specific_response->add_transactions() =
               static_cast<shared_model::proto::Transaction *>(tx.get())
                   ->getTransport();

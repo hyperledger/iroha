@@ -39,6 +39,4 @@ contract Transaction {
         require(success, "Error calling service contract function");
         result = ret;
     }
-
-    
 }

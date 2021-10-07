@@ -182,7 +182,7 @@ func GrantPermission(account string, permission string) error {
 	command := &pb.Command{Command: &pb.Command_GrantPermission{
 		GrantPermission: &pb.GrantPermission{
 			AccountId: account,
-			Permission:  pb.GrantablePermission(perm),
+			Permission: pb.GrantablePermission(perm),
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
 	return handleErrors(commandResult, err, "GrantPermission")
@@ -193,7 +193,7 @@ func RevokePermission(account string, permission string) error {
 	command := &pb.Command{Command: &pb.Command_RevokePermission{
 		RevokePermission: &pb.RevokePermission{
 			AccountId: account,
-			Permission:  pb.GrantablePermission(perm),
+			Permission: pb.GrantablePermission(perm),
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
 	return handleErrors(commandResult, err, "RevokePermission")

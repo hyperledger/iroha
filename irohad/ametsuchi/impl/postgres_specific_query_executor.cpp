@@ -13,7 +13,7 @@
 #include <boost/range/irange.hpp>
 #include <tuple>
 #include <unordered_map>
-
+#include <iostream>
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
@@ -454,7 +454,7 @@ namespace iroha {
                  WHERE
                  {2} -- related_txs
                  {5} -- time interval begin
-                 {6} -- time interval end
+                 {7} -- time interval end
                  {7} -- height begin
                  {8} -- height end
                  {1} -- ordering
@@ -475,6 +475,7 @@ namespace iroha {
                                                1,
                                                query_hash);
       }
+      std::cout<<"ordering: "<<ordering_str_<<std::endl;
       auto query = fmt::format(
           base,
           hasQueryPermissionTarget(creator_id, q.accountId(), perms...),

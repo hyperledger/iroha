@@ -55,9 +55,9 @@ contract Transaction {
         result = ret;
     }
 
-    function getTransaction(string memory hash) public returns (bytes memory result) {
+    function getTransactions(string memory hash) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
-            "getTransaction(string)",
+            "getTransactions(string)",
             hash);
         (bool success, bytes memory ret) = address(serviceContractAddress).delegatecall(payload);
         require(success, "Error calling service contract function");
