@@ -4,7 +4,7 @@
  */
 
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
-
+#include <iostream>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/range/adaptor/filtered.hpp>
@@ -13,7 +13,7 @@
 #include <boost/range/irange.hpp>
 #include <tuple>
 #include <unordered_map>
-#include <iostream>
+
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
@@ -454,7 +454,7 @@ namespace iroha {
                  WHERE
                  {2} -- related_txs
                  {5} -- time interval begin
-                 {7} -- time interval end
+                 {6} -- time interval end
                  {7} -- height begin
                  {8} -- height end
                  {1} -- ordering
@@ -475,7 +475,6 @@ namespace iroha {
                                                1,
                                                query_hash);
       }
-      std::cout<<"ordering: "<<ordering_str_<<std::endl;
       auto query = fmt::format(
           base,
           hasQueryPermissionTarget(creator_id, q.accountId(), perms...),
@@ -731,7 +730,7 @@ namespace iroha {
       auto first_hash = pagination_info.firstTxHash();
       // retrieve one extra transaction to populate next_hash
       auto query_size = pagination_info.pageSize() + 1u;
-
+      std::cout<<"accout is: "<<q.accountId()<<std::endl;
       auto first_tx_time = pagination_info.firstTxTime();
       auto last_tx_time = pagination_info.lastTxTime();
       auto first_tx_height = pagination_info.firstTxHeight();
