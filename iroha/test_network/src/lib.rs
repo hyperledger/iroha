@@ -364,7 +364,7 @@ where
         let mut configuration = self.get_config(configuration);
         configuration
             .kura_configuration
-            .kura_block_store_path(temp_dir.path())
+            .block_store_path(temp_dir.path())
             .unwrap();
         let info_span = iroha_logger::info_span!(
             "test-peer",
@@ -408,7 +408,7 @@ where
         let mut configuration = self.get_config(configuration);
         configuration
             .kura_configuration
-            .kura_block_store_path(temp_dir.path())
+            .block_store_path(temp_dir.path())
             .unwrap();
         let info_span = iroha_logger::info_span!(
             "test-peer",

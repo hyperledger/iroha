@@ -5,8 +5,9 @@
     clippy::pedantic
 )]
 
-use std::{fmt::Debug, ops::Deref, path::Path, sync::Arc, time::Duration};
+use std::{fmt::Debug, num::NonZeroU64, ops::Deref, path::Path, sync::Arc, time::Duration};
 
+use async_trait::async_trait;
 use eyre::Result;
 use iroha::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait, ContinueSync},
@@ -80,10 +81,17 @@ pub mod utils {
             pub wsv: Arc<WorldStateView<W>>,
         }
 
+        #[async_trait]
         impl<W: WorldTrait> KuraTrait for CountStored<W> {
             type World = W;
 
-            fn new(_: Mode, _: &Path, wsv: Arc<WorldStateView<W>>, broker: Broker) -> Result<Self> {
+            async fn new(
+                _: Mode,
+                _: &Path,
+                _: NonZeroU64,
+                wsv: Arc<WorldStateView<W>>,
+                broker: Broker,
+            ) -> Result<Self, iroha::kura::Error> {
                 Ok(Self { broker, wsv })
             }
         }
