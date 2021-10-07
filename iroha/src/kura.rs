@@ -242,7 +242,7 @@ impl BlockStore {
     /// - Failed to create directory.
     pub async fn new(path: &Path, blocks_per_file: NonZeroU64) -> Result<BlockStore> {
         if fs::read_dir(path).await.is_err() {
-            fs::create_dir_all(path).await.map_err(Error::IO)?;
+            fs::create_dir_all(path).await?;
         }
         Ok(BlockStore {
             path: path.to_path_buf(),
@@ -323,9 +323,7 @@ impl BlockStore {
         let len = file_stream.read_u32_le().await?;
         let mut buffer = vec![0; len as usize];
         let _len = file_stream.read_exact(&mut buffer).await?;
-        VersionedCommittedBlock::decode_versioned(&buffer)
-            .map_err(Error::Codec)
-            .map(Some)
+        Ok(Some(VersionedCommittedBlock::decode_versioned(&buffer)?))
     }
 
     /// Converts raw file stream into stream of decoded blocks
@@ -380,7 +378,7 @@ impl BlockStore {
 /// Will fail on filesystem access error
 ///
 async fn storage_files_base_indices(path: &Path) -> Result<BTreeSet<NonZeroU64>> {
-    let bases = ReadDirStream::new(fs::read_dir(path).await.map_err(Error::IO)?)
+    let bases = ReadDirStream::new(fs::read_dir(path).await?)
         .filter_map(|e| async {
             e.ok()
                 .and_then(|e| e.file_name().to_string_lossy().parse::<NonZeroU64>().ok())
