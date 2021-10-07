@@ -42,7 +42,7 @@ contract Transaction {
         require(success, "Error calling service contract function");
         result = ret;
     }
-    function getPendingTransactions(string memory _pageSize, string memory _firstTxHash, string memory _firstTxTime, string memory _lastTxTime, string memory _ordering,) public returns (bytes memory result) {
+    function getPendingTransactions(string memory _pageSize, string memory _firstTxHash, string memory _firstTxTime, string memory _lastTxTime, string memory _ordering) public returns (bytes memory result) {
         bytes memory payload = abi.encodeWithSignature(
             "getPendingTransactions(string,string,string,string,string)",
             _pageSize,
