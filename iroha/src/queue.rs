@@ -5,26 +5,10 @@ use std::time::Duration;
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
+use thiserror::Error;
 
 use self::config::QueueConfiguration;
 use crate::{prelude::*, wsv::WorldTrait};
-
-/// Queue error.
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    /// Transaction expired.
-    #[error("Transaction expired.")]
-    TransactionExpired,
-    /// Transaction is already in blockchain.
-    #[error("Transaction is already in blockchain.")]
-    AlreadyInBlockchain,
-    /// Failure during signature condition execution.
-    #[error("Failure during signature condition execution: `{0}`")]
-    SignatureConditionExecution(#[source] Report),
-    /// The transaction queue is full.
-    #[error("The transaction queue is full.")]
-    QueueIsFull,
-}
 
 /// Lockfree queue for transactions
 ///
@@ -42,6 +26,27 @@ pub struct Queue {
     ttl: Duration,
 }
 
+/// Queue push error
+#[derive(Error, Debug)]
+pub enum Error {
+    /// Queue is full
+    #[error("Queue is full")]
+    Full,
+    /// Transaction expired
+    #[error("Transaction is expired")]
+    Expired,
+    /// Transaction is already in blockchain
+    #[error("Transaction is already applied")]
+    InBlockchain,
+    /// Signature condition check failed
+    #[error("Failure during signature condition execution")]
+    SignatureCondition(
+        #[from]
+        #[source]
+        Report,
+    ),
+}
+
 impl Queue {
     /// Makes queue from configuration
     pub fn from_configuration(cfg: &QueueConfiguration) -> Self {
@@ -54,9 +59,24 @@ impl Queue {
         }
     }
 
+    fn is_pending<W: WorldTrait>(
+        &self,
+        tx: &VersionedAcceptedTransaction,
+        wsv: &WorldStateView<W>,
+    ) -> bool {
+        !tx.is_expired(self.ttl) && !tx.is_in_blockchain(wsv)
+    }
+
     /// Returns all pending transactions.
-    pub fn all_transactions(&self) -> Vec<VersionedAcceptedTransaction> {
-        self.txs.iter().map(|t| t.value().clone()).collect()
+    pub fn all_transactions<W: WorldTrait>(
+        &self,
+        wsv: &WorldStateView<W>,
+    ) -> Vec<VersionedAcceptedTransaction> {
+        self.txs
+            .iter()
+            .filter(|e| self.is_pending(e.value(), wsv))
+            .map(|e| e.value().clone())
+            .collect()
     }
 
     fn check_tx<W: WorldTrait>(
@@ -65,14 +85,13 @@ impl Queue {
         wsv: &WorldStateView<W>,
     ) -> Result<(), Error> {
         if tx.is_expired(self.ttl) {
-            Err(Error::TransactionExpired)
-        } else if tx.is_in_blockchain(wsv) {
-            Err(Error::AlreadyInBlockchain)
-        } else if let Err(err) = tx.check_signature_condition(wsv) {
-            Err(Error::SignatureConditionExecution(err))
-        } else {
-            Ok(())
+            return Err(Error::Expired);
         }
+        if tx.is_in_blockchain(wsv) {
+            return Err(Error::InBlockchain);
+        }
+        tx.check_signature_condition(wsv)?;
+        Ok(())
     }
 
     /// Pushes transaction into queue.
@@ -88,13 +107,12 @@ impl Queue {
         &self,
         tx: VersionedAcceptedTransaction,
         wsv: &WorldStateView<W>,
-    ) -> Result<(), Error> {
-        // Should always check transactions to prevent eternal gossiping of wrong txs.
-        if let Err(error) = self.check_tx(&tx, wsv) {
-            return Err(error);
+    ) -> Result<(), (VersionedAcceptedTransaction, Error)> {
+        if let Err(e) = self.check_tx(&tx, wsv) {
+            return Err((tx, e));
         }
         if self.txs.len() >= self.max_txs {
-            return Err(Error::QueueIsFull);
+            return Err((tx, Error::Full));
         }
 
         let hash = tx.hash();
@@ -112,9 +130,10 @@ impl Queue {
         };
 
         entry.insert(tx);
-        if self.queue.push(hash).is_err() {
-            self.txs.remove(&hash).expect("Inserted just before match");
-            return Err(Error::QueueIsFull);
+
+        if let Err(hash) = self.queue.push(hash) {
+            let (_, tx) = self.txs.remove(&hash).expect("Inserted just before match");
+            return Err((tx, Error::Full));
         }
         Ok(())
     }
@@ -136,24 +155,22 @@ impl Queue {
             let hash = self.queue.pop()?;
             let entry = match self.txs.entry(hash) {
                 Entry::Occupied(entry) => entry,
-                // As practice shows this code is not `unreachable!()`. When transactions are submitted quickly it can be reached.
+                // As practice shows this code is not `unreachable!()`.
+                // When transactions are submitted quickly it can be reached.
                 Entry::Vacant(_) => continue,
             };
-            if let Err(error) = self.check_tx(entry.get(), wsv) {
-                iroha_logger::warn!("Transaction dropped from queue due to: {}", error);
+            if self.check_tx(entry.get(), wsv).is_err() {
                 entry.remove_entry();
                 continue;
             }
-            let sig_condition = if let Ok(condition) = entry.get().check_signature_condition(wsv) {
-                condition
-            } else {
-                entry.remove_entry();
-                continue;
-            };
 
             seen.push(hash);
 
-            if sig_condition {
+            if entry
+                .get()
+                .check_signature_condition(wsv)
+                .expect("Checked in `check_tx` just above")
+            {
                 return Some(entry.get().clone());
             }
         }
@@ -307,7 +324,7 @@ mod tests {
 
         assert!(matches!(
             queue.push(accepted_tx("alice", "wonderland", 100_000, None), &wsv),
-            Err(Error::QueueIsFull)
+            Err((_, Error::Full))
         ));
     }
 
@@ -332,7 +349,7 @@ mod tests {
 
         assert!(matches!(
             queue.push(accepted_tx("alice", "wonderland", 100_000, None), &wsv),
-            Err(Error::SignatureConditionExecution(_))
+            Err((_, Error::SignatureCondition(_)))
         ));
     }
 
@@ -413,7 +430,7 @@ mod tests {
         });
         assert!(matches!(
             queue.push(tx, &wsv),
-            Err(Error::AlreadyInBlockchain)
+            Err((_, Error::InBlockchain))
         ));
         assert_eq!(queue.txs.len(), 0);
     }
@@ -535,8 +552,8 @@ mod tests {
                 let tx = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
                 match queue_arc_clone_1.push(tx, &wsv_arc_clone_1) {
                     Ok(()) => (),
-                    Err(Error::QueueIsFull) => (),
-                    Err(err) => panic!("{}", err),
+                    Err((_, Error::Full)) => (),
+                    Err((_, err)) => panic!("{}", err),
                 }
             }
         });

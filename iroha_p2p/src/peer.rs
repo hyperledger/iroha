@@ -11,7 +11,7 @@ use iroha_crypto::ursa::{
     kex::KeyExchangeScheme,
     keys::{PrivateKey, PublicKey},
 };
-use iroha_logger::{debug, info, warn};
+use iroha_logger::{debug, info, trace, warn};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
 use tokio::{
@@ -507,7 +507,7 @@ where
                 }
             },
         };
-        debug!("Sending message: {:?}", &data);
+        trace!("Sending message");
         #[allow(clippy::unwrap_used)]
         let mut write_half = self.write.as_mut().unwrap();
         if let Err(e) = send_message(&mut write_half, data.as_slice()).await {
