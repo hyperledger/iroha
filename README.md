@@ -38,9 +38,10 @@ docker-compose up
 More details about different ways to use Iroha application can be found [here](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha/README.md#usage).
 
 ### Use Client CLI
+With the `docker-compose` instance running,
 
 ```bash
-cp iroha/config.json target/debug/
+cp iroha_client/config.json target/debug/
 cd target/debug
 ./iroha_client_cli --help
 ```
