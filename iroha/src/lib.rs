@@ -224,7 +224,8 @@ where
         .expect_running();
 
         let kura =
-            K::from_configuration(&config.kura_configuration, Arc::clone(&wsv), broker.clone())?
+            K::from_configuration(&config.kura_configuration, Arc::clone(&wsv), broker.clone())
+                .await?
                 .start()
                 .await
                 .expect_running();

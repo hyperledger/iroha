@@ -1,8 +1,14 @@
 #![allow(missing_docs, clippy::restriction)]
 
+use std::num::NonZeroU64;
+
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
-use iroha::{kura::BlockStore, prelude::*, wsv::World};
+use iroha::{
+    kura::{config::KuraConfiguration, BlockStore},
+    prelude::*,
+    wsv::World,
+};
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use tokio::{fs, runtime::Runtime};
@@ -37,9 +43,21 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
             .unwrap();
     }
     let block = block.commit();
-    let block_store = BlockStore::new(dir.path()).unwrap();
+    let block_store = BlockStore::new(
+        dir.path(),
+        KuraConfiguration::default().blocks_per_storage_file,
+    )
+    .await
+    .unwrap();
     let _ = block_store.write(&block).await.unwrap();
-    let metadata = fs::metadata(block_store.get_block_path(1)).await.unwrap();
+    let metadata = fs::metadata(
+        block_store
+            .get_block_path(NonZeroU64::new(1_u64).unwrap())
+            .await
+            .unwrap(),
+    )
+    .await
+    .unwrap();
     let file_size = Byte::from_bytes(u128::from(metadata.len())).get_appropriate_unit(false);
     println!("For {} validators: {}", n_validators, file_size);
 }

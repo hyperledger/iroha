@@ -10,8 +10,9 @@ Configuration of iroha is done via options in the following document. Here is de
     "payload": ""
   },
   "KURA_CONFIGURATION": {
-    "KURA_INIT_MODE": "strict",
-    "KURA_BLOCK_STORE_PATH": "./blocks"
+    "INIT_MODE": "strict",
+    "BLOCK_STORE_PATH": "./blocks",
+    "BLOCKS_PER_STORAGE_FILE": 1000
   },
   "SUMERAGI_CONFIGURATION": {
     "PEER_ID": {
@@ -173,12 +174,13 @@ Has type `KuraConfiguration`. Can be configured via environment variable `IROHA_
 
 ```json
 {
-  "KURA_BLOCK_STORE_PATH": "./blocks",
-  "KURA_INIT_MODE": "strict"
+  "BLOCKS_PER_STORAGE_FILE": 1000,
+  "BLOCK_STORE_PATH": "./blocks",
+  "INIT_MODE": "strict"
 }
 ```
 
-### `kura_configuration.kura_block_store_path`
+### `kura_configuration.block_store_path`
 
 Path to the existing block store folder or path to create new folder.
 
@@ -188,7 +190,17 @@ Has type `String`. Can be configured via environment variable `KURA_BLOCK_STORE_
 "./blocks"
 ```
 
-### `kura_configuration.kura_init_mode`
+### `kura_configuration.blocks_per_storage_file`
+
+Maximum number of blocks to write into single storage file
+
+Has type `NonZeroU64`. Can be configured via environment variable `KURA_BLOCKS_PER_STORAGE_FILE`
+
+```json
+1000
+```
+
+### `kura_configuration.init_mode`
 
 Possible modes: `strict`, `fast`.
 

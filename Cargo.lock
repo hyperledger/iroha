@@ -1361,6 +1361,7 @@ checksum = "b33c9a5c599d67d051c4dc25eb1b6b4ef715d1763c20c85c688717a1734f204e"
 name = "iroha"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "async-trait",
  "byte-unit",
  "chrono",
