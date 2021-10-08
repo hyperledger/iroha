@@ -91,7 +91,7 @@ pub mod utils {
                 _: NonZeroU64,
                 wsv: Arc<WorldStateView<W>>,
                 broker: Broker,
-            ) -> Result<Self, iroha::kura::Error> {
+            ) -> Result<Self, iroha_core::kura::Error> {
                 Ok(Self { broker, wsv })
             }
         }

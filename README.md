@@ -41,11 +41,7 @@ More details about different ways to use Iroha application can be found [here](h
 With the `docker-compose` instance running,
 
 ```bash
-<<<<<<< HEAD
 cp client/config.json target/debug/
-=======
-cp core/config.json target/debug/
->>>>>>> 1d532220 (Fix paths in files outside cargo)
 cd target/debug
 ./iroha_client_cli --help
 ```
