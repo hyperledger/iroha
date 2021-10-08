@@ -40,7 +40,7 @@ More details about different ways to use Iroha application can be found [here](h
 ### Use Client CLI
 
 ```bash
-cp iroha/config.json target/debug/
+cp iroha_client/config.json target/debug/
 cd target/debug
 ./iroha_client_cli --help
 ```
