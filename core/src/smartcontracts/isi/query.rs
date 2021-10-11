@@ -181,6 +181,7 @@ impl<W: WorldTrait> Query<W> for QueryBox {
             FindAssetKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindAccountKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindTransactionsByAccountId(query) => query.execute_into_value(wsv),
+            FindTransactionByHash(query) => query.execute_into_value(wsv),
             FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
             FindAssetDefinitionKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
 

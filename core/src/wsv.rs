@@ -384,6 +384,28 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.transactions.get(transaction_hash).is_some()
     }
 
+    /// Find a transaction by provided hash
+    pub fn transaction_value_by_hash(&self, transaction_hash: &Hash) -> Option<TransactionValue> {
+        self.blocks.iter().find_map(|b| {
+            b.as_inner_v1()
+                .rejected_transactions
+                .iter()
+                .find(|e| e.hash() == *transaction_hash)
+                .cloned()
+                .map(TransactionValue::RejectedTransaction)
+                .ok_or_else(|| {
+                    b.as_inner_v1()
+                        .transactions
+                        .iter()
+                        .find(|e| e.hash() == *transaction_hash)
+                        .cloned()
+                        .map(VersionedTransaction::from)
+                        .map(TransactionValue::Transaction)
+                })
+                .ok()
+        })
+    }
+
     /// Get committed and rejected transaction of the account.
     pub fn transactions_values_by_account_id(
         &self,

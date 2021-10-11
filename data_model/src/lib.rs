@@ -6,7 +6,7 @@
 use std::{convert::TryFrom, error, fmt::Debug, ops::RangeInclusive};
 
 use eyre::{eyre, Result, WrapErr};
-use iroha_crypto::PublicKey;
+use iroha_crypto::{Hash, PublicKey};
 use iroha_derive::FromVariant;
 use iroha_macro::error::ErrorTryFromEnum;
 use iroha_schema::prelude::*;
@@ -192,6 +192,8 @@ pub enum Value {
     TransactionValue(TransactionValue),
     /// Permission token.
     PermissionToken(PermissionToken),
+    /// Hash
+    Hash(Hash),
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -202,7 +204,7 @@ impl Value {
 
         match self {
             U32(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
-            | String(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_) => 1,
+            | String(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_) | Hash(_) => 1,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1,
             SignatureCheckCondition(s) => s.0.len(),
         }
