@@ -39,10 +39,10 @@ COPY . .
 RUN cargo build $PROFILE --all
 
 FROM $BASE_IMAGE
-COPY iroha/config.json .
-COPY iroha/trusted_peers.json .
-COPY iroha/genesis.json .
-ARG BIN=iroha_cli
+COPY core/config.json .
+COPY core/trusted_peers.json .
+COPY core/genesis.json .
+ARG BIN=iroha
 ARG TARGET_DIR=debug
 COPY --from=builder /iroha/target/$TARGET_DIR/$BIN .
 ENV IROHA_TARGET_BIN=$BIN

@@ -1,0 +1,35 @@
+[package]
+name = "iroha_p2p"
+version = "0.1.0"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2018"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger", "iroha"]
+categories = ["cryptography::cryptocurrencies", "network-programming"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iroha_logger = { path = "../logger" }
+iroha_crypto = { path = "../crypto" }
+iroha_actor = { path = "../actor" }
+iroha_macro = { version = "=0.1.0", path = "../macro" }
+iroha_derive = { version = "=0.1.0", path = "../macro/derive" }
+iroha_data_model = { path = "../data_model" }
+
+eyre = "0.6.5"
+rand = "0.7.3"
+tokio = { version = "1.6.0", features = ["net",  "sync", "time", "io-util"]}
+async-stream = "0.3"
+futures = { version = "0.3" }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+parity-scale-codec = { version = "2", features = ["derive"] }
+aead = "0.3.2"
+thiserror = "1.0.28"
+
+[dev-dependencies]
+unique_port = "0.1.1"
+tokio = { version = "1.6.0", features = ["rt-multi-thread", "macros"] }

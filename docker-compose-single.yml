@@ -14,4 +14,4 @@ services:
     ports:
       - "1337:1337"
       - "8080:8080"
-    command: ./iroha_cli --submit-genesis
+    command: ./iroha --submit-genesis

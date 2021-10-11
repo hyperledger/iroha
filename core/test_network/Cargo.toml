@@ -1,0 +1,30 @@
+[package]
+name = "test_network"
+version = "0.1.0"
+authors = ["i1i1"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+mock = []
+
+[dependencies]
+iroha_core = { path = "../../core" }
+iroha_client = { path = "../../client" }
+iroha_data_model = { path = "../../data_model" }
+iroha_logger = { path = "../../logger" }
+iroha_config = { path = "../../config" }
+iroha_p2p = { path = "../../p2p" }
+iroha_actor = { path = "../../actor" }
+
+eyre = "0.6.5"
+tempfile = "3"
+unique_port = "0.1.0"
+tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
+rand = "0.7.3"
+futures = "0.3"
+
+[dev-dependencies]
+async-trait = "0.1"
+color-eyre = "0.5.11"
+once_cell = "1"

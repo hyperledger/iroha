@@ -103,7 +103,7 @@ jobs:
             llvm-dev
       - name: Run iroha tests with network mock
         run: cargo test --features mock -- --ignored
-        working-directory: iroha/test_network
+        working-directory: core/test_network
 
   test-deadlock-detection:
     runs-on: [self-hosted, Linux] #ubuntu-latest
@@ -129,7 +129,7 @@ jobs:
             llvm-dev
       - name: Run iroha_actor deadlock detection tests
         run: cargo test --features deadlock_detection
-        working-directory: iroha_actor
+        working-directory: actor
 
   test-docker:
     #runs-on: [ self-hosted, Linux ] #ubuntu-latest
@@ -161,7 +161,7 @@ jobs:
             llvm-dev
       - name: Build Client CLI
         run: cargo build
-        working-directory: iroha_client_cli
+        working-directory: client_cli
       - name: Build and push Iroha Docker image
         uses: docker/build-push-action@v2
         with:

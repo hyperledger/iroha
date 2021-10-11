@@ -4,7 +4,7 @@ When you need to monitor state and work of Iroha peer, use this guide.
 
 ## Prerequisites
 
-* [Iroha CLI](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_client_cli/README.md)
+* [Iroha CLI](https://github.com/hyperledger/iroha/blob/iroha2-dev/client_cli/README.md)
 
 ## Steps
 

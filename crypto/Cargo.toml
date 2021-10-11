@@ -1,0 +1,21 @@
+[package]
+name = "iroha_crypto"
+version = "0.1.0"
+authors = ["Egor Ivkov <e.o.ivkov@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+eyre = "0.6.5"
+ursa = "=0.3.7"
+openssl-sys = { version = "0", features = ["vendored"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+parity-scale-codec = { version = "2", features = ["derive"] }
+hex = "0.4.0"
+iroha_schema = { path = "../schema"}
+
+[dev-dependencies]
+hex-literal = "0.2.1"
+serde_json = "1.0"
