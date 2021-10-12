@@ -32,6 +32,13 @@ use crate::{
 #[derive(Clone, Debug, Message)]
 pub struct StoreBlock(pub VersionedCommittedBlock);
 
+/// Gets hash of some specific block by height
+#[derive(Clone, Copy, Debug, Message)]
+#[message(result = "Option<Hash>")]
+pub struct GetBlockHash {
+    height: usize,
+}
+
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
 #[derive(Debug)]
@@ -45,7 +52,11 @@ pub struct Kura<W: WorldTrait> {
 
 /// Generic kura trait for mocks
 #[async_trait]
-pub trait KuraTrait: Actor + ContextHandler<StoreBlock, Result = ()> {
+pub trait KuraTrait:
+    Actor
+    + ContextHandler<StoreBlock, Result = ()>
+    + ContextHandler<GetBlockHash, Result = Option<Hash>>
+{
     /// World for applying blocks which have been stored on disk
     type World: WorldTrait;
 
@@ -128,10 +139,22 @@ impl<W: WorldTrait> Actor for Kura<W> {
 }
 
 #[async_trait::async_trait]
+impl<W: WorldTrait> Handler<GetBlockHash> for Kura<W> {
+    type Result = Option<Hash>;
+    async fn handle(&mut self, GetBlockHash { height }: GetBlockHash) -> Self::Result {
+        if height == 0 {
+            return None;
+        }
+        // Block height starts with 1
+        self.merkle_tree.get_leaf(height - 1)
+    }
+}
+
+#[async_trait::async_trait]
 impl<W: WorldTrait> Handler<StoreBlock> for Kura<W> {
     type Result = ();
 
-    async fn handle(&mut self, StoreBlock(block): StoreBlock) -> Self::Result {
+    async fn handle(&mut self, StoreBlock(block): StoreBlock) {
         if let Err(error) = self.store(block).await {
             iroha_logger::error!(%error, "Failed to write block")
         }
@@ -152,7 +175,10 @@ impl<W: WorldTrait> Kura<W> {
             .await?
             .try_collect::<Vec<_>>()
             .await?;
-        self.merkle_tree = MerkleTree::build(blocks.iter().map(VersionedCommittedBlock::hash));
+        self.merkle_tree = blocks
+            .iter()
+            .map(VersionedCommittedBlock::hash)
+            .collect::<MerkleTree>();
         Ok(blocks)
     }
 
@@ -175,8 +201,10 @@ impl<W: WorldTrait> Kura<W> {
                     .await?
                     .try_collect::<Vec<_>>()
                     .await?;
-                self.merkle_tree =
-                    MerkleTree::build(blocks.iter().map(VersionedCommittedBlock::hash));
+                self.merkle_tree = blocks
+                    .iter()
+                    .map(VersionedCommittedBlock::hash)
+                    .collect::<MerkleTree>();
                 Err(error)
             }
         }

@@ -231,14 +231,16 @@ impl ChainedBlock {
             }
         }
         let mut header = self.header;
-        header.transactions_merkle_root_hash =
-            MerkleTree::build(transactions.iter().map(VersionedValidTransaction::hash)).root_hash();
-        header.rejected_transactions_merkle_root_hash = MerkleTree::build(
-            rejected_transactions
-                .iter()
-                .map(VersionedRejectedTransaction::hash),
-        )
-        .root_hash();
+        header.transactions_merkle_root_hash = transactions
+            .iter()
+            .map(VersionedValidTransaction::hash)
+            .collect::<MerkleTree>()
+            .root_hash();
+        header.rejected_transactions_merkle_root_hash = rejected_transactions
+            .iter()
+            .map(VersionedRejectedTransaction::hash)
+            .collect::<MerkleTree>()
+            .root_hash();
         ValidBlock {
             header,
             rejected_transactions,
