@@ -317,7 +317,12 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset id")?;
-            wsv.asset(&id)
+            wsv.asset(&id).map_err(|asset_err| {
+                match wsv.asset_definition_entry(&id.definition_id) {
+                    Ok(_) => asset_err,
+                    Err(definition_err) => definition_err,
+                }
+            })
         }
     }
 
@@ -400,7 +405,7 @@ pub mod query {
             let asset_definition_id = self
                 .asset_definition_id
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get asset id")?;
+                .wrap_err("Failed to get asset definition id")?;
             let domain = wsv.domain(&name)?;
             let _definition = domain
                 .asset_definitions
@@ -423,11 +428,20 @@ pub mod query {
     impl<W: WorldTrait> Query<W> for FindAssetQuantityById {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<u32> {
-            let asset_id = self
+            let id = self
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset id")?;
-            wsv.asset(&asset_id)?.value.try_as_ref().map(Clone::clone)
+            wsv.asset(&id)
+                .map_err(
+                    |asset_err| match wsv.asset_definition_entry(&id.definition_id) {
+                        Ok(_) => asset_err,
+                        Err(definition_err) => definition_err,
+                    },
+                )?
+                .value
+                .try_as_ref()
+                .map(Clone::clone)
         }
     }
 
@@ -442,7 +456,12 @@ pub mod query {
                 .key
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")?;
-            let asset = wsv.asset(&id)?;
+            let asset = wsv.asset(&id).map_err(|asset_err| {
+                match wsv.asset_definition_entry(&id.definition_id) {
+                    Ok(_) => asset_err,
+                    Err(definition_err) => definition_err,
+                }
+            })?;
             let store: &Metadata = asset.value.try_as_ref()?;
             Ok(store
                 .get(&key)

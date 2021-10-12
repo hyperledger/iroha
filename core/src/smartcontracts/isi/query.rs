@@ -3,7 +3,7 @@
 use std::{convert::TryFrom, error::Error as StdError, fmt};
 
 use eyre::{eyre, Result};
-use iroha_crypto::{SignatureOf, SignatureVerificationFail};
+use iroha_crypto::SignatureOf;
 use iroha_data_model::{prelude::*, query};
 use iroha_derive::Io;
 use iroha_version::{scale::DecodeVersioned, Version};
@@ -38,18 +38,20 @@ impl VerifiedQueryRequest {
         self,
         wsv: &WorldStateView<W>,
         query_validator: &IsQueryAllowedBoxed<W>,
-    ) -> Result<ValidQueryRequest> {
-        let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
-            account.signatories.contains(&self.signature.public_key)
-        })?;
+    ) -> Result<ValidQueryRequest, Error> {
+        let account_has_public_key = wsv
+            .map_account(&self.payload.account_id, |account| {
+                account.signatories.contains(&self.signature.public_key)
+            })
+            .map_err(Error::Find)?;
         if !account_has_public_key {
-            return Err(eyre!(
+            return Err(Error::Signature(eyre!(
                 "Public key used for the signature does not correspond to the account."
-            ));
+            )));
         }
         query_validator
             .check(&self.payload.account_id, &self.payload.query, wsv)
-            .map_err(|denial_reason| eyre!(denial_reason))?;
+            .map_err(|denial_reason| Error::Permission(eyre!(denial_reason)))?;
         Ok(ValidQueryRequest {
             query: self.payload.query,
         })
@@ -57,13 +59,17 @@ impl VerifiedQueryRequest {
 }
 
 impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
-    type Error = SignatureVerificationFail<query::Payload>;
+    type Error = Error;
 
-    fn try_from(query: SignedQueryRequest) -> Result<Self, Self::Error> {
-        query.signature.verify(&query.payload).map(|_| Self {
-            payload: query.payload,
-            signature: query.signature,
-        })
+    fn try_from(query: SignedQueryRequest) -> Result<Self, Error> {
+        query
+            .signature
+            .verify(&query.payload)
+            .map(|_| Self {
+                payload: query.payload,
+                signature: query.signature,
+            })
+            .map_err(|e| Error::Signature(eyre!(e)))
     }
 }
 
@@ -110,51 +116,56 @@ impl fmt::Display for UnsupportedVersionError {
     }
 }
 
-/// Accept query error.
+/// Query errors.
 #[derive(Error, Debug)]
-pub enum AcceptQueryError {
-    /// Transaction has unsupported version
-    #[error("Transaction has unsupported version")]
-    UnsupportedQueryVersion(#[source] UnsupportedVersionError),
-    /// Failed to decode signed query
-    #[error("Failed to decode signed query")]
-    DecodeVersionedSignedQuery(#[source] Box<iroha_version::error::Error>),
-    /// Failed to verify query request
-    #[error("Failed to verify query request")]
-    VerifyQuery(#[source] SignatureVerificationFail<query::Payload>),
+pub enum Error {
+    /// Query can not be decoded.
+    #[error("Query can not be decoded")]
+    Decode(#[source] Box<iroha_version::error::Error>),
+    /// Query has unsupported version.
+    #[error("Query has unsupported version")]
+    Version(#[source] UnsupportedVersionError),
+    /// Query has wrong signature.
+    #[error("Query has wrong signature: {0}")]
+    Signature(eyre::Error),
+    /// Query is not allowed.
+    #[error("Query is not allowed: {0}")]
+    Permission(eyre::Error),
+    /// Query found nothing.
+    #[error("Query found nothing: {0}")]
+    Find(eyre::Error),
 }
 
-impl AcceptQueryError {
-    /// Status code of our error
+impl Error {
+    /// Status code for query error response.
     pub const fn status_code(&self) -> StatusCode {
-        use AcceptQueryError::*;
+        use Error::*;
         match *self {
-            UnsupportedQueryVersion(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            DecodeVersionedSignedQuery(_) | VerifyQuery(_) => StatusCode::BAD_REQUEST,
+            Decode(_) | Version(_) => StatusCode::BAD_REQUEST,
+            Signature(_) => StatusCode::UNAUTHORIZED,
+            Permission(_) | Find(_) => StatusCode::NOT_FOUND,
         }
     }
 }
 
-impl Reply for AcceptQueryError {
+impl Reply for Error {
     fn into_response(self) -> Response {
         reply::with_status(self.to_string(), self.status_code()).into_response()
     }
 }
-impl warp::reject::Reject for AcceptQueryError {}
+impl warp::reject::Reject for Error {}
 
 impl TryFrom<&Bytes> for VerifiedQueryRequest {
-    type Error = AcceptQueryError;
+    type Error = Error;
     fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
         let query = VersionedSignedQueryRequest::decode_versioned(body.as_ref())
-            .map_err(|e| AcceptQueryError::DecodeVersionedSignedQuery(Box::new(e)))?;
+            .map_err(|e| Error::Decode(Box::new(e)))?;
         let version = query.version();
         let query: SignedQueryRequest = query
             .into_v1()
-            .ok_or(AcceptQueryError::UnsupportedQueryVersion(
-                UnsupportedVersionError { version },
-            ))?
+            .ok_or(Error::Version(UnsupportedVersionError { version }))?
             .into();
-        VerifiedQueryRequest::try_from(query).map_err(AcceptQueryError::VerifyQuery)
+        VerifiedQueryRequest::try_from(query)
     }
 }
 

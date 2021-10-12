@@ -25,7 +25,8 @@ use crate::{
     prelude::*,
     queue::{self, Queue},
     smartcontracts::{
-        isi::query::VerifiedQueryRequest, permissions::IsQueryAllowedBoxed, query::AcceptQueryError,
+        isi::query::{self, VerifiedQueryRequest},
+        permissions::IsQueryAllowedBoxed,
     },
     wsv::WorldTrait,
     Configuration,
@@ -40,23 +41,20 @@ pub struct Torii<W: WorldTrait> {
     queue: Arc<Queue>,
 }
 
-/// Errors of torii
+/// Torii errors.
 #[derive(Error, Debug)]
 pub enum Error {
+    /// Query error.
+    #[error("Query error")]
+    Query(#[source] query::Error),
     /// Failed to decode transaction
     #[error("Failed to decode transaction")]
     VersionedTransaction(#[source] iroha_version::error::Error),
     /// Failed to accept transaction
-    #[error("Failed to accept transaction")]
+    #[error("Failed to accept transaction: {0}")]
     AcceptTransaction(eyre::Error),
-    /// Failed to execute query
-    #[error("Failed to execute query")]
-    ExecuteQuery(eyre::Error),
-    /// Failed to validate query
-    #[error("Failed to validate query")]
-    ValidateQuery(eyre::Error),
     /// Failed to get pending transaction
-    #[error("Failed to get pending transactions")]
+    #[error("Failed to get pending transactions: {0}")]
     RequestPendingTransactions(eyre::Error),
     /// Failed to decode pending transactions from leader
     #[error("Failed to decode pending transactions from leader")]
@@ -80,16 +78,20 @@ impl Reply for Error {
         const fn status_code(err: &Error) -> StatusCode {
             use Error::*;
 
-            match *err {
-                ExecuteQuery(_)
+            match err {
+                Query(e) => e.status_code(),
+                VersionedTransaction(_)
+                | AcceptTransaction(_)
                 | RequestPendingTransactions(_)
                 | DecodeRequestPendingTransactions(_)
-                | PushIntoQueue(_)
-                | EncodePendingTransactions(_) => StatusCode::INTERNAL_SERVER_ERROR,
-                TxTooBig | VersionedTransaction(_) | AcceptTransaction(_) | ValidateQuery(_) => {
-                    StatusCode::BAD_REQUEST
-                }
+                | EncodePendingTransactions(_)
+                | TxTooBig => StatusCode::BAD_REQUEST,
                 Config(_) => StatusCode::NOT_FOUND,
+                PushIntoQueue(err) => match **err {
+                    queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,
+                    queue::Error::SignatureCondition(_) => StatusCode::UNAUTHORIZED,
+                    _ => StatusCode::BAD_REQUEST,
+                },
             }
         }
 
@@ -147,24 +149,24 @@ impl<W: WorldTrait> Torii<W> {
         })
     }
 
+    /// Fixing status code for custom rejection, because of argument parsing
+    #[allow(clippy::unused_async)]
+    async fn recover_arg_parse(err: Rejection) -> Result<impl Reply, Rejection> {
+        if let Some(err) = err.find::<query::Error>() {
+            return Ok(reply::with_status(err.to_string(), err.status_code()));
+        }
+        if let Some(err) = err.find::<iroha_version::error::Error>() {
+            return Ok(reply::with_status(err.to_string(), err.status_code()));
+        }
+        Err(err)
+    }
+
     /// To handle incoming requests `Torii` should be started first.
     ///
     /// # Errors
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
     pub async fn start(self) -> eyre::Result<()> {
-        /// Fixing status code for custom rejection, because of argument parsing
-        #[allow(clippy::unused_async)]
-        async fn recover_arg_parse(err: Rejection) -> Result<impl Reply, Rejection> {
-            if let Some(err) = err.find::<AcceptQueryError>() {
-                return Ok(reply::with_status(err.to_string(), err.status_code()));
-            }
-            if let Some(err) = err.find::<iroha_version::error::Error>() {
-                return Ok(reply::with_status(err.to_string(), err.status_code()));
-            }
-            Err(err)
-        }
-
         let state = self.create_state();
 
         let get_router = warp::path(uri::HEALTH)
@@ -215,7 +217,7 @@ impl<W: WorldTrait> Torii<W> {
             .or(warp::get().and(get_router))
             .or(ws_router)
             .with(warp::trace::request())
-            .recover(recover_arg_parse);
+            .recover(Torii::<W>::recover_arg_parse);
 
         match self.iroha_cfg.torii.api_url.to_socket_addrs() {
             Ok(mut i) => {
@@ -271,13 +273,11 @@ async fn handle_queries<W: WorldTrait>(
     state: ToriiState<W>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
-) -> Result<Scale<QueryResult>> {
-    let valid_request = request
-        .validate(&*state.wsv, &state.query_validator)
-        .map_err(Error::ValidateQuery)?;
+) -> Result<Scale<QueryResult>, query::Error> {
+    let valid_request = request.validate(&*state.wsv, &state.query_validator)?;
     let result = valid_request
         .execute(&*state.wsv)
-        .map_err(Error::ExecuteQuery)?;
+        .map_err(query::Error::Find)?;
     let result = QueryResult(if let Value::Vec(value) = result {
         Value::Vec(value.into_iter().paginate(pagination).collect())
     } else {
@@ -436,7 +436,9 @@ mod tests {
     use tokio::time;
 
     use super::*;
-    use crate::{config::Configuration, queue::Queue, wsv::World};
+    use crate::{
+        config::Configuration, queue::Queue, smartcontracts::permissions::DenyAll, wsv::World,
+    };
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
     const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
@@ -519,22 +521,375 @@ mod tests {
         assert_eq!(get_domains(Some(1), Some(15)).await.len(), 15);
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn query_signed_by_keys_not_associated_with_account() {
-        let (torii, keys) = create_torii();
-        let state = torii.create_state();
+    #[derive(Default)]
+    struct AssertSet {
+        instructions: Vec<Instruction>,
+        account: Option<AccountId>,
+        keys: Option<KeyPair>,
+        deny_all: bool,
+    }
 
-        let query: VerifiedQueryRequest = QueryRequest::new(
-            QueryBox::FindAllDomains(Default::default()),
-            AccountId::new("bob", "wonderland"),
-        )
-        .sign(keys.clone())
-        .expect("Failed to sign query with keys")
-        .try_into()
-        .expect("Failed to verify");
+    impl AssertSet {
+        fn new() -> Self {
+            Self::default()
+        }
+        fn given(mut self, instruction: Instruction) -> Self {
+            self.instructions.push(instruction);
+            self
+        }
+        fn account(mut self, account: AccountId) -> Self {
+            self.account = Some(account);
+            self
+        }
+        fn keys(mut self, keys: KeyPair) -> Self {
+            self.keys = Some(keys);
+            self
+        }
+        fn deny_all(mut self) -> Self {
+            self.deny_all = true;
+            self
+        }
+        fn query(self, query: QueryBox) -> AssertReady {
+            let Self {
+                instructions,
+                account,
+                keys,
+                deny_all,
+            } = self;
+            AssertReady {
+                instructions,
+                account,
+                keys,
+                deny_all,
+                query,
+                status: None,
+                hints: Vec::new(),
+            }
+        }
+    }
 
-        let query_result = handle_queries(state.clone(), Default::default(), query).await;
+    struct AssertReady {
+        instructions: Vec<Instruction>,
+        account: Option<AccountId>,
+        keys: Option<KeyPair>,
+        deny_all: bool,
+        query: QueryBox,
+        status: Option<StatusCode>,
+        hints: Vec<&'static str>,
+    }
 
-        assert!(matches!(query_result, Err(Error::ValidateQuery(_))));
+    impl AssertReady {
+        fn status(mut self, status: StatusCode) -> Self {
+            self.status = Some(status);
+            self
+        }
+        fn hint(mut self, hint: &'static str) -> Self {
+            self.hints.push(hint);
+            self
+        }
+        async fn assert(self) {
+            use iroha_version::scale::EncodeVersioned;
+
+            use crate::smartcontracts::Execute;
+
+            let (mut torii, keys) = create_torii();
+            if self.deny_all {
+                torii.query_validator = Arc::new(DenyAll.into());
+            }
+            let state = torii.create_state();
+
+            let authority = AccountId::new("alice", "wonderland");
+            for instruction in self.instructions {
+                instruction
+                    .execute(authority.clone(), &state.wsv)
+                    .expect("Given instructions disorder");
+            }
+
+            let post_router = endpoint3(
+                handle_queries,
+                warp::path(uri::QUERY)
+                    .and(add_state(Arc::clone(&state)))
+                    .and(paginate())
+                    .and(body::query()),
+            );
+            let router = warp::post()
+                .and(post_router)
+                .with(warp::trace::request())
+                .recover(Torii::<World>::recover_arg_parse);
+
+            let request: VersionedSignedQueryRequest =
+                QueryRequest::new(self.query, self.account.unwrap_or(authority))
+                    .sign(self.keys.unwrap_or(keys))
+                    .expect("Failed to sign query with keys")
+                    .into();
+
+            let response = warp::test::request()
+                .method("POST")
+                .path("/query")
+                .body(request.encode_versioned().unwrap())
+                .reply(&router)
+                .await;
+
+            let response_body = match response.status() {
+                StatusCode::OK => {
+                    let QueryResult(value) = response.body().to_vec().try_into().unwrap();
+                    format!("{:?}", value)
+                }
+                _ => String::from_utf8(response.body().to_vec()).unwrap_or_default(),
+            };
+            dbg!(&response_body);
+
+            if let Some(status) = self.status {
+                assert_eq!(response.status(), status)
+            }
+            for hint in self.hints {
+                dbg!(hint);
+                assert!(response_body.contains(hint))
+            }
+        }
+    }
+
+    const DOMAIN: &str = "desert";
+
+    fn register_domain() -> Instruction {
+        Instruction::Register(RegisterBox::new(Domain::new(DOMAIN)))
+    }
+    fn register_account(name: &str) -> Instruction {
+        Instruction::Register(RegisterBox::new(NewAccount::with_signatory(
+            AccountId::new(name, DOMAIN),
+            KeyPair::generate().unwrap().public_key,
+        )))
+    }
+    fn register_asset_definition(name: &str) -> Instruction {
+        Instruction::Register(RegisterBox::new(AssetDefinition::new_quantity(
+            AssetDefinitionId::new(name, DOMAIN),
+        )))
+    }
+    fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
+        Instruction::Mint(MintBox::new(
+            Value::U32(quantity),
+            AssetId::from_names(asset, DOMAIN, account, DOMAIN),
+        ))
+    }
+    #[tokio::test]
+    async fn find_asset() {
+        AssertSet::new()
+            .given(register_domain())
+            .given(register_account("alice"))
+            .given(register_asset_definition("rose"))
+            .given(mint_asset(99, "rose", "alice"))
+            .query(QueryBox::FindAssetById(FindAssetById::new(
+                AssetId::from_names("rose", DOMAIN, "alice", DOMAIN),
+            )))
+            .status(StatusCode::OK)
+            .hint("Quantity")
+            .hint("99")
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn find_asset_with_no_mint() {
+        AssertSet::new()
+            .given(register_domain())
+            .given(register_account("alice"))
+            .given(register_asset_definition("rose"))
+            // .given(mint_asset(99, "rose", "alice"))
+            .query(QueryBox::FindAssetById(FindAssetById::new(
+                AssetId::from_names("rose", DOMAIN, "alice", DOMAIN),
+            )))
+            .status(StatusCode::NOT_FOUND)
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn find_asset_with_no_asset_definition() {
+        AssertSet::new()
+            .given(register_domain())
+            .given(register_account("alice"))
+            // .given(register_asset_definition("rose"))
+            // .given(mint_asset(99, "rose", "alice"))
+            .query(QueryBox::FindAssetById(FindAssetById::new(
+                AssetId::from_names("rose", DOMAIN, "alice", DOMAIN),
+            )))
+            .status(StatusCode::NOT_FOUND)
+            .hint("definition")
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn find_asset_with_no_account() {
+        AssertSet::new()
+            .given(register_domain())
+            // .given(register_account("alice"))
+            .given(register_asset_definition("rose"))
+            // .given(mint_asset(99, "rose", "alice"))
+            .query(QueryBox::FindAssetById(FindAssetById::new(
+                AssetId::from_names("rose", DOMAIN, "alice", DOMAIN),
+            )))
+            .status(StatusCode::NOT_FOUND)
+            .hint("account")
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn find_asset_with_no_domain() {
+        AssertSet::new()
+            // .given(register_domain())
+            // .given(register_account("alice"))
+            // .given(register_asset_definition("rose"))
+            // .given(mint_asset(99, "rose", "alice"))
+            .query(QueryBox::FindAssetById(FindAssetById::new(
+                AssetId::from_names("rose", DOMAIN, "alice", DOMAIN),
+            )))
+            .status(StatusCode::NOT_FOUND)
+            .hint("domain")
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn find_asset_definition() {
+        AssertSet::new()
+            .given(register_domain())
+            .given(register_asset_definition("rose"))
+            .query(QueryBox::FindAllAssetsDefinitions(Default::default()))
+            .status(StatusCode::OK)
+            .hint("rose")
+            .hint(DOMAIN)
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn find_account() {
+        AssertSet::new()
+            .given(register_domain())
+            .given(register_account("alice"))
+            .query(QueryBox::FindAccountById(FindAccountById::new(
+                AccountId::new("alice", DOMAIN),
+            )))
+            .status(StatusCode::OK)
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn find_account_with_no_account() {
+        AssertSet::new()
+            .given(register_domain())
+            // .given(register_account("alice"))
+            .query(QueryBox::FindAccountById(FindAccountById::new(
+                AccountId::new("alice", DOMAIN),
+            )))
+            .status(StatusCode::NOT_FOUND)
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn find_account_with_no_domain() {
+        AssertSet::new()
+            // .given(register_domain())
+            // .given(register_account("alice"))
+            .query(QueryBox::FindAccountById(FindAccountById::new(
+                AccountId::new("alice", DOMAIN),
+            )))
+            .status(StatusCode::NOT_FOUND)
+            .hint("domain")
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn find_domain() {
+        AssertSet::new()
+            .given(register_domain())
+            .query(QueryBox::FindDomainByName(FindDomainByName::new(
+                DOMAIN.to_string(),
+            )))
+            .status(StatusCode::OK)
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn find_domain_with_no_domain() {
+        AssertSet::new()
+            // .given(register_domain())
+            .query(QueryBox::FindDomainByName(FindDomainByName::new(
+                DOMAIN.to_string(),
+            )))
+            .status(StatusCode::NOT_FOUND)
+            .assert()
+            .await
+    }
+    fn query() -> QueryBox {
+        QueryBox::FindAccountById(FindAccountById::new(AccountId::new("alice", DOMAIN)))
+    }
+    #[tokio::test]
+    async fn query_with_wrong_signatory() {
+        AssertSet::new()
+            .given(register_domain())
+            .given(register_account("alice"))
+            .account(AccountId::new("alice", DOMAIN))
+            // .deny_all()
+            .query(query())
+            .status(StatusCode::UNAUTHORIZED)
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn query_with_wrong_signature() {
+        AssertSet::new()
+            .given(register_domain())
+            .given(register_account("alice"))
+            .keys(KeyPair::generate().unwrap())
+            // .deny_all()
+            .query(query())
+            .status(StatusCode::UNAUTHORIZED)
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn query_with_wrong_signature_and_no_permission() {
+        AssertSet::new()
+            .given(register_domain())
+            .given(register_account("alice"))
+            .keys(KeyPair::generate().unwrap())
+            .deny_all()
+            .query(query())
+            .status(StatusCode::UNAUTHORIZED)
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn query_with_no_permission() {
+        AssertSet::new()
+            .given(register_domain())
+            .given(register_account("alice"))
+            // .keys(KeyPair::generate().unwrap())
+            .deny_all()
+            .query(query())
+            .status(StatusCode::NOT_FOUND)
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn query_with_no_permission_and_no_find() {
+        AssertSet::new()
+            .given(register_domain())
+            // .given(register_account("alice"))
+            // .keys(KeyPair::generate().unwrap())
+            .deny_all()
+            .query(query())
+            .status(StatusCode::NOT_FOUND)
+            .assert()
+            .await
+    }
+    #[tokio::test]
+    async fn query_with_no_find() {
+        AssertSet::new()
+            .given(register_domain())
+            // .given(register_account("alice"))
+            // .keys(KeyPair::generate().unwrap())
+            // .deny_all()
+            .query(query())
+            .status(StatusCode::NOT_FOUND)
+            .assert()
+            .await
     }
 }

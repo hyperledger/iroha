@@ -1,5 +1,18 @@
 # API Specification for Client Libraries
 
+- [API Specification for Client Libraries](#api-specification-for-client-libraries)
+  - [Endpoints](#endpoints)
+    - [Submit Instructions](#submit-instructions)
+    - [Submit Query](#submit-query)
+      - [Asset Not Found 404](#asset-not-found-404)
+      - [Account Not Found 404](#account-not-found-404)
+    - [Listen to Events](#listen-to-events)
+    - [Configuration](#configuration)
+    - [Health](#health)
+  - [Parity Scale Codec](#parity-scale-codec)
+  - [Reference Iroha Client Implementation](#reference-iroha-client-implementation)
+  - [Iroha Structures](#iroha-structures)
+
 ## Endpoints
 
 ### Submit Instructions
@@ -16,7 +29,8 @@
 
 **Responses**:
 - 200 OK - Transaction Accepted (But not guaranteed to have passed consensus yet)
-- 500 Internal Server Error - Transaction Rejected (Malformed or improperly signed)
+- 400 Bad Request - Transaction Rejected (Malformed)
+- 401 Unauthorized - Transaction Rejected (Improperly signed)
 
 ### Submit Query
 
@@ -31,12 +45,38 @@
 **Expects**:
 - Body: `SignedQueryRequest`
 - Query parameters:
- + `start` - Optional parameter in queries where results can be indexed. Use to return results from specified point. Results are ordered where can be by id which uses rust's [PartialOrd](https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html#derivable) and [Ord](https://doc.rust-lang.org/std/cmp/trait.Ord.html) traits.
- + `limit` - Optional parameter in queries where results can be indexed. Use to return specific number of results.
+  - `start` - Optional parameter in queries where results can be indexed. Use to return results from specified point. Results are ordered where can be by id which uses rust's [PartialOrd](https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html#derivable) and [Ord](https://doc.rust-lang.org/std/cmp/trait.Ord.html) traits.
+  - `limit` - Optional parameter in queries where results can be indexed. Use to return specific number of results.
 
 **Responses**:
-- 200 OK - Query Executed Successfuly. Body: `QueryResult`
-- 500 Internal Server Error - Query Rejected (Failed to parse/execute or improperly signed)
+- 200 OK - Query Executed Successfully and Found Value
+  - Body: `QueryResult`
+- 4xx - Query Rejected or Found Nothing
+
+Status and whether each step succeeded:
+| Status | Decode & Versioning | Signature | Permission | Find |
+| -- | -- | -- | -- | -- |
+| 400 | N | - | - | - |
+| 401 | Y | N | - | - |
+| 404 | Y | Y | N | - |
+| 404 | Y | Y | Y | N |
+| 200 | Y | Y | Y | Y |
+
+#### Asset Not Found 404
+Hint and whether each object exists:
+| Hint | Domain | Account | Asset Definition | Asset |
+| -- | -- | -- | -- | -- |
+| "domain" | N | - | - | - |
+| "account" | Y | N | - | - |
+| "definition" | Y | - | N | - |
+| - | Y | Y | Y | N |
+
+#### Account Not Found 404
+Hint and whether each object exists:
+| Hint | Domain | Account |
+| -- | -- | -- |
+| "domain" | N | - |
+| - | Y | N |
 
 ### Listen to Events
 
