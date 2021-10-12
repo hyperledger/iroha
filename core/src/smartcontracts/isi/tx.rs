@@ -15,3 +15,18 @@ impl<W: WorldTrait> Query<W> for FindTransactionsByAccountId {
         Ok(wsv.transactions_values_by_account_id(&id))
     }
 }
+
+impl<W: WorldTrait> Query<W> for FindTransactionByHash {
+    #[iroha_logger::log]
+    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        let hash = self
+            .hash
+            .evaluate(wsv, &Context::default())
+            .wrap_err("Failed to get hash")?;
+        if !wsv.has_transaction(&hash) {
+            return Err(eyre!("Transaction not found"));
+        };
+        wsv.transaction_value_by_hash(&hash)
+            .ok_or_else(|| eyre!("Failed to fetch transaction"))
+    }
+}

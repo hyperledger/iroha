@@ -376,6 +376,7 @@ pub mod private_blockchain {
                             ))
                         }
                     }
+                    FindTransactionByHash(_query) => Ok(()),
                     #[cfg(feature = "roles")]
                     FindRolesByAccountId(query) => {
                         let account_id = query
@@ -542,6 +543,7 @@ pub mod private_blockchain {
                             Err(format!("Cannot access another account: {}.", account_id))
                         }
                     }
+                    FindTransactionByHash(_query) => Ok(()),
                     #[cfg(feature = "roles")]
                     FindRolesByAccountId(query) => {
                         let account_id = query

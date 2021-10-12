@@ -557,6 +557,11 @@ pub mod transaction {
     ) -> FindTransactionsByAccountId {
         FindTransactionsByAccountId::new(account_id)
     }
+
+    /// Get query to retrieve transaction by hash
+    pub fn by_hash(hash: impl Into<EvaluatesTo<Hash>>) -> FindTransactionByHash {
+        FindTransactionByHash::new(hash)
+    }
 }
 
 /// URI that `Client` uses to route outgoing requests.

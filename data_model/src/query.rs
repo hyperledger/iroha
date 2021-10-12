@@ -77,6 +77,8 @@ pub enum QueryBox {
     FindAllPeers(FindAllPeers),
     /// `FindTransactionsByAccountId` variant.
     FindTransactionsByAccountId(FindTransactionsByAccountId),
+    /// `FindTransactionByHash` variant.
+    FindTransactionByHash(FindTransactionByHash),
     /// `FindAllRoles` variant.
     #[cfg(feature = "roles")]
     FindAllRoles(FindAllRoles),
@@ -1048,6 +1050,7 @@ pub mod transaction {
 
     #![allow(clippy::missing_inline_in_public_items)]
 
+    use iroha_crypto::Hash;
     use iroha_derive::Io;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -1090,9 +1093,43 @@ pub mod transaction {
             FindTransactionsByAccountId { account_id }
         }
     }
+
+    /// `FindTransactionByHash` Iroha Query will find a transaction (if any)
+    /// with corresponding hash value
+    #[derive(
+        Clone,
+        Debug,
+        Io,
+        Serialize,
+        Deserialize,
+        Encode,
+        Decode,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        IntoSchema,
+    )]
+    pub struct FindTransactionByHash {
+        /// Transaction hash.
+        pub hash: EvaluatesTo<Hash>,
+    }
+
+    impl QueryOutput for FindTransactionByHash {
+        type Output = TransactionValue;
+    }
+
+    impl FindTransactionByHash {
+        ///Default [`FindTransactionByHash`] constructor.
+        pub fn new(hash: impl Into<EvaluatesTo<Hash>>) -> Self {
+            let hash = hash.into();
+            FindTransactionByHash { hash }
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::FindTransactionsByAccountId;
+        pub use super::{FindTransactionByHash, FindTransactionsByAccountId};
     }
 }
 
