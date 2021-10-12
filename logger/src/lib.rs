@@ -6,11 +6,11 @@ use color_eyre::Report;
 use layer::LevelFilter;
 use telemetry::{Telemetry, TelemetryLayer};
 use tokio::sync::mpsc::Receiver;
-use tracing::subscriber::set_global_default;
 pub use tracing::{
     debug, debug_span, error, error_span, info, info_span, instrument as log, trace, trace_span,
     warn, warn_span, Instrument, Level,
 };
+use tracing::{subscriber::set_global_default, Subscriber};
 pub use tracing_futures::Instrument as InstrumentFutures;
 
 pub mod layer;
@@ -28,32 +28,36 @@ pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telem
         return None;
     }
 
-    let level = configuration.max_log_level.into();
+    let level = configuration.max_log_level;
+    let capacity = configuration.telemetry_capacity;
+
     let subscriber_builder = tracing_subscriber::fmt()
         .with_test_writer()
         .with_max_level(tracing_subscriber::filter::LevelFilter::TRACE);
 
+    // There could be a shorter way to do this with a closure.
     if configuration.compact_mode {
         let subscriber = subscriber_builder.compact().finish();
-        let (subscriber, receiver) = TelemetryLayer::from_capacity(
-            LevelFilter::new(level, subscriber),
-            configuration.telemetry_capacity,
-        );
-
-        #[allow(clippy::expect_used)]
-        set_global_default(subscriber).expect("Failed to init logger");
-        Some(receiver)
+        Some(add_telemetry_and_set_default(subscriber, level, capacity))
     } else {
         let subscriber = subscriber_builder.finish();
-        let (subscriber, receiver) = TelemetryLayer::from_capacity(
-            LevelFilter::new(level, subscriber),
-            configuration.telemetry_capacity,
-        );
-
-        #[allow(clippy::expect_used)]
-        set_global_default(subscriber).expect("Failed to init logger");
-        Some(receiver)
+        Some(add_telemetry_and_set_default(subscriber, level, capacity))
     }
+}
+
+fn add_telemetry_and_set_default<S: Subscriber + Send + Sync + 'static>(
+    subscriber: S,
+    level: config::LevelEnv,
+    telemetry_capacity: usize,
+) -> Receiver<Telemetry> {
+    let (subscriber, receiver) = TelemetryLayer::from_capacity(
+        LevelFilter::new(level.into(), subscriber),
+        telemetry_capacity,
+    );
+
+    #[allow(clippy::expect_used)]
+    set_global_default(subscriber).expect("Failed to init logger");
+    receiver
 }
 
 /// Macro for sending telemetry info
