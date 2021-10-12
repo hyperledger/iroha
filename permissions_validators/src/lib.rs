@@ -1317,7 +1317,8 @@ pub mod public_blockchain {
             }
         }
 
-        /// Allows setting user's assets key value map from a different account if the corresponding user granted this permission token.
+        /// Allows setting user's assets key value map from a different account
+        /// if the corresponding user granted this permission token.
         #[derive(Debug, Clone, Copy)]
         pub struct SetGrantedByAssetOwner;
 

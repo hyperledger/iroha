@@ -72,7 +72,10 @@ pub mod utils {
     }
 
     pub mod kura {
-        use iroha_core::{kura::Mode, sumeragi};
+        use iroha_core::{
+            kura::{GetBlockHash, Mode},
+            sumeragi,
+        };
 
         use super::*;
 
@@ -118,6 +121,14 @@ pub mod utils {
                 self.wsv.apply(block).await;
                 self.broker.issue_send(UpdateNetworkTopology).await;
                 self.broker.issue_send(ContinueSync).await;
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl<W: WorldTrait> Handler<GetBlockHash> for CountStored<W> {
+            type Result = Option<Hash>;
+            async fn handle(&mut self, _: GetBlockHash) -> Self::Result {
+                panic!("Shouldn't be called here!")
             }
         }
 
