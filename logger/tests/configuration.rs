@@ -10,10 +10,16 @@ use iroha_logger::{
 use tokio::time;
 
 #[tokio::test]
-async fn telemetry_separation_default() {
-    let mut reciever = init(LoggerConfiguration::default()).unwrap();
+async fn telemetry_separation_custom() {
+    let config = LoggerConfiguration {
+        max_log_level: iroha_logger::config::LevelEnv::TRACE,
+        telemetry_capacity: 100,
+        compact_mode: true,
+        use_bunyan: true,
+    };
+    let mut reciever = init(config).unwrap();
     info!(target: "telemetry::test", a = 2, c = true, d = "this won't be logged");
-    info!("This will be logged");
+    info!("This will be logged in bunyan-readable format");
     let telemetry = Telemetry {
         target: "test",
         fields: TelemetryFields(vec![

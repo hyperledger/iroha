@@ -3,6 +3,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use color_eyre::Report;
+use config::LoggerConfiguration;
 use layer::LevelFilter;
 use telemetry::{Telemetry, TelemetryLayer};
 use tokio::sync::mpsc::Receiver;
@@ -11,7 +12,9 @@ pub use tracing::{
     warn, warn_span, Instrument, Level,
 };
 use tracing::{subscriber::set_global_default, Subscriber};
+use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 pub use tracing_futures::Instrument as InstrumentFutures;
+use tracing_subscriber::{layer::SubscriberExt, registry::Registry, Layer};
 
 pub mod layer;
 pub mod telemetry;
@@ -20,7 +23,7 @@ static LOGGER_SET: AtomicBool = AtomicBool::new(false);
 
 /// Initializes `Logger` with given [`LoggerConfiguration`](`config::LoggerConfiguration`).
 /// After the initialization `log` macros will print with the use of this `Logger`.
-pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telemetry>> {
+pub fn init(configuration: LoggerConfiguration) -> Option<Receiver<Telemetry>> {
     if LOGGER_SET
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
         .is_err()
@@ -28,31 +31,41 @@ pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telem
         return None;
     }
 
-    let level = configuration.max_log_level;
-    let capacity = configuration.telemetry_capacity;
-
-    let subscriber_builder = tracing_subscriber::fmt()
-        .with_test_writer()
-        .with_max_level(tracing_subscriber::filter::LevelFilter::TRACE);
-
-    // There could be a shorter way to do this with a closure.
     if configuration.compact_mode {
-        let subscriber = subscriber_builder.compact().finish();
-        Some(add_telemetry_and_set_default(subscriber, level, capacity))
+        let layer = tracing_subscriber::fmt::layer()
+            .with_test_writer()
+            .compact();
+        Some(add_bunyan(configuration, layer))
     } else {
-        let subscriber = subscriber_builder.finish();
-        Some(add_telemetry_and_set_default(subscriber, level, capacity))
+        let layer = tracing_subscriber::fmt::layer().with_test_writer();
+        Some(add_bunyan(configuration, layer))
+    }
+}
+
+fn add_bunyan<L: Layer<Registry> + Send + Sync + 'static>(
+    configuration: LoggerConfiguration,
+    layer: L,
+) -> Receiver<Telemetry> {
+    if configuration.use_bunyan {
+        let bunyan_layer = BunyanFormattingLayer::new("bunyan_layer".into(), std::io::stdout);
+        let subscriber = Registry::default()
+            .with(layer)
+            .with(JsonStorageLayer)
+            .with(bunyan_layer);
+        add_telemetry_and_set_default(configuration, subscriber)
+    } else {
+        let subscriber = Registry::default().with(layer);
+        add_telemetry_and_set_default(configuration, subscriber)
     }
 }
 
 fn add_telemetry_and_set_default<S: Subscriber + Send + Sync + 'static>(
+    configuration: LoggerConfiguration,
     subscriber: S,
-    level: config::LevelEnv,
-    telemetry_capacity: usize,
 ) -> Receiver<Telemetry> {
     let (subscriber, receiver) = TelemetryLayer::from_capacity(
-        LevelFilter::new(level.into(), subscriber),
-        telemetry_capacity,
+        LevelFilter::new(configuration.max_log_level.into(), subscriber),
+        configuration.telemetry_capacity,
     );
 
     #[allow(clippy::expect_used)]
@@ -71,64 +84,64 @@ macro_rules! telemetry_target {
 /// Macro for sending telemetry info
 #[macro_export]
 macro_rules! telemetry {
-    // All arguments match arms are from info macro
-    () => {
-        $crate::info!(target: iroha_logger::telemetry_target!(),)
-    };
-    ($($k:ident).+ = $($field:tt)*) => (
-        $crate::info!(
-            target: iroha_logger::telemetry_target!(),
-            $($k).+ = $($field)*
-        )
-    );
-    (?$($k:ident).+ = $($field:tt)*) => (
-        $crate::info!(
-            target: iroha_logger::telemetry_target!(),
-            ?$($k).+ = $($field)*
-        )
-    );
-    (%$($k:ident).+ = $($field:tt)*) => (
-        $crate::info!(
-            target: iroha_logger::telemetry_target!(),
-            %$($k).+ = $($field)*
-        )
-    );
-    ($($k:ident).+, $($field:tt)*) => (
-        $crate::info!(
-            target: iroha_logger::telemetry_target!(),
-            $($k).+, $($field)*
-        )
-    );
-    (?$($k:ident).+, $($field:tt)*) => (
-        $crate::info!(
-            target: iroha_logger::telemetry_target!(),
-            ?$($k).+, $($field)*
-        )
-    );
-    (%$($k:ident).+, $($field:tt)*) => (
-        $crate::info!(
-            target: iroha_logger::telemetry_target!(),
-            %$($k).+, $($field)*
-        )
-    );
-    (?$($k:ident).+) => (
-        $crate::info!(
-            target: iroha_logger::telemetry_target!(),
-            ?$($k).+
-        )
-    );
-    (%$($k:ident).+) => (
-        $crate::info!(
-            target: iroha_logger::telemetry_target!(),
-            %$($k).+
-        )
-    );
-    ($($k:ident).+) => (
-        $crate::info!(
-            target: iroha_logger::telemetry_target!(),
-            $($k).+
-        )
-    );
+	// All arguments match arms are from info macro
+	() => {
+		$crate::info!(target: iroha_logger::telemetry_target!(),)
+	};
+	($($k:ident).+ = $($field:tt)*) => (
+		$crate::info!(
+			target: iroha_logger::telemetry_target!(),
+			$($k).+ = $($field)*
+		)
+	);
+	(?$($k:ident).+ = $($field:tt)*) => (
+		$crate::info!(
+			target: iroha_logger::telemetry_target!(),
+			?$($k).+ = $($field)*
+		)
+	);
+	(%$($k:ident).+ = $($field:tt)*) => (
+		$crate::info!(
+			target: iroha_logger::telemetry_target!(),
+			%$($k).+ = $($field)*
+		)
+	);
+	($($k:ident).+, $($field:tt)*) => (
+		$crate::info!(
+			target: iroha_logger::telemetry_target!(),
+			$($k).+, $($field)*
+		)
+	);
+	(?$($k:ident).+, $($field:tt)*) => (
+		$crate::info!(
+			target: iroha_logger::telemetry_target!(),
+			?$($k).+, $($field)*
+		)
+	);
+	(%$($k:ident).+, $($field:tt)*) => (
+		$crate::info!(
+			target: iroha_logger::telemetry_target!(),
+			%$($k).+, $($field)*
+		)
+	);
+	(?$($k:ident).+) => (
+		$crate::info!(
+			target: iroha_logger::telemetry_target!(),
+			?$($k).+
+		)
+	);
+	(%$($k:ident).+) => (
+		$crate::info!(
+			target: iroha_logger::telemetry_target!(),
+			%$($k).+
+		)
+	);
+	($($k:ident).+) => (
+		$crate::info!(
+			target: iroha_logger::telemetry_target!(),
+			$($k).+
+		)
+	);
 }
 
 /// This module contains all configuration related logic.
@@ -193,10 +206,13 @@ pub mod config {
         pub telemetry_capacity: usize,
         /// Compact mode (no spans from telemetry)
         pub compact_mode: bool,
+        /// Format output for Bunyan
+        pub use_bunyan: bool,
     }
 
     const TELEMETRY_CAPACITY: usize = 1000;
     const DEFAULT_COMPACT_MODE: bool = false;
+    const USE_BUNYAN: bool = false;
 
     impl Default for LoggerConfiguration {
         fn default() -> Self {
@@ -204,6 +220,7 @@ pub mod config {
                 max_log_level: LevelEnv::default(),
                 telemetry_capacity: TELEMETRY_CAPACITY,
                 compact_mode: DEFAULT_COMPACT_MODE,
+                use_bunyan: USE_BUNYAN,
             }
         }
     }

@@ -48,7 +48,8 @@ Configuration of iroha is done via options in the following document. Here is de
   "LOGGER_CONFIGURATION": {
     "MAX_LOG_LEVEL": "DEBUG",
     "TELEMETRY_CAPACITY": 1000,
-    "COMPACT_MODE": false
+    "COMPACT_MODE": false,
+    "USE_BUNYAN": false
   },
   "GENESIS_CONFIGURATION": {
     "GENESIS_ACCOUNT_PUBLIC_KEY": null,
@@ -247,7 +248,8 @@ Has type `LoggerConfiguration`. Can be configured via environment variable `IROH
 {
   "COMPACT_MODE": false,
   "MAX_LOG_LEVEL": "DEBUG",
-  "TELEMETRY_CAPACITY": 1000
+  "TELEMETRY_CAPACITY": 1000,
+  "USE_BUNYAN": false
 }
 ```
 
@@ -279,6 +281,16 @@ Has type `usize`. Can be configured via environment variable `TELEMETRY_CAPACITY
 
 ```json
 1000
+```
+
+### `logger_configuration.use_bunyan`
+
+Format output for Bunyan
+
+Has type `bool`. Can be configured via environment variable `USE_BUNYAN`
+
+```json
+false
 ```
 
 ## `network`
