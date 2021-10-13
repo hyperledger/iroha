@@ -49,12 +49,12 @@ pub fn init(configuration: &LoggerConfiguration) -> Option<Receiver<Telemetry>> 
     }
 }
 
-fn bunyan_writer_create(destination: PathBuf) -> impl MakeWriter {
-    #[allow(clippy::expect_used)]
-    let file: std::fs::File = File::open(destination.clone()).unwrap_or_else(|_| {
-        File::create(destination).expect("Failed to create bunyan output file. Exiting")
-    });
-    Arc::new(file)
+fn bunyan_writer_create(destination: PathBuf) -> Result<impl MakeWriter> {
+    OpenOptions::new()
+        .append(true)
+        .open(path)
+        .wrap_err("Failed to create or open bunyan logs file")
+        .map(Arc::new)
 }
 
 fn add_bunyan<L: Layer<Registry> + Send + Sync + 'static>(
