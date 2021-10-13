@@ -181,6 +181,11 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sumeragi<G, W> {
         broker: Broker,
         network: Addr<IrohaNetwork>,
     ) -> Result<Self> {
+        if configuration.trusted_peers.peers.is_empty() {
+            return Err(eyre::eyre!(
+                "There must be at least one trusted peer in the network."
+            ));
+        }
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash.into())
             .with_max_faults(configuration.max_faulty_peers())
