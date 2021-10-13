@@ -5,12 +5,12 @@
 
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 
-#include <utility>
-
 #include <rxcpp/operators/rx-filter.hpp>
 #include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/operators/rx-map.hpp>
 #include <rxcpp/operators/rx-take.hpp>
+#include <utility>
+
 #include "logger/logger.hpp"
 
 using shared_model::interface::types::PublicKeyHexStringView;
@@ -96,10 +96,23 @@ namespace iroha {
                       });
                 })
                 .flat_map(sendState(log_, transport_, storage_, time_provider_))
-                .subscribe(onSendStateResponse(storage_))) {}
+                .subscribe(onSendStateResponse(storage_))),
+        expiration_thread_([this]() {
+          while (1) {
+            using namespace std::chrono;
+            using namespace std::chrono_literals;
+            // auto next_transaction_expires_at =
+//            auto now_ms = duration_cast<milliseconds>(
+//                system_clock::now().time_since_epoch()).count();
+            expiredBatchesNotify(storage_->extractExpiredTransactions(time_provider_->getCurrentTime()));//now_ms));
+            std::this_thread::sleep_for(10s);
+          }
+        }) {}
 
   FairMstProcessor::~FairMstProcessor() {
     propagation_subscriber_.unsubscribe();
+    if (expiration_thread_.joinable())
+      expiration_thread_.join();
   }
 
   // -------------------------| MstProcessor override |-------------------------

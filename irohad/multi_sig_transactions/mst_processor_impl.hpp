@@ -106,6 +106,8 @@ namespace iroha {
     /// use for tracking the propagation subscription
 
     rxcpp::composite_subscription propagation_subscriber_;
+
+    std::thread expiration_thread_;
   };
 }  // namespace iroha
 

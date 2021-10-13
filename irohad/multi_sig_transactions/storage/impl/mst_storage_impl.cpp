@@ -46,8 +46,8 @@ namespace iroha {
   auto MstStorageStateImpl::extractExpiredTransactionsImpl(
       const TimeType &current_time)
       -> decltype(extractExpiredTransactions(current_time)) {
-    for (auto &peer_and_state : peer_states_) {
-      peer_and_state.second.eraseExpired(current_time);
+    for (auto &[peer,state] : peer_states_) {
+      state.extractExpired(current_time);
     }
     return own_state_.extractExpired(current_time);
   }

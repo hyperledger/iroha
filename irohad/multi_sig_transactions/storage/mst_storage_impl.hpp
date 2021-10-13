@@ -87,12 +87,11 @@ namespace iroha {
         }
       };
     };
+
     std::unordered_map<StringViewOrString, MstState, StringViewOrString::Hash>
         peer_states_;
     MstState own_state_;
-
-    logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState
-                                          ///< objects.
+    logger::LoggerPtr mst_state_logger_;
   };
 }  // namespace iroha
 
