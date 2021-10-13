@@ -1,6 +1,12 @@
 //! Module with logger for iroha
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    fs::File,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use color_eyre::Report;
 use config::LoggerConfiguration;
@@ -14,7 +20,7 @@ pub use tracing::{
 use tracing::{subscriber::set_global_default, Subscriber};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 pub use tracing_futures::Instrument as InstrumentFutures;
-use tracing_subscriber::{layer::SubscriberExt, registry::Registry, Layer};
+use tracing_subscriber::{fmt::MakeWriter, layer::SubscriberExt, registry::Registry, Layer};
 
 pub mod layer;
 pub mod telemetry;
@@ -42,12 +48,23 @@ pub fn init(configuration: LoggerConfiguration) -> Option<Receiver<Telemetry>> {
     }
 }
 
+fn bunyan_writer_create(destination: std::string::String) -> impl MakeWriter {
+	#[allow(clippy::expect_used)]
+    let file: std::fs::File = File::open(destination.clone()).unwrap_or_else(|_| {
+        File::create(destination).expect("Failed to create bunyan output file. Exiting")
+    });
+    Arc::new(file)
+}
+
 fn add_bunyan<L: Layer<Registry> + Send + Sync + 'static>(
     configuration: LoggerConfiguration,
     layer: L,
 ) -> Receiver<Telemetry> {
     if configuration.use_bunyan {
-        let bunyan_layer = BunyanFormattingLayer::new("bunyan_layer".into(), std::io::stdout);
+        let bunyan_layer = BunyanFormattingLayer::new(
+            "bunyan_layer".into(),
+            bunyan_writer_create(configuration.bunyan_destination.clone()),
+        );
         let subscriber = Registry::default()
             .with(layer)
             .with(JsonStorageLayer)
@@ -195,7 +212,7 @@ pub mod config {
     }
 
     /// Configuration for `Logger`.
-    #[derive(Clone, Deserialize, Serialize, Debug, Copy, Configurable)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(default)]
     pub struct LoggerConfiguration {
@@ -208,6 +225,8 @@ pub mod config {
         pub compact_mode: bool,
         /// Format output for Bunyan
         pub use_bunyan: bool,
+        /// Bunyan output destination
+        pub bunyan_destination: std::string::String,
     }
 
     const TELEMETRY_CAPACITY: usize = 1000;
@@ -221,6 +240,7 @@ pub mod config {
                 telemetry_capacity: TELEMETRY_CAPACITY,
                 compact_mode: DEFAULT_COMPACT_MODE,
                 use_bunyan: USE_BUNYAN,
+                bunyan_destination: "log.json".into(),
             }
         }
     }

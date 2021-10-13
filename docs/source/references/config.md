@@ -49,7 +49,8 @@ Configuration of iroha is done via options in the following document. Here is de
     "MAX_LOG_LEVEL": "DEBUG",
     "TELEMETRY_CAPACITY": 1000,
     "COMPACT_MODE": false,
-    "USE_BUNYAN": false
+    "USE_BUNYAN": false,
+    "BUNYAN_DESTINATION": "log.json"
   },
   "GENESIS_CONFIGURATION": {
     "GENESIS_ACCOUNT_PUBLIC_KEY": null,
@@ -246,11 +247,22 @@ Has type `LoggerConfiguration`. Can be configured via environment variable `IROH
 
 ```json
 {
+  "BUNYAN_DESTINATION": "log.json",
   "COMPACT_MODE": false,
   "MAX_LOG_LEVEL": "DEBUG",
   "TELEMETRY_CAPACITY": 1000,
   "USE_BUNYAN": false
 }
+```
+
+### `logger_configuration.bunyan_destination`
+
+Bunyan output destination
+
+Has type `std::string::String`. Can be configured via environment variable `BUNYAN_DESTINATION`
+
+```json
+"log.json"
 ```
 
 ### `logger_configuration.compact_mode`
