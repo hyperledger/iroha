@@ -49,8 +49,7 @@ Configuration of iroha is done via options in the following document. Here is de
     "MAX_LOG_LEVEL": "DEBUG",
     "TELEMETRY_CAPACITY": 1000,
     "COMPACT_MODE": false,
-    "USE_BUNYAN": false,
-    "BUNYAN_DESTINATION": "log.json"
+    "LOG_FILE_PATH": null
   },
   "GENESIS_CONFIGURATION": {
     "GENESIS_ACCOUNT_PUBLIC_KEY": null,
@@ -247,22 +246,11 @@ Has type `LoggerConfiguration`. Can be configured via environment variable `IROH
 
 ```json
 {
-  "BUNYAN_DESTINATION": "log.json",
   "COMPACT_MODE": false,
+  "LOG_FILE_PATH": null,
   "MAX_LOG_LEVEL": "DEBUG",
-  "TELEMETRY_CAPACITY": 1000,
-  "USE_BUNYAN": false
+  "TELEMETRY_CAPACITY": 1000
 }
-```
-
-### `logger_configuration.bunyan_destination`
-
-Bunyan output destination
-
-Has type `std::string::String`. Can be configured via environment variable `BUNYAN_DESTINATION`
-
-```json
-"log.json"
 ```
 
 ### `logger_configuration.compact_mode`
@@ -273,6 +261,16 @@ Has type `bool`. Can be configured via environment variable `COMPACT_MODE`
 
 ```json
 false
+```
+
+### `logger_configuration.log_file_path`
+
+If provided, logs will be copied to said file in the
+
+Has type `Option<PathBuf>`. Can be configured via environment variable `LOG_FILE_PATH`
+
+```json
+null
 ```
 
 ### `logger_configuration.max_log_level`
@@ -294,6 +292,7 @@ Has type `usize`. Can be configured via environment variable `TELEMETRY_CAPACITY
 ```json
 1000
 ```
+
 
 ### `logger_configuration.use_bunyan`
 
@@ -326,6 +325,7 @@ Has type `usize`. Can be configured via environment variable `IROHA_NETWORK_MAIL
 ```json
 100
 ```
+
 
 ## `private_key`
 

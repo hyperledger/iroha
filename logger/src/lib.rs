@@ -2,6 +2,7 @@
 
 use std::{
     fs::File,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -48,7 +49,7 @@ pub fn init(configuration: LoggerConfiguration) -> Option<Receiver<Telemetry>> {
     }
 }
 
-fn bunyan_writer_create(destination: std::string::String) -> impl MakeWriter {
+fn bunyan_writer_create(destination: PathBuf) -> impl MakeWriter {
     #[allow(clippy::expect_used)]
     let file: std::fs::File = File::open(destination.clone()).unwrap_or_else(|_| {
         File::create(destination).expect("Failed to create bunyan output file. Exiting")
@@ -60,19 +61,20 @@ fn add_bunyan<L: Layer<Registry> + Send + Sync + 'static>(
     configuration: LoggerConfiguration,
     layer: L,
 ) -> Receiver<Telemetry> {
-    if configuration.use_bunyan {
-        let bunyan_layer = BunyanFormattingLayer::new(
-            "bunyan_layer".into(),
-            bunyan_writer_create(configuration.bunyan_destination.clone()),
-        );
-        let subscriber = Registry::default()
-            .with(layer)
-            .with(JsonStorageLayer)
-            .with(bunyan_layer);
-        add_telemetry_and_set_default(configuration, subscriber)
-    } else {
-        let subscriber = Registry::default().with(layer);
-        add_telemetry_and_set_default(configuration, subscriber)
+    match configuration.log_file_path.clone() {
+        Some(path) => {
+            let bunyan_layer =
+                BunyanFormattingLayer::new("bunyan_layer".into(), bunyan_writer_create(path));
+            let subscriber = Registry::default()
+                .with(layer)
+                .with(JsonStorageLayer)
+                .with(bunyan_layer);
+            add_telemetry_and_set_default(configuration, subscriber)
+        }
+        None => {
+            let subscriber = Registry::default().with(layer);
+            add_telemetry_and_set_default(configuration, subscriber)
+        }
     }
 }
 
@@ -223,15 +225,14 @@ pub mod config {
         pub telemetry_capacity: usize,
         /// Compact mode (no spans from telemetry)
         pub compact_mode: bool,
-        /// Format output for Bunyan
-        pub use_bunyan: bool,
-        /// Bunyan output destination
-        pub bunyan_destination: std::string::String,
+        /// If provided, logs will be copied to said file in the
+        /// format readable by
+        /// bunyan (https://lib.rs/crates/bunyan)
+        pub log_file_path: Option<PathBuf>,
     }
 
     const TELEMETRY_CAPACITY: usize = 1000;
     const DEFAULT_COMPACT_MODE: bool = false;
-    const USE_BUNYAN: bool = false;
 
     impl Default for LoggerConfiguration {
         fn default() -> Self {
@@ -239,8 +240,7 @@ pub mod config {
                 max_log_level: LevelEnv::default(),
                 telemetry_capacity: TELEMETRY_CAPACITY,
                 compact_mode: DEFAULT_COMPACT_MODE,
-                use_bunyan: USE_BUNYAN,
-                bunyan_destination: "log.json".into(),
+                log_file_path: None,
             }
         }
     }
