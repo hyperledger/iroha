@@ -182,7 +182,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sumeragi<G, W> {
         network: Addr<IrohaNetwork>,
     ) -> Result<Self> {
         if configuration.max_faulty_peers == 0 && configuration.trusted_peers.peers.len() > 1 {
-            return Err(eyre::eyre!("MAX_FAULTY_PEERS is 0 not in standalone mode (trusted_peers > 1). It's a misconfiguration."));
+            return Err(eyre::eyre!("MAX_FAULTY_PEERS is 0, but you're not in standalone mode (trusted_peers > 1). It's a misconfiguration."));
         }
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash.into())
