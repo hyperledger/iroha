@@ -49,7 +49,7 @@ pub fn init(configuration: LoggerConfiguration) -> Option<Receiver<Telemetry>> {
 }
 
 fn bunyan_writer_create(destination: std::string::String) -> impl MakeWriter {
-	#[allow(clippy::expect_used)]
+    #[allow(clippy::expect_used)]
     let file: std::fs::File = File::open(destination.clone()).unwrap_or_else(|_| {
         File::create(destination).expect("Failed to create bunyan output file. Exiting")
     });
