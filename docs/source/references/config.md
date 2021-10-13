@@ -21,7 +21,6 @@ Configuration of iroha is done via options in the following document. Here is de
     },
     "BLOCK_TIME_MS": 1000,
     "TRUSTED_PEERS": [],
-    "MAX_FAULTY_PEERS": 0,
     "COMMIT_TIME_MS": 1000,
     "TX_RECEIPT_TIME_MS": 200,
     "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
@@ -331,7 +330,6 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
 {
   "BLOCK_TIME_MS": 1000,
   "COMMIT_TIME_MS": 1000,
-  "MAX_FAULTY_PEERS": 0,
   "MAX_INSTRUCTION_NUMBER": 4096,
   "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
   "PEER_ID": {
@@ -377,16 +375,6 @@ Has type `KeyPair`. Can be configured via environment variable `SUMERAGI_KEY_PAI
   },
   "public_key": "ed0100"
 }
-```
-
-### `sumeragi_configuration.max_faulty_peers`
-
-Maximum amount of peers to fail and do not compromise the consensus.
-
-Has type `u32`. Can be configured via environment variable `SUMERAGI_MAX_FAULTY_PEERS`
-
-```json
-0
 ```
 
 ### `sumeragi_configuration.max_instruction_number`
