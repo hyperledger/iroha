@@ -30,7 +30,7 @@ static LOGGER_SET: AtomicBool = AtomicBool::new(false);
 
 /// Initializes `Logger` with given [`LoggerConfiguration`](`config::LoggerConfiguration`).
 /// After the initialization `log` macros will print with the use of this `Logger`.
-pub fn init(configuration: LoggerConfiguration) -> Option<Receiver<Telemetry>> {
+pub fn init(configuration: &LoggerConfiguration) -> Option<Receiver<Telemetry>> {
     if LOGGER_SET
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
         .is_err()
@@ -58,28 +58,26 @@ fn bunyan_writer_create(destination: PathBuf) -> impl MakeWriter {
 }
 
 fn add_bunyan<L: Layer<Registry> + Send + Sync + 'static>(
-    configuration: LoggerConfiguration,
+    configuration: &LoggerConfiguration,
     layer: L,
 ) -> Receiver<Telemetry> {
-    match configuration.log_file_path.clone() {
-        Some(path) => {
-            let bunyan_layer =
-                BunyanFormattingLayer::new("bunyan_layer".into(), bunyan_writer_create(path));
-            let subscriber = Registry::default()
-                .with(layer)
-                .with(JsonStorageLayer)
-                .with(bunyan_layer);
-            add_telemetry_and_set_default(configuration, subscriber)
-        }
-        None => {
-            let subscriber = Registry::default().with(layer);
-            add_telemetry_and_set_default(configuration, subscriber)
-        }
+    #[allow(clippy::option_if_let_else)]
+    if let Some(path) = configuration.log_file_path.clone() {
+        let bunyan_layer =
+            BunyanFormattingLayer::new("bunyan_layer".into(), bunyan_writer_create(path));
+        let subscriber = Registry::default()
+            .with(layer)
+            .with(JsonStorageLayer)
+            .with(bunyan_layer);
+        add_telemetry_and_set_default(configuration, subscriber)
+    } else {
+        let subscriber = Registry::default().with(layer);
+        add_telemetry_and_set_default(configuration, subscriber)
     }
 }
 
 fn add_telemetry_and_set_default<S: Subscriber + Send + Sync + 'static>(
-    configuration: LoggerConfiguration,
+    configuration: &LoggerConfiguration,
     subscriber: S,
 ) -> Receiver<Telemetry> {
     let (subscriber, receiver) = TelemetryLayer::from_capacity(

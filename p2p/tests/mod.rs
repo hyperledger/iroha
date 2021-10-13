@@ -43,7 +43,7 @@ async fn network_create() {
         compact_mode: false,
         ..LoggerConfiguration::default()
     };
-    iroha_logger::init(log_config);
+    iroha_logger::init(&log_config);
     info!("Starting network tests...");
     let address = gen_address();
     let broker = Broker::new();
@@ -110,7 +110,7 @@ async fn two_networks() {
         compact_mode: false,
         ..LoggerConfiguration::default()
     };
-    iroha_logger::init(log_config);
+    iroha_logger::init(&log_config);
     let public_key1 = iroha_crypto::PublicKey::from_str(
         "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
     )
@@ -189,7 +189,7 @@ async fn multiple_networks() {
         compact_mode: false,
         ..LoggerConfiguration::default()
     };
-    drop(iroha_logger::init(log_config));
+    drop(iroha_logger::init(&log_config));
     iroha_logger::info!("Starting...");
 
     let delay = Duration::from_millis(200);
