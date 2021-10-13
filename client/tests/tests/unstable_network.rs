@@ -12,24 +12,23 @@ const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 1;
 
 #[test]
 fn unstable_network_4_peers_1_fault() {
-    unstable_network(4, 1, 1, 20, 50);
+    unstable_network(4, 1, 20, 50);
 }
 
 #[test]
 fn unstable_network_7_peers_1_fault() {
-    unstable_network(7, 1, 1, 20, 50);
+    unstable_network(7, 1, 20, 50);
 }
 
 #[test]
 #[ignore = "This test does not guarantee to have positive outcome given a fixed time."]
 fn unstable_network_7_peers_2_faults() {
-    unstable_network(7, 2, 2, 5, 100);
+    unstable_network(7, 2, 5, 100);
 }
 
 fn unstable_network(
     n_peers: u32,
     n_offline_peers: u32,
-    n_faulty_peers: u32,
     n_transactions: usize,
     polling_max_attempts: u32,
 ) {
@@ -41,7 +40,6 @@ fn unstable_network(
             n_peers,
             MAXIMUM_TRANSACTIONS_IN_BLOCK,
             n_offline_peers,
-            n_faulty_peers,
         ));
 
     let pipeline_time = Configuration::pipeline_time();

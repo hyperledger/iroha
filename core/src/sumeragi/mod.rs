@@ -181,9 +181,14 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sumeragi<G, W> {
         broker: Broker,
         network: Addr<IrohaNetwork>,
     ) -> Result<Self> {
+        if configuration.trusted_peers.peers.is_empty() {
+            return Err(eyre::eyre!(
+                "There must be at least one trusted peer in the network."
+            ));
+        }
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash.into())
-            .with_max_faults(configuration.max_faulty_peers)
+            .with_max_faults(configuration.max_faulty_peers())
             .reshuffle_after(configuration.n_topology_shifts_before_reshuffle)
             .with_peers(configuration.trusted_peers.peers.clone())
             .build()?;
@@ -1546,7 +1551,6 @@ pub mod config {
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
-    const DEFAULT_MAX_FAULTY_PEERS: u32 = 0;
     const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
     const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 200;
     const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
@@ -1568,8 +1572,6 @@ pub mod config {
         pub block_time_ms: u64,
         /// Optional list of predefined trusted peers.
         pub trusted_peers: TrustedPeers,
-        /// Maximum amount of peers to fail and do not compromise the consensus.
-        pub max_faulty_peers: u32,
         /// Amount of time Peer waits for CommitMessage from the proxy tail.
         pub commit_time_ms: u64,
         /// Amount of time Peer waits for TxReceipt from the leader.
@@ -1587,7 +1589,6 @@ pub mod config {
                 trusted_peers: default_empty_trusted_peers(),
                 peer_id: default_peer_id(),
                 block_time_ms: DEFAULT_BLOCK_TIME_MS,
-                max_faulty_peers: DEFAULT_MAX_FAULTY_PEERS,
                 commit_time_ms: DEFAULT_COMMIT_TIME_MS,
                 tx_receipt_time_ms: DEFAULT_TX_RECEIPT_TIME_MS,
                 n_topology_shifts_before_reshuffle: DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE,
@@ -1602,9 +1603,10 @@ pub mod config {
             self.trusted_peers.peers = trusted_peers.into_iter().collect();
         }
 
-        /// Set `max_faulty_peers` configuration parameter - will overwrite the existing one.
-        pub fn max_faulty_peers(&mut self, max_faulty_peers: u32) {
-            self.max_faulty_peers = max_faulty_peers;
+        /// Calculate `max_faulty_peers` configuration parameter as per (f-1)/3.
+        pub fn max_faulty_peers(&self) -> u32 {
+            #![allow(clippy::integer_division, clippy::cast_possible_truncation)]
+            (self.trusted_peers.peers.len() as u32 - 1) / 3
         }
 
         /// Time estimation from receiving a transaction to storing it in a block on all peers.

@@ -174,13 +174,11 @@ where
         n_peers: u32,
         max_txs_in_block: u32,
         offline_peers: u32,
-        max_faulty_peers: u32,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration
             .queue_configuration
             .maximum_transactions_in_block = max_txs_in_block;
-        configuration.sumeragi_configuration.max_faulty_peers = max_faulty_peers;
         let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
             .await
             .expect("Failed to init peers");
@@ -195,13 +193,10 @@ where
         maximum_transactions_in_block: u32,
         offline_peers: u32,
     ) -> (Self, Client) {
-        // Calculates max faulty peers based on consensus requirements
-        let max_faulty_peers: u32 = (n_peers - 1) / 3;
         Self::start_test_with_offline_and_set_max_faults(
             n_peers,
             maximum_transactions_in_block,
             offline_peers,
-            max_faulty_peers,
         )
         .await
     }
@@ -213,7 +208,6 @@ where
         let mut config = Configuration::test();
         config.sumeragi_configuration.trusted_peers.peers =
             self.peers().map(|peer| &peer.id).cloned().collect();
-        config.sumeragi_configuration.max_faulty_peers = (self.peers.len() / 3) as u32;
         peer.start_with_config(GenesisNetwork::test(false), config)
             .await;
         time::sleep(Configuration::pipeline_time() * 2).await;
