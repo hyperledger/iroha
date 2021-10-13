@@ -65,14 +65,14 @@ pub enum NetworkMessage {
 pub struct Iroha<
     W = World,
     G = GenesisNetwork,
-    S = Sumeragi<G, W>,
     K = Kura<W>,
+    S = Sumeragi<G, K, W>,
     B = BlockSynchronizer<S, W>,
 > where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     /// World state view
@@ -89,12 +89,12 @@ pub struct Iroha<
     pub torii: Option<Torii<W>>,
 }
 
-impl<W, G, S, K, B> Iroha<W, G, S, K, B>
+impl<W, G, S, K, B> Iroha<W, G, K, S, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     /// To make `Iroha` peer work all actors should be started first.
@@ -201,12 +201,18 @@ where
         let queue = Arc::new(Queue::from_configuration(&config.queue_configuration));
 
         #[cfg(feature = "telemetry")]
-        if let Some(telemetry) = telemetry {
-            telemetry::start(&config.telemetry, telemetry)
+        if let Some((telemetry, telemetry_future)) = telemetry {
+            telemetry::start(&config.telemetry, telemetry, telemetry_future)
                 .await
                 .wrap_err("Failed to setup telemetry")?;
         }
         let query_validator = Arc::new(query_validator);
+        let kura =
+            K::from_configuration(&config.kura_configuration, Arc::clone(&wsv), broker.clone())
+                .await?
+                .start()
+                .await
+                .expect_running();
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
             &config.sumeragi_configuration,
             events_sender.clone(),
@@ -216,19 +222,13 @@ where
             genesis,
             Arc::clone(&queue),
             broker.clone(),
+            kura.clone(),
             network_addr.clone(),
         )
         .wrap_err("Failed to initialize Sumeragi.")?
         .start()
         .await
         .expect_running();
-
-        let kura =
-            K::from_configuration(&config.kura_configuration, Arc::clone(&wsv), broker.clone())
-                .await?
-                .start()
-                .await
-                .expect_running();
         let block_sync = B::from_configuration(
             &config.block_sync_configuration,
             Arc::clone(&wsv),

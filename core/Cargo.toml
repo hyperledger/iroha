@@ -10,12 +10,13 @@ repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
 license = "Apache-2.0"
 keywords = ["crypto", "blockchain", "ledger"]
 categories = ["cryptography::cryptocurrencies"]
+build = "build.rs"
 
 [features]
 bridge = []
 dex = []
 roles = ["iroha_data_model/roles"]
-telemetry = []
+telemetry = ["url"]
 cli = ["structopt"]
 dev-telemetry = ["iroha_telemetry"]
 default = ["bridge", "cli"]
@@ -51,11 +52,13 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs"]}
 tokio-stream = { version = "0.1.6", features = ["fs"]}
+tokio-tungstenite = { version = "0.13.0", features = ["tls"] }
 tracing = "0.1"
 crossbeam-queue = "0.3"
 warp = "0.3"
 structopt = { version = "0.3", optional = true }
 thiserror = "1.0.28"
+url = { version = "2.2.2", optional = true, features = ["serde"] }
 
 [dev-dependencies]
 hex-literal = "0.2.1"
@@ -65,6 +68,11 @@ hex = "0.4.0"
 unique_port = "0.1.0"
 maplit = "1.0.2"
 byte-unit = "4.0.12"
+
+[build-dependencies]
+anyhow = "1.0"
+eyre = "0.6.5"
+vergen = { version = "5", default-features = false, features = ["cargo", "git"] }
 
 [[bench]]
 name = "sumeragi"

@@ -20,7 +20,10 @@ static LOGGER_SET: AtomicBool = AtomicBool::new(false);
 
 /// Initializes `Logger` with given [`LoggerConfiguration`](`config::LoggerConfiguration`).
 /// After the initialization `log` macros will print with the use of this `Logger`.
-pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telemetry>> {
+/// Returns the receiving side of telemetry channels (regular telemetry, future telemetry)
+pub fn init(
+    configuration: config::LoggerConfiguration,
+) -> Option<(Receiver<Telemetry>, Receiver<Telemetry>)> {
     if LOGGER_SET
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
         .is_err()
@@ -35,28 +38,28 @@ pub fn init(configuration: config::LoggerConfiguration) -> Option<Receiver<Telem
 
     if configuration.compact_mode {
         let subscriber = subscriber_builder.compact().finish();
-        let (subscriber, receiver) = TelemetryLayer::from_capacity(
+        let (subscriber, receiver, receiver_future) = TelemetryLayer::from_capacity(
             LevelFilter::new(level, subscriber),
             configuration.telemetry_capacity,
         );
 
         #[allow(clippy::expect_used)]
         set_global_default(subscriber).expect("Failed to init logger");
-        Some(receiver)
+        Some((receiver, receiver_future))
     } else {
         let subscriber = subscriber_builder.finish();
-        let (subscriber, receiver) = TelemetryLayer::from_capacity(
+        let (subscriber, receiver, receiver_future) = TelemetryLayer::from_capacity(
             LevelFilter::new(level, subscriber),
             configuration.telemetry_capacity,
         );
 
         #[allow(clippy::expect_used)]
         set_global_default(subscriber).expect("Failed to init logger");
-        Some(receiver)
+        Some((receiver, receiver_future))
     }
 }
 
-/// Macro for sending telemetry info
+/// Macro for getting telemetry target
 #[macro_export]
 macro_rules! telemetry_target {
     () => {
@@ -64,10 +67,8 @@ macro_rules! telemetry_target {
     };
 }
 
-/// Macro for sending telemetry info
 #[macro_export]
 macro_rules! telemetry {
-    // All arguments match arms are from info macro
     () => {
         $crate::info!(target: iroha_logger::telemetry_target!(),)
     };
@@ -122,6 +123,77 @@ macro_rules! telemetry {
     ($($k:ident).+) => (
         $crate::info!(
             target: iroha_logger::telemetry_target!(),
+            $($k).+
+        )
+    );
+}
+
+/// Macro for getting telemetry future target
+#[macro_export]
+macro_rules! telemetry_future_target {
+    () => {
+        concat!("telemetry_future::", module_path!())
+    };
+}
+
+/// Macro for sending telemetry info
+#[macro_export]
+macro_rules! telemetry_future {
+    // All arguments match arms are from info macro
+    () => {
+        $crate::info!(target: iroha_logger::telemetry_future_target!(),)
+    };
+    ($($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            $($k).+ = $($field)*
+        )
+    );
+    (?$($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            ?$($k).+ = $($field)*
+        )
+    );
+    (%$($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            %$($k).+ = $($field)*
+        )
+    );
+    ($($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            $($k).+, $($field)*
+        )
+    );
+    (?$($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            ?$($k).+, $($field)*
+        )
+    );
+    (%$($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            %$($k).+, $($field)*
+        )
+    );
+    (?$($k:ident).+) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            ?$($k).+
+        )
+    );
+    (%$($k:ident).+) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            %$($k).+
+        )
+    );
+    ($($k:ident).+) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
             $($k).+
         )
     );

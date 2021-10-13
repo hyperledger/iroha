@@ -45,33 +45,33 @@ struct ShutdownRuntime;
 pub struct Network<
     W = World,
     G = GenesisNetwork,
-    S = Sumeragi<G, W>,
     K = Kura<W>,
+    S = Sumeragi<G, K, W>,
     B = BlockSynchronizer<S, W>,
 > where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     /// Genesis peer which sends genesis block to everyone
-    pub genesis: Peer<W, G, S, K, B>,
+    pub genesis: Peer<W, G, K, S, B>,
     /// peers
-    pub peers: Vec<Peer<W, G, S, K, B>>,
+    pub peers: Vec<Peer<W, G, K, S, B>>,
 }
 
 /// Peer structure
 pub struct Peer<
     W = World,
     G = GenesisNetwork,
-    S = Sumeragi<G, W>,
     K = Kura<W>,
+    S = Sumeragi<G, K, W>,
     B = BlockSynchronizer<S, W>,
 > where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
@@ -90,7 +90,7 @@ pub struct Peer<
     shutdown: Option<JoinHandle<()>>,
 
     /// Iroha itself
-    pub iroha: Option<Iroha<W, G, S, K, B>>,
+    pub iroha: Option<Iroha<W, G, K, S, B>>,
 }
 
 impl std::cmp::PartialEq for Peer {
@@ -123,17 +123,17 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
     }
 }
 
-impl<W, G, S, K, B> Network<W, G, S, K, B>
+impl<W, G, K, S, B> Network<W, G, K, S, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     pub async fn send<M, A>(
         &self,
-        lense: impl Fn(&Iroha<W, G, S, K, B>) -> &Addr<A>,
+        lense: impl Fn(&Iroha<W, G, K, S, B>) -> &Addr<A>,
         msg: M,
     ) -> Vec<M::Result>
     where
@@ -174,11 +174,13 @@ where
         n_peers: u32,
         max_txs_in_block: u32,
         offline_peers: u32,
+        max_faulty_peers: u32,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration
             .queue_configuration
             .maximum_transactions_in_block = max_txs_in_block;
+        configuration.sumeragi_configuration.max_faulty_peers = max_faulty_peers;
         let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
             .await
             .expect("Failed to init peers");
@@ -193,10 +195,13 @@ where
         maximum_transactions_in_block: u32,
         offline_peers: u32,
     ) -> (Self, Client) {
+        // Calculates max faulty peers based on consensus requirements
+        let max_faulty_peers: u32 = (n_peers - 1) / 3;
         Self::start_test_with_offline_and_set_max_faults(
             n_peers,
             maximum_transactions_in_block,
             offline_peers,
+            max_faulty_peers,
         )
         .await
     }
@@ -208,6 +213,7 @@ where
         let mut config = Configuration::test();
         config.sumeragi_configuration.trusted_peers.peers =
             self.peers().map(|peer| &peer.id).cloned().collect();
+        config.sumeragi_configuration.max_faulty_peers = (self.peers.len() / 3) as u32;
         peer.start_with_config(GenesisNetwork::test(false), config)
             .await;
         time::sleep(Configuration::pipeline_time() * 2).await;
@@ -256,7 +262,7 @@ where
     }
 
     /// Returns peers
-    pub fn peers(&self) -> impl Iterator<Item = &Peer<W, G, S, K, B>> + '_ {
+    pub fn peers(&self) -> impl Iterator<Item = &Peer<W, G, K, S, B>> + '_ {
         std::iter::once(&self.genesis).chain(self.peers.iter())
     }
 
@@ -280,11 +286,11 @@ where
     }
 }
 
-impl<W, G, S, K, B> Drop for Peer<W, G, S, K, B>
+impl<W, G, K, S, B> Drop for Peer<W, G, K, S, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
@@ -298,11 +304,11 @@ where
     }
 }
 
-impl<W, G, S, K, B> Peer<W, G, S, K, B>
+impl<W, G, K, S, B> Peer<W, G, K, S, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
@@ -367,10 +373,10 @@ where
             &self.api_address
         );
         let broker = self.broker.clone();
-        let (sender, reciever) = std::sync::mpsc::sync_channel(1);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let handle = task::spawn(
             async move {
-                let mut iroha = <Iroha<W, G, S, K, B>>::with_genesis(
+                let mut iroha = <Iroha<W, G, K, S, B>>::with_genesis(
                     G::test(true),
                     configuration,
                     permissions.into(),
@@ -386,7 +392,7 @@ where
             .instrument(info_span),
         );
 
-        self.iroha = Some(reciever.recv().unwrap());
+        self.iroha = Some(receiver.recv().unwrap());
         self.shutdown = Some(handle);
     }
 
@@ -415,7 +421,7 @@ where
         let join_handle = tokio::spawn(
             async move {
                 let _temp_dir = temp_dir;
-                let mut iroha = <Iroha<W, G, S, K, B>>::with_genesis(
+                let mut iroha = <Iroha<W, G, K, S, B>>::with_genesis(
                     genesis,
                     configuration,
                     instruction_validator.into(),

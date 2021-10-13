@@ -32,7 +32,7 @@ use crate::{
     block::{BlockHeader, ChainedBlock, EmptyChainHash, VersionedPendingBlock},
     event::EventsSender,
     genesis::GenesisNetworkTrait,
-    kura::StoreBlock,
+    kura::{GetBlockHash, KuraTrait, StoreBlock},
     prelude::*,
     queue::Queue,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
@@ -63,6 +63,10 @@ pub struct Gossip;
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
 pub struct ConnectPeers;
 
+/// Message reminder for telemetry updates.
+#[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
+pub struct UpdateTelemetry;
+
 /// Message reminder for initialization of sumeragi
 #[derive(Debug, Clone, Copy, iroha_actor::Message)]
 pub struct Init {
@@ -87,9 +91,10 @@ pub struct GetNetworkTopology(pub BlockHeader);
 pub struct CommitBlock(pub VersionedValidBlock);
 
 /// `Sumeragi` is the implementation of the consensus.
-pub struct Sumeragi<G, W>
+pub struct Sumeragi<G, K, W>
 where
     G: GenesisNetworkTrait,
+    K: KuraTrait,
     W: WorldTrait,
 {
     key_pair: KeyPair,
@@ -123,6 +128,8 @@ where
     pub genesis_network: Option<G>,
     /// Broker
     pub broker: Broker,
+    /// [`Kura`] actor address
+    pub kura: AlwaysAddr<K>,
     /// [`iroha_p2p::Network`] actor address
     pub network: Addr<IrohaNetwork>,
 }
@@ -144,6 +151,7 @@ pub trait SumeragiTrait:
 {
     /// Genesis for sending genesis txs
     type GenesisNetwork: GenesisNetworkTrait;
+    type Kura: KuraTrait<World = Self::World>;
     /// World for updating WSV after block commitment
     type World: WorldTrait;
 
@@ -161,13 +169,17 @@ pub trait SumeragiTrait:
         genesis_network: Option<Self::GenesisNetwork>,
         queue: Arc<Queue>,
         broker: Broker,
+        kura: AlwaysAddr<Self::Kura>,
         network: Addr<IrohaNetwork>,
         //TODO: separate initialization from construction and do not return Result in `new`
     ) -> Result<Self>;
 }
 
-impl<G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait> SumeragiTrait
+    for Sumeragi<G, K, W>
+{
     type GenesisNetwork = G;
+    type Kura = K;
     type World = W;
 
     fn from_configuration(
@@ -179,16 +191,12 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sumeragi<G, W> {
         genesis_network: Option<G>,
         queue: Arc<Queue>,
         broker: Broker,
+        kura: AlwaysAddr<K>,
         network: Addr<IrohaNetwork>,
     ) -> Result<Self> {
-        if configuration.trusted_peers.peers.is_empty() {
-            return Err(eyre::eyre!(
-                "There must be at least one trusted peer in the network."
-            ));
-        }
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash.into())
-            .with_max_faults(configuration.max_faulty_peers())
+            .with_max_faults(configuration.max_faulty_peers)
             .reshuffle_after(configuration.n_topology_shifts_before_reshuffle)
             .with_peers(configuration.trusted_peers.peers.clone())
             .build()?;
@@ -213,6 +221,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sumeragi<G, W> {
             genesis_network,
             queue,
             broker,
+            kura,
             network,
         })
     }
@@ -225,9 +234,11 @@ pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(200);
 pub const TX_GOSSIP_INTERVAL: Duration = Duration::from_millis(100);
 /// The interval of peers (re)connection.
 pub const PEERS_CONNECT_INTERVAL: Duration = Duration::from_secs(1);
+/// The interval of telemetry updates.
+pub const TELEMETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Actor for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Actor for Sumeragi<G, K, W> {
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
         self.broker.subscribe::<Init, _>(ctx);
         self.broker.subscribe::<UpdateNetworkTopology, _>(ctx);
@@ -238,7 +249,9 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Actor for Sumeragi<G, W> {
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<UpdateNetworkTopology> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<UpdateNetworkTopology>
+    for Sumeragi<G, K, W>
+{
     type Result = ();
     async fn handle(&mut self, UpdateNetworkTopology: UpdateNetworkTopology) {
         self.update_network_topology().await;
@@ -246,7 +259,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<UpdateNetworkTopology> for S
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<Message> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<Message> for Sumeragi<G, K, W> {
     type Result = ();
     async fn handle(&mut self, message: Message) {
         iroha_logger::trace!(role=?self.topology.role(&self.peer_id), msg=?message);
@@ -257,7 +270,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<Message> for Sumeragi<G, W> 
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<Voting> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<Voting> for Sumeragi<G, K, W> {
     type Result = ();
     async fn handle(&mut self, Voting: Voting) {
         if self.voting_in_progress().await {
@@ -271,7 +284,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<Voting> for Sumeragi<G, W> {
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<Gossip> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<Gossip> for Sumeragi<G, K, W> {
     type Result = ();
     async fn handle(&mut self, Gossip: Gossip) {
         let txs = self.queue.all_transactions(&*self.wsv);
@@ -280,7 +293,9 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<Gossip> for Sumeragi<G, W> {
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<ConnectPeers> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<ConnectPeers>
+    for Sumeragi<G, K, W>
+{
     type Result = ();
     async fn handle(&mut self, ConnectPeers: ConnectPeers) {
         self.connect_peers().await;
@@ -288,7 +303,36 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<ConnectPeers> for Sumeragi<G
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> ContextHandler<Init> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<UpdateTelemetry>
+    for Sumeragi<G, K, W>
+{
+    type Result = ();
+    async fn handle(&mut self, UpdateTelemetry: UpdateTelemetry) {
+        let block_hash = self.topology.at_block();
+        let finalized_height = self.block_height.saturating_sub(1);
+        let finalized_hash = self
+            .kura
+            .send(GetBlockHash {
+                height: finalized_height as usize,
+            })
+            .await
+            .unwrap_or_else(|| block_hash.clone());
+        iroha_logger::telemetry!(
+            msg = "system.interval",
+            peers = self.topology.sorted_peers().len().saturating_sub(1),
+            txcount = self.queue.tx_len(),
+            height = self.block_height,
+            best = %block_hash,
+            finalized_height = finalized_height,
+            finalized_hash = %finalized_hash
+        );
+    }
+}
+
+#[async_trait::async_trait]
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> ContextHandler<Init>
+    for Sumeragi<G, K, W>
+{
     type Result = ();
     async fn handle(
         &mut self,
@@ -313,11 +357,14 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> ContextHandler<Init> for Sumeragi<G,
         ctx.notify_every::<ConnectPeers>(PEERS_CONNECT_INTERVAL);
         ctx.notify_every::<Voting>(TX_RETRIEVAL_INTERVAL);
         ctx.notify_every::<Gossip>(TX_GOSSIP_INTERVAL);
+        ctx.notify_every::<UpdateTelemetry>(TELEMETRY_INTERVAL);
     }
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<GetSortedPeers> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetSortedPeers>
+    for Sumeragi<G, K, W>
+{
     type Result = Vec<PeerId>;
     async fn handle(&mut self, GetSortedPeers: GetSortedPeers) -> Vec<PeerId> {
         self.topology.sorted_peers().to_vec()
@@ -325,7 +372,9 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<GetSortedPeers> for Sumeragi
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<GetNetworkTopology> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetNetworkTopology>
+    for Sumeragi<G, K, W>
+{
     type Result = Topology;
     async fn handle(&mut self, GetNetworkTopology(header): GetNetworkTopology) -> Topology {
         self.network_topology_current_or_genesis(&header)
@@ -333,7 +382,9 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<GetNetworkTopology> for Sume
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<CommitBlock> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<CommitBlock>
+    for Sumeragi<G, K, W>
+{
     type Result = ();
     async fn handle(&mut self, CommitBlock(block): CommitBlock) {
         self.commit_block(block).await
@@ -346,7 +397,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<CommitBlock> for Sumeragi<G,
 pub struct IsLeader;
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<IsLeader> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<IsLeader> for Sumeragi<G, K, W> {
     type Result = bool;
     async fn handle(&mut self, IsLeader: IsLeader) -> bool {
         self.is_leader()
@@ -359,7 +410,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<IsLeader> for Sumeragi<G, W>
 pub struct GetLeader;
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<GetLeader> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetLeader> for Sumeragi<G, K, W> {
     type Result = PeerId;
     async fn handle(&mut self, GetLeader: GetLeader) -> PeerId {
         self.topology.leader().clone()
@@ -367,7 +418,9 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<GetLeader> for Sumeragi<G, W
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<NetworkMessage> for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<NetworkMessage>
+    for Sumeragi<G, K, W>
+{
     type Result = ();
 
     async fn handle(&mut self, msg: NetworkMessage) -> Self::Result {
@@ -381,7 +434,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Handler<NetworkMessage> for Sumeragi
     }
 }
 
-impl<G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
     /// Initializes sumeragi with the `latest_block_hash` and `block_height` after Kura loads the blocks.
     pub fn init(&mut self, latest_block_hash: Hash, block_height: u64) {
         self.block_height = block_height;
@@ -824,7 +877,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> Sumeragi<G, W> {
     }
 }
 
-impl<G: GenesisNetworkTrait, W: WorldTrait> Debug for Sumeragi<G, W> {
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Debug for Sumeragi<G, K, W> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sumeragi")
             .field("public_key", &self.key_pair.public_key)
@@ -882,6 +935,7 @@ pub mod message {
     use super::view_change;
     use crate::{
         genesis::GenesisNetworkTrait,
+        kura::KuraTrait,
         queue,
         sumeragi::{NetworkMessage, Role, Sumeragi, Topology, VotingBlock},
         wsv::WorldTrait,
@@ -929,9 +983,9 @@ pub mod message {
         /// # Errors
         /// Fails if message handling fails
         #[iroha_futures::telemetry_future]
-        pub async fn handle<G: GenesisNetworkTrait, W: WorldTrait>(
+        pub async fn handle<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             self,
-            sumeragi: &mut Sumeragi<G, W>,
+            sumeragi: &mut Sumeragi<G, K, W>,
         ) -> Result<()> {
             self.into_inner_v1().handle(sumeragi).await
         }
@@ -961,9 +1015,9 @@ pub mod message {
         /// Fails if message handling fails
         #[iroha_logger::log(skip(self, sumeragi))]
         #[iroha_futures::telemetry_future]
-        pub async fn handle<G: GenesisNetworkTrait, W: WorldTrait>(
+        pub async fn handle<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             self,
-            sumeragi: &mut Sumeragi<G, W>,
+            sumeragi: &mut Sumeragi<G, K, W>,
         ) -> Result<()> {
             match self {
                 Message::BlockCreated(block_created) => block_created.handle(sumeragi).await,
@@ -995,9 +1049,9 @@ pub mod message {
         /// # Errors
         /// Can fail during signing.
         #[iroha_futures::telemetry_future]
-        pub async fn handle<G: GenesisNetworkTrait, W: WorldTrait>(
+        pub async fn handle<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             &self,
-            sumeragi: &mut Sumeragi<G, W>,
+            sumeragi: &mut Sumeragi<G, K, W>,
         ) -> Result<()> {
             use view_change::Reason::*;
 
@@ -1051,9 +1105,9 @@ pub mod message {
             Ok(())
         }
 
-        async fn is_commit_timeout<G: GenesisNetworkTrait, W: WorldTrait>(
+        async fn is_commit_timeout<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             reason: &view_change::CommitTimeout,
-            sumeragi: &Sumeragi<G, W>,
+            sumeragi: &Sumeragi<G, K, W>,
         ) -> bool {
             let voting_block = sumeragi.voting_block.read().await.clone();
             #[allow(clippy::expect_used)]
@@ -1066,9 +1120,9 @@ pub mod message {
             })
         }
 
-        async fn is_block_creation_timeout<G: GenesisNetworkTrait, W: WorldTrait>(
+        async fn is_block_creation_timeout<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             reason: &view_change::BlockCreationTimeout,
-            sumeragi: &Sumeragi<G, W>,
+            sumeragi: &Sumeragi<G, K, W>,
         ) -> bool {
             reason.transaction_receipt.is_valid(&sumeragi.topology)
                 && reason.transaction_receipt.is_block_should_be_created(sumeragi.block_time)
@@ -1076,9 +1130,13 @@ pub mod message {
                 && sumeragi.voting_block.write().await.is_none()
         }
 
-        async fn is_no_transaction_receipt_received<G: GenesisNetworkTrait, W: WorldTrait>(
+        async fn is_no_transaction_receipt_received<
+            G: GenesisNetworkTrait,
+            K: KuraTrait,
+            W: WorldTrait,
+        >(
             reason: &view_change::NoTransactionReceiptReceived,
-            sumeragi: &Sumeragi<G, W>,
+            sumeragi: &Sumeragi<G, K, W>,
         ) -> bool {
             let current_time = Instant::now();
             // Due to the fact that transactions are all the time gossiped -
@@ -1129,9 +1187,9 @@ pub mod message {
     }
 
     impl BlockCreated {
-        fn update_view_changes<G: GenesisNetworkTrait, W: WorldTrait>(
+        fn update_view_changes<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             &self,
-            sumeragi: &mut Sumeragi<G, W>,
+            sumeragi: &mut Sumeragi<G, K, W>,
         ) {
             let leader_view_changes = self.block.header().view_change_proofs.clone();
             #[allow(clippy::expect_used)]
@@ -1158,9 +1216,9 @@ pub mod message {
         /// # Errors
         /// Can fail due to signing of block
         #[iroha_futures::telemetry_future]
-        pub async fn handle<G: GenesisNetworkTrait, W: WorldTrait>(
+        pub async fn handle<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             &self,
-            sumeragi: &mut Sumeragi<G, W>,
+            sumeragi: &mut Sumeragi<G, K, W>,
         ) -> Result<()> {
             // There should be only one block in discussion during a round.
             if sumeragi.voting_block.read().await.is_some() {
@@ -1253,9 +1311,9 @@ pub mod message {
         /// # Errors
         /// Can fail due to signing of block
         #[iroha_futures::telemetry_future]
-        pub async fn handle<G: GenesisNetworkTrait, W: WorldTrait>(
+        pub async fn handle<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             &self,
-            sumeragi: &mut Sumeragi<G, W>,
+            sumeragi: &mut Sumeragi<G, K, W>,
         ) -> Result<()> {
             let network_topology =
                 sumeragi.network_topology_current_or_genesis(self.block.header());
@@ -1335,9 +1393,9 @@ pub mod message {
         /// # Errors
         /// Actually infallible
         #[iroha_futures::telemetry_future]
-        pub async fn handle<G: GenesisNetworkTrait, W: WorldTrait>(
+        pub async fn handle<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             &self,
-            sumeragi: &mut Sumeragi<G, W>,
+            sumeragi: &mut Sumeragi<G, K, W>,
         ) -> Result<()> {
             let network_topology =
                 sumeragi.network_topology_current_or_genesis(self.block.header());
@@ -1394,9 +1452,9 @@ pub mod message {
         /// # Errors
         /// Can fail due to signing transaction
         #[iroha_futures::telemetry_future]
-        pub async fn handle<G: GenesisNetworkTrait, W: WorldTrait>(
+        pub async fn handle<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             self,
-            sumeragi: &mut Sumeragi<G, W>,
+            sumeragi: &mut Sumeragi<G, K, W>,
         ) -> Result<()> {
             match sumeragi
                 .queue
@@ -1476,9 +1534,9 @@ pub mod message {
         /// # Errors
         /// Can fail due to signing of block
         #[iroha_futures::telemetry_future]
-        pub async fn handle<G: GenesisNetworkTrait, W: WorldTrait>(
+        pub async fn handle<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait>(
             &self,
-            sumeragi: &mut Sumeragi<G, W>,
+            sumeragi: &mut Sumeragi<G, K, W>,
         ) -> Result<()> {
             let now = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -1551,6 +1609,7 @@ pub mod config {
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
+    const DEFAULT_MAX_FAULTY_PEERS: u32 = 0;
     const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
     const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 200;
     const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
@@ -1572,6 +1631,8 @@ pub mod config {
         pub block_time_ms: u64,
         /// Optional list of predefined trusted peers.
         pub trusted_peers: TrustedPeers,
+        /// Maximum amount of peers to fail and do not compromise the consensus.
+        pub max_faulty_peers: u32,
         /// Amount of time Peer waits for CommitMessage from the proxy tail.
         pub commit_time_ms: u64,
         /// Amount of time Peer waits for TxReceipt from the leader.
@@ -1589,6 +1650,7 @@ pub mod config {
                 trusted_peers: default_empty_trusted_peers(),
                 peer_id: default_peer_id(),
                 block_time_ms: DEFAULT_BLOCK_TIME_MS,
+                max_faulty_peers: DEFAULT_MAX_FAULTY_PEERS,
                 commit_time_ms: DEFAULT_COMMIT_TIME_MS,
                 tx_receipt_time_ms: DEFAULT_TX_RECEIPT_TIME_MS,
                 n_topology_shifts_before_reshuffle: DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE,
@@ -1603,10 +1665,9 @@ pub mod config {
             self.trusted_peers.peers = trusted_peers.into_iter().collect();
         }
 
-        /// Calculate `max_faulty_peers` configuration parameter as per (f-1)/3.
-        pub fn max_faulty_peers(&self) -> u32 {
-            #![allow(clippy::integer_division, clippy::cast_possible_truncation)]
-            (self.trusted_peers.peers.len() as u32 - 1) / 3
+        /// Set `max_faulty_peers` configuration parameter - will overwrite the existing one.
+        pub fn max_faulty_peers(&mut self, max_faulty_peers: u32) {
+            self.max_faulty_peers = max_faulty_peers;
         }
 
         /// Time estimation from receiving a transaction to storing it in a block on all peers.

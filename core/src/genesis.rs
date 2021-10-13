@@ -13,6 +13,7 @@ use tokio::{time, time::Duration};
 
 use self::config::GenesisConfiguration;
 use crate::{
+    kura::KuraTrait,
     sumeragi::{
         network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
         Sumeragi,
@@ -57,9 +58,9 @@ pub trait GenesisNetworkTrait:
     ///
     /// # Errors
     /// Returns error if waiting for peers or genesis round itself fails
-    async fn submit_transactions<W: WorldTrait>(
+    async fn submit_transactions<K: KuraTrait, W: WorldTrait>(
         &self,
-        sumeragi: &mut Sumeragi<Self, W>,
+        sumeragi: &mut Sumeragi<Self, K, W>,
         network: Addr<IrohaNetwork>,
     ) -> Result<()> {
         let genesis_topology = self

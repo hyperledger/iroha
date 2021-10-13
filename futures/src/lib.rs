@@ -129,7 +129,7 @@ impl<F: Future> Future for TelemetryFuture<F> {
         // 100 seconds in nanos is less than 2 ** 37. It would be more than enough for us
         #[allow(clippy::cast_possible_truncation)]
         let duration = now.elapsed().as_nanos() as u64;
-        iroha_logger::telemetry!(id, name, duration);
+        iroha_logger::telemetry_future!(id, name, duration);
 
         result
     }

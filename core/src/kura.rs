@@ -3,6 +3,7 @@
 
 use std::{
     collections::BTreeSet,
+    fmt::Debug,
     num::NonZeroU64,
     path::{Path, PathBuf},
     sync::Arc,
@@ -36,7 +37,7 @@ pub struct StoreBlock(pub VersionedCommittedBlock);
 #[derive(Clone, Copy, Debug, Message)]
 #[message(result = "Option<Hash>")]
 pub struct GetBlockHash {
-    height: usize,
+    pub height: usize,
 }
 
 /// High level data storage representation.
@@ -56,6 +57,7 @@ pub trait KuraTrait:
     Actor
     + ContextHandler<StoreBlock, Result = ()>
     + ContextHandler<GetBlockHash, Result = Option<Hash>>
+    + Debug
 {
     /// World for applying blocks which have been stored on disk
     type World: WorldTrait;
@@ -120,6 +122,9 @@ impl<W: WorldTrait> Actor for Kura<W> {
         #[allow(clippy::panic)]
         match self.init().await {
             Ok(blocks) => {
+                if let Some(block) = blocks.first() {
+                    iroha_logger::telemetry!(msg = "system.connected", genesis_hash = %block.hash());
+                }
                 self.wsv.init(blocks).await;
                 let latest_block_hash = self.wsv.latest_block_hash();
                 let height = self.wsv.height();
@@ -155,6 +160,9 @@ impl<W: WorldTrait> Handler<StoreBlock> for Kura<W> {
     type Result = ();
 
     async fn handle(&mut self, StoreBlock(block): StoreBlock) {
+        if block.header().height == 1 {
+            iroha_logger::telemetry!(msg = "system.connected", genesis_hash = %block.hash());
+        }
         if let Err(error) = self.store(block).await {
             iroha_logger::error!(%error, "Failed to write block")
         }
