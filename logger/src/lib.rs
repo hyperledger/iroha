@@ -224,8 +224,7 @@ pub mod config {
         /// Compact mode (no spans from telemetry)
         pub compact_mode: bool,
         /// If provided, logs will be copied to said file in the
-        /// format readable by
-        /// bunyan (https://lib.rs/crates/bunyan)
+        /// format readable by [bunyan](https://lib.rs/crates/bunyan)
         pub log_file_path: Option<PathBuf>,
     }
 
