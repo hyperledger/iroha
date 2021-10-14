@@ -192,7 +192,7 @@ where
             config.network.mailbox,
         )
         .await
-        .wrap_err_with(|| eyre!("Unable to start P2P-network"))?;
+        .wrap_err("Unable to start P2P-network")?;
         let network_addr = network.start().await;
 
         let (events_sender, _) = broadcast::channel(100);
