@@ -58,6 +58,8 @@ where
     pub broker: Broker,
     /// A flag that stops listening stream
     finish_sender: Option<Sender<()>>,
+    /// Mailbox capacity
+    mailbox: usize,
 }
 
 impl<T, K, E> NetworkBase<T, K, E>
@@ -74,6 +76,7 @@ where
         broker: Broker,
         listen_addr: String,
         public_key: PublicKey,
+        mailbox: usize,
     ) -> Result<Self, Error> {
         info!("Binding listener to {}...", &listen_addr);
         let listener = TcpListener::bind(&listen_addr).await?;
@@ -85,6 +88,7 @@ where
             public_key,
             broker,
             finish_sender: None,
+            mailbox,
         })
     }
 
@@ -144,6 +148,10 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
+    fn mailbox_capacity(&self) -> usize {
+        self.mailbox
+    }
+
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
         info!("Starting network actor on {}...", &self.listen_addr);
         // to start connections

@@ -185,9 +185,14 @@ where
         let listen_addr = config.torii_configuration.torii_p2p_addr.clone();
         iroha_logger::info!("Starting peer on {}", &listen_addr);
         #[allow(clippy::expect_used)]
-        let network = IrohaNetwork::new(broker.clone(), listen_addr, config.public_key.clone())
-            .await
-            .expect("Unable to start P2P-network");
+        let network = IrohaNetwork::new(
+            broker.clone(),
+            listen_addr,
+            config.public_key.clone(),
+            config.network.mailbox,
+        )
+        .await
+        .wrap_err("Unable to start P2P-network")?;
         let network_addr = network.start().await;
 
         let (events_sender, _) = broadcast::channel(100);

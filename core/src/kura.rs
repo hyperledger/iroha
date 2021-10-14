@@ -48,6 +48,7 @@ pub struct Kura<W: WorldTrait> {
     merkle_tree: MerkleTree,
     wsv: Arc<WorldStateView<W>>,
     broker: Broker,
+    mailbox: usize,
 }
 
 /// Generic kura trait for mocks
@@ -70,6 +71,7 @@ pub trait KuraTrait:
         blocks_per_file: NonZeroU64,
         wsv: Arc<WorldStateView<Self::World>>,
         broker: Broker,
+        mailbox: usize,
     ) -> Result<Self>;
 
     /// Loads kura from configuration
@@ -86,6 +88,7 @@ pub trait KuraTrait:
             configuration.blocks_per_storage_file,
             wsv,
             broker,
+            configuration.mailbox,
         )
         .await
     }
@@ -101,6 +104,7 @@ impl<W: WorldTrait> KuraTrait for Kura<W> {
         blocks_per_file: NonZeroU64,
         wsv: Arc<WorldStateView<W>>,
         broker: Broker,
+        mailbox: usize,
     ) -> Result<Self> {
         Ok(Self {
             mode,
@@ -108,12 +112,17 @@ impl<W: WorldTrait> KuraTrait for Kura<W> {
             merkle_tree: MerkleTree::new(),
             wsv,
             broker,
+            mailbox,
         })
     }
 }
 
 #[async_trait::async_trait]
 impl<W: WorldTrait> Actor for Kura<W> {
+    fn mailbox_capacity(&self) -> usize {
+        self.mailbox
+    }
+
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
         self.broker.subscribe::<StoreBlock, _>(ctx);
 
@@ -435,6 +444,7 @@ pub mod config {
 
     const DEFAULT_BLOCKS_PER_STORAGE_FILE: u64 = 1000_u64;
     const DEFAULT_BLOCK_STORE_PATH: &str = "./blocks";
+    const DEFAULT_MAILBOX_SIZE: usize = 100;
 
     /// Configuration of kura
     #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
@@ -450,6 +460,9 @@ pub mod config {
         /// Maximum number of blocks to write into single storage file
         #[serde(default = "default_blocks_per_storage_file")]
         pub blocks_per_storage_file: NonZeroU64,
+        /// Default mailbox size
+        #[serde(default = "default_mailbox_size")]
+        pub mailbox: usize,
     }
 
     impl Default for KuraConfiguration {
@@ -458,6 +471,7 @@ pub mod config {
                 init_mode: Mode::default(),
                 block_store_path: default_block_store_path(),
                 blocks_per_storage_file: default_blocks_per_storage_file(),
+                mailbox: default_mailbox_size(),
             }
         }
     }
@@ -486,6 +500,10 @@ pub mod config {
             "Default BLOCKS_PER_STORAGE value is set to non-positive value. This must not happen",
         )
     }
+
+    fn default_mailbox_size() -> usize {
+        DEFAULT_MAILBOX_SIZE
+    }
 }
 
 #[cfg(test)]
@@ -509,7 +527,8 @@ mod tests {
             temp_dir.path(),
             NonZeroU64::new(TEST_STORAGE_FILE_SIZE).unwrap(),
             Arc::default(),
-            Broker::new()
+            Broker::new(),
+            100,
         )
         .await
         .unwrap()
@@ -616,6 +635,7 @@ mod tests {
             NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),
             Arc::default(),
             Broker::new(),
+            100,
         )
         .await
         .unwrap();

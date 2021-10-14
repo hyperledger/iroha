@@ -59,6 +59,29 @@ pub struct Configuration {
     /// Configuration for telemetry
     #[config(inner)]
     pub telemetry: telemetry::Configuration,
+    /// Network configuration
+    #[config(inner)]
+    pub network: NetworkConfiguration,
+}
+
+/// Network Configuration parameters container.
+#[derive(Clone, Copy, Deserialize, Serialize, Debug, Configurable)]
+#[serde(default)]
+#[serde(rename_all = "UPPERCASE")]
+#[config(env_prefix = "IROHA_NETWORK_")]
+pub struct NetworkConfiguration {
+    /// Actor mailbox size
+    pub mailbox: usize,
+}
+
+const DEFAULT_MAILBOX_SIZE: usize = 100;
+
+impl Default for NetworkConfiguration {
+    fn default() -> Self {
+        Self {
+            mailbox: DEFAULT_MAILBOX_SIZE,
+        }
+    }
 }
 
 impl Configuration {

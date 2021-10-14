@@ -51,9 +51,10 @@ async fn network_create() {
         "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
     )
     .unwrap();
-    let network = Network::<TestMessage>::new(broker.clone(), address.clone(), public_key.clone())
-        .await
-        .unwrap();
+    let network =
+        Network::<TestMessage>::new(broker.clone(), address.clone(), public_key.clone(), 100)
+            .await
+            .unwrap();
     network.start().await;
     tokio::time::sleep(delay).await;
 
@@ -123,7 +124,7 @@ async fn two_networks() {
 
     let broker1 = Broker::new();
     let network1 =
-        Network::<TestMessage>::new(broker1.clone(), address1.clone(), public_key1.clone())
+        Network::<TestMessage>::new(broker1.clone(), address1.clone(), public_key1.clone(), 100)
             .await
             .unwrap();
     let network1 = network1.start().await;
@@ -133,7 +134,7 @@ async fn two_networks() {
     let address2 = gen_address();
     let broker2 = Broker::new();
     let network2 =
-        Network::<TestMessage>::new(broker2.clone(), address2.clone(), public_key2.clone())
+        Network::<TestMessage>::new(broker2.clone(), address2.clone(), public_key2.clone(), 100)
             .await
             .unwrap();
     let network2 = network2.start().await;
@@ -257,10 +258,14 @@ async fn start_network(
     };
     drop(actor.start().await);
 
-    let network =
-        Network::<TestMessage>::new(broker.clone(), addr.clone(), keypair.public_key.clone())
-            .await
-            .unwrap();
+    let network = Network::<TestMessage>::new(
+        broker.clone(),
+        addr.clone(),
+        keypair.public_key.clone(),
+        100,
+    )
+    .await
+    .unwrap();
     let network = network.start().await;
     // The most needed delay!!!
     let delay: u64 = rand::random();

@@ -12,7 +12,8 @@ Configuration of iroha is done via options in the following document. Here is de
   "KURA_CONFIGURATION": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./blocks",
-    "BLOCKS_PER_STORAGE_FILE": 1000
+    "BLOCKS_PER_STORAGE_FILE": 1000,
+    "MAILBOX": 100
   },
   "SUMERAGI_CONFIGURATION": {
     "PEER_ID": {
@@ -24,7 +25,8 @@ Configuration of iroha is done via options in the following document. Here is de
     "COMMIT_TIME_MS": 1000,
     "TX_RECEIPT_TIME_MS": 200,
     "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
-    "MAX_INSTRUCTION_NUMBER": 4096
+    "MAX_INSTRUCTION_NUMBER": 4096,
+    "MAILBOX": 100
   },
   "TORII_CONFIGURATION": {
     "TORII_P2P_ADDR": "127.0.0.1:1337",
@@ -35,7 +37,8 @@ Configuration of iroha is done via options in the following document. Here is de
   },
   "BLOCK_SYNC_CONFIGURATION": {
     "GOSSIP_PERIOD_MS": 10000,
-    "BATCH_SIZE": 4
+    "BATCH_SIZE": 4,
+    "MAILBOX": 100
   },
   "QUEUE_CONFIGURATION": {
     "MAXIMUM_TRANSACTIONS_IN_BLOCK": 8192,
@@ -73,6 +76,9 @@ Configuration of iroha is done via options in the following document. Here is de
   },
   "TELEMETRY": {
     "telemetry_file": null
+  },
+  "NETWORK": {
+    "MAILBOX": 100
   }
 }
 ```
@@ -86,7 +92,8 @@ Has type `BlockSyncConfiguration`. Can be configured via environment variable `I
 ```json
 {
   "BATCH_SIZE": 4,
-  "GOSSIP_PERIOD_MS": 10000
+  "GOSSIP_PERIOD_MS": 10000,
+  "MAILBOX": 100
 }
 ```
 
@@ -108,6 +115,16 @@ Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PE
 
 ```json
 10000
+```
+
+### `block_sync_configuration.mailbox`
+
+Mailbox size
+
+Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_MAILBOX`
+
+```json
+100
 ```
 
 ## `genesis_configuration`
@@ -175,7 +192,8 @@ Has type `KuraConfiguration`. Can be configured via environment variable `IROHA_
 {
   "BLOCKS_PER_STORAGE_FILE": 1000,
   "BLOCK_STORE_PATH": "./blocks",
-  "INIT_MODE": "strict"
+  "INIT_MODE": "strict",
+  "MAILBOX": 100
 }
 ```
 
@@ -207,6 +225,16 @@ Has type `Mode`. Can be configured via environment variable `KURA_INIT_MODE`
 
 ```json
 "strict"
+```
+
+### `kura_configuration.mailbox`
+
+Default mailbox size
+
+Has type `usize`. Can be configured via environment variable `KURA_MAILBOX`
+
+```json
+100
 ```
 
 ## `logger_configuration`
@@ -251,6 +279,28 @@ Has type `usize`. Can be configured via environment variable `TELEMETRY_CAPACITY
 
 ```json
 1000
+```
+
+## `network`
+
+Network configuration
+
+Has type `NetworkConfiguration`. Can be configured via environment variable `IROHA_NETWORK`
+
+```json
+{
+  "MAILBOX": 100
+}
+```
+
+### `network.mailbox`
+
+Actor mailbox size
+
+Has type `usize`. Can be configured via environment variable `IROHA_NETWORK_MAILBOX`
+
+```json
+100
 ```
 
 ## `private_key`
@@ -330,6 +380,7 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
 {
   "BLOCK_TIME_MS": 1000,
   "COMMIT_TIME_MS": 1000,
+  "MAILBOX": 100,
   "MAX_INSTRUCTION_NUMBER": 4096,
   "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
   "PEER_ID": {
@@ -375,6 +426,16 @@ Has type `KeyPair`. Can be configured via environment variable `SUMERAGI_KEY_PAI
   },
   "public_key": "ed0100"
 }
+```
+
+### `sumeragi_configuration.mailbox`
+
+Mailbox size
+
+Has type `usize`. Can be configured via environment variable `SUMERAGI_MAILBOX`
+
+```json
+100
 ```
 
 ### `sumeragi_configuration.max_instruction_number`
