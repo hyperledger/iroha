@@ -48,7 +48,8 @@ Configuration of iroha is done via options in the following document. Here is de
   "LOGGER_CONFIGURATION": {
     "MAX_LOG_LEVEL": "DEBUG",
     "TELEMETRY_CAPACITY": 1000,
-    "COMPACT_MODE": false
+    "COMPACT_MODE": false,
+    "LOG_FILE_PATH": null
   },
   "GENESIS_CONFIGURATION": {
     "GENESIS_ACCOUNT_PUBLIC_KEY": null,
@@ -246,6 +247,7 @@ Has type `LoggerConfiguration`. Can be configured via environment variable `IROH
 ```json
 {
   "COMPACT_MODE": false,
+  "LOG_FILE_PATH": null,
   "MAX_LOG_LEVEL": "DEBUG",
   "TELEMETRY_CAPACITY": 1000
 }
@@ -259,6 +261,16 @@ Has type `bool`. Can be configured via environment variable `COMPACT_MODE`
 
 ```json
 false
+```
+
+### `logger_configuration.log_file_path`
+
+If provided, logs will be copied to said file in the
+
+Has type `Option<PathBuf>`. Can be configured via environment variable `LOG_FILE_PATH`
+
+```json
+null
 ```
 
 ### `logger_configuration.max_log_level`
