@@ -125,6 +125,8 @@ where
     pub broker: Broker,
     /// [`iroha_p2p::Network`] actor address
     pub network: Addr<IrohaNetwork>,
+    /// Mailbox size
+    pub mailbox: usize,
 }
 
 /// Generic sumeragi trait
@@ -214,6 +216,7 @@ impl<G: GenesisNetworkTrait, W: WorldTrait> SumeragiTrait for Sumeragi<G, W> {
             queue,
             broker,
             network,
+            mailbox: configuration.mailbox,
         })
     }
 }
@@ -228,6 +231,10 @@ pub const PEERS_CONNECT_INTERVAL: Duration = Duration::from_secs(1);
 
 #[async_trait::async_trait]
 impl<G: GenesisNetworkTrait, W: WorldTrait> Actor for Sumeragi<G, W> {
+    fn mailbox_capacity(&self) -> usize {
+        self.mailbox
+    }
+
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
         self.broker.subscribe::<Init, _>(ctx);
         self.broker.subscribe::<UpdateNetworkTopology, _>(ctx);
@@ -1555,6 +1562,7 @@ pub mod config {
     const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 200;
     const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
     const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
+    const DEFAULT_MAILBOX_SIZE: usize = 100;
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
@@ -1580,6 +1588,8 @@ pub mod config {
         pub n_topology_shifts_before_reshuffle: u64,
         /// Maximum instruction number per transaction
         pub max_instruction_number: u64,
+        /// Mailbox size
+        pub mailbox: usize,
     }
 
     impl Default for SumeragiConfiguration {
@@ -1593,6 +1603,7 @@ pub mod config {
                 tx_receipt_time_ms: DEFAULT_TX_RECEIPT_TIME_MS,
                 n_topology_shifts_before_reshuffle: DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE,
                 max_instruction_number: DEFAULT_MAX_INSTRUCTION_NUMBER,
+                mailbox: DEFAULT_MAILBOX_SIZE,
             }
         }
     }
