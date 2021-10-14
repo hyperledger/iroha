@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicU32, Ordering},
-        Arc,
+        Arc, Once,
     },
 };
 
@@ -31,6 +31,19 @@ fn gen_address() -> String {
     format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap())
 }
 
+static INIT: Once = Once::new();
+
+fn setup_logger() {
+    INIT.call_once(|| {
+        let log_config = LoggerConfiguration {
+            max_log_level: LevelEnv::TRACE,
+            compact_mode: false,
+            ..LoggerConfiguration::default()
+        };
+        iroha_logger::init(&log_config).expect("Failed to start logger");
+    })
+}
+
 /// This test creates a network and one peer.
 /// This peer connects back to our network, emulating some distant peer.
 /// There is no need to create separate networks to check that messages
@@ -38,12 +51,7 @@ fn gen_address() -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn network_create() {
     let delay = Duration::from_millis(200);
-    let log_config = LoggerConfiguration {
-        max_log_level: LevelEnv::TRACE,
-        compact_mode: false,
-        ..LoggerConfiguration::default()
-    };
-    iroha_logger::init(&log_config);
+    setup_logger();
     info!("Starting network tests...");
     let address = gen_address();
     let broker = Broker::new();
@@ -105,12 +113,7 @@ impl Handler<TestMessage> for TestActor {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_networks() {
     let delay = Duration::from_millis(200);
-    let log_config = LoggerConfiguration {
-        max_log_level: LevelEnv::TRACE,
-        compact_mode: false,
-        ..LoggerConfiguration::default()
-    };
-    iroha_logger::init(&log_config);
+    setup_logger();
     let public_key1 = iroha_crypto::PublicKey::from_str(
         "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
     )

@@ -11,7 +11,7 @@ use tokio::time;
 
 #[tokio::test]
 async fn telemetry_separation_default() {
-    let mut reciever = init(&LoggerConfiguration::default()).unwrap();
+    let mut reciever = init(&LoggerConfiguration::default()).unwrap().unwrap();
     info!(target: "telemetry::test", a = 2, c = true, d = "this won't be logged");
     info!("This will be logged");
     let telemetry = Telemetry {

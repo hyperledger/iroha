@@ -1,7 +1,7 @@
 //! Module with logger for iroha
 
 use std::{
-    fs::File,
+    fs::OpenOptions,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -9,7 +9,7 @@ use std::{
     },
 };
 
-use color_eyre::Report;
+use color_eyre::{eyre::WrapErr, Report, Result};
 use config::LoggerConfiguration;
 use layer::LevelFilter;
 use telemetry::{Telemetry, TelemetryLayer};
@@ -30,29 +30,32 @@ static LOGGER_SET: AtomicBool = AtomicBool::new(false);
 
 /// Initializes `Logger` with given [`LoggerConfiguration`](`config::LoggerConfiguration`).
 /// After the initialization `log` macros will print with the use of this `Logger`.
-pub fn init(configuration: &LoggerConfiguration) -> Option<Receiver<Telemetry>> {
+/// # Errors
+/// If the logger is already set, raises a generic error.
+pub fn init(configuration: &LoggerConfiguration) -> Result<Option<Receiver<Telemetry>>> {
     if LOGGER_SET
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
         .is_err()
     {
-        return None;
+        return Ok(None);
     }
 
     if configuration.compact_mode {
         let layer = tracing_subscriber::fmt::layer()
             .with_test_writer()
             .compact();
-        Some(add_bunyan(configuration, layer))
+        Ok(Some(add_bunyan(configuration, layer)?))
     } else {
         let layer = tracing_subscriber::fmt::layer().with_test_writer();
-        Some(add_bunyan(configuration, layer))
+        Ok(Some(add_bunyan(configuration, layer)?))
     }
 }
 
 fn bunyan_writer_create(destination: PathBuf) -> Result<impl MakeWriter> {
     OpenOptions::new()
+        .create(true)
         .append(true)
-        .open(path)
+        .open(destination)
         .wrap_err("Failed to create or open bunyan logs file")
         .map(Arc::new)
 }
@@ -60,34 +63,33 @@ fn bunyan_writer_create(destination: PathBuf) -> Result<impl MakeWriter> {
 fn add_bunyan<L: Layer<Registry> + Send + Sync + 'static>(
     configuration: &LoggerConfiguration,
     layer: L,
-) -> Receiver<Telemetry> {
+) -> Result<Receiver<Telemetry>> {
     #[allow(clippy::option_if_let_else)]
     if let Some(path) = configuration.log_file_path.clone() {
         let bunyan_layer =
-            BunyanFormattingLayer::new("bunyan_layer".into(), bunyan_writer_create(path));
+            BunyanFormattingLayer::new("bunyan_layer".into(), bunyan_writer_create(path)?);
         let subscriber = Registry::default()
             .with(layer)
             .with(JsonStorageLayer)
             .with(bunyan_layer);
-        add_telemetry_and_set_default(configuration, subscriber)
+        Ok(add_telemetry_and_set_default(configuration, subscriber)?)
     } else {
         let subscriber = Registry::default().with(layer);
-        add_telemetry_and_set_default(configuration, subscriber)
+        Ok(add_telemetry_and_set_default(configuration, subscriber)?)
     }
 }
 
 fn add_telemetry_and_set_default<S: Subscriber + Send + Sync + 'static>(
     configuration: &LoggerConfiguration,
     subscriber: S,
-) -> Receiver<Telemetry> {
+) -> Result<Receiver<Telemetry>> {
     let (subscriber, receiver) = TelemetryLayer::from_capacity(
         LevelFilter::new(configuration.max_log_level.into(), subscriber),
         configuration.telemetry_capacity,
     );
 
-    #[allow(clippy::expect_used)]
-    set_global_default(subscriber).expect("Failed to init logger");
-    receiver
+    set_global_default(subscriber)?;
+    Ok(receiver)
 }
 
 /// Macro for sending telemetry info

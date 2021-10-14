@@ -293,17 +293,6 @@ Has type `usize`. Can be configured via environment variable `TELEMETRY_CAPACITY
 1000
 ```
 
-
-### `logger_configuration.use_bunyan`
-
-Format output for Bunyan
-
-Has type `bool`. Can be configured via environment variable `USE_BUNYAN`
-
-```json
-false
-```
-
 ## `network`
 
 Network configuration
@@ -325,7 +314,6 @@ Has type `usize`. Can be configured via environment variable `IROHA_NETWORK_MAIL
 ```json
 100
 ```
-
 
 ## `private_key`
 

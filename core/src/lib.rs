@@ -179,7 +179,7 @@ where
     ) -> Result<Self> {
         // TODO: use channel for prometheus/telemetry endpoint
         #[allow(unused)]
-        let telemetry = iroha_logger::init(&config.logger_configuration);
+        let telemetry = iroha_logger::init(&config.logger_configuration)?;
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");
 
         let listen_addr = config.torii_configuration.torii_p2p_addr.clone();
