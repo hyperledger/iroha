@@ -38,7 +38,7 @@ namespace iroha {
     return own_state_ += new_state;
   }
 
-  auto MstStorageStateImpl::updateOwnStateImpl(const DataType &tx)
+  auto MstStorageStateImpl::updateOwnStateImpl(const BatchPtr &tx)
       -> decltype(updateOwnState(tx)) {
     return own_state_ += tx;
   }
@@ -62,7 +62,7 @@ namespace iroha {
     return new_diff_state;
   }
 
-  auto MstStorageStateImpl::whatsNewImpl(ConstRefState new_state) const
+  auto MstStorageStateImpl::whatsNewImpl(MstState const& new_state) const
       -> decltype(whatsNew(new_state)) {
     return new_state - own_state_;
   }

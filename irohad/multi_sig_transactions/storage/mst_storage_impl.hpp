@@ -52,13 +52,18 @@ namespace iroha {
         const TimeType &current_time)
         -> decltype(getDiffState(target_peer_key, current_time)) override;
 
-    auto whatsNewImpl(ConstRefState new_state) const
+    auto whatsNewImpl(MstState const &new_state) const
         -> decltype(whatsNew(new_state)) override;
 
     bool batchInStorageImpl(const DataType &batch) const override;
 
     void processFinalizedTransactionImpl(
         shared_model::interface::types::HashType const &hash) override;
+
+    std::tuple<size_t, size_t> countBatchesTxs() const {
+      std::lock_guard lk(mutex_);
+      return {own_state_.count_batches(), own_state_.count_transactions()};
+    }
 
    private:
     // ---------------------------| private fields |----------------------------

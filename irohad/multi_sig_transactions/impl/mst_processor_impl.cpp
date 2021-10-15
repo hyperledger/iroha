@@ -5,6 +5,7 @@
 
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 
+#include <multi_sig_transactions/storage/mst_storage_impl.hpp>
 #include <rxcpp/operators/rx-filter.hpp>
 #include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/operators/rx-map.hpp>
@@ -12,6 +13,7 @@
 #include <utility>
 
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
 
 using shared_model::interface::types::PublicKeyHexStringView;
 
@@ -71,6 +73,14 @@ namespace {
       }
     };
   }
+
+  auto notifyMstMetrics(MstStorage const &storage) {
+    auto number_of_batches_and_txs =
+        dynamic_cast<MstStorageStateImpl const *>(&storage)->countBatchesTxs();
+    iroha::getSubscription()->notify(
+        kOnMstMetrics,
+        number_of_batches_and_txs);
+  }
 }  // namespace
 
 namespace iroha {
@@ -101,10 +111,9 @@ namespace iroha {
           while (1) {
             using namespace std::chrono;
             using namespace std::chrono_literals;
-            // auto next_transaction_expires_at =
-//            auto now_ms = duration_cast<milliseconds>(
-//                system_clock::now().time_since_epoch()).count();
-            expiredBatchesNotify(storage_->extractExpiredTransactions(time_provider_->getCurrentTime()));//now_ms));
+            expiredBatchesNotify(storage_->extractExpiredTransactions(
+                time_provider_->getCurrentTime()));
+            notifyMstMetrics(*storage_);
             std::this_thread::sleep_for(10s);
           }
         }) {}
@@ -124,6 +133,7 @@ namespace iroha {
     updatedBatchesNotify(*state_update.updated_state_);
     expiredBatchesNotify(
         storage_->extractExpiredTransactions(time_provider_->getCurrentTime()));
+    notifyMstMetrics(*storage_);
   }
 
   auto FairMstProcessor::onStateUpdateImpl() const
@@ -167,12 +177,14 @@ namespace iroha {
     // expired batches
     // not nesessary to do it right here, just use the occasion to clean storage
     expiredBatchesNotify(storage_->extractExpiredTransactions(current_time));
+
+    notifyMstMetrics(*storage_);
   }
 
   // -----------------------------| private api |-----------------------------
 
   // TODO [IR-1687] Akvinikym 10.09.18: three methods below should be one
-  void FairMstProcessor::completedBatchesNotify(ConstRefState state) const {
+  void FairMstProcessor::completedBatchesNotify(MstState const &state) const {
     if (not state.isEmpty()) {
       state.iterateBatches([this](const auto &batch) {
         batches_subject_.get_subscriber().on_next(batch);
@@ -180,14 +192,13 @@ namespace iroha {
     }
   }
 
-  void FairMstProcessor::updatedBatchesNotify(ConstRefState state) const {
+  void FairMstProcessor::updatedBatchesNotify(MstState const &state) const {
     if (not state.isEmpty()) {
-      state_subject_.get_subscriber().on_next(
-          std::make_shared<MstState>(state));
+      state_subject_.get_subscriber().on_next(std::make_shared<MstState>(state));
     }
   }
 
-  void FairMstProcessor::expiredBatchesNotify(ConstRefState state) const {
+  void FairMstProcessor::expiredBatchesNotify(MstState const &state) const {
     if (not state.isEmpty()) {
       state.iterateBatches([this](const auto &batch) {
         expired_subject_.get_subscriber().on_next(batch);
