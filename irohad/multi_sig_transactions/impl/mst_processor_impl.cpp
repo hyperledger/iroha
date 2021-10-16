@@ -77,9 +77,7 @@ namespace {
   auto notifyMstMetrics(MstStorage const &storage) {
     auto number_of_batches_and_txs =
         dynamic_cast<MstStorageStateImpl const *>(&storage)->countBatchesTxs();
-    iroha::getSubscription()->notify(
-        kOnMstMetrics,
-        number_of_batches_and_txs);
+    iroha::getSubscription()->notify(kOnMstMetrics, number_of_batches_and_txs);
   }
 }  // namespace
 
@@ -114,7 +112,9 @@ namespace iroha {
             expiredBatchesNotify(storage_->extractExpiredTransactions(
                 time_provider_->getCurrentTime()));
             notifyMstMetrics(*storage_);
-            std::this_thread::sleep_for(10s);
+            std::this_thread::sleep_for(
+                10s);  // TODO conditional_wait(oldest_timestamp in own_state_ +
+                       // mst_timeout), react on any update in own_state_
           }
         }) {}
 
@@ -195,7 +195,8 @@ namespace iroha {
 
   void FairMstProcessor::updatedBatchesNotify(MstState const &state) const {
     if (not state.isEmpty()) {
-      state_subject_.get_subscriber().on_next(std::make_shared<MstState>(state));
+      state_subject_.get_subscriber().on_next(
+          std::make_shared<MstState>(state));
     }
   }
 
