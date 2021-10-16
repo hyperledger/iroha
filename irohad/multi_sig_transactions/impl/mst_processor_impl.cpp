@@ -106,7 +106,7 @@ namespace iroha {
                 .flat_map(sendState(log_, transport_, storage_, time_provider_))
                 .subscribe(onSendStateResponse(storage_))),
         expiration_thread_([this]() {
-          while (not stop_flag_.test()) {
+          while (continue_work_flag_.test_and_set()) {
             using namespace std::chrono;
             using namespace std::chrono_literals;
             expiredBatchesNotify(storage_->extractExpiredTransactions(
@@ -120,7 +120,7 @@ namespace iroha {
 
   FairMstProcessor::~FairMstProcessor() {
     propagation_subscriber_.unsubscribe();
-    stop_flag_.test_and_set();
+    continue_work_flag_.clear();
     if (expiration_thread_.joinable())
       expiration_thread_.join();
   }
