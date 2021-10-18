@@ -20,7 +20,7 @@ fn transaction_event_should_be_sent_after_it_is_committed() -> Result<()> {
 
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id).into(),
+        AssetDefinition::new_quantity(asset_definition_id, true).into(),
     ));
     let committed_event_received = Arc::new(RwLock::new(false));
     let committed_event_received_clone = committed_event_received.clone();

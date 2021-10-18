@@ -20,7 +20,7 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
     let wrong_asset_definition_id = AssetDefinitionId::new("ksor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id).into(),
+        AssetDefinition::new_quantity(asset_definition_id, true).into(),
     ));
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(

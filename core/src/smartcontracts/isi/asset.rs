@@ -21,17 +21,14 @@ pub mod isi {
         definition_id: &AssetDefinitionId,
         wsv: &WorldStateView<W>,
         expected_value_type: AssetValueType,
-    ) -> Result<(), Error> {
-        let value_type = wsv
-            .asset_definition_entry(definition_id)?
-            .definition
-            .value_type;
-        if value_type == expected_value_type {
-            Ok(())
+    ) -> Result<AssetDefinition, Error> {
+        let definition = wsv.asset_definition_entry(definition_id)?.definition;
+        if definition.value_type == expected_value_type {
+            Ok(definition)
         } else {
             Err(TypeError::from(AssetTypeError {
                 expected: expected_value_type,
-                got: value_type,
+                got: definition.value_type,
             })
             .into())
         }
@@ -45,11 +42,14 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
-            assert_asset_type(
+            let definition = assert_asset_type(
                 &self.destination_id.definition_id,
                 wsv,
-                AssetValueType::Quantity,
+                AssetValueType::BigQuantity,
             )?;
+            if !definition.mintable {
+                return Err(MintabilityError::MintUnmintableError.into());
+            }
             wsv.asset_or_insert(&self.destination_id, 0_u32)?;
             wsv.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut u32 = asset.try_as_mut()?;
@@ -70,11 +70,14 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
-            assert_asset_type(
+            let definition = assert_asset_type(
                 &self.destination_id.definition_id,
                 wsv,
                 AssetValueType::BigQuantity,
             )?;
+            if !definition.mintable {
+                return Err(MintabilityError::MintUnmintableError.into());
+            }
             wsv.asset_or_insert(&self.destination_id, 0_u128)?;
             wsv.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut u128 = asset.try_as_mut()?;
@@ -95,11 +98,14 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
-            assert_asset_type(
+            let definition = assert_asset_type(
                 &self.destination_id.definition_id,
                 wsv,
                 AssetValueType::Fixed,
             )?;
+            if !definition.mintable {
+                return Err(MintabilityError::MintUnmintableError.into());
+            }
             wsv.asset_or_insert(&self.destination_id, Fixed::ZERO)?;
             wsv.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut Fixed = asset.try_as_mut()?;

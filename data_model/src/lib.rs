@@ -1262,6 +1262,8 @@ pub mod asset {
         pub id: DefinitionId,
         /// Metadata of this asset definition as a key-value store.
         pub metadata: Metadata,
+        /// Is the asset mintable
+        pub mintable: bool,
     }
 
     /// Asset represents some sort of commodity or value.
@@ -1474,32 +1476,33 @@ pub mod asset {
 
     impl AssetDefinition {
         /// Default [`AssetDefinition`] constructor.
-        pub fn new(id: DefinitionId, value_type: AssetValueType) -> Self {
+        pub fn new(id: DefinitionId, value_type: AssetValueType, mintable: bool) -> Self {
             AssetDefinition {
                 value_type,
                 id,
                 metadata: Metadata::new(),
+                mintable,
             }
         }
 
         /// Asset definition with quantity asset value type.
-        pub fn new_quantity(id: DefinitionId) -> Self {
-            AssetDefinition::new(id, AssetValueType::Quantity)
+        pub fn new_quantity(id: DefinitionId, mintable: bool) -> Self {
+            AssetDefinition::new(id, AssetValueType::Quantity, mintable)
         }
 
         /// Asset definition with big quantity asset value type.
-        pub fn new_big_quantity(id: DefinitionId) -> Self {
-            AssetDefinition::new(id, AssetValueType::BigQuantity)
+        pub fn new_big_quantity(id: DefinitionId, mintable: bool) -> Self {
+            AssetDefinition::new(id, AssetValueType::BigQuantity, mintable)
         }
 
         /// Asset definition with decimal quantity asset value type.
-        pub fn with_precision(id: DefinitionId) -> Self {
-            AssetDefinition::new(id, AssetValueType::Fixed)
+        pub fn with_precision(id: DefinitionId, mintable: bool) -> Self {
+            AssetDefinition::new(id, AssetValueType::Fixed, mintable)
         }
 
         /// Asset definition with store asset value type.
-        pub fn new_store(id: DefinitionId) -> Self {
-            AssetDefinition::new(id, AssetValueType::Store)
+        pub fn new_store(id: DefinitionId, mintable: bool) -> Self {
+            AssetDefinition::new(id, AssetValueType::Store, mintable)
         }
 
         /// Checks the length of the id in bytes is in a valid range

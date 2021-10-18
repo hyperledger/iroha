@@ -48,7 +48,8 @@
                       "domain_name": "wonderland"
                     },
                     "value_type": "Quantity",
-                    "metadata": {}
+                    "metadata": {},
+					"mintable": true
                   }
                 }
               }
@@ -66,7 +67,8 @@
                       "domain_name": "wonderland"
                     },
                     "value_type": "Fixed",
-                    "metadata": {}
+                    "metadata": {},
+					"mintable": true
                   }
                 }
               }

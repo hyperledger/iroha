@@ -31,7 +31,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
+        AssetDefinition::new_quantity(asset_definition_id.clone(), true).into(),
     ));
     let mut iroha_client = Client::test(&peer.api_address);
     iroha_client
