@@ -1516,8 +1516,13 @@ pub mod asset {
         }
 
         /// Asset definition with store asset value type.
-        pub fn new_store(id: DefinitionId, mintable: bool) -> Self {
-            AssetDefinition::new(id, AssetValueType::Store, mintable)
+        pub fn new_store(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::Store, true)
+        }
+
+        /// Token definition with store asset value type.
+        pub fn new_store_token(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::Store, false)
         }
 
         /// Checks the length of the id in bytes is in a valid range

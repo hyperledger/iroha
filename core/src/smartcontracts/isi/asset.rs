@@ -259,7 +259,7 @@ pub mod isi {
                 let quantity: &mut u32 = asset.try_as_mut()?;
                 *quantity = quantity
                     .checked_sub(self.object)
-                    .ok_or_else(|| eyre!("Source account does not have enough asset quantity."))?;
+                    .ok_or_else(|| eyre!("Insufficient assets at source account."))?;
                 Ok(())
             })?;
             wsv.asset_or_insert(&self.destination_id, 0_u32)?;
