@@ -20,7 +20,6 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
-		true
     )));
 
     test_client.submit(create_asset)?;
@@ -55,7 +54,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let account_id = AccountId::new("alice", "wonderland");
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
     let identifiable_box =
-        IdentifiableBox::from(AssetDefinition::with_precision(asset_definition_id.clone(), true));
+        IdentifiableBox::from(AssetDefinition::with_precision(asset_definition_id.clone()));
     let create_asset = RegisterBox::new(identifiable_box);
 
     test_client.submit(create_asset)?;
@@ -111,7 +110,6 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     let normal_asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         normal_asset_definition_id.clone(),
-		true
     )));
     test_client.submit(create_asset)?;
     iroha_logger::info!("Creating asset");
@@ -120,7 +118,6 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     let incorrect_asset_definition_id = AssetDefinitionId::new(&too_long_asset_name, "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         incorrect_asset_definition_id.clone(),
-		true
     )));
 
     test_client.submit(create_asset)?;

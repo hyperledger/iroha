@@ -18,7 +18,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let account_id = AccountId::new("alice", "wonderland");
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone(), true).into(),
+        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
     iroha_client
         .submit(create_asset)

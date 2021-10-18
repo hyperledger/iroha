@@ -40,7 +40,6 @@ fn client_can_transfer_asset_to_another_account() {
     let quantity: u32 = 200;
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
-		true
     )));
     let mint_asset = MintBox::new(
         Value::U32(quantity),

@@ -40,7 +40,6 @@ fn permissions_disallow_asset_transfer() {
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
-		true
     )));
     let register_bob = RegisterBox::new(IdentifiableBox::from(NewAccount::new(bob_id.clone())));
 
@@ -103,7 +102,6 @@ fn permissions_disallow_asset_burn() {
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
-		true
     )));
     let register_bob = RegisterBox::new(IdentifiableBox::from(NewAccount::new(bob_id.clone())));
 

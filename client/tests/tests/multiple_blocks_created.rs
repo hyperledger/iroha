@@ -31,7 +31,7 @@ fn long_multiple_blocks_created() {
     ));
     let asset_definition_id = AssetDefinitionId::new("xor", "domain");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone(), true).into(),
+        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
 
     iroha_client

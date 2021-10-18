@@ -1486,18 +1486,33 @@ pub mod asset {
         }
 
         /// Asset definition with quantity asset value type.
-        pub fn new_quantity(id: DefinitionId, mintable: bool) -> Self {
-            AssetDefinition::new(id, AssetValueType::Quantity, mintable)
+        pub fn new_quantity(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::Quantity, true)
+        }
+
+        /// Token definition with quantity asset value type.
+        pub fn new_quantity_token(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::BigQuantity, true)
         }
 
         /// Asset definition with big quantity asset value type.
-        pub fn new_big_quantity(id: DefinitionId, mintable: bool) -> Self {
-            AssetDefinition::new(id, AssetValueType::BigQuantity, mintable)
+        pub fn new_big_quantity(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::BigQuantity, true)
+        }
+
+        /// Token definition with big quantity asset value type.
+        pub fn new_bin_quantity_token(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::BigQuantity, false)
         }
 
         /// Asset definition with decimal quantity asset value type.
-        pub fn with_precision(id: DefinitionId, mintable: bool) -> Self {
-            AssetDefinition::new(id, AssetValueType::Fixed, mintable)
+        pub fn with_precision(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::Fixed, true)
+        }
+
+        /// Token definition with decimal quantity asset value type.
+        pub fn with_precision_token(id: DefinitionId) -> Self {
+            AssetDefinition::new(id, AssetValueType::Fixed, true)
         }
 
         /// Asset definition with store asset value type.
