@@ -4,7 +4,7 @@
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
 
 use eyre::{eyre, Result, WrapErr};
-use iroha_actor::Addr;
+use iroha_actor::{Addr, Context};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
 use iroha_schema::prelude::*;
@@ -15,7 +15,7 @@ use self::config::GenesisConfiguration;
 use crate::{
     sumeragi::{
         network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
-        Sumeragi,
+        Sumeragi, SumeragiTrait,
     },
     tx::VersionedAcceptedTransaction,
     wsv::WorldTrait,
@@ -57,9 +57,10 @@ pub trait GenesisNetworkTrait:
     ///
     /// # Errors
     /// Returns error if waiting for peers or genesis round itself fails
-    async fn submit_transactions<W: WorldTrait>(
+    async fn submit_transactions<W: WorldTrait, S: SumeragiTrait>(
         &self,
         sumeragi: &mut Sumeragi<Self, W>,
+        ctx: &mut Context<S>,
         network: Addr<IrohaNetwork>,
     ) -> Result<()> {
         let genesis_topology = self
@@ -67,7 +68,7 @@ pub trait GenesisNetworkTrait:
             .await?;
         iroha_logger::info!("Initializing iroha using the genesis block.");
         sumeragi
-            .start_genesis_round(self.deref().clone(), genesis_topology)
+            .start_genesis_round(ctx, self.deref().clone(), genesis_topology)
             .await
     }
 }

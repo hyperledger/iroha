@@ -15,7 +15,7 @@ use crate::{
     genesis::config::GenesisConfiguration,
     kura::config::KuraConfiguration,
     queue::config::QueueConfiguration,
-    sumeragi::config::{SumeragiConfiguration, TrustedPeers},
+    sumeragi::{self, config::TrustedPeers},
     torii::config::ToriiConfiguration,
     wsv::config::Configuration as WorldStateViewConfiguration,
 };
@@ -36,7 +36,7 @@ pub struct Configuration {
     pub kura_configuration: KuraConfiguration,
     /// `Sumeragi` related configuration.
     #[config(inner)]
-    pub sumeragi_configuration: SumeragiConfiguration,
+    pub sumeragi_configuration: sumeragi::Configuration,
     /// `Torii` related configuration.
     #[config(inner)]
     pub torii_configuration: ToriiConfiguration,

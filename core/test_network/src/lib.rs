@@ -20,7 +20,7 @@ use iroha_core::{
     kura::{Kura, KuraTrait},
     prelude::*,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
-    sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
+    sumeragi::{self, Sumeragi, SumeragiTrait},
     torii::config::ToriiConfiguration,
     wsv::{World, WorldTrait},
     Iroha,
@@ -201,7 +201,7 @@ where
             n_peers,
             maximum_transactions_in_block,
             offline_peers,
-            SumeragiConfiguration::default().n_topology_shifts_before_reshuffle,
+            sumeragi::Configuration::default().n_topology_shifts_before_reshuffle,
         )
         .await
     }
@@ -329,7 +329,7 @@ where
     /// Returns per peer config with all addresses, keys, and id setted up
     fn get_config(&self, configuration: Configuration) -> Configuration {
         Configuration {
-            sumeragi_configuration: SumeragiConfiguration {
+            sumeragi_configuration: sumeragi::Configuration {
                 key_pair: self.key_pair.clone(),
                 peer_id: self.id.clone(),
                 ..configuration.sumeragi_configuration

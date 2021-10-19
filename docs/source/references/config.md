@@ -386,7 +386,7 @@ Has type `u64`. Can be configured via environment variable `QUEUE_TRANSACTION_TI
 
 `Sumeragi` related configuration.
 
-Has type `SumeragiConfiguration`. Can be configured via environment variable `IROHA_SUMERAGI_CONFIGURATION`
+Has type `sumeragi::Configuration`. Can be configured via environment variable `IROHA_SUMERAGI_CONFIGURATION`
 
 ```json
 {

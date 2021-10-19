@@ -18,7 +18,7 @@ use crate::{
     prelude::*,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{
-        network_topology::Topology,
+        network_topology::{self, Topology},
         view_change::{Proof, ProofChain as ViewChangeProofs},
     },
     tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
@@ -317,6 +317,13 @@ impl VersionedValidBlock {
         self.into_inner_v1().sign(key_pair).map(Into::into)
     }
 
+    /// Iterator over all signatures
+    pub fn signatures(&'_ self) -> impl Iterator<Item = &'_ SignatureOf<VersionedValidBlock>> + '_ {
+        self.as_inner_v1()
+            .verified_signatures()
+            .map(SignatureOf::transmute_ref)
+    }
+
     /// Signatures that are verified with the `hash` of this block as `payload`.
     pub fn verified_signatures(
         &'_ self,
@@ -324,6 +331,26 @@ impl VersionedValidBlock {
         self.as_inner_v1()
             .verified_signatures()
             .map(SignatureOf::transmute_ref)
+    }
+
+    /// Returns total number of signatures
+    pub fn n_signatures(&self) -> usize {
+        self.as_inner_v1().signatures.len()
+    }
+
+    /// Removes signatures which are not from topology or not verified
+    pub fn remove_invalid_signatures(mut self, network: &network_topology::Topology) -> Self {
+        use network_topology::Role;
+
+        let valid_signatures = network.filter_signatures_by_roles(
+            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
+            self.verified_signatures(),
+        );
+        self.as_mut_inner_v1().signatures = valid_signatures
+            .into_iter()
+            .map(SignatureOf::transmute)
+            .collect();
+        self
     }
 
     /// Checks if there are no transactions in this block.

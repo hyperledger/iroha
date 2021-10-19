@@ -403,6 +403,15 @@ impl Topology {
             .collect()
     }
 
+    /// Checks whether there is transaction signed by a leader
+    pub fn is_signed_by_leader<'a>(
+        &'a self,
+        signatures: impl IntoIterator<Item = &'a SignatureOf<VersionedValidBlock>> + 'a,
+    ) -> bool {
+        let key = &self.leader().public_key;
+        signatures.into_iter().any(|sign| sign.public_key == *key)
+    }
+
     /// Sorted peers that this topology has.
     pub fn sorted_peers(&self) -> &[PeerId] {
         &self.sorted_peers[..]

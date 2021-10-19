@@ -152,11 +152,14 @@ pub mod utils {
         #[async_trait::async_trait]
         pub trait FaultBehaviour: Debug + Send + 'static {
             /// Does some bad stuff instead of message handling
-            async fn fault<G, W, S>(sumeragi: &mut S, m: SumeragiMessage)
-            where
+            async fn fault<G, W, S>(
+                sumeragi: &mut S,
+                ctx: &mut iroha_actor::Context<S>,
+                m: SumeragiMessage,
+            ) where
                 G: GenesisNetworkTrait,
                 W: WorldTrait,
-                S: Deref<Target = Sumeragi<G, W>> + DerefMut + Send;
+                S: Deref<Target = Sumeragi<G, W>> + DerefMut + Send + Actor + SumeragiTrait;
         }
 
         pub trait ConstRoleTrait: Debug + Send + 'static {
@@ -201,11 +204,14 @@ pub mod utils {
 
         #[async_trait::async_trait]
         impl FaultBehaviour for Empty<BlockCreated> {
-            async fn fault<G, W, S>(sumeragi: &mut S, msg: SumeragiMessage)
-            where
+            async fn fault<G, W, S>(
+                sumeragi: &mut S,
+                ctx: &mut iroha_actor::Context<S>,
+                msg: SumeragiMessage,
+            ) where
                 G: GenesisNetworkTrait,
                 W: WorldTrait,
-                S: Deref<Target = Sumeragi<G, W>> + DerefMut + Send,
+                S: Deref<Target = Sumeragi<G, W>> + SumeragiTrait + DerefMut + Send + Actor,
             {
                 let msg = if let SumeragiMessage::BlockCreated(mut block) = msg {
                     block.block.as_mut_inner_v1().transactions = Vec::new();
@@ -213,7 +219,7 @@ pub mod utils {
                 } else {
                     msg
                 };
-                drop(msg.handle(sumeragi).await);
+                drop(sumeragi.handle_msg(msg, ctx).await);
             }
         }
 
@@ -226,17 +232,17 @@ pub mod utils {
                 pub struct $name;
                 #[async_trait::async_trait]
                 impl FaultBehaviour for Skip<$name> {
-                    async fn fault<G, W, S>(sumeragi: &mut S, m: SumeragiMessage)
+                    async fn fault<G, W, S>(sumeragi: &mut S, ctx: &mut iroha_actor::Context<S>, m: SumeragiMessage)
                     where
                         G: GenesisNetworkTrait,
                         W: WorldTrait,
-                        S: Deref<Target = Sumeragi<G, W>> + DerefMut + Send,
+                        S: Deref<Target = Sumeragi<G, W>> + SumeragiTrait + DerefMut + Send + Actor,
                     {
                         if let SumeragiMessage::$name(..) = m {
                             iroha_logger::error!("Fault behaviour: Skipping {}", stringify!($name));
                             return;
                         }
-                        drop(m.handle(&mut *sumeragi).await);
+                        drop(sumeragi.handle_msg(m, ctx).await);
                     }
                 }
             )*};
@@ -331,7 +337,6 @@ pub mod utils {
         {
             async fn on_start(&mut self, ctx: &mut Context<Self>) {
                 self.broker.subscribe::<UpdateNetworkTopology, _>(ctx);
-                self.broker.subscribe::<sumeragi::message::Message, _>(ctx);
                 self.broker.subscribe::<Init, _>(ctx);
                 self.broker.subscribe::<CommitBlock, _>(ctx);
                 self.broker.subscribe::<NetworkMessage, _>(ctx);
@@ -352,7 +357,7 @@ pub mod utils {
             type World = W;
 
             fn from_configuration(
-                configuration: &config::SumeragiConfiguration,
+                configuration: &sumeragi::Configuration,
                 events_sender: EventsSender,
                 wsv: Arc<WorldStateView<W>>,
                 is_instruction_allowed: IsInstructionAllowedBoxed<W>,
@@ -378,7 +383,7 @@ pub mod utils {
         }
 
         #[async_trait::async_trait]
-        impl<R, F, G, W> Handler<Init> for Faulty<R, F, G, W>
+        impl<R, F, G, W> ContextHandler<Init> for Faulty<R, F, G, W>
         where
             R: ConstRoleTrait,
             F: FaultBehaviour,
@@ -386,14 +391,17 @@ pub mod utils {
             W: WorldTrait,
         {
             type Result = ();
-            async fn handle(&mut self, Init { last_block, height }: Init) {
+            async fn handle(&mut self, ctx: &mut Context<Self>, Init { last_block, height }: Init) {
                 self.connect_peers().await;
 
                 if height != 0 && *last_block != Hash([0; 32]) {
                     self.init(last_block, height);
                 } else if let Some(genesis_network) = self.genesis_network.take() {
                     let addr = self.network.clone();
-                    if let Err(err) = genesis_network.submit_transactions(&mut self, addr).await {
+                    if let Err(err) = genesis_network
+                        .submit_transactions(&mut self, ctx, addr)
+                        .await
+                    {
                         iroha_logger::error!("Failed to submit genesis transactions: {}", err)
                     }
                 }
@@ -408,11 +416,60 @@ pub mod utils {
                      + Handler<GetSortedPeers, Result = Vec<PeerId>>
                      + Handler<IsLeader, Result = bool>
                      + Handler<GetLeader, Result = PeerId>
-                     + Handler<Voting, Result = ()>
                      + Handler<ConnectPeers, Result = ()>
-                     + Handler<NetworkMessage, Result = ()>
+                     + Handler<CommitTimeout, Result = ()>
+                     + Handler<BlockCreationTimeout, Result = ()>
+                     + Handler<TxReceiptTimeout, Result = ()>
                      + Handler<Gossip, Result = ()>
         );
+
+        #[async_trait::async_trait]
+        impl<R, F, G, W> ContextHandler<NetworkMessage> for Faulty<R, F, G, W>
+        where
+            R: ConstRoleTrait,
+            F: FaultBehaviour,
+            G: GenesisNetworkTrait,
+            W: WorldTrait,
+        {
+            type Result = ();
+            async fn handle(&mut self, ctx: &mut Context<Self>, msg: NetworkMessage) {
+                use NetworkMessage::*;
+
+                match msg {
+                    SumeragiMessage(msg) => {
+                        let msg = msg.into_inner_v1();
+                        iroha_logger::trace!(role=?self.topology.role(&self.peer_id), ?msg);
+                        if R::role(self.topology.role(&self.peer_id)) {
+                            F::fault(&mut *self, ctx, msg).await;
+                        } else {
+                            drop(self.handle_msg(msg, ctx));
+                        }
+                    }
+                    BlockSync(data) => self.broker.issue_send(data.into_inner_v1()).await,
+                    Health => {}
+                }
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl<R, F, G, W> ContextHandler<Voting> for Faulty<R, F, G, W>
+        where
+            R: ConstRoleTrait,
+            F: FaultBehaviour,
+            G: GenesisNetworkTrait,
+            W: WorldTrait,
+        {
+            type Result = ();
+            async fn handle(&mut self, ctx: &mut Context<Self>, _: Voting) {
+                if self.voting_in_progress().await {
+                    return;
+                }
+                let txs = self.queue.get_transactions_for_block(&*self.wsv);
+                if let Err(error) = self.round(ctx, txs).await {
+                    iroha_logger::error!(%error, "Round failed");
+                }
+            }
+        }
 
         #[derive(Debug, Clone, Copy, Default, Message)]
         #[message(result = "Topology")]
@@ -429,24 +486,6 @@ pub mod utils {
             type Result = Topology;
             async fn handle(&mut self, _: NetworkTopology) -> Self::Result {
                 self.topology.clone()
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl<R, F, G, W> Handler<SumeragiMessage> for Faulty<R, F, G, W>
-        where
-            R: ConstRoleTrait,
-            F: FaultBehaviour,
-            G: GenesisNetworkTrait,
-            W: WorldTrait,
-        {
-            type Result = ();
-            async fn handle(&mut self, msg: SumeragiMessage) -> Self::Result {
-                if R::role(self.topology.role(&self.peer_id)) {
-                    F::fault(&mut *self, msg).await;
-                } else {
-                    drop(msg.handle(&mut *self).await);
-                }
             }
         }
 
@@ -472,7 +511,7 @@ pub mod utils {
         pub struct Round(pub Vec<VersionedAcceptedTransaction>);
 
         #[async_trait::async_trait]
-        impl<R, F, G, W> Handler<Round> for Faulty<R, F, G, W>
+        impl<R, F, G, W> ContextHandler<Round> for Faulty<R, F, G, W>
         where
             R: ConstRoleTrait,
             F: FaultBehaviour,
@@ -480,20 +519,20 @@ pub mod utils {
             W: WorldTrait,
         {
             type Result = ();
-            async fn handle(&mut self, Round(txs): Round) -> Self::Result {
-                drop(self.round(txs).await);
+            async fn handle(&mut self, ctx: &mut Context<Self>, Round(txs): Round) -> Self::Result {
+                drop(self.round(ctx, txs).await);
             }
         }
 
         #[async_trait::async_trait]
-        impl<G, W> Handler<Round> for Sumeragi<G, W>
+        impl<G, W> ContextHandler<Round> for Sumeragi<G, W>
         where
             G: GenesisNetworkTrait,
             W: WorldTrait,
         {
             type Result = ();
-            async fn handle(&mut self, Round(txs): Round) -> Self::Result {
-                drop(self.round(txs).await);
+            async fn handle(&mut self, ctx: &mut Context<Self>, Round(txs): Round) -> Self::Result {
+                drop(self.round(ctx, txs).await);
             }
         }
     }
@@ -589,7 +628,7 @@ async fn start_round_with_tx<W, G, S, K, B>(network: &Network<W, G, S, K, B>, to
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W> + Handler<sumeragi::Round>,
+    S: SumeragiTrait<GenesisNetwork = G, World = W> + ContextHandler<sumeragi::Round>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
@@ -612,7 +651,7 @@ async fn put_tx_in_queue<W, G, S, K, B>(network: &Network<W, G, S, K, B>, to_lea
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W> + Handler<sumeragi::Round>,
+    S: SumeragiTrait<GenesisNetwork = G, World = W> + ContextHandler<sumeragi::Round>,
     K: KuraTrait<World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {

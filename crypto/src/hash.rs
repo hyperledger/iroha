@@ -69,7 +69,7 @@ impl AsRef<[u8]> for Hash {
 }
 
 /// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
-#[derive(Debug, Encode, Decode, Serialize, Deserialize, Deref, DerefMut, Display)]
+#[derive(Encode, Decode, Serialize, Deserialize, Deref, DerefMut, Display)]
 #[display(fmt = "{}", _0)]
 pub struct HashOf<T>(
     #[deref]
@@ -77,6 +77,12 @@ pub struct HashOf<T>(
     Hash,
     PhantomData<T>,
 );
+
+impl<T> Debug for HashOf<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Debug::fmt(&self.0, f)
+    }
+}
 
 impl<T> AsRef<[u8]> for HashOf<T> {
     fn as_ref(&self) -> &[u8] {
