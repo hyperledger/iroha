@@ -10,7 +10,7 @@ The following is a short set of guidelines for contributing to Iroha.
 
 * Find Jira
 * Write Tests
-* `cargo test && cargo bench && cargo fmt -all && cargo clippy`
+* `cargo test && cargo fmt --all && cargo lints clippy --all --tests --benches`
 * `git pull -r origin iroha2-dev && git commit -s`
 
 ### Reporting Bugs
@@ -19,21 +19,9 @@ The following is a short set of guidelines for contributing to Iroha.
 to produce an incorrect or unexpected result, or to behave in unintended
 ways.
 
-Bugs are tracked as [JIRA
-issues](https://jira.hyperledger.org/projects/IR/issues/IR-275?filter=allopenissues&orderby=issuetype+ASC%2C+priority+DESC%2C+updated+DESC) in Hyperledger Jira.
+Bugs are tracked as Github issues with tags `iroha2` and `bug`
 
-To submit a bug, [create new
-issue](https://jira.hyperledger.org/secure/CreateIssue.jspa) and
-include these details:
-
-| Field               | What to enter                                        |
-| ------------------- | ---------------------------------------------------- |
-| Project             | Iroha (IR)                                           |
-| Issue Type          | Bug                                                  |
-| Summary             | Essence of the problem                               |
-| Description         | What the issue is about; if you have any logs, please provide them |
-| Priority            | You can use Medium though if you see the issue as a high priority, please choose that |
-| Environment         | Your OS, device's specs, Virtual Environment if you use one, version of Iroha etc. |
+To submit a bug, create new issue according to template.
 
 ### Reporting Vulnerabilities
 
@@ -46,9 +34,8 @@ so a fix can be prepared, and damage from the vulnerability minimized.
 
 Before the First Major Release (1.0) all vulnerabilities are considered
 to be bugs, so feel free to submit them as described above. After the
-First Major Release please utilize [a bug bounty program
-here](https://hackerone.com/hyperledger) in order to submit
-vulnerabilities and get your reward.
+First Major Release please utilize [a bug bounty program here](https://hackerone.com/hyperledger)
+in order to submit vulnerabilities and get your reward.
 
 In any case of questions feel free to reach to any of existing maintainers in
 Rocket.Chat private messages.
@@ -58,20 +45,7 @@ Rocket.Chat private messages.
 An *improvement* is a code or idea, which makes **existing** code or
 design faster, more stable, portable, secure or better in any other way.
 
-Improvements are tracked as [JIRA
-improvements](https://jira.hyperledger.org/browse/IR-184?jql=project%20%3D%20IR%20and%20issuetype%20%3D%20Improvement%20ORDER%20BY%20updated%20DESC).
-To submit new improvement, [create new
-issue](https://jira.hyperledger.org/secure/CreateIssue.jspa) and
-include these details:
-
-| Field               | What to enter                                        |
-| ------------------- | ---------------------------------------------------- |
-| Project             | Iroha (IR)                                           |
-| Issue Type          | Improvement                                          |
-| Summary             | Essence of the idea                                  |
-| Description         | What the idea is about; if you have any code suggestions, you are welcome to add them here |
-| Priority            | You can use Medium                                   |
-| Assign              | You can assign the task to yourself if you are planning on working on it |
+Improvements are tracked as Github issues with improvement tags.
 
 ### Asking Questions
 
@@ -97,24 +71,27 @@ maintainers team, community or simply assign this issue to yourself.
 -  Only one commit per PR is allowed in general.
 -  Fill in [the required template](https://github.com/hyperledger/iroha/blob/master/.github/PULL_REQUEST_TEMPLATE.md)
 -  **Write tests** for new code. 
--  Every pull request should be reviewed and **get at least two
-   approvals from maintainers team**. Check who is a current maintainer
-   in
-   [MAINTAINERS.md](https://github.com/hyperledger/iroha/blob/iroha2-dev/MAINTAINERS.md)
-   file
+-  Every pull request should be reviewed and **get at least two approvals from maintainers team**. Check who is a current maintainer in
+   [MAINTAINERS.md](MAINTAINERS.md) file
 -  When you've finished work make sure that you've got all passing CI
    checks after that **rebase and merge** your pull request
 -  Follow the [Rust Style Guide](#rust-style-guide)
 -  Follow the [Git Style Guide](#git-style-guide>)
--  **Document new code** based on the [Documentation
-   Styleguide](#documentation-styleguide)
--  When working with **PRs from forks** check [this
-   manual](https://help.github.com/articles/checking-out-pull-requests-locally)
+-  **Document new code** based on the [Documentation Styleguide](#documentation-styleguide)
+-  When working with **PRs from forks** check [this manual](https://help.github.com/articles/checking-out-pull-requests-locally)
 
 ### Tests and Benchmarks
 
 -  To run tests execute `cargo test` command
 -  To run benchmarks execute `cargo bench` command, if you want to debug output in benchmark, execute `RUSTFLAGS="--cfg debug_assertions" cargo bench` command
+
+#### Debugging tests
+
+While you can check out logs from CLI, better solution would be to export logs using bunyan format (change config option in order to enable it).
+You can better interpret logs using the following tools:
+
+- [node-bunyan](https://www.npmjs.com/package/bunyan)
+- [rust-bunyan](https://crates.io/crates/bunyan)
 
 ## Styleguides
 
