@@ -1969,12 +1969,11 @@ pub mod public_blockchain {
             let wsv = WorldStateView::<World>::new(World::new());
             let grant = Instruction::Grant(GrantBox {
                 object: permission_token_to_alice.into(),
-                destination_id: IdBox::AccountId(bob_id).into(),
+                destination_id: IdBox::AccountId(bob_id.clone()).into(),
             });
             let validator: IsInstructionAllowedBoxed<World> = transfer::GrantMyAssetAccess.into();
             assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
-            // The borrow checker isn't happy with use after move.
-            // assert!(validator.check(&bob_id, &grant, &wsv).is_err());
+            assert!(validator.check(&bob_id, &grant, &wsv).is_err());
         }
 
         #[test]
