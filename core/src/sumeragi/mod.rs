@@ -1614,7 +1614,7 @@ pub mod config {
             (self.trusted_peers.peers.len() as u32 - 1) / 3
         }
 
-        /// Time estimation from receiving a transaction to storing it in a block on all peers.
+        /// Time estimation from receiving a transaction to storing it in a block on all peers for the "sunny day" scenario.
         pub const fn pipeline_time_ms(&self) -> u64 {
             self.tx_receipt_time_ms + self.block_time_ms + self.commit_time_ms
         }
