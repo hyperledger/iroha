@@ -33,11 +33,11 @@ async fn test_sleep() {
         Duration::from_nanos(80_000_000),
     ];
 
-    let telemetry = iroha_logger::init(&LoggerConfiguration::default())
+    let (_, telemetry_future) = iroha_logger::init(&LoggerConfiguration::default())
         .unwrap()
         .unwrap();
     assert_eq!(sleep(sleep_times.clone()).await, 10);
-    let telemetry = ReceiverStream::new(telemetry)
+    let telemetry = ReceiverStream::new(telemetry_future)
         .map(FuturePollTelemetry::try_from)
         .filter_map(Result::ok)
         .take(3)

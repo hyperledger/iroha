@@ -45,34 +45,34 @@ struct ShutdownRuntime;
 pub struct Network<
     W = World,
     G = GenesisNetwork,
-    S = Sumeragi<G, W>,
     K = Kura<W>,
+    S = Sumeragi<G, K, W>,
     B = BlockSynchronizer<S, W>,
 > where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     /// Genesis peer which sends genesis block to everyone
-    pub genesis: Peer<W, G, S, K, B>,
+    pub genesis: Peer<W, G, K, S, B>,
     /// peers
-    pub peers: Vec<Peer<W, G, S, K, B>>,
+    pub peers: Vec<Peer<W, G, K, S, B>>,
 }
 
 /// Peer structure
 pub struct Peer<
     W = World,
     G = GenesisNetwork,
-    S = Sumeragi<G, W>,
     K = Kura<W>,
+    S = Sumeragi<G, K, W>,
     B = BlockSynchronizer<S, W>,
 > where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     /// id of peer
@@ -90,7 +90,7 @@ pub struct Peer<
     shutdown: Option<JoinHandle<()>>,
 
     /// Iroha itself
-    pub iroha: Option<Iroha<W, G, S, K, B>>,
+    pub iroha: Option<Iroha<W, G, K, S, B>>,
 }
 
 impl std::cmp::PartialEq for Peer {
@@ -123,17 +123,17 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
     }
 }
 
-impl<W, G, S, K, B> Network<W, G, S, K, B>
+impl<W, G, K, S, B> Network<W, G, K, S, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     pub async fn send<M, A>(
         &self,
-        lense: impl Fn(&Iroha<W, G, S, K, B>) -> &Addr<A>,
+        lense: impl Fn(&Iroha<W, G, K, S, B>) -> &Addr<A>,
         msg: M,
     ) -> Vec<M::Result>
     where
@@ -256,7 +256,7 @@ where
     }
 
     /// Returns peers
-    pub fn peers(&self) -> impl Iterator<Item = &Peer<W, G, S, K, B>> + '_ {
+    pub fn peers(&self) -> impl Iterator<Item = &Peer<W, G, K, S, B>> + '_ {
         std::iter::once(&self.genesis).chain(self.peers.iter())
     }
 
@@ -280,12 +280,12 @@ where
     }
 }
 
-impl<W, G, S, K, B> Drop for Peer<W, G, S, K, B>
+impl<W, G, K, S, B> Drop for Peer<W, G, K, S, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     fn drop(&mut self) {
@@ -298,12 +298,12 @@ where
     }
 }
 
-impl<W, G, S, K, B> Peer<W, G, S, K, B>
+impl<W, G, K, S, B> Peer<W, G, K, S, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     pub async fn send<M: iroha_actor::broker::BrokerMessage + Sync>(&self, m: M) {
@@ -367,10 +367,10 @@ where
             &self.api_address
         );
         let broker = self.broker.clone();
-        let (sender, reciever) = std::sync::mpsc::sync_channel(1);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let handle = task::spawn(
             async move {
-                let mut iroha = <Iroha<W, G, S, K, B>>::with_genesis(
+                let mut iroha = <Iroha<W, G, K, S, B>>::with_genesis(
                     G::test(true),
                     configuration,
                     permissions.into(),
@@ -386,7 +386,7 @@ where
             .instrument(info_span),
         );
 
-        self.iroha = Some(reciever.recv().unwrap());
+        self.iroha = Some(receiver.recv().unwrap());
         self.shutdown = Some(handle);
     }
 
@@ -415,7 +415,7 @@ where
         let join_handle = tokio::spawn(
             async move {
                 let _temp_dir = temp_dir;
-                let mut iroha = <Iroha<W, G, S, K, B>>::with_genesis(
+                let mut iroha = <Iroha<W, G, K, S, B>>::with_genesis(
                     genesis,
                     configuration,
                     instruction_validator.into(),

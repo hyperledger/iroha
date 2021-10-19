@@ -76,7 +76,9 @@ Configuration of iroha is done via options in the following document. Here is de
     }
   },
   "TELEMETRY": {
-    "telemetry_file": null
+    "NAME": null,
+    "URL": null,
+    "FILE": null
   },
   "NETWORK": {
     "MAILBOX": 100
@@ -507,17 +509,41 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_TX_RECEIPT_
 
 Configuration for telemetry
 
-Has type `telemetry::Configuration`. Can be configured via environment variable `IROHA_TELEMETRY`
+Has type `iroha_telemetry::Configuration`. Can be configured via environment variable `IROHA_TELEMETRY`
 
 ```json
 {
-  "telemetry_file": null
+  "FILE": null,
+  "NAME": null,
+  "URL": null
 }
 ```
 
-### `telemetry.telemetry_file`
+### `telemetry.file`
+
+The filepath that to write dev-telemetry to
 
 Has type `Option<PathBuf>`. Can be configured via environment variable `TELEMETRY_FILE`
+
+```json
+null
+```
+
+### `telemetry.name`
+
+The node's name to be seen on the telemetry
+
+Has type `Option<String>`. Can be configured via environment variable `TELEMETRY_NAME`
+
+```json
+null
+```
+
+### `telemetry.url`
+
+The url of the telemetry, e.g., ws://127.0.0.1:8001/submit
+
+Has type `Option<Url>`. Can be configured via environment variable `TELEMETRY_URL`
 
 ```json
 null
