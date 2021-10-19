@@ -170,15 +170,19 @@ where
 
     /// Starts network with peers with default configuration and specified options.
     /// Returns its info and client for connecting to it.
-    pub async fn start_test_with_offline_and_set_max_faults(
+    pub async fn start_test_with_offline_and_set_n_shifts(
         n_peers: u32,
         max_txs_in_block: u32,
         offline_peers: u32,
+        n_shifts: u64,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration
             .queue_configuration
             .maximum_transactions_in_block = max_txs_in_block;
+        configuration
+            .sumeragi_configuration
+            .n_topology_shifts_before_reshuffle = n_shifts;
         let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
             .await
             .expect("Failed to init peers");
@@ -193,10 +197,11 @@ where
         maximum_transactions_in_block: u32,
         offline_peers: u32,
     ) -> (Self, Client) {
-        Self::start_test_with_offline_and_set_max_faults(
+        Self::start_test_with_offline_and_set_n_shifts(
             n_peers,
             maximum_transactions_in_block,
             offline_peers,
+            SumeragiConfiguration::default().n_topology_shifts_before_reshuffle,
         )
         .await
     }
