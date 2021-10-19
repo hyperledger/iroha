@@ -412,6 +412,9 @@ mod asset {
         /// Asset id for registering (in form of `name#domain_name')
         #[structopt(short, long)]
         pub id: AssetDefinitionId,
+        /// Mintability of asset
+        #[structopt(short, long)]
+        pub unmintable: bool,
         /// Value type stored in asset
         #[structopt(short, long)]
         pub value_type: AssetValueType,
@@ -425,11 +428,12 @@ mod asset {
             let Self {
                 id,
                 value_type,
+                unmintable,
                 metadata: Metadata(metadata),
             } = self;
             submit(
                 RegisterBox::new(IdentifiableBox::AssetDefinition(
-                    AssetDefinition::new(id, value_type).into(),
+                    AssetDefinition::new(id, value_type, !unmintable).into(),
                 )),
                 cfg,
                 metadata,

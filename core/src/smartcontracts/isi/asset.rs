@@ -21,20 +21,29 @@ pub mod isi {
         definition_id: &AssetDefinitionId,
         wsv: &WorldStateView<W>,
         expected_value_type: AssetValueType,
-    ) -> Result<(), Error> {
-        let value_type = wsv
-            .asset_definition_entry(definition_id)?
-            .definition
-            .value_type;
-        if value_type == expected_value_type {
-            Ok(())
+    ) -> Result<AssetDefinition, Error> {
+        let definition = wsv.asset_definition_entry(definition_id)?.definition;
+        if definition.value_type == expected_value_type {
+            Ok(definition)
         } else {
             Err(TypeError::from(AssetTypeError {
                 expected: expected_value_type,
-                got: value_type,
+                got: definition.value_type,
             })
             .into())
         }
+    }
+
+    fn assert_can_mint<W: WorldTrait>(
+        definition_id: &AssetDefinitionId,
+        wsv: &WorldStateView<W>,
+        expected_value_type: AssetValueType,
+    ) -> Result<(), Error> {
+        let definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
+        if !definition.mintable {
+            return Err(MintabilityError::MintUnmintableError.into());
+        }
+        Ok(())
     }
 
     impl<W: WorldTrait> Execute<W> for Mint<Asset, u32> {
@@ -45,7 +54,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
-            assert_asset_type(
+            assert_can_mint(
                 &self.destination_id.definition_id,
                 wsv,
                 AssetValueType::Quantity,
@@ -70,7 +79,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
-            assert_asset_type(
+            assert_can_mint(
                 &self.destination_id.definition_id,
                 wsv,
                 AssetValueType::BigQuantity,
@@ -95,7 +104,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
-            assert_asset_type(
+            assert_can_mint(
                 &self.destination_id.definition_id,
                 wsv,
                 AssetValueType::Fixed,
@@ -250,7 +259,7 @@ pub mod isi {
                 let quantity: &mut u32 = asset.try_as_mut()?;
                 *quantity = quantity
                     .checked_sub(self.object)
-                    .ok_or_else(|| eyre!("Source account does not have enough asset quantity."))?;
+                    .ok_or_else(|| eyre!("Insufficient assets at source account."))?;
                 Ok(())
             })?;
             wsv.asset_or_insert(&self.destination_id, 0_u32)?;

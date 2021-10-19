@@ -32,6 +32,9 @@ pub enum Error {
     /// Failed to assert type
     #[error("Failed to assert type")]
     Type(#[source] TypeError),
+    /// Failed to assert mintability
+    #[error("Failed to assert mintability")]
+    Mintability(#[source] MintabilityError),
     /// Failed due to math exception
     #[error("Math error occured")]
     Math(#[source] MathError),
@@ -65,6 +68,14 @@ pub enum FindError {
     /// Block with supplied parent hash not found. More description in a string.
     #[error("Block not found")]
     Block(#[source] ParentHashNotFound),
+}
+
+/// Mintability logic error
+#[derive(Debug, Clone, FromVariant, Error, Copy)]
+pub enum MintabilityError {
+    /// Tried to mint an Un-mintable asset.
+    #[error("Minting of this asset is forbidden")]
+    MintUnmintableError,
 }
 
 /// Type assertion error
