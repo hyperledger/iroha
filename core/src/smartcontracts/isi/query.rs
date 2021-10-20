@@ -284,7 +284,7 @@ mod tests {
 
         let trx = Transaction::new(vec![], account_id, 4000);
         let signed_trx = trx.sign(&key_pair)?;
-        let vatrx = VersionedAcceptedTransaction::from_transaction(signed_trx, 4096)?;
+        let vatrx = VersionedAcceptedTransaction::from_transaction(signed_trx.clone(), 4096)?;
         block.transactions.push(vatrx.clone());
         let vcb = block
             .chain_first()
@@ -294,10 +294,14 @@ mod tests {
             .commit();
         wsv.apply(vcb).await;
 
-        let result = FindTransactionByHash::new(Hash::from(vatrx.hash())).execute(&wsv)?;
-        match result {
-            TransactionValue::Transaction(trx) => assert_eq!(vatrx.hash(), trx.hash()),
-            TransactionValue::RejectedTransaction(trx) => assert_eq!(vatrx.hash(), trx.hash()),
+        let not_found = FindTransactionByHash::new(Hash::new(&[2_u8])).execute(&wsv);
+        assert!(matches!(not_found, Err(_)));
+        let found_accepted = FindTransactionByHash::new(Hash::from(vatrx.hash())).execute(&wsv)?;
+        match found_accepted {
+            TransactionValue::Transaction(trx) => {
+                assert_eq!(Hash::from(vatrx.hash()), Hash::from(trx.hash()))
+            }
+            TransactionValue::RejectedTransaction(_) => {}
         }
         Ok(())
     }
