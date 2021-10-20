@@ -393,7 +393,7 @@ pub mod config {
     const DEFAULT_MAILBOX_SIZE: usize = 100;
 
     /// Configuration for `BlockSynchronizer`.
-    #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable)]
+    #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(default)]
     #[config(env_prefix = "BLOCK_SYNC_")]

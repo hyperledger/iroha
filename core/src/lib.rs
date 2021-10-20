@@ -149,8 +149,8 @@ where
         let genesis = G::from_configuration(
             args.submit_genesis,
             &args.genesis_path,
-            &config.genesis_configuration,
-            config.torii_configuration.torii_max_instruction_number,
+            &config.genesis,
+            config.torii.max_instruction_number,
         )
         .wrap_err("Failed to initialize genesis.")?;
 
@@ -179,10 +179,10 @@ where
     ) -> Result<Self> {
         // TODO: use channel for prometheus/telemetry endpoint
         #[allow(unused)]
-        let telemetry = iroha_logger::init(&config.logger_configuration)?;
+        let telemetry = iroha_logger::init(&config.logger)?;
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");
 
-        let listen_addr = config.torii_configuration.torii_p2p_addr.clone();
+        let listen_addr = config.torii.p2p_addr.clone();
         iroha_logger::info!("Starting peer on {}", &listen_addr);
         #[allow(clippy::expect_used)]
         let network = IrohaNetwork::new(
@@ -197,13 +197,13 @@ where
 
         let (events_sender, _) = broadcast::channel(100);
         let wsv = Arc::new(WorldStateView::from_config(
-            config.wsv_configuration,
+            config.wsv,
             W::with(
                 init::domains(&config).wrap_err("Failed to get initial domains")?,
-                config.sumeragi_configuration.trusted_peers.peers.clone(),
+                config.sumeragi.trusted_peers.peers.clone(),
             ),
         ));
-        let queue = Arc::new(Queue::from_configuration(&config.queue_configuration));
+        let queue = Arc::new(Queue::from_configuration(&config.queue));
 
         #[cfg(feature = "telemetry")]
         if let Some(telemetry) = telemetry {
@@ -213,7 +213,7 @@ where
         }
         let query_validator = Arc::new(query_validator);
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
-            &config.sumeragi_configuration,
+            &config.sumeragi,
             events_sender.clone(),
             Arc::clone(&wsv),
             instruction_validator,
@@ -228,23 +228,17 @@ where
         .await
         .expect_running();
 
-        let kura =
-            K::from_configuration(&config.kura_configuration, Arc::clone(&wsv), broker.clone())
-                .await?
-                .start()
-                .await
-                .expect_running();
+        let kura = K::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())
+            .await?
+            .start()
+            .await
+            .expect_running();
         let block_sync = B::from_configuration(
-            &config.block_sync_configuration,
+            &config.block_sync,
             Arc::clone(&wsv),
             sumeragi.clone(),
-            PeerId::new(
-                &config.torii_configuration.torii_p2p_addr,
-                &config.public_key,
-            ),
-            config
-                .sumeragi_configuration
-                .n_topology_shifts_before_reshuffle,
+            PeerId::new(&config.torii.p2p_addr, &config.public_key),
+            config.sumeragi.n_topology_shifts_before_reshuffle,
             broker.clone(),
         )
         .start()
@@ -252,7 +246,7 @@ where
         .expect_running();
 
         let torii = Torii::from_configuration(
-            config.torii_configuration.clone(),
+            config.clone(),
             Arc::clone(&wsv),
             Arc::clone(&queue),
             query_validator,

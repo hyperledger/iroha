@@ -213,7 +213,7 @@ pub mod config {
     const DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE: u32 = 2_u32.pow(16);
 
     /// Configuration for `Queue`.
-    #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable)]
+    #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(default)]
     #[config(env_prefix = "QUEUE_")]

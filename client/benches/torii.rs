@@ -26,13 +26,12 @@ fn query_requests(criterion: &mut Criterion) {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     let rt = Runtime::test();
-    configuration.sumeragi_configuration.trusted_peers.peers =
-        std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
     let genesis = GenesisNetwork::from_configuration(
         true,
         GENESIS_PATH,
-        &configuration.genesis_configuration,
-        configuration.sumeragi_configuration.max_instruction_number,
+        &configuration.genesis,
+        configuration.sumeragi.max_instruction_number,
     )
     .unwrap();
 
@@ -109,14 +108,13 @@ fn instruction_submits(criterion: &mut Criterion) {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let rt = Runtime::test();
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
-    configuration.sumeragi_configuration.trusted_peers.peers =
-        std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
 
     let genesis = GenesisNetwork::from_configuration(
         true,
         GENESIS_PATH,
-        &configuration.genesis_configuration,
-        configuration.sumeragi_configuration.max_instruction_number,
+        &configuration.genesis,
+        configuration.sumeragi.max_instruction_number,
     )
     .unwrap();
     rt.block_on(peer.start_with_config(genesis, configuration));

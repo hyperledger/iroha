@@ -9,11 +9,12 @@ use std::{
 
 use eyre::{eyre, Error, Result, WrapErr};
 use http_client::WebSocketStream;
-use iroha_core::{smartcontracts::Query, wsv::World};
+use iroha_core::{smartcontracts::Query, torii::GetConfiguration, wsv::World};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_dsl::prelude::*;
 use iroha_logger::log;
 use iroha_version::prelude::*;
+use serde::de::DeserializeOwned;
 
 use crate::{
     config::Configuration,
@@ -411,6 +412,44 @@ impl Client {
             Pagination::default(),
         )
     }
+
+    fn get_config<T: DeserializeOwned>(&self, get_config: &GetConfiguration) -> Result<T> {
+        let mut headers = self.headers.clone();
+        headers.insert("Content-Type".to_owned(), "application/json".to_owned());
+        let get_cfg = serde_json::to_vec(get_config).wrap_err("Failed to serialize")?;
+
+        let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
+            &format!("{}{}", self.torii_url, uri::CONFIGURATION),
+            get_cfg,
+            vec![],
+            headers,
+        )?;
+        if resp.status() != StatusCode::OK {
+            return Err(eyre!(
+                "Failed to get configuration with HTTP status: {}. {}",
+                resp.status(),
+                std::str::from_utf8(resp.body()).unwrap_or(""),
+            ));
+        }
+        serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
+    }
+
+    /// Gets documentation of some field on config
+    /// # Errors
+    /// Fails if sending request or decoding fails
+    pub fn get_config_docs(&self, field: &[&str]) -> Result<Option<String>> {
+        let field = field.iter().copied().map(ToOwned::to_owned).collect();
+        self.get_config(&GetConfiguration::Docs { field })
+            .wrap_err("Failed to get docs for field")
+    }
+
+    /// Gets value of config on peer
+    /// # Errors
+    /// Fails if sending request or decoding fails
+    pub fn get_config_value(&self) -> Result<serde_json::Value> {
+        self.get_config(&GetConfiguration::Value)
+            .wrap_err("Failed to get configuration value")
+    }
 }
 
 /// Iterator for getting events from the `WebSocket` stream.
@@ -590,6 +629,8 @@ pub mod uri {
     pub const QUERY: &str = "/query";
     /// Instructions URI is used to handle incoming ISI requests.
     pub const TRANSACTION: &str = "/transaction";
+    /// URI for configuration checking
+    pub const CONFIGURATION: &str = "/configuration";
     /// Block URI is used to handle incoming Block requests.
     pub const CONSENSUS: &str = "/consensus";
     /// Health URI is used to handle incoming Healthcheck requests.

@@ -116,8 +116,8 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
         G::from_configuration(
             submit_genesis,
             GENESIS_PATH,
-            &cfg.genesis_configuration,
-            cfg.sumeragi_configuration.max_instruction_number,
+            &cfg.genesis,
+            cfg.sumeragi.max_instruction_number,
         )
         .expect("Failed to init genesis")
     }
@@ -177,12 +177,8 @@ where
         n_shifts: u64,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
-        configuration
-            .queue_configuration
-            .maximum_transactions_in_block = max_txs_in_block;
-        configuration
-            .sumeragi_configuration
-            .n_topology_shifts_before_reshuffle = n_shifts;
+        configuration.queue.maximum_transactions_in_block = max_txs_in_block;
+        configuration.sumeragi.n_topology_shifts_before_reshuffle = n_shifts;
         let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
             .await
             .expect("Failed to init peers");
@@ -211,8 +207,7 @@ where
         let mut client = Client::test(&self.genesis.api_address);
         let mut peer = Peer::new().expect("Failed to create new peer");
         let mut config = Configuration::test();
-        config.sumeragi_configuration.trusted_peers.peers =
-            self.peers().map(|peer| &peer.id).cloned().collect();
+        config.sumeragi.trusted_peers.peers = self.peers().map(|peer| &peer.id).cloned().collect();
         peer.start_with_config(GenesisNetwork::test(false), config)
             .await;
         time::sleep(Configuration::pipeline_time() * 2).await;
@@ -239,7 +234,7 @@ where
             .collect::<Result<Vec<_>>>()?;
 
         let mut configuration = default_configuration.unwrap_or_else(Configuration::test);
-        configuration.sumeragi_configuration.trusted_peers.peers = peers
+        configuration.sumeragi.trusted_peers.peers = peers
             .iter()
             .chain(std::iter::once(&genesis))
             .map(|peer| peer.id.clone())
@@ -329,17 +324,17 @@ where
     /// Returns per peer config with all addresses, keys, and id setted up
     fn get_config(&self, configuration: Configuration) -> Configuration {
         Configuration {
-            sumeragi_configuration: SumeragiConfiguration {
+            sumeragi: SumeragiConfiguration {
                 key_pair: self.key_pair.clone(),
                 peer_id: self.id.clone(),
-                ..configuration.sumeragi_configuration
+                ..configuration.sumeragi
             },
-            torii_configuration: ToriiConfiguration {
-                torii_p2p_addr: self.p2p_address.clone(),
-                torii_api_url: self.api_address.clone(),
-                ..configuration.torii_configuration
+            torii: ToriiConfiguration {
+                p2p_addr: self.p2p_address.clone(),
+                api_url: self.api_address.clone(),
+                ..configuration.torii
             },
-            logger_configuration: LoggerConfiguration {
+            logger: LoggerConfiguration {
                 #[cfg(profile = "bench")]
                 max_log_level: LevelEnv::ERROR,
                 #[cfg(not(profile = "bench"))]
@@ -362,7 +357,7 @@ where
     ) {
         let mut configuration = self.get_config(configuration);
         configuration
-            .kura_configuration
+            .kura
             .block_store_path(temp_dir.path())
             .unwrap();
         let info_span = iroha_logger::info_span!(
@@ -406,7 +401,7 @@ where
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
         let mut configuration = self.get_config(configuration);
         configuration
-            .kura_configuration
+            .kura
             .block_store_path(temp_dir.path())
             .unwrap();
         let info_span = iroha_logger::info_span!(
@@ -506,8 +501,7 @@ where
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         let mut peer = Self::new().expect("Failed to create peer.");
-        configuration.sumeragi_configuration.trusted_peers.peers =
-            std::iter::once(peer.id.clone()).collect();
+        configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
         peer.start_with_config_permissions(
             configuration.clone(),
             G::test(true),
@@ -517,7 +511,7 @@ where
         .await;
         let client = Client::test(&peer.api_address);
         time::sleep(Duration::from_millis(
-            configuration.sumeragi_configuration.pipeline_time_ms(),
+            configuration.sumeragi.pipeline_time_ms(),
         ))
         .await;
         (peer, client)
@@ -630,11 +624,11 @@ impl TestConfiguration for Configuration {
     }
 
     fn pipeline_time() -> Duration {
-        Duration::from_millis(Self::test().sumeragi_configuration.pipeline_time_ms())
+        Duration::from_millis(Self::test().sumeragi.pipeline_time_ms())
     }
 
     fn block_sync_gossip_time() -> Duration {
-        Duration::from_millis(Self::test().block_sync_configuration.gossip_period_ms)
+        Duration::from_millis(Self::test().block_sync.gossip_period_ms)
     }
 }
 

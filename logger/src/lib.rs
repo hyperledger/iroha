@@ -175,7 +175,7 @@ pub mod config {
 
     /// Log level for reading from environment and se/deserializing
     #[allow(clippy::upper_case_acronyms)]
-    #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+    #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub enum LevelEnv {
         /// Error
         ERROR,
@@ -214,7 +214,7 @@ pub mod config {
     }
 
     /// Configuration for `Logger`.
-    #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(default)]
     pub struct LoggerConfiguration {

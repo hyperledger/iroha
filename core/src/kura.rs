@@ -222,7 +222,7 @@ impl<W: WorldTrait> Kura<W> {
 }
 
 /// Kura work mode.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
     /// Strict validation of all blocks.
@@ -451,7 +451,7 @@ pub mod config {
     const DEFAULT_MAILBOX_SIZE: usize = 100;
 
     /// Configuration of kura
-    #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "KURA_")]
     pub struct KuraConfiguration {

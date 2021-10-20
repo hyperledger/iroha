@@ -15,11 +15,9 @@ fn restarted_peer_should_have_the_same_asset_amount() {
 
     let mut configuration = Configuration::test();
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
-    configuration.sumeragi_configuration.trusted_peers.peers =
-        std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
 
-    let pipeline_time =
-        Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
+    let pipeline_time = Duration::from_millis(configuration.sumeragi.pipeline_time_ms());
 
     // Given
     let rt = Runtime::test();

@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// Configuration parameters container.
-#[derive(Clone, Default, Deserialize, Serialize, Debug, Configurable)]
+#[derive(Clone, Default, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]
@@ -33,28 +33,28 @@ pub struct Configuration {
     pub private_key: PrivateKey,
     /// `Kura` related configuration.
     #[config(inner)]
-    pub kura_configuration: KuraConfiguration,
+    pub kura: KuraConfiguration,
     /// `Sumeragi` related configuration.
     #[config(inner)]
-    pub sumeragi_configuration: SumeragiConfiguration,
+    pub sumeragi: SumeragiConfiguration,
     /// `Torii` related configuration.
     #[config(inner)]
-    pub torii_configuration: ToriiConfiguration,
+    pub torii: ToriiConfiguration,
     /// `BlockSynchronizer` configuration.
     #[config(inner)]
-    pub block_sync_configuration: BlockSyncConfiguration,
+    pub block_sync: BlockSyncConfiguration,
     /// `Queue` configuration.
     #[config(inner)]
-    pub queue_configuration: QueueConfiguration,
+    pub queue: QueueConfiguration,
     /// `Logger` configuration.
     #[config(inner)]
-    pub logger_configuration: LoggerConfiguration,
+    pub logger: LoggerConfiguration,
     /// Configuration for `GenesisBlock`.
     #[config(inner)]
-    pub genesis_configuration: GenesisConfiguration,
+    pub genesis: GenesisConfiguration,
     /// Configuration for [`WorldStateView`](crate::wsv::WorldStateView).
     #[config(inner)]
-    pub wsv_configuration: WorldStateViewConfiguration,
+    pub wsv: WorldStateViewConfiguration,
     #[cfg(feature = "telemetry")]
     /// Configuration for telemetry
     #[config(inner)]
@@ -65,7 +65,7 @@ pub struct Configuration {
 }
 
 /// Network Configuration parameters container.
-#[derive(Clone, Copy, Deserialize, Serialize, Debug, Configurable)]
+#[derive(Clone, Copy, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_NETWORK_")]
@@ -96,14 +96,12 @@ impl Configuration {
         let reader = BufReader::new(file);
         let mut configuration: Configuration =
             serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")?;
-        configuration.sumeragi_configuration.key_pair = KeyPair {
+        configuration.sumeragi.key_pair = KeyPair {
             public_key: configuration.public_key.clone(),
             private_key: configuration.private_key.clone(),
         };
-        configuration.sumeragi_configuration.peer_id = PeerId::new(
-            &configuration.torii_configuration.torii_p2p_addr,
-            &configuration.public_key,
-        );
+        configuration.sumeragi.peer_id =
+            PeerId::new(&configuration.torii.p2p_addr, &configuration.public_key);
         Ok(configuration)
     }
 
@@ -112,14 +110,11 @@ impl Configuration {
     /// Fails if fails to deserialize configuration from env variables
     pub fn load_environment(&mut self) -> Result<()> {
         iroha_config::Configurable::load_environment(self)?;
-        self.sumeragi_configuration.key_pair = KeyPair {
+        self.sumeragi.key_pair = KeyPair {
             public_key: self.public_key.clone(),
             private_key: self.private_key.clone(),
         };
-        self.sumeragi_configuration.peer_id = PeerId::new(
-            &self.torii_configuration.torii_p2p_addr,
-            &self.public_key.clone(),
-        );
+        self.sumeragi.peer_id = PeerId::new(&self.torii.p2p_addr, &self.public_key.clone());
         Ok(())
     }
 
@@ -128,7 +123,7 @@ impl Configuration {
     /// # Errors
     /// Fails if can not load [`TrustedPeers`] from `path`.
     pub fn load_trusted_peers_from_path<P: AsRef<Path> + Debug>(&mut self, path: P) -> Result<()> {
-        self.sumeragi_configuration.trusted_peers = TrustedPeers::from_path(&path)?;
+        self.sumeragi.trusted_peers = TrustedPeers::from_path(&path)?;
         Ok(())
     }
 
@@ -153,11 +148,8 @@ mod tests {
     fn parse_example_json() -> Result<()> {
         let configuration = Configuration::from_path(CONFIGURATION_PATH)
             .wrap_err("Failed to read configuration from example config")?;
-        assert_eq!(
-            "127.0.0.1:1337",
-            configuration.torii_configuration.torii_p2p_addr
-        );
-        assert_eq!(1000, configuration.sumeragi_configuration.block_time_ms);
+        assert_eq!("127.0.0.1:1337", configuration.torii.p2p_addr);
+        assert_eq!(1000, configuration.sumeragi.block_time_ms);
         Ok(())
     }
 
@@ -221,10 +213,10 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashSet<_>>();
-        assert_eq!(1000, configuration.sumeragi_configuration.block_time_ms);
+        assert_eq!(1000, configuration.sumeragi.block_time_ms);
         assert_eq!(
             expected_trusted_peers,
-            configuration.sumeragi_configuration.trusted_peers.peers
+            configuration.sumeragi.trusted_peers.peers
         );
         Ok(())
     }

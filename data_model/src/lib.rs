@@ -352,7 +352,7 @@ pub trait Identifiable: Debug + Clone {
 }
 
 /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::NewAccount`], [`asset::AssetDefinition`]) in number of chars
-#[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LengthLimits {
     /// Minimal length in number of chars (inclusive).
     min: u32,
@@ -2631,7 +2631,7 @@ pub mod metadata {
     pub type UnlimitedMetadata = BTreeMap<Name, Value>;
 
     /// Limits for [`Metadata`].
-    #[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize, PartialEq, Eq)]
     pub struct Limits {
         /// Maximum number of entries
         pub max_len: u32,
