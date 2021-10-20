@@ -348,9 +348,12 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    FindDomainByName(query) => {
-                        let domain_name = query
-                            .name
+                    FindDomainByName(query::FindDomainByName { name })
+                    | FindDomainKeyValueByIdAndKey(query::FindDomainKeyValueByIdAndKey {
+                        name,
+                        ..
+                    }) => {
+                        let domain_name = name
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
                         if domain_name == authority.domain_name {
@@ -437,6 +440,7 @@ pub mod private_blockchain {
                     | FindAssetsByName(_)
                     | FindAllDomains(_)
                     | FindDomainByName(_)
+                    | FindDomainKeyValueByIdAndKey(_)
                     | FindAssetsByDomainNameAndAssetDefinitionId(_)
                     | FindAssetDefinitionKeyValueByIdAndKey(_)
                     | FindAllAssets(_) => {
@@ -1985,16 +1989,18 @@ pub mod public_blockchain {
             let wsv = WorldStateView::<World>::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
-                    accounts: BTreeMap::new(),
-                    name: "test".to_string(),
-                    asset_definitions: btreemap! {
-                        xor_id.clone() =>
-                        AssetDefinitionEntry {
-                            definition: xor_definition,
-                            registered_by: alice_id.clone()
-                        }
-                    }.into_iter().collect(),
-                }},
+                        accounts: BTreeMap::new(),
+                        name: "test".to_string(),
+                        asset_definitions: btreemap! {
+                            xor_id.clone() =>
+                            AssetDefinitionEntry {
+                                definition: xor_definition,
+                                registered_by: alice_id.clone()
+                            }
+                        }.into_iter().collect(),
+                        metadata: Metadata::new(),
+                    }
+                },
                 btreeset! {},
             ));
             let unregister =
@@ -2081,18 +2087,20 @@ pub mod public_blockchain {
             let wsv = WorldStateView::<World>::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
-                    accounts: BTreeMap::new(),
-                    name: "test".to_string(),
-                    asset_definitions: btreemap! {
-                        xor_id =>
-                        AssetDefinitionEntry {
-                            definition: xor_definition,
-                            registered_by: alice_id.clone()
+                        accounts: BTreeMap::new(),
+                        name: "test".to_string(),
+                        asset_definitions: btreemap! {
+                            xor_id =>
+                            AssetDefinitionEntry {
+                                definition: xor_definition,
+                                registered_by: alice_id.clone()
+                            }
                         }
+                        .into_iter()
+                        .collect(),
+                        metadata: Metadata::new(),
                     }
-                    .into_iter()
-                    .collect(),
-                }},
+                },
                 btreeset! {},
             ));
             let mint = Instruction::Mint(MintBox {
@@ -2185,17 +2193,18 @@ pub mod public_blockchain {
             let wsv = WorldStateView::<World>::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
-                    accounts: BTreeMap::new(),
-                    name: "test".to_string(),
-                    asset_definitions: btreemap! {
-                        xor_id =>
-                        AssetDefinitionEntry {
-                            definition: xor_definition,
-                            registered_by: alice_id.clone()
+                        accounts: BTreeMap::new(),
+                        name: "test".to_string(),
+                        asset_definitions: btreemap! {
+                            xor_id =>
+                            AssetDefinitionEntry {
+                                definition: xor_definition,
+                                registered_by: alice_id.clone()
+                            }
                         }
-                    }
-                    .into_iter()
-                    .collect(),
+                        .into_iter()
+                        .collect(),
+                        metadata: Metadata::new(),
                     }
                 },
                 vec![],
@@ -2427,17 +2436,18 @@ pub mod public_blockchain {
             let wsv = WorldStateView::<World>::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
-                    accounts: BTreeMap::new(),
-                    name: "test".to_string(),
-                    asset_definitions: btreemap! {
-                        xor_id.clone() =>
-                        AssetDefinitionEntry {
-                            definition: xor_definition,
-                            registered_by: alice_id.clone()
+                        accounts: BTreeMap::new(),
+                        name: "test".to_string(),
+                        asset_definitions: btreemap! {
+                            xor_id.clone() =>
+                            AssetDefinitionEntry {
+                                definition: xor_definition,
+                                registered_by: alice_id.clone()
+                            }
                         }
-                    }
-                    .into_iter()
-                    .collect(),
+                        .into_iter()
+                        .collect(),
+                        metadata: Metadata::new(),
                     }
                 },
                 vec![],
@@ -2464,17 +2474,18 @@ pub mod public_blockchain {
             let wsv = WorldStateView::<World>::new(World::with(
                 btreemap! {
                     "test".to_string() => Domain {
-                    accounts: BTreeMap::new(),
-                    name: "test".to_string(),
-                    asset_definitions: btreemap! {
-                        xor_id.clone() =>
-                        AssetDefinitionEntry {
-                            definition: xor_definition,
-                            registered_by: alice_id.clone()
+                        accounts: BTreeMap::new(),
+                        name: "test".to_string(),
+                        asset_definitions: btreemap! {
+                            xor_id.clone() =>
+                            AssetDefinitionEntry {
+                                definition: xor_definition,
+                                registered_by: alice_id.clone()
+                            }
                         }
-                    }
-                    .into_iter()
-                    .collect(),
+                        .into_iter()
+                        .collect(),
+                        metadata: Metadata::new(),
                     }
                 },
                 vec![],

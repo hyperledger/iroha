@@ -1737,6 +1737,7 @@ pub mod domain {
     use crate::{
         account::{Account, AccountsMap, GenesisAccount},
         asset::AssetDefinitionsMap,
+        metadata::Metadata,
         Identifiable, Name, Value,
     };
 
@@ -1770,6 +1771,7 @@ pub mod domain {
                 ))
                 .collect(),
                 asset_definitions: BTreeMap::default(),
+                metadata: Metadata::new(),
             }
         }
     }
@@ -1785,6 +1787,8 @@ pub mod domain {
         pub accounts: AccountsMap,
         /// Assets of the domain.
         pub asset_definitions: AssetDefinitionsMap,
+        /// Metadata of this domain as a key-value store.
+        pub metadata: Metadata,
     }
 
     impl FromStr for Domain {
@@ -1813,6 +1817,7 @@ pub mod domain {
                 name: name.to_owned(),
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
+                metadata: Metadata::new(),
             }
         }
 
@@ -1843,6 +1848,7 @@ pub mod domain {
                 name: name.to_owned(),
                 accounts: accounts_map,
                 asset_definitions: AssetDefinitionsMap::new(),
+                metadata: Metadata::new(),
             }
         }
     }

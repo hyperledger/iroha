@@ -70,6 +70,10 @@ Configuration of iroha is done via options in the following document. Here is de
       "max_len": 1048576,
       "max_entry_byte_size": 4096
     },
+    "DOMAIN_METADATA_LIMITS": {
+      "max_len": 1048576,
+      "max_entry_byte_size": 4096
+    },
     "IDENT_LENGTH_LIMITS": {
       "min": 1,
       "max": 128
@@ -609,6 +613,10 @@ Has type `WorldStateViewConfiguration`. Can be configured via environment variab
     "max_entry_byte_size": 4096,
     "max_len": 1048576
   },
+  "DOMAIN_METADATA_LIMITS": {
+    "max_entry_byte_size": 4096,
+    "max_len": 1048576
+  },
   "IDENT_LENGTH_LIMITS": {
     "max": 128,
     "min": 1
@@ -647,6 +655,19 @@ Has type `MetadataLimits`. Can be configured via environment variable `WSV_ASSET
 [`MetadataLimits`] for every asset with store.
 
 Has type `MetadataLimits`. Can be configured via environment variable `WSV_ASSET_METADATA_LIMITS`
+
+```json
+{
+  "max_entry_byte_size": 4096,
+  "max_len": 1048576
+}
+```
+
+### `wsv_configuration.domain_metadata_limits`
+
+[`MetadataLimits`] of any domain's metadata.
+
+Has type `MetadataLimits`. Can be configured via environment variable `WSV_DOMAIN_METADATA_LIMITS`
 
 ```json
 {

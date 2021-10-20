@@ -10,6 +10,7 @@ use crate::prelude::*;
 /// ISI module contains all instructions related to domains:
 /// - creating/changing assets
 /// - registering/unregistering accounts
+/// - update metadata
 /// - transfer, etc.
 pub mod isi {
     use super::*;
@@ -156,6 +157,48 @@ pub mod isi {
             Ok(())
         }
     }
+
+    impl<W: WorldTrait> Execute<W> for SetKeyValue<Domain, String, Value> {
+        type Error = Error;
+
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Error> {
+            let Self {
+                object_id,
+                key,
+                value,
+            } = self;
+            let limits = wsv.config.domain_metadata_limits;
+            wsv.modify_domain(&object_id, |domain| {
+                domain.metadata.insert_with_limits(key, value, limits)?;
+                Ok(())
+            })?;
+            Ok(())
+        }
+    }
+
+    impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Domain, String> {
+        type Error = Error;
+
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Error> {
+            let Self { object_id, key } = self;
+            wsv.modify_domain(&object_id, |domain| {
+                domain
+                    .metadata
+                    .remove(&key)
+                    .ok_or(FindError::MetadataKey(key))?;
+                Ok(())
+            })?;
+            Ok(())
+        }
+    }
 }
 
 /// Query module provides [`Query`] Domain related implementations.
@@ -183,6 +226,22 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain name")?;
             Ok(wsv.domain(&name)?.clone())
+        }
+    }
+
+    impl<W: WorldTrait> Query<W> for FindDomainKeyValueByIdAndKey {
+        #[log]
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+            let name = self
+                .name
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get domain name")?;
+            let key = self
+                .key
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get key")?;
+            wsv.map_domain(&name, |domain| domain.metadata.get(&key).map(Clone::clone))?
+                .ok_or_else(|| eyre!("No metadata entry with this key."))
         }
     }
 

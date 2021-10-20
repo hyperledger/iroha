@@ -178,6 +178,7 @@ impl<W: WorldTrait> Query<W> for QueryBox {
             FindAssetQuantityById(query) => query.execute_into_value(wsv),
             FindAllDomains(query) => query.execute_into_value(wsv),
             FindDomainByName(query) => query.execute_into_value(wsv),
+            FindDomainKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindAllPeers(query) => query.execute_into_value(wsv),
             FindAssetKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindAccountKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
@@ -261,6 +262,27 @@ mod tests {
         })?;
         let bytes =
             FindAccountKeyValueByIdAndKey::new(account_id, "Bytes".to_owned()).execute(&wsv)?;
+        assert_eq!(
+            bytes,
+            Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn domain_metadata() -> Result<()> {
+        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let domain_name = "wonderland".to_owned();
+        let key = "Bytes".to_owned();
+        wsv.modify_domain(&domain_name, |domain| {
+            domain.metadata.insert_with_limits(
+                key.clone(),
+                Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
+                MetadataLimits::new(10, 100),
+            )?;
+            Ok(())
+        })?;
+        let bytes = FindDomainKeyValueByIdAndKey::new(domain_name, key).execute(&wsv)?;
         assert_eq!(
             bytes,
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])

@@ -232,6 +232,30 @@ impl<W: WorldTrait> WorldStateView<W> {
         Ok(domain)
     }
 
+    /// Get `Domain` and pass it to closure.
+    /// # Errors
+    /// Fails if there is no domain or account
+    pub fn map_domain<T>(
+        &self,
+        id: &<Domain as Identifiable>::Id,
+        f: impl FnOnce(&Domain) -> T,
+    ) -> Result<T> {
+        let domain = self.domain(id)?;
+        Ok(f(domain.value()))
+    }
+
+    /// Get `Domain` and pass it to closure to modify it
+    /// # Errors
+    /// Fails if there is no domain
+    pub fn modify_domain(
+        &self,
+        name: &str,
+        f: impl FnOnce(&mut Domain) -> Result<()>,
+    ) -> Result<()> {
+        let mut domain = self.domain_mut(name)?;
+        f(domain.value_mut())
+    }
+
     /// Get `Account` and pass it to closure.
     /// # Errors
     /// Fails if there is no domain or account
@@ -466,6 +490,8 @@ pub mod config {
         pub asset_definition_metadata_limits: MetadataLimits,
         /// [`MetadataLimits`] of any account's metadata.
         pub account_metadata_limits: MetadataLimits,
+        /// [`MetadataLimits`] of any domain's metadata.
+        pub domain_metadata_limits: MetadataLimits,
         /// [`LengthLimits`]for the number of chars in identifiers that can be stored in the WSV.
         pub ident_length_limits: LengthLimits,
     }
@@ -476,6 +502,7 @@ pub mod config {
                 asset_metadata_limits: DEFAULT_METADATA_LIMITS,
                 asset_definition_metadata_limits: DEFAULT_METADATA_LIMITS,
                 account_metadata_limits: DEFAULT_METADATA_LIMITS,
+                domain_metadata_limits: DEFAULT_METADATA_LIMITS,
                 ident_length_limits: DEFAULT_IDENT_LENGTH_LIMITS,
             }
         }
