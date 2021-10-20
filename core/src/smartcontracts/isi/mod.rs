@@ -327,6 +327,9 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
                 SetKeyValue::<Account, String, Value>::new(account_id, key, value)
                     .execute(authority, wsv)
             }
+            IdBox::DomainName(name) => {
+                SetKeyValue::<Domain, String, Value>::new(name, key, value).execute(authority, wsv)
+            }
             _ => Err(eyre!("Unsupported set key-value instruction.").into()),
         }
     }
@@ -548,6 +551,29 @@ mod tests {
             .metadata
             .get("Bytes")
             .cloned();
+        assert_eq!(
+            bytes,
+            Some(Value::Vec(vec![
+                Value::U32(1),
+                Value::U32(2),
+                Value::U32(3)
+            ]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn domain_metadata() -> Result<()> {
+        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let domain_name = "wonderland".to_owned();
+        let account_id = AccountId::new("alice", "wonderland");
+        SetKeyValueBox::new(
+            IdBox::from(domain_name.clone()),
+            "Bytes".to_owned(),
+            vec![1_u32, 2_u32, 3_u32],
+        )
+        .execute(account_id, &wsv)?;
+        let bytes = wsv.domain(&domain_name)?.metadata.get("Bytes").cloned();
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
