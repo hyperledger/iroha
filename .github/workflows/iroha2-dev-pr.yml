@@ -37,7 +37,7 @@ jobs:
             clang \
             llvm-dev
       - name: Run tests
-        run: cargo test --workspace --no-fail-fast
+        run: cargo test --workspace --no-fail-fast -- --skip unstable_network
 
   test-consensus-with-mock:
     runs-on: [self-hosted, Linux] #ubuntu-latest
@@ -63,7 +63,7 @@ jobs:
             clang \
             llvm-dev
       - name: Run iroha tests with network mock
-        run: cargo test --features mock -- --ignored
+        run: cargo test --features mock -- --ignored --skip unstable_network
         working-directory: core/test_network
 
   test-deadlock-detection:
@@ -89,7 +89,7 @@ jobs:
             clang \
             llvm-dev
       - name: Run iroha_actor deadlock detection tests
-        run: cargo test --features deadlock_detection
+        run: cargo test --features deadlock_detection -- --skip unstable_network
         working-directory: actor
 
   test-api:

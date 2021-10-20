@@ -1,4 +1,4 @@
-name: I2::Dev::Tests (Heavy)
+name: I2::Dev::Tests (Unstable)
 
 on:
   pull_request:
@@ -12,12 +12,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-
 jobs:
-  bench:
-    runs-on: [self-hosted, Linux]
+  test:
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.55-buster
-    if: ${{ false }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -25,9 +24,9 @@ jobs:
           path: |
               ${{ env.CARGO_HOME }}
               target/
-          key: iroha2-rust-bench-${{ hashFiles('Cargo.lock') }}
+          key: iroha2-rust-test-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-              iroha2-rust-bench-
+              iroha2-rust-test
 
       - name: Install dependencies
         run: |
@@ -37,5 +36,5 @@ jobs:
             ca-certificates \
             clang \
             llvm-dev
-      - name: Run benchmarks
-        run: cargo bench --workspace --verbose
+      - name: Run tests
+        run: cargo test -p iroha_client --tests unstable_network
