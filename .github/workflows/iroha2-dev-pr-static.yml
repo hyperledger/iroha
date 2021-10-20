@@ -1,0 +1,50 @@
+name: I2::Dev::Static Analysis
+
+on:
+  pull_request:
+    branches: [iroha2-dev]
+
+
+jobs:
+  check:
+    runs-on: [self-hosted, Linux] #ubuntu-latest
+    container: rust:1.55-buster
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-check-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-check
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev
+      - name: Install clippy
+        run: rustup component add clippy
+      - name: Print all info
+        run: |
+          cargo version
+          lscpu
+          free -h
+      - name: Install cargo-lints
+        run: cargo install cargo-lints
+      - name: Install nightly for rustfmt
+        run: rustup install --profile default nightly-2021-03-24
+      - name: Format check
+        run: cargo +nightly-2021-03-24 fmt --all -- --check
+      - name: Static analysis without features
+        run: cargo lints clippy --workspace --benches --tests
+      - name: Static analysis with all features enabled
+        run: cargo lints clippy --workspace --benches --tests --all-features
+      - name: Documentation check
+        run: |
+          cargo doc --no-deps
+          ./scripts/check_docs.sh

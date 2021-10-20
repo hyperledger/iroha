@@ -1,57 +1,18 @@
-name: Iroha 2 dev branch pull requests workflow
+name: I2::Dev::Tests
 
 on:
   pull_request:
     branches: [iroha2-dev]
+    paths:
+      - '**.rs'
+      - '**.json'
+      - '**.toml'
+      - '**.yml'
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.55-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-              ${{ env.CARGO_HOME }}
-              target/
-          key: iroha2-rust-check-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-              iroha2-rust-check
-
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Install clippy
-        run: rustup component add clippy
-      - name: Print all info
-        run: |
-          cargo version
-          lscpu
-          free -h
-      - name: Install cargo-lints
-        run: cargo install cargo-lints
-      - name: Install nightly for rustfmt
-        run: rustup install --profile default nightly-2021-03-24
-      - name: Format check
-        run: cargo +nightly-2021-03-24 fmt --all -- --check
-      - name: Static analysis without features
-        run: cargo lints clippy --workspace --benches --tests
-      - name: Static analysis with all features enabled
-        run: cargo lints clippy --workspace --benches --tests --all-features
-      - name: Documentation check
-        run: |
-          cargo doc --no-deps
-          ./scripts/check_docs.sh
-
   test:
     runs-on: [self-hosted, Linux] #ubuntu-latest
     container: rust:1.55-buster
@@ -131,111 +92,6 @@ jobs:
         run: cargo test --features deadlock_detection
         working-directory: actor
 
-  test-docker:
-    #runs-on: [ self-hosted, Linux ] #ubuntu-latest
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-              ~/.cargo
-              target/
-          key: iroha2-rust-docker-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-              iroha2-rust-docker-
-
-      - name: Install latest rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: 1.55
-      - name: Install dependencies
-        if: ${{ false }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Build Client CLI
-        run: cargo build
-        working-directory: client_cli
-      - name: Build and push Iroha Docker image
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          push: false
-          tags: hyperledger/iroha2:dev
-
-      - name: Setup docker test environment
-        run: ./scripts/setup_docker_test_env.sh
-      - name: Docker compose genesis test
-        run: bash -c './scripts/test_genesis_docker_compose.sh || ( docker-compose logs; false )'
-      - name: Docker compose test
-        run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
-      - name: Cleanup docker test environment
-        run: ./scripts/cleanup_docker_test_env.sh
-
-
-  print-telemetry:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.55-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-              ${{ env.CARGO_HOME }}
-              target/
-          key: iroha2-rust-telemetry-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-              iroha2-rust-telemetry-
-
-      - name: Run debug tests and save telemetry
-        env:
-          TELEMETRY_FILE: ../target/telemetry/debug.json.lz4
-        run: |
-          mkdir -p target/telemetry
-          cargo test -p iroha_client --all-features -- unstable_network || true
-      - name: Run release tests and save telemetry
-        env:
-          TELEMETRY_FILE: ../target/telemetry/release.json.lz4
-        run: cargo test -p iroha_client --all-features --release -- unstable_network || true
-      - name: Install script dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends lz4 jq
-      - name: Print debug telemetry info
-        run: ./scripts/analyze_telemetry.sh target/telemetry/debug.json.lz4 >target/telemetry/debug.md
-      - name: Print release telemetry info
-        run: ./scripts/analyze_telemetry.sh target/telemetry/release.json.lz4 >target/telemetry/release.md
-      - name: Print debug telemetry info
-        run: |
-          echo '## Debug build'
-          cat target/telemetry/debug.md
-      - name: Print release telemetry info
-        run: |
-          echo '## Release build'
-          cat target/telemetry/release.md
-      - name: Create telemetry comment
-        uses: actions-ecosystem/action-create-comment@v1
-        if: ${{ false }}
-        with:
-          body: |
-            \# Telemetry info
-            \## Debug build
-            ${{ steps.debug-telemetry.outputs.body }}
-            \## Release build
-            ${{ steps.release-telemetry.outputs.body }}
-          github_token: ${{ secrets.github_token }}
-      - name: Archive telemetry
-        uses: actions/upload-artifact@v2
-        with:
-          name: telemetry
-          path: target/telemetry
-
   test-api:
     runs-on: [self-hosted, Linux] #ubuntu-latest
     if: ${{ false }}
@@ -293,11 +149,12 @@ jobs:
         run: rustup component add llvm-tools-preview
       - name: Cargo build
         run: cargo build
+        if: ${{ false }}
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTC_BOOTSTRAP: 1
       - name: Run tests
-        run: cargo test --workspace --no-fail-fast -- --test-threads=1 || true
+        run: cargo test --workspace --no-fail-fast -- --test-threads 1 || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTC_BOOTSTRAP: 1
@@ -309,28 +166,4 @@ jobs:
         with:
           file: lcov.info
 
-  bench:
-    runs-on: [self-hosted, Linux]
-    container: rust:1.55-buster
-    if: ${{ false }}
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-              ${{ env.CARGO_HOME }}
-              target/
-          key: iroha2-rust-bench-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-              iroha2-rust-bench-
 
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Run benchmarks
-        run: cargo bench --workspace --verbose
