@@ -154,7 +154,7 @@ jobs:
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTC_BOOTSTRAP: 1
       - name: Run tests
-        run: cargo test --workspace --no-fail-fast -- --test-threads 1 || true
+        run: cargo test --workspace --no-fail-fast -- || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTC_BOOTSTRAP: 1
