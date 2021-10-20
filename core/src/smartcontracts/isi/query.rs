@@ -270,8 +270,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_transaction() -> Result<()> {
-        let mut wsv = WorldStateView::new(world_with_test_domains()?);
-
+        let domains = DomainsMap::new();
         let mut domain = Domain::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
         let mut account = Account::new(account_id.clone());
@@ -279,7 +278,9 @@ mod tests {
         account.signatories.push(key_pair.public_key.clone());
         domain.accounts.insert(account_id.clone(), account);
         let mut block = PendingBlock::new(Vec::new());
-        wsv.add_domain(domain);
+        domains.insert("wonderland".to_string(), domain);
+        let world = World::with(domains, PeersIds::new());
+        let wsv = WorldStateView::new(world);
 
         let trx = Transaction::new(vec![], account_id, 4000);
         let signed_trx = trx.sign(&key_pair)?;
@@ -287,18 +288,17 @@ mod tests {
         block.transactions.push(vatrx.clone());
         let vcb = block
             .chain_first()
-            .validate(
-                &WorldStateView::new(World::new()),
-                &AllowAll.into(),
-                &AllowAll.into(),
-            )
+            .validate(&wsv, &AllowAll.into(), &AllowAll.into())
             .sign(key_pair.clone())
             .expect("Failed to sign blocks.")
             .commit();
         wsv.apply(vcb).await;
 
-        let bytes = FindTransactionByHash::new(Hash::from(vatrx.hash())).execute(&wsv)?;
-        println!("{:?}", bytes);
+        let result = FindTransactionByHash::new(Hash::from(vatrx.hash())).execute(&wsv)?;
+        match result {
+            TransactionValue::Transaction(trx) => assert_eq!(vatrx.hash(), trx.hash()),
+            TransactionValue::RejectedTransaction(trx) => assert_eq!(vatrx.hash(), trx.hash()),
+        }
         Ok(())
     }
 }

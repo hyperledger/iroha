@@ -399,7 +399,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .find(|e| e.hash() == *hash)
                 .cloned()
                 .map(TransactionValue::RejectedTransaction)
-                .ok_or_else(|| {
+                .or_else(|| {
                     b.as_inner_v1()
                         .transactions
                         .iter()
@@ -408,7 +408,6 @@ impl<W: WorldTrait> WorldStateView<W> {
                         .map(VersionedTransaction::from)
                         .map(TransactionValue::Transaction)
                 })
-                .ok()
         })
     }
 
