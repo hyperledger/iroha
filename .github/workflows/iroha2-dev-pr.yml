@@ -78,7 +78,7 @@ jobs:
               target/
           key: iroha2-rust-deadlock-detection-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-              iroha2-rust-deadlock-detection-
+              iroha2-rust-deadlock-detection
 
       - name: Install dependencies
         run: |
@@ -133,6 +133,14 @@ jobs:
     container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-test-coverage-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-test-coverage
       - name: Install dependencies
         run: |
           apt-get update
