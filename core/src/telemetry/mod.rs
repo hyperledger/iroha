@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 
 #[cfg(feature = "dev-telemetry")]
-#[derive(Clone, Default, Deserialize, Serialize, Debug, Configurable)]
+#[derive(Clone, Default, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
 pub struct Configuration {
     #[config(serde_as_str)]
     pub telemetry_file: Option<PathBuf>,

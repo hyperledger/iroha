@@ -62,24 +62,22 @@ Server sends `Event` and expects `EventReceived` after each, before sending the 
 
 **Encoding**: Json
 
-**Endpoint**: `/configure`
+**Endpoint**: `/configuration`
 
-**Method**: `GET` or `PUT`
+**Method**: `GET`
 
-**Expects** on `GET`:
-Query parameter "docs" can be set to boolean (indecates whether should return documentation or field value)
-Request body is json with field "field", which is array of strings.
+**Expects**:
+There are 2 variants:
+- It either expects json body `"Value"` and returns configuration value as json
+- Or it expects json body like below and returns documentation for specific field (as json string) or null (here for field `a.b.c`):
+```json
+{
+    "Docs": ["a", "b", "c"]
+}
+```
 
-**Responses** on `GET`:
+**Responses**:
 - 200 OK - Field was found and either doc or value is returned in json body.
-- 404 Not Found - Field wasn't found
-
-**Expects** on `PUT`:
-Json body with fields "field" (array of strings) and "value" which can be anything.
-
-**Responses** on `PUT`:
-- 200 OK - Field was found and value is valid
-- 400 Bad Request - Value for field is invalid
 - 404 Not Found - Field wasn't found
 
 ### Health

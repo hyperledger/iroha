@@ -3,8 +3,8 @@
 
 use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 
-use config::ToriiConfiguration;
-use iroha_config::{derive::Error as ConfigError, Configurable};
+use eyre::Context;
+use iroha_config::Configurable;
 use iroha_data_model::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -33,7 +33,7 @@ use crate::{
 
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii<W: WorldTrait> {
-    config: ToriiConfiguration,
+    iroha_cfg: Configuration,
     wsv: Arc<WorldStateView<W>>,
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
@@ -68,8 +68,8 @@ pub enum Error {
     #[error("Transaction is too big")]
     TxTooBig,
     /// Error while getting or setting configuration
-    #[error("Configuration error")]
-    Config(#[source] ConfigError),
+    #[error("Configuration error: {0}")]
+    Config(eyre::Error),
     /// Failed to push into queue.
     #[error("Failed to push into queue")]
     PushIntoQueue(#[source] Box<queue::Error>),
@@ -117,14 +117,14 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 impl<W: WorldTrait> Torii<W> {
     /// Construct `Torii` from `ToriiConfiguration`.
     pub fn from_configuration(
-        config: ToriiConfiguration,
+        iroha_cfg: Configuration,
         wsv: Arc<WorldStateView<W>>,
         queue: Arc<Queue>,
         query_validator: Arc<IsQueryAllowedBoxed<W>>,
         events: EventsSender,
     ) -> Self {
         Self {
-            config,
+            iroha_cfg,
             wsv,
             events,
             query_validator,
@@ -136,11 +136,11 @@ impl<W: WorldTrait> Torii<W> {
     fn create_state(&self) -> ToriiState<W> {
         let wsv = Arc::clone(&self.wsv);
         let queue = Arc::clone(&self.queue);
-        let config = self.config.clone();
+        let iroha_cfg = self.iroha_cfg.clone();
         let query_validator = Arc::clone(&self.query_validator);
 
         Arc::new(InnerToriiState {
-            config,
+            iroha_cfg,
             wsv,
             queue,
             query_validator,
@@ -178,7 +178,7 @@ impl<W: WorldTrait> Torii<W> {
             .or(endpoint2(
                 handle_get_configuration,
                 warp::path(uri::CONFIGURATION)
-                    .and(warp::query())
+                    .and(add_state(Arc::clone(&state)))
                     .and(warp::body::json()),
             ));
 
@@ -187,7 +187,7 @@ impl<W: WorldTrait> Torii<W> {
             warp::path(uri::TRANSACTION)
                 .and(add_state(Arc::clone(&state)))
                 .and(warp::body::content_length_limit(
-                    state.config.torii_max_sumeragi_message_size as u64,
+                    state.iroha_cfg.torii.max_sumeragi_message_size as u64,
                 ))
                 .and(body::versioned()),
         )
@@ -217,7 +217,7 @@ impl<W: WorldTrait> Torii<W> {
             .with(warp::trace::request())
             .recover(recover_arg_parse);
 
-        match self.config.torii_api_url.to_socket_addrs() {
+        match self.iroha_cfg.torii.api_url.to_socket_addrs() {
             Ok(mut i) => {
                 #[allow(clippy::expect_used)]
                 let addr = i.next().expect("Failed to get socket addr");
@@ -233,7 +233,7 @@ impl<W: WorldTrait> Torii<W> {
 }
 
 struct InnerToriiState<W: WorldTrait> {
-    config: ToriiConfiguration,
+    iroha_cfg: Configuration,
     wsv: Arc<WorldStateView<W>>,
     queue: Arc<Queue>,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
@@ -249,7 +249,7 @@ async fn handle_instructions<W: WorldTrait>(
     let transaction: Transaction = transaction.into_inner_v1();
     let transaction = VersionedAcceptedTransaction::from_transaction(
         transaction,
-        state.config.torii_max_instruction_number,
+        state.iroha_cfg.torii.max_instruction_number,
     )
     .map_err(Error::AcceptTransaction)?;
     #[allow(clippy::map_err_ignore)]
@@ -314,39 +314,36 @@ async fn handle_pending_transactions<W: WorldTrait>(
     ))
 }
 
-#[derive(Clone, Debug, Deserialize)]
-enum GetConfigurationType {
-    Docs,
+/// Json config for getting configuration
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum GetConfiguration {
+    /// Getting docs of specific field
+    Docs {
+        /// Path to field, like `a.b.c` would be `["a", "b", "c"]`
+        field: Vec<String>,
+    },
+    /// Getting value of configuration
     Value,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct GetConfiguration {
-    field: Vec<String>,
-}
-
 #[iroha_futures::telemetry_future]
-async fn handle_get_configuration(
-    ty: GetConfigurationType,
-    GetConfiguration { field }: GetConfiguration,
+async fn handle_get_configuration<W: WorldTrait>(
+    state: ToriiState<W>,
+    get_cfg: GetConfiguration,
 ) -> Result<Json> {
-    use GetConfigurationType::*;
+    use GetConfiguration::*;
 
-    let field = field.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
-
-    #[allow(clippy::todo)]
-    match ty {
-        Docs => Configuration::get_doc_recursive(field)
-            .map(|doc| {
-                if let Some(doc) = doc {
-                    serde_json::json!(doc)
-                } else {
-                    serde_json::json!(null)
-                }
-            })
-            .map(|v| reply::json(&v)),
-        Value => todo!(),
+    match get_cfg {
+        Docs { field } => {
+            Configuration::get_doc_recursive(field.iter().map(AsRef::as_ref).collect::<Vec<&str>>())
+                .wrap_err("Failed to get docs")
+                .and_then(|doc| serde_json::to_value(doc).wrap_err("Failed to serialize docs"))
+        }
+        Value => {
+            serde_json::to_value(state.iroha_cfg.clone()).wrap_err("Failed to serialize value")
+        }
     }
+    .map(|v| reply::json(&v))
     .map_err(Error::Config)
 }
 
@@ -384,7 +381,7 @@ pub mod uri {
     /// Get pending transactions.
     pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
     /// The URI for local config changing inspecting
-    pub const CONFIGURATION: &str = "configure";
+    pub const CONFIGURATION: &str = "configuration";
 }
 
 /// This module contains all configuration related logic.
@@ -399,30 +396,31 @@ pub mod config {
     const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
-    #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(default)]
+    #[config(env_prefix = "TORII_")]
     pub struct ToriiConfiguration {
         /// Torii URL for p2p communication for consensus and block synchronization purposes.
-        pub torii_p2p_addr: String,
+        pub p2p_addr: String,
         /// Torii URL for client API.
-        pub torii_api_url: String,
+        pub api_url: String,
         /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
-        pub torii_max_transaction_size: usize,
+        pub max_transaction_size: usize,
         /// Maximum number of bytes in raw message. Used to prevent from DOS attacks.
-        pub torii_max_sumeragi_message_size: usize,
+        pub max_sumeragi_message_size: usize,
         /// Maximum number of instruction per transaction. Used to prevent from DOS attacks.
-        pub torii_max_instruction_number: u64,
+        pub max_instruction_number: u64,
     }
 
     impl Default for ToriiConfiguration {
         fn default() -> Self {
             Self {
-                torii_api_url: DEFAULT_TORII_API_URL.to_owned(),
-                torii_p2p_addr: DEFAULT_TORII_P2P_ADDR.to_owned(),
-                torii_max_transaction_size: DEFAULT_TORII_MAX_TRANSACTION_SIZE,
-                torii_max_sumeragi_message_size: DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE,
-                torii_max_instruction_number: DEFAULT_TORII_MAX_INSTRUCTION_NUMBER,
+                api_url: DEFAULT_TORII_API_URL.to_owned(),
+                p2p_addr: DEFAULT_TORII_P2P_ADDR.to_owned(),
+                max_transaction_size: DEFAULT_TORII_MAX_TRANSACTION_SIZE,
+                max_sumeragi_message_size: DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE,
+                max_instruction_number: DEFAULT_TORII_MAX_INSTRUCTION_NUMBER,
             }
         }
     }
@@ -470,16 +468,10 @@ mod tests {
                 )),
             ),
         );
-        let queue = Arc::new(Queue::from_configuration(&config.queue_configuration));
+        let queue = Arc::new(Queue::from_configuration(&config.queue));
 
         (
-            Torii::from_configuration(
-                config.torii_configuration,
-                wsv,
-                queue,
-                Arc::new(AllowAll.into()),
-                events,
-            ),
+            Torii::from_configuration(config, wsv, queue, Arc::new(AllowAll.into()), events),
             keys,
         )
     }

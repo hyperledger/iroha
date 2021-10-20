@@ -164,11 +164,11 @@ impl GenesisNetworkTrait for GenesisNetwork {
             serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")?;
         let genesis_key_pair = KeyPair {
             public_key: genesis_config
-                .genesis_account_public_key
+                .account_public_key
                 .clone()
                 .ok_or_else(|| eyre!("Genesis account public key is empty."))?,
             private_key: genesis_config
-                .genesis_account_private_key
+                .account_private_key
                 .clone()
                 .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
         };
@@ -251,19 +251,19 @@ pub mod config {
     const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT: u64 = 100;
     const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
 
-    #[derive(Clone, Deserialize, Serialize, Debug, Default, Configurable)]
+    #[derive(Clone, Deserialize, Serialize, Debug, Default, Configurable, PartialEq, Eq)]
     #[serde(rename_all = "UPPERCASE")]
-    #[config(env_prefix = "IROHA_")]
+    #[config(env_prefix = "IROHA_GENESIS_")]
     /// Configuration of the genesis block and its submission process.
     pub struct GenesisConfiguration {
         /// Genesis account public key, should be supplied to all the peers.
         /// The type is `Option` just because it might be loaded from environment variables and not from `config.json`.
         #[serde(default)]
         #[config(serde_as_str)]
-        pub genesis_account_public_key: Option<PublicKey>,
+        pub account_public_key: Option<PublicKey>,
         /// Genesis account private key, only needed on the peer that submits the genesis block.
         #[serde(default)]
-        pub genesis_account_private_key: Option<PrivateKey>,
+        pub account_private_key: Option<PrivateKey>,
         /// Number of attempts to connect to peers, while waiting for them to submit genesis.
         #[serde(default = "default_wait_for_peers_retry_count")]
         pub wait_for_peers_retry_count: u64,
@@ -294,8 +294,8 @@ mod tests {
             true,
             GENESIS_BLOCK_PATH,
             &GenesisConfiguration {
-                genesis_account_public_key: Some(genesis_key_pair.public_key),
-                genesis_account_private_key: Some(genesis_key_pair.private_key),
+                account_public_key: Some(genesis_key_pair.public_key),
+                account_private_key: Some(genesis_key_pair.private_key),
                 ..GenesisConfiguration::default()
             },
             4096,

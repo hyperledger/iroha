@@ -141,7 +141,7 @@ impl KeyGenConfiguration {
 }
 
 /// Pair of Public and Private keys.
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq)]
 pub struct KeyPair {
     /// Public Key.
     pub public_key: PublicKey,
@@ -293,7 +293,7 @@ impl<'de> Deserialize<'de> for PublicKey {
 }
 
 /// Private Key used in signatures.
-#[derive(Clone, Deserialize, PartialEq, Default, Serialize)]
+#[derive(Clone, Deserialize, PartialEq, Eq, Default, Serialize)]
 pub struct PrivateKey {
     /// Digest function
     pub digest_function: String,

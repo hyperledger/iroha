@@ -108,18 +108,16 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
         .expect("Failed to load trusted peers.");
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
-    configuration.sumeragi_configuration.trusted_peers.peers =
-        std::iter::once(peer.id.clone()).collect();
+    configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
 
-    let pipeline_time =
-        Duration::from_millis(configuration.sumeragi_configuration.pipeline_time_ms());
+    let pipeline_time = Duration::from_millis(configuration.sumeragi.pipeline_time_ms());
 
     // Given
     let genesis = GenesisNetwork::from_configuration(
         true,
         GENESIS_PATH,
-        &configuration.genesis_configuration,
-        configuration.sumeragi_configuration.max_instruction_number,
+        &configuration.genesis,
+        configuration.sumeragi.max_instruction_number,
     )
     .unwrap();
     let rt = Runtime::test();

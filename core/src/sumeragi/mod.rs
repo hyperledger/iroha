@@ -1560,7 +1560,7 @@ pub mod config {
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
-    #[derive(Clone, Debug, Deserialize, Serialize, Configurable)]
+    #[derive(Clone, Debug, Deserialize, Serialize, Configurable, PartialEq, Eq)]
     #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "SUMERAGI_")]
@@ -1622,7 +1622,7 @@ pub mod config {
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
-    #[derive(Default, Clone, Debug, Deserialize, Serialize)]
+    #[derive(Default, Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(transparent)]
     pub struct TrustedPeers {

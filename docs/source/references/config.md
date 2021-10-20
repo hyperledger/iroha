@@ -9,13 +9,13 @@ Configuration of iroha is done via options in the following document. Here is de
     "digest_function": "",
     "payload": ""
   },
-  "KURA_CONFIGURATION": {
+  "KURA": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./blocks",
     "BLOCKS_PER_STORAGE_FILE": 1000,
     "MAILBOX": 100
   },
-  "SUMERAGI_CONFIGURATION": {
+  "SUMERAGI": {
     "PEER_ID": {
       "address": "",
       "public_key": "ed0100"
@@ -28,36 +28,36 @@ Configuration of iroha is done via options in the following document. Here is de
     "MAX_INSTRUCTION_NUMBER": 4096,
     "MAILBOX": 100
   },
-  "TORII_CONFIGURATION": {
-    "TORII_P2P_ADDR": "127.0.0.1:1337",
-    "TORII_API_URL": "127.0.0.1:8080",
-    "TORII_MAX_TRANSACTION_SIZE": 32768,
-    "TORII_MAX_SUMERAGI_MESSAGE_SIZE": 16384000,
-    "TORII_MAX_INSTRUCTION_NUMBER": 4096
+  "TORII": {
+    "P2P_ADDR": "127.0.0.1:1337",
+    "API_URL": "127.0.0.1:8080",
+    "MAX_TRANSACTION_SIZE": 32768,
+    "MAX_SUMERAGI_MESSAGE_SIZE": 16384000,
+    "MAX_INSTRUCTION_NUMBER": 4096
   },
-  "BLOCK_SYNC_CONFIGURATION": {
+  "BLOCK_SYNC": {
     "GOSSIP_PERIOD_MS": 10000,
     "BATCH_SIZE": 4,
     "MAILBOX": 100
   },
-  "QUEUE_CONFIGURATION": {
+  "QUEUE": {
     "MAXIMUM_TRANSACTIONS_IN_BLOCK": 8192,
     "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000
   },
-  "LOGGER_CONFIGURATION": {
+  "LOGGER": {
     "MAX_LOG_LEVEL": "DEBUG",
     "TELEMETRY_CAPACITY": 1000,
     "COMPACT_MODE": false,
     "LOG_FILE_PATH": null
   },
-  "GENESIS_CONFIGURATION": {
-    "GENESIS_ACCOUNT_PUBLIC_KEY": null,
-    "GENESIS_ACCOUNT_PRIVATE_KEY": null,
+  "GENESIS": {
+    "ACCOUNT_PUBLIC_KEY": null,
+    "ACCOUNT_PRIVATE_KEY": null,
     "WAIT_FOR_PEERS_RETRY_COUNT": 0,
     "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 0
   },
-  "WSV_CONFIGURATION": {
+  "WSV": {
     "ASSET_METADATA_LIMITS": {
       "max_len": 1048576,
       "max_entry_byte_size": 4096
@@ -84,11 +84,11 @@ Configuration of iroha is done via options in the following document. Here is de
 }
 ```
 
-## `block_sync_configuration`
+## `block_sync`
 
 `BlockSynchronizer` configuration.
 
-Has type `BlockSyncConfiguration`. Can be configured via environment variable `IROHA_BLOCK_SYNC_CONFIGURATION`
+Has type `BlockSyncConfiguration`. Can be configured via environment variable `IROHA_BLOCK_SYNC`
 
 ```json
 {
@@ -98,7 +98,7 @@ Has type `BlockSyncConfiguration`. Can be configured via environment variable `I
 }
 ```
 
-### `block_sync_configuration.batch_size`
+### `block_sync.batch_size`
 
 The number of blocks, which can be send in one message.
 
@@ -108,7 +108,7 @@ Has type `u32`. Can be configured via environment variable `BLOCK_SYNC_BATCH_SIZ
 4
 ```
 
-### `block_sync_configuration.gossip_period_ms`
+### `block_sync.gossip_period_ms`
 
 The time between peer sharing its latest block hash with other peers in milliseconds.
 
@@ -118,7 +118,7 @@ Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PE
 10000
 ```
 
-### `block_sync_configuration.mailbox`
+### `block_sync.mailbox`
 
 Mailbox size
 
@@ -128,22 +128,22 @@ Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_MAILBOX
 100
 ```
 
-## `genesis_configuration`
+## `genesis`
 
 Configuration for `GenesisBlock`.
 
-Has type `GenesisConfiguration`. Can be configured via environment variable `IROHA_GENESIS_CONFIGURATION`
+Has type `GenesisConfiguration`. Can be configured via environment variable `IROHA_GENESIS`
 
 ```json
 {
-  "GENESIS_ACCOUNT_PRIVATE_KEY": null,
-  "GENESIS_ACCOUNT_PUBLIC_KEY": null,
+  "ACCOUNT_PRIVATE_KEY": null,
+  "ACCOUNT_PUBLIC_KEY": null,
   "WAIT_FOR_PEERS_RETRY_COUNT": 0,
   "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 0
 }
 ```
 
-### `genesis_configuration.genesis_account_private_key`
+### `genesis.account_private_key`
 
 Genesis account private key, only needed on the peer that submits the genesis block.
 
@@ -153,7 +153,7 @@ Has type `Option<PrivateKey>`. Can be configured via environment variable `IROHA
 null
 ```
 
-### `genesis_configuration.genesis_account_public_key`
+### `genesis.account_public_key`
 
 Genesis account public key, should be supplied to all the peers.
 
@@ -163,31 +163,31 @@ Has type `Option<PublicKey>`. Can be configured via environment variable `IROHA_
 null
 ```
 
-### `genesis_configuration.wait_for_peers_retry_count`
+### `genesis.wait_for_peers_retry_count`
 
 Number of attempts to connect to peers, while waiting for them to submit genesis.
 
-Has type `u64`. Can be configured via environment variable `IROHA_WAIT_FOR_PEERS_RETRY_COUNT`
+Has type `u64`. Can be configured via environment variable `IROHA_GENESIS_WAIT_FOR_PEERS_RETRY_COUNT`
 
 ```json
 0
 ```
 
-### `genesis_configuration.wait_for_peers_retry_period_ms`
+### `genesis.wait_for_peers_retry_period_ms`
 
 Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
 
-Has type `u64`. Can be configured via environment variable `IROHA_WAIT_FOR_PEERS_RETRY_PERIOD_MS`
+Has type `u64`. Can be configured via environment variable `IROHA_GENESIS_WAIT_FOR_PEERS_RETRY_PERIOD_MS`
 
 ```json
 0
 ```
 
-## `kura_configuration`
+## `kura`
 
 `Kura` related configuration.
 
-Has type `KuraConfiguration`. Can be configured via environment variable `IROHA_KURA_CONFIGURATION`
+Has type `KuraConfiguration`. Can be configured via environment variable `IROHA_KURA`
 
 ```json
 {
@@ -198,7 +198,7 @@ Has type `KuraConfiguration`. Can be configured via environment variable `IROHA_
 }
 ```
 
-### `kura_configuration.block_store_path`
+### `kura.block_store_path`
 
 Path to the existing block store folder or path to create new folder.
 
@@ -208,7 +208,7 @@ Has type `String`. Can be configured via environment variable `KURA_BLOCK_STORE_
 "./blocks"
 ```
 
-### `kura_configuration.blocks_per_storage_file`
+### `kura.blocks_per_storage_file`
 
 Maximum number of blocks to write into single storage file
 
@@ -218,7 +218,7 @@ Has type `NonZeroU64`. Can be configured via environment variable `KURA_BLOCKS_P
 1000
 ```
 
-### `kura_configuration.init_mode`
+### `kura.init_mode`
 
 Possible modes: `strict`, `fast`.
 
@@ -228,7 +228,7 @@ Has type `Mode`. Can be configured via environment variable `KURA_INIT_MODE`
 "strict"
 ```
 
-### `kura_configuration.mailbox`
+### `kura.mailbox`
 
 Default mailbox size
 
@@ -238,11 +238,11 @@ Has type `usize`. Can be configured via environment variable `KURA_MAILBOX`
 100
 ```
 
-## `logger_configuration`
+## `logger`
 
 `Logger` configuration.
 
-Has type `LoggerConfiguration`. Can be configured via environment variable `IROHA_LOGGER_CONFIGURATION`
+Has type `LoggerConfiguration`. Can be configured via environment variable `IROHA_LOGGER`
 
 ```json
 {
@@ -253,7 +253,7 @@ Has type `LoggerConfiguration`. Can be configured via environment variable `IROH
 }
 ```
 
-### `logger_configuration.compact_mode`
+### `logger.compact_mode`
 
 Compact mode (no spans from telemetry)
 
@@ -263,7 +263,7 @@ Has type `bool`. Can be configured via environment variable `COMPACT_MODE`
 false
 ```
 
-### `logger_configuration.log_file_path`
+### `logger.log_file_path`
 
 If provided, logs will be copied to said file in the
 
@@ -273,7 +273,7 @@ Has type `Option<PathBuf>`. Can be configured via environment variable `LOG_FILE
 null
 ```
 
-### `logger_configuration.max_log_level`
+### `logger.max_log_level`
 
 Maximum log level
 
@@ -283,7 +283,7 @@ Has type `LevelEnv`. Can be configured via environment variable `MAX_LOG_LEVEL`
 "DEBUG"
 ```
 
-### `logger_configuration.telemetry_capacity`
+### `logger.telemetry_capacity`
 
 Capacity (or batch size) for telemetry channel
 
@@ -338,11 +338,11 @@ Has type `PublicKey`. Can be configured via environment variable `IROHA_PUBLIC_K
 "ed0100"
 ```
 
-## `queue_configuration`
+## `queue`
 
 `Queue` configuration.
 
-Has type `QueueConfiguration`. Can be configured via environment variable `IROHA_QUEUE_CONFIGURATION`
+Has type `QueueConfiguration`. Can be configured via environment variable `IROHA_QUEUE`
 
 ```json
 {
@@ -352,7 +352,7 @@ Has type `QueueConfiguration`. Can be configured via environment variable `IROHA
 }
 ```
 
-### `queue_configuration.maximum_transactions_in_block`
+### `queue.maximum_transactions_in_block`
 
 The upper limit of the number of transactions per block.
 
@@ -362,7 +362,7 @@ Has type `u32`. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSA
 8192
 ```
 
-### `queue_configuration.maximum_transactions_in_queue`
+### `queue.maximum_transactions_in_queue`
 
 The upper limit of the number of transactions waiting in this queue.
 
@@ -372,7 +372,7 @@ Has type `u32`. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSA
 65536
 ```
 
-### `queue_configuration.transaction_time_to_live_ms`
+### `queue.transaction_time_to_live_ms`
 
 The transaction will be dropped after this time if it is still in a `Queue`.
 
@@ -382,11 +382,11 @@ Has type `u64`. Can be configured via environment variable `QUEUE_TRANSACTION_TI
 86400000
 ```
 
-## `sumeragi_configuration`
+## `sumeragi`
 
 `Sumeragi` related configuration.
 
-Has type `SumeragiConfiguration`. Can be configured via environment variable `IROHA_SUMERAGI_CONFIGURATION`
+Has type `SumeragiConfiguration`. Can be configured via environment variable `IROHA_SUMERAGI`
 
 ```json
 {
@@ -404,7 +404,7 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
 }
 ```
 
-### `sumeragi_configuration.block_time_ms`
+### `sumeragi.block_time_ms`
 
 Amount of time peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
 
@@ -414,7 +414,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_BLOCK_TIME_
 1000
 ```
 
-### `sumeragi_configuration.commit_time_ms`
+### `sumeragi.commit_time_ms`
 
 Amount of time Peer waits for CommitMessage from the proxy tail.
 
@@ -424,7 +424,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_COMMIT_TIME
 1000
 ```
 
-### `sumeragi_configuration.key_pair`
+### `sumeragi.key_pair`
 
 Key pair of private and public keys.
 
@@ -440,7 +440,7 @@ Has type `KeyPair`. Can be configured via environment variable `SUMERAGI_KEY_PAI
 }
 ```
 
-### `sumeragi_configuration.mailbox`
+### `sumeragi.mailbox`
 
 Mailbox size
 
@@ -450,7 +450,7 @@ Has type `usize`. Can be configured via environment variable `SUMERAGI_MAILBOX`
 100
 ```
 
-### `sumeragi_configuration.max_instruction_number`
+### `sumeragi.max_instruction_number`
 
 Maximum instruction number per transaction
 
@@ -460,7 +460,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_MAX_INSTRUC
 4096
 ```
 
-### `sumeragi_configuration.n_topology_shifts_before_reshuffle`
+### `sumeragi.n_topology_shifts_before_reshuffle`
 
 After N view changes topology will change tactic from shifting by one, to reshuffle.
 
@@ -470,7 +470,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_N_TOPOLOGY_
 1
 ```
 
-### `sumeragi_configuration.peer_id`
+### `sumeragi.peer_id`
 
 Current Peer Identification.
 
@@ -483,7 +483,7 @@ Has type `PeerId`. Can be configured via environment variable `SUMERAGI_PEER_ID`
 }
 ```
 
-### `sumeragi_configuration.trusted_peers`
+### `sumeragi.trusted_peers`
 
 Optional list of predefined trusted peers.
 
@@ -493,7 +493,7 @@ Has type `TrustedPeers`. Can be configured via environment variable `SUMERAGI_TR
 []
 ```
 
-### `sumeragi_configuration.tx_receipt_time_ms`
+### `sumeragi.tx_receipt_time_ms`
 
 Amount of time Peer waits for TxReceipt from the leader.
 
@@ -523,23 +523,23 @@ Has type `Option<PathBuf>`. Can be configured via environment variable `TELEMETR
 null
 ```
 
-## `torii_configuration`
+## `torii`
 
 `Torii` related configuration.
 
-Has type `ToriiConfiguration`. Can be configured via environment variable `IROHA_TORII_CONFIGURATION`
+Has type `ToriiConfiguration`. Can be configured via environment variable `IROHA_TORII`
 
 ```json
 {
-  "TORII_API_URL": "127.0.0.1:8080",
-  "TORII_MAX_INSTRUCTION_NUMBER": 4096,
-  "TORII_MAX_SUMERAGI_MESSAGE_SIZE": 16384000,
-  "TORII_MAX_TRANSACTION_SIZE": 32768,
-  "TORII_P2P_ADDR": "127.0.0.1:1337"
+  "API_URL": "127.0.0.1:8080",
+  "MAX_INSTRUCTION_NUMBER": 4096,
+  "MAX_SUMERAGI_MESSAGE_SIZE": 16384000,
+  "MAX_TRANSACTION_SIZE": 32768,
+  "P2P_ADDR": "127.0.0.1:1337"
 }
 ```
 
-### `torii_configuration.torii_api_url`
+### `torii.api_url`
 
 Torii URL for client API.
 
@@ -549,7 +549,7 @@ Has type `String`. Can be configured via environment variable `TORII_API_URL`
 "127.0.0.1:8080"
 ```
 
-### `torii_configuration.torii_max_instruction_number`
+### `torii.max_instruction_number`
 
 Maximum number of instruction per transaction. Used to prevent from DOS attacks.
 
@@ -559,7 +559,7 @@ Has type `u64`. Can be configured via environment variable `TORII_MAX_INSTRUCTIO
 4096
 ```
 
-### `torii_configuration.torii_max_sumeragi_message_size`
+### `torii.max_sumeragi_message_size`
 
 Maximum number of bytes in raw message. Used to prevent from DOS attacks.
 
@@ -569,7 +569,7 @@ Has type `usize`. Can be configured via environment variable `TORII_MAX_SUMERAGI
 16384000
 ```
 
-### `torii_configuration.torii_max_transaction_size`
+### `torii.max_transaction_size`
 
 Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
 
@@ -579,7 +579,7 @@ Has type `usize`. Can be configured via environment variable `TORII_MAX_TRANSACT
 32768
 ```
 
-### `torii_configuration.torii_p2p_addr`
+### `torii.p2p_addr`
 
 Torii URL for p2p communication for consensus and block synchronization purposes.
 
@@ -589,11 +589,11 @@ Has type `String`. Can be configured via environment variable `TORII_P2P_ADDR`
 "127.0.0.1:1337"
 ```
 
-## `wsv_configuration`
+## `wsv`
 
 Configuration for [`WorldStateView`](crate::wsv::WorldStateView).
 
-Has type `WorldStateViewConfiguration`. Can be configured via environment variable `IROHA_WSV_CONFIGURATION`
+Has type `WorldStateViewConfiguration`. Can be configured via environment variable `IROHA_WSV`
 
 ```json
 {
@@ -616,7 +616,7 @@ Has type `WorldStateViewConfiguration`. Can be configured via environment variab
 }
 ```
 
-### `wsv_configuration.account_metadata_limits`
+### `wsv.account_metadata_limits`
 
 [`MetadataLimits`] of any account's metadata.
 
@@ -629,7 +629,7 @@ Has type `MetadataLimits`. Can be configured via environment variable `WSV_ACCOU
 }
 ```
 
-### `wsv_configuration.asset_definition_metadata_limits`
+### `wsv.asset_definition_metadata_limits`
 
 [`MetadataLimits`] of any asset definition's metadata.
 
@@ -642,7 +642,7 @@ Has type `MetadataLimits`. Can be configured via environment variable `WSV_ASSET
 }
 ```
 
-### `wsv_configuration.asset_metadata_limits`
+### `wsv.asset_metadata_limits`
 
 [`MetadataLimits`] for every asset with store.
 
@@ -655,7 +655,7 @@ Has type `MetadataLimits`. Can be configured via environment variable `WSV_ASSET
 }
 ```
 
-### `wsv_configuration.ident_length_limits`
+### `wsv.ident_length_limits`
 
 [`LengthLimits`]for the number of chars in identifiers that can be stored in the WSV.
 
