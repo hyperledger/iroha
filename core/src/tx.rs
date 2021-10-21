@@ -343,11 +343,11 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
                     .iter()
                     .cloned()
                     .collect::<BTreeSet<_>>();
-                let trx = Transaction {
+                let tx = Transaction {
                     payload: transaction.payload,
                     signatures,
                 };
-                trx.into()
+                tx.into()
             }
         }
     }
