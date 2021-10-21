@@ -46,31 +46,31 @@ where
     E: Encryptor + Send + 'static,
 {
     /// Peer identification
-    pub id: PeerId,
+    id: PeerId,
     /// A unique connection id
-    pub connection_id: ConnectionId,
+    connection_id: ConnectionId,
     /// Reading half of `TcpStream`
-    pub read: Option<OwnedReadHalf>,
+    read: Option<OwnedReadHalf>,
     /// Writing half of `TcpStream`
-    pub write: Option<OwnedWriteHalf>,
+    write: Option<OwnedWriteHalf>,
     /// Current peer/connection state
-    pub state: State,
+    state: State,
     /// Flag stating that this connection is outgoing
-    pub outgoing: bool,
+    outgoing: bool,
     /// Secret part of keypair
-    pub secret_key: PrivateKey,
+    secret_key: PrivateKey,
     /// Public part of keypair
-    pub public_key: PublicKey,
+    public_key: PublicKey,
     /// Encryptor created from session key, that we got by Diffie-Hellman scheme
-    pub cipher: Option<SymmetricEncryptor<E>>,
+    cipher: Option<SymmetricEncryptor<E>>,
     /// The to send received messages upstairs
-    pub broker: Broker,
+    broker: Broker,
     /// A flag that stops listening stream
     finish_sender: Option<Sender<()>>,
     /// Phantom
-    pub _key_exchange: PhantomData<K>,
+    _key_exchange: PhantomData<K>,
     /// Phantom2
-    pub _post_type: PhantomData<T>,
+    _post_type: PhantomData<T>,
 }
 
 impl<T, K, E> Peer<T, K, E>
@@ -120,6 +120,10 @@ where
             _key_exchange: PhantomData::default(),
             _post_type: PhantomData::default(),
         })
+    }
+
+    pub fn connection_id(&self) -> ConnectionId {
+        self.connection_id
     }
 
     /// Creates an incoming peer

@@ -202,7 +202,7 @@ where
             }
         };
 
-        let connection_id = peer.connection_id;
+        let connection_id = peer.connection_id();
         let peer = peer.start().await;
         debug!("Inserting {} into new_peers", connection_id);
         self.new_peers.insert(connection_id, peer.clone());
@@ -356,7 +356,7 @@ where
         };
         match Peer::new_from(id.clone(), stream, self.broker.clone()) {
             Ok(peer) => {
-                let connection_id = peer.connection_id;
+                let connection_id = peer.connection_id();
                 let peer = peer.start().await;
                 self.new_peers.insert(connection_id, peer.clone());
                 peer.do_send(Start).await;
