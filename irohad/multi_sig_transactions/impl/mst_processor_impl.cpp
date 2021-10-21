@@ -105,10 +105,13 @@ namespace iroha {
                 })
                 .flat_map(sendState(log_, transport_, storage_, time_provider_))
                 .subscribe(onSendStateResponse(storage_))),
+        continue_work_flag_(true),
         expiration_thread_([this]() {
           while (continue_work_flag_.test_and_set()) {
             using namespace std::chrono;
             using namespace std::chrono_literals;
+            assert(storage_);
+            assert(time_provider_);
             expiredBatchesNotify(storage_->extractExpiredTransactions(
                 time_provider_->getCurrentTime()));
             notifyMstMetrics(*storage_);
