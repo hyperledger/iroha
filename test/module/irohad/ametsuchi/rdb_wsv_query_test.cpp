@@ -71,6 +71,42 @@ namespace iroha {
     }
 
     /**
+     * @given storage with peer without TLS certificate
+     * @when stored peer is queried
+     * @then stored peer is successfully returned
+     */
+    TEST_F(RdbWsvQueryTest, GetPeerWithoutTls) {
+      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt};
+      command->insertPeer(peer1);
+
+      auto result = query->getPeerByPublicKey(
+          shared_model::interface::types::PublicKeyHexStringView{
+              peer1.pubkey()});
+      ASSERT_TRUE(result);
+      ASSERT_THAT(*result, testing::Pointee(testing::Eq(peer1)))
+          << "Inserted " << peer1.toString() << ", got "
+          << (*result)->toString();
+    }
+
+    /**
+     * @given storage with peer with TLS certificate
+     * @when stored peer is queried
+     * @then stored peer is successfully returned
+     */
+    TEST_F(RdbWsvQueryTest, GetPeerWithTls) {
+      shared_model::plain::Peer peer1{"some-address", "0a", "tls"};
+      command->insertPeer(peer1);
+
+      auto result = query->getPeerByPublicKey(
+          shared_model::interface::types::PublicKeyHexStringView{
+              peer1.pubkey()});
+      ASSERT_TRUE(result);
+      ASSERT_THAT(*result, testing::Pointee(testing::Eq(peer1)))
+          << "Inserted " << peer1.toString() << ", got "
+          << (*result)->toString();
+    }
+
+    /**
      * @given storage with signatories
      * @when trying to get signatories of one account
      * @then signature list for one account successfully received
