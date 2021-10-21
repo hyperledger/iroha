@@ -200,33 +200,35 @@ mod tests {
 
     use iroha_crypto::KeyPair;
     use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
+    use once_cell::sync::Lazy;
 
     use super::*;
     use crate::wsv::World;
 
-    fn world_with_test_domains() -> Result<World> {
+    static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
+    static ALICE_ID: Lazy<AccountId> = Lazy::new(|| AccountId::new("alice", "wonderland"));
+
+    fn world_with_test_domains() -> World {
         let domains = DomainsMap::new();
         let mut domain = Domain::new("wonderland");
-        let account_id = AccountId::new("alice", "wonderland");
-        let mut account = Account::new(account_id.clone());
-        let key_pair = KeyPair::generate()?;
-        account.signatories.push(key_pair.public_key);
-        domain.accounts.insert(account_id.clone(), account);
+        let mut account = Account::new(ALICE_ID.clone());
+        account.signatories.push(ALICE_KEYS.public_key.clone());
+        domain.accounts.insert(ALICE_ID.clone(), account);
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         domain.asset_definitions.insert(
             asset_definition_id.clone(),
             AssetDefinitionEntry::new(
                 AssetDefinition::new(asset_definition_id, AssetValueType::Quantity),
-                account_id,
+                ALICE_ID.clone(),
             ),
         );
         domains.insert("wonderland".to_string(), domain);
-        Ok(World::with(domains, PeersIds::new()))
+        World::with(domains, PeersIds::new())
     }
 
     #[test]
     fn asset_store() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let wsv = WorldStateView::new(world_with_test_domains());
         let account_id = AccountId::new("alice", "wonderland");
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
         let asset_id = AssetId::new(asset_definition_id, account_id);
@@ -249,9 +251,8 @@ mod tests {
 
     #[test]
     fn account_metadata() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
-        let account_id = AccountId::new("alice", "wonderland");
-        wsv.modify_account(&account_id, |account| {
+        let wsv = WorldStateView::new(world_with_test_domains());
+        wsv.modify_account(&ALICE_ID, |account| {
             account.metadata.insert_with_limits(
                 "Bytes".to_string(),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
@@ -259,8 +260,8 @@ mod tests {
             )?;
             Ok(())
         })?;
-        let bytes =
-            FindAccountKeyValueByIdAndKey::new(account_id, "Bytes".to_owned()).execute(&wsv)?;
+        let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), "Bytes".to_owned())
+            .execute(&wsv)?;
         assert_eq!(
             bytes,
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
@@ -270,32 +271,26 @@ mod tests {
 
     #[tokio::test]
     async fn find_transaction() -> Result<()> {
-        let domains = DomainsMap::new();
-        let mut domain = Domain::new("wonderland");
-        let account_id = AccountId::new("alice", "wonderland");
-        let mut account = Account::new(account_id.clone());
-        let key_pair = KeyPair::generate()?;
-        account.signatories.push(key_pair.public_key.clone());
-        domain.accounts.insert(account_id.clone(), account);
-        let mut block = PendingBlock::new(Vec::new());
-        domains.insert("wonderland".to_string(), domain);
-        let world = World::with(domains, PeersIds::new());
-        let wsv = WorldStateView::new(world);
+        let wsv = WorldStateView::new(world_with_test_domains());
 
-        let tx = Transaction::new(vec![], account_id, 4000);
-        let signed_tx = tx.sign(&key_pair)?;
+        let tx = Transaction::new(vec![], ALICE_ID.clone(), 4000);
+        let signed_tx = tx.sign(&ALICE_KEYS)?;
         let va_tx = VersionedAcceptedTransaction::from_transaction(signed_tx.clone(), 4096)?;
+
+        let mut block = PendingBlock::new(Vec::new());
         block.transactions.push(va_tx.clone());
         let vcb = block
             .chain_first()
             .validate(&wsv, &AllowAll.into(), &AllowAll.into())
-            .sign(key_pair.clone())
+            .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();
         wsv.apply(vcb).await;
 
-        let not_found = FindTransactionByHash::new(Hash::new(&[2_u8])).execute(&wsv);
+        let wrong_hash = Hash::new(&[2_u8]);
+        let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
         assert!(matches!(not_found, Err(_)));
+
         let found_accepted = FindTransactionByHash::new(Hash::from(va_tx.hash())).execute(&wsv)?;
         match found_accepted {
             TransactionValue::Transaction(tx) => {
