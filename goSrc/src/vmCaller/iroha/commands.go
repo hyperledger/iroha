@@ -208,10 +208,13 @@ func MakeCompareAndSetAccountDetailArgs(account string, key string, value string
 	if len(oldValue) != 0 {
 		cmd1.OptOldValue = &pb.CompareAndSetAccountDetail_OldValue{oldValue}
 	}
-	if checkEmpty=="true" {
-		cmd1.CheckEmpty = true
-	} else {
-		cmd1.CheckEmpty = false
+	if len(checkEmpty)!=0 {
+		val, err := strconv.ParseBool(checkEmpty)
+		if err==nil {
+			cmd1.CheckEmpty = val
+		}else {
+			return pb.Command{}, fmt.Errorf("Incorrect value passed to check_empty field")
+		}
 	}
 	cmd := pb.Command{Command:&pb.Command_CompareAndSetAccountDetail{CompareAndSetAccountDetail: cmd1}}
 	return cmd, nil
@@ -219,6 +222,9 @@ func MakeCompareAndSetAccountDetailArgs(account string, key string, value string
 
 func CompareAndSetAccountDetail(account string, key string, value string, oldValue string, checkEmpty string) error {
 	command, err := MakeCompareAndSetAccountDetailArgs(account, key, value, oldValue, checkEmpty)
+	if err!=nil {
+		return handleErrors(nil, err, "		")
+	}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, &command)
 	return handleErrors(commandResult, err, "CompareAndSetAccountDetail")
 }

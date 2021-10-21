@@ -55,7 +55,8 @@ def compare_account_det(address, key, value):
     params = params + integration_helpers.argument_encoding(key)  # key
     params = params + integration_helpers.argument_encoding(value)  # value
     params = params + integration_helpers.argument_encoding('')  # key
-    params = params + integration_helpers.argument_encoding('true')  # key 
+    # accepted values to check empty: 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False
+    params = params + integration_helpers.argument_encoding('TRUE')  # key  
     tx = iroha.transaction(
         [
             iroha.command(
