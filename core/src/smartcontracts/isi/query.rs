@@ -282,10 +282,10 @@ mod tests {
         let world = World::with(domains, PeersIds::new());
         let wsv = WorldStateView::new(world);
 
-        let trx = Transaction::new(vec![], account_id, 4000);
-        let signed_trx = trx.sign(&key_pair)?;
-        let vatrx = VersionedAcceptedTransaction::from_transaction(signed_trx.clone(), 4096)?;
-        block.transactions.push(vatrx.clone());
+        let tx = Transaction::new(vec![], account_id, 4000);
+        let signed_tx = tx.sign(&key_pair)?;
+        let va_tx = VersionedAcceptedTransaction::from_transaction(signed_tx.clone(), 4096)?;
+        block.transactions.push(va_tx.clone());
         let vcb = block
             .chain_first()
             .validate(&wsv, &AllowAll.into(), &AllowAll.into())
@@ -296,10 +296,10 @@ mod tests {
 
         let not_found = FindTransactionByHash::new(Hash::new(&[2_u8])).execute(&wsv);
         assert!(matches!(not_found, Err(_)));
-        let found_accepted = FindTransactionByHash::new(Hash::from(vatrx.hash())).execute(&wsv)?;
+        let found_accepted = FindTransactionByHash::new(Hash::from(va_tx.hash())).execute(&wsv)?;
         match found_accepted {
-            TransactionValue::Transaction(trx) => {
-                assert_eq!(Hash::from(vatrx.hash()), Hash::from(trx.hash()))
+            TransactionValue::Transaction(tx) => {
+                assert_eq!(Hash::from(va_tx.hash()), Hash::from(tx.hash()))
             }
             TransactionValue::RejectedTransaction(_) => {}
         }
