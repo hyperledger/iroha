@@ -267,4 +267,34 @@ mod tests {
         );
         Ok(())
     }
+
+    #[tokio::test]
+    async fn find_transaction() -> Result<()> {
+        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let account_id = AccountId::new("alice", "wonderland");
+
+        let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
+        let mut block = PendingBlock::new(Vec::new());
+
+        let trx = VersionedAcceptedTransaction::from_transaction(
+            Transaction::new(vec![], account_id, 4000),
+            4096,
+        )?;
+        block.transactions.push(trx.clone());
+        let vcb = block
+            .chain_first()
+            .validate(
+                &WorldStateView::new(World::new()),
+                &AllowAll.into(),
+                &AllowAll.into(),
+            )
+            .sign(keypair.clone())
+            .expect("Failed to sign blocks.")
+            .commit();
+        wsv.apply(vcb).await;
+
+        let bytes = FindTransactionByHash::new(Hash::from(trx.hash())).execute(&wsv)?;
+        println!("{:?}", bytes);
+        Ok(())
+    }
 }
