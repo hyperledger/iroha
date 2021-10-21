@@ -4,6 +4,7 @@
 
 use std::{
     cmp::min,
+    collections::BTreeSet,
     time::{Duration, SystemTime},
 };
 
@@ -335,11 +336,18 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
         match transaction {
             VersionedValidTransaction::V1(v1) => {
                 let transaction: ValidTransaction = v1.0;
-                VersionedTransaction::new(
-                    transaction.payload.instructions,
-                    transaction.payload.account_id,
-                    transaction.payload.time_to_live_ms,
-                )
+
+                let signatures = transaction
+                    .signatures
+                    .values()
+                    .iter()
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+                let tx = Transaction {
+                    payload: transaction.payload,
+                    signatures,
+                };
+                tx.into()
             }
         }
     }

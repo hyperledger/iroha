@@ -1489,6 +1489,7 @@ dependencies = [
  "iroha_telemetry",
  "iroha_version",
  "maplit",
+ "once_cell",
  "parity-scale-codec",
  "rand 0.7.3",
  "serde",
