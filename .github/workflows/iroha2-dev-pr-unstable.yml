@@ -1,0 +1,40 @@
+name: I2::Dev::Tests (Unstable)
+
+on:
+  pull_request:
+    branches: [iroha2-dev]
+    paths:
+      - '**.rs'
+      - '**.json'
+      - '**.toml'
+      - '**.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: [self-hosted, Linux] #ubuntu-latest
+    container: rust:1.55-buster
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-test-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-test
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev
+      - name: Run tests
+        run: cargo test -p iroha_client --tests unstable_network

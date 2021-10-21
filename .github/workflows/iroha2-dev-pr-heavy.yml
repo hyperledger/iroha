@@ -1,0 +1,41 @@
+name: I2::Dev::Tests (Heavy)
+
+on:
+  pull_request:
+    branches: [iroha2-dev]
+    paths:
+      - '**.rs'
+      - '**.json'
+      - '**.toml'
+      - '**.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+
+jobs:
+  bench:
+    runs-on: [self-hosted, Linux]
+    container: rust:1.55-buster
+    if: ${{ false }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-bench-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-bench-
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev
+      - name: Run benchmarks
+        run: cargo bench --workspace --verbose

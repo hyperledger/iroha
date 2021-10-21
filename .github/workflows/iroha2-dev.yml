@@ -8,9 +8,56 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  archive-artifacts:
+  test-docker:
+    #runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+              ~/.cargo
+              target/
+          key: iroha2-rust-docker-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-docker-
+
+      - name: Install latest rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.55
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev
+      - name: Build Client CLI
+        run: cargo build
+        working-directory: client_cli
+      - name: Build and push Iroha Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: false
+          tags: hyperledger/iroha2:dev
+
+      - name: Setup docker test environment
+        run: ./scripts/setup_docker_test_env.sh
+      - name: Docker compose genesis test
+        run: bash -c './scripts/test_genesis_docker_compose.sh || ( docker-compose logs; false )'
+      - name: Docker compose test
+        run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
+      - name: Cleanup docker test environment
+        run: ./scripts/cleanup_docker_test_env.sh
+
+  archive-and-publish-schema:
     runs-on: [self-hosted, Linux]
     container: rust:1.55-buster
+    needs: test-docker
     steps:
       - uses: actions/checkout@v2
       - name: Install dependencies
@@ -38,9 +85,78 @@ jobs:
         with:
           name: cargo-crypto-cli-build-release
           path: target/release/iroha_crypto_cli
+      - name: Run schema generation
+        run: |
+          mkdir -p target/schema
+          cargo run -p iroha_schema_bin > target/schema/schema.json
+      - name: Upload schema
+        uses: actions/upload-artifact@v2
+        with:
+          name: schema
+          path: target/schema
+
+  print-telemetry:
+    runs-on: [self-hosted, Linux] #ubuntu-latest
+    container: rust:1.55-buster
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-telemetry-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-telemetry-
+
+      - name: Run debug tests and save telemetry
+        env:
+          TELEMETRY_FILE: ../target/telemetry/debug.json.lz4
+        run: |
+          mkdir -p target/telemetry
+          cargo test -p iroha_client --all-features -- unstable_network || true
+      - name: Run release tests and save telemetry
+        env:
+          TELEMETRY_FILE: ../target/telemetry/release.json.lz4
+        run: cargo test -p iroha_client --all-features --release -- unstable_network || true
+      - name: Install script dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends lz4 jq
+      - name: Print debug telemetry info
+        run: ./scripts/analyze_telemetry.sh target/telemetry/debug.json.lz4 >target/telemetry/debug.md
+      - name: Print release telemetry info
+        run: ./scripts/analyze_telemetry.sh target/telemetry/release.json.lz4 >target/telemetry/release.md
+      - name: Print debug telemetry info
+        run: |
+          echo '## Debug build'
+          cat target/telemetry/debug.md
+      - name: Print release telemetry info
+        run: |
+          echo '## Release build'
+          cat target/telemetry/release.md
+      - name: Create telemetry comment
+        uses: actions-ecosystem/action-create-comment@v1
+        if: ${{ false }}
+        with:
+          body: |
+            \# Telemetry info
+            \## Debug build
+            ${{ steps.debug-telemetry.outputs.body }}
+            \## Release build
+            ${{ steps.release-telemetry.outputs.body }}
+          github_token: ${{ secrets.github_token }}
+      - name: Archive telemetry
+        uses: actions/upload-artifact@v2
+        with:
+          name: telemetry
+          path: target/telemetry
+
+
 
   deploy:
     runs-on: ubuntu-latest
+    needs: test-docker
     steps:
       - uses: actions/checkout@v2
       - name: Login to DockerHub
@@ -121,17 +237,3 @@ jobs:
         with:
           file: lcov.info
 
-  publish-artifacts:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.55-buster
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run schema generation
-        run: |
-          mkdir -p target/schema
-          cargo run -p iroha_schema_bin > target/schema/schema.json
-      - name: Upload schema
-        uses: actions/upload-artifact@v2
-        with:
-          name: schema
-          path: target/schema

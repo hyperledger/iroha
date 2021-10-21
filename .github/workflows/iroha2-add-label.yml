@@ -3,6 +3,7 @@ name: Add Iroha2 label
 on:
   pull_request_target:
     branches: [iroha2-dev, iroha2]
+    types: [opened]
 
 jobs:
   add_label:
