@@ -270,17 +270,21 @@ mod tests {
 
     #[tokio::test]
     async fn find_transaction() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains()?);
+        let mut wsv = WorldStateView::new(world_with_test_domains()?);
+
+        let mut domain = Domain::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
-
-        let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
+        let mut account = Account::new(account_id.clone());
+        let key_pair = KeyPair::generate()?;
+        account.signatories.push(key_pair.public_key.clone());
+        domain.accounts.insert(account_id.clone(), account);
         let mut block = PendingBlock::new(Vec::new());
+        wsv.add_domain(domain);
 
-        let trx = VersionedAcceptedTransaction::from_transaction(
-            Transaction::new(vec![], account_id, 4000),
-            4096,
-        )?;
-        block.transactions.push(trx.clone());
+        let trx = Transaction::new(vec![], account_id, 4000);
+        let signed_trx = trx.sign(&key_pair)?;
+        let vatrx = VersionedAcceptedTransaction::from_transaction(signed_trx, 4096)?;
+        block.transactions.push(vatrx.clone());
         let vcb = block
             .chain_first()
             .validate(
@@ -288,12 +292,12 @@ mod tests {
                 &AllowAll.into(),
                 &AllowAll.into(),
             )
-            .sign(keypair.clone())
+            .sign(key_pair.clone())
             .expect("Failed to sign blocks.")
             .commit();
         wsv.apply(vcb).await;
 
-        let bytes = FindTransactionByHash::new(Hash::from(trx.hash())).execute(&wsv)?;
+        let bytes = FindTransactionByHash::new(Hash::from(vatrx.hash())).execute(&wsv)?;
         println!("{:?}", bytes);
         Ok(())
     }
