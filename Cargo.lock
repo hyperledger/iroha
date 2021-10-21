@@ -1410,7 +1410,6 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_derive",
- "iroha_dsl",
  "iroha_logger",
  "iroha_permissions_validators",
  "iroha_telemetry",
@@ -1435,7 +1434,7 @@ dependencies = [
  "futures",
  "iroha_client",
  "iroha_crypto",
- "iroha_dsl",
+ "iroha_data_model",
  "serde_json",
  "structopt",
  "tempfile",
@@ -1539,15 +1538,21 @@ dependencies = [
  "dashmap",
  "eyre",
  "fixnum",
+ "iroha_client",
+ "iroha_core",
  "iroha_crypto",
  "iroha_derive",
  "iroha_macro",
  "iroha_schema",
  "iroha_version",
  "parity-scale-codec",
+ "port_check",
  "serde",
  "serde_json",
+ "tempfile",
+ "test_network",
  "thiserror",
+ "tokio",
  "warp",
 ]
 
@@ -1573,19 +1578,6 @@ dependencies = [
  "iroha_config",
  "iroha_core",
  "serde_json",
-]
-
-[[package]]
-name = "iroha_dsl"
-version = "0.1.0"
-dependencies = [
- "iroha_client",
- "iroha_core",
- "iroha_data_model",
- "port_check",
- "tempfile",
- "test_network",
- "tokio",
 ]
 
 [[package]]

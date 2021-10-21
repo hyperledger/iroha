@@ -18,8 +18,9 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 iroha_client = { version = "=0.1.0", path = "../client" }
+iroha_data_model = { version = "=0.1.0", path = "../data_model" }
 iroha_crypto = { version = "=0.1.0", path = "../crypto" }
-iroha_dsl = { path = "../dsl" }
+
 
 color-eyre = "0.5.11"
 structopt = "0.3"

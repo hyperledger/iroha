@@ -7,7 +7,7 @@ use iroha_core::{
     config::Configuration,
     genesis::{GenesisNetwork, GenesisNetworkTrait},
 };
-use iroha_dsl::prelude::*;
+use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
