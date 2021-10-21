@@ -107,7 +107,7 @@ namespace iroha {
                 .subscribe(onSendStateResponse(storage_))),
         continue_work_flag_(true),
         expiration_thread_([this]() {
-          while (continue_work_flag_.test_and_set()) {
+          while (continue_work_flag_.test()) {
             using namespace std::chrono;
             using namespace std::chrono_literals;
             assert(storage_);
