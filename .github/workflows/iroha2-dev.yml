@@ -57,7 +57,6 @@ jobs:
   archive-and-publish-schema:
     runs-on: [self-hosted, Linux]
     container: rust:1.55-buster
-    needs: test-docker
     steps:
       - uses: actions/checkout@v2
       - name: Install dependencies
