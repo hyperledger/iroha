@@ -11,12 +11,12 @@ use color_eyre::{
 use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_crypto::prelude::*;
-use iroha_dsl::prelude::*;
+use iroha_data_model::prelude::*;
 use structopt::StructOpt;
 
 /// Metadata wrapper, which can be captured from cli arguments (from user suplied file).
 #[derive(Debug, Clone)]
-pub struct Metadata(pub iroha_dsl::prelude::UnlimitedMetadata);
+pub struct Metadata(pub UnlimitedMetadata);
 
 impl fmt::Display for Metadata {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

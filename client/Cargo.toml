@@ -18,7 +18,7 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 iroha_core = { path = "../core" }
-iroha_dsl = { version = "=0.1.0", path = "../dsl" }
+iroha_data_model = { version = "=0.1.0", path = "../data_model" }
 iroha_derive = { version = "=0.1.0", path = "../macro/derive" }
 iroha_logger = { version = "=0.1.0", path = "../logger"}
 iroha_crypto = { version = "=0.1.0", path = "../crypto" }

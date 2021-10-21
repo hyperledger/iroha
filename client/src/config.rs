@@ -3,7 +3,7 @@ use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 use eyre::{Result, WrapErr};
 use iroha_config::derive::Configurable;
 use iroha_crypto::{PrivateKey, PublicKey};
-use iroha_dsl::prelude::*;
+use iroha_data_model::prelude::*;
 use iroha_logger::config::LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 

@@ -11,7 +11,7 @@ use eyre::{eyre, Error, Result, WrapErr};
 use http_client::WebSocketStream;
 use iroha_core::{smartcontracts::Query, torii::GetConfiguration, wsv::World};
 use iroha_crypto::{HashOf, KeyPair};
-use iroha_dsl::prelude::*;
+use iroha_data_model::prelude::*;
 use iroha_logger::log;
 use iroha_version::prelude::*;
 use serde::de::DeserializeOwned;
