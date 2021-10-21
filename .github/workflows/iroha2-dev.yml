@@ -56,7 +56,6 @@ jobs:
 
   archive-artifacts:
     runs-on: [self-hosted, Linux]
-    needs: test-docker
     container: rust:1.55-buster
     steps:
       - uses: actions/checkout@v2
