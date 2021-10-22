@@ -44,8 +44,8 @@ pub struct Torii<W: WorldTrait> {
 /// Torii errors.
 #[derive(Error, Debug)]
 pub enum Error {
-    /// Query error.
-    #[error("Query error")]
+    /// Failed to execute or validate query
+    #[error("Failed to execute or validate query")]
     Query(#[source] query::Error),
     /// Failed to decode transaction
     #[error("Failed to decode transaction")]

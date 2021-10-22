@@ -51,7 +51,7 @@ impl VerifiedQueryRequest {
         }
         query_validator
             .check(&self.payload.account_id, &self.payload.query, wsv)
-            .map_err(|denial_reason| Error::Permission(eyre!(denial_reason)))?;
+            .map_err(Error::Permission)?;
         Ok(ValidQueryRequest {
             query: self.payload.query,
         })
@@ -130,7 +130,7 @@ pub enum Error {
     Signature(eyre::Error),
     /// Query is not allowed.
     #[error("Query is not allowed: {0}")]
-    Permission(eyre::Error),
+    Permission(String),
     /// Query found nothing.
     #[error("Query found nothing: {0}")]
     Find(eyre::Error),
