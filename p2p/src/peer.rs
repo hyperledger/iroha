@@ -180,25 +180,35 @@ where
         }
     }
 
-    async fn handshake(&mut self) -> Result<(), Error> {
+    async fn handshake(&mut self) -> Result<&Self, Error> {
         let state = self.state;
         debug!(%state, id = %self.connection_id, addr = %self.id.address, "Attempting handshake");
         match &self.state {
-            State::Connecting => self.connect().await?,
-            State::ConnectedTo => self.send_client_hello().await?,
-            State::ConnectedFrom => self.read_client_hello().await?,
-            State::SendKey => self.send_our_public_key().await?,
-            State::GetKey => self.read_theirs_public_key().await?,
+            State::Connecting => {
+                self.connect().await?;
+            }
+            State::ConnectedTo => {
+                self.send_client_hello().await?;
+            }
+            State::ConnectedFrom => {
+                self.read_client_hello().await?;
+            }
+            State::SendKey => {
+                self.send_our_public_key().await?;
+            }
+            State::GetKey => {
+                self.read_theirs_public_key().await?;
+            }
             State::Ready => warn!("Not doing handshake, already ready."),
             State::Disconnected => warn!("Not doing handshake, we are disconnected."),
             State::Error => debug!("Not doing handshake in error state."),
         }
-        Ok(())
+        Ok(self)
     }
 
     /// Reads client public key from client hello,
     /// creates shared secret and sends our public key to client
-    async fn read_client_hello(&mut self) -> Result<(), Error> {
+    async fn read_client_hello(&mut self) -> Result<&Self, Error> {
         debug!("Reading client hello...");
         #[allow(clippy::expect_used)]
         let read_half = self
@@ -214,11 +224,11 @@ where
             .expect("Never fails as in this function we already have the stream.");
         send_server_hello(&mut write_half, self.public_key.0.as_slice()).await?;
         self.state = State::SendKey;
-        Ok(())
+        Ok(self)
     }
 
     /// Sends client hello with our public key
-    async fn send_client_hello(&mut self) -> Result<(), Error> {
+    async fn send_client_hello(&mut self) -> Result<&Self, Error> {
         debug!("Sending client hello...");
         #[allow(clippy::expect_used)]
         let mut write_half = self
@@ -236,11 +246,11 @@ where
         let public_key = read_server_hello(read_half).await?;
         self.derive_shared_key(&public_key)?;
         self.state = State::SendKey;
-        Ok(())
+        Ok(self)
     }
 
     /// Sends our app public key
-    async fn send_our_public_key(&mut self) -> Result<(), Error> {
+    async fn send_our_public_key(&mut self) -> Result<&Self, Error> {
         debug!("Sending our public key...");
         #[allow(clippy::expect_used)]
         let write_half = self
@@ -272,11 +282,11 @@ where
 
         write_half.write_all(&buf).await?;
         self.state = State::GetKey;
-        Ok(())
+        Ok(self)
     }
 
     /// Reads theirs app public key
-    async fn read_theirs_public_key(&mut self) -> Result<(), Error> {
+    async fn read_theirs_public_key(&mut self) -> Result<&Self, Error> {
         debug!("Reading theirs public key...");
         #[allow(clippy::unwrap_used)]
         let read_half = self.read.as_mut().unwrap();
@@ -306,7 +316,7 @@ where
             Ok(pub_key) => {
                 self.id.public_key = pub_key;
                 self.state = State::Ready;
-                Ok(())
+                Ok(self)
             }
             Err(e) => {
                 warn!(%e, "Unexpected error creating encryptor!");
@@ -318,7 +328,7 @@ where
 
     /// Creates shared key from two public keys - our and their,
     /// and creates and encryptor from that key.
-    fn derive_shared_key(&mut self, public_key: &PublicKey) -> Result<(), Error> {
+    fn derive_shared_key(&mut self, public_key: &PublicKey) -> Result<&Self, Error> {
         let dh = K::new();
         let shared = match dh.compute_shared_secret(&self.secret_key, public_key) {
             Ok(key) => key,
@@ -336,12 +346,12 @@ where
             }
         };
         self.cipher = Some(encryptor);
-        Ok(())
+        Ok(self)
     }
 
     /// Creates a connection to other peer
     #[allow(clippy::expect_used)]
-    async fn connect(&mut self) -> Result<(), Error> {
+    async fn connect(&mut self) -> Result<&Self, Error> {
         let addr = self.id.address.clone();
         debug!("Connecting to [{}]", &addr);
         let stream = TcpStream::connect(addr.clone()).await;
@@ -352,7 +362,7 @@ where
                 self.read = Some(read);
                 self.write = Some(write);
                 self.state = State::ConnectedTo;
-                Ok(())
+                Ok(self)
             }
             Err(error) => {
                 warn!(%error, "Could not connect to peer on {}!", addr);
@@ -412,7 +422,7 @@ where
         );
         while self.state != State::Ready {
             let e = match self.handshake().await {
-                Ok(()) => continue,
+                Ok(_) => continue,
                 Err(e) => e,
             };
             warn!(
