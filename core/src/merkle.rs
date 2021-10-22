@@ -55,6 +55,17 @@ impl<T> MerkleTree<T> {
     pub fn root_hash(&self) -> HashOf<Self> {
         self.root_node.hash().transmute()
     }
+
+    pub fn iter(&self) -> BreadthFirstIter<T> {
+        BreadthFirstIter::new(&self.root_node)
+    }
+
+    pub fn add(&self, hash: HashOf<T>) -> Self {
+        self.iter()
+            .filter_map(Node::leaf_hash)
+            .chain(std::iter::once(hash))
+            .collect()
+    }
 }
 
 impl<T> Default for MerkleTree<T> {
@@ -107,13 +118,20 @@ impl<T> Node<T> {
         }
     }
 
-    fn hash(&self) -> HashOf<Self> {
+    pub fn hash(&self) -> HashOf<Self> {
         use Node::*;
-
         match self {
             Subtree { hash, .. } => *hash,
             Leaf { hash } => (*hash).transmute(),
             Empty => HashOf::from_hash(Hash([0; 32])),
+        }
+    }
+
+    pub const fn leaf_hash(&self) -> Option<HashOf<T>> {
+        if let Self::Leaf { hash } = *self {
+            Some(hash)
+        } else {
+            None
         }
     }
 
@@ -266,5 +284,19 @@ mod tests {
         assert_eq!(tree.get_leaf(1), Some(HashOf::from_hash(Hash([2; 32]))));
         assert_eq!(tree.get_leaf(2), Some(HashOf::from_hash(Hash([3; 32]))));
         assert_eq!(tree.get_leaf(3), None);
+    }
+
+    #[test]
+    fn add() {
+        let tree = vec![Hash([1_u8; 32]), Hash([2_u8; 32]), Hash([4_u8; 32])]
+            .into_iter()
+            .map(HashOf::<()>::from_hash)
+            .collect::<MerkleTree<_>>();
+        let tree = tree.add(HashOf::from_hash(Hash([3_u8; 32])));
+        assert_eq!(tree.get_leaf(0), Some(HashOf::from_hash(Hash([1; 32]))));
+        assert_eq!(tree.get_leaf(1), Some(HashOf::from_hash(Hash([2; 32]))));
+        assert_eq!(tree.get_leaf(2), Some(HashOf::from_hash(Hash([3; 32]))));
+        assert_eq!(tree.get_leaf(3), Some(HashOf::from_hash(Hash([4; 32]))));
+        assert_eq!(tree.get_leaf(4), None);
     }
 }

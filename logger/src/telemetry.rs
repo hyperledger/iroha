@@ -19,6 +19,8 @@ use crate::layer::{EventInspectorTrait, EventSubscriber};
 
 /// Target for telemetry in `tracing`
 pub const TELEMETRY_TARGET_PREFIX: &str = "telemetry::";
+/// Target for telemetry future in `tracing`
+pub const TELEMETRY_FUTURE_TARGET_PREFIX: &str = "telemetry_future::";
 
 /// Fields for telemetry (type for efficient saving)
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -101,24 +103,33 @@ impl Telemetry {
 #[derive(Debug, Clone)]
 pub struct TelemetryLayer<S: Subscriber> {
     telemetry_sender: Sender<Telemetry>,
+    telemetry_future_sender: Sender<Telemetry>,
     subscriber: S,
 }
 
 impl<S: Subscriber> TelemetryLayer<S> {
     /// Create telemetry from channel sender
-    pub fn from_sender(subscriber: S, telemetry_sender: Sender<Telemetry>) -> impl Subscriber {
+    pub fn from_senders(
+        subscriber: S,
+        telemetry_sender: Sender<Telemetry>,
+        telemetry_future_sender: Sender<Telemetry>,
+    ) -> impl Subscriber {
         EventSubscriber(Self {
             telemetry_sender,
+            telemetry_future_sender,
             subscriber,
         })
     }
 
     /// Create new telemetry layer with specific channel size (via const generic)
     #[allow(clippy::new_ret_no_self)]
-    pub fn new<const CHANNEL_SIZE: usize>(subscriber: S) -> (impl Subscriber, Receiver<Telemetry>) {
-        let (sender, reciever) = mpsc::channel(CHANNEL_SIZE);
-        let telemetry = Self::from_sender(subscriber, sender);
-        (telemetry, reciever)
+    pub fn new<const CHANNEL_SIZE: usize>(
+        subscriber: S,
+    ) -> (impl Subscriber, Receiver<Telemetry>, Receiver<Telemetry>) {
+        let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
+        let (sender_future, receiver_future) = mpsc::channel(CHANNEL_SIZE);
+        let telemetry = Self::from_senders(subscriber, sender, sender_future);
+        (telemetry, receiver, receiver_future)
     }
 
     /// Create new telemetry layer with specific channel size
@@ -126,10 +137,11 @@ impl<S: Subscriber> TelemetryLayer<S> {
     pub fn from_capacity(
         subscriber: S,
         channel_size: usize,
-    ) -> (impl Subscriber, Receiver<Telemetry>) {
-        let (sender, reciever) = mpsc::channel(channel_size);
-        let telemetry = Self::from_sender(subscriber, sender);
-        (telemetry, reciever)
+    ) -> (impl Subscriber, Receiver<Telemetry>, Receiver<Telemetry>) {
+        let (sender, receiver) = mpsc::channel(channel_size);
+        let (sender_future, receiver_future) = mpsc::channel(channel_size);
+        let telemetry = Self::from_senders(subscriber, sender, sender_future);
+        (telemetry, receiver, receiver_future)
     }
 }
 
@@ -145,6 +157,10 @@ impl<S: Subscriber> EventInspectorTrait for TelemetryLayer<S> {
         if let Some(target) = target.strip_prefix(TELEMETRY_TARGET_PREFIX) {
             let _result = self
                 .telemetry_sender
+                .try_send(Telemetry::from_event(target, event));
+        } else if let Some(target) = target.strip_prefix(TELEMETRY_FUTURE_TARGET_PREFIX) {
+            let _result = self
+                .telemetry_future_sender
                 .try_send(Telemetry::from_event(target, event));
         } else {
             self.subscriber.event(event)

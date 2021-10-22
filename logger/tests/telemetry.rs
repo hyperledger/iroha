@@ -11,7 +11,7 @@ use tokio::time;
 
 #[tokio::test]
 async fn telemetry_separation_default() {
-    let mut reciever = init(&LoggerConfiguration::default()).unwrap().unwrap();
+    let (mut receiver, _) = init(&LoggerConfiguration::default()).unwrap().unwrap();
     info!(target: "telemetry::test", a = 2, c = true, d = "this won't be logged");
     info!("This will be logged");
     let telemetry = Telemetry {
@@ -22,7 +22,7 @@ async fn telemetry_separation_default() {
             ("d", serde_json::json!("this won't be logged")),
         ]),
     };
-    let output = time::timeout(Duration::from_millis(10), reciever.recv())
+    let output = time::timeout(Duration::from_millis(10), receiver.recv())
         .await
         .unwrap()
         .unwrap();

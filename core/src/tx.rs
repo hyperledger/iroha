@@ -385,7 +385,7 @@ impl VersionedValidTransaction {
 
     /// Apply instructions to the `WorldStateView<W>`.
     /// # Errors
-    /// Fails if recieves error during execution (should be fine after validation)
+    /// Fails if receives error during execution (should be fine after validation)
     // XXX: Should it just return `()`?
     pub fn proceed<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<()> {
         self.as_inner_v1().proceed(wsv)

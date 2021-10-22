@@ -178,6 +178,11 @@ impl Queue {
         }
     }
 
+    /// Returns the number of transactions in the queue
+    pub fn tx_len(&self) -> usize {
+        self.txs.len()
+    }
+
     /// Gets transactions till they fill whole block or till the end of queue.
     ///
     /// BEWARE: Shouldn't be called in parallel with itself.

@@ -1,10 +1,7 @@
 //! Module with development telemetry
 
-use std::path::PathBuf;
-
 use eyre::{Result, WrapErr};
 use iroha_logger::telemetry::Telemetry;
-use iroha_telemetry::futures;
 use tokio::{
     fs::OpenOptions,
     io::AsyncWriteExt,
@@ -13,13 +10,18 @@ use tokio::{
 };
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 
+use crate::Configuration;
+
+/// Starts telemetry writing to a file
+/// # Errors
+/// Fails if unable to open the file
 pub async fn start(
-    telemetry_file: Option<&PathBuf>,
+    config: &Configuration,
     telemetry: Receiver<Telemetry>,
 ) -> Result<JoinHandle<()>> {
-    let mut telemetry = futures::get_stream(ReceiverStream::new(telemetry));
+    let mut telemetry = crate::futures::get_stream(ReceiverStream::new(telemetry));
 
-    let telemetry_file = if let Some(telemetry_file) = &telemetry_file {
+    let telemetry_file = if let Some(telemetry_file) = &config.file {
         telemetry_file
     } else {
         return Ok(task::spawn(async move {
@@ -28,16 +30,16 @@ pub async fn start(
     };
 
     let mut file = OpenOptions::new()
-        .write(true)
-        // Fails to write full item at exit. that is why not append
-        // TODO: think of workaround with dropcheck?
-        //
-        //.append(true)
-        .create(true)
-        .truncate(true)
-        .open(telemetry_file)
-        .await
-        .wrap_err("Failed to create and open file for telemetry")?;
+            .write(true)
+            // Fails to write full item at exit. that is why not append
+            // TODO: think of workaround with dropcheck?
+            //
+            //.append(true)
+            .create(true)
+            .truncate(true)
+            .open(telemetry_file)
+            .await
+            .wrap_err("Failed to create and open file for telemetry")?;
 
     // Serde doesn't support async Read Write traits.
     // So let synchonous synchronous code be here.

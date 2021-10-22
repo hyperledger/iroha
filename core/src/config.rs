@@ -8,8 +8,6 @@ use iroha_data_model::prelude::*;
 use iroha_logger::config::LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "telemetry")]
-use crate::telemetry;
 use crate::{
     block_sync::config::BlockSyncConfiguration,
     genesis::config::GenesisConfiguration,
@@ -58,7 +56,7 @@ pub struct Configuration {
     #[cfg(feature = "telemetry")]
     /// Configuration for telemetry
     #[config(inner)]
-    pub telemetry: telemetry::Configuration,
+    pub telemetry: iroha_telemetry::Configuration,
     /// Network configuration
     #[config(inner)]
     pub network: NetworkConfiguration,

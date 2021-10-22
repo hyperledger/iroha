@@ -12,8 +12,6 @@ pub mod modules;
 pub mod queue;
 pub mod smartcontracts;
 pub mod sumeragi;
-#[cfg(feature = "telemetry")]
-mod telemetry;
 pub mod torii;
 pub mod tx;
 pub mod wsv;
@@ -24,6 +22,7 @@ use eyre::{eyre, Result, WrapErr};
 use genesis::GenesisNetworkTrait;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_data_model::prelude::*;
+use iroha_logger::{FutureTelemetry, SubstrateTelemetry};
 use parity_scale_codec::{Decode, Encode};
 use smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed};
 use tokio::{sync::broadcast, task::JoinHandle};
@@ -65,14 +64,14 @@ pub enum NetworkMessage {
 pub struct Iroha<
     W = World,
     G = GenesisNetwork,
-    S = Sumeragi<G, W>,
     K = Kura<W>,
+    S = Sumeragi<G, K, W>,
     B = BlockSynchronizer<S, W>,
 > where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     /// World state view
@@ -89,12 +88,12 @@ pub struct Iroha<
     pub torii: Option<Torii<W>>,
 }
 
-impl<W, G, S, K, B> Iroha<W, G, S, K, B>
+impl<W, G, S, K, B> Iroha<W, G, K, S, B>
 where
     W: WorldTrait,
     G: GenesisNetworkTrait,
-    S: SumeragiTrait<GenesisNetwork = G, World = W>,
     K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     /// To make `Iroha` peer work all actors should be started first.
@@ -205,34 +204,29 @@ where
         ));
         let queue = Arc::new(Queue::from_configuration(&config.queue));
 
-        #[cfg(feature = "telemetry")]
-        if let Some(telemetry) = telemetry {
-            telemetry::start(&config.telemetry, telemetry)
-                .await
-                .wrap_err("Failed to setup telemetry")?;
-        }
+        let telemetry_started = Self::start_telemetry(telemetry, &config).await?;
         let query_validator = Arc::new(query_validator);
+        let kura = K::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())
+            .await?
+            .preinit();
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
             &config.sumeragi,
             events_sender.clone(),
             Arc::clone(&wsv),
             instruction_validator,
             Arc::clone(&query_validator),
+            telemetry_started,
             genesis,
             Arc::clone(&queue),
             broker.clone(),
+            kura.address.clone().expect_running().clone(),
             network_addr.clone(),
         )
         .wrap_err("Failed to initialize Sumeragi.")?
         .start()
         .await
         .expect_running();
-
-        let kura = K::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())
-            .await?
-            .start()
-            .await
-            .expect_running();
+        let kura = kura.start().await.expect_running();
         let block_sync = B::from_configuration(
             &config.block_sync,
             Arc::clone(&wsv),
@@ -291,6 +285,34 @@ where
         Ok(tokio::spawn(async move {
             torii.start().await.wrap_err("Failed to start Torii")
         }))
+    }
+
+    #[cfg(feature = "telemetry")]
+    async fn start_telemetry(
+        telemetry: Option<(SubstrateTelemetry, FutureTelemetry)>,
+        config: &Configuration,
+    ) -> Result<bool> {
+        if let Some((telemetry, telemetry_future)) = telemetry {
+            #[cfg(feature = "dev-telemetry")]
+            {
+                iroha_telemetry::dev::start(&config.telemetry, telemetry_future)
+                    .await
+                    .wrap_err("Failed to setup telemetry for futures")?;
+            }
+            iroha_telemetry::ws::start(&config.telemetry, telemetry)
+                .await
+                .wrap_err("Failed to setup telemetry")
+        } else {
+            Ok(false)
+        }
+    }
+
+    #[cfg(not(feature = "telemetry"))]
+    async fn start_telemetry(
+        _telemetry: Option<(SubstrateTelemetry, FutureTelemetry)>,
+        _config: &Configuration,
+    ) -> Result<bool> {
+        Ok(false)
     }
 }
 

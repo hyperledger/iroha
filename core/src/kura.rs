@@ -3,6 +3,7 @@
 
 use std::{
     collections::BTreeSet,
+    fmt::Debug,
     num::NonZeroU64,
     path::{Path, PathBuf},
     sync::Arc,
@@ -37,7 +38,8 @@ pub struct StoreBlock(pub VersionedCommittedBlock);
 #[derive(Clone, Copy, Debug, Message)]
 #[message(result = "Option<HashOf<VersionedCommittedBlock>>")]
 pub struct GetBlockHash {
-    height: usize,
+    /// The block's height
+    pub height: usize,
 }
 
 /// High level data storage representation.
@@ -58,6 +60,7 @@ pub trait KuraTrait:
     Actor
     + ContextHandler<StoreBlock, Result = ()>
     + ContextHandler<GetBlockHash, Result = Option<HashOf<VersionedCommittedBlock>>>
+    + Debug
 {
     /// World for applying blocks which have been stored on disk
     type World: WorldTrait;
@@ -130,6 +133,10 @@ impl<W: WorldTrait> Actor for Kura<W> {
         #[allow(clippy::panic)]
         match self.init().await {
             Ok(blocks) => {
+                #[cfg(feature = "telemetry")]
+                if let Some(block) = blocks.first() {
+                    iroha_logger::telemetry!(msg = iroha_telemetry::msg::SYSTEM_CONNECTED, genesis_hash = %block.hash());
+                }
                 self.wsv.init(blocks).await;
                 let last_block = self.wsv.latest_block_hash();
                 let height = self.wsv.height();
@@ -162,6 +169,10 @@ impl<W: WorldTrait> Handler<StoreBlock> for Kura<W> {
     type Result = ();
 
     async fn handle(&mut self, StoreBlock(block): StoreBlock) {
+        #[cfg(feature = "telemetry")]
+        if block.header().height == 1 {
+            iroha_logger::telemetry!(msg = iroha_telemetry::msg::SYSTEM_CONNECTED, genesis_hash = %block.hash());
+        }
         if let Err(error) = self.store(block).await {
             iroha_logger::error!(%error, "Failed to write block")
         }
@@ -198,7 +209,7 @@ impl<W: WorldTrait> Kura<W> {
     ) -> Result<HashOf<VersionedCommittedBlock>> {
         match self.block_store.write(&block).await {
             Ok(hash) => {
-                //TODO: shouldn't we add block hash to merkle tree here?
+                self.merkle_tree = self.merkle_tree.add(hash);
                 self.wsv.apply(block).await;
                 self.broker.issue_send(UpdateNetworkTopology).await;
                 self.broker.issue_send(ContinueSync).await;
