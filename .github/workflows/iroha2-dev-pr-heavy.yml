@@ -16,7 +16,7 @@ env:
 jobs:
   bench:
     runs-on: [self-hosted, Linux]
-    container: rust:1.55-buster
+    container: rust:1.56-buster
     if: ${{ false }}
     steps:
       - uses: actions/checkout@v2

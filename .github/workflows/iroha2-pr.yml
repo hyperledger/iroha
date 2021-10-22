@@ -10,7 +10,7 @@ env:
 jobs:
   long-tests:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.55-buster
+    container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
       - name: Install dependencies
@@ -39,7 +39,7 @@ jobs:
       - name: Install latest rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.55
+          toolchain: 1.56
       - name: Build Client CLI
         run: cargo build --verbose
         working-directory: client_cli

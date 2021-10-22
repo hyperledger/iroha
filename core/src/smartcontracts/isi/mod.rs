@@ -96,8 +96,8 @@ pub struct AssetTypeError {
 }
 
 impl Display for AssetTypeError {
+    #[allow(clippy::use_debug)]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        #[allow(clippy::use_debug)]
         write!(
             f,
             "Asset type error: expected asset of type {:?}, but got {:?}",

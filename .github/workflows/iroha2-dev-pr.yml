@@ -15,7 +15,7 @@ env:
 jobs:
   test:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.55-buster
+    container: rust:1.56-buster
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
@@ -41,7 +41,7 @@ jobs:
 
   test-consensus-with-mock:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.55-buster
+    container: rust:1.56-buster
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
@@ -68,7 +68,7 @@ jobs:
 
   test-deadlock-detection:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.55-buster
+    container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -130,7 +130,7 @@ jobs:
   # 2  Coverage bot can have results from `iroha2-dev` to report accurate coverage changes.
   coverage:
     runs-on: [self-hosted, Linux]
-    container: rust:1.55-buster
+    container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2

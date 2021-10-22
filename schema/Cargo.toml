@@ -2,7 +2,7 @@
 name = "iroha_schema"
 version = "0.1.0"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
-edition = "2018"
+edition = "2021"
 
 [dev-dependencies]
 trybuild = { version = "1.0", features = ["diff"] }

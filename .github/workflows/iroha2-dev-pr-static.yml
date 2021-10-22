@@ -8,7 +8,7 @@ on:
 jobs:
   check:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.55-buster
+    container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -37,9 +37,9 @@ jobs:
       - name: Install cargo-lints
         run: cargo install cargo-lints
       - name: Install nightly for rustfmt
-        run: rustup install --profile default nightly-2021-03-24
+        run: rustup install --profile default nightly-2021-10-22
       - name: Format check
-        run: cargo +nightly-2021-03-24 fmt --all -- --check
+        run: cargo +nightly-2021-10-22 fmt --all -- --check
       - name: Static analysis without features
         run: cargo lints clippy --workspace --benches --tests
       - name: Static analysis with all features enabled
