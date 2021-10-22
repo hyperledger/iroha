@@ -8,10 +8,10 @@ The following is a short set of guidelines for contributing to Iroha.
 
 ### TL;DR
 
-* Find Jira
+* Find ZenHub
 * Write Tests
 * `cargo test && cargo fmt --all && cargo lints clippy --all --tests --benches`
-* `git pull -r origin iroha2-dev && git commit -s`
+* `git pull -r hyperledger iroha2-dev`, `git commit -s`, `git push <your-fork>`, and create a pull request on Github
 
 ### Reporting Bugs
 

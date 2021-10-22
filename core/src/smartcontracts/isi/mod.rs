@@ -36,7 +36,7 @@ pub enum Error {
     #[error("Failed to assert mintability")]
     Mintability(#[source] MintabilityError),
     /// Failed due to math exception
-    #[error("Math error occured")]
+    #[error("Math error occurred")]
     Math(#[source] MathError),
     /// Some other error happened
     #[error("Some other error happened")]
