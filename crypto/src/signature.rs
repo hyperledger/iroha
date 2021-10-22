@@ -223,6 +223,10 @@ impl<T> Clone for SignatureOf<T> {
 }
 
 impl<T> IntoSchema for SignatureOf<T> {
+    fn type_name() -> String {
+        Signature::type_name()
+    }
+
     fn schema(metamap: &mut iroha_schema::MetaMap) {
         Signature::schema(metamap)
     }
