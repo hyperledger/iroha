@@ -107,7 +107,8 @@ namespace iroha {
 
     rxcpp::composite_subscription propagation_subscriber_;
 
-    std::atomic_flag continue_work_flag_ = true;
+    std::mutex expiration_thread_work_mutex_;
+    std::condition_variable cv_expiration_thread_stop_;
     std::thread expiration_thread_;
   };
 }  // namespace iroha
