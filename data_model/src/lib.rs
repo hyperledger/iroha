@@ -636,11 +636,10 @@ pub mod permissions {
 
     impl PermissionToken {
         /// Constructor.
-        pub fn new(name: impl Into<Name>, params: BTreeMap<Name, Value>) -> Self {
-            PermissionToken {
-                name: name.into(),
-                params,
-            }
+        pub fn new(name: impl Into<Name>, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
+            let params = params.into_iter().collect();
+            let name = name.into();
+            Self { name, params }
         }
     }
 

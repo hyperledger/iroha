@@ -1,8 +1,8 @@
 [package]
 name = "iroha_actor_derive"
 version = "0.1.0"
-authors = ["i1i1"]
-edition = "2018"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
 
 [lib]
 proc-macro = true

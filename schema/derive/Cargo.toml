@@ -1,7 +1,8 @@
 [package]
 name = "iroha_schema_derive"
 version = "0.0.0"
-edition = "2018"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
 publish = false
 
 [lib]

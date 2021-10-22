@@ -1,8 +1,8 @@
 [package]
 name = "iroha_telemetry"
 version = "0.1.0"
-authors = ["i1i1"]
-edition = "2018"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
 build = "build.rs"
 
 [features]
@@ -11,7 +11,7 @@ dev-telemetry = []
 [dependencies]
 chrono = "0.4"
 eyre = "0.6.5"
-futures = "0.3"
+futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
 serde_json = "1"
 streaming-stats = "0.2"
 serde = { version = "1", features = ["derive"] }

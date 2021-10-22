@@ -1,8 +1,8 @@
 [package]
 name = "iroha_futures"
 version = "0.1.0"
-authors = ["i1i1"]
-edition = "2018"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

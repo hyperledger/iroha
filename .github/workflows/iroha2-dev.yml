@@ -26,7 +26,7 @@ jobs:
       - name: Install latest rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.55
+          toolchain: 1.56
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -56,7 +56,7 @@ jobs:
 
   archive-and-publish-schema:
     runs-on: [self-hosted, Linux]
-    container: rust:1.55-buster
+    container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
       - name: Install dependencies
@@ -96,7 +96,7 @@ jobs:
 
   print-telemetry:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.55-buster
+    container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -206,7 +206,7 @@ jobs:
   # 2  Coverage bot can have results from `iroha2-dev` to report accurate coverage changes.
   coverage:
     runs-on: [self-hosted, Linux]
-    container: rust:1.55-buster
+    container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
       - name: Install dependencies

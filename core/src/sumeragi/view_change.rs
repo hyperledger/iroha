@@ -268,7 +268,7 @@ mod tests {
         .sign(key_pair_2.clone())?;
         let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
         let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
-        let peers = maplit::hashset![peer_1, peer_2];
+        let peers = [peer_1, peer_2].into();
         assert!(proof.verify(&peers, 1));
         Ok(())
     }
@@ -285,7 +285,7 @@ mod tests {
         )?;
         let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
         let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
-        let peers = maplit::hashset![peer_1, peer_2];
+        let peers = [peer_1, peer_2].into();
         assert!(!proof.verify(&peers, 1));
         Ok(())
     }
@@ -304,7 +304,7 @@ mod tests {
         .sign(key_pair_3)?;
         let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
         let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
-        let peers = maplit::hashset![peer_1, peer_2];
+        let peers = [peer_1, peer_2].into();
         assert!(!proof.verify(&peers, 1));
         Ok(())
     }
@@ -327,7 +327,7 @@ mod tests {
             .sign(key_pair_2.clone())?;
             proof_chain.push(proof);
         }
-        let peers = maplit::hashset![peer_1, peer_2];
+        let peers = [peer_1, peer_2].into();
         assert!(proof_chain.verify_with_state(&peers, 1, &latest_block));
         Ok(())
     }
@@ -355,7 +355,7 @@ mod tests {
             .sign(key_pair_2.clone())?;
             proof_chain.push(proof);
         }
-        let peers = maplit::hashset![peer_1, peer_2];
+        let peers = [peer_1, peer_2].into();
         assert!(!proof_chain.verify_with_state(&peers, 1, &latest_block));
         Ok(())
     }

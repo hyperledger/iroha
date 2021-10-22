@@ -567,8 +567,8 @@ pub enum State {
 }
 
 impl Display for State {
+    #[allow(clippy::use_debug)]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        #[allow(clippy::use_debug)]
         write!(f, "{:?}", &self)
     }
 }
