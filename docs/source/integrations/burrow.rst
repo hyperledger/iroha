@@ -40,6 +40,9 @@ Among the other `data <../develop/api/queries.html#response-structure>`_, the *E
 .. hint:: A common way for dApps developers to let interested parties see the outcome of a contract execution is to emit an event with some data before exiting a contract function so that this data is written to the *Event Log*.
 	`Ethereum Yellow Paper <https://ethereum.github.io/yellowpaper/paper.pdf>`_ defines a log entry as a 3-tuple containing the emitter’s address, an array of 32-byte long topics and a byte array of some data.
 
+Passing Ordering and arguments which are list of values is being done by sending JSON string with parameters.
+See examples for more examples.
+
 Running Native Iroha Commands in EVM
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
