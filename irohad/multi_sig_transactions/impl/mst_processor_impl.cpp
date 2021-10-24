@@ -129,8 +129,8 @@ namespace iroha {
     propagation_subscriber_.unsubscribe();
     {
       std::unique_lock lk(expiration_thread_work_mutex_);
-      lk.unlock();
       cv_expiration_thread_stop_.notify_all();
+      //std::this_thread::sleep_for(100ms);
     }
     if (expiration_thread_.joinable())
       expiration_thread_.join();
