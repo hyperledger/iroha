@@ -294,9 +294,9 @@ int main(int argc, char *argv[]) try {
     CHECK_RETURN_FMT(FLAGS_block_store_path == "/tmp/block_store",
                      "-export_to cannot be used with -block_store_path",
                      "");
-    auto abs = fs::absolute(FLAGS_rocksdb_path);
+    auto full_rocksdb_path = fs::absolute(FLAGS_rocksdb_path);
     CHECK_RETURN_FMT(
-        fs::exists(abs), "Path to RocksDB does not exist '{}'", abs);
+        fs::exists(full_rocksdb_path), "Path to RocksDB does not exist '{}'", full_rocksdb_path);
     // ToDo do not mkdir for rocksdb - readonly!
     auto rdb_port = RdbConnectionInit::init(StartupWsvDataPolicy::kReuse,
                                             RocksDbOptions{FLAGS_rocksdb_path},
@@ -308,17 +308,17 @@ int main(int argc, char *argv[]) try {
     fs::create_directories(FLAGS_block_store_path);
     return export_blocks(rdbc);
   } else {
-    auto abs = fs::absolute(FLAGS_block_store_path);
+    auto full_blockstore_path = fs::absolute(FLAGS_block_store_path);
     CHECK_RETURN_FMT(
-        fs::exists(abs), "Path to block store does not exist '{}'", abs);
-    auto first_block_path = abs / fmt::format("{:016}", 1u);
+        fs::exists(full_blockstore_path), "Path to block store does not exist '{}'", full_blockstore_path);
+    auto first_block_path = full_blockstore_path / fmt::format("{:016}", 1u);
     CHECK_RETURN_FMT(fs::exists(first_block_path),
                      "No first block exists under path '{}'",
                      first_block_path);
     auto wsv = restoreWsv();
     CHECK_RETURN_FMT(iroha::expected::hasValue(wsv), "{}", wsv.assumeError());
     fmt::print(
-        "Success! WSV in RocksDB was build.\nNext step check consintancy with "
+        "Success! WSV in RocksDB was build.\nNext step check consistency with "
         "Postgres WSV using iroha_wsv_diff.\n");
     return 0;
   }
