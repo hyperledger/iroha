@@ -109,17 +109,14 @@ namespace iroha {
           while (1) {
             using namespace std::chrono;
             using namespace std::chrono_literals;
+            std::unique_lock lk(expiration_thread_work_mutex_);
             assert(storage_);
             assert(time_provider_);
-            std::unique_lock lk(expiration_thread_work_mutex_);
             expiredBatchesNotify(storage_->extractExpiredTransactions(
                 time_provider_->getCurrentTime()));
             notifyMstMetrics(*storage_);
-            // TODO conditional_wait_until(oldest_timestamp in own_state_ +
-            // mst_timeout), react on any update in own_state_ instead of periodical poll
             if (cv_expiration_thread_stop_.wait_for(lk, 10s)
-                == std::cv_status::timeout)
-            {
+                == std::cv_status::timeout) {
               continue;
             } else {
               /// cv was notified, so stop the thread
@@ -130,7 +127,11 @@ namespace iroha {
 
   FairMstProcessor::~FairMstProcessor() {
     propagation_subscriber_.unsubscribe();
-    cv_expiration_thread_stop_.notify_all();
+    {
+      std::unique_lock lk(expiration_thread_work_mutex_);
+      lk.unlock();
+      cv_expiration_thread_stop_.notify_all();
+    }
     if (expiration_thread_.joinable())
       expiration_thread_.join();
   }
