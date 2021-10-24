@@ -166,7 +166,7 @@ namespace iroha::ametsuchi {
       std::shared_ptr<BlockStorageFactory> bsf) {
     IROHA_EXPECTED_TRY_GET_VALUE(command_executor_uniq,
                                  storage.createCommandExecutor());
-    std::shared_ptr command_executor(std::move(command_executor_uniq));
+    std::shared_ptr<CommandExecutor> command_executor(std::move(command_executor_uniq));
 
     std::shared_ptr<BlockStorageFactory> block_storage_factory{
         bsf ? std::move(bsf) : std::make_shared<BlockStorageStubFactory>()};
