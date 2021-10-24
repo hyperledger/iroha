@@ -789,7 +789,8 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
             total_transactions_count =
                 std::stoull(std::string(val));  // fixme do not create string
           } else if (key_starts_with_and_drop(RDB_ACCOUNTS)) {
-#if 0
+#if 0  /// This could be used for future database layout validaition
+       /// and future deeper transactions index validation.
             auto accid = get_unquoted_key(key);
             auto& acc = find_account_by_id(std::string(accid));
             (void)acc;
@@ -810,8 +811,9 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
               std::abort();
               assert(0 and "Wrong DB layout- unexpected key");
             }
-#endif
+#else
             key = {};
+#endif
           } else if (key_starts_with_and_drop(RDB_STATUSES)) {
             // This is to validate DB layout
             key = {};
