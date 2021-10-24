@@ -123,16 +123,26 @@ namespace iroha {
               break;
             }
           }
+          expiration_thread_done_.store(true);
         }) {}
 
   FairMstProcessor::~FairMstProcessor() {
     propagation_subscriber_.unsubscribe();
-    {
+//    {
+//      std::unique_lock lk(expiration_thread_work_mutex_);
+//      cv_expiration_thread_stop_.notify_all();
+//      //std::this_thread::sleep_for(100ms);
+//    }
+//    if (expiration_thread_.joinable())
+//      expiration_thread_.join();
+    using namespace std::chrono_literals;
+    while(not expiration_thread_done_.load()){
       std::unique_lock lk(expiration_thread_work_mutex_);
+      lk.unlock();
       cv_expiration_thread_stop_.notify_all();
-      //std::this_thread::sleep_for(100ms);
+      std::this_thread::sleep_for(50ms);
     }
-    if (expiration_thread_.joinable())
+    if(expiration_thread_.joinable())
       expiration_thread_.join();
   }
 

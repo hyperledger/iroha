@@ -109,6 +109,7 @@ namespace iroha {
 
     std::mutex expiration_thread_work_mutex_;
     std::condition_variable cv_expiration_thread_stop_;
+    std::atomic_bool expiration_thread_done_{false};
     std::thread expiration_thread_;
   };
 }  // namespace iroha
