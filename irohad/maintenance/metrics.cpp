@@ -30,7 +30,7 @@ Metrics::Metrics(std::string const &listen_addr,
                  logger::LoggerPtr const &logger)
     : storage_(storage),
       logger_(logger),
-      uptime_start_timepoint_(std::chrono::system_clock::now()) {
+      uptime_start_timepoint_(std::chrono::steady_clock::now()) {
   static const std::regex full_matcher(
       "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-"
       "9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]):[0-9]+$");
@@ -140,7 +140,7 @@ Metrics::Metrics(std::string const &listen_addr,
 
   auto calc_uptime_ms = [uptime_start_timepoint_(uptime_start_timepoint_)] {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::system_clock::now() - uptime_start_timepoint_)
+               std::chrono::steady_clock::now() - uptime_start_timepoint_)
         .count();
   };
   auto &uptime_ms_gauge = BuildGauge()
@@ -157,7 +157,7 @@ Metrics::Metrics(std::string const &listen_addr,
                    wregistry{std::weak_ptr<Registry>(registry_)}]() {
         // Metrics values are stored inside and owned by registry,
         // capture them by reference is legal.
-        while (not this->uptime_thread_cancelation_flag_.test()) {
+        while (not this->uptime_thread_cancelation_flag_.load()) {
           {
             std::shared_ptr<Registry> registry{wregistry};  // throw if expired
             uptime_ms.Set(calc_uptime_ms());
@@ -168,7 +168,7 @@ Metrics::Metrics(std::string const &listen_addr,
 }
 
 Metrics::~Metrics() {
-  uptime_thread_cancelation_flag_.test_and_set();
+  uptime_thread_cancelation_flag_.store(true);
   if (uptime_thread_.joinable())
     uptime_thread_.join();
 }

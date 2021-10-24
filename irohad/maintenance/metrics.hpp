@@ -37,9 +37,9 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
   std::shared_ptr<BlockSubscriber> block_subscriber_;
   std::shared_ptr<OnProposalSubscription> on_proposal_subscription_;
   logger::LoggerPtr logger_;
-  std::chrono::system_clock::time_point uptime_start_timepoint_;
+  std::chrono::steady_clock::time_point uptime_start_timepoint_;
   std::thread uptime_thread_;
-  std::atomic_flag uptime_thread_cancelation_flag_{false};
+  std::atomic_bool uptime_thread_cancelation_flag_{false};
 
   Metrics(std::string const &listen_addr,
           std::shared_ptr<iroha::ametsuchi::Storage> storage,
