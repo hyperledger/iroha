@@ -29,6 +29,7 @@
 #include "common/result_try.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
+#include "consensus/yac/consistency_model.hpp"
 #include "generator/generator.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -37,13 +38,13 @@
 #include "main/impl/rocksdb_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
 #include "main/startup_params.hpp"  //for StartupWsvDataPolicy
+#include "nlohmann/json.hpp"
 #include "validation/impl/chain_validator_impl.hpp"
 #include "validation/impl/stateful_validator_impl.hpp"
 #include "validators/always_valid_validator.hpp"
 #include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_block_validator.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
-#include "nlohmann/json.hpp"
 
 #define STR(y) STRH(y)
 #define STRH(x) #x
