@@ -8,7 +8,6 @@ use iroha_core::{config::Configuration, prelude::*};
 use iroha_data_model::prelude::*;
 use test_network::*;
 
-
 #[test]
 fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given
@@ -48,8 +47,8 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     thread::sleep(pipeline_time * 5);
     iroha_logger::info!("Mint");
 
-	// Then
-	let (peer, mut iroha_client) = rt.block_on(network.add_peer());
+    // Then
+    let (peer, mut iroha_client) = rt.block_on(network.add_peer());
     iroha_client.poll_request_with_period(
         client::asset::by_account_id(account_id.clone()),
         Configuration::block_sync_gossip_time(),
@@ -62,11 +61,11 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
         },
     );
 
-	// Also
-	thread::sleep(pipeline_time * 2);
-	let unregister_peer = UnregisterBox::new(IdentifiableBox::Peer(Box::new(peer.into())));
-	iroha_client.submit(unregister_peer)?;
-	iroha_logger::info!("Unregister");
+    // Also
+    thread::sleep(pipeline_time * 2);
+    let unregister_peer = UnregisterBox::new(IdentifiableBox::Peer(Box::new(peer.into())));
+    iroha_client.submit(unregister_peer)?;
+    iroha_logger::info!("Unregister");
 
     // Then
     iroha_client.poll_request_with_period(

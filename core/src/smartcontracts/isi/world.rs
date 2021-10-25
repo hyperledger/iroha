@@ -26,22 +26,22 @@ pub mod isi {
         }
     }
 
-	impl<W: WorldTrait> Execute<W> for Unregister<Peer> {
-		type Error = Error;
+    impl<W: WorldTrait> Execute<W> for Unregister<Peer> {
+        type Error = Error;
 
-		fn execute(
-			self,
-			_authority: <Account as Identifiable>::Id,
-			wsv: &WorldStateView<W>,
-		) -> Result<(), Self::Error> {
-			if let Some(_) = wsv.trusted_peers_ids().remove(&self.object_id) {
-				Ok(())
-			} else {
-				Err(eyre!("Peer wasn't trusted.").into())
-			}
-		}
-	}
-	
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Self::Error> {
+            if let Some(_) = wsv.trusted_peers_ids().remove(&self.object_id) {
+                Ok(())
+            } else {
+                Err(eyre!("Peer wasn't trusted.").into())
+            }
+        }
+    }
+
     impl<W: WorldTrait> Execute<W> for Register<Domain> {
         type Error = Error;
 

@@ -63,9 +63,7 @@ pub struct Network<
 
 impl From<Peer> for iroha_core::tx::Peer {
     fn from(val: Peer) -> Self {
-        iroha_core::tx::Peer {
-			id: val.id.clone()
-		}
+        iroha_core::tx::Peer { id: val.id.clone() }
     }
 }
 
