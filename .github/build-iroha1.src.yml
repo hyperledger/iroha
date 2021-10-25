@@ -27,7 +27,7 @@ name: Iroha1
 on:
   push:
     branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
-    tags: [ 'v*' ]
+    tags:
   pull_request:
     branches: [ main, support/1.*, edge, develop ]  ## target branches
   workflow_dispatch:
@@ -48,7 +48,7 @@ jobs:
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     name: Check if github workflows were properly made from sources
     steps:
       - &step_detect_commented_pr
@@ -76,9 +76,9 @@ jobs:
           set -x
           [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
 
+  ## Just to react to valid comment with rocket
   pr_comment_reaction_rocket:
-    ## Just to react to valid comment with rocket
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     if: ${{ github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') }}
@@ -114,11 +114,10 @@ jobs:
   ## - TODO on workflow_dispatch according to its build_spec
   ## - TODO all on schedule
   generate_matrixes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') ) }}
-    # needs: check_workflow_yaml_coressponds_to_src_yaml
     steps:
       - *step_show_context
       - *step_checkout
@@ -132,7 +131,7 @@ jobs:
         if: ${{ steps.comment_body.outcome == 'skipped' }}  ## i.e. not github.event.issue.pull_request
         run: |
           set -x
-          git fetch origin ${{github.event.after}} --depth=2  ## depth=2 to detect if fetched commit is merge commit
+          git fetch origin ${{github.event.pull_request.head.sha}} --depth=2  ## depth=2 to detect if fetched commit is merge commit
           git log -1 FETCH_HEAD
           commit_message_body_build_spec(){
             git log -n1 $1 --format=%B | grep '^/build '
@@ -209,7 +208,7 @@ jobs:
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
-    runs-on: ubuntu-latest #[ self-hosted, Linux ]
+    runs-on: ubuntu-20.04 #[ self-hosted, Linux ]
     env: &env_dockerhub
       DOCKERHUB_ORG:      hyperledger   ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -371,7 +370,7 @@ jobs:
   ## Build iroha in a container made of the image earlier prepared
   ## Result artifacts are
   ## - stand-alone irohad (linked statically)
-  ## - iroha.deb (with irohad inside)
+  ## - iroha.deb (with irohad, migration-tool, wsv_checker inside)
   build-UD: &job_ubuntu
     needs:
       - Docker-iroha-builder
@@ -452,7 +451,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
-          key:          ${{runner.os}}-ccache-${{ github.event.after }}
+          key:          ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
           restore-keys: ${{runner.os}}-ccache-
       - &step_store_ccache_stats
         run: ccache --show-stats | tee /tmp/ccache-stats
@@ -612,7 +611,7 @@ jobs:
           ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
             | tee ctest_module.out \
             || true
-          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:3 \
+          ctest -E '^module_'              --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:10 \
             | tee ctest_integration.out \
             || true
           tests_passed=true
@@ -782,7 +781,7 @@ jobs:
     needs:
       - build-UR
       - generate_matrixes
-    runs-on: [ self-hosted, Linux ]  ## or ubuntu-latest
+    runs-on: [ self-hosted, Linux ]  ## or ubuntu-20.04
     strategy: *strategy_ubuntu_release
     if: *if_ubuntu_release
     env: &env_dockerhub_release
