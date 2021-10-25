@@ -250,10 +250,6 @@ Build Process
 Building Iroha
 ^^^^^^^^^^^^^^
 
-Cloning the repository is currently unnecessary since you have already cloned Iroha in the previous step.
-But if you want, you can clone the `Iroha repository <https://github.com/hyperledger/iroha>`_ to the
-directory of your choice by using the ``git clone -b main https://github.com/hyperledger/iroha`` command.
-
 1. So, after the dependencies are built, we can start building Iroha itself: 
 
 .. code-block:: shell
