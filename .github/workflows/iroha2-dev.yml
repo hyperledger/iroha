@@ -154,63 +154,6 @@ jobs:
 
 
 
-  print-telemetry:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.55-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-              ${{ env.CARGO_HOME }}
-              target/
-          key: iroha2-rust-telemetry-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-              iroha2-rust-telemetry-
-
-      - name: Run debug tests and save telemetry
-        env:
-          TELEMETRY_FILE: ../target/telemetry/debug.json.lz4
-        run: |
-          mkdir -p target/telemetry
-          cargo test -p iroha_client --all-features -- unstable_network || true
-      - name: Run release tests and save telemetry
-        env:
-          TELEMETRY_FILE: ../target/telemetry/release.json.lz4
-        run: cargo test -p iroha_client --all-features --release -- unstable_network || true
-      - name: Install script dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends lz4 jq
-      - name: Print debug telemetry info
-        run: ./scripts/analyze_telemetry.sh target/telemetry/debug.json.lz4 >target/telemetry/debug.md
-      - name: Print release telemetry info
-        run: ./scripts/analyze_telemetry.sh target/telemetry/release.json.lz4 >target/telemetry/release.md
-      - name: Print debug telemetry info
-        run: |
-          echo '## Debug build'
-          cat target/telemetry/debug.md
-      - name: Print release telemetry info
-        run: |
-          echo '## Release build'
-          cat target/telemetry/release.md
-      - name: Create telemetry comment
-        uses: actions-ecosystem/action-create-comment@v1
-        if: ${{ false }}
-        with:
-          body: |
-            \# Telemetry info
-            \## Debug build
-            ${{ steps.debug-telemetry.outputs.body }}
-            \## Release build
-            ${{ steps.release-telemetry.outputs.body }}
-          github_token: ${{ secrets.github_token }}
-      - name: Archive telemetry
-        uses: actions/upload-artifact@v2
-        with:
-          name: telemetry
-          path: target/telemetry
-
   deploy:
     runs-on: [self-hosted, Linux]
     container: rust:1.56-buster

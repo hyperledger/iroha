@@ -21,7 +21,7 @@ pub mod isi {
             if wsv.trusted_peers_ids().insert(self.object.id) {
                 Ok(())
             } else {
-                Err(eyre!("Peer already presented in the list of trusted peers.",).into())
+                Err(eyre!("Peer already trusted.",).into())
             }
         }
     }
