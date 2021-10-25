@@ -27,7 +27,7 @@ name: Iroha1
 on:
   push:
     branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
-    tags: [ 'v*' ]
+    tags:
   pull_request:
     branches: [ main, support/1.*, edge, develop ]  ## target branches
   workflow_dispatch:
