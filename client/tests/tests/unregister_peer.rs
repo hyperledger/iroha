@@ -11,28 +11,7 @@ use test_network::*;
 #[test]
 fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given
-    let (rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
-    let pipeline_time = Configuration::pipeline_time();
-
-    thread::sleep(pipeline_time * 2);
-    iroha_logger::info!("Started");
-
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
-    let account_id = AccountId::new("account", "domain");
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(account_id.clone(), KeyPair::generate()?.public_key).into(),
-    ));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain");
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
-    iroha_client.submit_all(vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ])?;
-    thread::sleep(pipeline_time * 2);
-    iroha_logger::info!("Init");
+    let (rt, network, mut iroha_client, pipeline_time, account_id, asset_definition_id) = init()?;
 
     // When
     let quantity: u32 = 200;
@@ -80,4 +59,42 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
         },
     );
     Ok(())
+}
+
+fn init() -> Result<(
+    tokio::runtime::Runtime,
+    test_network::Network,
+    iroha_client::client::Client,
+    std::time::Duration,
+    AccountId,
+    AssetDefinitionId,
+)> {
+    let (rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
+    let pipeline_time = Configuration::pipeline_time();
+    thread::sleep(pipeline_time * 2);
+    iroha_logger::info!("Started");
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
+    let account_id = AccountId::new("account", "domain");
+    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
+        NewAccount::with_signatory(account_id.clone(), KeyPair::generate()?.public_key).into(),
+    ));
+    let asset_definition_id = AssetDefinitionId::new("xor", "domain");
+    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
+        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
+    ));
+    iroha_client.submit_all(vec![
+        create_domain.into(),
+        create_account.into(),
+        create_asset.into(),
+    ])?;
+    thread::sleep(pipeline_time * 2);
+    iroha_logger::info!("Init");
+    Ok((
+        rt,
+        network,
+        iroha_client,
+        pipeline_time,
+        account_id,
+        asset_definition_id,
+    ))
 }
