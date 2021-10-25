@@ -9,7 +9,8 @@ env:
 
 jobs:
   test-docker:
-    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    runs-on: [self-hosted, Linux]
+    container: rust:1.56-buster
     # runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -154,7 +155,8 @@ jobs:
 
 
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux]
+    container: rust:1.56-buster
     needs: test-docker
     steps:
       - uses: actions/checkout@v2
