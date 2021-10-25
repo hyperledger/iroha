@@ -1,12 +1,12 @@
-mod account_with_multiple_signatories;
+mod multisignature_account;
 mod add_account;
 mod add_asset;
-mod add_asset_should_propagate_to_another_peer;
+mod asset_propagation;
 mod add_domain;
-mod asset_amount_should_be_the_same_on_a_recently_added_peer;
+mod unregister_peer;
 mod config;
 mod events;
-mod genesis_submission_with_offline_peers;
+mod offline_peers;
 mod multiple_blocks_created;
 mod multisignature_transaction;
 mod pagination;

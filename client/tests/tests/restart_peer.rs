@@ -49,6 +49,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
         .submit(mint_asset)
         .expect("Failed to create asset.");
     thread::sleep(pipeline_time * 2);
+	
     //Then
     let asset = iroha_client
         .request(client::asset::by_account_id(account_id.clone()))
