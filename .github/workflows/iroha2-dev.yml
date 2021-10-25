@@ -30,8 +30,8 @@ jobs:
           toolchain: 1.56
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update
+          apt-get install -y --no-install-recommends \
             build-essential \
             ca-certificates \
             clang \
