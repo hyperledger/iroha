@@ -64,7 +64,7 @@ read how to install it on the
 Iroha Images
 """"""""""""
 
-You can find all the Iroha Docker Images by `searching the Docker Hub <https://hub.docker.com/search?q=hyperledger%2Firoha&type=image>`_.
+You can find all the Iroha Docker Images by `searching the Docker Hub <https://hub.docker.com/search?q=hyperledger%2Firoha&type=image>`_ or on `GitHub <https://github.com/orgs/hyperledger/packages?repo_name=iroha>`_.
 
 There are currently the following images:
 
@@ -95,7 +95,7 @@ Here are the steps:
 
   docker run -it hyperledger/iroha-builder:latest
 
-On this step you will start and run the image in a container in an interactive mode. You can use any available tags, default one would be ``latest``. Note that you might need to perform some actions with ``sudo`` rights. 
+On this step you will start and run the image in a container in an interactive mode. You can use any available tags, default one would be ``latest``, and developmnet tag is ``develop``. Note that you might need to perform some actions with ``sudo`` rights. 
 
 2. When you are inside the container, clone Iroha repository: 
 
@@ -115,27 +115,7 @@ On this step you will start and run the image in a container in an interactive m
 
   ./vcpkg/build_iroha_deps.sh
 
-5. After the dependencies are built, we can start building Iroha itself: 
 
-.. code-block:: shell
-
-  cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=RELEASE   -GNinja -DUSE_BURROW=ON  -DUSE_URSA=OFF -DTESTING=OFF -DPACKAGE_DEB=OFF. 
-
-The cmake parameters such as ``-DUSE_BURROW=ON`` are exactly the parameters you can choose for your very special build. You can see the full list and description of these parameters `here <#cmake-parameters>`_.
-
-6. Run 
-
-.. code-block:: shell
-
-  cmake --build ./build
-
-7. Check the result by running the help: 
-
-.. code-block:: shell
-
-  ./build/bin/irohad --help
-
-This step will show you all the parameters. And that is it! 
 
 .. _linux-pre:
 
@@ -241,12 +221,10 @@ Run in terminal:
 .. code-block:: shell
 
   git clone https://github.com/hyperledger/iroha.git
-  iroha/vcpkg/build_iroha_deps.sh
-  vcpkg-build/vcpkg integrate install
+  cd iroha
+  ./vcpkg/build_iroha_deps.sh
 
-After the installation of vcpkg you will be provided with a CMake build parameter like
-``-DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
-Save it somewhere for later use and move to `Building Iroha <#build-process>`_ section.
+And that is it! You can now move to `Building Iroha <#build-process>`_ section.
 
 Windows
 ^^^^^^^
@@ -256,11 +234,11 @@ Execute from Power Shell:
 .. code-block:: shell
 
   git clone https://github.com/hyperledger/iroha.git
-  powershell -ExecutionPolicy ByPass -File .\iroha\.packer\win\scripts\vcpkg.ps1 .\vcpkg .\iroha\vcpkg
+  cd iroha
+  powershell -ExecutionPolicy ByPass -File .\.packer\win\scripts\vcpkg.ps1 .\vcpkg .\iroha\vcpkg
 
-After the installation of vcpkg you will be provided with a CMake build parameter like
-``-DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
-Save it somewhere for later use and move to `Building Iroha <#build-process>`_ section.
+
+Great job! You can now move to `Building Iroha <#build-process>`_ section.
 
 .. note:: If you plan to build 32-bit version of Iroha -
   you will need to install all the mentioned librares above
@@ -274,30 +252,36 @@ Building Iroha
 
 Cloning the repository is currently unnecessary since you have already cloned Iroha in the previous step.
 But if you want, you can clone the `Iroha repository <https://github.com/hyperledger/iroha>`_ to the
-directory of your choice by using the ``git clone -b master https://github.com/hyperledger/iroha`` command.
+directory of your choice by using the ``git clone -b main https://github.com/hyperledger/iroha`` command.
 
-Now, to build Iroha, use these commands:
+1. So, after the dependencies are built, we can start building Iroha itself: 
 
 .. code-block:: shell
 
-  cd iroha
-  mkdir build
-  cd build
-  cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja" ..
+  cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake . -DCMAKE_BUILD_TYPE=RELEASE   -GNinja -DUSE_BURROW=OFF -DUSE_URSA=OFF -DTESTING=OFF -DPACKAGE_DEB=OFF
+
+The cmake parameters such as ``-DUSE_BURROW=ON`` are exactly the parameters you can choose for your very special build. You can see the full list and description of these parameters `here <#cmake-parameters>`_.
+
+2. Run 
+
+.. code-block:: shell
+
   cmake --build . --target irohad -- -j<number of threads>
 
 .. warning:: If you want to use tests later, instead of building `irohad` target, you need to use this:
 
 .. code-block:: shell
 
-  cd iroha
-  mkdir build
-  cd build
-  cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja" ..
   cmake --build . --target all -- -j<number of threads>
 
-.. note:: On Docker the path to a toolchain file is ``/opt/dependencies/scripts/buildsystems/vcpkg.cmake``. In other
-  environment please use the path you have got in previous steps.
+
+3. Check the result by running the help: 
+
+.. code-block:: shell
+
+  ./build/bin/irohad --help
+
+This step will show you all the parameters. And that is it! 
 
 Number of threads will be defined differently depending on the platform:
 
