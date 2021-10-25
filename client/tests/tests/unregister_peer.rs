@@ -8,8 +8,9 @@ use iroha_core::{config::Configuration, prelude::*};
 use iroha_data_model::prelude::*;
 use test_network::*;
 
+
 #[test]
-fn asset_amount_not_propagated_to_recently_removed_peer() -> Result<()> {
+fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given
     let (rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
     let pipeline_time = Configuration::pipeline_time();
@@ -32,10 +33,9 @@ fn asset_amount_not_propagated_to_recently_removed_peer() -> Result<()> {
         create_asset.into(),
     ])?;
     thread::sleep(pipeline_time * 2);
-	let (peer, mut iroha_client) = rt.block_on(network.add_peer());
     iroha_logger::info!("Init");
 
-    //When
+    // When
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),
@@ -48,9 +48,27 @@ fn asset_amount_not_propagated_to_recently_removed_peer() -> Result<()> {
     thread::sleep(pipeline_time * 5);
     iroha_logger::info!("Mint");
 
-    
+	// Then
+	let (peer, mut iroha_client) = rt.block_on(network.add_peer());
+    iroha_client.poll_request_with_period(
+        client::asset::by_account_id(account_id.clone()),
+        Configuration::block_sync_gossip_time(),
+        15,
+        |result| {
+            result.iter().any(|asset| {
+                asset.id.definition_id == asset_definition_id
+                    && asset.value == AssetValue::Quantity(quantity)
+            })
+        },
+    );
 
-    //Then
+	// Also
+	thread::sleep(pipeline_time * 2);
+	let unregister_peer = UnregisterBox::new(IdentifiableBox::Peer(Box::new(peer.into())));
+	iroha_client.submit(unregister_peer)?;
+	iroha_logger::info!("Unregister");
+
+    // Then
     iroha_client.poll_request_with_period(
         client::asset::by_account_id(account_id),
         Configuration::block_sync_gossip_time(),
