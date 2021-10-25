@@ -178,6 +178,7 @@ fn validate_blocks(criterion: &mut Criterion) {
         name: domain_name.clone(),
         accounts,
         asset_definitions,
+        metadata: Metadata::new(),
     };
     let mut domains = BTreeMap::new();
     domains.insert(domain_name, domain);

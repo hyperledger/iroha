@@ -348,9 +348,12 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    FindDomainByName(query) => {
-                        let domain_name = query
-                            .name
+                    FindDomainByName(query::FindDomainByName { name })
+                    | FindDomainKeyValueByIdAndKey(query::FindDomainKeyValueByIdAndKey {
+                        name,
+                        ..
+                    }) => {
+                        let domain_name = name
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
                         if domain_name == authority.domain_name {
@@ -437,6 +440,7 @@ pub mod private_blockchain {
                     | FindAssetsByName(_)
                     | FindAllDomains(_)
                     | FindDomainByName(_)
+                    | FindDomainKeyValueByIdAndKey(_)
                     | FindAssetsByDomainNameAndAssetDefinitionId(_)
                     | FindAssetDefinitionKeyValueByIdAndKey(_)
                     | FindAllAssets(_) => {
@@ -1994,6 +1998,7 @@ pub mod public_blockchain {
                             },
                         )]
                         .into(),
+                        metadata: Metadata::new(),
                     },
                 )],
                 [],
@@ -2092,6 +2097,7 @@ pub mod public_blockchain {
                             },
                         )]
                         .into(),
+                        metadata: Metadata::new(),
                     },
                 )],
                 [],
@@ -2195,6 +2201,7 @@ pub mod public_blockchain {
                             },
                         )]
                         .into(),
+                        metadata: Metadata::new(),
                     },
                 )],
                 [],
@@ -2434,6 +2441,7 @@ pub mod public_blockchain {
                             },
                         )]
                         .into(),
+                        metadata: Metadata::new(),
                     },
                 )],
                 [],
@@ -2471,6 +2479,7 @@ pub mod public_blockchain {
                             },
                         )]
                         .into(),
+                        metadata: Metadata::new(),
                     },
                 )],
                 [],

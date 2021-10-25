@@ -596,7 +596,7 @@ pub mod domain {
     }
 
     /// Get query to get all domain by name
-    pub fn by_name(domain_name: impl Into<EvaluatesTo<String>>) -> FindDomainByName {
+    pub fn by_name(domain_name: impl Into<EvaluatesTo<Name>>) -> FindDomainByName {
         FindDomainByName::new(domain_name)
     }
 }

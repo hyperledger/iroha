@@ -73,6 +73,8 @@ pub enum QueryBox {
     FindAllDomains(FindAllDomains),
     /// `FindDomainByName` variant.
     FindDomainByName(FindDomainByName),
+    /// `FindDomainKeyValueByIdAndKey` variant.
+    FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
     /// `FindAllPeers` variant.
     FindAllPeers(FindAllPeers),
     /// `FindTransactionsByAccountId` variant.
@@ -379,7 +381,7 @@ pub mod account {
         /// `Id` of an account to find.
         pub id: EvaluatesTo<AccountId>,
         /// Key of the specific key-value in the Account's metadata.
-        pub key: EvaluatesTo<String>,
+        pub key: EvaluatesTo<Name>,
     }
 
     impl QueryOutput for FindAccountKeyValueByIdAndKey {
@@ -455,7 +457,7 @@ pub mod account {
         /// Default `FindAccountById` constructor.
         pub fn new(
             id: impl Into<EvaluatesTo<AccountId>>,
-            key: impl Into<EvaluatesTo<String>>,
+            key: impl Into<EvaluatesTo<Name>>,
         ) -> Self {
             let id = id.into();
             let key = key.into();
@@ -951,9 +953,45 @@ pub mod domain {
         }
     }
 
+    /// `FindDomainKeyValueByIdAndKey` Iroha Query will find a [`Value`] of the key-value metadata pair
+    /// in the specified domain.
+    #[derive(
+        Clone,
+        Debug,
+        Io,
+        Serialize,
+        Deserialize,
+        Encode,
+        Decode,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        IntoSchema,
+    )]
+    pub struct FindDomainKeyValueByIdAndKey {
+        /// `Name` of an domain to find.
+        pub name: EvaluatesTo<Name>,
+        /// Key of the specific key-value in the domain's metadata.
+        pub key: EvaluatesTo<Name>,
+    }
+
+    impl FindDomainKeyValueByIdAndKey {
+        /// Default `FindDomainKeyValueByIdAndKey` constructor.
+        pub fn new(name: impl Into<EvaluatesTo<Name>>, key: impl Into<EvaluatesTo<Name>>) -> Self {
+            let name = name.into();
+            let key = key.into();
+            FindDomainKeyValueByIdAndKey { name, key }
+        }
+    }
+
+    impl QueryOutput for FindDomainKeyValueByIdAndKey {
+        type Output = Value;
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAllDomains, FindDomainByName};
+        pub use super::{FindAllDomains, FindDomainByName, FindDomainKeyValueByIdAndKey};
     }
 }
 

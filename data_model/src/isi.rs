@@ -70,7 +70,7 @@ pub struct SetKeyValueBox {
     /// Where to set this key value.
     pub object_id: EvaluatesTo<IdBox>,
     /// Key string.
-    pub key: EvaluatesTo<String>,
+    pub key: EvaluatesTo<Name>,
     /// Object to set as a value.
     pub value: EvaluatesTo<Value>,
 }
@@ -81,7 +81,7 @@ pub struct RemoveKeyValueBox {
     /// From where to remove this key value.
     pub object_id: EvaluatesTo<IdBox>,
     /// Key string.
-    pub key: EvaluatesTo<String>,
+    pub key: EvaluatesTo<Name>,
 }
 
 /// Sized structure for all possible Sets.
@@ -431,7 +431,7 @@ impl SetKeyValueBox {
     /// Default [`SetKeyValueBox`] constructor.
     pub fn new<
         I: Into<EvaluatesTo<IdBox>>,
-        K: Into<EvaluatesTo<String>>,
+        K: Into<EvaluatesTo<Name>>,
         V: Into<EvaluatesTo<Value>>,
     >(
         object_id: I,
@@ -453,7 +453,7 @@ impl RemoveKeyValueBox {
     }
 
     /// Default [`RemoveKeyValueBox`] constructor.
-    pub fn new<I: Into<EvaluatesTo<IdBox>>, K: Into<EvaluatesTo<String>>>(
+    pub fn new<I: Into<EvaluatesTo<IdBox>>, K: Into<EvaluatesTo<Name>>>(
         object_id: I,
         key: K,
     ) -> Self {
