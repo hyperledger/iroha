@@ -17,6 +17,7 @@ target_link_libraries(migration-tool PRIVATE
         ametsuchi
         chain_validator
         generator
+        yac_transport
         )
 
 find_package(nlohmann_json CONFIG REQUIRED)

@@ -43,9 +43,10 @@ namespace iroha {
     kOnConsensusGateEvent,
 
     // MST
-    kOnStateUpdate,
-    kOnPreparedBatches,
-    kOnExpiredBatches,
+    kOnMstStateUpdate,
+    kOnMstPreparedBatches,
+    kOnMstExpiredBatches,
+    kOnMstMetrics,
 
     // YAC
     kTimer,
