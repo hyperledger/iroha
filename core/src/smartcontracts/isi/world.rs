@@ -34,7 +34,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            if let Some(_) = wsv.trusted_peers_ids().remove(&self.object_id) {
+            if wsv.trusted_peers_ids().remove(&self.object_id).is_some() {
                 Ok(())
             } else {
                 Err(eyre!("Peer wasn't trusted.").into())
