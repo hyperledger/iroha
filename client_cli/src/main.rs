@@ -14,7 +14,7 @@ use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
 use structopt::StructOpt;
 
-/// Metadata wrapper, which can be captured from cli arguments (from user suplied file).
+/// Metadata wrapper, which can be captured from cli arguments (from user supplied file).
 #[derive(Debug, Clone)]
 pub struct Metadata(pub UnlimitedMetadata);
 

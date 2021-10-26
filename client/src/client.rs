@@ -14,6 +14,7 @@ use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_logger::log;
 use iroha_version::prelude::*;
+use rand::Rng;
 use serde::de::DeserializeOwned;
 
 use crate::{
@@ -38,6 +39,8 @@ pub struct Client {
     pub account_id: AccountId,
     /// Http headers which will be appended to each request
     pub headers: http_client::Headers,
+    /// If `true` add nonce, which make different hashes for transactions which occur repeatedly and simultaneously
+    pub add_transaction_nonce: bool,
 }
 
 /// Representation of `Iroha` client.
@@ -57,6 +60,7 @@ impl Client {
             ),
             account_id: configuration.account_id.clone(),
             headers: HashMap::default(),
+            add_transaction_nonce: configuration.add_transaction_nonce,
         }
     }
 
@@ -75,6 +79,7 @@ impl Client {
             ),
             account_id: configuration.account_id.clone(),
             headers,
+            add_transaction_nonce: configuration.add_transaction_nonce,
         }
     }
 
@@ -87,11 +92,15 @@ impl Client {
         instructions: Vec<Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<Transaction> {
+        let nonce = self
+            .add_transaction_nonce
+            .then(|| rand::thread_rng().gen::<u32>());
         Transaction::with_metadata(
             instructions,
             self.account_id.clone(),
             self.proposed_transaction_ttl_ms,
             metadata,
+            nonce,
         )
         .sign(&self.key_pair)
     }
@@ -644,4 +653,35 @@ pub mod uri {
     pub const SUBSCRIPTION: &str = "/events";
     /// Get pending transactions.
     pub const PENDING_TRANSACTIONS: &str = "/pending_transactions";
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::restriction)]
+    use super::*;
+
+    #[test]
+    fn txs_same_except_for_nonce_have_different_hashes() {
+        let keys = KeyPair::generate().unwrap();
+        let cfg = Configuration {
+            public_key: keys.public_key,
+            private_key: keys.private_key,
+            add_transaction_nonce: true,
+            ..Configuration::default()
+        };
+        let client = Client::new(&cfg);
+
+        let build_transaction = || {
+            client
+                .build_transaction(vec![], UnlimitedMetadata::new())
+                .unwrap()
+        };
+        let tx1 = build_transaction();
+        let mut tx2 = build_transaction();
+
+        tx2.payload.creation_time = tx1.payload.creation_time;
+        assert_ne!(tx1.hash(), tx2.hash());
+        tx2.payload.nonce = tx1.payload.nonce;
+        assert_eq!(tx1.hash(), tx2.hash());
+    }
 }

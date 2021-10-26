@@ -11,6 +11,7 @@ const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+const DEFAULT_ADD_TRANSACTION_NONCE: bool = false;
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
 // TODO: design macro to load config from env.
@@ -30,13 +31,15 @@ pub struct Configuration {
     pub torii_api_url: String,
     /// Proposed transaction TTL in milliseconds.
     pub transaction_time_to_live_ms: u64,
-    /// `Logger` configuration.
-    #[config(inner)]
-    pub logger_configuration: LoggerConfiguration,
     /// Transaction status wait timeout in milliseconds.
     pub transaction_status_timeout_ms: u64,
     /// Maximum number of instructions per transaction
     pub max_instruction_number: u64,
+    /// If `true` add nonce, which make different hashes for transactions which occur repeatedly and simultaneously
+    pub add_transaction_nonce: bool,
+    /// `Logger` configuration.
+    #[config(inner)]
+    pub logger_configuration: LoggerConfiguration,
 }
 
 impl Default for Configuration {
@@ -49,6 +52,7 @@ impl Default for Configuration {
             transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,
             transaction_status_timeout_ms: DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS,
             max_instruction_number: DEFAULT_MAX_INSTRUCTION_NUMBER,
+            add_transaction_nonce: DEFAULT_ADD_TRANSACTION_NONCE,
             logger_configuration: LoggerConfiguration::default(),
         }
     }
