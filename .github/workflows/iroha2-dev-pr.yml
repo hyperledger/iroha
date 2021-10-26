@@ -150,13 +150,16 @@ jobs:
             ca-certificates \
             clang \
             llvm-dev \
-            lld # NEEDED FOR COVERAGE. 
       - name: Install nightly for instrumenting tests
         run: rustup install --profile default nightly-2021-10-22
       - name: Install grcov
+        if: ${{ false }}
         run: cargo install grcov
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin
       - name: Cargo clean
         run: cargo clean
+        if: ${{ false }}
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Cargo build
@@ -166,14 +169,18 @@ jobs:
           RUSTFLAGS: "-Zinstrument-coverage"
       - name: Run tests
         run: cargo +nightly-2021-10-22 test --workspace --no-fail-fast || true
+        if: ${{ false }}
         env:
           RUSTFLAGS: "-Zinstrument-coverage -C link-arg=-fuse-ld=lld"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
-      - name: Generate coverage report
+      - name: GRCOV coverage report
         run: grcov . --binary-path ./target/debug/ \
           -s . -t lcov \
           --branch --ignore-not-existing \
           --ignore "/*" -o lcov.info
+        if: ${{ false }}
+      - name: tarpaulin coverage report
+        run: cargo tarpaulin -o Lcov
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
         with:
