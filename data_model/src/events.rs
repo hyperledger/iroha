@@ -307,7 +307,7 @@ pub mod pipeline {
             };
             write!(
                 f,
-                "Failed execute instruction of type {}: {}",
+                "Failed to execute instruction of type {}: {}",
                 type_, self.reason
             )
         }

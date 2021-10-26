@@ -9,48 +9,50 @@ use test_network::*;
 #[test]
 fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given a network
-    let (rt, network, mut iroha_client, pipeline_time, account_id, asset_definition_id) = init()?;
-
+    let (rt, network, mut iroha_client_network, pipeline_time, account_id, asset_definition_id) =
+        init()?;
     // When assets are minted
-    let quantity = mint(
-        &asset_definition_id,
-        &account_id,
-        &mut iroha_client,
-        pipeline_time,
-    )?;
-
-    // Then assets are propagated to the registered peer.
-    let (peer, mut iroha_client) = rt.block_on(network.add_peer());
-    check_assets(
-        &mut iroha_client,
-        &account_id,
-        &asset_definition_id,
-        quantity,
-    );
-
-    // Also after unregistering peer
-    thread::sleep(pipeline_time * 2);
-    let unregister_peer = UnregisterBox::new(IdentifiableBox::Peer(peer.into()));
-    iroha_client.submit(unregister_peer)?;
-	thread::sleep(pipeline_time * 2);
-    iroha_logger::info!("Unregister");
-
-	// and we can mint without error.
     mint(
         &asset_definition_id,
         &account_id,
-        &mut iroha_client,
+        &mut iroha_client_network,
         pipeline_time,
+        100,
     )?;
-
-    // Then assets are still intact.
+    // Then assets are propagated to the registered peer.
+    let (peer, mut iroha_client_peer) = rt.block_on(network.add_peer());
     check_assets(
-        &mut iroha_client,
+        &mut iroha_client_network,
         &account_id,
         &asset_definition_id,
-        quantity,
+        100,
     );
-    
+    // Also, when a peer is unregistered
+    thread::sleep(pipeline_time * 2);
+    iroha_client_network.submit(UnregisterBox::new(IdentifiableBox::Peer(peer.into())))?;
+    thread::sleep(pipeline_time * 2);
+    // We can mint without error.
+    mint(
+        &asset_definition_id,
+        &account_id,
+        &mut iroha_client_network,
+        pipeline_time,
+        200,
+    )?;
+    // Assets are increased on the main network.
+    check_assets(
+        &mut iroha_client_network,
+        &account_id,
+        &asset_definition_id,
+        300,
+    );
+    // But not on the unregistered peer's  network.
+    check_assets(
+        &mut iroha_client_peer,
+        &account_id,
+        &asset_definition_id,
+        100,
+    );
     Ok(())
 }
 
@@ -78,8 +80,8 @@ fn mint(
     account_id: &AccountId,
     iroha_client: &mut client::Client,
     pipeline_time: std::time::Duration,
+    quantity: u32,
 ) -> Result<u32, color_eyre::Report> {
-    let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(
