@@ -179,6 +179,8 @@ jobs:
           --branch --ignore-not-existing \
           --ignore "/*" -o lcov.info
         if: ${{ false }}
+      - name: Disable Address Space Layout randomisation
+        run: sysctl kernel.randomize_va_space=0
       - name: tarpaulin coverage report
         run: cargo tarpaulin -o Lcov
       - name: Upload coverage to codecov.io
