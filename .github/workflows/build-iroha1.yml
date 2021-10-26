@@ -1448,6 +1448,19 @@ jobs:
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
           END
+      - name: export CC,BuildType from matrix.buildspec
+        run: |
+          echo >>$GITHUB_ENV  OS=$(echo ${{matrix.buildspec}} | awk '{print $1}')
+          echo >>$GITHUB_ENV  CC_NAME=$(echo ${{matrix.buildspec}} | awk '{print $2}')
+          echo >>$GITHUB_ENV  BuildType=$(echo ${{matrix.buildspec}} | awk '{print $3}')
+          features=$(echo ${{matrix.buildspec}} | awk '{print $4}')
+          echo >>$GITHUB_ENV  features="$features"
+          case $features in
+            normal) echo >>$GITHUB_ENV  CMAKE_USE="";;
+            ursa)   echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_LIBURSA=ON";;
+            burrow) echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_BURROW=ON";;
+            *) echo "::error::Unknown features '$features'"; false ;;
+          esac
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -1630,6 +1643,19 @@ jobs:
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
           END
+      - name: export CC,BuildType from matrix.buildspec
+        run: |
+          echo >>$GITHUB_ENV  OS=$(echo ${{matrix.buildspec}} | awk '{print $1}')
+          echo >>$GITHUB_ENV  CC_NAME=$(echo ${{matrix.buildspec}} | awk '{print $2}')
+          echo >>$GITHUB_ENV  BuildType=$(echo ${{matrix.buildspec}} | awk '{print $3}')
+          features=$(echo ${{matrix.buildspec}} | awk '{print $4}')
+          echo >>$GITHUB_ENV  features="$features"
+          case $features in
+            normal) echo >>$GITHUB_ENV  CMAKE_USE="";;
+            ursa)   echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_LIBURSA=ON";;
+            burrow) echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_BURROW=ON";;
+            *) echo "::error::Unknown features '$features'"; false ;;
+          esac
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
