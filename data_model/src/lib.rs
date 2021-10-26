@@ -2039,6 +2039,8 @@ pub mod transaction {
         pub creation_time: u64,
         /// The transaction will be dropped after this time if it is still in a `Queue`.
         pub time_to_live_ms: u64,
+        /// Random value to make different hashes for transactions which occur repeatedly and simultaneously
+        pub nonce: Option<u32>,
         /// Metadata.
         pub metadata: UnlimitedMetadata,
     }
@@ -2116,6 +2118,23 @@ pub mod transaction {
                 account_id,
                 proposed_ttl_ms,
                 UnlimitedMetadata::new(),
+                None,
+            )
+        }
+
+        /// [`Transaction`] constructor with nonce.
+        pub fn with_nonce(
+            instructions: Vec<Instruction>,
+            account_id: <Account as Identifiable>::Id,
+            proposed_ttl_ms: u64,
+            nonce: u32,
+        ) -> Transaction {
+            Transaction::with_metadata(
+                instructions,
+                account_id,
+                proposed_ttl_ms,
+                UnlimitedMetadata::new(),
+                Some(nonce),
             )
         }
 
@@ -2125,6 +2144,7 @@ pub mod transaction {
             account_id: <Account as Identifiable>::Id,
             proposed_ttl_ms: u64,
             metadata: UnlimitedMetadata,
+            nonce: Option<u32>,
         ) -> Transaction {
             #[allow(clippy::cast_possible_truncation, clippy::expect_used)]
             Transaction {
@@ -2136,6 +2156,7 @@ pub mod transaction {
                         .expect("Failed to get System Time.")
                         .as_millis() as u64,
                     time_to_live_ms: proposed_ttl_ms,
+                    nonce,
                     metadata,
                 },
                 signatures: BTreeSet::new(),
