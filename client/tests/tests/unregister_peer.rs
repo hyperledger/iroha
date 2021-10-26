@@ -9,13 +9,13 @@ use test_network::*;
 #[test]
 fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given a network
-    let (rt, network, iroha_client, pipeline_time, account_id, asset_definition_id) = init()?;
+    let (rt, network, mut iroha_client, pipeline_time, account_id, asset_definition_id) = init()?;
 
     // When assets are minted
     let quantity = mint(
         &asset_definition_id,
         &account_id,
-        iroha_client,
+        &mut iroha_client,
         pipeline_time,
     )?;
 
@@ -32,7 +32,16 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     thread::sleep(pipeline_time * 2);
     let unregister_peer = UnregisterBox::new(IdentifiableBox::Peer(peer.into()));
     iroha_client.submit(unregister_peer)?;
+	thread::sleep(pipeline_time * 2);
     iroha_logger::info!("Unregister");
+
+	// and we can mint without error.
+    mint(
+        &asset_definition_id,
+        &account_id,
+        &mut iroha_client,
+        pipeline_time,
+    )?;
 
     // Then assets are still intact.
     check_assets(
@@ -41,13 +50,7 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
         &asset_definition_id,
         quantity,
     );
-    // and we can mint without error.
-    mint(
-        &asset_definition_id,
-        &account_id,
-        iroha_client,
-        pipeline_time,
-    )?;
+    
     Ok(())
 }
 
@@ -73,7 +76,7 @@ fn check_assets(
 fn mint(
     asset_definition_id: &AssetDefinitionId,
     account_id: &AccountId,
-    mut iroha_client: client::Client,
+    iroha_client: &mut client::Client,
     pipeline_time: std::time::Duration,
 ) -> Result<u32, color_eyre::Report> {
     let quantity: u32 = 200;
