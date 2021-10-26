@@ -1,5 +1,3 @@
-#![allow(clippy::restriction)]
-
 use std::thread;
 
 use eyre::Result;
@@ -26,7 +24,7 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     check_assets(
         &mut iroha_client,
         &account_id,
-        asset_definition_id.clone(),
+        &asset_definition_id,
         quantity,
     );
 
@@ -40,7 +38,7 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     check_assets(
         &mut iroha_client,
         &account_id,
-        asset_definition_id.clone(),
+        &asset_definition_id,
         quantity,
     );
     // and we can mint without error.
@@ -56,7 +54,7 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
 fn check_assets(
     iroha_client: &mut client::Client,
     account_id: &AccountId,
-    asset_definition_id: AssetDefinitionId,
+    asset_definition_id: &AssetDefinitionId,
     quantity: u32,
 ) {
     iroha_client.poll_request_with_period(
@@ -65,7 +63,7 @@ fn check_assets(
         15,
         |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
+                asset.id.definition_id == *asset_definition_id
                     && asset.value == AssetValue::Quantity(quantity)
             })
         },
