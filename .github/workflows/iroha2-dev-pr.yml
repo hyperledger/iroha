@@ -119,15 +119,16 @@ jobs:
       - name: Cleanup docker test environment
         run: ./scripts/cleanup_docker_test_env.sh
       - name: Cleanup Gradle Cache
-        # Remove some files from the Gradle cache, so they aren't cached by GitHub Actions.
-        # Restoring these files from a GitHub Actions cache might cause problems for future builds.
+        # Remove some files from the Gradle cache, so they aren't
+        # cached by GitHub Actions.  Restoring these files from a
+        # GitHub Actions cache might cause problems for future builds.
         run: |
           rm -f ~/.gradle/caches/modules-2/modules-2.lock
           rm -f ~/.gradle/caches/modules-2/gc.properties
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
-  # 2  Coverage bot can have results from `iroha2-dev` to report accurate coverage changes.
+  # 2  Coverage bot can have results from `iroha2-dev` to report coverage changes.
   coverage:
     runs-on: [self-hosted, Linux]
     container: rust:1.56-buster
@@ -148,7 +149,10 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev
+            llvm-dev \
+            lld # NEEDED FOR COVERAGE. 
+      - name: Install nightly for instrumenting tests
+        run: rustup install --profile default nightly-2021-10-22
       - name: Install grcov
         run: cargo install grcov
       - name: Cargo clean
@@ -160,18 +164,17 @@ jobs:
         if: ${{ false }}
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
-          RUSTC_BOOTSTRAP: 1
       - name: Run tests
-        run: cargo test --workspace --no-fail-fast -- || true
+        run: cargo +nightly-2021-10-22 test --workspace --no-fail-fast || true
         env:
-          RUSTFLAGS: "-Zinstrument-coverage"
-          RUSTC_BOOTSTRAP: 1
+          RUSTFLAGS: "-Zinstrument-coverage -C link-arg=-fuse-ld=lld"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate coverage report
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        run: grcov . --binary-path ./target/debug/ \
+          -s . -t lcov \
+          --branch --ignore-not-existing \
+          --ignore "/*" -o lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
         with:
           file: lcov.info
-
-

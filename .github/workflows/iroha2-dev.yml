@@ -36,6 +36,10 @@ jobs:
             ca-certificates \
             clang \
             llvm-dev
+      - name: Install Docker
+        run: |
+          curl -fsSL "https://get.docker.com -o get-docker.sh"
+          sh ./get-docker.sh
       - name: Build Client CLI
         run: cargo build
         working-directory: client_cli
@@ -205,12 +209,20 @@ jobs:
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
-  # 2  Coverage bot can have results from `iroha2-dev` to report accurate coverage changes.
+  # 2  Coverage bot can have results from `iroha2-dev` to report coverage changes.
   coverage:
     runs-on: [self-hosted, Linux]
     container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+              ${{ env.CARGO_HOME }}
+              target/
+          key: iroha2-rust-test-coverage-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-test-coverage
       - name: Install dependencies
         run: |
           apt-get update
@@ -218,7 +230,10 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev
+            llvm-dev \
+            lld # NEEDED FOR COVERAGE.
+      - name: Install nightly for instrumenting tests
+        run: rustup install --profile default nightly-2021-10-22
       - name: Install grcov
         run: cargo install grcov
       - name: Cargo clean
@@ -227,19 +242,20 @@ jobs:
         run: rustup component add llvm-tools-preview
       - name: Cargo build
         run: cargo build
+        if: ${{ false }}
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
-          RUSTC_BOOTSTRAP: 1
       - name: Run tests
-        run: cargo test --workspace -- --test-threads=1
+        run: cargo +nightly-2021-10-22 test --workspace --no-fail-fast || true
         env:
-          RUSTFLAGS: "-Zinstrument-coverage"
-          RUSTC_BOOTSTRAP: 1
+          RUSTFLAGS: "-Zinstrument-coverage -C link-arg=-fuse-ld=lld"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate coverage report
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        run: grcov . --binary-path ./target/debug/ \
+          -s . -t lcov \
+          --branch --ignore-not-existing \
+          --ignore "/*" -o lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
         with:
           file: lcov.info
-
