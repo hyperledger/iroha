@@ -10,8 +10,8 @@ env:
 jobs:
   test-docker:
     runs-on: [self-hosted, Linux]
-    container: rust:1.56-buster
-    # runs-on: ubuntu-latest
+    #container: rust:1.56-buster
+    container: ubuntu:latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
@@ -36,10 +36,6 @@ jobs:
             ca-certificates \
             clang \
             llvm-dev
-      - name: Install Docker
-        run: |
-          curl -fsSL "https://get.docker.com -o get-docker.sh"
-          sh ./get-docker.sh
       - name: Build Client CLI
         run: cargo build
         working-directory: client_cli
@@ -238,9 +234,10 @@ jobs:
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
       - name: Run tests
-        run: mold -run cargo +nightly-2021-10-22 test --workspace --no-fail-fast || true
+        run: mold -run cargo test --workspace --no-fail-fast || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
+          RUSTC_BOOTSTRAP: 1
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: GRCOV coverage report
         run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info

@@ -163,9 +163,10 @@ jobs:
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
       - name: Run tests
-        run: mold -run cargo +nightly-2021-10-22 test --workspace --no-fail-fast || true
+        run: mold -run cargo test --workspace --no-fail-fast || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
+          RUSTC_BOOTSTRAP: 1
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: GRCOV coverage report
         run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
