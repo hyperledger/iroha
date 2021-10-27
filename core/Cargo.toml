@@ -56,6 +56,7 @@ crossbeam-queue = "0.3"
 warp = "0.3"
 structopt = { version = "0.3", optional = true }
 thiserror = "1.0.28"
+pin-project = "1"
 
 [dev-dependencies]
 hex-literal = "0.2.1"
