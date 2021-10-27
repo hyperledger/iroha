@@ -2,7 +2,7 @@
 
 #![allow(clippy::missing_inline_in_public_items)]
 
-use std::{convert::TryFrom, time::SystemTime};
+use std::convert::TryFrom;
 
 use eyre::Result;
 use iroha_crypto::{prelude::*, SignatureOf};
@@ -17,7 +17,7 @@ use warp::{reply::Response, Reply};
 #[cfg(feature = "roles")]
 use self::role::*;
 use self::{account::*, asset::*, domain::*, peer::*, permissions::*, transaction::*};
-use crate::{account::Account, Identifiable, Value};
+use crate::{account::Account, current_time, Identifiable, Value};
 
 /// Sized container for all possible Queries.
 #[allow(clippy::enum_variant_names)]
@@ -173,10 +173,7 @@ impl QueryRequest {
     /// Constructs a new request with the `query`.
     #[allow(clippy::expect_used)]
     pub fn new(query: QueryBox, account_id: <Account as Identifiable>::Id) -> Self {
-        let timestamp_ms = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("Failed to get System Time.")
-            .as_millis();
+        let timestamp_ms = current_time().as_millis();
         QueryRequest {
             payload: Payload {
                 timestamp_ms,
