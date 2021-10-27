@@ -61,6 +61,12 @@ pub struct Network<
     pub peers: Vec<Peer<W, G, K, S, B>>,
 }
 
+impl From<Peer> for Box<iroha_core::tx::Peer> {
+    fn from(val: Peer) -> Self {
+        Box::new(iroha_core::tx::Peer { id: val.id.clone() })
+    }
+}
+
 /// Peer structure
 pub struct Peer<
     W = World,

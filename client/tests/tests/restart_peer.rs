@@ -2,6 +2,7 @@
 
 use std::{str::FromStr, thread, time::Duration};
 
+use eyre::Result;
 use iroha_client::client::{self, Client};
 use iroha_core::{config::Configuration, prelude::*};
 use iroha_data_model::prelude::*;
@@ -10,11 +11,11 @@ use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
 
 #[test]
-fn restarted_peer_should_have_the_same_asset_amount() {
-    let temp_dir = TempDir::new().expect("Failed to create TempDir.");
+fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
+    let temp_dir = TempDir::new()?;
 
     let mut configuration = Configuration::test();
-    let mut peer = <TestPeer>::new().expect("Failed to create peer");
+    let mut peer = <TestPeer>::new()?;
     configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
 
     let pipeline_time = Duration::from_millis(configuration.sumeragi.pipeline_time_ms());
@@ -32,9 +33,7 @@ fn restarted_peer_should_have_the_same_asset_amount() {
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
     let mut iroha_client = Client::test(&peer.api_address);
-    iroha_client
-        .submit(create_asset)
-        .expect("Failed to prepare state.");
+    iroha_client.submit(create_asset)?;
     thread::sleep(pipeline_time * 2);
     //When
     let quantity: u32 = 200;
@@ -45,17 +44,15 @@ fn restarted_peer_should_have_the_same_asset_amount() {
             account_id.clone(),
         )),
     );
-    iroha_client
-        .submit(mint_asset)
-        .expect("Failed to create asset.");
+    iroha_client.submit(mint_asset)?;
     thread::sleep(pipeline_time * 2);
+
     //Then
     let asset = iroha_client
-        .request(client::asset::by_account_id(account_id.clone()))
-        .expect("Failed to execute request.")
+        .request(client::asset::by_account_id(account_id.clone()))?
         .into_iter()
         .find(|asset| asset.id.definition_id == asset_definition_id)
-        .expect("Asset should exist.");
+        .expect("Asset not found");
     assert_eq!(AssetValue::Quantity(quantity), asset.value);
 
     thread::sleep(Duration::from_millis(2000));
@@ -78,4 +75,5 @@ fn restarted_peer_should_have_the_same_asset_amount() {
         .unwrap();
 
     assert_eq!(AssetValue::Quantity(quantity), account_asset.value);
+    Ok(())
 }

@@ -9,13 +9,13 @@ use iroha_data_model::prelude::*;
 use test_network::*;
 
 #[test]
-fn asset_amount_should_be_the_same_on_a_recently_added_peer() -> Result<()> {
+fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
+) -> Result<()> {
     // Given
-    let (rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
+    let (_rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
     let pipeline_time = Configuration::pipeline_time();
 
-    thread::sleep(pipeline_time * 2);
-    iroha_logger::info!("Started");
+    thread::sleep(pipeline_time * 5);
 
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
     let account_id = AccountId::new("account", "domain");
@@ -31,29 +31,21 @@ fn asset_amount_should_be_the_same_on_a_recently_added_peer() -> Result<()> {
         create_account.into(),
         create_asset.into(),
     ])?;
-    thread::sleep(pipeline_time * 2);
-    iroha_logger::info!("Init");
-
+    thread::sleep(pipeline_time * 4);
     //When
     let quantity: u32 = 200;
-    let mint_asset = MintBox::new(
+    iroha_client.submit(MintBox::new(
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account_id.clone(),
         )),
-    );
-    iroha_client.submit(mint_asset)?;
-    thread::sleep(pipeline_time * 5);
-    iroha_logger::info!("Mint");
-
-    let (_peer, mut iroha_client) = rt.block_on(network.add_peer());
+    ))?;
+    thread::sleep(pipeline_time);
 
     //Then
-    iroha_client.poll_request_with_period(
+    client::Client::test(&network.peers.last().unwrap().api_address).poll_request(
         client::asset::by_account_id(account_id),
-        Configuration::block_sync_gossip_time(),
-        15,
         |result| {
             result.iter().any(|asset| {
                 asset.id.definition_id == asset_definition_id

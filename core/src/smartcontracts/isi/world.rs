@@ -21,7 +21,23 @@ pub mod isi {
             if wsv.trusted_peers_ids().insert(self.object.id) {
                 Ok(())
             } else {
-                Err(eyre!("Peer already presented in the list of trusted peers.",).into())
+                Err(eyre!("Peer already trusted.",).into())
+            }
+        }
+    }
+
+    impl<W: WorldTrait> Execute<W> for Unregister<Peer> {
+        type Error = Error;
+
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Self::Error> {
+            if wsv.trusted_peers_ids().remove(&self.object_id).is_some() {
+                Ok(())
+            } else {
+                Err(eyre!("Peer wasn't trusted.").into())
             }
         }
     }
