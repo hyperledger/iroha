@@ -40,60 +40,9 @@ jobs:
             llvm-dev
       - name: Run tests
         run: mold -run cargo test --workspace --no-fail-fast -- --skip unstable_network
-
-  test-consensus-with-mock:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    #container: rust:1.56-buster
-    container:
-      image: 7272721/i2-ci:latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-              ${{ env.CARGO_HOME }}
-              target/
-          key: iroha2-rust-test-network-mock-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-              iroha2-rust-test-network-mock-
-
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
       - name: Run iroha tests with network mock
         run: mold -run cargo test --features mock -- --ignored --skip unstable_network
         working-directory: core/test_network
-
-  test-deadlock-detection:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    #container: rust:1.56-buster
-    container:
-      image: 7272721/i2-ci:latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-              ${{ env.CARGO_HOME }}
-              target/
-          key: iroha2-rust-deadlock-detection-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-              iroha2-rust-deadlock-detection
-
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
       - name: Run iroha_actor deadlock detection tests
         run: mold -run cargo test --features deadlock_detection -- --skip unstable_network
         working-directory: actor
@@ -163,7 +112,7 @@ jobs:
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
       - name: Run tests
-        run: mold -run cargo test --workspace --no-fail-fast || true
+        run: mold -run cargo test --workspace --no-fail-fast -- --skip  unstable_network || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTC_BOOTSTRAP: 1
