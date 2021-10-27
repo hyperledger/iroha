@@ -627,11 +627,17 @@ jobs:
           }
           echo ::endgroup::
 
+          ## Cathgories sorted in order of importancy
           CTEST_CATHEGORIES=( module tool framework regression system integration )
-          ## Add all available cathgories
-          CTEST_CATHEGORIES+=( $( ctest -N -R "^module|tool|framework|regression|system|integration" |
-              sed '$d;2,$!d;/^$/d' | awk '{print $3}' | cut -f1 -d_ | sort -u |
-              grep -Fvf <(printf '%s\n' ${CTEST_CATHEGORIES[@]} ) ) )
+          ## Add rest available cathgories
+          CTEST_CATHEGORIES+=( $(
+              ctest --show-only=json-v1 -R "^(module|tool|framework|regression|system|integration)" |
+              jq -r .tests[].name |
+              cut -f1 -d_ |
+              sort -u |
+              grep -Fvf <( printf '%s\n' ${CTEST_CATHEGORIES[@]} )
+            )
+          ) || true
           CTEST_DEFAULT_timeout=80
           CTEST_module_timeout=80 CTEST_module_parallel=4
           CTEST_tool_timeout=200
@@ -688,6 +694,9 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ) }}
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - *step_show_context
       - *step_system_info
