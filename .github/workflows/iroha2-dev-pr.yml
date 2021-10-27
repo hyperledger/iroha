@@ -144,7 +144,7 @@ jobs:
           key: iroha2-rust-test-coverage-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
               iroha2-rust-test-coverage
-      - name: Install dependencies
+      - name: Install dependencies # Not strictly needed, but doesn't take too long.
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
@@ -152,23 +152,17 @@ jobs:
             ca-certificates \
             clang \
             llvm-dev \
-      - name: Install nightly for instrumenting tests
-        run: rustup install --profile default nightly-2021-10-22
-        if: ${{ false }}
-      - name: Install grcov
-        if: ${{ false }}
-        run: cargo install grcov
-      - name: Install tarpaulin
-        run: cargo install cargo-tarpaulin
-        if: ${{ false }}
+      #- name: Install nightly for instrumenting tests
+        #run: rustup install --profile default nightly-2021-10-22
+        #if: ${{ false }}
+      #- name: Install grcov
+        #if: ${{ false }}
+        #run: cargo install grcov
+      #- name: Install tarpaulin
+        #run: cargo install cargo-tarpaulin
+        #if: ${{ false }}
       - name: Cargo clean
         run: cargo clean
-      - name: Install llvm-tools-preview
-        run: rustup component add llvm-tools-preview
-        if: ${{ false }}
-      - name: Cargo build
-        run: cargo build
-        if: ${{ false }}
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
       - name: Run tests
@@ -182,3 +176,7 @@ jobs:
         uses: codecov/codecov-action@v1
         with:
           file: lcov.info
+      # This step isn't necessary, but since we're running `cargo clean` in the beginning
+      # archival of the artifacts is completely unnecessary.
+      - name: Cleanup
+        run: cargo clean
