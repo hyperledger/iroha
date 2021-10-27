@@ -523,13 +523,11 @@ jobs:
         with:
           path: |
             ${{env.HOME}}/.cache/vcpkg/archives
-          #  build-vcpkg/installed
-          #  build/vcpkg_installed    ## This is default folder for manual installation in manifest mode
           key:          ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
           restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
       - &step_vcpkg_build
         name: Build iroha vcpkg dependancies
-        run: ./vcpkg/build_iroha_deps.sh $PWD/build-vcpkg; test -f $PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
+        run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
         ## Takes 13m41s on self-hosted AWS EC2 c5.x4large
         # ________________________________________________________
@@ -545,14 +543,14 @@ jobs:
       - &step_cmake_configure
         name: CMake configure
         ## Takes 13s on regular GitHub runner
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/build-vcpkg/scripts/buildsystems/vcpkg.cmake
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
           -DCMAKE_BUILD_TYPE=${{ env.BuildType }}
           -GNinja
           $CMAKE_USE
           -DTESTING=ON
           -DBENCHMARKING=ON
           -DPACKAGE_DEB=ON
-          #-DCMAKE_VERBOSE_MAKEFILE=ON
+          #-DCMAKE_VERBOSE_MAKEFILE=ON  ## Note: use for debug
       - &step_cmake_build
         name: CMake build
         run: |
