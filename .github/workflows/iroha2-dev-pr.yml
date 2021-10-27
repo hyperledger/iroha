@@ -29,15 +29,6 @@ jobs:
           key: iroha2-rust-test-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
               iroha2-rust-test
-
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
       - name: Run tests
         run: mold -run cargo test --workspace --no-fail-fast -- --skip unstable_network
       - name: Run iroha tests with network mock
@@ -99,14 +90,6 @@ jobs:
           key: iroha2-rust-test-coverage-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
               iroha2-rust-test-coverage
-      - name: Install dependencies # Not strictly needed, but doesn't take too long.
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
       - name: Run tests
         run: mold -run cargo test --workspace --no-fail-fast -- --skip  unstable_network || true
         env:

@@ -11,7 +11,7 @@ jobs:
   test-docker:
     runs-on: [self-hosted, Linux]
     #container: rust:1.56-buster
-    container: ubuntu:latest
+    container: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
@@ -221,31 +221,15 @@ jobs:
           key: iroha2-rust-test-coverage-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
               iroha2-rust-test-coverage
-      - name: Install dependencies # Not strictly needed, but doesn't take too long.
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev \
-      - name: Cargo clean
-        run: cargo clean
-        env:
-          RUSTFLAGS: "-Zinstrument-coverage"
       - name: Run tests
-        run: mold -run cargo test --workspace --no-fail-fast || true
+        run: mold -run cargo test --workspace --no-fail-fast -- --skip  unstable_network || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTC_BOOTSTRAP: 1
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
-      - name: GRCOV coverage report
+      - name: Generate a grcov coverage report
         run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
         with:
           file: lcov.info
-      # This step isn't necessary, but since we're running `cargo clean` in the beginning
-      # archival of the artifacts is completely unnecessary.
-      - name: Cleanup
-        run: cargo clean

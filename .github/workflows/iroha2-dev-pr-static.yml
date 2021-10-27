@@ -21,25 +21,11 @@ jobs:
           key: iroha2-rust-check-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
               iroha2-rust-check
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      #- name: Install clippy
-        #run: rustup component add clippy
       - name: Print all info
         run: |
           cargo version
           lscpu
           free -h
-      #- name: Install cargo-lints
-        #run: cargo install cargo-lints
-      #- name: Install nightly for rustfmt
-        #run: rustup install --profile default nightly-2021-10-22
       - name: Format check
         run: cargo +nightly-2021-10-22 fmt --all -- --check
       - name: Static analysis without features

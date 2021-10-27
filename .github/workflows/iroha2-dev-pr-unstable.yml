@@ -15,7 +15,9 @@ env:
 jobs:
   test:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.56-buster
+    #container: rust:1.56-buster
+    container:
+      image: 7272721/i2-ci:latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
@@ -27,14 +29,5 @@ jobs:
           key: iroha2-rust-test-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
               iroha2-rust-test
-
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
       - name: Run tests
         run: cargo test -p iroha_client --tests unstable_network
