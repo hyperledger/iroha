@@ -212,7 +212,9 @@ jobs:
   # 2  Coverage bot can have results from `iroha2-dev` to report coverage changes.
   coverage:
     runs-on: [self-hosted, Linux]
-    container: rust:1.56-buster
+    #container: rust:1.56-buster
+    container:
+      image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -223,7 +225,7 @@ jobs:
           key: iroha2-rust-test-coverage-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
               iroha2-rust-test-coverage
-      - name: Install dependencies
+      - name: Install dependencies # Not strictly needed, but doesn't take too long.
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
@@ -231,31 +233,22 @@ jobs:
             ca-certificates \
             clang \
             llvm-dev \
-            lld # NEEDED FOR COVERAGE.
-      - name: Install nightly for instrumenting tests
-        run: rustup install --profile default nightly-2021-10-22
-      - name: Install grcov
-        run: cargo install grcov
       - name: Cargo clean
         run: cargo clean
-      - name: Install llvm-tools-preview
-        run: rustup component add llvm-tools-preview
-      - name: Cargo build
-        run: cargo build
-        if: ${{ false }}
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
       - name: Run tests
-        run: cargo +nightly-2021-10-22 test --workspace --no-fail-fast || true
+        run: mold -run cargo +nightly-2021-10-22 test --workspace --no-fail-fast || true
         env:
-          RUSTFLAGS: "-Zinstrument-coverage -C link-arg=-fuse-ld=lld"
+          RUSTFLAGS: "-Zinstrument-coverage"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
-      - name: Generate coverage report
-        run: grcov . --binary-path ./target/debug/ \
-          -s . -t lcov \
-          --branch --ignore-not-existing \
-          --ignore "/*" -o lcov.info
+      - name: GRCOV coverage report
+        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
         with:
           file: lcov.info
+      # This step isn't necessary, but since we're running `cargo clean` in the beginning
+      # archival of the artifacts is completely unnecessary.
+      - name: Cleanup
+        run: cargo clean

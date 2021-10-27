@@ -8,7 +8,9 @@ on:
 jobs:
   check:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.56-buster
+    #container: rust:1.56-buster
+    container:
+      image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -27,17 +29,17 @@ jobs:
             ca-certificates \
             clang \
             llvm-dev
-      - name: Install clippy
-        run: rustup component add clippy
+      #- name: Install clippy
+        #run: rustup component add clippy
       - name: Print all info
         run: |
           cargo version
           lscpu
           free -h
-      - name: Install cargo-lints
-        run: cargo install cargo-lints
-      - name: Install nightly for rustfmt
-        run: rustup install --profile default nightly-2021-10-22
+      #- name: Install cargo-lints
+        #run: cargo install cargo-lints
+      #- name: Install nightly for rustfmt
+        #run: rustup install --profile default nightly-2021-10-22
       - name: Format check
         run: cargo +nightly-2021-10-22 fmt --all -- --check
       - name: Static analysis without features
