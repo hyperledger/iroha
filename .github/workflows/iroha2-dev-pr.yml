@@ -106,24 +106,16 @@ jobs:
             build-essential \
             ca-certificates \
             clang \
-            llvm-dev \
-      - name: Cargo clean
-        run: cargo clean
-        env:
-          RUSTFLAGS: "-Zinstrument-coverage"
+            llvm-dev
       - name: Run tests
         run: mold -run cargo test --workspace --no-fail-fast -- --skip  unstable_network || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTC_BOOTSTRAP: 1
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
-      - name: GRCOV coverage report
+      - name: Generate a grcov coverage report
         run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
         with:
           file: lcov.info
-      # This step isn't necessary, but since we're running `cargo clean` in the beginning
-      # archival of the artifacts is completely unnecessary.
-      - name: Cleanup
-        run: cargo clean
