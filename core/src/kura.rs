@@ -33,7 +33,7 @@ use crate::{
     wsv::WorldTrait,
 };
 
-/// Message f files: todo!()  files: todo!() or storing committed block
+/// Message for storing committed block
 #[derive(Clone, Debug, Message)]
 pub struct StoreBlock(pub VersionedCommittedBlock);
 
@@ -58,12 +58,14 @@ pub struct KuraMeta<W: WorldTrait, IO> {
     io: IO,
 }
 
-/// Production qualification of KuraMeta
+/// Production qualification of `KuraMeta`
 pub type Kura<W> = KuraMeta<W, DefaultIO>;
 
 /// Generic implementation for tests - accepting IO mocks
 impl<W: WorldTrait, IO: DiskIO> KuraMeta<W, IO> {
     /// ctor
+    /// # Errors
+    /// Will forward error from `BlockStore` construction
     pub async fn new_meta(
         mode: Mode,
         block_store_path: &Path,
@@ -399,6 +401,7 @@ impl<IO: DiskIO> BlockStore<IO> {
     /// # Errors
     /// * Will fail if storage file contents is malformed (incorrect framing or encoding)
     ///
+    #[allow(clippy::future_not_send)]
     async fn read_block<R: AsyncBufReadExt + Unpin>(
         file_stream: &mut R,
     ) -> Result<Option<VersionedCommittedBlock>> {
@@ -573,9 +576,10 @@ pub trait DiskIO: Clone + Send + Sync + 'static {
 }
 
 /// Initial, default disk IO implementation
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct DefaultIO;
 
+/// Stream of storage filenames
 #[pin_project]
 pub struct ReadDirFileNames(#[pin] ReadDirStream);
 impl Stream for ReadDirFileNames {
@@ -879,6 +883,7 @@ mod tests {
 
     /// A test, injecting errors into disk IO operations
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
     async fn read_all_blocks_faulty_device() {
         #[pin_project]
         #[derive(Clone)]

@@ -46,6 +46,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     let block_store = BlockStore::new(
         dir.path(),
         KuraConfiguration::default().blocks_per_storage_file,
+        iroha_core::kura::DefaultIO,
     )
     .await
     .unwrap();
