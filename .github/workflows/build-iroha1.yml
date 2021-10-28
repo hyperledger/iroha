@@ -690,7 +690,7 @@ jobs:
           for t in ${CTEST_CATHEGORIES[@]} ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              echo "::error::The following $(echo $t | tr a-z A-Z) tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
@@ -989,7 +989,7 @@ jobs:
           for t in ${CTEST_CATHEGORIES[@]} ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              echo "::error::The following $(echo $t | tr a-z A-Z) tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
@@ -1285,7 +1285,7 @@ jobs:
           for t in ${CTEST_CATHEGORIES[@]} ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              echo "::error::The following $(echo $t | tr a-z A-Z) tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
