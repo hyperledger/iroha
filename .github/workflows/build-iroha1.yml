@@ -628,8 +628,6 @@ jobs:
             #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
             #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
-
-          ## Run module_* tests in parallel and others subsequently
           cd build
 
           set -x
@@ -659,6 +657,7 @@ jobs:
           }
           echo ::endgroup::
 
+          ## Run module_* tests in parallel and others subsequently
           ## Cathgories sorted in order of importancy
           CTEST_CATHEGORIES=( module tool framework regression system integration )
           ## Add rest available cathgories
@@ -930,8 +929,6 @@ jobs:
             #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
             #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
-
-          ## Run module_* tests in parallel and others subsequently
           cd build
 
           set -x
@@ -961,6 +958,7 @@ jobs:
           }
           echo ::endgroup::
 
+          ## Run module_* tests in parallel and others subsequently
           ## Cathgories sorted in order of importancy
           CTEST_CATHEGORIES=( module tool framework regression system integration )
           ## Add rest available cathgories
@@ -1229,8 +1227,6 @@ jobs:
             #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
             #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
-
-          ## Run module_* tests in parallel and others subsequently
           cd build
 
           set -x
@@ -1260,6 +1256,7 @@ jobs:
           }
           echo ::endgroup::
 
+          ## Run module_* tests in parallel and others subsequently
           ## Cathgories sorted in order of importancy
           CTEST_CATHEGORIES=( module tool framework regression system integration )
           ## Add rest available cathgories
