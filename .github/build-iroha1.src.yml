@@ -645,9 +645,13 @@ jobs:
 
           for cathegory in ${CTEST_CATHEGORIES[@]} ;do
             echo ::group::"$cathegory tests"
-            declare -n timeout=CTEST_${cathegory}_timeout; timeout=${timeout:-$CTEST_DEFAULT_timeout}
-            declare -n parallel=CTEST_${cathegory}_parallel
-            declare -n args=CTEST_${cathegory}_args
+            # FIXME: declare -n (alias) cannot be used because of traubles on MacOs GH-runner with Bash version, 5 or later expected
+            # declare -n timeout=CTEST_${cathegory}_timeout; timeout=${timeout:-$CTEST_DEFAULT_timeout}
+            # declare -n parallel=CTEST_${cathegory}_parallel
+            # declare -n args=CTEST_${cathegory}_args
+            timeout_name=CTEST_${cathegory}_timeout;   timeout=${!timeout_name}; timeout=${timeout:-$CTEST_DEFAULT_timeout}
+            parallel_name=CTEST_${cathegory}_parallel; parallel=${!parallel_name}
+            args_name=CTEST_${cathegory}_args; args=${!args_name}
             set -x
             ctest -R "^${cathegory}_" ${parallel:+--parallel $parallel} --output-on-failure --no-tests=error --timeout $timeout ${args:-} \
               | tee ctest_$cathegory.out \
