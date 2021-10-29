@@ -3,7 +3,9 @@
 
 use std::{
     collections::BTreeSet,
+    ffi::OsString,
     fmt::Debug,
+    io,
     num::NonZeroU64,
     path::{Path, PathBuf},
     sync::Arc,
@@ -14,6 +16,7 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_crypto::HashOf;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
+use pin_project::pin_project;
 use serde::{Deserialize, Serialize};
 use tokio::{
     fs,
@@ -45,13 +48,43 @@ pub struct GetBlockHash {
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
 #[derive(Debug)]
-pub struct Kura<W: WorldTrait> {
+pub struct KuraWithIO<W: WorldTrait, IO> {
     mode: Mode,
-    block_store: BlockStore,
+    block_store: BlockStore<IO>,
     merkle_tree: MerkleTree<VersionedCommittedBlock>,
     wsv: Arc<WorldStateView<W>>,
     broker: Broker,
     mailbox: usize,
+    io: IO,
+}
+
+/// Production qualification of `KuraWithIO`
+pub type Kura<W> = KuraWithIO<W, DefaultIO>;
+
+/// Generic implementation for tests - accepting IO mocks
+impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
+    /// ctor
+    /// # Errors
+    /// Will forward error from `BlockStore` construction
+    pub async fn new_meta(
+        mode: Mode,
+        block_store_path: &Path,
+        blocks_per_file: NonZeroU64,
+        wsv: Arc<WorldStateView<W>>,
+        broker: Broker,
+        mailbox: usize,
+        io: IO,
+    ) -> Result<Self> {
+        Ok(Self {
+            mode,
+            block_store: BlockStore::new(block_store_path, blocks_per_file, io.clone()).await?,
+            merkle_tree: MerkleTree::new(),
+            wsv,
+            broker,
+            mailbox,
+            io,
+        })
+    }
 }
 
 /// Generic kura trait for mocks
@@ -110,19 +143,21 @@ impl<W: WorldTrait> KuraTrait for Kura<W> {
         broker: Broker,
         mailbox: usize,
     ) -> Result<Self> {
-        Ok(Self {
+        Self::new_meta(
             mode,
-            block_store: BlockStore::new(block_store_path, blocks_per_file).await?,
-            merkle_tree: MerkleTree::new(),
+            block_store_path,
+            blocks_per_file,
             wsv,
             broker,
             mailbox,
-        })
+            DefaultIO,
+        )
+        .await
     }
 }
 
 #[async_trait::async_trait]
-impl<W: WorldTrait> Actor for Kura<W> {
+impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
     fn mailbox_capacity(&self) -> usize {
         self.mailbox
     }
@@ -153,7 +188,7 @@ impl<W: WorldTrait> Actor for Kura<W> {
 }
 
 #[async_trait::async_trait]
-impl<W: WorldTrait> Handler<GetBlockHash> for Kura<W> {
+impl<W: WorldTrait, IO: DiskIO> Handler<GetBlockHash> for KuraWithIO<W, IO> {
     type Result = Option<HashOf<VersionedCommittedBlock>>;
     async fn handle(&mut self, GetBlockHash { height }: GetBlockHash) -> Self::Result {
         if height == 0 {
@@ -165,7 +200,7 @@ impl<W: WorldTrait> Handler<GetBlockHash> for Kura<W> {
 }
 
 #[async_trait::async_trait]
-impl<W: WorldTrait> Handler<StoreBlock> for Kura<W> {
+impl<W: WorldTrait, IO: DiskIO> Handler<StoreBlock> for KuraWithIO<W, IO> {
     type Result = ();
 
     async fn handle(&mut self, StoreBlock(block): StoreBlock) {
@@ -179,7 +214,7 @@ impl<W: WorldTrait> Handler<StoreBlock> for Kura<W> {
     }
 }
 
-impl<W: WorldTrait> Kura<W> {
+impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
     /// After constructing [`Kura`] it should be initialized to be ready to work with it.
     ///
     /// # Errors
@@ -250,9 +285,10 @@ impl Default for Mode {
 
 /// Representation of a consistent storage.
 #[derive(Debug)]
-pub struct BlockStore {
+pub struct BlockStore<IO> {
     path: PathBuf,
     blocks_per_file: NonZeroU64,
+    io: IO,
 }
 
 type Result<T, E = Error> = std::result::Result<T, E>;
@@ -288,29 +324,26 @@ pub enum Error {
 /// TODO: make it configurable
 static BUFFER_SIZE_LIMIT: u64 = 512_000;
 
-impl BlockStore {
+impl<IO: DiskIO> BlockStore<IO> {
     /// Initialize block storage at `path`.
     ///
     /// # Errors
     /// - Failed to create directory.
-    pub async fn new(path: &Path, blocks_per_file: NonZeroU64) -> Result<BlockStore> {
+    pub async fn new(path: &Path, blocks_per_file: NonZeroU64, io: IO) -> Result<Self> {
         if fs::read_dir(path).await.is_err() {
             fs::create_dir_all(path).await?;
         }
-        Ok(BlockStore {
+        Ok(Self {
             path: path.to_path_buf(),
             blocks_per_file,
+            io,
         })
     }
 
     /// Returns expected filename of datafile containing block, provided its height
-    async fn get_block_filename(
-        dir: &Path,
-        block_height: NonZeroU64,
-        blocks_per_file: NonZeroU64,
-    ) -> Result<String> {
+    async fn get_block_filename(&self, block_height: NonZeroU64) -> Result<String> {
         const INITIAL_DATA_FILE: &str = "1";
-        let storage_indices = storage_files_base_indices(dir).await?;
+        let storage_indices = storage_files_base_indices(&self.path, &self.io).await?;
         let max_base = match storage_indices.iter().last() {
             Some(max_base) => *max_base,
             None => return Ok(INITIAL_DATA_FILE.to_owned()),
@@ -318,7 +351,7 @@ impl BlockStore {
         if block_height <= max_base {
             return Err(Error::InconsequentialBlockWrite);
         }
-        if (block_height.get() - max_base.get()) < blocks_per_file.get() {
+        if (block_height.get() - max_base.get()) < self.blocks_per_file.get() {
             return Ok(max_base.to_string());
         }
         Ok(block_height.to_string())
@@ -330,8 +363,7 @@ impl BlockStore {
     /// - Filesystem access failure (HW or permissions)
     ///
     pub async fn get_block_path(&self, block_height: NonZeroU64) -> Result<PathBuf> {
-        let filename =
-            BlockStore::get_block_filename(&self.path, block_height, self.blocks_per_file).await?;
+        let filename = self.get_block_filename(block_height).await?;
         Ok(self.path.join(filename))
     }
 
@@ -369,8 +401,9 @@ impl BlockStore {
     /// # Errors
     /// * Will fail if storage file contents is malformed (incorrect framing or encoding)
     ///
-    async fn read_block(
-        file_stream: &mut BufReader<fs::File>,
+    #[allow(clippy::future_not_send)]
+    async fn read_block<R: AsyncBufReadExt + Unpin>(
+        file_stream: &mut R,
     ) -> Result<Option<VersionedCommittedBlock>> {
         if file_stream.fill_buf().await?.is_empty() {
             return Ok(None);
@@ -390,8 +423,8 @@ impl BlockStore {
     /// # Errors
     /// * Will propagate read errors if any
     ///
-    fn read_file(
-        mut file_stream: BufReader<fs::File>,
+    fn read_file<R: AsyncBufReadExt + Unpin>(
+        mut file_stream: R,
     ) -> impl Stream<Item = Result<VersionedCommittedBlock>> {
         async_stream::stream! {
             while let Some(block) = Self::read_block(&mut file_stream).await.transpose() {
@@ -406,15 +439,18 @@ impl BlockStore {
     /// * Will propagate errors from any FS operations
     /// * Will provide error on non-sequential block (swapped, gap, not 1-based sequence)
     ///
-    #[iroha_futures::telemetry_future]
     pub async fn read_all(
         &self,
     ) -> Result<impl Stream<Item = Result<VersionedCommittedBlock>> + 'static> {
-        let base_indices = storage_files_base_indices(&self.path).await?;
-        let dir_path = Arc::new(self.path.clone());
+        let io = self.io.clone();
+        let base_indices = storage_files_base_indices(&self.path, &self.io).await?;
+        let dir_path = self.path.clone();
         let result = tokio_stream::iter(base_indices)
             .map(move |e| dir_path.join(e.to_string()))
-            .then(fs::File::open)
+            .then(move |e| {
+                let io = io.clone();
+                async move { io.open(e.into_os_string()).await }
+            })
             .map_ok(BufReader::new)
             .map_ok(Self::read_file)
             .try_flatten()
@@ -436,11 +472,16 @@ impl BlockStore {
 /// # Errors
 /// Will fail on filesystem access error
 ///
-async fn storage_files_base_indices(path: &Path) -> Result<BTreeSet<NonZeroU64>> {
-    let bases = ReadDirStream::new(fs::read_dir(path).await?)
+async fn storage_files_base_indices<IO: DiskIO>(
+    path: &Path,
+    io: &IO,
+) -> Result<BTreeSet<NonZeroU64>> {
+    let bases = io
+        .read_dir(path.to_path_buf())
+        .await?
         .filter_map(|e| async {
             e.ok()
-                .and_then(|e| e.file_name().to_string_lossy().parse::<NonZeroU64>().ok())
+                .and_then(|e| e.to_string_lossy().parse::<NonZeroU64>().ok())
         })
         .collect::<BTreeSet<_>>()
         .await;
@@ -521,13 +562,63 @@ pub mod config {
     }
 }
 
+/// A trait, describing filesystem IO for Kura
+#[async_trait::async_trait]
+pub trait DiskIO: Clone + Send + Sync + 'static {
+    /// Stream of storage filenames
+    type Dir: Stream<Item = io::Result<OsString>> + Send + 'static;
+    /// File for IO operations
+    type File: tokio::io::AsyncRead + Send + Unpin + 'static;
+    /// Fetch data files names (basically, ls operation)
+    async fn read_dir(&self, path: PathBuf) -> io::Result<Self::Dir>;
+    /// Open file for IO
+    async fn open(&self, path: OsString) -> io::Result<Self::File>;
+}
+
+/// Initial, default disk IO implementation
+#[derive(Clone, Copy, Debug)]
+pub struct DefaultIO;
+
+/// Stream of storage filenames
+#[pin_project]
+pub struct ReadDirFileNames(#[pin] ReadDirStream);
+impl Stream for ReadDirFileNames {
+    type Item = io::Result<OsString>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.project();
+        this.0.poll_next(cx).map_ok(|e| e.file_name())
+    }
+}
+
+#[async_trait::async_trait]
+impl DiskIO for DefaultIO {
+    type Dir = ReadDirFileNames;
+    type File = tokio::fs::File;
+
+    async fn read_dir(&self, path: PathBuf) -> io::Result<Self::Dir> {
+        Ok(ReadDirFileNames(ReadDirStream::new(
+            fs::read_dir(path).await?,
+        )))
+    }
+    async fn open(&self, path: OsString) -> io::Result<Self::File> {
+        fs::File::open(path).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::cast_possible_truncation, clippy::restriction)]
 
+    use std::collections::BTreeMap;
+
     use iroha_actor::broker::Broker;
     use iroha_crypto::KeyPair;
     use tempfile::TempDir;
+    use tokio::io;
 
     use super::*;
     use crate::{sumeragi::view_change, wsv::World};
@@ -566,9 +657,10 @@ mod tests {
             .sign(keypair)
             .expect("Failed to sign blocks.")
             .commit();
-        assert!(BlockStore::new(
+        assert!(BlockStore::<DefaultIO>::new(
             dir.path(),
-            NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap()
+            NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),
+            DefaultIO
         )
         .await
         .unwrap()
@@ -583,6 +675,7 @@ mod tests {
         let block_store = BlockStore::new(
             dir.path(),
             NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),
+            DefaultIO,
         )
         .await
         .unwrap();
@@ -669,6 +762,7 @@ mod tests {
         let block_store = BlockStore::new(
             dir.path(),
             NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),
+            DefaultIO,
         )
         .await
         .unwrap();
@@ -717,6 +811,7 @@ mod tests {
         let block_store = BlockStore::new(
             dir.path(),
             NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),
+            DefaultIO,
         )
         .await
         .unwrap();
@@ -769,6 +864,7 @@ mod tests {
         let block_store = BlockStore::new(
             dir.path(),
             NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),
+            DefaultIO,
         )
         .await
         .unwrap();
@@ -783,5 +879,133 @@ mod tests {
         let framing_err = matches!(expected_read_fail, Err(Error::IO(_)));
         let decode_err = matches!(expected_read_fail, Err(Error::Codec(_)));
         assert!(framing_err || decode_err);
+    }
+
+    /// A test, injecting errors into disk IO operations
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn read_all_blocks_faulty_device() {
+        #[pin_project]
+        #[derive(Clone)]
+        struct UnreliableFile {
+            results: Arc<Vec<Result<Vec<u8>, io::ErrorKind>>>,
+            cursor: usize,
+        }
+
+        impl UnreliableFile {
+            pub async fn open(
+                results: Arc<Vec<Result<Vec<u8>, io::ErrorKind>>>,
+            ) -> io::Result<UnreliableFile> {
+                Ok(UnreliableFile { results, cursor: 0 })
+            }
+        }
+
+        impl io::AsyncRead for UnreliableFile {
+            fn poll_read(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+                buf: &mut io::ReadBuf<'_>,
+            ) -> std::task::Poll<io::Result<()>> {
+                let cursor = self.cursor;
+                let this = self.project();
+
+                if cursor == this.results.len() {
+                    return std::task::Poll::Ready(Ok(()));
+                }
+
+                match &this.results[cursor] {
+                    Err(err) => {
+                        *this.cursor += 1;
+                        let err = Err(io::Error::new(*err, ""));
+                        std::task::Poll::Ready(err)
+                    }
+                    Ok(data) => {
+                        *this.cursor += 1;
+                        let unfilled: &mut [u8] = buf.initialize_unfilled();
+                        for (index, value) in data.iter().enumerate() {
+                            unfilled[index] = *value;
+                        }
+                        buf.advance(data.len());
+                        std::task::Poll::Ready(Ok(()))
+                    }
+                }
+            }
+        }
+
+        type UnreliableFilesystem = BTreeMap<OsString, Arc<Vec<Result<Vec<u8>, io::ErrorKind>>>>;
+        #[derive(Clone)]
+        struct UnreliableIO {
+            files: UnreliableFilesystem,
+        }
+
+        #[async_trait::async_trait]
+        impl DiskIO for UnreliableIO {
+            type Dir = futures::stream::Iter<std::vec::IntoIter<io::Result<OsString>>>;
+            type File = UnreliableFile;
+
+            async fn read_dir(&self, _path: PathBuf) -> io::Result<Self::Dir> {
+                Ok(futures::stream::iter(
+                    self.files
+                        .keys()
+                        .cloned()
+                        .map(Ok)
+                        .collect::<Vec<_>>()
+                        .into_iter(),
+                ))
+            }
+
+            async fn open(&self, path: OsString) -> io::Result<Self::File> {
+                PathBuf::from(path)
+                    .file_name()
+                    .and_then(|e| self.files.get(e))
+                    .map(Arc::clone)
+                    .map(Self::File::open)
+                    .unwrap()
+                    .await
+            }
+        }
+
+        let block_store = BlockStore::new(
+            &PathBuf::from("dir/"),
+            NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),
+            UnreliableIO {
+                files: vec![(
+                    "1".into(),
+                    Arc::new(vec![
+                        Ok(vec![122, 0, 0, 0, 0, 0, 0, 0]),
+                        Err(io::ErrorKind::TimedOut),
+                    ]),
+                )]
+                .into_iter()
+                .collect(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let expected_read_fail = block_store
+            .read_all()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .expect_err("Should always fail");
+        let err = if let Error::IO(io) = expected_read_fail {
+            io
+        } else {
+            panic!("Discovered some other error: {:?}", expected_read_fail)
+        };
+
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        // TimedOut
+        // NotSeekable
+        // FileTooLarge
+        // ResourceBusy
+        // FilenameTooLong
+        // Unsupported
+        // UnexpectedEof
+        // OutOfMemory
+        // Other
+        // Uncategorized
     }
 }

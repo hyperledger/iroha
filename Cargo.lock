@@ -1537,6 +1537,7 @@ dependencies = [
  "iroha_version",
  "once_cell",
  "parity-scale-codec",
+ "pin-project",
  "rand 0.7.3",
  "serde",
  "serde_json",
