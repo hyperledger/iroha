@@ -48,7 +48,7 @@ pub struct GetBlockHash {
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
 #[derive(Debug)]
-pub struct KuraMeta<W: WorldTrait, IO> {
+pub struct KuraWithIO<W: WorldTrait, IO> {
     mode: Mode,
     block_store: BlockStore<IO>,
     merkle_tree: MerkleTree<VersionedCommittedBlock>,
@@ -58,11 +58,11 @@ pub struct KuraMeta<W: WorldTrait, IO> {
     io: IO,
 }
 
-/// Production qualification of `KuraMeta`
-pub type Kura<W> = KuraMeta<W, DefaultIO>;
+/// Production qualification of `KuraWithIO`
+pub type Kura<W> = KuraWithIO<W, DefaultIO>;
 
 /// Generic implementation for tests - accepting IO mocks
-impl<W: WorldTrait, IO: DiskIO> KuraMeta<W, IO> {
+impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
     /// ctor
     /// # Errors
     /// Will forward error from `BlockStore` construction
@@ -157,7 +157,7 @@ impl<W: WorldTrait> KuraTrait for Kura<W> {
 }
 
 #[async_trait::async_trait]
-impl<W: WorldTrait, IO: DiskIO> Actor for KuraMeta<W, IO> {
+impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
     fn mailbox_capacity(&self) -> usize {
         self.mailbox
     }
@@ -188,7 +188,7 @@ impl<W: WorldTrait, IO: DiskIO> Actor for KuraMeta<W, IO> {
 }
 
 #[async_trait::async_trait]
-impl<W: WorldTrait, IO: DiskIO> Handler<GetBlockHash> for KuraMeta<W, IO> {
+impl<W: WorldTrait, IO: DiskIO> Handler<GetBlockHash> for KuraWithIO<W, IO> {
     type Result = Option<HashOf<VersionedCommittedBlock>>;
     async fn handle(&mut self, GetBlockHash { height }: GetBlockHash) -> Self::Result {
         if height == 0 {
@@ -200,7 +200,7 @@ impl<W: WorldTrait, IO: DiskIO> Handler<GetBlockHash> for KuraMeta<W, IO> {
 }
 
 #[async_trait::async_trait]
-impl<W: WorldTrait, IO: DiskIO> Handler<StoreBlock> for KuraMeta<W, IO> {
+impl<W: WorldTrait, IO: DiskIO> Handler<StoreBlock> for KuraWithIO<W, IO> {
     type Result = ();
 
     async fn handle(&mut self, StoreBlock(block): StoreBlock) {
@@ -214,7 +214,7 @@ impl<W: WorldTrait, IO: DiskIO> Handler<StoreBlock> for KuraMeta<W, IO> {
     }
 }
 
-impl<W: WorldTrait, IO: DiskIO> KuraMeta<W, IO> {
+impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
     /// After constructing [`Kura`] it should be initialized to be ready to work with it.
     ///
     /// # Errors
