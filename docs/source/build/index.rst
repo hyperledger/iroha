@@ -113,7 +113,7 @@ On this step you will start and run the image in a container in an interactive m
 
 .. code-block:: shell
 
-  ./vcpkg/build_iroha_deps.sh
+  ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build
 
 
 
@@ -222,7 +222,7 @@ Run in terminal:
 
   git clone https://github.com/hyperledger/iroha.git
   cd iroha
-  ./vcpkg/build_iroha_deps.sh
+  ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build
 
 And that is it! You can now move to `Building Iroha <#build-process>`_ section.
 
@@ -262,13 +262,13 @@ The cmake parameters such as ``-DUSE_BURROW=ON`` are exactly the parameters you 
 
 .. code-block:: shell
 
-  cmake --build . --target irohad -- -j<number of threads>
+  cmake --build . --target irohad
 
 .. warning:: If you want to use tests later, instead of building `irohad` target, you need to use this:
 
 .. code-block:: shell
 
-  cmake --build . --target all -- -j<number of threads>
+  cmake --build . --target all 
 
 
 3. Check the result by running the help: 
@@ -278,12 +278,6 @@ The cmake parameters such as ``-DUSE_BURROW=ON`` are exactly the parameters you 
   ./build/bin/irohad --help
 
 This step will show you all the parameters. And that is it! 
-
-Number of threads will be defined differently depending on the platform:
-
-- On Linux: via ``nproc``.
-- On MacOS: with ``sysctl -n hw.ncpu``.
-- On Windows: use ``echo %NUMBER_OF_PROCESSORS%``.
 
 .. note:: When building on Windows do not execute this from the Power Shell. Better use x64 Native tools command prompt.
 
