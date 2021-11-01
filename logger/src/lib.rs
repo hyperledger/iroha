@@ -337,3 +337,54 @@ pub fn install_panic_hook() -> Result<(), Report> {
         Ok(())
     }
 }
+
+/// Trait used for monadic error logging.
+pub trait ErrorLogging {
+    /// Log a warning using `self`, return `self`.
+    /// Examples:
+    /// `some_function_that_returns_error().warn("The error will be logged as a warning")?;`
+    fn warn(self, message: &str) -> Self;
+
+    /// Log an error using `self`, return `self`.
+    /// Examples:
+    /// `some_function_that_returns_error().err("The error will be logged as a warning")?;`
+    fn err(self, message: &str) -> Self;
+
+    /// Log the error as a Debug message.
+    /// Examples:
+    /// `some_function_that_returns_error().debug("The error will be logged as a warning")?;`
+    fn debug(self, message: &str) -> Self;
+
+    /// Log the error compactly. Use in case the error is neither handled nor forwarded (e.g. `expect`/`unwrap`)
+    fn log(self) -> Self;
+}
+
+impl<T, E: std::fmt::Display> ErrorLogging for Result<T, E> {
+    fn warn(self, message: &str) -> Self {
+        if let Err(e) = &self {
+            warn!(%e, message);
+        }
+        self
+    }
+
+    fn err(self, message: &str) -> Self {
+        if let Err(e) = &self {
+            error!(%e, message);
+        }
+        self
+    }
+
+    fn debug(self, message: &str) -> Self {
+        if let Err(e) = &self {
+            debug!(%e, message);
+        }
+        self
+    }
+
+    fn log(self) -> Self {
+        if let Err(e) = &self {
+            error!(%e);
+        }
+        self
+    }
+}

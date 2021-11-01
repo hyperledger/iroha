@@ -11,7 +11,7 @@ use iroha_crypto::ursa::{
     kex::KeyExchangeScheme,
     keys::{PrivateKey, PublicKey},
 };
-use iroha_logger::{debug, info, trace, warn};
+use iroha_logger::{debug, info, trace, warn, ErrorLogging};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
 use tokio::{
@@ -38,7 +38,109 @@ const MAX_HANDSHAKE_LENGTH: usize = 255;
 /// [`Authenticated encryption`](https://en.wikipedia.org/wiki/Authenticated_encryption)
 pub const DEFAULT_AAD: &[u8; 10] = b"Iroha2 AAD";
 
-/// This is an endpoint, that joggles messages between [`crate::Network`] and another connected node.
+/// Peer's connection data
+pub struct Connection {
+    /// A unique connection id
+    id: ConnectionId,
+    /// Reading half of `TcpStream`
+    read: Option<OwnedReadHalf>,
+    /// Writing half of `TcpStream`
+    write: Option<OwnedWriteHalf>,
+    /// A flag that stops listening stream
+    finish_sender: Option<Sender<()>>,
+}
+
+impl Connection {
+    fn new(connection_id: ConnectionId, stream: Option<TcpStream>) -> Self {
+        // If we are connected we take apart stream for two halves.
+        // If we are not connected we save Nones and wait for message to start connecting.
+        let (read, write) = match stream.map(TcpStream::into_split) {
+            None => (None, None),
+            Some((read, write)) => (Some(read), Some(write)),
+        };
+        // let outgoing = read.is_none() && write.is_none();
+        Connection {
+            id: connection_id,
+            read,
+            write,
+            // outgoing,
+            finish_sender: None,
+        }
+    }
+}
+
+/// Peer's cryptographic data
+pub struct Cryptographer<T, K, E>
+where
+    T: Debug + Encode + Decode + Send + Clone + 'static,
+    K: KeyExchangeScheme + Send + 'static,
+    E: Encryptor + Send + 'static,
+{
+    /// Secret part of keypair
+    secret_key: PrivateKey,
+    /// Public part of keypair
+    public_key: PublicKey,
+    /// Encryptor created from session key, that we got by Diffie-Hellman scheme
+    cipher: Option<SymmetricEncryptor<E>>,
+    /// Phantom
+    _key_exchange: PhantomData<K>,
+    /// Phantom2
+    _post_type: PhantomData<T>,
+}
+
+impl<T, K, E> Cryptographer<T, K, E>
+where
+    T: Debug + Encode + Decode + Send + Clone + 'static,
+    K: KeyExchangeScheme + Send + 'static,
+    E: Encryptor + Send + 'static,
+{
+    fn default_or_err() -> Result<Self, Error> {
+        // P2P encryption primitives
+        let dh = K::new();
+        let (public_key, secret_key) = dh.keypair(None).warn("Error generating keypair")?;
+        Ok(Self {
+            secret_key,
+            public_key,
+            cipher: None,
+            _key_exchange: PhantomData::default(),
+            _post_type: PhantomData::default(),
+        })
+    }
+
+    fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
+        match &self.cipher {
+            None => Ok(data),
+            Some(cipher) => Ok(cipher.decrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())?),
+        }
+    }
+
+    fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
+        match &self.cipher {
+            None => Ok(data),
+            Some(cipher) => Ok(cipher.encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())?),
+        }
+    }
+
+    fn new_encryptor(key: &[u8]) -> Result<SymmetricEncryptor<E>, aead::Error> {
+        SymmetricEncryptor::<E>::new_with_key(key)
+    }
+
+    /// Creates a shared key from two public keys - local and external,
+    /// then instantiates an encryptor from that key.
+    fn derive_shared_key(&mut self, public_key: &PublicKey) -> Result<&Self, Error> {
+        let dh = K::new();
+        let shared = dh
+            .compute_shared_secret(&self.secret_key, public_key)
+            .warn("Error creating shared secret")?;
+        debug!("Derived shared key: {:?}", &shared.0);
+        let encryptor = Cryptographer::<T, K, E>::new_encryptor(shared.0.as_slice())
+            .warn("Error creating encryptor")?;
+        self.cipher = Some(encryptor);
+        Ok(self)
+    }
+}
+
+/// This is an endpoint, that juggles messages between [`crate::Network`] and another connected node.
 pub struct Peer<T, K, E>
 where
     T: Debug + Encode + Decode + Send + Clone + 'static,
@@ -47,30 +149,14 @@ where
 {
     /// Peer identification
     id: PeerId,
-    /// A unique connection id
-    connection_id: ConnectionId,
-    /// Reading half of `TcpStream`
-    read: Option<OwnedReadHalf>,
-    /// Writing half of `TcpStream`
-    write: Option<OwnedWriteHalf>,
+    /// Peer connnection
+    connection: Connection,
     /// Current peer/connection state
     state: State,
-    /// Flag stating that this connection is outgoing
-    outgoing: bool,
-    /// Secret part of keypair
-    secret_key: PrivateKey,
-    /// Public part of keypair
-    public_key: PublicKey,
-    /// Encryptor created from session key, that we got by Diffie-Hellman scheme
-    cipher: Option<SymmetricEncryptor<E>>,
+    /// Cryptographic data
+    crypto: Cryptographer<T, K, E>,
     /// The to send received messages upstairs
     broker: Broker,
-    /// A flag that stops listening stream
-    finish_sender: Option<Sender<()>>,
-    /// Phantom
-    _key_exchange: PhantomData<K>,
-    /// Phantom2
-    _post_type: PhantomData<T>,
 }
 
 impl<T, K, E> Peer<T, K, E>
@@ -81,7 +167,7 @@ where
 {
     /// Creates a peer
     /// # Errors
-    /// If it can not create a keypair, so never
+    /// If keypair creation failed. (RARE)
     pub fn new_inner(
         id: PeerId,
         connection_id: ConnectionId,
@@ -89,46 +175,23 @@ where
         state: State,
         broker: Broker,
     ) -> Result<Self, Error> {
-        // P2P encryption primitives
-        let dh = K::new();
-        let (public_key, secret_key) = match dh.keypair(None) {
-            Ok((public_key, secret_key)) => (public_key, secret_key),
-            Err(e) => {
-                warn!(%e, "Error generating keypair");
-                return Err(Error::Keys);
-            }
-        };
-        // If we are connected we take apart stream for two halves.
-        // If we are not connected we save Nones and wait for message to start connecting.
-        let (read, write) = match stream.map(TcpStream::into_split) {
-            None => (None, None),
-            Some((read, write)) => (Some(read), Some(write)),
-        };
-        let outgoing = read.is_none() && write.is_none();
         Ok(Self {
             id,
-            connection_id,
-            read,
-            write,
+            connection: Connection::new(connection_id, stream),
             state,
-            outgoing,
-            secret_key,
-            public_key,
-            cipher: None,
             broker,
-            finish_sender: None,
-            _key_exchange: PhantomData::default(),
-            _post_type: PhantomData::default(),
+            crypto: Cryptographer::default_or_err()?,
         })
     }
 
+    /// Peer's connection id
     pub fn connection_id(&self) -> ConnectionId {
-        self.connection_id
+        self.connection.id
     }
 
     /// Creates an incoming peer
     /// # Errors
-    /// If `new_inner()` errors.
+    /// If `new_inner()` errors (RARE)
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     pub fn new_from(id: PeerId, stream: TcpStream, broker: Broker) -> Result<Self, Error> {
         let connection_id = rand::random();
@@ -143,7 +206,7 @@ where
 
     /// Creates an outgoing peer
     /// # Errors
-    /// If `new_inner()` errors.
+    /// If `new_inner()` errors (RARE)
     pub fn new_to(id: PeerId, broker: Broker) -> Result<Self, Error> {
         let connection_id = rand::random();
         Self::new_inner(id, connection_id, None, State::Connecting, broker)
@@ -182,7 +245,7 @@ where
 
     async fn handshake(&mut self) -> Result<&Self, Error> {
         let state = self.state;
-        debug!(%state, id = %self.connection_id, addr = %self.id.address, "Attempting handshake");
+        debug!(%state, id = %self.connection_id(), addr = %self.id.address, "Attempting handshake");
         match &self.state {
             State::Connecting => {
                 self.connect().await?;
@@ -197,7 +260,7 @@ where
                 self.send_our_public_key().await?;
             }
             State::GetKey => {
-                self.read_theirs_public_key().await?;
+                self.read_their_public_key().await?;
             }
             State::Ready => warn!("Not doing handshake, already ready."),
             State::Disconnected => warn!("Not doing handshake, we are disconnected."),
@@ -212,17 +275,19 @@ where
         debug!("Reading client hello...");
         #[allow(clippy::expect_used)]
         let read_half = self
+            .connection
             .read
             .as_mut()
             .expect("Never fails as in this function we already have the stream.");
         let public_key = read_client_hello(read_half).await?;
-        self.derive_shared_key(&public_key)?;
+        self.crypto.derive_shared_key(&public_key)?;
         #[allow(clippy::expect_used)]
         let mut write_half = self
+            .connection
             .write
             .as_mut()
             .expect("Never fails as in this function we already have the stream.");
-        send_server_hello(&mut write_half, self.public_key.0.as_slice()).await?;
+        send_server_hello(&mut write_half, self.crypto.public_key.0.as_slice()).await?;
         self.state = State::SendKey;
         Ok(self)
     }
@@ -232,19 +297,21 @@ where
         debug!("Sending client hello...");
         #[allow(clippy::expect_used)]
         let mut write_half = self
+            .connection
             .write
             .as_mut()
             .expect("Never fails as in this function we already have the stream.");
         write_half.as_ref().writable().await?;
-        send_client_hello(&mut write_half, self.public_key.0.as_slice()).await?;
+        send_client_hello(&mut write_half, self.crypto.public_key.0.as_slice()).await?;
         // Read server hello with node's public key
         #[allow(clippy::expect_used)]
         let read_half = self
+            .connection
             .read
             .as_mut()
             .expect("Never fails as in this function we already have the stream.");
         let public_key = read_server_hello(read_half).await?;
-        self.derive_shared_key(&public_key)?;
+        self.crypto.derive_shared_key(&public_key)?;
         self.state = State::SendKey;
         Ok(self)
     }
@@ -254,6 +321,7 @@ where
         debug!("Sending our public key...");
         #[allow(clippy::expect_used)]
         let write_half = self
+            .connection
             .write
             .as_mut()
             .expect("Never fails as in this function we already have the stream.");
@@ -263,17 +331,14 @@ where
         // Packing length and message in one network packet for efficiency
         let data = self.id.public_key.encode();
 
-        let data = match &self.cipher {
-            None => data,
-            Some(cipher) => match cipher.encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice()) {
-                Ok(data) => data,
-                Err(e) => {
-                    warn!(%e, "Error decrypting message!");
-                    self.state = State::Error;
-                    return Err(Error::Keys);
-                }
-            },
-        };
+        let data = &self
+            .crypto
+            .encrypt(data)
+            .warn("Error encrypting message")
+            .map_err(|e| {
+                self.state = State::Error;
+                e
+            })?;
 
         let mut buf = Vec::<u8>::with_capacity(data.len() + 1);
         #[allow(clippy::cast_possible_truncation)]
@@ -286,10 +351,10 @@ where
     }
 
     /// Reads theirs app public key
-    async fn read_theirs_public_key(&mut self) -> Result<&Self, Error> {
-        debug!("Reading theirs public key...");
+    async fn read_their_public_key(&mut self) -> Result<&Self, Error> {
+        debug!("Reading their public key...");
         #[allow(clippy::unwrap_used)]
-        let read_half = self.read.as_mut().unwrap();
+        let read_half = self.connection.read.as_mut().unwrap();
         let size = read_half.read_u8().await? as usize;
         if size >= MAX_HANDSHAKE_LENGTH {
             return Err(Error::Handshake);
@@ -299,53 +364,23 @@ where
         let mut data = vec![0_u8; size];
         let _ = read_half.read_exact(&mut data).await?;
 
-        let data = match &self.cipher {
-            None => data,
-            Some(cipher) => match cipher.decrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice()) {
-                Ok(data) => data,
-                Err(e) => {
-                    warn!(%e, "Error decrypting message!");
-                    self.state = State::Error;
-                    return Err(Error::Keys);
-                }
-            },
-        };
-
-        let pub_key: Result<iroha_crypto::PublicKey, _> = Decode::decode(&mut data.as_slice());
-        match pub_key {
-            Ok(pub_key) => {
-                self.id.public_key = pub_key;
-                self.state = State::Ready;
-                Ok(self)
-            }
-            Err(e) => {
-                warn!(%e, "Unexpected error creating encryptor!");
+        let data = self
+            .crypto
+            .decrypt(data)
+            .warn("Error decrypting message")
+            .map_err(|e| {
                 self.state = State::Error;
-                Err(Error::Keys)
-            }
-        }
-    }
+                e
+            })?;
 
-    /// Creates shared key from two public keys - our and their,
-    /// and creates and encryptor from that key.
-    fn derive_shared_key(&mut self, public_key: &PublicKey) -> Result<&Self, Error> {
-        let dh = K::new();
-        let shared = match dh.compute_shared_secret(&self.secret_key, public_key) {
-            Ok(key) => key,
-            Err(e) => {
-                warn!(%e, "Error creating shared secret!");
-                return Err(Error::Keys);
-            }
-        };
-        debug!("Derived shared key: {:?}", &shared.0);
-        let encryptor = match Self::new_encryptor(shared.0.as_slice()) {
-            Ok(encryptor) => encryptor,
-            Err(e) => {
-                warn!(%e, "Unexpected error creating encryptor!");
-                return Err(Error::Keys);
-            }
-        };
-        self.cipher = Some(encryptor);
+        let pub_key = Decode::decode(&mut data.as_slice())
+            .warn("Error decoding")
+            .map_err(|e| {
+                self.state = State::Error;
+                e
+            })?;
+        self.id.public_key = pub_key;
+        self.state = State::Ready;
         Ok(self)
     }
 
@@ -359,8 +394,8 @@ where
             Ok(stream) => {
                 debug!("Connected to [{}]", &addr);
                 let (read, write) = stream.into_split();
-                self.read = Some(read);
-                self.write = Some(write);
+                self.connection.read = Some(read);
+                self.connection.write = Some(write);
                 self.state = State::ConnectedTo;
                 Ok(self)
             }
@@ -369,10 +404,6 @@ where
                 Err(Error::Io(error))
             }
         }
-    }
-
-    fn new_encryptor(key: &[u8]) -> Result<SymmetricEncryptor<E>, aead::Error> {
-        SymmetricEncryptor::<E>::new_with_key(key)
     }
 }
 
@@ -418,7 +449,7 @@ where
     async fn handle(&mut self, ctx: &mut Context<Self>, Start: Start) {
         debug!(
             "[{}] Starting connection and handshake, id {}",
-            &self.id.address, self.connection_id
+            &self.id.address, self.connection.id
         );
         while self.state != State::Ready {
             let e = match self.handshake().await {
@@ -430,20 +461,20 @@ where
                 &self.id.address, &self.state, e
             );
 
-            let message = PeerMessage::<T>::Disconnected(self.id.clone(), self.connection_id);
+            let message = PeerMessage::<T>::Disconnected(self.id.clone(), self.connection.id);
             self.broker.issue_send(message).await;
             return;
         }
 
         debug!("[{}] Handshake finished", &self.id.address);
-        let message = PeerMessage::<T>::Connected(self.id.clone(), self.connection_id);
+        let message = PeerMessage::<T>::Connected(self.id.clone(), self.connection.id);
         self.broker.issue_send(message).await;
 
         #[allow(clippy::unwrap_used)]
-        let read: OwnedReadHalf = self.read.take().unwrap();
+        let read: OwnedReadHalf = self.connection.read.take().unwrap();
 
         let (sender, receiver) = oneshot::channel();
-        self.finish_sender = Some(sender);
+        self.connection.finish_sender = Some(sender);
 
         // Subscribe reading stream
         ctx.notify_with(Self::stream(read, receiver));
@@ -467,13 +498,13 @@ where
                 if self.state != State::Disconnected {
                     warn!(%error, "[{}] Error in peer read!", &self.id.address);
                 }
-                let message = PeerMessage::<T>::Disconnected(self.id.clone(), self.connection_id);
+                let message = PeerMessage::<T>::Disconnected(self.id.clone(), self.connection.id);
                 self.broker.issue_send(message).await;
                 return;
             }
         };
 
-        let data = match &self.cipher {
+        let data = match &self.crypto.cipher {
             None => message.0,
             Some(cipher) => match cipher.decrypt_easy(DEFAULT_AAD.as_ref(), message.0.as_slice()) {
                 Ok(data) => data,
@@ -505,12 +536,12 @@ where
     type Result = ();
 
     async fn handle(&mut self, msg: Post<T>) {
-        if self.write.is_none() {
+        if self.connection.write.is_none() {
             warn!("Cannot send message to peer, as we are not connected!");
             return;
         }
 
-        let data = match &self.cipher {
+        let data = match &self.crypto.cipher {
             None => msg.data.encode(),
             Some(cipher) => match cipher.encrypt_easy(DEFAULT_AAD.as_ref(), &msg.data.encode()) {
                 Ok(data) => data,
@@ -523,11 +554,12 @@ where
         };
         trace!("Sending message");
         #[allow(clippy::unwrap_used)]
-        let mut write_half = self.write.as_mut().unwrap();
-        if let Err(e) = send_message(&mut write_half, data.as_slice()).await {
-            warn!(%e, "Error sending message to peer!");
-            self.state = State::Error;
-        }
+        send_message(self.connection.write.as_mut().unwrap(), data.as_slice())
+            .await
+            .warn("Error sending message to peer")
+            .unwrap_or_else(|_| {
+                self.state = State::Error;
+            });
     }
 }
 
@@ -542,16 +574,16 @@ where
 
     async fn handle(&mut self, ctx: &mut Context<Self>, message: StopSelf) {
         let stop_self = match message {
-            StopSelf::Peer(id) => id == self.connection_id,
+            StopSelf::Peer(id) => id == self.connection.id,
             StopSelf::Network => true,
         };
         if stop_self {
             info!(
                 "[{}] Stopping self {}",
-                &self.id.address, self.connection_id
+                &self.id.address, self.connection.id
             );
             self.state = State::Disconnected;
-            if let Some(sender) = self.finish_sender.take() {
+            if let Some(sender) = self.connection.finish_sender.take() {
                 let _ = sender.send(());
             }
             ctx.stop_now();
@@ -642,10 +674,10 @@ async fn read_message(stream: &mut OwnedReadHalf) -> Result<Message, Error> {
             stream.as_ref().readable().await?;
             read += stream.read_exact(&mut buf[read..]).await?;
         }
-
-        return Ok(Message(buf));
+        Ok(Message(buf))
+    } else {
+        Err(Error::Format)
     }
-    Err(Error::Format)
 }
 
 /// Sends byte-encoded message to the peer
@@ -657,17 +689,18 @@ pub async fn send_message(stream: &mut OwnedWriteHalf, data: &[u8]) -> Result<()
             "Message length exceeds maximum length of {}!",
             MAX_MESSAGE_LENGTH
         );
-        return Err(Error::Format);
+        Err(Error::Format)
+    } else {
+        #[allow(clippy::cast_possible_truncation)]
+        let size: u32 = data.len() as u32;
+        let mut buf: Vec<u8> = Vec::with_capacity(data.len() + 2);
+        buf.write_u32(size).await?;
+        buf.write_all(data).await?;
+        stream.as_ref().writable().await?;
+        stream.write_all(buf.as_slice()).await?;
+        stream.flush().await?;
+        Ok(())
     }
-    #[allow(clippy::cast_possible_truncation)]
-    let size: u32 = data.len() as u32;
-    let mut buf: Vec<u8> = Vec::with_capacity(data.len() + 2);
-    buf.write_u32(size).await?;
-    buf.write_all(data).await?;
-    stream.as_ref().writable().await?;
-    stream.write_all(buf.as_slice()).await?;
-    stream.flush().await?;
-    Ok(())
 }
 
 /// Peer's identification.
@@ -695,13 +728,14 @@ impl Garbage {
     pub async fn read(stream: &mut OwnedReadHalf) -> Result<Self, Error> {
         let size = stream.read_u8().await? as usize;
         if size >= MAX_HANDSHAKE_LENGTH {
-            return Err(Error::Handshake);
+            Err(Error::Handshake)
+        } else {
+            // Reading garbage
+            debug!("Garbage size: {}, reading...", size);
+            let mut garbage = vec![0_u8; size];
+            stream.as_ref().readable().await?;
+            let _ = stream.read_exact(&mut garbage).await?;
+            Ok(Self { garbage })
         }
-        // Reading garbage
-        debug!("Garbage size: {}, reading...", size);
-        let mut garbage = vec![0_u8; size];
-        stream.as_ref().readable().await?;
-        let _ = stream.read_exact(&mut garbage).await?;
-        Ok(Self { garbage })
     }
 }

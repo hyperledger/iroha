@@ -4,7 +4,9 @@
 
 use std::{io, net::AddrParseError};
 
-use iroha_crypto::ursa::{encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256};
+use iroha_crypto::ursa::{
+    encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256, CryptoError,
+};
 use iroha_derive::FromVariant;
 pub use network::{ConnectPeer, NetworkBase, Post};
 use parity_scale_codec::{Decode, Encode};
@@ -18,7 +20,7 @@ pub mod peer;
 /// The main type to use for secure communication.
 pub type Network<T> = NetworkBase<T, X25519Sha256, ChaCha20Poly1305>;
 
-/// Error types of this crate.
+/// Errors used in the [`iroha_p2p`] crate.
 #[derive(Debug, FromVariant, Error, iroha_actor::Message)]
 pub enum Error {
     /// Failed to read or write
@@ -36,6 +38,24 @@ pub enum Error {
     /// Failed to parse address
     #[error("Failed to parse socket address")]
     Addr(#[source] AddrParseError),
+}
+
+impl From<parity_scale_codec::Error> for Error {
+    fn from(_: parity_scale_codec::Error) -> Self {
+        Self::Keys
+    }
+}
+
+impl From<CryptoError> for Error {
+    fn from(_: CryptoError) -> Self {
+        Self::Keys
+    }
+}
+
+impl From<aead::Error> for Error {
+    fn from(_: aead::Error) -> Self {
+        Self::Keys
+    }
 }
 
 /// Result to use in this crate.

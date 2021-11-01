@@ -7,7 +7,7 @@ use iroha_data_model::prelude::*;
 use test_network::*;
 
 #[test]
-fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
+fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given a network
     let (rt, network, mut iroha_client_network, pipeline_time, account_id, asset_definition_id) =
         init()?;
