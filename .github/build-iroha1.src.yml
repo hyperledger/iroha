@@ -17,6 +17,7 @@ name: Iroha1
 ## TODO windows
 ## FIXME checkout issue, see https://github.com/actions/runner/issues/434
 ## TODO actions/create-release for main branch and tags
+## TODO to improve speed of vcpkg step install to iroha-builder docker image cmake 3.20.1 or later and ninja 1.10.1 or later.
 
 ## CHEAT SHEET
 ## check if PR head repo is fork: ${{ github.event.pull_request.head.repo.fork }}
@@ -595,11 +596,15 @@ jobs:
             #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
             #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
-          ## Run module_* tests in parallel and others subsequently
           cd build
-          ## FIXME dissallow to fail, remove '||true' after ctest
-          cat | sort -u >ALLOW_TO_FAIL <<END
-          END
+
+          ## This is just a small lifehack to TEMPORARY allow some tests to fail
+          cat ../.github/TESTS_ALLOWED_TO_FAIL | sort -u >ALLOW_TO_FAIL || true
+
+          if test -e ALLOW_TO_FAIL
+          then echo "::warning:: There are TESTS_ALLOWED_TO_FAIL: "$(cat ALLOW_TO_FAIL)
+          fi
+
           grep_failed_tests(){
             grep 'The following tests FAILED:' -A10000 "$@" | tail +2 #| cut -d- -f2 | cut -d' ' -f2 | sort
           }
@@ -618,24 +623,42 @@ jobs:
           }
           echo ::endgroup::
 
-          echo ::group::'Module tests'
-          ctest -R '^module_' --parallel 4 --output-on-failure --no-tests=error --timeout 80 \
-            | tee ctest_module.out \
-            || true
-          echo ::endgroup::
+          ## Run module_* tests in parallel and others subsequently
+          ## Cathgories sorted in order of importancy
+          CTEST_CATHEGORIES=( module tool framework regression system integration )
+          ## Add rest available cathgories
+          CTEST_CATHEGORIES+=( $(
+              ctest --show-only=json-v1 -R "^(module|tool|framework|regression|system|integration)" |
+              jq -r .tests[].name |
+              cut -f1 -d_ |
+              sort -u |
+              grep -Fvf <( printf '%s\n' ${CTEST_CATHEGORIES[@]} )
+            )
+          ) || true
+          CTEST_DEFAULT_timeout=80
+          CTEST_module_timeout=80 CTEST_module_parallel=4
+          CTEST_tool_timeout=200
+          CTEST_integration_args='--repeat until-pass:10'  ## FIXME remove this hack
+          CTEST_system_args='--repeat until-pass:10'       ## FIXME remove this hack
 
-          ## TODO --repeat until-fail:5 instead of until-pass !!
-          echo ::group::'Integration tests'
-          ctest -E '^module_' --parallel 1 --output-on-failure --no-tests=error --timeout 80 --repeat until-pass:5 \
-            | tee ctest_integration.out \
-            || true
-          echo ::endgroup::
+          for cathegory in ${CTEST_CATHEGORIES[@]} ;do
+            echo ::group::"$cathegory tests"
+            set -x
+            timeout_name=CTEST_${cathegory}_timeout;   timeout=${!timeout_name:-$CTEST_DEFAULT_timeout}
+            parallel_name=CTEST_${cathegory}_parallel; parallel=${!parallel_name:-}
+            args_name=CTEST_${cathegory}_args; args=${!args_name:-}
+            ctest -R "^${cathegory}_" ${parallel:+--parallel $parallel} --output-on-failure --no-tests=error --timeout $timeout ${args:-} \
+              | tee ctest_$cathegory.out \
+              || true
+            set +x
+            echo ::endgroup::
+          done
 
           tests_passed=true
-          for t in module integration ;do
+          for t in ${CTEST_CATHEGORIES[@]} ;do
             f=ctest_$t.out
             if a=$(grep_failed_tests $f | exclude_allowed_to_fail | list_to_line) ;then
-              echo "::error::The following ${t^^} tests FAILED but not in list ALLOW_TO_FAIL: $a"
+              echo "::error::The following $(echo $t | tr a-z A-Z) tests FAILED but not in list ALLOW_TO_FAIL: $a"
               tests_passed=false
             fi
             if o=$(grep_failed_tests $f | only_allowed_to_fail | list_to_line) ;then
@@ -668,6 +691,9 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ) }}
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - *step_show_context
       - *step_system_info
