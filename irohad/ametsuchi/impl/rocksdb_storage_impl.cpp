@@ -23,7 +23,6 @@
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/tx_executor.hpp"
-#include "common/bind.hpp"
 #include "common/result.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
