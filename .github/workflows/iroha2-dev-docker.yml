@@ -24,19 +24,6 @@ jobs:
           key: iroha2-rust-docker-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
               iroha2-rust-docker-
-      # - name: Install dependencies
-      #   run: |
-      #     sudo apt-get update
-      #     sudo apt-get install -y --no-install-recommends \
-      #       build-essential \
-      #       ca-certificates \
-      #       clang \
-      #       llvm-dev
-      # - name: Install latest rust
-      #   uses: actions-rs/toolchain@v1
-      #   with:
-      #     toolchain: 1.56
-      #     default: true
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v1
@@ -52,8 +39,8 @@ jobs:
 
       - name: Setup docker test environment
         run: ./scripts/setup_docker_test_env.sh
-      # - name: Docker compose genesis test
-      #   run: bash -c './scripts/test_genesis_docker_compose.sh || ( docker-compose logs; false )'
+      - name: Docker compose genesis test
+        run: bash -c './scripts/test_genesis_docker_compose.sh || ( docker-compose logs; false )'
       - name: Docker compose test
         run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
       - name: Cleanup docker test environment

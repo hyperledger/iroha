@@ -10,3 +10,4 @@ sleep 2
 ./iroha_client_cli asset mint --account="Alice@Soramitsu" --asset="XOR#Soramitsu" --quantity="100"
 sleep 2
 ./iroha_client_cli asset get --account="Alice@Soramitsu" --asset="XOR#Soramitsu" | grep -q 'Quantity(100)'
+
