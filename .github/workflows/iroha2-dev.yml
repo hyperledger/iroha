@@ -1,7 +1,7 @@
 name: Iroha 2 dev branch workflow
 
 on:
-  push:
+  pull_request:
     branches: [iroha2-dev]
 
 env:
