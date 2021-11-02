@@ -18,7 +18,7 @@ name: Iroha1
 ## TODO [prettify,documentation] update status badges in README.md
 ## TODO [minor] windows
 ## TODO actions/create-release for main branch and tags
-## TODO [cmake,dockerimage,iroha-builder] To improve speed of vcpkg step install to iroha-builder 
+## TODO [cmake,dockerimage,iroha-builder] To improve speed of vcpkg step install to iroha-builder
 ##      docker image cmake 3.20.1 or later and ninja 1.10.1 or later.
 ## TODO actions/create-release for tags
 ## TODO use event pull_request_target to handle PRs from authorized forks,
