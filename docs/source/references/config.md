@@ -43,7 +43,8 @@ Configuration of iroha is done via options in the following document. Here is de
   "QUEUE": {
     "MAXIMUM_TRANSACTIONS_IN_BLOCK": 8192,
     "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
-    "TRANSACTION_TIME_TO_LIVE_MS": 86400000
+    "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
+    "FUTURE_THRESHOLD_MS": 1000
   },
   "LOGGER": {
     "MAX_LOG_LEVEL": "DEBUG",
@@ -352,10 +353,21 @@ Has type `QueueConfiguration`. Can be configured via environment variable `IROHA
 
 ```json
 {
+  "FUTURE_THRESHOLD_MS": 1000,
   "MAXIMUM_TRANSACTIONS_IN_BLOCK": 8192,
   "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
   "TRANSACTION_TIME_TO_LIVE_MS": 86400000
 }
+```
+
+### `queue.future_threshold_ms`
+
+The threshold to determine if a transaction has been tampered to have a future timestamp.
+
+Has type `u64`. Can be configured via environment variable `QUEUE_FUTURE_THRESHOLD_MS`
+
+```json
+1000
 ```
 
 ### `queue.maximum_transactions_in_block`

@@ -3,12 +3,12 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::{collections::BTreeSet, iter, marker::PhantomData, time::SystemTime};
+use std::{collections::BTreeSet, iter, marker::PhantomData};
 
 use dashmap::{iter::Iter as MapIter, mapref::one::Ref as MapRef, DashMap};
 use eyre::{Context, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
-use iroha_data_model::{events::prelude::*, transaction::prelude::*};
+use iroha_data_model::{current_time, events::prelude::*, transaction::prelude::*};
 use iroha_derive::Io;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -100,10 +100,7 @@ impl PendingBlock {
     /// Create a new `PendingBlock` from transactions.
     pub fn new(transactions: Vec<VersionedAcceptedTransaction>) -> PendingBlock {
         #[allow(clippy::expect_used)]
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("Failed to get System Time.")
-            .as_millis();
+        let timestamp = current_time().as_millis();
         PendingBlock {
             timestamp,
             transactions,

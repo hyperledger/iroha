@@ -2,11 +2,7 @@
 //!
 //! `Transaction` is the start of the Transaction lifecycle.
 
-use std::{
-    cmp::min,
-    collections::BTreeSet,
-    time::{Duration, SystemTime},
-};
+use std::{cmp::min, collections::BTreeSet, time::Duration};
 
 use eyre::{Result, WrapErr};
 use iroha_crypto::{HashOf, SignaturesOf};
@@ -67,6 +63,11 @@ impl VersionedAcceptedTransaction {
     /// Meaning that the transaction will be expired as soon as the lesser of the specified TTLs was reached.
     pub fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
         self.as_inner_v1().is_expired(transaction_time_to_live)
+    }
+
+    /// If `true`, this transaction is regarded to have been tampered to have a future timestamp.
+    pub fn is_in_future(&self, threshold: Duration) -> bool {
+        self.as_inner_v1().is_in_future(threshold)
     }
 
     /// Move transaction lifecycle forward by checking an ability to apply instructions to the
@@ -172,16 +173,18 @@ impl AcceptedTransaction {
     /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
     /// Meaning that the transaction will be expired as soon as the lesser of the specified TTLs was reached.
     pub fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
-        #[allow(clippy::expect_used)]
-        let current_time = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("Failed to get System Time.");
-
-        current_time.saturating_sub(Duration::from_millis(self.payload.creation_time))
+        let tx_timestamp = Duration::from_millis(self.payload.creation_time);
+        current_time().saturating_sub(tx_timestamp)
             > min(
-                Duration::from_millis(self.payload.time_to_live_ms),
                 transaction_time_to_live,
+                Duration::from_millis(self.payload.time_to_live_ms),
             )
+    }
+
+    /// If `true`, this transaction is regarded to have been tampered to have a future timestamp.
+    pub fn is_in_future(&self, threshold: Duration) -> bool {
+        let tx_timestamp = Duration::from_millis(self.payload.creation_time);
+        tx_timestamp.saturating_sub(current_time()) > threshold
     }
 
     #[allow(clippy::unwrap_in_result)]

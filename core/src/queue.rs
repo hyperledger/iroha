@@ -26,6 +26,7 @@ pub struct Queue {
     txs_in_block: usize,
     max_txs: usize,
     ttl: Duration,
+    future_threshold: Duration,
 }
 
 /// Queue push error
@@ -34,6 +35,9 @@ pub enum Error {
     /// Queue is full
     #[error("Queue is full")]
     Full,
+    /// Transaction is regarded to have been tampered to have a future timestamp
+    #[error("Transaction is regarded to have been tampered to have a future timestamp")]
+    InFuture,
     /// Transaction expired
     #[error("Transaction is expired")]
     Expired,
@@ -58,6 +62,7 @@ impl Queue {
             max_txs: cfg.maximum_transactions_in_queue as usize,
             txs_in_block: cfg.maximum_transactions_in_block as usize,
             ttl: Duration::from_millis(cfg.transaction_time_to_live_ms),
+            future_threshold: Duration::from_millis(cfg.future_threshold_ms),
         }
     }
 
@@ -110,6 +115,9 @@ impl Queue {
         tx: VersionedAcceptedTransaction,
         wsv: &WorldStateView<W>,
     ) -> Result<(), (VersionedAcceptedTransaction, Error)> {
+        if tx.is_in_future(self.future_threshold) {
+            return Err((tx, Error::InFuture));
+        }
         if let Err(e) = self.check_tx(&tx, wsv) {
             return Err((tx, e));
         }
@@ -213,9 +221,10 @@ pub mod config {
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 2_u32.pow(13);
+    const DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE: u32 = 2_u32.pow(16);
     // 24 hours
     const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 24 * 60 * 60 * 1000;
-    const DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE: u32 = 2_u32.pow(16);
+    const DEFAULT_FUTURE_THRESHOLD_MS: u64 = 1000;
 
     /// Configuration for `Queue`.
     #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
@@ -229,6 +238,8 @@ pub mod config {
         pub maximum_transactions_in_queue: u32,
         /// The transaction will be dropped after this time if it is still in a `Queue`.
         pub transaction_time_to_live_ms: u64,
+        /// The threshold to determine if a transaction has been tampered to have a future timestamp.
+        pub future_threshold_ms: u64,
     }
 
     impl Default for QueueConfiguration {
@@ -237,6 +248,7 @@ pub mod config {
                 maximum_transactions_in_block: DEFAULT_MAXIMUM_TRANSACTIONS_IN_BLOCK,
                 maximum_transactions_in_queue: DEFAULT_MAXIMUM_TRANSACTIONS_IN_QUEUE,
                 transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,
+                future_threshold_ms: DEFAULT_FUTURE_THRESHOLD_MS,
             }
         }
     }
@@ -300,6 +312,7 @@ mod tests {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
+            ..QueueConfiguration::default()
         });
         let wsv = WorldStateView::new(world_with_test_domains(
             KeyPair::generate().unwrap().public_key,
@@ -317,6 +330,7 @@ mod tests {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: max_txs_in_queue,
+            ..QueueConfiguration::default()
         });
         let wsv = WorldStateView::new(world_with_test_domains(
             KeyPair::generate().unwrap().public_key,
@@ -342,6 +356,7 @@ mod tests {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: max_txs_in_queue,
+            ..QueueConfiguration::default()
         });
         let wsv = WorldStateView::new(world_with_test_domains(
             KeyPair::generate().unwrap().public_key,
@@ -366,6 +381,7 @@ mod tests {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
+            ..QueueConfiguration::default()
         });
         let tx = Transaction::new(
             Vec::new(),
@@ -408,6 +424,7 @@ mod tests {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
+            ..QueueConfiguration::default()
         });
         for _ in 0..5 {
             queue
@@ -434,6 +451,7 @@ mod tests {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
+            ..QueueConfiguration::default()
         });
         assert!(matches!(
             queue.push(tx, &wsv),
@@ -452,6 +470,7 @@ mod tests {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
+            ..QueueConfiguration::default()
         });
         queue.push(tx.clone(), &wsv).unwrap();
         wsv.transactions.insert(tx.hash());
@@ -468,6 +487,7 @@ mod tests {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 200,
             maximum_transactions_in_queue: 100,
+            ..QueueConfiguration::default()
         });
         for _ in 0..(max_block_tx - 1) {
             queue
@@ -510,6 +530,7 @@ mod tests {
             maximum_transactions_in_block: 2,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100,
+            ..QueueConfiguration::default()
         });
         queue
             .push(
@@ -543,6 +564,7 @@ mod tests {
             maximum_transactions_in_block: max_block_tx,
             transaction_time_to_live_ms: 100_000,
             maximum_transactions_in_queue: 100_000_000,
+            ..QueueConfiguration::default()
         }));
 
         let start_time = Instant::now();
@@ -592,5 +614,23 @@ mod tests {
         for tx in array_queue {
             assert!(queue.txs.contains_key(&tx));
         }
+    }
+
+    #[test]
+    fn push_tx_in_future() {
+        let future_threshold_ms = 1000;
+        let queue = Queue::from_configuration(&QueueConfiguration {
+            future_threshold_ms,
+            ..QueueConfiguration::default()
+        });
+        let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
+        let wsv = WorldStateView::new(world_with_test_domains(alice_key.public_key.clone()));
+
+        let mut tx = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
+        assert!(queue.push(tx.clone(), &wsv).is_ok());
+        // tamper timestamp
+        tx.as_mut_inner_v1().payload.creation_time += 2 * future_threshold_ms;
+        assert!(matches!(queue.push(tx, &wsv), Err((_, Error::InFuture))));
+        assert_eq!(queue.txs.len(), 1);
     }
 }

@@ -3,7 +3,13 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::{convert::TryFrom, error, fmt::Debug, ops::RangeInclusive};
+use std::{
+    convert::TryFrom,
+    error,
+    fmt::Debug,
+    ops::RangeInclusive,
+    time::{Duration, SystemTime},
+};
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{Hash, PublicKey};
@@ -371,6 +377,14 @@ impl From<LengthLimits> for RangeInclusive<usize> {
     fn from(limits: LengthLimits) -> Self {
         RangeInclusive::new(limits.min as usize, limits.max as usize)
     }
+}
+
+/// Get the current system time as `Duration` since the unix epoch.
+pub fn current_time() -> Duration {
+    #[allow(clippy::expect_used)]
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("Failed to get the current system time")
 }
 
 pub mod world {
@@ -1973,10 +1987,7 @@ pub mod transaction {
     //! This module contains [`Transaction`] structures and related implementations
     //! and traits implementations.
 
-    use std::{
-        cmp::Ordering, collections::BTreeSet, iter::FromIterator, time::SystemTime,
-        vec::IntoIter as VecIter,
-    };
+    use std::{cmp::Ordering, collections::BTreeSet, iter::FromIterator, vec::IntoIter as VecIter};
 
     use eyre::{eyre, Result};
     use iroha_crypto::{prelude::*, HashOf, SignatureOf, SignaturesOf};
@@ -1991,7 +2002,7 @@ pub mod transaction {
     use warp::{reply::Response, Reply};
 
     use crate::{
-        account::Account, isi::Instruction, metadata::UnlimitedMetadata,
+        account::Account, current_time, isi::Instruction, metadata::UnlimitedMetadata,
         prelude::TransactionRejectionReason, Identifiable,
     };
 
@@ -2151,10 +2162,7 @@ pub mod transaction {
                 payload: Payload {
                     instructions,
                     account_id,
-                    creation_time: SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .expect("Failed to get System Time.")
-                        .as_millis() as u64,
+                    creation_time: current_time().as_millis() as u64,
                     time_to_live_ms: proposed_ttl_ms,
                     nonce,
                     metadata,
@@ -2791,9 +2799,10 @@ pub mod prelude {
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
     pub use super::{
-        account::prelude::*, asset::prelude::*, domain::prelude::*, fixed::prelude::*,
-        pagination::prelude::*, peer::prelude::*, transaction::prelude::*, world::prelude::*,
-        Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, Value,
+        account::prelude::*, asset::prelude::*, current_time, domain::prelude::*,
+        fixed::prelude::*, pagination::prelude::*, peer::prelude::*, transaction::prelude::*,
+        world::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut,
+        TryAsRef, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

@@ -6,7 +6,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     fmt::{self, Debug, Formatter},
     sync::Arc,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 use dashmap::{DashMap, DashSet};
@@ -14,7 +14,9 @@ use eyre::{eyre, Result};
 use futures::{future, prelude::*, stream::futures_unordered::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_crypto::{HashOf, KeyPair};
-use iroha_data_model::{events::Event, peer::Id as PeerId, transaction::VersionedTransaction};
+use iroha_data_model::{
+    current_time, events::Event, peer::Id as PeerId, transaction::VersionedTransaction,
+};
 use iroha_logger::Instrument;
 use iroha_p2p::ConnectPeer;
 use network_topology::{Role, Topology};
@@ -914,9 +916,7 @@ impl VotingBlock {
     #[allow(clippy::expect_used)]
     pub fn new(block: VersionedValidBlock) -> VotingBlock {
         VotingBlock {
-            voted_at: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get System Time."),
+            voted_at: current_time(),
             block,
         }
     }
@@ -929,7 +929,7 @@ pub mod message {
     use std::{
         collections::HashSet,
         sync::Arc,
-        time::{Duration, Instant, SystemTime},
+        time::{Duration, Instant},
     };
 
     use eyre::{Result, WrapErr};
@@ -1121,13 +1121,9 @@ pub mod message {
             sumeragi: &Sumeragi<G, K, W>,
         ) -> bool {
             let voting_block = sumeragi.voting_block.read().await.clone();
-            #[allow(clippy::expect_used)]
-            let current_time = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get System Time.");
             voting_block.map_or(false, |voting_block| {
                 voting_block.block.hash() == reason.hash
-                    && (current_time - voting_block.voted_at) >= sumeragi.commit_time
+                    && (current_time() - voting_block.voted_at) >= sumeragi.commit_time
             })
         }
 
@@ -1525,9 +1521,7 @@ pub mod message {
             let signature = SignatureOf::from_hash(key_pair.clone(), &hash)?;
             Ok(TransactionReceipt {
                 hash,
-                received_at: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time."),
+                received_at: current_time(),
                 signature,
             })
         }
@@ -1541,11 +1535,7 @@ pub mod message {
 
         /// Checks if the block should have been already created by the `Leader`.
         pub fn is_block_should_be_created(&self, block_time: Duration) -> bool {
-            #[allow(clippy::expect_used)]
-            let current_time = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get System Time.");
-            (current_time - self.received_at) >= block_time
+            (current_time() - self.received_at) >= block_time
         }
 
         /// Handles this message as part of `Sumeragi` consensus.
@@ -1557,9 +1547,7 @@ pub mod message {
             &self,
             sumeragi: &mut Sumeragi<G, K, W>,
         ) -> Result<()> {
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .wrap_err("Failed to get System Time.")?;
+            let now = current_time();
 
             // Implausible time in the future, means that the leader lies
             if sumeragi.topology.role(&sumeragi.peer_id) == Role::Leader
