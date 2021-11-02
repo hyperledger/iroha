@@ -44,7 +44,12 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
 
 RUN rustup component add llvm-tools-preview clippy && rustup install --profile default nightly-2021-10-22;\
-    cargo install cargo-lints grcov; \
+    cargo install cargo-lints grcov;
+
+RUN curl -fsSL https://get.docker.com -o get-docker.sh; \
+    chmod +x get-docker.sh; \
+    ./get-docker.sh; \
+    rm get-docker.sh
 
 RUN git clone https://github.com/rui314/mold.git; \
     git -C "./mold" checkout v0.9.6; \
