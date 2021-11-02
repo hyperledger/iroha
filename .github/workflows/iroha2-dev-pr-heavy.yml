@@ -9,7 +9,6 @@ on:
       - '**.rs'
       - '**.json'
       - '**.toml'
-      - '**.yml'
 
 env:
   CARGO_TERM_COLOR: always
