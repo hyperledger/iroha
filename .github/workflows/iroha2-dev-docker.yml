@@ -1,0 +1,106 @@
+on:
+  pull_request:
+    branches: [iroha2-dev]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test-docker:
+    runs-on: [self-hosted, Linux]
+    #container: rust:1.56-buster
+    container: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+              ~/.cargo
+              target/
+          key: iroha2-rust-docker-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+              iroha2-rust-docker-
+
+      - name: Install latest rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.56
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build Client CLI
+        run: cargo build
+        working-directory: client_cli
+      - name: Build and push Iroha Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: false
+          tags: hyperledger/iroha2:dev
+
+      - name: Setup docker test environment
+        run: ./scripts/setup_docker_test_env.sh
+      - name: Docker compose genesis test
+        run: bash -c './scripts/test_genesis_docker_compose.sh || ( docker-compose logs; false )'
+      - name: Docker compose test
+        run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
+      - name: Cleanup docker test environment
+        run: ./scripts/cleanup_docker_test_env.sh
+
+  deploy:
+    runs-on: [self-hosted, Linux]
+    container: rust:1.56-buster
+    needs: test-docker
+    steps:
+      - uses: actions/checkout@v2
+      - name: set up buildx
+        uses: docker/setup-buildx-action@v1
+        id: buildx
+        with:
+          install: true
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Iroha Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: hyperledger/iroha2:dev
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+
+      - name: Build and push Iroha client cli Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: hyperledger/iroha2:client-cli-dev
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+            BIN=iroha_client_cli
+
+      - name: Build and push Iroha Crypto CLI Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: hyperledger/iroha2:crypto-cli-dev
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+            BIN=iroha_crypto_cli
