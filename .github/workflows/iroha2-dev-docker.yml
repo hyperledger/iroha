@@ -51,7 +51,7 @@ jobs:
     # container: rust:1.56-buster
     container:
       image: 7272721/i2-ci:latest
-    needs: test-docker
+    #needs: test-docker
     steps:
       - uses: actions/checkout@v2
       - name: set up buildx
