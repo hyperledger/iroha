@@ -1,3 +1,4 @@
+
 use std::{
     fmt::{Debug, Display, Formatter},
     marker::PhantomData,
@@ -291,134 +292,154 @@ where
     /// Reads client public key from client hello,
     /// creates shared secret and sends our public key to client
     async fn read_client_hello(&mut self) -> Result<&mut Self, Error> {
-        debug!("Reading client hello...");
-        #[allow(clippy::expect_used)]
-        let read_half = self
-            .connection
-            .read
-            .as_mut()
-            .expect("Never fails as in this function we already have the stream.");
-        let public_key = read_client_hello(read_half).await?;
-        self.crypto.derive_shared_key(&public_key)?;
-        #[allow(clippy::expect_used)]
-        let mut write_half = self
-            .connection
-            .write
-            .as_mut()
-            .expect("Never fails as in this function we already have the stream.");
-        send_server_hello(&mut write_half, self.crypto.public_key.0.as_slice()).await?;
-        self.state = State::SendKey;
-        Ok(self)
-    }
+		if let State::ConnectedFrom = self.state {
+			debug!("Reading client hello...");
+			#[allow(clippy::expect_used)]
+			let read_half = self
+				.connection
+				.read
+				.as_mut()
+				.expect("Never fails as in this function we already have the stream.");
+			let public_key = read_client_hello(read_half).await?;
+			self.crypto.derive_shared_key(&public_key)?;
+			#[allow(clippy::expect_used)]
+			let mut write_half = self
+				.connection
+				.write
+				.as_mut()
+				.expect("Never fails as in this function we already have the stream.");
+			send_server_hello(&mut write_half, self.crypto.public_key.0.as_slice()).await?;
+			self.state = State::SendKey;
+			Ok(self)
+		} else {
+			Err(Error::Handshake)
+		}
+	}
 
     /// Sends client hello with our public key
     async fn send_client_hello(&mut self) -> Result<&mut Self, Error> {
-        debug!("Sending client hello...");
-        #[allow(clippy::expect_used)]
-        let mut write_half = self
-            .connection
-            .write
-            .as_mut()
-            .expect("Never fails as in this function we already have the stream.");
-        write_half.as_ref().writable().await?;
-        send_client_hello(&mut write_half, self.crypto.public_key.0.as_slice()).await?;
-        // Read server hello with node's public key
-        #[allow(clippy::expect_used)]
-        let read_half = self
-            .connection
-            .read
-            .as_mut()
-            .expect("Never fails as in this function we already have the stream.");
-        let public_key = read_server_hello(read_half).await?;
-        self.crypto.derive_shared_key(&public_key)?;
-        self.state = State::SendKey;
-        Ok(self)
-    }
+		if let State::ConnectedTo = self.state {
+			debug!("Sending client hello...");
+			#[allow(clippy::expect_used)]
+			let mut write_half = self
+				.connection
+				.write
+				.as_mut()
+				.expect("Never fails as in this function we already have the stream.");
+			write_half.as_ref().writable().await?;
+			send_client_hello(&mut write_half, self.crypto.public_key.0.as_slice()).await?;
+			// Read server hello with node's public key
+			#[allow(clippy::expect_used)]
+			let read_half = self
+				.connection
+				.read
+				.as_mut()
+				.expect("Never fails as in this function we already have the stream.");
+			let public_key = read_server_hello(read_half).await?;
+			self.crypto.derive_shared_key(&public_key)?;
+			self.state = State::SendKey;
+			Ok(self)
+		} else {
+			Err(Error::Handshake)
+		}
+	}
 
     /// Sends our app public key
     async fn send_our_public_key(&mut self) -> Result<&mut Self, Error> {
-        debug!("Sending our public key...");
-        #[allow(clippy::expect_used)]
-        let write_half = self
+		if let State::SendKey = self.state {
+			debug!("Sending our public key...");
+			#[allow(clippy::expect_used)]
+			let write_half = self
             .connection
             .write
             .as_mut()
             .expect("Never fails as in this function we already have the stream.");
-        write_half.as_ref().writable().await?;
+			write_half.as_ref().writable().await?;
 
-        // We take our public key from this field and will replace it with theirs when we read it
-        // Packing length and message in one network packet for efficiency
-        let data = self.id.public_key.encode();
+			// We take our public key from this field and will replace it with theirs when we read it
+			// Packing length and message in one network packet for efficiency
+			let data = self.id.public_key.encode();
 
-        let data = &self
-            .crypto
-            .encrypt(data)
-            .log_warn("Error encrypting message")
-            .map_err(|e| {
-                self.state = State::Error(e.clone());
-                e
-            })?;
+			let data = &self
+				.crypto
+				.encrypt(data)
+				.log_warn("Error encrypting message")
+				.map_err(|e| {
+					self.state = State::Error(e.clone());
+					e
+				})?;
 
-        let mut buf = Vec::<u8>::with_capacity(data.len() + 1);
-        #[allow(clippy::cast_possible_truncation)]
-        buf.push(data.len() as u8);
-        buf.extend_from_slice(data.as_slice());
+			let mut buf = Vec::<u8>::with_capacity(data.len() + 1);
+			#[allow(clippy::cast_possible_truncation)]
+			buf.push(data.len() as u8);
+			buf.extend_from_slice(data.as_slice());
 
-        write_half.write_all(&buf).await?;
-        self.state = State::GetKey;
-        Ok(self)
-    }
+			write_half.write_all(&buf).await?;
+			self.state = State::GetKey;
+			Ok(self)
+		} else {
+			Err(Error::Handshake)
+		}
+	}
 
     /// Reads theirs app public key
     async fn read_their_public_key(&mut self) -> Result<&Self, Error> {
-        debug!("Reading their public key...");
-        #[allow(clippy::unwrap_used)]
-        let read_half = self.connection.read.as_mut().unwrap();
-        let size = read_half.read_u8().await? as usize;
-        if size >= MAX_HANDSHAKE_LENGTH {
-            return Err(Error::Handshake);
-        }
-        // Reading public key
-        read_half.as_ref().readable().await?;
-        let mut data = vec![0_u8; size];
-        let _ = read_half.read_exact(&mut data).await?;
+        if let State::GetKey = self.state {
+			debug!("Reading their public key...");
+			#[allow(clippy::unwrap_used)]
+			let read_half = self.connection.read.as_mut().unwrap();
+			let size = read_half.read_u8().await? as usize;
+			if size >= MAX_HANDSHAKE_LENGTH {
+				return Err(Error::Handshake);
+			}
+			// Reading public key
+			read_half.as_ref().readable().await?;
+			let mut data = vec![0_u8; size];
+			let _ = read_half.read_exact(&mut data).await?;
 
-        let data = self
-            .crypto
-            .decrypt(data)
-            .log_warn("Error decrypting message")
-            .map_err(|e| {
-                self.state = State::Error(e.clone());
-                e
-            })?;
+			let data = self
+				.crypto
+				.decrypt(data)
+				.log_warn("Error decrypting message")
+				.map_err(|e| {
+					self.state = State::Error(e.clone());
+					e
+				})?;
 
-        let pub_key = Decode::decode(&mut data.as_slice())
-            .log_warn("Error decoding")
-            .map_err(|e| {
-				let e = Error::from(e);
-                self.state = State::Error(e.clone());
-                e
-            })?;
-        self.id.public_key = pub_key;
-        self.state = State::Ready;
-        Ok(self)
-    }
+			let pub_key = Decode::decode(&mut data.as_slice())
+				.log_warn("Error decoding")
+				.map_err(|e| {
+					let e = Error::from(e);
+					self.state = State::Error(e.clone());
+					e
+				})?;
+			self.id.public_key = pub_key;
+			self.state = State::Ready;
+			Ok(self)
+		} else {
+			Err(Error::Handshake)
+		}
+	}
 
     /// Creates a connection to other peer
     #[allow(clippy::expect_used)]
     async fn connect(&mut self) -> Result<&mut Self, Error> {
-        let addr = self.id.address.clone();
-        debug!("Connecting to [{}]", &addr);
-        let stream = TcpStream::connect(addr.clone())
-            .await
-            .log_warn(&format!("Failure to connect to {}", &addr))?;
-        debug!("Connected to [{}]", &addr);
-        let (read, write) = stream.into_split();
-        self.connection.read = Some(read);
-        self.connection.write = Some(write);
-        self.state = State::ConnectedTo;
-        Ok(self)
-    }
+		if let State::Connecting = self.state {
+			let addr = self.id.address.clone();
+			debug!("Connecting to [{}]", &addr);
+			let stream = TcpStream::connect(addr.clone())
+				.await
+				.log_warn(&format!("Failure to connect to {}", &addr))?;
+			debug!("Connected to [{}]", &addr);
+			let (read, write) = stream.into_split();
+			self.connection.read = Some(read);
+			self.connection.write = Some(write);
+			self.state = State::ConnectedTo;
+			Ok(self)
+		} else {
+			Err(Error::Handshake)
+		}
+	}
 }
 
 impl<T, K, E> Debug for Peer<T, K, E>
@@ -628,7 +649,7 @@ impl Display for State {
     }
 }
 
-/// Reads client hello
+/// Read client hello
 /// # Errors
 /// If reading encounters IO-error
 pub async fn read_client_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, Error> {
@@ -641,7 +662,7 @@ pub async fn read_client_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, 
     Ok(PublicKey(Vec::from(key)))
 }
 
-/// Sends client hello
+/// Send client hello
 /// # Errors
 /// If writing encounters IO-error
 pub async fn send_client_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::Result<()> {
@@ -651,7 +672,7 @@ pub async fn send_client_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::R
     Ok(())
 }
 
-/// Reads server hello
+/// Read server hello
 /// # Errors
 /// If reading encounters IO-error
 pub async fn read_server_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, Error> {
@@ -664,7 +685,7 @@ pub async fn read_server_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, 
     Ok(PublicKey(Vec::from(key)))
 }
 
-/// Sends server hello
+/// Send server hello
 /// # Errors
 /// If writing encounters IO-error
 async fn send_server_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::Result<()> {
