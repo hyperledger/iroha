@@ -221,7 +221,7 @@ where
                 tokio::select! {
                     readable = read.as_ref().readable() => {
                         if let Err(e) = readable {
-                            yield MessageResult::new_error(Error::Io(e));
+                            yield MessageResult::new_error(Error::Io(std::sync::Arc::new(e)));
                             break;
                         }
                         let result = match read_message(&mut read).await {
@@ -244,8 +244,7 @@ where
     }
 
     async fn handshake(&mut self) -> Result<&Self, Error> {
-        let state = self.state;
-        debug!(%state, id = %self.connection_id(), addr = %self.id.address, "Attempting handshake");
+        debug!(%self.state, id = %self.connection_id(), addr = %self.id.address, "Attempting handshake");
         match &self.state {
             State::Connecting => {
                 self.connect()
@@ -284,7 +283,7 @@ where
             }
             State::Ready => warn!("Not doing handshake, already ready."),
             State::Disconnected => warn!("Not doing handshake, we are disconnected."),
-            State::Error => debug!("Not doing handshake in error state."),
+            State::Error(_) => debug!("Not doing handshake in error state."),
         }
         Ok(self)
     }
@@ -356,7 +355,7 @@ where
             .encrypt(data)
             .log_warn("Error encrypting message")
             .map_err(|e| {
-                self.state = State::Error;
+                self.state = State::Error(e.clone());
                 e
             })?;
 
@@ -389,14 +388,15 @@ where
             .decrypt(data)
             .log_warn("Error decrypting message")
             .map_err(|e| {
-                self.state = State::Error;
+                self.state = State::Error(e.clone());
                 e
             })?;
 
         let pub_key = Decode::decode(&mut data.as_slice())
             .log_warn("Error decoding")
             .map_err(|e| {
-                self.state = State::Error;
+				let e = Error::from(e);
+                self.state = State::Error(e.clone());
                 e
             })?;
         self.id.public_key = pub_key;
@@ -504,7 +504,7 @@ where
             Ok(message) => message,
             Err(error) => {
                 // TODO implement some recovery
-                if self.state != State::Disconnected {
+                if let State::Disconnected = self.state {
                     warn!(%error, "[{}] Error in peer read!", &self.id.address);
                 }
                 let message = PeerMessage::<T>::Disconnected(self.id.clone(), self.connection.id);
@@ -519,7 +519,7 @@ where
                 Ok(data) => data,
                 Err(e) => {
                     warn!(%e, "Error decrypting message!");
-                    self.state = State::Error;
+                    self.state = State::Error(Error::from(e));
                     return;
                 }
             },
@@ -556,7 +556,7 @@ where
                 Ok(data) => data,
                 Err(e) => {
                     warn!(%e, "Error encrypting message!");
-                    self.state = State::Error;
+                    self.state = State::Error(Error::from(e));
                     return;
                 }
             },
@@ -566,8 +566,8 @@ where
         send_message(self.connection.write.as_mut().unwrap(), data.as_slice())
             .await
             .log_warn("Error sending message to peer")
-            .unwrap_or_else(|_| {
-                self.state = State::Error;
+            .unwrap_or_else(|e| {
+                self.state = State::Error(Error::from(e));
             });
     }
 }
@@ -601,7 +601,7 @@ where
 }
 
 /// Peer's state
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Debug)]
 pub enum State {
     /// This peer is trying to connect to other end
     Connecting,
@@ -618,7 +618,7 @@ pub enum State {
     /// Peer has been disconnected
     Disconnected,
     /// Something bad happened
-    Error,
+    Error(Error),
 }
 
 impl Display for State {
