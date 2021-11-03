@@ -41,15 +41,7 @@ RUN set -eux; \
     ./rustup-init -y --no-modify-path --profile minimal --default-toolchain $RUST_VERSION --default-host ${rustArch}; \
     rm rustup-init; \
     chmod -R a+w $RUSTUP_HOME $CARGO_HOME; \
-    rm -rf /var/lib/apt/lists/*; \
-
-RUN rustup component add llvm-tools-preview clippy && rustup install --profile default nightly-2021-10-22;\
-    cargo install cargo-lints grcov;
-
-RUN curl -fsSL https://get.docker.com -o get-docker.sh; \
-    chmod +x get-docker.sh; \
-    ./get-docker.sh; \
-    rm get-docker.sh
+    rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/rui314/mold.git; \
     git -C "./mold" checkout v0.9.6; \
@@ -57,10 +49,21 @@ RUN git clone https://github.com/rui314/mold.git; \
     make --directory="./mold" install; \
     rm -rf "./mold"
 
+RUN rustup component add llvm-tools-preview clippy; \
+    rustup install --profile default nightly-2021-10-22; \
+    cargo install cargo-lints grcov
+
+RUN curl -fsSL https://get.docker.com -o get-docker.sh; \
+    chmod +x get-docker.sh; \
+    ./get-docker.sh; \
+    rm get-docker.sh
+
+
 RUN curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose; \
 	chmod +x /usr/local/bin/docker-compose
 
 	# Refer to docker-compose.yml to see which ports should be exposed.
+
 EXPOSE 8080
 EXPOSE 8081
 EXPOSE 8082
