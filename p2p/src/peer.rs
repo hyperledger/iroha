@@ -248,16 +248,36 @@ where
         debug!(%state, id = %self.connection_id(), addr = %self.id.address, "Attempting handshake");
         match &self.state {
             State::Connecting => {
-                self.connect().await?;
+                self.connect()
+                    .await?
+                    .send_client_hello()
+                    .await?
+                    .send_our_public_key()
+                    .await?
+                    .read_their_public_key()
+                    .await?;
             }
             State::ConnectedTo => {
-                self.send_client_hello().await?;
+                self.send_client_hello()
+                    .await?
+                    .send_our_public_key()
+                    .await?
+                    .read_their_public_key()
+                    .await?;
             }
             State::ConnectedFrom => {
-                self.read_client_hello().await?;
+                self.read_client_hello()
+                    .await?
+                    .send_our_public_key()
+                    .await?
+                    .read_their_public_key()
+                    .await?;
             }
             State::SendKey => {
-                self.send_our_public_key().await?;
+                self.send_our_public_key()
+                    .await?
+                    .read_their_public_key()
+                    .await?;
             }
             State::GetKey => {
                 self.read_their_public_key().await?;
@@ -271,7 +291,7 @@ where
 
     /// Reads client public key from client hello,
     /// creates shared secret and sends our public key to client
-    async fn read_client_hello(&mut self) -> Result<&Self, Error> {
+    async fn read_client_hello(&mut self) -> Result<&mut Self, Error> {
         debug!("Reading client hello...");
         #[allow(clippy::expect_used)]
         let read_half = self
@@ -293,7 +313,7 @@ where
     }
 
     /// Sends client hello with our public key
-    async fn send_client_hello(&mut self) -> Result<&Self, Error> {
+    async fn send_client_hello(&mut self) -> Result<&mut Self, Error> {
         debug!("Sending client hello...");
         #[allow(clippy::expect_used)]
         let mut write_half = self
@@ -317,7 +337,7 @@ where
     }
 
     /// Sends our app public key
-    async fn send_our_public_key(&mut self) -> Result<&Self, Error> {
+    async fn send_our_public_key(&mut self) -> Result<&mut Self, Error> {
         debug!("Sending our public key...");
         #[allow(clippy::expect_used)]
         let write_half = self
@@ -386,24 +406,17 @@ where
 
     /// Creates a connection to other peer
     #[allow(clippy::expect_used)]
-    async fn connect(&mut self) -> Result<&Self, Error> {
+    async fn connect(&mut self) -> Result<&mut Self, Error> {
         let addr = self.id.address.clone();
         debug!("Connecting to [{}]", &addr);
-        let stream = TcpStream::connect(addr.clone()).await;
-        match stream {
-            Ok(stream) => {
-                debug!("Connected to [{}]", &addr);
-                let (read, write) = stream.into_split();
-                self.connection.read = Some(read);
-                self.connection.write = Some(write);
-                self.state = State::ConnectedTo;
-                Ok(self)
-            }
-            Err(error) => {
-                warn!(%error, "Could not connect to peer on {}!", addr);
-                Err(Error::Io(error))
-            }
-        }
+        let stream = TcpStream::connect(addr.clone()).await
+			.warn(&format!("Failure to connect to {}", &addr))?;
+		debug!("Connected to [{}]", &addr);
+		let (read, write) = stream.into_split();
+		self.connection.read = Some(read);
+		self.connection.write = Some(write);
+		self.state = State::ConnectedTo;
+		Ok(self)
     }
 }
 
@@ -451,22 +464,9 @@ where
             "[{}] Starting connection and handshake, id {}",
             &self.id.address, self.connection.id
         );
-        while self.state != State::Ready {
-            let e = match self.handshake().await {
-                Ok(_) => continue,
-                Err(e) => e,
-            };
-            warn!(
-                "[{}] Error connecting to peer in state {}. {:?}",
-                &self.id.address, &self.state, e
-            );
+        self.handshake().await.unwrap();
 
-            let message = PeerMessage::<T>::Disconnected(self.id.clone(), self.connection.id);
-            self.broker.issue_send(message).await;
-            return;
-        }
-
-        debug!("[{}] Handshake finished", &self.id.address);
+		debug!("[{}] Handshake finished", &self.id.address);
         let message = PeerMessage::<T>::Connected(self.id.clone(), self.connection.id);
         self.broker.issue_send(message).await;
 
