@@ -11,7 +11,7 @@ use iroha_crypto::ursa::{
     kex::KeyExchangeScheme,
     keys::{PrivateKey, PublicKey},
 };
-use iroha_logger::{debug, info, trace, warn, ErrorLogging};
+use iroha_logger::{debug, error, info, trace, warn, ErrorLogging};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
 use tokio::{
@@ -97,7 +97,7 @@ where
     fn default_or_err() -> Result<Self, Error> {
         // P2P encryption primitives
         let dh = K::new();
-        let (public_key, secret_key) = dh.keypair(None).warn("Error generating keypair")?;
+        let (public_key, secret_key) = dh.keypair(None).log_warn("Error generating keypair")?;
         Ok(Self {
             secret_key,
             public_key,
@@ -131,10 +131,10 @@ where
         let dh = K::new();
         let shared = dh
             .compute_shared_secret(&self.secret_key, public_key)
-            .warn("Error creating shared secret")?;
+            .log_warn("Error creating shared secret")?;
         debug!("Derived shared key: {:?}", &shared.0);
         let encryptor = Cryptographer::<T, K, E>::new_encryptor(shared.0.as_slice())
-            .warn("Error creating encryptor")?;
+            .log_warn("Error creating encryptor")?;
         self.cipher = Some(encryptor);
         Ok(self)
     }
@@ -354,7 +354,7 @@ where
         let data = &self
             .crypto
             .encrypt(data)
-            .warn("Error encrypting message")
+            .log_warn("Error encrypting message")
             .map_err(|e| {
                 self.state = State::Error;
                 e
@@ -387,14 +387,14 @@ where
         let data = self
             .crypto
             .decrypt(data)
-            .warn("Error decrypting message")
+            .log_warn("Error decrypting message")
             .map_err(|e| {
                 self.state = State::Error;
                 e
             })?;
 
         let pub_key = Decode::decode(&mut data.as_slice())
-            .warn("Error decoding")
+            .log_warn("Error decoding")
             .map_err(|e| {
                 self.state = State::Error;
                 e
@@ -409,14 +409,15 @@ where
     async fn connect(&mut self) -> Result<&mut Self, Error> {
         let addr = self.id.address.clone();
         debug!("Connecting to [{}]", &addr);
-        let stream = TcpStream::connect(addr.clone()).await
-			.warn(&format!("Failure to connect to {}", &addr))?;
-		debug!("Connected to [{}]", &addr);
-		let (read, write) = stream.into_split();
-		self.connection.read = Some(read);
-		self.connection.write = Some(write);
-		self.state = State::ConnectedTo;
-		Ok(self)
+        let stream = TcpStream::connect(addr.clone())
+            .await
+            .log_warn(&format!("Failure to connect to {}", &addr))?;
+        debug!("Connected to [{}]", &addr);
+        let (read, write) = stream.into_split();
+        self.connection.read = Some(read);
+        self.connection.write = Some(write);
+        self.state = State::ConnectedTo;
+        Ok(self)
     }
 }
 
@@ -464,20 +465,28 @@ where
             "[{}] Starting connection and handshake, id {}",
             &self.id.address, self.connection.id
         );
-        self.handshake().await.unwrap();
+        if let Err(_) = self.handshake().await.log_err("Handshake Failed") {
+            return;
+        }
+        if let State::Ready = self.state {
+            debug!("[{}] Handshake finished", &self.id.address);
+            let message = PeerMessage::<T>::Connected(self.id.clone(), self.connection.id);
+            self.broker.issue_send(message).await;
 
-		debug!("[{}] Handshake finished", &self.id.address);
-        let message = PeerMessage::<T>::Connected(self.id.clone(), self.connection.id);
-        self.broker.issue_send(message).await;
+            #[allow(clippy::unwrap_used)]
+            let read: OwnedReadHalf = self.connection.read.take().unwrap();
 
-        #[allow(clippy::unwrap_used)]
-        let read: OwnedReadHalf = self.connection.read.take().unwrap();
+            let (sender, receiver) = oneshot::channel();
+            self.connection.finish_sender = Some(sender);
 
-        let (sender, receiver) = oneshot::channel();
-        self.connection.finish_sender = Some(sender);
-
-        // Subscribe reading stream
-        ctx.notify_with(Self::stream(read, receiver));
+            // Subscribe reading stream
+            ctx.notify_with(Self::stream(read, receiver));
+        } else {
+            error!(
+                "Handshake didn't fail, but the peer is not ready: {}",
+                self.state
+            );
+        }
     }
 }
 
@@ -556,7 +565,7 @@ where
         #[allow(clippy::unwrap_used)]
         send_message(self.connection.write.as_mut().unwrap(), data.as_slice())
             .await
-            .warn("Error sending message to peer")
+            .log_warn("Error sending message to peer")
             .unwrap_or_else(|_| {
                 self.state = State::Error;
             });
