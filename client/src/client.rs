@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     convert::TryFrom,
-    fmt::{self, Debug, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     sync::mpsc,
     thread,
     time::Duration,
@@ -9,7 +9,11 @@ use std::{
 
 use eyre::{eyre, Result, WrapErr};
 use http_client::WebSocketStream;
-use iroha_core::{smartcontracts::Query, torii::GetConfiguration, wsv::World};
+use iroha_core::{
+    smartcontracts::Query,
+    torii::{uri, GetConfiguration},
+    wsv::World,
+};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_logger::log;
@@ -27,6 +31,8 @@ use crate::{
 pub struct Client {
     /// Url for accessing iroha node
     pub torii_url: String,
+    /// Url to report status for administration
+    pub status_url: String,
     /// Maximum number of instructions in blockchain
     pub max_instruction_number: u64,
     /// Accounts keypair
@@ -49,6 +55,7 @@ impl Client {
     pub fn new(configuration: &Configuration) -> Self {
         Self {
             torii_url: configuration.torii_api_url.clone(),
+            status_url: configuration.torii_status_url.clone(),
             max_instruction_number: configuration.max_instruction_number,
             key_pair: KeyPair {
                 public_key: configuration.public_key.clone(),
@@ -68,6 +75,7 @@ impl Client {
     pub fn with_headers(configuration: &Configuration, headers: HashMap<String, String>) -> Self {
         Self {
             torii_url: configuration.torii_api_url.clone(),
+            status_url: configuration.torii_status_url.clone(),
             max_instruction_number: configuration.max_instruction_number,
             key_pair: KeyPair {
                 public_key: configuration.public_key.clone(),
@@ -181,7 +189,7 @@ impl Client {
         let hash = transaction.hash();
         let transaction_bytes: Vec<u8> = transaction.encode_versioned()?;
         let response = http_client::post(
-            &format!("{}{}", self.torii_url, uri::TRANSACTION),
+            url(&self.torii_url, uri::TRANSACTION),
             transaction_bytes,
             Vec::<(String, String)>::new(),
             self.headers.clone(),
@@ -311,7 +319,7 @@ impl Client {
         let request = QueryRequest::new(request.into(), self.account_id.clone());
         let request: VersionedSignedQueryRequest = request.sign(self.key_pair.clone())?.into();
         let response = http_client::post(
-            &format!("{}{}", self.torii_url, uri::QUERY),
+            url(&self.torii_url, uri::QUERY),
             request.encode_versioned()?,
             pagination,
             self.headers.clone(),
@@ -351,7 +359,7 @@ impl Client {
     /// Fails if subscribing to websocket fails
     pub fn listen_for_events(&mut self, event_filter: EventFilter) -> Result<EventIterator> {
         EventIterator::new(
-            &format!("{}{}", self.torii_url, uri::SUBSCRIPTION),
+            &url(&self.torii_url, uri::SUBSCRIPTION),
             event_filter,
             self.headers.clone(),
         )
@@ -373,7 +381,7 @@ impl Client {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
             let response = http_client::get(
-                &format!("{}{}", self.torii_url, uri::PENDING_TRANSACTIONS),
+                url(&self.torii_url, uri::PENDING_TRANSACTIONS),
                 Vec::new(),
                 pagination.clone(),
                 self.headers.clone(),
@@ -431,7 +439,7 @@ impl Client {
         let get_cfg = serde_json::to_vec(get_config).wrap_err("Failed to serialize")?;
 
         let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
-            &format!("{}{}", self.torii_url, uri::CONFIGURATION),
+            url(&self.torii_url, uri::CONFIGURATION),
             get_cfg,
             vec![],
             headers,
@@ -462,6 +470,30 @@ impl Client {
         self.get_config(&GetConfiguration::Value)
             .wrap_err("Failed to get configuration value")
     }
+
+    /// Gets network status seen from the peer
+    /// # Errors
+    /// Fails if sending request or decoding fails
+    pub fn get_status(&self) -> Result<serde_json::Value> {
+        let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
+            url(&self.status_url, uri::STATUS),
+            Bytes::new(),
+            vec![],
+            self.headers.clone(),
+        )?;
+        if resp.status() != StatusCode::OK {
+            return Err(eyre!(
+                "Failed to get status with HTTP status: {}. {}",
+                resp.status(),
+                std::str::from_utf8(resp.body()).unwrap_or(""),
+            ));
+        }
+        serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
+    }
+}
+
+fn url<L: Display, R: Display>(lhs: L, rhs: R) -> String {
+    format!("{}/{}", lhs, rhs)
 }
 
 /// Iterator for getting events from the `WebSocket` stream.
@@ -552,6 +584,7 @@ impl Debug for Client {
         f.debug_struct("Client")
             .field("public_key", &self.key_pair.public_key)
             .field("torii_url", &self.torii_url)
+            .field("status_url", &self.status_url)
             .finish()
     }
 }
@@ -630,32 +663,6 @@ pub mod transaction {
     pub fn by_hash(hash: impl Into<EvaluatesTo<Hash>>) -> FindTransactionByHash {
         FindTransactionByHash::new(hash)
     }
-}
-
-/// URI that `Client` uses to route outgoing requests.
-//TODO: remove duplication with `iroha_core::torii::uri`.
-pub mod uri {
-    //! Module with uri constants
-
-    /// Query URI is used to handle incoming Query requests.
-    pub const QUERY: &str = "/query";
-    /// Instructions URI is used to handle incoming ISI requests.
-    pub const TRANSACTION: &str = "/transaction";
-    /// URI for configuration checking
-    pub const CONFIGURATION: &str = "/configuration";
-    /// Block URI is used to handle incoming Block requests.
-    pub const CONSENSUS: &str = "/consensus";
-    /// Health URI is used to handle incoming Healthcheck requests.
-    pub const HEALTH: &str = "/health";
-    /// Metrics URI is used to export metrics according to [Prometheus
-    /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
-    pub const METRICS: &str = "/metrics";
-    /// The URI used for block synchronization.
-    pub const BLOCK_SYNC: &str = "/block";
-    /// The web socket uri used to subscribe to pipeline and data events.
-    pub const SUBSCRIPTION: &str = "/events";
-    /// Get pending transactions.
-    pub const PENDING_TRANSACTIONS: &str = "/pending_transactions";
 }
 
 #[cfg(test)]

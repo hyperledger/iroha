@@ -29,7 +29,7 @@ use crate::{
         permissions::IsQueryAllowedBoxed,
     },
     wsv::WorldTrait,
-    Configuration,
+    Addr, Configuration, IrohaNetwork,
 };
 
 /// Main network handler and the only entrypoint of the Iroha.
@@ -39,6 +39,7 @@ pub struct Torii<W: WorldTrait> {
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     queue: Arc<Queue>,
+    network: Addr<IrohaNetwork>,
 }
 
 /// Torii errors.
@@ -71,6 +72,9 @@ pub enum Error {
     /// Failed to push into queue.
     #[error("Failed to push into queue")]
     PushIntoQueue(#[source] Box<queue::Error>),
+    /// Error while getting or setting configuration
+    #[error("Failed to get network status")]
+    Status(#[source] iroha_actor::Error),
 }
 
 impl Reply for Error {
@@ -92,6 +96,7 @@ impl Reply for Error {
                     queue::Error::SignatureCondition(_) => StatusCode::UNAUTHORIZED,
                     _ => StatusCode::BAD_REQUEST,
                 },
+                Status(_) => StatusCode::INTERNAL_SERVER_ERROR,
             }
         }
 
@@ -124,6 +129,7 @@ impl<W: WorldTrait> Torii<W> {
         queue: Arc<Queue>,
         query_validator: Arc<IsQueryAllowedBoxed<W>>,
         events: EventsSender,
+        network: Addr<IrohaNetwork>,
     ) -> Self {
         Self {
             iroha_cfg,
@@ -131,6 +137,7 @@ impl<W: WorldTrait> Torii<W> {
             events,
             query_validator,
             queue,
+            network,
         }
     }
 
@@ -140,12 +147,14 @@ impl<W: WorldTrait> Torii<W> {
         let queue = Arc::clone(&self.queue);
         let iroha_cfg = self.iroha_cfg.clone();
         let query_validator = Arc::clone(&self.query_validator);
+        let network = self.network.clone();
 
         Arc::new(InnerToriiState {
             iroha_cfg,
             wsv,
             queue,
             query_validator,
+            network,
         })
     }
 
@@ -219,6 +228,12 @@ impl<W: WorldTrait> Torii<W> {
             .with(warp::trace::request())
             .recover(Torii::<W>::recover_arg_parse);
 
+        tokio::spawn(async move {
+            start_status(Arc::clone(&state))
+                .await
+                .wrap_err("Failed to start status service")
+        });
+
         match self.iroha_cfg.torii.api_url.to_socket_addrs() {
             Ok(mut i) => {
                 #[allow(clippy::expect_used)]
@@ -234,11 +249,37 @@ impl<W: WorldTrait> Torii<W> {
     }
 }
 
+/// Start status endpoint.
+///
+/// # Errors
+/// Can fail due to listening to network or if http server fails
+async fn start_status<W: WorldTrait>(state: ToriiState<W>) -> eyre::Result<()> {
+    let get_router = endpoint1(
+        handle_status,
+        warp::path(uri::STATUS).and(add_state(Arc::clone(&state))),
+    );
+    let router = warp::get().and(get_router);
+
+    match state.iroha_cfg.torii.status_url.to_socket_addrs() {
+        Ok(mut i) => {
+            #[allow(clippy::expect_used)]
+            let addr = i.next().expect("Failed to get socket addr");
+            warp::serve(router).run(addr).await;
+            Ok(())
+        }
+        Err(e) => {
+            iroha_logger::error!("Failed to get socket addr");
+            Err(eyre::Error::new(e))
+        }
+    }
+}
+
 struct InnerToriiState<W: WorldTrait> {
     iroha_cfg: Configuration,
     wsv: Arc<WorldStateView<W>>,
     queue: Arc<Queue>,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
+    network: Addr<IrohaNetwork>,
 }
 
 type ToriiState<W> = Arc<InnerToriiState<W>>;
@@ -364,6 +405,30 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::R
     Ok(())
 }
 
+/// Response body for get status request
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+pub struct Status {
+    /// Number of connected peers, except for the reporting peer itself
+    pub peers: u64,
+    /// Number of committed blocks
+    pub blocks: u64,
+}
+
+async fn handle_status<W: WorldTrait>(state: ToriiState<W>) -> Result<Json> {
+    let peers = state
+        .network
+        .send(iroha_p2p::network::GetConnectedPeers)
+        .await
+        .map_err(Error::Status)?
+        .peers
+        .len() as u64;
+    let status = Status {
+        peers,
+        blocks: state.wsv.height(),
+    };
+    Ok(reply::json(&status))
+}
+
 /// URI that `Torii` uses to route incoming requests.
 pub mod uri {
     /// Query URI is used to handle incoming Query requests.
@@ -382,6 +447,11 @@ pub mod uri {
     pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
     /// The URI for local config changing inspecting
     pub const CONFIGURATION: &str = "configuration";
+    /// URI to report status for administration
+    pub const STATUS: &str = "status";
+    // TODO /// Metrics URI is used to export metrics according to [Prometheus
+    // /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
+    // pub const METRICS: &str = "/metrics";
 }
 
 /// This module contains all configuration related logic.
@@ -391,13 +461,15 @@ pub mod config {
 
     /// Default socket for p2p communication
     pub const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
-    /// Default socket for listening on external requests.
+    /// Default socket for listening on external requests
     pub const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
-    /// Default maximum size of single transaction.
+    /// Default socket for reporting internal metrics
+    pub const DEFAULT_TORII_STATUS_URL: &str = "127.0.0.1:8180";
+    /// Default maximum size of single transaction
     pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
     /// Default maximum instruction number
     pub const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
-    /// Default maxiumum size of [`Sumeragi`] message size.
+    /// Default maximum size of [`Sumeragi`] message size
     pub const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
@@ -410,6 +482,8 @@ pub mod config {
         pub p2p_addr: String,
         /// Torii URL for client API.
         pub api_url: String,
+        /// Torii URL for reporting status for administration.
+        pub status_url: String,
         /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
         pub max_transaction_size: usize,
         /// Maximum number of bytes in raw message. Used to prevent from DOS attacks.
@@ -421,8 +495,9 @@ pub mod config {
     impl Default for ToriiConfiguration {
         fn default() -> Self {
             Self {
-                api_url: DEFAULT_TORII_API_URL.to_owned(),
                 p2p_addr: DEFAULT_TORII_P2P_ADDR.to_owned(),
+                api_url: DEFAULT_TORII_API_URL.to_owned(),
+                status_url: DEFAULT_TORII_STATUS_URL.to_owned(),
                 max_transaction_size: DEFAULT_TORII_MAX_TRANSACTION_SIZE,
                 max_sumeragi_message_size: DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE,
                 max_instruction_number: DEFAULT_TORII_MAX_INSTRUCTION_NUMBER,
@@ -438,6 +513,7 @@ mod tests {
     use std::{convert::TryInto, time::Duration};
 
     use futures::future::FutureExt;
+    use iroha_actor::{broker::Broker, Actor};
     use tokio::time;
 
     use super::*;
@@ -448,7 +524,7 @@ mod tests {
         wsv::World,
     };
 
-    fn create_torii() -> (Torii<World>, KeyPair) {
+    async fn create_torii() -> (Torii<World>, KeyPair) {
         let config = get_config(get_trusted_peers(None), None);
         let (events, _) = tokio::sync::broadcast::channel(100);
         let wsv = Arc::new(WorldStateView::new(World::with(
@@ -469,16 +545,33 @@ mod tests {
             ),
         );
         let queue = Arc::new(Queue::from_configuration(&config.queue));
+        let network = IrohaNetwork::new(
+            Broker::new(),
+            config.torii.p2p_addr.clone(),
+            config.public_key.clone(),
+            config.network.mailbox,
+        )
+        .await
+        .expect("Failed to create network")
+        .start()
+        .await;
 
         (
-            Torii::from_configuration(config, wsv, queue, Arc::new(AllowAll.into()), events),
+            Torii::from_configuration(
+                config,
+                wsv,
+                queue,
+                Arc::new(AllowAll.into()),
+                events,
+                network,
+            ),
             keys,
         )
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn create_and_start_torii() {
-        let (torii, _) = create_torii();
+        let (torii, _) = create_torii().await;
 
         let result = time::timeout(Duration::from_millis(50), torii.start()).await;
 
@@ -487,7 +580,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn torii_pagination() {
-        let (torii, keys) = create_torii();
+        let (torii, keys) = create_torii().await;
         let state = torii.create_state();
 
         let get_domains = |start, limit| {
@@ -589,7 +682,7 @@ mod tests {
 
             use crate::smartcontracts::Execute;
 
-            let (mut torii, keys) = create_torii();
+            let (mut torii, keys) = create_torii().await;
             if self.deny_all {
                 torii.query_validator = Arc::new(DenyAll.into());
             }
@@ -890,5 +983,51 @@ mod tests {
             .status(StatusCode::NOT_FOUND)
             .assert()
             .await
+    }
+
+    // FIXME ? move to client integration tests
+    #[tokio::test]
+    async fn status_committed_block() {
+        use iroha_crypto::HashOf;
+
+        use crate::sumeragi::view_change;
+
+        const BLOCKS: u64 = 20;
+
+        let (torii, keys) = create_torii().await;
+        let state = torii.create_state();
+
+        let get_router = endpoint1(
+            handle_status,
+            warp::path(uri::STATUS).and(add_state(Arc::clone(&state))),
+        );
+        let router = warp::get().and(get_router);
+
+        // Modify number of committed blocks
+        let mut hash = HashOf::new(&()).transmute::<VersionedCommittedBlock>();
+        for height in 0..BLOCKS {
+            let block = PendingBlock::new(Vec::new());
+            let block = match height {
+                0 => block.chain_first(),
+                _ => block.chain(height, hash, view_change::ProofChain::empty(), Vec::new()),
+            };
+            let block = block
+                .validate(&state.wsv, &AllowAll.into(), &AllowAll.into())
+                .sign(keys.clone())
+                .expect("Failed to sign blocks")
+                .commit();
+            hash = block.hash();
+            state.wsv.apply(block).await;
+        }
+
+        // GET Request
+        let response = warp::test::request()
+            .method("GET")
+            .path("/status")
+            .reply(&router)
+            .await;
+        let response_body: Status = serde_json::from_slice(response.body()).unwrap();
+
+        assert_eq!(response_body.blocks, BLOCKS);
     }
 }
