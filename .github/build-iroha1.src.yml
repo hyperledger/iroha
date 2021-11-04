@@ -958,7 +958,7 @@ jobs:
         with:
           <<: *step_docker_build_and_push_with
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && matrix.buildspec == 'gcc-9' }}
+          push: ${{ steps.docker_login.outcome == 'success' }}
       - <<: *step_docker_build_and_push_ghcr
         with:
           <<: *step_docker_build_and_push_ghcr-with
