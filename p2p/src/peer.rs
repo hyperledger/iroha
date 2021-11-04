@@ -486,7 +486,7 @@ where
             "[{}] Starting connection and handshake, id {}",
             &self.id.address, self.connection.id
         );
-        if let Err(_) = self.handshake().await.log_err("Handshake Failed") {
+        if self.handshake().await.log_err("Handshake Failed").is_err() {
             return;
         }
         if let State::Ready = self.state {
@@ -588,7 +588,7 @@ where
             .await
             .log_warn("Error sending message to peer")
             .unwrap_or_else(|e| {
-                self.state = State::Error(Error::from(e));
+                self.state = State::Error(e);
             });
     }
 }
