@@ -64,12 +64,4 @@ RUN curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-c
 
 	# Refer to docker-compose.yml to see which ports should be exposed.
 
-EXPOSE 8080
-EXPOSE 8081
-EXPOSE 8082
-EXPOSE 8083
-EXPOSE 1337
-EXPOSE 1338
-EXPOSE 1339
-EXPOSE 1340
 
