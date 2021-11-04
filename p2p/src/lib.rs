@@ -27,7 +27,7 @@ pub enum Error {
     Io(#[source] std::sync::Arc<io::Error>),
     /// Failed to read or write
     #[error("Failed handshake")]
-    Handshake,
+    Handshake(u32),
     /// Failed to read or write
     #[error("Failed reading message")]
     Format,

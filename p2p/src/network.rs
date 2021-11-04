@@ -194,7 +194,7 @@ where
             &self.listen_addr, &id
         );
         id.public_key = self.public_key.clone();
-        let peer = match Peer::new_to(id, self.broker.clone()) {
+        let peer = match Peer::new_to(id, self.broker.clone()).await {
             Ok(peer) => peer,
             Err(e) => {
                 warn!(%e, "Unable to create peer");
@@ -202,9 +202,12 @@ where
             }
         };
 
-        let connection_id = peer.connection_id();
+        #[allow(clippy::expect_used)]
+        let connection_id = peer
+            .connection_id()
+            .expect("has connection by construction.");
         let peer = peer.start().await;
-        debug!("Inserting {} into new_peers", connection_id);
+        debug!(peer = ?peer, connection_id = ?connection_id, "Inserting into new_peers");
         self.new_peers.insert(connection_id, peer.clone());
         peer.do_send(Start).await;
     }
@@ -255,13 +258,13 @@ where
                 let addr: &str = &self.listen_addr;
                 info!(
                     addr,
-                    "Connected new peer, peers: {}, new: {}",
-                    count,
-                    self.new_peers.len(),
+                    peers = count,
+                    new = self.new_peers.len(),
+                    "Connected new peer."
                 );
             }
             Disconnected(id, connection_id) => {
-                info!(?id, "Peer disconnected: {}", connection_id);
+                info!(?id, connection_id, "Peer disconnected.");
                 let connections = self.peers.entry(id.public_key).or_default();
                 connections.retain(|connection| connection.1 != connection_id);
                 // If this connection didn't have the luck to connect
@@ -354,15 +357,16 @@ where
                 return;
             }
         };
-        match Peer::new_from(id.clone(), stream, self.broker.clone()) {
-            Ok(peer) => {
-                let connection_id = peer.connection_id();
-                let peer = peer.start().await;
-                self.new_peers.insert(connection_id, peer.clone());
-                peer.do_send(Start).await;
-            }
-            Err(e) => warn!(%e, "Unable to create peer"),
-        }
+        let peer = Peer::ConnectedFrom(
+            id.clone(),
+            self.broker.clone(),
+            crate::peer::Connection::from(stream),
+        );
+        #[allow(clippy::expect_used)]
+        let connection_id = peer.connection_id().expect("Succeeds by construction");
+        let peer = peer.start().await;
+        self.new_peers.insert(connection_id, peer.clone());
+        peer.do_send(Start).await;
     }
 }
 
