@@ -574,7 +574,7 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
-        fetch-depth: 0 ## full history
+          fetch-depth: 0 ## full history
       - name: export CC and CXX
         env:
           CCACHE_PATH: /usr/lib/ccache
@@ -886,7 +886,7 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
-        fetch-depth: 0 ## full history
+          fetch-depth: 0 ## full history
       - name: export CC and CXX
         env:
           CCACHE_PATH: /usr/lib/ccache
@@ -1199,7 +1199,7 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
-        fetch-depth: 0 ## full history
+          fetch-depth: 0 ## full history
       - name: export CC and CXX
         run: |
           set -xeu   #o pipefail
@@ -1465,7 +1465,7 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
-        fetch-depth: 0 ## full history
+          fetch-depth: 0 ## full history
       - name: move to workdir
         run: |
           set -x

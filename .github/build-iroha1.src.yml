@@ -518,7 +518,9 @@ jobs:
       - *step_detect_commented_pr
       - &step_checkout_full
         <<: *step_checkout
-        fetch-depth: 0  ## full history
+        with:
+          <<: *step_checkout_with
+          fetch-depth: 0  ## full history
       - &step_export_cxx
         name: export CC and CXX
         env: &step_export_cxx_env
