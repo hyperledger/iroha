@@ -1685,7 +1685,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && matrix.buildspec == 'gcc-9' }}
+          push: ${{ steps.docker_login.outcome == 'success' }}
       - uses: docker/build-push-action@v2
         id: build_and_push_ghcr
         name: Build and push to GHCR
@@ -1879,7 +1879,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           context: docker/release/
-          push: ${{ steps.docker_login.outcome == 'success' && matrix.buildspec == 'gcc-9' }}
+          push: ${{ steps.docker_login.outcome == 'success' }}
       - uses: docker/build-push-action@v2
         id: build_and_push_ghcr
         name: Build and push to GHCR
