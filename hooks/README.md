@@ -1,6 +1,6 @@
 # Iroha hooks
 
-For easy development you can copy those hooks after you clone repo. This way you won't forget to generate docs if anything is changed:
+For easier development you can link git hooks after you clone the repo. This way you won't forget to generate docs if anything is changed:
 ```sh
-$ cp hooks/pre-commit.sample .git/hooks/pre-commit
+$ ln -s ../../hooks/pre-commit .git/hooks/pre-commit
 ```
