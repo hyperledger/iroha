@@ -10,7 +10,7 @@ The following is a short set of guidelines for contributing to Iroha.
 
 * Find ZenHub
 * Write Tests
-* `cargo test && cargo fmt --all && cargo lints clippy --all --tests --benches`
+* `cargo test && cargo fmt --all && cargo lints clippy --workspace --tests --benches`
 * `git pull -r hyperledger iroha2-dev`, `git commit -s`, `git push <your-fork>`, and create a pull request on Github
 
 ### Reporting Bugs
@@ -70,7 +70,7 @@ maintainers team, community or simply assign this issue to yourself.
 -  Make PRs from a fork of the repository. Do not create new branches in the core repository.
 -  Only one commit per PR is allowed in general.
 -  Fill in [the required template](https://github.com/hyperledger/iroha/blob/master/.github/PULL_REQUEST_TEMPLATE.md)
--  **Write tests** for new code. 
+-  **Write tests** for new code.
 -  Every pull request should be reviewed and **get at least two approvals from maintainers team**. Check who is a current maintainer in
    [MAINTAINERS.md](MAINTAINERS.md) file
 -  When you've finished work make sure that you've got all passing CI
@@ -115,7 +115,7 @@ You can better interpret logs using the following tools:
 
 - Use `cargo fmt --all`
 - Prefer using `mod.rs` inside the module directory to the `.rs` file named the same as the module in the top level directory.
-- Use domain-first modules structure. For example `domain::isi::*`. Such a way 
+- Use domain-first modules structure. For example `domain::isi::*`. Such a way
 complex uses will be easier to incude in dependent modules.
 - Do not use whitespaces or empty lines inside function bodies.
 - Put public methods first in your impl blocks.
