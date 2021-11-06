@@ -106,6 +106,8 @@ namespace iroha {
 
       bool isEmptyBatchesCache() const override;
 
+      bool hasEnoughBatchesInCache() const override;
+
       void forCachedBatches(
           std::function<void(const BatchesSetType &)> const &f) const override;
 

@@ -75,6 +75,10 @@ bool OnDemandOrderingServiceImpl::isEmptyBatchesCache() const {
   return batches_cache_.isEmpty();
 }
 
+bool OnDemandOrderingServiceImpl::hasEnoughBatchesInCache() const {
+  return batches_cache_.availableTxsCount() >= transaction_limit_;
+}
+
 void OnDemandOrderingServiceImpl::forCachedBatches(
     std::function<void(const BatchesSetType &)> const &f) const {
   batches_cache_.forCachedBatches(f);
