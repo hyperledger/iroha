@@ -71,7 +71,6 @@ jobs:
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-20.04 #ubuntu-latest
-    #container: ubuntu:latest  ## This is required as barrier between AWS-hosted runners and GitHub-hosted runners - they have different set of software, so run in container
     name: Check if github workflows were properly made from sources
     steps:
       - name: REF and SHA of commented PR to ENV
@@ -237,13 +236,6 @@ jobs:
       matrix_windows: ${{steps.matrixes.outputs.matrix_windows}}
       matrix_dockerimage_release: ${{steps.matrixes.outputs.matrix_dockerimage_release}}
       matrix_dockerimage_debug: ${{steps.matrixes.outputs.matrix_dockerimage_debug}}
-      buildspec_ubuntu: ${{steps.matrixes.outputs.buildspec_ubuntu}}
-      buildspec_ubuntu_debug: ${{steps.matrixes.outputs.buildspec_ubuntu_release}}
-      buildspec_ubuntu_release: ${{steps.matrixes.outputs.buildspec_ubuntu_debug}}
-      buildspec_macos: ${{steps.matrixes.outputs.buildspec_macos}}
-      buildspec_windows: ${{steps.matrixes.outputs.buildspec_windows}}
-      buildspec_dockerimage_release: ${{steps.matrixes.outputs.buildspec_dockerimage_release}}
-      buildspec_dockerimage_debug: ${{steps.matrixes.outputs.buildspec_dockerimage_debug}}
   ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
   ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
   ## and conditional tags :edge for development branch, and :latest for git-tags.
