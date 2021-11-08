@@ -208,7 +208,14 @@ getCommonObjectsFactory() {
 }
 
 int main(int argc, char *argv[]) {
-  gflags::SetVersionString(iroha::kGitPrettyVersion);
+  auto version = std::string(iroha::kGitPrettyVersion);
+#if defined(USE_BURROW)
+  version += " burrow";
+#endif
+#if defined(USE_LIBURSA)
+  version += " ursa";
+#endif
+  gflags::SetVersionString(version);
 
   // Parsing command line arguments
   gflags::ParseCommandLineFlags(&argc, &argv, true);
