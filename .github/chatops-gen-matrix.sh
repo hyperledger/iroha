@@ -100,6 +100,7 @@ handle_user_line(){
          \#*)
             break  ## stop parsing buildspec
             ;;
+         ## END BUILDSPEC ARGUMENTS
          *)
             echoerr "Unknown /build argument $(printf %q "$1")"
             return 1
@@ -160,7 +161,7 @@ rm -f $ignored
 
 
 test -n "${MATRIX:-}" ||
-   { echoerr "MATRIX is empty!"; false; }
+   { echoerr "MATRIX is empty!"; --help-buildspec >&2; exit 1; }
 
 to_json(){
    # echo "{

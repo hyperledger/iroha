@@ -32,7 +32,7 @@ name: Iroha1
 ## check if PR is from other repo: ${{ github.event.pull_request.head.repo == github.event.pull_request.base.repo }} in this case secrets are empty
 ## ternary: ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
 ##
-## https://github.community/t/triggering-a-new-workflow-from-another-workflow/16250/34
+## [chatops] https://github.community/t/triggering-a-new-workflow-from-another-workflow/16250/34
 
 ## PITFAILS
 ##  * checkout issue on self-hosted runner with Docker, see https://github.com/actions/runner/issues/434
@@ -81,10 +81,7 @@ jobs:
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}}
-
-            -H "Authorization: token ${{github.token}}" |
-          jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
@@ -259,7 +256,7 @@ jobs:
           echo "::set-output name=matrix_dockerimage_release::$(cat matrix_dockerimage_release)"
           echo "::set-output name=matrix_dockerimage_debug::$(cat matrix_dockerimage_debug)"
           $result
-      - name: Reaction confused
+      - name: Reaction 'confused'
         if: github.event.comment && steps.matrixes.outcome == 'failure'
         run: |
           ## send reaction to comment to show build was confused
@@ -268,7 +265,7 @@ jobs:
             -d '{"content":"confused"}' \
             -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
             -H "Authorization: token ${{github.token}}"
-      - name: Reaction rocket and link to the current workflow Run
+      - name: Reaction 'rocket' and link to the current workflow Run
         if: github.event.comment && steps.matrixes.outcome == 'success'
         run: |
           ## send reaction to comment to show build was triggered
@@ -284,7 +281,7 @@ jobs:
           new_comment_body+=$'\n'"Triggered workflow run ${{github.event.repository.html_url}}/actions/runs/${{github.run_id}}"
           new_comment_body+=$'\n\n'"**Will build:**  "
           test -s will-build && new_comment_body+=$'\n'"$(cat will-build)" || new_comment_body+=NOTHING
-          test -s errors && new_comment_body+=$'\n\n'"**Errors:**"$'\n'"$(cat errors)" || true
+          test -s errors && new_comment_body+=$'\n\n'"**Errors,Warnings:**"$'\n'"$(cat errors)" || true
           new_comment_body+=$'\n\n'"TODO **Status:** report status here"
           new_comment_body="$(echo "$new_comment_body" | jq -Rs . )"
           echo "{\"body\":$new_comment_body}" | jq || echo new_comment_body="$new_comment_body"
@@ -349,10 +346,7 @@ jobs:
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}}
-
-            -H "Authorization: token ${{github.token}}" |
-          jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
@@ -401,7 +395,8 @@ jobs:
           images: ${{ env.DOCKERHUB_ORG }}/iroha-builder
           tags: |
             type=raw,value=${{env.dockertag}}
-            type=ref,event=branch
+            ${{ fromJSON('["type=ref,event=branch",""]')[github.event_name == 'issue_comment'] }}
+            ${{ fromJSON(format('["","type=raw,value=pr-{0}"]',env.PR_NUM))[github.event_name == 'issue_comment'] }}
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
@@ -414,6 +409,7 @@ jobs:
         ##  - hash of file Dockerfile.builder
         ##  - branchname, when branch is pushed
         ##  - pr-NUMBER, when pushed to PR
+        ##  - pr-NUMBER, when commented to PR as handled by chat-ops
         ##  - git tag when tag is pushed
         ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
         ##  - tag 'edge' when branch support/1.2.x is pushed
@@ -424,7 +420,8 @@ jobs:
         with:
           tags: |
             type=raw,value=${{env.dockertag}}
-            type=ref,event=branch
+            ${{ fromJSON('["type=ref,event=branch",""]')[github.event_name == 'issue_comment'] }}
+            ${{ fromJSON(format('["","type=raw,value=pr-{0}"]',env.PR_NUM))[github.event_name == 'issue_comment'] }}
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
@@ -622,10 +619,7 @@ jobs:
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}}
-
-            -H "Authorization: token ${{github.token}}" |
-          jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
@@ -937,10 +931,7 @@ jobs:
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}}
-
-            -H "Authorization: token ${{github.token}}" |
-          jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
@@ -1259,10 +1250,7 @@ jobs:
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}}
-
-            -H "Authorization: token ${{github.token}}" |
-          jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
@@ -1651,10 +1639,7 @@ jobs:
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}}
-
-            -H "Authorization: token ${{github.token}}" |
-          jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
@@ -1706,7 +1691,8 @@ jobs:
         with:
           tags: |
             type=raw,value=${{env.dockertag}}
-            type=ref,event=branch
+            ${{ fromJSON('["type=ref,event=branch",""]')[github.event_name == 'issue_comment'] }}
+            ${{ fromJSON(format('["","type=raw,value=pr-{0}"]',env.PR_NUM))[github.event_name == 'issue_comment'] }}
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
@@ -1726,7 +1712,8 @@ jobs:
         with:
           tags: |
             type=raw,value=${{env.dockertag}}
-            type=ref,event=branch
+            ${{ fromJSON('["type=ref,event=branch",""]')[github.event_name == 'issue_comment'] }}
+            ${{ fromJSON(format('["","type=raw,value=pr-{0}"]',env.PR_NUM))[github.event_name == 'issue_comment'] }}
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
@@ -1845,10 +1832,7 @@ jobs:
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}}
-
-            -H "Authorization: token ${{github.token}}" |
-          jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
@@ -1900,7 +1884,8 @@ jobs:
         with:
           tags: |
             type=raw,value=${{env.dockertag}}
-            type=ref,event=branch
+            ${{ fromJSON('["type=ref,event=branch",""]')[github.event_name == 'issue_comment'] }}
+            ${{ fromJSON(format('["","type=raw,value=pr-{0}"]',env.PR_NUM))[github.event_name == 'issue_comment'] }}
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
@@ -1920,7 +1905,8 @@ jobs:
         with:
           tags: |
             type=raw,value=${{env.dockertag}}
-            type=ref,event=branch
+            ${{ fromJSON('["type=ref,event=branch",""]')[github.event_name == 'issue_comment'] }}
+            ${{ fromJSON(format('["","type=raw,value=pr-{0}"]',env.PR_NUM))[github.event_name == 'issue_comment'] }}
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
