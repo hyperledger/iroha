@@ -8,155 +8,155 @@ version: 2
 #       echo '  - package-ecosystem: "cargo"'
 #       echo '    schedule:
 #       echo '      interval: "daily"'
-#       echo '    target_branch: "iroha2-dev"'
+#       echo '    target-branch: "iroha2-dev"'
 #       echo "    directory: \"$crate\""
 #     done
-update_configs:
+updates:
   # Maintain docker dependencies
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
 
   # Maintain cargo dependencies
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "actor"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "actor/derive"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "cli"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "client"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "client_cli"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "config"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "config/derive"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "core"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "core/docs"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "core/test_network"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "crypto"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "crypto_cli"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "data_model"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "dsl"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "futures"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "futures/derive"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "logger"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "macro"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "macro/derive"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "p2p"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "permissions_validators"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "schema"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "schema/bin"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "schema/derive"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "substrate"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "telemetry"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "version"
   - package-ecosystem: "cargo"
     schedule:
       interval: "daily"
-    target_branch: "iroha2-dev"
+    target-branch: "iroha2-dev"
     directory: "version/derive"
