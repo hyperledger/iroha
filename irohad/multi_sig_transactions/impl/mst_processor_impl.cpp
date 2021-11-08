@@ -105,35 +105,22 @@ namespace iroha {
                 })
                 .flat_map(sendState(log_, transport_, storage_, time_provider_))
                 .subscribe(onSendStateResponse(storage_))),
-        expiration_thread_([this]() {
-          while (1) {
-            using namespace std::chrono;
-            using namespace std::chrono_literals;
-            std::unique_lock lk(expiration_thread_work_mutex_);
+        expirator_thread_([this]() {
+          using namespace std::chrono_literals;
+          do {
             assert(storage_);
             assert(time_provider_);
             expiredBatchesNotify(storage_->extractExpiredTransactions(
                 time_provider_->getCurrentTime()));
             notifyMstMetrics(*storage_);
-            if (cv_expiration_thread_stop_.wait_for(lk, 10s)
-                == std::cv_status::no_timeout) {
-              /// cv was notified, so stop the thread
-              break;
-            }
-          }
-          expiration_thread_done_.store(true);
+          } while (not expiration_thread_stopper_waiter_.wait(10s));
         }) {}
 
   FairMstProcessor::~FairMstProcessor() {
     propagation_subscriber_.unsubscribe();
-    using namespace std::chrono_literals;
-    while(not expiration_thread_done_.load()){
-      std::unique_lock lk(expiration_thread_work_mutex_);
-      lk.unlock();
-      cv_expiration_thread_stop_.notify_all();
-    }
-    if(expiration_thread_.joinable())
-      expiration_thread_.join();
+    expiration_thread_stopper_waiter_.set();  // notify thread to stop working
+    if (expirator_thread_.joinable())
+      expirator_thread_.join();
   }
 
   // -------------------------| MstProcessor override |-------------------------
