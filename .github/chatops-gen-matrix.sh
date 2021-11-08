@@ -100,7 +100,6 @@ handle_user_line(){
          \#*)
             break  ## stop parsing buildspec
             ;;
-         ## END BUILDSPEC ARGUMENTS
          *)
             echoerr "Unknown /build argument $(printf %q "$1")"
             return 1

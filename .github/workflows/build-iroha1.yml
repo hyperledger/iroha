@@ -109,9 +109,7 @@ jobs:
   ## Just to react to valid comment with rocket
   pr_comment_reaction_rocket:
     runs-on: ubuntu-20.04 #ubuntu-latest
-    if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') )
-    # needs: check_workflow_yaml_coressponds_to_src_yaml
-    # continue-on-error: true  ## Because Chat-ops reacts only on PRs with base branches 'main|support/1.*|develop|edge'
+    if: github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build')
     steps:
       - name: Show context
         run: |
@@ -167,10 +165,7 @@ jobs:
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment && github.event.issue.pull_request
         run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}}
-
-            -H "Authorization: token ${{github.token}}" |
-          jq -r '
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
 
             "PR_REF="+.head.ref,
             "PR_SHA="+.head.sha,
@@ -277,14 +272,41 @@ jobs:
       - name: Edit comment adding link to workflow run and matrix generation report
         if: github.event.comment
         run: |
-          new_comment_body="${{github.event.comment.body}}  "$'\n'
-          new_comment_body+=$'\n'"Triggered workflow run ${{github.event.repository.html_url}}/actions/runs/${{github.run_id}}"
-          new_comment_body+=$'\n\n'"**Will build:**  "
-          test -s will-build && new_comment_body+=$'\n'"$(cat will-build)" || new_comment_body+=NOTHING
-          test -s errors && new_comment_body+=$'\n\n'"**Errors,Warnings:**"$'\n'"$(cat errors)" || true
-          new_comment_body+=$'\n\n'"TODO **Status:** report status here"
-          new_comment_body="$(echo "$new_comment_body" | jq -Rs . )"
-          echo "{\"body\":$new_comment_body}" | jq || echo new_comment_body="$new_comment_body"
+          set -x
+          cat >message <<END
+            ${{github.event.comment.body}}
+
+            ---
+            Triggered workflow run ${{github.event.repository.html_url}}/actions/runs/${{github.run_id}}
+
+            **Will build:**
+          END
+          if test -s will-build ;then
+            cat >>message will-build
+          else
+            echo >>message NOTHING
+          fi
+
+          if test -s errors
+          then cat >>message <<'END'
+
+            **Errors,Warnings:**
+
+            ```
+          END
+            cat >>message errors
+          cat >>message <<'END'
+            ```
+
+            ---
+            TODO **Status:**
+            report status here
+          END
+          fi
+          cat message | jq -Rs .
+          new_comment_body="$( cat message | jq -Rs . )"
+          echo "{\"body\":$new_comment_body}" | jq \
+            || echo new_comment_body="$new_comment_body"
           curl -fsSL ${{github.event.comment.url}} \
             -X PATCH \
             -d "{\"body\":$new_comment_body}" \
