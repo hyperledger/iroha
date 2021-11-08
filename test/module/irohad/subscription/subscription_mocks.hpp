@@ -7,6 +7,7 @@
 #define IROHA_SUBSCRIPTION_MOCKS_HPP
 
 #include <gmock/gmock.h>
+#include <functional>
 #include "main/subscription.hpp"
 
 namespace iroha::subscription {
@@ -51,6 +52,15 @@ namespace iroha::subscription {
     template <typename F>
     void addDelayed(Tid, std::chrono::microseconds, F &&f) {
       std::forward<F>(f)();
+    }
+
+    template <typename F>
+    void repeat(Tid,
+                std::chrono::microseconds timeout,
+                std::chrono::microseconds,
+                F &&f,
+                std::function<bool()> &&p) {
+      while (!p || p()) std::forward<F>(f)();
     }
   };
 

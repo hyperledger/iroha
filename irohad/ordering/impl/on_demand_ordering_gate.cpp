@@ -143,16 +143,20 @@ std::shared_ptr<const shared_model::interface::Proposal>
 OnDemandOrderingGate::removeReplaysAndDuplicates(
     std::shared_ptr<const shared_model::interface::Proposal> proposal) const {
   std::vector<bool> proposal_txs_validation_results;
-  auto tx_is_not_processed = [this](const auto &tx) {
+  auto dup_hashes = std::make_shared<OnDemandOrderingService::HashesSetType>();
+
+  auto tx_is_not_processed = [this, &dup_hashes](const auto &tx) {
     auto tx_result = tx_cache_->check(tx.hash());
     if (not tx_result) {
       // TODO andrei 30.11.18 IR-51 Handle database error
       return false;
     }
     auto is_processed = ametsuchi::isAlreadyProcessed(*tx_result);
-    if (is_processed)
+    if (is_processed) {
+      dup_hashes->insert(tx.hash());
       log_->warn("Duplicate transaction: {}",
                  iroha::ametsuchi::getHash(*tx_result).hex());
+    }
     return !is_processed;
   };
 
@@ -184,6 +188,10 @@ OnDemandOrderingGate::removeReplaysAndDuplicates(
 
   if (not has_invalid_txs) {
     return proposal;
+  }
+
+  if (!dup_hashes->empty()) {
+    ordering_service_->onDuplicates(*dup_hashes);
   }
 
   auto unprocessed_txs =

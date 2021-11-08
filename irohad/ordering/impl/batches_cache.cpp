@@ -5,6 +5,9 @@
 
 #include "ordering/impl/batches_cache.hpp"
 
+#include <fmt/core.h>
+#include <iostream>
+
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
 
@@ -36,6 +39,11 @@ namespace iroha::ordering {
       tx_count_ += batch->transactions().size();
 
     assert(count(batches_) == tx_count_);
+    std::cout << fmt::format(
+        "[TRACE TAG] Batches cache size become {} after insertion (inserted {} "
+        "txs).\n",
+        batches_.size(),
+        batch->transactions().size());
     return inserted;
   }
 
@@ -47,6 +55,10 @@ namespace iroha::ordering {
       tx_count_ -= batch->transactions().size();
 
     assert(count(batches_) == tx_count_);
+    std::cout << fmt::format(
+        "[TRACE TAG] Batches cache size was {} and become {} after remove.\n",
+        was,
+        batches_.size());
     return (was != batches_.size());
   }
 
