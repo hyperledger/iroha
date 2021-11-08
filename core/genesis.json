@@ -10,7 +10,8 @@
                   "Domain": {
                     "name": "wonderland",
                     "accounts": {},
-                    "asset_definitions": {}
+                    "asset_definitions": {},
+					"metadata": {} 
                   }
                 }
               }

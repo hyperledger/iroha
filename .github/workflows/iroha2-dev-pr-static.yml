@@ -36,4 +36,3 @@ jobs:
         run: |
           cargo doc --no-deps
           ./scripts/check_docs.sh
-
