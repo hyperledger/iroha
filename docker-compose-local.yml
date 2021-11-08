@@ -1,6 +1,8 @@
 version: "3.3"
 services:
   iroha:
+    build:
+      context: .
     image: iroha:debug
     environment:
       TORII_P2P_ADDR: iroha:1337
