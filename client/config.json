@@ -1,5 +1,5 @@
 {
-  "TORII_API_URL": "http://127.0.0.1:8080",
+  "TORII_API_URL": "http://iroha:8080",
   "ACCOUNT_ID": {
     "name": "alice",
     "domain_name": "wonderland"

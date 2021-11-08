@@ -1,7 +1,43 @@
 #!/bin/bash
+
+# This script is used for the CI test-docker workflow. 
 mkdir test_docker
 cp ./target/debug/iroha_client_cli test_docker
 cp ./client/config.json test_docker
 cp ./scripts/metadata.json test_docker
-docker-compose up -d --force-recreate
+# docker-compose up -d --force-recreate
+
+# iroha
+TORII_P2P_ADDR="iroha:1337" \
+			  TORII_API_URL="iroha:8080" \
+			  IROHA_PUBLIC_KEY="ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0" \
+			  IROHA_PRIVATE_KEY='{"digest_function": "ed25519", "payload": "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}' \
+			  SUMERAGI_TRUSTED_PEERS='[{"address":"iroha:1337", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address":"iroha2:1338", "public_key": "ed0120cc25624d62896d3a0bfd8940f928dc2abf27cc57cefeb442aa96d9081aae58a1"}, {"address": "iroha3:1339", "public_key": "ed0120faca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020"}, {"address": "iroha4:1340", "public_key": "ed01208e351a70b6a603ed285d666b8d689b680865913ba03ce29fb7d13a166c4e7f1f"}]' \
+			  docker run -d --name=iroha --network="$1" -it "hyperledger/iroha2:dev"
+
+
+# iroha2
+TORII_P2P_ADDR="iroha:1338" \
+			  TORII_API_URL="iroha:8081" \
+			  IROHA_PUBLIC_KEY="ed0120cc25624d62896d3a0bfd8940f928dc2abf27cc57cefeb442aa96d9081aae58a1"\
+			  IROHA_PRIVATE_KEY='{"digest_function": "ed25519", "payload": "3bac34cda9e3763fa069c1198312d1ec73b53023b8180c822ac355435edc4a24cc25624d62896d3a0bfd8940f928dc2abf27cc57cefeb442aa96d9081aae58a1"}'\
+			  SUMERAGI_TRUSTED_PEERS='[{"address":"iroha:1337", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address":"iroha2:1338", "public_key": "ed0120cc25624d62896d3a0bfd8940f928dc2abf27cc57cefeb442aa96d9081aae58a1"}, {"address": "iroha3:1339", "public_key": "ed0120faca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020"}, {"address": "iroha4:1340", "public_key": "ed01208e351a70b6a603ed285d666b8d689b680865913ba03ce29fb7d13a166c4e7f1f"}]'\
+			  docker run -d --name=iroha2 --network="$1" -it "hyperledger/iroha2:dev"
+
+# iroha3
+TORII_P2P_ADDR="iroha3:1339" \
+				TORII_API_URL="iroha3:8082" \
+				IROHA_PUBLIC_KEY="ed0120faca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020" \
+				IROHA_PRIVATE_KEY='{"digest_function": "ed25519", "payload": "1261a436d36779223d7d6cf20e8b644510e488e6a50bafd77a7485264d27197dfaca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020"}'\
+				SUMERAGI_TRUSTED_PEERS='[{"address":"iroha:1337", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address":"iroha2:1338", "public_key": "ed0120cc25624d62896d3a0bfd8940f928dc2abf27cc57cefeb442aa96d9081aae58a1"}, {"address": "iroha3:1339", "public_key": "ed0120faca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020"}, {"address": "iroha4:1340", "public_key": "ed01208e351a70b6a603ed285d666b8d689b680865913ba03ce29fb7d13a166c4e7f1f"}]'\
+				docker run -d --name=iroha3 --network="$1" -it "hyperledger/iroha2:dev"
+
+# iroha4:
+TORII_P2P_ADDR="iroha4:1340" \
+			  TORII_API_URL="iroha4:8083"\
+			  IROHA_PUBLIC_KEY="ed01208e351a70b6a603ed285d666b8d689b680865913ba03ce29fb7d13a166c4e7f1f"\
+			  IROHA_PRIVATE_KEY='{"digest_function": "ed25519", "payload": "a70dab95c7482eb9f159111b65947e482108cfe67df877bd8d3b9441a781c7c98e351a70b6a603ed285d666b8d689b680865913ba03ce29fb7d13a166c4e7f1f"}'\
+			  SUMERAGI_TRUSTED_PEERS='[{"address":"iroha:1337", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address":"iroha2:1338", "public_key": "ed0120cc25624d62896d3a0bfd8940f928dc2abf27cc57cefeb442aa96d9081aae58a1"}, {"address": "iroha3:1339", "public_key": "ed0120faca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020"}, {"address": "iroha4:1340", "public_key": "ed01208e351a70b6a603ed285d666b8d689b680865913ba03ce29fb7d13a166c4e7f1f"}]'\
+			  docker run -d --name=iroha4 --network="$1" -it "hyperledger/iroha2:dev"
+
 sleep 10
