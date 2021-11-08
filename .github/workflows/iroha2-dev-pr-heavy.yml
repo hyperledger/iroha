@@ -9,6 +9,7 @@ on:
       - '**.rs'
       - '**.json'
       - '**.toml'
+      - '**.yml'
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,12 +17,10 @@ env:
 
 jobs:
   test-docker:
-    # runs-on: [self-hosted, Linux]
-    runs-on: ubuntu-latest
-    container:
-      image: 7272721/i2-ci:latest
-    # container: rust:1.56-buster
-    # timeout-minutes: 60
+    runs-on: [self-hosted, Linux]
+    container: rust:1.56
+    # container: ubuntu:20.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -32,11 +31,43 @@ jobs:
           key: iroha2-rust-docker-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
               iroha2-rust-docker-
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev \
+            curl \
+            libssl-dev \
+            pkg-config
+
+      - name: Install latest rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.56
+      - name: Install docker
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt update
+          apt install -y ca-certificates curl gnupg lsb-release iputils-ping
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+          focal stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+          apt update
+          apt install -y docker-ce docker-ce-cli containerd.io
+          curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v1
+      - name: Build telemetry
+        run: cargo build
+        working-directory: telemetry
       - name: Build Client CLI
-        run: mold -run cargo build
+        run: cargo build
         working-directory: client_cli
       - name: Build and push Iroha Docker image
         uses: docker/build-push-action@v2
