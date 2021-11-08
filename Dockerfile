@@ -36,7 +36,7 @@ WORKDIR /iroha
 COPY --from=planner /iroha/recipe.json recipe.json
 RUN cargo chef cook $PROFILE --recipe-path recipe.json
 COPY . .
-RUN cargo build $PROFILE --all
+RUN cargo build $PROFILE --workspace
 
 FROM $BASE_IMAGE
 COPY core/config.json .
