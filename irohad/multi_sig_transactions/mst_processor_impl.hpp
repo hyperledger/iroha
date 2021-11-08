@@ -16,6 +16,7 @@
 #include "multi_sig_transactions/mst_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_time_provider.hpp"
 #include "multi_sig_transactions/storage/mst_storage.hpp"
+#include "common/common.hpp"
 
 namespace iroha {
 
@@ -107,10 +108,8 @@ namespace iroha {
 
     rxcpp::composite_subscription propagation_subscriber_;
 
-    std::mutex expiration_thread_work_mutex_;
-    std::condition_variable cv_expiration_thread_stop_;
-    std::atomic_bool expiration_thread_done_{false};
-    std::thread expiration_thread_;
+    utils::WaitForSingleObject expiration_thread_stopper_waiter_;
+    std::thread expirator_thread_;
   };
 }  // namespace iroha
 
