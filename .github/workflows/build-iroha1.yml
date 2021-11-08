@@ -96,7 +96,6 @@ jobs:
   pr_comment_reaction_rocket:
     ## Just to react to valid comment with rocket
     runs-on: ubuntu-20.04 #ubuntu-latest
-    #container: ubuntu:latest
     if: ${{ github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') }}
     steps:
       - name: Show context
@@ -144,6 +143,15 @@ jobs:
           ${{ toJson(needs) }}
           END
           echo "::endgroup::"
+      - name: REF and SHA of commented PR to ENV
+        if: github.event.comment
+        run: >
+          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
+
+            "PR_REF="+.head.ref,
+            "PR_SHA="+.head.sha,
+            "PR_NUM="+(.number|tostring),
+            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
       - name: Checkout
         uses: actions/checkout@v2
         with:
@@ -566,6 +574,7 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          fetch-depth: 0 ## full history
       - name: export CC and CXX
         env:
           CCACHE_PATH: /usr/lib/ccache
@@ -622,6 +631,7 @@ jobs:
           set -x
           ## reduce memory usage to do not overflow
           cmake --build build --config ${{ env.BuildType }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
+          echo ::notice::"$(./build/bin/irohad --version)"
         ## Debug   takes 18m44s on regular GitHub runner
         ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
@@ -876,6 +886,7 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          fetch-depth: 0 ## full history
       - name: export CC and CXX
         env:
           CCACHE_PATH: /usr/lib/ccache
@@ -932,6 +943,7 @@ jobs:
           set -x
           ## reduce memory usage to do not overflow
           cmake --build build --config ${{ env.BuildType }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
+          echo ::notice::"$(./build/bin/irohad --version)"
         ## Debug   takes 18m44s on regular GitHub runner
         ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
@@ -1187,6 +1199,7 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          fetch-depth: 0 ## full history
       - name: export CC and CXX
         run: |
           set -xeu   #o pipefail
@@ -1243,6 +1256,7 @@ jobs:
           set -x
           ## reduce memory usage to do not overflow
           cmake --build build --config ${{ env.BuildType }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
+          echo ::notice::"$(./build/bin/irohad --version)"
         ## Debug   takes 18m44s on regular GitHub runner
         ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
@@ -1451,6 +1465,7 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          fetch-depth: 0 ## full history
       - name: move to workdir
         run: |
           set -x
@@ -1483,6 +1498,7 @@ jobs:
           set -x
           ## reduce memory usage to do not overflow
           cmake --build build --config ${{ env.BuildType }} -- -j$(nproc | awk '{printf("%.0f",$1*0.77)}')
+          echo ::notice::"$(./build/bin/irohad --version)"
         ## Debug   takes 18m44s on regular GitHub runner
         ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
