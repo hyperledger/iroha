@@ -85,6 +85,12 @@ namespace iroha {
       virtual void onTxsCommitted(const HashesSetType &hashes) = 0;
 
       /**
+       * Method to be invoked when duplicated transactions detected.
+       * @param hashes - txs list
+       */
+      virtual void onDuplicates(const HashesSetType &hashes) = 0;
+
+      /**
        * Method to get betches under lock
        * @param f - callback function
        */

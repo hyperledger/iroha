@@ -16,6 +16,7 @@ namespace iroha::subscription {
   struct IDispatcher {
     using Tid = uint32_t;
     using Task = IScheduler::Task;
+    using Predicate = IScheduler::Predicate;
     static constexpr Tid kExecuteInPool = std::numeric_limits<Tid>::max();
 
     virtual ~IDispatcher() {}
@@ -28,6 +29,10 @@ namespace iroha::subscription {
     virtual void addDelayed(Tid tid,
                             std::chrono::microseconds timeout,
                             Task &&task) = 0;
+    virtual void repeat(Tid tid,
+                        std::chrono::microseconds timeout,
+                        Task &&task,
+                        Predicate &&pred) = 0;
   };
 
 }  // namespace iroha::subscription
