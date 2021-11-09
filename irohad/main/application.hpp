@@ -33,6 +33,8 @@ namespace iroha {
   class MstProcessor;
   class MstStorage;
   namespace ametsuchi {
+    struct RocksDBPort;
+    struct RocksDBContext;
     class WsvRestorer;
     class TxPresenceCache;
     class Storage;
@@ -165,6 +167,8 @@ class Irohad {
   virtual RunResult dropStorage();
 
   RunResult resetWsv();
+
+  void printDbStatus();
 
   /**
    * Run worker threads for start performing

@@ -26,7 +26,9 @@ namespace iroha::subscription {
     using Time = std::chrono::high_resolution_clock;
     using Timepoint = std::chrono::time_point<Time>;
     struct TimedTask {
-      Timepoint timepoint;
+      Timepoint created;
+      std::chrono::microseconds timeout;
+      Predicate predic;
       Task task;
     };
     using TaskContainer = std::deque<TimedTask>;
@@ -61,7 +63,7 @@ namespace iroha::subscription {
       checkLocked();
       return std::upper_bound(
           tasks_.begin(), tasks_.end(), tp, [](auto const &l, auto const &r) {
-            return l < r.timepoint;
+            return l < (r.created + r.timeout);
           });
     }
 
@@ -70,13 +72,14 @@ namespace iroha::subscription {
       tasks_.insert(after, std::move(t));
     }
 
-    bool extractExpired(Task &task) {
+    bool extractExpired(TimedTask &task) {
       std::lock_guard lock(tasks_cs_);
       Timepoint const before = now();
       if (!tasks_.empty()) {
         auto &first_task = tasks_.front();
-        if (first_task.timepoint <= before) {
-          first_task.task.swap(task);
+        auto const timepoint = first_task.created + first_task.timeout;
+        if (timepoint <= before) {
+          task = std::move(first_task);
           tasks_.pop_front();
           is_busy_ = true;
           return true;
@@ -88,26 +91,26 @@ namespace iroha::subscription {
 
     ///@returns time duration from now till first task will be executed
     std::chrono::microseconds untilFirst() const {
-      auto const before = now();
       std::lock_guard lock(tasks_cs_);
+      auto const before = now();
       if (!tasks_.empty()) {
         auto const &first = tasks_.front();
-        if (first.timepoint > before) {
+        auto const timepoint = first.created + first.timeout;
+        if (timepoint > before)
           return std::chrono::duration_cast<std::chrono::microseconds>(
-              first.timepoint - before);
-        }
+              timepoint - before);
+
         return std::chrono::microseconds(0ull);
       }
       return std::chrono::minutes(10ull);
     }
 
-    void add(std::chrono::microseconds timeout, Task &&task) {
+    void add(TimedTask &&task) {
       assert(!tasks_cs_.try_lock());
-      if (timeout == std::chrono::microseconds(0ull))
+      if (task.timeout == std::chrono::microseconds(0ull))
         is_busy_ = true;
 
-      auto const tp = now() + timeout;
-      insert(after(tp), TimedTask{tp, std::move(task)});
+      insert(after(task.created + task.timeout), std::move(task));
       event_.set();
     }
 
@@ -118,12 +121,20 @@ namespace iroha::subscription {
 
     uint32_t process() {
       id_ = std::this_thread::get_id();
-      Task task;
+      TimedTask task{};
       do {
         if (extractExpired(task)) {
           try {
-            if (task)
-              task();
+            if (task.task) {
+              if (!task.predic)
+                task.task();
+              else if (task.predic()) {
+                task.task();
+                std::lock_guard lock(tasks_cs_);
+                task.created = now();
+                add(std::move(task));
+              }
+            }
           } catch (...) {
           }
         } else
@@ -149,13 +160,20 @@ namespace iroha::subscription {
       if (is_busy_)
         return std::move(task);
 
-      add(timeout, std::move(task));
+      add(TimedTask{now(), timeout, nullptr, std::move(task)});
       return std::nullopt;
     }
 
     void addDelayed(std::chrono::microseconds timeout, Task &&t) override {
       std::lock_guard lock(tasks_cs_);
-      add(timeout, std::move(t));
+      add(TimedTask{now(), timeout, nullptr, std::move(t)});
+    }
+
+    void repeat(std::chrono::microseconds timeout,
+                Task &&t,
+                Predicate &&pred) override {
+      std::lock_guard lock(tasks_cs_);
+      add(TimedTask{now(), timeout, std::move(pred), std::move(t)});
     }
   };
 

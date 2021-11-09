@@ -178,6 +178,8 @@ namespace integration_framework {
     shared_model::proto::Block defaultBlock(
         const shared_model::crypto::Keypair &key) const;
 
+    void printDbStatus();
+
     /// Construct default genesis block using the my_key_ key.
     shared_model::proto::Block defaultBlock() const;
 

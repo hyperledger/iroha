@@ -35,7 +35,7 @@ class RocksDBTest : public ::testing::Test {
 
     auto dbc = std::make_shared<DatabaseCache<std::string>>();
     dbc->addCacheblePath("k");
-    tx_context_ = std::make_shared<RocksDBContext>(db_port_, dbc);
+    tx_context_ = std::make_shared<RocksDBContext>(db_port_, std::move(dbc));
 
     insertDb(key1_, value1_);
     insertDb(key2_, value2_);
