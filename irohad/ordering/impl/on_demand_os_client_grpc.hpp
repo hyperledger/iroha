@@ -11,8 +11,10 @@
 #include "common/result.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 #include "ordering.grpc.pb.h"
 #include "ordering/impl/on_demand_common.hpp"
+#include "subscription/dispatcher.hpp"
 
 namespace iroha {
   namespace network {
@@ -20,6 +22,8 @@ namespace iroha {
     class ClientFactory;
   }
   namespace ordering {
+    class ExecutorKeeper;
+
     namespace transport {
 
       /**
@@ -33,6 +37,7 @@ namespace iroha {
                 iroha::protocol::Proposal>;
         using TimepointType = std::chrono::system_clock::time_point;
         using TimeoutType = std::chrono::milliseconds;
+        using DynamicEventType = uint64_t;
 
         /**
          * Constructor is left public because testing required passing a mock
@@ -44,12 +49,11 @@ namespace iroha {
             std::function<TimepointType()> time_provider,
             std::chrono::milliseconds proposal_request_timeout,
             logger::LoggerPtr log,
-            std::function<void(ProposalEvent)> callback);
+            std::function<void(ProposalEvent)> callback,
+            std::shared_ptr<ExecutorKeeper> os_execution_keepers,
+            std::string peer_name);
 
-        ~OnDemandOsClientGrpc() override {
-          if (auto sh_ctx = context_.lock())
-            sh_ctx->TryCancel();
-        }
+        ~OnDemandOsClientGrpc() override;
 
         void onBatches(CollectionType batches) override;
 
@@ -63,6 +67,8 @@ namespace iroha {
         std::chrono::milliseconds proposal_request_timeout_;
         std::function<void(ProposalEvent)> callback_;
         std::weak_ptr<grpc::ClientContext> context_;
+        std::shared_ptr<ExecutorKeeper> os_execution_keepers_;
+        std::string peer_name_;
       };
 
       class OnDemandOsClientGrpcFactory : public OdOsNotificationFactory {
@@ -77,7 +83,8 @@ namespace iroha {
             OnDemandOsClientGrpc::TimeoutType proposal_request_timeout,
             logger::LoggerPtr client_log,
             std::unique_ptr<ClientFactory> client_factory,
-            std::function<void(ProposalEvent)> callback);
+            std::function<void(ProposalEvent)> callback,
+            std::shared_ptr<ExecutorKeeper> os_execution_keepers);
 
         iroha::expected::Result<std::unique_ptr<OdOsNotification>, std::string>
         create(const shared_model::interface::Peer &to) override;
@@ -89,6 +96,7 @@ namespace iroha {
         logger::LoggerPtr client_log_;
         std::unique_ptr<ClientFactory> client_factory_;
         std::function<void(ProposalEvent)> callback_;
+        std::shared_ptr<ExecutorKeeper> os_execution_keepers_;
       };
 
     }  // namespace transport

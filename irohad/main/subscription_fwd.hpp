@@ -41,6 +41,7 @@ namespace iroha {
     kOnProposalResponse,
     kOnTransactionResponse,
     kOnConsensusGateEvent,
+    kSendBatchComplete,
 
     // MST
     kOnMstStateUpdate,

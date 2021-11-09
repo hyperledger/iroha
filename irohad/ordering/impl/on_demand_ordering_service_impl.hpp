@@ -65,6 +65,10 @@ namespace iroha {
         removeFromBatchesCache(hashes);
       }
 
+      void onDuplicates(const HashesSetType &hashes) override {
+        removeFromBatchesCache(hashes);
+      }
+
       void processReceivedProposal(CollectionType batches) override;
 
      private:
