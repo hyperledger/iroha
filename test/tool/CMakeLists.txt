@@ -3,7 +3,7 @@
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_data/)
 execute_process(
-  COMMAND tar -xf ${CMAKE_CURRENT_LIST_DIR}/block_store.tgz -C ${CMAKE_BINARY_DIR}/test_data/
+  COMMAND tar -xf ${CMAKE_CURRENT_LIST_DIR}/block_store_4999.tgz -C ${CMAKE_BINARY_DIR}/test_data/
 )
 
 add_test(NAME tool_iroha_migrate_and_export
