@@ -30,9 +30,7 @@ void RocksDBIndexer::txHashStatus(const TxPosition &position,
   common.valueBuffer() += '#';
   common.valueBuffer() += std::to_string(ts);
 
-  std::string h_hex;
-  forTransactionStatus<kDbOperation::kPut>(common,
-                                           toLowerAppend(tx_hash.hex(), h_hex));
+  forTransactionStatus<kDbOperation::kPut>(common, tx_hash);
 
   if (is_committed) {
     uint64_t txs_count = 0ull;

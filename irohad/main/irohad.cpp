@@ -508,6 +508,7 @@ int main(int argc, char *argv[]) {
         break;
       }
     }
+    irohad->printDbStatus();
     daemon_status_notifier->notify(
         ::iroha::utility_service::Status::kTermination);
 

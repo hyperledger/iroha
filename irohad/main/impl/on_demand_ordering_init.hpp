@@ -55,7 +55,7 @@ namespace iroha::ordering {
   class OnDemandConnectionManager;
   class OnDemandOrderingGate;
   class OnDemandOrderingService;
-  class ProposalCreationStrategy;
+  class ExecutorKeeper;
   struct ProposalEvent;
   namespace transport {
     class OdOsNotification;
@@ -169,6 +169,7 @@ namespace iroha::ordering {
     std::shared_ptr<OnDemandOrderingGate> ordering_gate_;
     std::shared_ptr<BaseSubscriber<bool, ProposalEvent>>
         proposals_subscription_;
+    std::shared_ptr<ExecutorKeeper> os_execution_keepers_;
   };
 }  // namespace iroha::ordering
 

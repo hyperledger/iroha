@@ -65,6 +65,13 @@ class TestDispatcher final : public iroha::subscription::IDispatcher,
     task();
   }
 
+  void repeat(Tid tid,
+              std::chrono::microseconds timeout,
+              typename Parent::Task &&task,
+              typename Parent::Predicate &&pred) override {
+    while (!pred || pred()) task();
+  }
+
   std::optional<Tid> bind(
       std::shared_ptr<iroha::subscription::IScheduler> scheduler) override {
     if (!scheduler)
