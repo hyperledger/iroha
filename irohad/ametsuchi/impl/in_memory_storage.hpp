@@ -16,6 +16,11 @@
 
 namespace iroha::ametsuchi {
 
+  /**
+   * Cache based on ring buffer with hash-table index for
+   * fast search.It has limited size and will overwrite the most irrelevant
+   * value on store operation when fully loaded.
+   */
   template <typename KeyT, typename ValueT, size_t kCount>
   class InMemoryFrame final : utils::NoCopy, utils::NoMove {
    public:
