@@ -18,6 +18,10 @@ while test $# -gt 0 ;do
             iroha_migrate=$2
             shift
         ;;
+        *)
+            echo >&2 "Wrong option '$1'"
+            false
+        ;;
     esac
     shift
 done
@@ -26,6 +30,6 @@ done
 
 $iroha_migrate -block_store_path $BLOCK_STORE_PATH -rocksdb_path $ROCKSDB_PATH
 
-$iroha_migrate -export_to /tmp/block_store_7000_exported  -rocksdb_path $ROCKSDB_PATH
+$iroha_migrate -export_to /tmp/block_store_exported  -rocksdb_path $ROCKSDB_PATH
 
-diff -ur /tmp/block_store_7000_exported $BLOCK_STORE_PATH
+diff -ur /tmp/block_store_exported $BLOCK_STORE_PATH

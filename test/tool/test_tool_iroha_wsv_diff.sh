@@ -37,7 +37,7 @@ echo PG_OPT=\'${PG_OPT:="dbname=iroha_data host=localhost port=5432 user=postgre
 echo iroha_wsv_diff=${iroha_wsv_diff:=$BIN_DIR/iroha_wsv_diff}
 echo IROHAD=${IROHAD:=$BIN_DIR/irohad}
 echo iroha_migrate=${iroha_migrate:=$BIN_DIR/iroha_migrate}
-echo BLOCK_STORE_PATH=${BLOCK_STORE_PATH:=}
+echo BLOCK_STORE_PATH=${BLOCK_STORE_PATH:=/tmp/block_store_test}
 echo FILTER=\'${FILTER:='.*'}\'
 echo DROP_STATE=${DROP_STATE:=}'  # Countinue reindexing blocks if wsv corresponds to blockstore or drop state to reindex from genesis block'
 DRY_RUN=${DRY_RUN:=}
@@ -46,13 +46,6 @@ echo '----------------------------------------------------'
 psql_with_params(){
     # set -x
     psql $(printf -- '--%s ' ${PG_OPT/password=*/})
-}
-
-trap_debug(){
-    trap 'echo ":$LINENO | $(sed -n ${LINENO}p $0)"' DEBUG
-}
-untrap_debug(){
-    trap '' DEBUG
 }
 
 ######################################################

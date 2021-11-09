@@ -1,11 +1,16 @@
 # Copyright Soramitsu Co., Ltd. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_data/)
+execute_process(
+  COMMAND tar -xf ${CMAKE_CURRENT_LIST_DIR}/block_store.tgz -C ${CMAKE_BINARY_DIR}/test_data/
+)
+
 add_test(NAME tool_iroha_migrate_and_export
         COMMAND
           ${CMAKE_CURRENT_LIST_DIR}/test_tool_migration.sh
           -iroha_migrate ${CMAKE_BINARY_DIR}/bin/iroha_migrate
-          -block_store_path ${CMAKE_CURRENT_LIST_DIR}/block_store_7000
+          -block_store_path ${CMAKE_BINARY_DIR}/test_data/block_store
           -rocksdb_path /tmp/test.rocksdb
         WORKING_DIRECTORY
           ${CMAKE_SOURCE_DIR}
@@ -33,7 +38,7 @@ set_tests_properties(tool_iroha_wsv_diff_wrong_args PROPERTIES FAIL_REGULAR_EXPR
 add_test(NAME tool_iroha_wsv_diff
         COMMAND
           ${CMAKE_CURRENT_LIST_DIR}/test_tool_iroha_wsv_diff.sh
-          -block_store_path ${CMAKE_CURRENT_LIST_DIR}/block_store_7000
+          -block_store_path ${CMAKE_BINARY_DIR}/test_data/block_store
           -bin_dir ${CMAKE_BINARY_DIR}/bin
         WORKING_DIRECTORY
           ${CMAKE_BINARY_DIR}
