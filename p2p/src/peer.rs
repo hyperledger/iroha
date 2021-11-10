@@ -522,7 +522,7 @@ where
             let message = match msg {
                 Ok(message) => message,
                 Err(error) => {
-                    warn!(err = %error, "Error reading message");
+                    warn!(%error, "Error reading message");
                     // TODO implement some recovery
                     let message = PeerMessage::<T>::Disconnected(id.clone(), connection.id);
                     broker.issue_send(message).await;
@@ -536,7 +536,7 @@ where
                     match cipher.decrypt_easy(DEFAULT_AAD.as_ref(), message.0.as_slice()) {
                         Ok(data) => data,
                         Err(error) => {
-                            warn!(err = %error, "Error decrypting message!");
+                            warn!(%error, "Error decrypting message!");
                             let mut new_self = Self::Error(id.clone(), Error::from(error));
                             std::mem::swap(&mut new_self, self);
                             return;
@@ -580,7 +580,7 @@ where
                 {
                     Ok(data) => data,
                     Err(error) => {
-                        warn!(err = %error, "Error encrypting message!");
+                        warn!(%error, "Error encrypting message!");
                         let mut new_self = Self::Error(id.clone(), Error::from(error));
                         std::mem::swap(&mut new_self, self);
                         return;
@@ -794,7 +794,7 @@ impl Garbage {
             Err(Error::Handshake(std::line!()))
         } else {
             // Reading garbage
-            debug!(size = %size, "Reading garbage");
+            debug!(%size, "Reading garbage");
             let mut garbage = vec![0_u8; size];
             stream.as_ref().readable().await?;
             let _ = stream.read_exact(&mut garbage).await?;

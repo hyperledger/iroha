@@ -206,8 +206,8 @@ impl<W: WorldTrait> Torii<W> {
             .and(warp::ws())
             .map(|events, ws: Ws| {
                 ws.on_upgrade(|ws| async move {
-                    if let Err(err) = handle_subscription(events, ws).await {
-                        iroha_logger::error!(err = %err, "Failed to subscribe someone");
+                    if let Err(error) = handle_subscription(events, ws).await {
+                        iroha_logger::error!(%error, "Failed to subscribe someone");
                     }
                 })
             });
@@ -226,9 +226,9 @@ impl<W: WorldTrait> Torii<W> {
                 warp::serve(router).run(addr).await;
                 Ok(())
             }
-            Err(e) => {
-                iroha_logger::error!(err = %e, "Failed to get socket addr");
-                Err(eyre::Error::new(e))
+            Err(error) => {
+                iroha_logger::error!(%error, "Failed to get socket addr");
+                Err(eyre::Error::new(error))
             }
         }
     }
@@ -259,8 +259,8 @@ async fn handle_instructions<W: WorldTrait>(
         .queue
         .push(transaction, &*state.wsv)
         .map_err(|(_, err)| err);
-    if let Err(ref err) = push_result {
-        iroha_logger::warn!(err = %err, "Failed to push to queue")
+    if let Err(ref error) = push_result {
+        iroha_logger::warn!(%error, "Failed to push to queue")
     }
     push_result
         .map_err(Box::new)
@@ -355,8 +355,8 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::R
     while let Ok(change) = events.recv().await {
         iroha_logger::trace!(event = ?change);
 
-        if let Err(err) = consumer.consume(&change).await {
-            iroha_logger::error!(err = %err, "Failed to notify client. Closed connection.");
+        if let Err(error) = consumer.consume(&change).await {
+            iroha_logger::error!(%error, "Failed to notify client. Closed connection.");
             break;
         }
     }

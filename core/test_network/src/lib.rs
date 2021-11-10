@@ -273,14 +273,14 @@ where
 
     pub async fn send_all<M: iroha_actor::broker::BrokerMessage + Sync>(&self, m: M) {
         for peer in self.peers() {
-            iroha_logger::info!(peer_id = ?peer.id, "Sending message");
+            iroha_logger::info!(?peer.id, "Sending message");
             peer.send(m.clone()).await
         }
     }
 
     pub async fn send_all_default<M: iroha_actor::broker::BrokerMessage + Sync + Default>(&self) {
         for peer in self.peers() {
-            iroha_logger::info!(peer_id = ?peer.id, "Sending message");
+            iroha_logger::info!(?peer.id, "Sending message");
             peer.send_default::<M>().await
         }
     }
@@ -296,9 +296,9 @@ where
 {
     fn drop(&mut self) {
         iroha_logger::error!(
-            "Stopping peer (p2p = {}, api = {})",
-            self.p2p_address,
-            self.api_address
+            p2p_addr = %self.p2p_address,
+            api_addr = %self.api_address,
+            "Stopping peer",
         );
         self.stop()
     }

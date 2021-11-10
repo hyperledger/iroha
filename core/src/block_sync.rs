@@ -151,7 +151,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
             return;
         };
 
-        iroha_logger::info!(block_count = blocks.len(), "Synchronizing blocks",);
+        iroha_logger::info!(blocks_left = blocks.len(), "Synchronizing blocks");
 
         let (block, blocks) = if let Some((block, blocks)) = blocks.split_first() {
             (block, blocks)
@@ -339,7 +339,7 @@ pub mod message {
                             .await;
                         }
                         Ok(_) => (),
-                        Err(error) => iroha_logger::error!(err = %error),
+                        Err(error) => iroha_logger::error!(%error),
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, peer_id }) => {

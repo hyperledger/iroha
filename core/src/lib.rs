@@ -182,7 +182,7 @@ where
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");
 
         let listen_addr = config.torii.p2p_addr.clone();
-        iroha_logger::info!(listen_addr = %listen_addr, "Starting peer");
+        iroha_logger::info!(%listen_addr, "Starting peer");
         #[allow(clippy::expect_used)]
         let network = IrohaNetwork::new(
             broker.clone(),

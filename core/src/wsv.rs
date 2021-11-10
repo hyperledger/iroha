@@ -134,7 +134,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub async fn apply(&self, block: VersionedCommittedBlock) {
         for tx in &block.as_inner_v1().transactions {
             if let Err(error) = tx.proceed(self) {
-                iroha_logger::warn!(err = %error, "Failed to proceed transaction on WSV");
+                iroha_logger::warn!(%error, "Failed to proceed transaction on WSV");
             }
             self.transactions.insert(tx.hash());
             // Yeild control cooperatively to the task scheduler.

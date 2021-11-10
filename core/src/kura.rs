@@ -180,7 +180,7 @@ impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
                     .await;
             }
             Err(error) => {
-                iroha_logger::error!(err = %error, "Initialization of kura failed");
+                iroha_logger::error!(%error, "Initialization of kura failed");
                 panic!("Init failed");
             }
         }
@@ -209,7 +209,7 @@ impl<W: WorldTrait, IO: DiskIO> Handler<StoreBlock> for KuraWithIO<W, IO> {
             iroha_logger::telemetry!(msg = iroha_telemetry::msg::SYSTEM_CONNECTED, genesis_hash = %block.hash());
         }
         if let Err(error) = self.store(block).await {
-            iroha_logger::error!(err = %error, "Failed to write block")
+            iroha_logger::error!(%error, "Failed to write block")
         }
     }
 }

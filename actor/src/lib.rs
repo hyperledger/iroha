@@ -163,7 +163,7 @@ impl<A: Actor> Addr<A> {
         tokio::task::spawn(async move {
             // TODO: propagate the error.
             if let Err(error) = sender.send(envelope).await {
-                iroha_logger::error!(err = %error, "Error sending actor message");
+                iroha_logger::error!(%error, "Error sending actor message");
             }
         });
     }

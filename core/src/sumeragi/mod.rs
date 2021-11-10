@@ -283,7 +283,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<Message> for S
     async fn handle(&mut self, message: Message) {
         iroha_logger::trace!(peer_role=?self.topology.role(&self.peer_id), msg=?message);
         if let Err(error) = message.handle(&mut self).await {
-            iroha_logger::error!(err = %error, "Handle message failed");
+            iroha_logger::error!(%error, "Handle message failed");
         }
     }
 }
@@ -297,7 +297,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<Voting> for Su
         }
         let txs = self.queue.get_transactions_for_block(&*self.wsv);
         if let Err(error) = self.round(txs).await {
-            iroha_logger::error!(err = %error, "Round failed");
+            iroha_logger::error!(%error, "Round failed");
         }
     }
 }
@@ -362,8 +362,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> ContextHandler<Init>
             self.init(last_block, height);
         } else if let Some(genesis_network) = self.genesis_network.take() {
             let addr = self.network.clone();
-            if let Err(err) = genesis_network.submit_transactions(&mut self, addr).await {
-                iroha_logger::error!(err = %err, "Failed to submit genesis transactions")
+            if let Err(error) = genesis_network.submit_transactions(&mut self, addr).await {
+                iroha_logger::error!(%error, "Failed to submit genesis transactions")
             }
         }
         self.update_network_topology().await;
@@ -589,8 +589,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
             iroha_logger::info!(
                 peer_addr = %self.peer_id.address,
                 peer_role = ?self.topology.role(&self.peer_id),
-                leader = %self.topology.leader().address,
-                tx_hash = %tx_hash,
+                leader_addr = %self.topology.leader().address,
+                %tx_hash,
                 "Forwarding tx to leader"
             );
             send_futures.push(
@@ -621,7 +621,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
                     time::sleep(tx_receipt_time).await;
                     if txs_awaiting_receipts.contains_key(&tx_hash) {
                         iroha_logger::warn!(
-                            tx_hash = %tx_hash,
+                            %tx_hash,
                             "Transaction receipt timeout detected!",
                         );
                         let mut send_futures = Vec::new();
@@ -709,7 +709,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
             "Created a block",
         );
         for event in Vec::<Event>::from(&block) {
-            iroha_logger::info!(event = ?event);
+            iroha_logger::info!(?event);
             drop(self.events_sender.send(event));
         }
         if !network_topology.is_consensus_required() {
@@ -800,7 +800,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
         let block_hash = block.hash();
 
         for event in Vec::<Event>::from(&block) {
-            iroha_logger::info!(event = ?event);
+            iroha_logger::info!(?event);
             drop(self.events_sender.send(event));
         }
 
@@ -812,7 +812,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
             prev_peer_role = ?previous_role,
             new_peer_role = ?self.topology.role(&self.peer_id),
             new_block_height = %self.block_height,
-            block_hash = %block_hash,
+            %block_hash,
             "Commiting block"
         );
         *self.voting_block.write().await = None;
@@ -1235,7 +1235,7 @@ pub mod message {
             }
 
             for event in Vec::<Event>::from(&self.block) {
-                iroha_logger::info!(event = ?event);
+                iroha_logger::info!(?event);
                 drop(sumeragi.events_sender.send(event));
             }
             self.update_view_changes(sumeragi);
@@ -1347,10 +1347,10 @@ pub mod message {
 
             iroha_logger::info!(
                 peer_role = ?network_topology.role(&sumeragi.peer_id),
-                block_hash = %block_hash,
-                "Received a vote for block. Now it has {} signatures out of {} required (not counting ProxyTail signature).",
-                valid_signatures.len(),
-                network_topology.min_votes_for_commit() - 1,
+                %block_hash,
+                valid_signatures_count = valid_signatures.len(),
+                required_signatures_count = network_topology.min_votes_for_commit() - 1,
+                "Received a vote for block",
             );
 
             if valid_signatures.len() < network_topology.min_votes_for_commit() as usize - 1 {
@@ -1367,7 +1367,7 @@ pub mod message {
 
             iroha_logger::info!(
                 peer_role = ?network_topology.role(&sumeragi.peer_id),
-                block_hash = %block_hash,
+                %block_hash,
                 "Block reached required number of votes",
             );
 
