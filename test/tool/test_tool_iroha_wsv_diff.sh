@@ -127,7 +127,7 @@ END
 
     if ! $iroha_wsv_diff -pg_opt "$PG_OPT" -rocksdb_path "$ROCKSDB_PATH" | tee log ;then
         grep -Fq <log '~~~ WSV-s DIFFER!!! ~~~' log
-        grep -Fq <log "Role-s have different name: 'add_can_get_peers_perm_notary' and 'WRONG_ROLE'"
+        grep -Fq <log "Role-s have different name: 'admin' and 'WRONG_ROLE'"
         grep -Fq <log 'Wsv-s have different roles.'
         grep -Fq <log "Domain names differ: 'bootstrap' vs 'WRONG_DOMAIN'"
         grep -Fq <log 'Wsv-s have different domains.'
