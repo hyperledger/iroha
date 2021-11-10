@@ -289,7 +289,7 @@ where
         Ok(self)
     }
 
-    /// Read client public key from client ``hello'', create shared
+    /// Read client public key from client "hello", create shared
     /// secret and send our public key to client.
     async fn read_client_hello(self) -> Result<Self, Error> {
         if let Self::ConnectedFrom(id, broker, mut connection) = self {
@@ -315,7 +315,7 @@ where
         }
     }
 
-    /// Send client ``hello'' with our public key.
+    /// Send client "hello" with our public key.
     async fn send_client_hello(self) -> Result<Self, Error> {
         if let Self::ConnectedTo(id, broker, mut connection) = self {
             trace!(conn = ?connection, "Sending client hello...");

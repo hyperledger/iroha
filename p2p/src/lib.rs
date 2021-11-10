@@ -1,6 +1,6 @@
-//! This module provides a network layer for holding of persistent connections
-//! between blockchain nodes. Also, it provides for simple use of encryption
-//! to hide the data flowing between nodes.
+//! This module provides a network layer for holding of persistent
+//! connections between blockchain nodes. Sane defaults for secure
+//! Cryptography are chosen in this module, and encapsulated.
 
 use std::{io, net::AddrParseError};
 
@@ -23,19 +23,19 @@ pub type Network<T> = NetworkBase<T, X25519Sha256, ChaCha20Poly1305>;
 #[derive(Clone, Debug, iroha_derive::FromVariant, Error, iroha_actor::Message)]
 pub enum Error {
     /// Failed to read or write
-    #[error("Failed IO operation")]
+    #[error("Failed IO operation.")]
     Io(#[source] std::sync::Arc<io::Error>),
     /// Failed to read or write
-    #[error("Failed handshake")]
+    #[error("{0}: Failed handshake")]
     Handshake(u32),
     /// Failed to read or write
-    #[error("Failed reading message")]
+    #[error("Message improperly formatted")]
     Format,
     /// Failed to create keys
     #[error("Failed to create session key")]
     Keys,
     /// Failed to parse address
-    #[error("Failed to parse socket address")]
+    #[error("Failed to parse socket address.")]
     Addr(#[source] AddrParseError),
 }
 
@@ -63,24 +63,24 @@ impl From<aead::Error> for Error {
     }
 }
 
-/// Result to use in this crate.
+/// Result shorthand.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Any message read from other peer, serialized to bytes
+/// Message read from the other peer, serialized into bytes
 #[derive(Debug, Clone, Encode, Decode, iroha_actor::Message)]
 pub struct Message(pub Vec<u8>);
 
-/// Read result from any peer
+/// Result of reading from [`Peer`]
 #[derive(Debug, iroha_actor::Message)]
 pub struct MessageResult(pub Result<Message, Error>);
 
 impl MessageResult {
-    /// Convenience constructor for positive result
+    /// Constructor for positive result
     pub const fn new_message(message: Message) -> Self {
         Self(Ok(message))
     }
 
-    /// Convenience constructor for negative result
+    /// Constructor for negative result
     pub const fn new_error(error: Error) -> Self {
         Self(Err(error))
     }

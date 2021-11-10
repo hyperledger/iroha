@@ -49,7 +49,7 @@ where
     listen_addr: String,
     /// [`Peer`]s performing [`Peer::handshake`]
     pub new_peers: HashMap<ConnectionId, Addr<Peer<T, K, E>>>,
-    /// Current [`Peer`]s in connected state
+    /// Current [`Peer`]s in `Ready` state.
     pub peers: HashMap<PublicKey, Vec<Connection<T, K, E>>>,
     /// [`TcpListener`] that is accepting [`Peer`]s' connections
     pub listener: Option<TcpListener>,
@@ -209,7 +209,7 @@ where
             .connection_id()
             .expect("has connection by construction.");
         let peer = peer.start().await;
-        debug!(peer = ?peer, connection_id = ?connection_id, "Inserting into new_peers");
+        debug!(?peer, ?connection_id, "Inserting into new_peers");
         self.new_peers.insert(connection_id, peer.clone());
         peer.do_send(Start).await;
     }
