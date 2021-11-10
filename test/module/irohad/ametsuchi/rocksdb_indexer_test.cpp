@@ -12,6 +12,7 @@
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "common/result.hpp"
+#include "cryptography/hash.hpp"
 
 namespace fs = boost::filesystem;
 using namespace iroha::ametsuchi;
@@ -57,13 +58,13 @@ class RocksDBIndexerTest : public ::testing::Test {
         common, account_2_, ts_1_, 1, 2);
 
     common.valueBuffer().assign("TRUE");
-    forTransactionStatus<kDbOperation::kPut>(common, hash_1_);
+    forTransactionStatus<kDbOperation::kPut>(common, h_1_);
 
     common.valueBuffer().assign("FALSE");
-    forTransactionStatus<kDbOperation::kPut>(common, hash_2_);
+    forTransactionStatus<kDbOperation::kPut>(common, h_2_);
 
     common.valueBuffer().assign("TRUE");
-    forTransactionStatus<kDbOperation::kPut>(common, hash_3_);
+    forTransactionStatus<kDbOperation::kPut>(common, h_3_);
 
     common.commit();
   }
@@ -73,6 +74,13 @@ class RocksDBIndexerTest : public ::testing::Test {
 
   std::string account_1_ = "account1#test";
   std::string account_2_ = "account2#test";
+
+  shared_model::crypto::Hash h_1_ =
+      shared_model::crypto::Hash::fromHexString("0102030405");
+  shared_model::crypto::Hash h_2_ =
+      shared_model::crypto::Hash::fromHexString("1112131415");
+  shared_model::crypto::Hash h_3_ =
+      shared_model::crypto::Hash::fromHexString("2122232425");
 
   std::string hash_1_ = "hash1";
   std::string hash_2_ = "hash2";
@@ -164,32 +172,32 @@ TEST_F(RocksDBIndexerTest, SimpleCheckTxStatus) {
   initDB(common);
 
   auto result = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-      common, "123");
+      common, shared_model::crypto::Hash::fromHexString("1234"));
   ASSERT_TRUE(iroha::expected::hasError(result));
 
   result = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustNotExist>(
-      common, "123");
+      common, shared_model::crypto::Hash::fromHexString("1234"));
   ASSERT_TRUE(iroha::expected::hasValue(result));
 
-  result = forTransactionStatus<kDbOperation::kGet, kDbEntry::kCanExist>(common,
-                                                                         "123");
+  result = forTransactionStatus<kDbOperation::kGet, kDbEntry::kCanExist>(
+      common, shared_model::crypto::Hash::fromHexString("1234"));
   ASSERT_TRUE(iroha::expected::hasValue(result));
   ASSERT_FALSE(result.assumeValue());
 
   result = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-      common, hash_1_);
+      common, h_1_);
   ASSERT_TRUE(iroha::expected::hasValue(result));
   ASSERT_TRUE(result.assumeValue());
   ASSERT_EQ(*result.assumeValue(), "TRUE");
 
   result = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-      common, hash_2_);
+      common, h_2_);
   ASSERT_TRUE(iroha::expected::hasValue(result));
   ASSERT_TRUE(result.assumeValue());
   ASSERT_EQ(*result.assumeValue(), "FALSE");
 
   result = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-      common, hash_3_);
+      common, h_3_);
   ASSERT_TRUE(iroha::expected::hasValue(result));
   ASSERT_TRUE(result.assumeValue());
   ASSERT_EQ(*result.assumeValue(), "TRUE");

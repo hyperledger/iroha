@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
+#include "ametsuchi/impl/rocksdb_common.hpp"
 #include "ametsuchi/impl/rocksdb_storage_impl.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
@@ -155,6 +156,11 @@ Irohad::Irohad(
 }
 
 Irohad::~Irohad() {
+  if (db_context_ && log_) {
+    RocksDbCommon common(db_context_);
+    common.printStatus(*log_);
+  }
+
   if (consensus_gate) {
     consensus_gate->stop();
   }
@@ -331,8 +337,8 @@ Irohad::RunResult Irohad::initStorage(
       cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_ROLES);
       cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN);
 
-      db_context_ = std::make_shared<ametsuchi::RocksDBContext>(
-          std::move(rdb_port), std::move(cache));
+      db_context_ =
+          std::make_shared<ametsuchi::RocksDBContext>(std::move(rdb_port));
     } break;
 
     default:
@@ -340,6 +346,13 @@ Irohad::RunResult Irohad::initStorage(
           "Unexpected storage type!");
   }
   return storage_creator();
+}
+
+void Irohad::printDbStatus() {
+  if (db_context_ && log_) {
+    RocksDbCommon common(db_context_);
+    common.printStatus(*log_);
+  }
 }
 
 Irohad::RunResult Irohad::restoreWsv() {

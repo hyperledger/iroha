@@ -14,6 +14,7 @@
 #include <fmt/compile.h>
 #include <fmt/format.h>
 #include <rocksdb/db.h>
+#include <rocksdb/table.h>
 #include <rocksdb/utilities/optimistic_transaction_db.h>
 #include <rocksdb/utilities/transaction.h>
 #include "ametsuchi/impl/database_cache/cache.hpp"
@@ -21,6 +22,7 @@
 #include "common/disable_warnings.h"
 #include "common/irohad_version.hpp"
 #include "common/result.hpp"
+#include "cryptography/hash.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
@@ -464,27 +466,72 @@ namespace iroha::ametsuchi {
     RocksDBPort() = default;
 
     expected::Result<void, DbError> initialize(std::string const &db_name) {
-      if (db_name_) {
-        assert(*db_name_ == db_name);
-        return {};
-      }
+      db_name_ = db_name;
+      return reinitDB();
+    }
+
+   private:
+    expected::Result<void, DbError> reinitDB() {
+      assert(db_name_);
+
+      rocksdb::BlockBasedTableOptions table_options;
+      table_options.block_cache =
+          rocksdb::NewLRUCache(1 * 1024 * 1024 * 1024LL);
+      table_options.block_size = 32 * 1024;
+      // table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+      table_options.cache_index_and_filter_blocks = true;
 
       rocksdb::Options options;
       options.create_if_missing = true;
+      options.optimize_filters_for_hits = true;
+      options.table_factory.reset(
+          rocksdb::NewBlockBasedTableFactory(table_options));
 
       rocksdb::OptimisticTransactionDB *transaction_db;
       auto status = rocksdb::OptimisticTransactionDB::Open(
-          options, db_name, &transaction_db);
+          options, *db_name_, &transaction_db);
 
       if (!status.ok())
         return makeError<void>(DbErrorCode::kInitializeFailed,
                                "Db {} initialization failed with status: {}.",
-                               db_name,
+                               *db_name_,
                                status.ToString());
 
       transaction_db_.reset(transaction_db);
-      db_name_ = db_name;
       return {};
+    }
+
+    template <typename LoggerT>
+    void printStatus(LoggerT &log) {
+      if (transaction_db_) {
+        auto read_property = [&](const rocksdb::Slice &property) {
+          uint64_t value;
+          transaction_db_->GetIntProperty(property, &value);
+          return value;
+        };
+
+        auto read_property_str = [&](const rocksdb::Slice &property) {
+          std::string value;
+          transaction_db_->GetProperty(property, &value);
+          return value;
+        };
+
+        log.info(
+            "[ROCKSDB MEMORY STATUS]\nrocksdb.block-cache-usage: "
+            "{}\nrocksdb.block-cache-pinned-usage: "
+            "{}\nrocksdb.estimate-table-readers-mem: "
+            "{}\nrocksdb.cur-size-all-mem-tables: {}\nrocksdb.num-snapshots: "
+            "{}\nrocksdb.total-sst-files-size: "
+            "{}\nrocksdb.block-cache-capacity: {}\nrocksdb.stats: {}",
+            read_property("rocksdb.block-cache-usage"),
+            read_property("rocksdb.block-cache-pinned-usage"),
+            read_property("rocksdb.estimate-table-readers-mem"),
+            read_property("rocksdb.cur-size-all-mem-tables"),
+            read_property("rocksdb.num-snapshots"),
+            read_property("rocksdb.total-sst-files-size"),
+            read_property("rocksdb.block-cache-capacity"),
+            read_property_str("rocksdb.stats"));
+      }
     }
 
    private:
@@ -603,6 +650,11 @@ namespace iroha::ametsuchi {
     }
 
    public:
+    template <typename LoggerT>
+    void printStatus(LoggerT &log) {
+      tx_context_->db_port->printStatus(log);
+    }
+
     /// Makes commit to DB
     auto commit() {
       rocksdb::Status status;
@@ -693,8 +745,10 @@ namespace iroha::ametsuchi {
         return rocksdb::Status();
       }
 
-      auto status =
-          transaction()->Get(rocksdb::ReadOptions(), slice, &valueBuffer());
+      rocksdb::ReadOptions ro;
+      ro.fill_cache = false;
+
+      auto status = transaction()->Get(ro, slice, &valueBuffer());
       if (status.ok())
         storeInCache(slice.ToStringView());
 
@@ -735,8 +789,10 @@ namespace iroha::ametsuchi {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
-      std::unique_ptr<rocksdb::Iterator> it(
-          transaction()->GetIterator(rocksdb::ReadOptions()));
+      rocksdb::ReadOptions ro;
+      ro.fill_cache = false;
+
+      std::unique_ptr<rocksdb::Iterator> it(transaction()->GetIterator(ro));
       it->Seek(rocksdb::Slice(keyBuffer().data(), keyBuffer().size()));
 
       return it;
@@ -1300,9 +1356,13 @@ namespace iroha::ametsuchi {
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
-  forTransactionStatus(RocksDbCommon &common, std::string_view tx_hash) {
+  forTransactionStatus(RocksDbCommon &common,
+                       shared_model::crypto::Hash const &tx_hash) {
     return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kTransactionStatus, tx_hash);
+        common,
+        fmtstrings::kTransactionStatus,
+        std::string_view((char const *)tx_hash.blob().data(),
+                         tx_hash.blob().size()));
   }
 
   /**
