@@ -1160,7 +1160,7 @@ jobs:
           esac
           echo >>$GITHUB_ENV  features="$features"
       - name: Homebrew
-        run: brew install cmake ninja coreutils ccache
+        run: brew install cmake ninja coreutils ccache bash
         ## Takes 22 seconds with default github runner
       - if: ${{ contains(env.CC_NAME, 'gcc-10') }}
         name: Homebrew GCC
