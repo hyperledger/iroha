@@ -9,6 +9,7 @@ build = "build.rs"
 dev-telemetry = []
 
 [dependencies]
+async-trait = "0.1"
 chrono = "0.4"
 eyre = "0.6.5"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }

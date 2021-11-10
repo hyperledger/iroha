@@ -4,6 +4,7 @@ mod config;
 #[cfg(feature = "dev-telemetry")]
 pub mod dev;
 pub mod futures;
+mod retry_period;
 pub mod ws;
 
 pub use config::Configuration;

@@ -83,6 +83,8 @@ Configuration of iroha is done via options in the following document. Here is de
   "TELEMETRY": {
     "NAME": null,
     "URL": null,
+    "MIN_PERIOD": 1,
+    "MAX_EXPONENT": 4,
     "FILE": null
   },
   "NETWORK": {
@@ -530,6 +532,8 @@ Has type `iroha_telemetry::Configuration`. Can be configured via environment var
 ```json
 {
   "FILE": null,
+  "MAX_EXPONENT": 4,
+  "MIN_PERIOD": 1,
   "NAME": null,
   "URL": null
 }
@@ -543,6 +547,26 @@ Has type `Option<PathBuf>`. Can be configured via environment variable `TELEMETR
 
 ```json
 null
+```
+
+### `telemetry.max_exponent`
+
+The maximum exponent of 2 that is used for increasing delay between reconnections
+
+Has type `u8`. Can be configured via environment variable `TELEMETRY_MAX_EXPONENT`
+
+```json
+4
+```
+
+### `telemetry.min_period`
+
+The minimum period of time in seconds to wait before reconnecting
+
+Has type `u64`. Can be configured via environment variable `TELEMETRY_MIN_PERIOD`
+
+```json
+1
 ```
 
 ### `telemetry.name`
