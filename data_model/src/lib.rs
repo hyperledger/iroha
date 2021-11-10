@@ -1929,14 +1929,14 @@ pub mod peer {
         Clone, Debug, Eq, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
     )]
     pub struct Id {
-        /// Address of the Peer's entrypoint.
+        /// Address of the `Peer`'s entrypoint.
         pub address: String,
-        /// Public Key of the Peer.
+        /// Public Key of the `Peer`.
         pub public_key: PublicKey,
     }
 
     impl Peer {
-        /// Default `Peer` constructor.
+        /// Construct `Peer` given `id`.
         pub const fn new(id: Id) -> Self {
             Peer { id }
         }
@@ -1947,7 +1947,7 @@ pub mod peer {
     }
 
     impl Id {
-        /// Default peer `Id` constructor.
+        /// Construct `Id` given `public_key` and `address`.
         pub fn new(address: &str, public_key: &PublicKey) -> Self {
             Id {
                 address: address.to_owned(),

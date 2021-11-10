@@ -1,11 +1,12 @@
-//! This module provides a network layer for holding of persistent connections
-//! between blockchain nodes. Also, it provides for simple use of encryption
-//! to hide the data flowing between nodes.
+//! This module provides a network layer for holding of persistent
+//! connections between blockchain nodes. Sane defaults for secure
+//! Cryptography are chosen in this module, and encapsulated.
 
 use std::{io, net::AddrParseError};
 
-use iroha_crypto::ursa::{encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256};
-use iroha_derive::FromVariant;
+use iroha_crypto::ursa::{
+    encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256, CryptoError,
+};
 pub use network::{ConnectPeer, NetworkBase, Post};
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
@@ -18,44 +19,68 @@ pub mod peer;
 /// The main type to use for secure communication.
 pub type Network<T> = NetworkBase<T, X25519Sha256, ChaCha20Poly1305>;
 
-/// Error types of this crate.
-#[derive(Debug, FromVariant, Error, iroha_actor::Message)]
+/// Errors used in the [`iroha_p2p`] crate.
+#[derive(Clone, Debug, iroha_derive::FromVariant, Error, iroha_actor::Message)]
 pub enum Error {
     /// Failed to read or write
-    #[error("Failed IO operation")]
-    Io(#[source] io::Error),
+    #[error("Failed IO operation.")]
+    Io(#[source] std::sync::Arc<io::Error>),
     /// Failed to read or write
-    #[error("Failed handshake")]
-    Handshake,
+    #[error("{0}: Failed handshake")]
+    Handshake(u32),
     /// Failed to read or write
-    #[error("Failed reading message")]
+    #[error("Message improperly formatted")]
     Format,
     /// Failed to create keys
     #[error("Failed to create session key")]
     Keys,
     /// Failed to parse address
-    #[error("Failed to parse socket address")]
+    #[error("Failed to parse socket address.")]
     Addr(#[source] AddrParseError),
 }
 
-/// Result to use in this crate.
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Self::Io(std::sync::Arc::new(e))
+    }
+}
+
+impl From<parity_scale_codec::Error> for Error {
+    fn from(_: parity_scale_codec::Error) -> Self {
+        Self::Keys
+    }
+}
+
+impl From<CryptoError> for Error {
+    fn from(_: CryptoError) -> Self {
+        Self::Keys
+    }
+}
+
+impl From<aead::Error> for Error {
+    fn from(_: aead::Error) -> Self {
+        Self::Keys
+    }
+}
+
+/// Result shorthand.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Any message read from other peer, serialized to bytes
+/// Message read from the other peer, serialized into bytes
 #[derive(Debug, Clone, Encode, Decode, iroha_actor::Message)]
 pub struct Message(pub Vec<u8>);
 
-/// Read result from any peer
+/// Result of reading from [`Peer`]
 #[derive(Debug, iroha_actor::Message)]
 pub struct MessageResult(pub Result<Message, Error>);
 
 impl MessageResult {
-    /// Convenience constructor for positive result
+    /// Constructor for positive result
     pub const fn new_message(message: Message) -> Self {
         Self(Ok(message))
     }
 
-    /// Convenience constructor for negative result
+    /// Constructor for negative result
     pub const fn new_error(error: Error) -> Self {
         Self(Err(error))
     }
