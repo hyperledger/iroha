@@ -553,13 +553,13 @@ jobs:
           echo >>$GITHUB_ENV  CC_NAME=$(echo ${{matrix.buildspec}} | awk '{print $2}')
           echo >>$GITHUB_ENV  BuildType=$(echo ${{matrix.buildspec}} | awk '{print $3}')
           features=$(echo ${{matrix.buildspec}} | awk '{print $4}')
-          echo >>$GITHUB_ENV  features="$features"
           case $features in
-            normal) echo >>$GITHUB_ENV  CMAKE_USE="";;
+            normal) echo >>$GITHUB_ENV  CMAKE_USE=""; features= ;;
             ursa)   echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_LIBURSA=ON";;
             burrow) echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_BURROW=ON";;
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
+          echo >>$GITHUB_ENV  features="$features"
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -642,24 +642,18 @@ jobs:
         if: ${{ always() }}
         run: |
           df -h || true
-      - name: Generate artifact suffix depending on matrix
-        env:
-          OS: ${{ env.OS }} ##ubuntu  ## maybe ${{ run.os }}
-          CC_NAME: ${{ env.CC_NAME }}
-          BuildType: ${{ env.BuildType }}
-          features: ${{ env.features }}
+      - name: Generate artifact suffix depending on matrix to env.ARTIFACT_SUFFIX
         run: |
           set -x
           cc=$(echo $CC_NAME | sed -Ee's,[-/],,g' )
           build_type=$(echo $BuildType | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
           test $build_type = dbg -o $build_type = rel
-          uses=$(echo $features | tr ' ' - | tr A-Z a-z)
+          uses=$(echo "$features" | tr ' ' - | tr A-Z a-z)
           _os=${OS:+-$OS}  _cc=${cc:+-$cc}  _build_type=${build_type:+-$build_type}  _uses=${uses:+-$uses}
           echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=$_os$_cc$_build_type$_uses
           echo >>$GITHUB_ENV  _uses_suffix=$_uses
           echo >>$GITHUB_ENV  _compiler_suffix=$(test $cc != gcc9 && echo $_cc)
           echo >>$GITHUB_ENV  _debug_suffix=$(test "$build_type" = dbg && echo -debug || true)
-        #  echo >>$GITHUB_ENV  _os=$_os  _cc=$_cc  _build_type=$_build_type  _uses=$_uses
       - name: Upload artifact irohad
         uses: actions/upload-artifact@v2
         with:
@@ -865,13 +859,13 @@ jobs:
           echo >>$GITHUB_ENV  CC_NAME=$(echo ${{matrix.buildspec}} | awk '{print $2}')
           echo >>$GITHUB_ENV  BuildType=$(echo ${{matrix.buildspec}} | awk '{print $3}')
           features=$(echo ${{matrix.buildspec}} | awk '{print $4}')
-          echo >>$GITHUB_ENV  features="$features"
           case $features in
-            normal) echo >>$GITHUB_ENV  CMAKE_USE="";;
+            normal) echo >>$GITHUB_ENV  CMAKE_USE=""; features= ;;
             ursa)   echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_LIBURSA=ON";;
             burrow) echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_BURROW=ON";;
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
+          echo >>$GITHUB_ENV  features="$features"
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -954,24 +948,18 @@ jobs:
         if: ${{ always() }}
         run: |
           df -h || true
-      - name: Generate artifact suffix depending on matrix
-        env:
-          OS: ${{ env.OS }} ##ubuntu  ## maybe ${{ run.os }}
-          CC_NAME: ${{ env.CC_NAME }}
-          BuildType: ${{ env.BuildType }}
-          features: ${{ env.features }}
+      - name: Generate artifact suffix depending on matrix to env.ARTIFACT_SUFFIX
         run: |
           set -x
           cc=$(echo $CC_NAME | sed -Ee's,[-/],,g' )
           build_type=$(echo $BuildType | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
           test $build_type = dbg -o $build_type = rel
-          uses=$(echo $features | tr ' ' - | tr A-Z a-z)
+          uses=$(echo "$features" | tr ' ' - | tr A-Z a-z)
           _os=${OS:+-$OS}  _cc=${cc:+-$cc}  _build_type=${build_type:+-$build_type}  _uses=${uses:+-$uses}
           echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=$_os$_cc$_build_type$_uses
           echo >>$GITHUB_ENV  _uses_suffix=$_uses
           echo >>$GITHUB_ENV  _compiler_suffix=$(test $cc != gcc9 && echo $_cc)
           echo >>$GITHUB_ENV  _debug_suffix=$(test "$build_type" = dbg && echo -debug || true)
-        #  echo >>$GITHUB_ENV  _os=$_os  _cc=$_cc  _build_type=$_build_type  _uses=$_uses
       - name: Upload artifact irohad
         uses: actions/upload-artifact@v2
         with:
@@ -1164,13 +1152,13 @@ jobs:
           echo >>$GITHUB_ENV  CC_NAME=$(echo ${{matrix.buildspec}} | awk '{print $2}')
           echo >>$GITHUB_ENV  BuildType=$(echo ${{matrix.buildspec}} | awk '{print $3}')
           features=$(echo ${{matrix.buildspec}} | awk '{print $4}')
-          echo >>$GITHUB_ENV  features="$features"
           case $features in
-            normal) echo >>$GITHUB_ENV  CMAKE_USE="";;
+            normal) echo >>$GITHUB_ENV  CMAKE_USE=""; features= ;;
             ursa)   echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_LIBURSA=ON";;
             burrow) echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_BURROW=ON";;
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
+          echo >>$GITHUB_ENV  features="$features"
       - name: Homebrew
         run: brew install cmake ninja coreutils ccache
         ## Takes 22 seconds with default github runner
@@ -1265,29 +1253,18 @@ jobs:
         if: ${{ always() }}
         run: |
           df -h || true
-      - env:
-          OS: ${{ env.OS }} ##ubuntu  ## maybe ${{ run.os }}
-          CC_NAME: ${{ env.CC_NAME }}
-          BuildType: ${{ env.BuildType }}
-          features: ${{ env.features }}
+      - name: Generate artifact suffix depending on matrix to env.ARTIFACT_SUFFIX
         run: |
           set -x
           cc=$(echo $CC_NAME | sed -Ee's,[-/],,g' )
           build_type=$(echo $BuildType | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
           test $build_type = dbg -o $build_type = rel
-          uses=$(echo $features | tr ' ' - | tr A-Z a-z)
+          uses=$(echo "$features" | tr ' ' - | tr A-Z a-z)
           _os=${OS:+-$OS}  _cc=${cc:+-$cc}  _build_type=${build_type:+-$build_type}  _uses=${uses:+-$uses}
           echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=$_os$_cc$_build_type$_uses
           echo >>$GITHUB_ENV  _uses_suffix=$_uses
           echo >>$GITHUB_ENV  _compiler_suffix=$(test $cc != gcc9 && echo $_cc)
           echo >>$GITHUB_ENV  _debug_suffix=$(test "$build_type" = dbg && echo -debug || true)
-        #  echo >>$GITHUB_ENV  _os=$_os  _cc=$_cc  _build_type=$_build_type  _uses=$_uses
-
-        name: Generate artifact suffix >> env.ARTIFACT_SUFFIX
-        #run: inherited
-        # env:
-        #   <<: *step_artifact_suffix_env
-        #   OS: macos  ##${{run.os}}
       - name: Upload artifact irohad
         uses: actions/upload-artifact@v2
         with:
@@ -1569,13 +1546,13 @@ jobs:
           echo >>$GITHUB_ENV  CC_NAME=$(echo ${{matrix.buildspec}} | awk '{print $2}')
           echo >>$GITHUB_ENV  BuildType=$(echo ${{matrix.buildspec}} | awk '{print $3}')
           features=$(echo ${{matrix.buildspec}} | awk '{print $4}')
-          echo >>$GITHUB_ENV  features="$features"
           case $features in
-            normal) echo >>$GITHUB_ENV  CMAKE_USE="";;
+            normal) echo >>$GITHUB_ENV  CMAKE_USE=""; features= ;;
             ursa)   echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_LIBURSA=ON";;
             burrow) echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_BURROW=ON";;
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
+          echo >>$GITHUB_ENV  features="$features"
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -1590,24 +1567,18 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
-      - name: Generate artifact suffix depending on matrix
-        env:
-          OS: ${{ env.OS }} ##ubuntu  ## maybe ${{ run.os }}
-          CC_NAME: ${{ env.CC_NAME }}
-          BuildType: ${{ env.BuildType }}
-          features: ${{ env.features }}
+      - name: Generate artifact suffix depending on matrix to env.ARTIFACT_SUFFIX
         run: |
           set -x
           cc=$(echo $CC_NAME | sed -Ee's,[-/],,g' )
           build_type=$(echo $BuildType | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
           test $build_type = dbg -o $build_type = rel
-          uses=$(echo $features | tr ' ' - | tr A-Z a-z)
+          uses=$(echo "$features" | tr ' ' - | tr A-Z a-z)
           _os=${OS:+-$OS}  _cc=${cc:+-$cc}  _build_type=${build_type:+-$build_type}  _uses=${uses:+-$uses}
           echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=$_os$_cc$_build_type$_uses
           echo >>$GITHUB_ENV  _uses_suffix=$_uses
           echo >>$GITHUB_ENV  _compiler_suffix=$(test $cc != gcc9 && echo $_cc)
           echo >>$GITHUB_ENV  _debug_suffix=$(test "$build_type" = dbg && echo -debug || true)
-        #  echo >>$GITHUB_ENV  _os=$_os  _cc=$_cc  _build_type=$_build_type  _uses=$_uses
       - name: Download artifact
         uses: actions/download-artifact@v2
         with:
@@ -1645,7 +1616,6 @@ jobs:
 
           images: |
             ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
-            ghcr.io/${{ github.repository }}${{ env._uses_suffix }}
           flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - uses: docker/metadata-action@v3
@@ -1763,13 +1733,13 @@ jobs:
           echo >>$GITHUB_ENV  CC_NAME=$(echo ${{matrix.buildspec}} | awk '{print $2}')
           echo >>$GITHUB_ENV  BuildType=$(echo ${{matrix.buildspec}} | awk '{print $3}')
           features=$(echo ${{matrix.buildspec}} | awk '{print $4}')
-          echo >>$GITHUB_ENV  features="$features"
           case $features in
-            normal) echo >>$GITHUB_ENV  CMAKE_USE="";;
+            normal) echo >>$GITHUB_ENV  CMAKE_USE=""; features= ;;
             ursa)   echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_LIBURSA=ON";;
             burrow) echo >>$GITHUB_ENV  CMAKE_USE="-DUSE_BURROW=ON";;
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
+          echo >>$GITHUB_ENV  features="$features"
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -1784,24 +1754,18 @@ jobs:
         with:
           ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
           repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
-      - name: Generate artifact suffix depending on matrix
-        env:
-          OS: ${{ env.OS }} ##ubuntu  ## maybe ${{ run.os }}
-          CC_NAME: ${{ env.CC_NAME }}
-          BuildType: ${{ env.BuildType }}
-          features: ${{ env.features }}
+      - name: Generate artifact suffix depending on matrix to env.ARTIFACT_SUFFIX
         run: |
           set -x
           cc=$(echo $CC_NAME | sed -Ee's,[-/],,g' )
           build_type=$(echo $BuildType | tr A-Z a-z | sed -E -es,debug,dbg, -es,release,rel, )
           test $build_type = dbg -o $build_type = rel
-          uses=$(echo $features | tr ' ' - | tr A-Z a-z)
+          uses=$(echo "$features" | tr ' ' - | tr A-Z a-z)
           _os=${OS:+-$OS}  _cc=${cc:+-$cc}  _build_type=${build_type:+-$build_type}  _uses=${uses:+-$uses}
           echo >>$GITHUB_ENV  ARTIFACT_SUFFIX=$_os$_cc$_build_type$_uses
           echo >>$GITHUB_ENV  _uses_suffix=$_uses
           echo >>$GITHUB_ENV  _compiler_suffix=$(test $cc != gcc9 && echo $_cc)
           echo >>$GITHUB_ENV  _debug_suffix=$(test "$build_type" = dbg && echo -debug || true)
-        #  echo >>$GITHUB_ENV  _os=$_os  _cc=$_cc  _build_type=$_build_type  _uses=$_uses
       - name: Download artifact
         uses: actions/download-artifact@v2
         with:
@@ -1839,7 +1803,6 @@ jobs:
 
           images: |
             ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
-            ghcr.io/${{ github.repository }}${{ env._uses_suffix }}
           flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - uses: docker/metadata-action@v3
