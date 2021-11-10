@@ -137,7 +137,7 @@ async fn check_peers_status(
         .await
         .expect("Could not get connected peers from Network!")
         .peers;
-    iroha_logger::info!("Got {} peers", peers.len());
+    iroha_logger::info!(peer_count = peers.len(), "Peers status");
 
     let (online, offline): (Vec<_>, Vec<_>) = network_topology
         .sorted_peers()
@@ -193,7 +193,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
         network_topology: Topology,
         network: Addr<IrohaNetwork>,
     ) -> Result<Topology> {
-        iroha_logger::info!("Waiting for active peers.",);
+        iroha_logger::info!("Waiting for active peers",);
         for i in 0..self.wait_for_peers_retry_count {
             if let Ok(topology) =
                 try_get_online_topology(&this_peer_id, &network_topology, network.clone()).await
@@ -203,7 +203,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
             }
 
             let reconnect_in_ms = self.wait_for_peers_retry_period_ms * i;
-            iroha_logger::info!("Retrying to connect in {} ms.", reconnect_in_ms);
+            iroha_logger::info!("Retrying to connect in {} ms", reconnect_in_ms);
             time::sleep(Duration::from_millis(reconnect_in_ms)).await;
         }
         Err(eyre!("Waiting for peers failed."))

@@ -103,7 +103,7 @@ impl Handler<TestMessage> for TestActor {
     type Result = ();
 
     async fn handle(&mut self, msg: TestMessage) -> Self::Result {
-        info!("Actor got message {:?}", msg);
+        info!(msg = ?msg, "Actor received message");
         let _ = self.messages.fetch_add(1, Ordering::SeqCst);
     }
 }
@@ -250,7 +250,7 @@ async fn start_network(
     peers: Vec<String>,
     messages: Arc<AtomicU32>,
 ) -> (String, Broker, PublicKey) {
-    info!("Starting network on {}...", &addr);
+    info!(peer_addr = %addr, "Starting network");
 
     let keypair = KeyPair::generate().unwrap();
     let broker = Broker::new();
@@ -290,14 +290,14 @@ async fn start_network(
     }
     while let Ok(result) = network.send(iroha_p2p::network::GetConnectedPeers).await {
         let connections = result.peers.len();
-        info!("[{}] Connections: {}", &addr, connections);
+        info!(peer_addr = %addr, connections = %connections);
         if connections == count || test_count >= 10 {
             break;
         }
         test_count += 1;
         tokio::time::sleep(Duration::from_millis(1000)).await;
     }
-    info!("[{}] Got all {} connections!", &addr, count);
+    info!(peer_addr = %addr, conn_count = %count, "Got all connections!");
 
     (addr, broker, keypair.public_key.clone())
 }

@@ -27,7 +27,7 @@ type WebSocketSplitSink = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, 
 /// Fails if unable to connect to the server
 pub async fn start(config: &Configuration, telemetry: Receiver<Telemetry>) -> Result<bool> {
     if let (Some(name), Some(url)) = (&config.name, &config.url) {
-        iroha_logger::info!("Starting telemetry to {}", url);
+        iroha_logger::info!(url = %url, "Starting telemetry");
         let (ws, _) = tokio_tungstenite::connect_async(url).await?;
         let (write, _read) = ws.split();
         let (internal_sender, internal_receiver) = mpsc::channel(10);
@@ -112,8 +112,8 @@ where
                 }
                 self.send_message(msg).await;
             }
-            Err(e) => {
-                iroha_logger::error!("prepare_message failed: {:?}", e);
+            Err(error) => {
+                iroha_logger::error!(%error, "prepare_message failed");
             }
         }
     }

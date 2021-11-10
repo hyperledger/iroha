@@ -50,12 +50,12 @@ pub async fn start(
             let telemetry_json = match serde_json::to_string(&telemetry) {
                 Ok(json) => json,
                 Err(error) => {
-                    iroha_logger::error!(%error, "Failed to serialize telemetry to json");
+                    iroha_logger::error!(err = %error, "Failed to serialize telemetry to json");
                     continue;
                 }
             };
             if let Err(error) = file.write_all(telemetry_json.as_bytes()).await {
-                iroha_logger::error!(%error, "Failed to write telemetry to file");
+                iroha_logger::error!(err = %error, "Failed to write telemetry to file");
             }
         }
     });

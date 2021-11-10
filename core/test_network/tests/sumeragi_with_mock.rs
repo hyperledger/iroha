@@ -411,7 +411,7 @@ pub mod utils {
                 } else if let Some(genesis_network) = self.genesis_network.take() {
                     let addr = self.network.clone();
                     if let Err(err) = genesis_network.submit_transactions(&mut self, addr).await {
-                        iroha_logger::error!("Failed to submit genesis transactions: {}", err)
+                        iroha_logger::error!(err = %err, "Failed to submit genesis transactions")
                     }
                 }
                 self.update_network_topology().await;

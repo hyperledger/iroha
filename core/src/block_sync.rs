@@ -151,10 +151,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
             return;
         };
 
-        iroha_logger::info!(
-            "Synchronizing blocks, {} blocks left in this batch.",
-            blocks.len()
-        );
+        iroha_logger::info!(block_count = blocks.len(), "Synchronizing blocks",);
 
         let (block, blocks) = if let Some((block, blocks)) = blocks.split_first() {
             (block, blocks)
@@ -198,7 +195,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
                 .do_send(CommitBlock(block.clone().into()))
                 .await;
         } else {
-            iroha_logger::warn!("Failed to commit a block received via synchronization request - validation failed. Block hash: {}.", block.hash());
+            iroha_logger::warn!(block_hash = %block.hash(), "Failed to commit a block received via synchronization request - validation failed");
             self.state = State::Idle;
         }
     }
@@ -342,7 +339,7 @@ pub mod message {
                             .await;
                         }
                         Ok(_) => (),
-                        Err(error) => iroha_logger::error!(%error),
+                        Err(error) => iroha_logger::error!(err = %error),
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, peer_id }) => {

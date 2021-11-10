@@ -272,16 +272,16 @@ where
     }
 
     pub async fn send_all<M: iroha_actor::broker::BrokerMessage + Sync>(&self, m: M) {
-        for p in self.peers() {
-            iroha_logger::info!("Sending {:?}", p.id);
-            p.send(m.clone()).await
+        for peer in self.peers() {
+            iroha_logger::info!(peer_id = ?peer.id, "Sending message");
+            peer.send(m.clone()).await
         }
     }
 
     pub async fn send_all_default<M: iroha_actor::broker::BrokerMessage + Sync + Default>(&self) {
-        for p in self.peers() {
-            iroha_logger::info!("Sending {:?}", p.id);
-            p.send_default::<M>().await
+        for peer in self.peers() {
+            iroha_logger::info!(peer_id = ?peer.id, "Sending message");
+            peer.send_default::<M>().await
         }
     }
 }
@@ -368,9 +368,8 @@ where
             .unwrap();
         let info_span = iroha_logger::info_span!(
             "test-peer",
-            "p2p - {}, api - {}",
-            &self.p2p_address,
-            &self.api_address
+            p2p_addr = %self.p2p_address,
+            api_addr = %self.api_address
         );
         let broker = self.broker.clone();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -412,9 +411,8 @@ where
             .unwrap();
         let info_span = iroha_logger::info_span!(
             "test-peer",
-            "p2p - {}, api - {}",
-            &self.p2p_address,
-            &self.api_address
+            p2p_addr = %self.p2p_address,
+            api_addr = %self.api_address
         );
         let broker = self.broker.clone();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);

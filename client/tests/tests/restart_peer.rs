@@ -65,7 +65,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
 
     let account_asset = iroha_client
         .poll_request(client::asset::by_account_id(account_id), |assets| {
-            iroha_logger::error!(?assets);
+            iroha_logger::error!(assets = ?assets);
             assets
                 .iter()
                 .any(|asset| asset.id.definition_id == asset_definition_id)

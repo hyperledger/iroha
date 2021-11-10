@@ -163,7 +163,7 @@ impl<A: Actor> Addr<A> {
         tokio::task::spawn(async move {
             // TODO: propagate the error.
             if let Err(error) = sender.send(envelope).await {
-                iroha_logger::error!("Error sending actor message: {}", &error);
+                iroha_logger::error!(err = %error, "Error sending actor message");
             }
         });
     }
@@ -381,7 +381,7 @@ impl<A: Actor> InitializedActor<A> {
                     }
                 }
             }
-            iroha_logger::error!(actor = std::any::type_name::<A>(), "Actor stopped");
+            iroha_logger::error!(actor = %std::any::type_name::<A>(), "Actor stopped");
             actor.on_stop(&mut ctx).await;
         }
         .in_current_span();
