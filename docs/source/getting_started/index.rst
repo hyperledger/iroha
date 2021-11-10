@@ -30,7 +30,7 @@ Starting Iroha Node
 
 Creating a Docker Network
 ^^^^^^^^^^^^^^^^^^^^^^^^^
-To operate, Iroha requires a ``PostgreSQL`` database.
+To operate, Iroha requires a ``PostgreSQL`` database, if you use Iroha with PostgreSQL and not RocksDB.
 Let's start with creating a Docker network, so containers for Postgres and
 Iroha can run on the same virtual network and successfully communicate.
 In this guide we will call it ``iroha-network``, but you can use any name.
@@ -42,6 +42,8 @@ In your terminal write following command:
 
 Starting PostgreSQL Container
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. note:: You do not need to start this container if your plan is to use Iroha with RocksDB and not PostgreSQL. Just skip to the next step. 
 
 Now we need to run ``PostgreSQL`` in a container, attach it to the network
 you have created before, and expose ports for communication:
@@ -113,6 +115,8 @@ Let's start Iroha node in Docker container with the following command:
   --network=iroha-network \
   -e KEY='node0' \
   hyperledger/iroha:latest
+
+.. note:: If you are using Iroha without PostgreSQL (with RocksDB), please add ``--entrypoint irohad`` to these parameters, to allow Iroha to skip the PostgreSQL container check.
 
 If you started the node successfully you would see the container id in the same console where you started the container.
 
