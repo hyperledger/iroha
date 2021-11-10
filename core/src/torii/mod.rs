@@ -17,7 +17,6 @@ use warp::{
     Filter, Reply,
 };
 
-#[macro_use]
 mod utils;
 
 use crate::{
@@ -45,10 +44,10 @@ pub struct Torii<W: WorldTrait> {
 #[derive(Error, Debug)]
 pub enum Error {
     /// Failed to execute or validate query
-    #[error("Failed to execute or validate query")]
+    #[error("Failed to execute or validate query. {0}")]
     Query(#[source] query::Error),
     /// Failed to decode transaction
-    #[error("Failed to decode transaction")]
+    #[error("Failed to decode transaction. {0}")]
     VersionedTransaction(#[source] iroha_version::error::Error),
     /// Failed to accept transaction
     #[error("Failed to accept transaction: {0}")]
@@ -57,10 +56,10 @@ pub enum Error {
     #[error("Failed to get pending transactions: {0}")]
     RequestPendingTransactions(eyre::Error),
     /// Failed to decode pending transactions from leader
-    #[error("Failed to decode pending transactions from leader")]
+    #[error("Failed to decode pending transactions from leader. {0}")]
     DecodeRequestPendingTransactions(#[source] iroha_version::error::Error),
     /// Failed to encode pending transactions
-    #[error("Failed to encode pending transactions")]
+    #[error("Failed to encode pending transactions. {0}")]
     EncodePendingTransactions(#[source] iroha_version::error::Error),
     /// The block sync message channel is full. Dropping the incoming message.
     #[error("Transaction is too big")]
@@ -69,7 +68,7 @@ pub enum Error {
     #[error("Configuration error: {0}")]
     Config(eyre::Error),
     /// Failed to push into queue.
-    #[error("Failed to push into queue")]
+    #[error("Failed to push into queue. {0}")]
     PushIntoQueue(#[source] Box<queue::Error>),
 }
 
