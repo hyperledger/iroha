@@ -87,7 +87,7 @@ END
         grep -Fq <log '~~~ WSV-s DIFFER!!! ~~~'
         grep -Fq <log "Role-s 'client' have different permissions: '00000000000001110100100100000100100100011010111010000' and '00000000000001110100100100000100100100011010111010011'"
         grep -Fq <log 'Wsv-s have different roles.'
-        grep -Fq <log "AssetQuantity-s 'xor#sora' have different quantity: '0.0' and '1234567.0'"
+        grep -Eq <log "AssetQuantity-s 'xor#sora' have different quantity: '0(.0)?' and '1234567(.0)?'"
         grep -Fq <log 'Wsv-s have different domains.'
         echo "SUCCESS! iroha_wsv_diff test on wrong hacked database passed!"
     else
