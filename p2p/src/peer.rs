@@ -11,9 +11,6 @@ use iroha_crypto::ursa::{
     kex::KeyExchangeScheme,
     keys::{PrivateKey, PublicKey},
 };
-// Clippy false positive.
-#[allow(unused_imports)]
-use iroha_logger::ErrorLogging;
 use iroha_logger::{debug, error, info, trace, warn};
 use parity_scale_codec::{Decode, Encode};
 use rand::{Rng, RngCore};
@@ -42,7 +39,7 @@ const MAX_HANDSHAKE_LENGTH: usize = 255;
 pub const DEFAULT_AAD: &[u8; 10] = b"Iroha2 AAD";
 
 #[derive(Debug)]
-/// Peer's connection data
+/// Peer's connection data. Not to be confused with [`crate::network::Connection`]
 pub struct Connection {
     /// A unique connection id
     id: ConnectionId,
@@ -91,7 +88,7 @@ impl From<TcpStream> for Connection {
     }
 }
 
-/// Peer's cryptographic data
+/// Peer's cryptographic primitives
 pub struct Cryptographer<T, K, E>
 where
     T: Encode + Decode + Send + Clone + 'static,
@@ -116,10 +113,12 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
+    /// Instantiate [`crate::Cryptographer`].
+    /// # Errors
+    /// If key exchange fails to produce keypair (extremely rare)
     fn default_or_err() -> Result<Self, Error> {
-        // P2P encryption primitives
-        let dh = K::new();
-        let (public_key, secret_key) = dh.keypair(None).log_warn("Error generating keypair")?;
+        let key_exchange = K::new();
+        let (public_key, secret_key) = key_exchange.keypair(None)?;
         Ok(Self {
             secret_key,
             public_key,
@@ -129,6 +128,7 @@ where
         })
     }
 
+    /// Decrypt bytes. If no cipher is set, the bytes are returned as is.
     fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
@@ -136,6 +136,7 @@ where
         }
     }
 
+    /// Encrypt bytes. If no cipher is set, the bytes are returned as is.
     fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
@@ -143,26 +144,23 @@ where
         }
     }
 
-    fn new_encryptor(key: &[u8]) -> Result<SymmetricEncryptor<E>, aead::Error> {
-        SymmetricEncryptor::<E>::new_with_key(key)
-    }
-
     /// Creates a shared key from two public keys - local and external,
     /// then instantiates an encryptor from that key.
     fn derive_shared_key(&mut self, public_key: &PublicKey) -> Result<&Self, Error> {
         let dh = K::new();
-        let shared = dh
-            .compute_shared_secret(&self.secret_key, public_key)
-            .log_warn("Error creating shared secret")?;
+        let shared = dh.compute_shared_secret(&self.secret_key, public_key)?;
         debug!("Derived shared key: {:?}", &shared.0);
-        let encryptor = Cryptographer::<T, K, E>::new_encryptor(shared.0.as_slice())
-            .log_warn("Error creating encryptor")?;
+        let encryptor = {
+            let key: &[u8] = shared.0.as_slice();
+            SymmetricEncryptor::<E>::new_with_key(key)
+        }?;
         self.cipher = Some(encryptor);
         Ok(self)
     }
 }
 
-/// This is an endpoint, that juggles messages between [`crate::Network`] and another connected node.
+/// An endpoint, that juggles messages between [`crate::Network`] and another connected node.
+/// Until the [`crate::Peer`] is in the `Ready` state, it doesn't have a fully set up
 pub enum Peer<T, K, E>
 where
     T: Encode + Decode + Send + Clone + 'static,
@@ -193,7 +191,7 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    /// Peer's id.
+    /// Get [`Peer`]'s `id`.
     pub fn id(&self) -> &PeerId {
         match self {
             Peer::Connecting(id, _)
@@ -207,7 +205,8 @@ where
         }
     }
 
-    /// Peer's connection id
+    /// [`Peer`]'s [`crate::peer::Connection`]'s `id`.
+    ///
     /// # Errors
     /// If peer is either `Connecting`, `Disconnected`, or `Error`-ed
     pub fn connection_id(&self) -> Result<ConnectionId, Error> {
@@ -223,13 +222,18 @@ where
         }
     }
 
-    /// Creates an outgoing peer
+    /// Create outgoing [`Peer`]
+    ///
     /// # Errors
     /// If `new_inner()` errors (RARE)
     pub async fn new_to(id: PeerId, broker: Broker) -> Result<Self, Error> {
         Self::Connecting(id, broker).connect().await
     }
 
+    /// Bring [`Peer`] into `Ready` state, unless it's either `Disconnected` or `Error`-ed.
+    ///
+    /// # Errors
+    /// If any of the handshake steps fail.
     async fn handshake(&mut self) -> Result<&Self, Error> {
         trace!(peer = ?self, "Attempting handshake");
         let mut temp = Self::Disconnected(self.id().clone());
@@ -285,8 +289,8 @@ where
         Ok(self)
     }
 
-    /// Reads client public key from client hello,
-    /// creates shared secret and sends our public key to client
+    /// Read client public key from client ``hello'', create shared
+    /// secret and send our public key to client.
     async fn read_client_hello(self) -> Result<Self, Error> {
         if let Self::ConnectedFrom(id, broker, mut connection) = self {
             let mut crypto = Cryptographer::default_or_err()?;
@@ -311,7 +315,7 @@ where
         }
     }
 
-    /// Sends client hello with our public key
+    /// Send client ``hello'' with our public key.
     async fn send_client_hello(self) -> Result<Self, Error> {
         if let Self::ConnectedTo(id, broker, mut connection) = self {
             trace!(conn = ?connection, "Sending client hello...");
@@ -338,7 +342,7 @@ where
         }
     }
 
-    /// Sends our app public key
+    /// Send peer's public key
     async fn send_our_public_key(self) -> Result<Self, Error> {
         trace!(peer = ?self, "Sending our public key.");
         if let Self::SendKey(id, broker, mut connection, crypto) = self {
@@ -353,7 +357,7 @@ where
             // Packing length and message in one network packet for efficiency
             let data = id.public_key.encode();
 
-            let data = &crypto.encrypt(data).log_warn("Error encrypting message")?;
+            let data = &crypto.encrypt(data)?;
 
             let mut buf = Vec::<u8>::with_capacity(data.len() + 1);
             #[allow(clippy::cast_possible_truncation)]
@@ -368,7 +372,7 @@ where
         }
     }
 
-    /// Reads theirs app public key
+    /// Read external client app's public key
     async fn read_their_public_key(self) -> Result<Self, Error> {
         trace!(peer = ?self, "Reading their public key.");
         if let Self::GetKey(mut id, broker, mut connection, crypto) = self {
@@ -383,9 +387,9 @@ where
             let mut data = vec![0_u8; size];
             let _ = read_half.read_exact(&mut data).await?;
 
-            let data = crypto.decrypt(data).log_warn("Error decrypting message")?;
+            let data = crypto.decrypt(data)?;
 
-            let pub_key = Decode::decode(&mut data.as_slice()).log_warn("Error decoding")?;
+            let pub_key = Decode::decode(&mut data.as_slice())?;
 
             id.public_key = pub_key;
             Ok(Self::Ready(id, broker, connection, crypto))
@@ -395,16 +399,18 @@ where
         }
     }
 
-    /// Creates a connection to other peer
+    /// Establish a [`crate::Peer::Connection`] with external
+    /// peer. The external peer's address is encoded in
+    /// `self.id.address`.
+    /// # Errors
+    /// If [`TcpStream::connect`] fails.
     #[allow(clippy::expect_used)]
     pub(crate) async fn connect(self) -> Result<Self, Error> {
-        trace!(peer = ?self, "Connect request");
+        trace!(peer = ?self, "Establishing connection");
         if let Self::Connecting(id, broker) = self {
             let addr = id.address.clone();
             debug!(addr = ?addr, "Connecting");
-            let stream = TcpStream::connect(addr.clone())
-                .await
-                .log_warn(&format!("Failure to connect to {}", &addr))?;
+            let stream = TcpStream::connect(addr.clone()).await?;
             debug!(addr = ?addr, "Connected to");
             let connection = Connection::new(rand::random(), stream);
             Ok(Self::ConnectedTo(id, broker, connection))
@@ -478,7 +484,7 @@ where
             peer = ?dummy,
             "Starting connection and handshake"
         );
-        if dummy.handshake().await.log_err("Handshake Failed").is_err() {
+        if dummy.handshake().await.is_err() {
             return;
         }
         if let Self::Ready(id, broker, mut connection, crypto) = dummy {
@@ -493,7 +499,7 @@ where
             connection.finish_sender = Some(sender);
 
             // Subscribe reading stream
-            ctx.notify_with(stream(read, receiver));
+            ctx.notify_with(read_connection_stream(read, receiver));
             dummy = Self::Ready(id, broker, connection, crypto);
             std::mem::swap(&mut dummy, self);
         } else {
@@ -583,9 +589,7 @@ where
             };
             trace!("Sending message");
             #[allow(clippy::unwrap_used)]
-            if let Err(e) = send_message(connection.write.as_mut().unwrap(), data.as_slice())
-                .await
-                .log_warn("Error sending message to peer")
+            if let Err(e) = send_message(connection.write.as_mut().unwrap(), data.as_slice()).await
             {
                 let mut new_self = Self::Error(id.clone(), e);
                 std::mem::swap(&mut new_self, self);
@@ -635,7 +639,8 @@ where
     }
 }
 
-/// Read client hello
+/// Read client hello.
+///
 /// # Errors
 /// If reading encounters IO-error
 pub async fn read_client_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, Error> {
@@ -648,9 +653,10 @@ pub async fn read_client_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, 
     Ok(PublicKey(Vec::from(key)))
 }
 
-/// Send client hello
+/// Send client hello.
+///
 /// # Errors
-/// If writing encounters IO-error
+/// If writing to `stream` fails.
 pub async fn send_client_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::Result<()> {
     let garbage = Garbage::generate();
     garbage.write(stream).await?;
@@ -658,9 +664,10 @@ pub async fn send_client_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::R
     Ok(())
 }
 
-/// Read server hello
+/// Read server hello.
+///
 /// # Errors
-/// If reading encounters IO-error
+/// If reading from `stream` fails, or if the exact key is not present in the stream.
 pub async fn read_server_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, Error> {
     stream.as_ref().readable().await?;
     Garbage::read(stream).await?;
@@ -671,9 +678,10 @@ pub async fn read_server_hello(stream: &mut OwnedReadHalf) -> Result<PublicKey, 
     Ok(PublicKey(Vec::from(key)))
 }
 
-/// Send server hello
+/// Send server hello.
+///
 /// # Errors
-/// If writing encounters IO-error
+/// If writing to `stream` fails.
 async fn send_server_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::Result<()> {
     let garbage = Garbage::generate();
     garbage.write(stream).await?;
@@ -681,6 +689,12 @@ async fn send_server_hello(stream: &mut OwnedWriteHalf, key: &[u8]) -> io::Resul
     Ok(())
 }
 
+/// Read message from `stream` returning the message truncated to `MAX_MESSAGE_LENGTH`.
+///
+/// # Errors
+/// If reading from `stream` fails, if the stream doesn't contain exactly `size` zeroes,
+/// where `size` is the first `u32` of the `stream`. Returns [`crate::Error::Format`] if the
+/// length of the message is is more than `MAX_MESSAGE_LENGTH`.
 async fn read_message(stream: &mut OwnedReadHalf) -> Result<Message, Error> {
     let size = stream.read_u32().await? as usize;
     if size > 0 && size < MAX_MESSAGE_LENGTH {
@@ -696,9 +710,11 @@ async fn read_message(stream: &mut OwnedReadHalf) -> Result<Message, Error> {
     }
 }
 
-/// Sends byte-encoded message to the peer
+/// Send byte-encoded message to the peer
+///
 /// # Errors
-/// If writing encounters IO-error, or the message length is more than `MAX_MESSAGE_LENGTH`.
+/// If writing to `stream` fails, or [`crate::Error::Format`] if the
+/// message length is more than `MAX_MESSAGE_LENGTH`.
 pub async fn send_message(stream: &mut OwnedWriteHalf, data: &[u8]) -> Result<(), Error> {
     if data.len() > MAX_MESSAGE_LENGTH {
         warn!(
@@ -719,7 +735,7 @@ pub async fn send_message(stream: &mut OwnedWriteHalf, data: &[u8]) -> Result<()
     }
 }
 
-fn stream(
+fn read_connection_stream(
     mut read: OwnedReadHalf,
     mut finish: Receiver<()>,
 ) -> impl Stream<Item = MessageResult> + Send + 'static {
@@ -753,7 +769,7 @@ fn stream(
 /// Peer's identification.
 pub type PeerId = iroha_data_model::peer::Id;
 
-/// Just a placeholder, that can skip garbage bytes and generate them.
+/// Placeholder that can skip garbage bytes and generate them.
 struct Garbage {
     garbage: Vec<u8>,
 }

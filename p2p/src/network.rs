@@ -29,7 +29,7 @@ use crate::{
     Error,
 };
 
-/// Represents a Peer actor and its connection ID
+/// Peer actor and its connection ID
 #[derive(Clone, Debug)]
 pub struct Connection<T, K, E>(Addr<Peer<T, K, E>>, ConnectionId)
 where
@@ -37,26 +37,27 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static;
 
-/// Main network layer structure, that is holding connections, called [`Peer`]s.
+/// Base network layer structure, holding connections, called
+/// [`Peer`]s.
 pub struct NetworkBase<T, K, E>
 where
     T: Debug + Encode + Decode + BrokerMessage + Send + Sync + Clone + 'static,
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    /// Listening to this address for incoming connections. Must parse into [`std::net::SocketAddr`].
+    /// Listenting address for incoming connections. Must parse into [`std::net::SocketAddr`].
     listen_addr: String,
-    /// Peers that are doing handshakes for the moment
+    /// [`Peer`]s performing [`Peer::handshake`]
     pub new_peers: HashMap<ConnectionId, Addr<Peer<T, K, E>>>,
-    /// Current peers in connected state
+    /// Current [`Peer`]s in connected state
     pub peers: HashMap<PublicKey, Vec<Connection<T, K, E>>>,
-    /// `TcpListener` that is accepting peers' connections
+    /// [`TcpListener`] that is accepting [`Peer`]s' connections
     pub listener: Option<TcpListener>,
     /// Our app-level public key
     public_key: PublicKey,
-    /// Broker doing internal communication
+    /// [`iroha_actor::broker::Broker`] for internal communication
     pub broker: Broker,
-    /// A flag that stops listening stream
+    /// Flag that stops listening stream
     finish_sender: Option<Sender<()>>,
     /// Mailbox capacity
     mailbox: usize,
@@ -68,17 +69,18 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    /// Creates a network structure, that will hold connections to other nodes.
+    /// Create a network structure, holding [`Connection`]s to other nodes.
     ///
     /// # Errors
-    /// It will return Err if it is unable to start listening on specified address:port.
+    /// If unable to start listening on specified `listen_addr` in
+    /// format `address:port`.
     pub async fn new(
         broker: Broker,
         listen_addr: String,
         public_key: PublicKey,
         mailbox: usize,
     ) -> Result<Self, Error> {
-        info!("Binding listener to {}...", &listen_addr);
+        info!(%listen_addr, "Binding listener to", );
         let listener = TcpListener::bind(&listen_addr).await?;
         Ok(Self {
             listen_addr,
@@ -92,7 +94,7 @@ where
         })
     }
 
-    /// Yields a stream of accepted peer connections.
+    /// Yield a stream of accepted peer connections.
     fn listener_stream(
         listener: TcpListener,
         public_key: PublicKey,
@@ -393,21 +395,21 @@ pub struct ConnectedPeers {
     pub peers: HashSet<PublicKey>,
 }
 
-/// An id of connection.
+/// The [`Connection`]'s `id`.
 pub type ConnectionId = u64;
 
 /// Variants of messages from [`Peer`] - connection state changes and data messages
 #[derive(Clone, Debug, iroha_actor::Message, Decode)]
 pub enum PeerMessage<T: Encode + Decode + Debug> {
-    /// Peer just connected and finished handshake
+    /// [`Peer`] finished handshake and `Ready`
     Connected(PeerId, ConnectionId),
-    /// Peer disconnected
+    /// [`Peer`] `Disconnected`
     Disconnected(PeerId, ConnectionId),
-    /// Peer sent some message
+    /// [`Peer`] sent a message
     Message(PeerId, Box<T>),
 }
 
-/// The message to be sent to some other peer.
+/// The message to be sent to the other [`Peer`].
 #[derive(Clone, Debug, iroha_actor::Message, Encode)]
 pub struct Post<T: Encode + Debug> {
     /// Data to send to another peer
@@ -416,7 +418,7 @@ pub struct Post<T: Encode + Debug> {
     pub id: PeerId,
 }
 
-/// The message to stop the peer with included connection id.
+/// The message to stop the [`Peer`] with included [`ConnectionId`].
 #[derive(Clone, Copy, Debug, iroha_actor::Message, Encode)]
 pub enum StopSelf {
     /// Stop selected peer
@@ -425,6 +427,6 @@ pub enum StopSelf {
     Network,
 }
 
-/// The result of some incoming peer connection.
+/// The result of an incoming [`Peer`] connection.
 #[derive(Debug, iroha_actor::Message)]
 pub struct NewPeer(pub io::Result<(TcpStream, PeerId)>);
