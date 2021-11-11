@@ -177,7 +177,8 @@ jobs:
                                 elif commit_was_merged_build_spec   FETCH_HEAD >/tmp/comment_body ;then
                                   true
                                 else
-                                  echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
+                                  #echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
+                                  echo  >/tmp/comment_body "/build all"
                                 fi ;;
             push)               commit_message_body_build_spec >/tmp/comment_body || {
                                   echo "/build ubuntu debug release"
@@ -194,15 +195,6 @@ jobs:
         run: |
           set -x
           cat /tmp/comment_body | .github/chatops-gen-matrix.sh
-
-          echo "::set-output name=buildspec_ubuntu::$(cat buildspec_ubuntu)"
-          echo "::set-output name=buildspec_ubuntu_release::$(cat buildspec_ubuntu_release)"
-          echo "::set-output name=buildspec_ubuntu_debug::$(cat buildspec_ubuntu_debug)"
-          echo "::set-output name=buildspec_macos::$(cat buildspec_macos)"
-          echo "::set-output name=buildspec_windows::$(cat buildspec_windows)"
-          echo "::set-output name=buildspec_dockerimage_release::$(cat buildspec_dockerimage_release)"
-          echo "::set-output name=buildspec_dockerimage_debug::$(cat buildspec_dockerimage_debug)"
-
           echo "::set-output name=matrix_ubuntu::$(cat matrix_ubuntu)"
           echo "::set-output name=matrix_ubuntu_release::$(cat matrix_ubuntu_release)"
           echo "::set-output name=matrix_ubuntu_debug::$(cat matrix_ubuntu_debug)"
@@ -713,13 +705,14 @@ jobs:
             )
           ) || true
           CTEST_DEFAULT_timeout=80
-          CTEST_module_timeout=100 CTEST_module_parallel=4
+          CTEST_module_timeout=120 CTEST_module_parallel=4
           CTEST_tool_timeout=200
+          CTEST_integration_timeout=120
           CTEST_integration_args='--repeat until-pass:10'  ## FIXME remove this hack
           CTEST_system_args='--repeat until-pass:10'       ## FIXME remove this hack
 
           for cathegory in ${CTEST_CATHEGORIES[@]} ;do
-            echo ::group::"$cathegory tests"
+            echo >&2 ::group::"$cathegory tests"
             set -x
             timeout_name=CTEST_${cathegory}_timeout;   timeout=${!timeout_name:-$CTEST_DEFAULT_timeout}
             parallel_name=CTEST_${cathegory}_parallel; parallel=${!parallel_name:-}
@@ -728,7 +721,7 @@ jobs:
               | tee ctest_$cathegory.out \
               || true
             set +x
-            echo ::endgroup::
+            echo >&2 ::endgroup::
           done
 
           tests_passed=true
@@ -778,7 +771,7 @@ jobs:
       - *step_env_from_buildspec
       -
         name: Homebrew
-        run: brew install cmake ninja coreutils ccache
+        run: brew install cmake ninja coreutils ccache bash
         ## Takes 22 seconds with default github runner
       -
         if: ${{ contains(env.CC_NAME, 'gcc-10') }}
