@@ -705,7 +705,7 @@ jobs:
             )
           ) || true
           CTEST_DEFAULT_timeout=80
-          CTEST_module_timeout=100 CTEST_module_parallel=4
+          CTEST_module_timeout=120 CTEST_module_parallel=4
           CTEST_tool_timeout=200
           CTEST_integration_timeout=120
           CTEST_integration_args='--repeat until-pass:10'  ## FIXME remove this hack
