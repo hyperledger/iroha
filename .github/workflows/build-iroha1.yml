@@ -186,7 +186,8 @@ jobs:
                                 elif commit_was_merged_build_spec   FETCH_HEAD >/tmp/comment_body ;then
                                   true
                                 else
-                                  echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
+                                  #echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
+                                  echo  >/tmp/comment_body "/build all"
                                 fi ;;
             push)               commit_message_body_build_spec >/tmp/comment_body || {
                                   echo "/build ubuntu debug release"
@@ -202,15 +203,6 @@ jobs:
         run: |
           set -x
           cat /tmp/comment_body | .github/chatops-gen-matrix.sh
-
-          echo "::set-output name=buildspec_ubuntu::$(cat buildspec_ubuntu)"
-          echo "::set-output name=buildspec_ubuntu_release::$(cat buildspec_ubuntu_release)"
-          echo "::set-output name=buildspec_ubuntu_debug::$(cat buildspec_ubuntu_debug)"
-          echo "::set-output name=buildspec_macos::$(cat buildspec_macos)"
-          echo "::set-output name=buildspec_windows::$(cat buildspec_windows)"
-          echo "::set-output name=buildspec_dockerimage_release::$(cat buildspec_dockerimage_release)"
-          echo "::set-output name=buildspec_dockerimage_debug::$(cat buildspec_dockerimage_debug)"
-
           echo "::set-output name=matrix_ubuntu::$(cat matrix_ubuntu)"
           echo "::set-output name=matrix_ubuntu_release::$(cat matrix_ubuntu_release)"
           echo "::set-output name=matrix_ubuntu_debug::$(cat matrix_ubuntu_debug)"
