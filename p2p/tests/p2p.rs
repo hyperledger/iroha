@@ -103,7 +103,7 @@ impl Handler<TestMessage> for TestActor {
     type Result = ();
 
     async fn handle(&mut self, msg: TestMessage) -> Self::Result {
-        info!("Actor got message {:?}", msg);
+        info!(?msg, "Actor received message");
         let _ = self.messages.fetch_add(1, Ordering::SeqCst);
     }
 }
@@ -250,7 +250,7 @@ async fn start_network(
     peers: Vec<String>,
     messages: Arc<AtomicU32>,
 ) -> (String, Broker, PublicKey) {
-    info!("Starting network on {}...", &addr);
+    info!(peer_addr = %addr, "Starting network");
 
     let keypair = KeyPair::generate().unwrap();
     let broker = Broker::new();
@@ -274,7 +274,7 @@ async fn start_network(
     let delay: u64 = rand::random();
     tokio::time::sleep(Duration::from_millis(250 + (delay % 500))).await;
 
-    let mut count = 0;
+    let mut conn_count = 0;
     let mut test_count = 0;
     for p in &peers {
         if *p != addr {
@@ -284,20 +284,20 @@ async fn start_network(
             };
 
             broker.issue_send(ConnectPeer { id: peer }).await;
-            count += 1;
+            conn_count += 1;
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
     while let Ok(result) = network.send(iroha_p2p::network::GetConnectedPeers).await {
         let connections = result.peers.len();
-        info!("[{}] Connections: {}", &addr, connections);
-        if connections == count || test_count >= 10 {
+        info!(peer_addr = %addr, %connections);
+        if connections == conn_count || test_count >= 10 {
             break;
         }
         test_count += 1;
         tokio::time::sleep(Duration::from_millis(1000)).await;
     }
-    info!("[{}] Got all {} connections!", &addr, count);
+    info!(peer_addr = %addr, %conn_count, "Got all connections!");
 
     (addr, broker, keypair.public_key.clone())
 }

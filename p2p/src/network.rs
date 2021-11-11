@@ -80,7 +80,7 @@ where
         public_key: PublicKey,
         mailbox: usize,
     ) -> Result<Self, Error> {
-        info!(%listen_addr, "Binding listener to", );
+        info!(%listen_addr, "Binding listener");
         let listener = TcpListener::bind(&listen_addr).await?;
         Ok(Self {
             listen_addr,
@@ -108,7 +108,7 @@ where
                     accept = listener.accept() => {
                         match accept {
                             Ok((stream, addr)) => {
-                                debug!("[{}] Accepted connection from {}", &listen_addr, &addr);
+                                debug!(%listen_addr, from_addr = %addr, "Accepted connection");
                                 let id = PeerId { address: addr.to_string(), public_key: public_key.clone() };
                                 let new_peer: NewPeer = NewPeer(Ok((stream, id)));
                                 yield new_peer;
@@ -155,7 +155,7 @@ where
     }
 
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
-        info!("Starting network actor on {}...", &self.listen_addr);
+        info!(listen_addr = %self.listen_addr, "Starting network actor");
         // to start connections
         self.broker.subscribe::<ConnectPeer, _>(ctx);
         // from peer
@@ -192,25 +192,25 @@ where
 
     async fn handle(&mut self, ConnectPeer { mut id }: ConnectPeer) {
         debug!(
-            "[{}] Creating new peer actor for {:?}",
-            &self.listen_addr, &id
+            %self.listen_addr, peer.id = ?id,
+            "Creating new peer actor",
         );
         id.public_key = self.public_key.clone();
         let peer = match Peer::new_to(id, self.broker.clone()).await {
             Ok(peer) => peer,
-            Err(e) => {
-                warn!(%e, "Unable to create peer");
+            Err(error) => {
+                warn!(%error, "Unable to create peer");
                 return;
             }
         };
 
         #[allow(clippy::expect_used)]
-        let connection_id = peer
+        let conn_id = peer
             .connection_id()
             .expect("has connection by construction.");
         let peer = peer.start().await;
-        debug!(?peer, ?connection_id, "Inserting into new_peers");
-        self.new_peers.insert(connection_id, peer.clone());
+        debug!(?peer, %conn_id, "Inserting into new_peers");
+        self.new_peers.insert(conn_id, peer.clone());
         peer.do_send(Start).await;
     }
 }
@@ -229,7 +229,7 @@ where
             Some(peers) if !peers.is_empty() => peers[0].0.do_send(msg).await,
             None if msg.id.public_key == self.public_key => debug!("Not sending message to myself"),
             Some(_) | None => warn!(
-                id=?msg.id,
+                peer.id=?msg.id,
                 "Didn't find peer to send message",
             ),
         }
@@ -249,37 +249,39 @@ where
         use PeerMessage::*;
 
         match msg {
-            Connected(id, connection_id) => {
-                debug!("Connected connection_id {}", connection_id);
+            Connected(id, conn_id) => {
+                debug!(%conn_id, "Connected");
                 let peers = self.peers.entry(id.public_key).or_default();
-                if let Some(peer) = self.new_peers.remove(&connection_id) {
-                    let connection = Connection(peer, connection_id);
+                if let Some(peer) = self.new_peers.remove(&conn_id) {
+                    let connection = Connection(peer, conn_id);
                     peers.push(connection);
                 }
                 let count = self.peers.values().filter(|conn| !conn.is_empty()).count();
                 let addr: &str = &self.listen_addr;
                 info!(
-                    addr,
-                    peers = count,
-                    new = self.new_peers.len(),
+                    listen_addr = addr,
+                    prev_peer_count = count,
+                    new_peer_count = self.new_peers.len(),
                     "Connected new peer."
                 );
             }
-            Disconnected(id, connection_id) => {
-                info!(?id, connection_id, "Peer disconnected.");
+            Disconnected(id, conn_id) => {
+                info!(peer.id = ?id, conn_id = %conn_id, "Peer disconnected");
                 let connections = self.peers.entry(id.public_key).or_default();
-                connections.retain(|connection| connection.1 != connection_id);
+                connections.retain(|connection| connection.1 != conn_id);
                 // If this connection didn't have the luck to connect
-                self.new_peers.remove(&connection_id);
-                self.broker.issue_send(StopSelf::Peer(connection_id)).await;
+                self.new_peers.remove(&conn_id);
+                self.broker.issue_send(StopSelf::Peer(conn_id)).await;
                 let count = self.peers.values().filter(|conn| !conn.is_empty()).count();
                 info!(
-                    "[{}] Disconnected peer {}, peers: {}",
-                    &self.listen_addr, &id.address, count
+                    listen_addr = %self.listen_addr,
+                    peer_addr = %id.address,
+                    peer.count = %count,
+                    "Disconnected peer",
                 );
             }
             Message(_id, msg) => {
-                //info!("PeerMessage::Message {:?}", &msg);
+                //info!(msg = %message, "PeerMessage::Message");
                 self.broker.issue_send(*msg).await;
             }
         };

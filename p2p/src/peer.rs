@@ -149,7 +149,7 @@ where
     fn derive_shared_key(&mut self, public_key: &PublicKey) -> Result<&Self, Error> {
         let dh = K::new();
         let shared = dh.compute_shared_secret(&self.secret_key, public_key)?;
-        debug!("Derived shared key: {:?}", &shared.0);
+        debug!(key = ?shared.0, "Derived shared key");
         let encryptor = {
             let key: &[u8] = shared.0.as_slice();
             SymmetricEncryptor::<E>::new_with_key(key)
@@ -409,9 +409,9 @@ where
         trace!(peer = ?self, "Establishing connection");
         if let Self::Connecting(id, broker) = self {
             let addr = id.address.clone();
-            debug!(addr = ?addr, "Connecting");
+            debug!(peer_addr = ?addr, "Connecting");
             let stream = TcpStream::connect(addr.clone()).await?;
-            debug!(addr = ?addr, "Connected to");
+            debug!(peer_addr = ?addr, "Connected to");
             let connection = Connection::new(rand::random(), stream);
             Ok(Self::ConnectedTo(id, broker, connection))
         } else {
@@ -459,7 +459,7 @@ where
             | Peer::SendKey(id, broker, _, _)
             | Peer::GetKey(id, broker, _, _)
             | Peer::Ready(id, broker, _, _) => {
-                debug!(addr = %id.address, "Starting actor for connection with peer");
+                debug!(peer_addr = %id.address, "Starting actor for connection with peer");
                 broker.subscribe::<StopSelf, _>(ctx);
             }
             Peer::Disconnected(_) => warn!("Peer already stopped."),
@@ -488,7 +488,7 @@ where
             return;
         }
         if let Self::Ready(id, broker, mut connection, crypto) = dummy {
-            debug!(addr = %id.address, "Handshake finished");
+            debug!(peer_addr = %id.address, "Handshake finished");
             let message = PeerMessage::<T>::Connected(id.clone(), connection.id);
             broker.issue_send(message).await;
 
@@ -568,7 +568,7 @@ where
     type Result = ();
 
     async fn handle(&mut self, msg: Post<T>) {
-        trace!(message = ?msg, peer = ?self, "Handling post request");
+        trace!(msg = ?msg, peer = ?self, "Handling post request");
         if let Self::Ready(id, _, connection, crypto) = self {
             if connection.write.is_none() {
                 warn!(peer = ?self, "No connection.");
@@ -631,7 +631,7 @@ where
                 }
                 _ => (),
             };
-            info!(peer = ?self, "Stopping.", );
+            info!(peer = ?self, "Stopping.");
             let mut disconnected = Self::Disconnected(self.id().clone());
             std::mem::swap(&mut disconnected, self);
             ctx.stop_now();
@@ -718,8 +718,8 @@ async fn read_message(stream: &mut OwnedReadHalf) -> Result<Message, Error> {
 pub async fn send_message(stream: &mut OwnedWriteHalf, data: &[u8]) -> Result<(), Error> {
     if data.len() > MAX_MESSAGE_LENGTH {
         warn!(
-            "Message length exceeds maximum length of {}!",
-            MAX_MESSAGE_LENGTH
+            max_msg_len = MAX_MESSAGE_LENGTH,
+            "Message length exceeds maximum length!",
         );
         Err(Error::Format)
     } else {
@@ -794,7 +794,7 @@ impl Garbage {
             Err(Error::Handshake(std::line!()))
         } else {
             // Reading garbage
-            debug!("Garbage size: {}, reading...", size);
+            debug!(%size, "Reading garbage");
             let mut garbage = vec![0_u8; size];
             stream.as_ref().readable().await?;
             let _ = stream.read_exact(&mut garbage).await?;

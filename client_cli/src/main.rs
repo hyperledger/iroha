@@ -6,7 +6,7 @@ use std::{fmt, fs::File, str::FromStr, time::Duration};
 
 use color_eyre::{
     eyre::{Error, WrapErr},
-    Report, Result,
+    Result,
 };
 use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
@@ -107,7 +107,7 @@ impl RunArgs for Subcommand {
 const RETRY_COUNT_MST: u32 = 1;
 const RETRY_IN_MST: Duration = Duration::from_millis(100);
 
-fn main() -> Result<(), Report> {
+fn main() -> Result<()> {
     color_eyre::install()?;
     let Args {
         config: Configuration(config),

@@ -182,7 +182,7 @@ where
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");
 
         let listen_addr = config.torii.p2p_addr.clone();
-        iroha_logger::info!("Starting peer on {}", &listen_addr);
+        iroha_logger::info!(%listen_addr, "Starting peer");
         #[allow(clippy::expect_used)]
         let network = IrohaNetwork::new(
             broker.clone(),
@@ -264,7 +264,7 @@ where
     /// Can fail if initing kura fails
     #[iroha_futures::telemetry_future]
     pub async fn start(&mut self) -> Result<()> {
-        iroha_logger::info!("Starting Iroha.");
+        iroha_logger::info!("Starting Iroha");
         self.torii
             .take()
             .ok_or_else(|| eyre!("Seems like peer was already started"))?
@@ -277,7 +277,7 @@ where
     /// # Errors
     /// Can fail if initing kura fails
     pub fn start_as_task(&mut self) -> Result<JoinHandle<eyre::Result<()>>> {
-        iroha_logger::info!("Starting Iroha as task.");
+        iroha_logger::info!("Starting Iroha as task");
         let torii = self
             .torii
             .take()
