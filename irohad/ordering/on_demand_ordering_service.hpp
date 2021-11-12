@@ -85,6 +85,12 @@ namespace iroha {
       virtual void onTxsCommitted(const HashesSetType &hashes) = 0;
 
       /**
+       * Method to be invoked when duplicated transactions detected.
+       * @param hashes - txs list
+       */
+      virtual void onDuplicates(const HashesSetType &hashes) = 0;
+
+      /**
        * Method to get betches under lock
        * @param f - callback function
        */
@@ -92,6 +98,8 @@ namespace iroha {
           std::function<void(const BatchesSetType &)> const &f) const = 0;
 
       virtual bool isEmptyBatchesCache() const = 0;
+
+      virtual bool hasEnoughBatchesInCache() const = 0;
 
       virtual bool hasProposal(consensus::Round round) const = 0;
 

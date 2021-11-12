@@ -14,6 +14,7 @@
 #include <boost/variant.hpp>
 
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
+#include "ametsuchi/impl/rocksdb_common.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "builders/protobuf/queries.hpp"
@@ -38,6 +39,12 @@ struct RegressionTest : ::testing::Test,
 
 INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(RegressionTest);
 
+template <size_t N>
+void checkBlockHasNTxs(
+    const std::shared_ptr<const shared_model::interface::Block> &block) {
+  ASSERT_EQ(block->transactions().size(), N);
+}
+
 /**
  * @given ITF instance with Iroha
  * @when existing ITF instance was not gracefully shutdown
@@ -45,13 +52,6 @@ INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(RegressionTest);
  */
 TEST_P(RegressionTest, SequentialInitialization) {
   using namespace std::chrono;
-
-  auto const wsv_path = (boost::filesystem::temp_directory_path()
-                         / boost::filesystem::unique_path())
-                            .string();
-  auto const store_path = (boost::filesystem::temp_directory_path()
-                           / boost::filesystem::unique_path())
-                              .string();
 
   auto tx = shared_model::proto::TransactionBuilder()
                 .createdTime(iroha::time::now())
@@ -63,15 +63,6 @@ TEST_P(RegressionTest, SequentialInitialization) {
                     shared_model::crypto::DefaultCryptoAlgorithmType::
                         generateKeypair())
                 .finish();
-
-  auto check_stateless_valid_status = [](auto &status) {
-    ASSERT_NO_THROW(
-        boost::get<const shared_model::interface::StatelessValidTxResponse &>(
-            status.get()));
-  };
-  auto checkProposal = [](auto &proposal) {
-    ASSERT_EQ(proposal->transactions().size(), 1);
-  };
 
   const std::string dbname = "d"
       + boost::uuids::to_string(boost::uuids::random_generator()())
@@ -87,16 +78,10 @@ TEST_P(RegressionTest, SequentialInitialization) {
                            milliseconds(20000),
                            milliseconds(20000),
                            milliseconds(10000),
-                           getDefaultItfLogManager(),
-                           wsv_path,
-                           store_path)
+                           getDefaultItfLogManager())
       .setInitialState(kAdminKeypair)
-      .sendTx(tx, check_stateless_valid_status)
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
+      .sendTxAwait(tx, checkBlockHasNTxs<0>);
+
   IntegrationTestFramework(1,
                            GetParam(),
                            dbname,
@@ -107,19 +92,9 @@ TEST_P(RegressionTest, SequentialInitialization) {
                            milliseconds(20000),
                            milliseconds(20000),
                            milliseconds(10000),
-                           getDefaultItfLogManager(),
-                           wsv_path,
-                           store_path)
+                           getDefaultItfLogManager())
       .setInitialState(kAdminKeypair)
-      .sendTx(tx, check_stateless_valid_status)
-      .checkProposal(checkProposal)
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
-
-  boost::filesystem::remove_all(wsv_path);
-  boost::filesystem::remove_all(store_path);
+      .sendTxAwait(tx, checkBlockHasNTxs<0>);
 }
 
 /**
@@ -256,7 +231,66 @@ TEST_P(RegressionTest, PoisonedBlock) {
   std::string const block_store_path = (boost::filesystem::temp_directory_path()
                                         / boost::filesystem::unique_path())
                                            .string();
-  {
+  IntegrationTestFramework(1,
+                           GetParam(),
+                           dbname,
+                           iroha::StartupWsvDataPolicy::kDrop,
+                           false,
+                           false,
+                           block_store_path,
+                           milliseconds(20000),
+                           milliseconds(20000),
+                           milliseconds(10000),
+                           getDefaultItfLogManager(),
+                           wsv_path,
+                           store_path)
+      .setInitialState(kAdminKeypair)
+      .sendTx(tx1)
+      .checkProposal(check_one)
+      .checkVerifiedProposal(check_one)
+      .checkBlock(check_one)
+      .sendTx(tx2)
+      .checkProposal(check_one)
+      .checkVerifiedProposal(check_one)
+      .checkBlock(check_one);
+  size_t block_n = 2;
+
+  switch (GetParam()) {
+    case StorageType::kRocksDb: {
+      using namespace iroha::ametsuchi;
+      auto db_port = std::make_shared<RocksDBPort>();
+      db_port->initialize(wsv_path);
+
+      RocksDbCommon common(std::make_shared<RocksDBContext>(db_port));
+      auto result =
+          forBlock<kDbOperation::kGet, kDbEntry::kMustExist>(common, block_n);
+      ASSERT_FALSE(iroha::expected::hasError(result));
+
+      std::string block(*result.assumeValue());
+      auto const pos = block.find("133");
+      ASSERT_TRUE(pos != std::string::npos);
+
+      common.valueBuffer() = block.replace(pos, 3, "266");
+      result = forBlock<kDbOperation::kPut>(common, block_n);
+      ASSERT_FALSE(iroha::expected::hasError(result));
+
+      common.commit();
+    } break;
+    case StorageType::kPostgres: {
+      auto block_path = boost::filesystem::path{block_store_path}
+          / iroha::ametsuchi::FlatFile::id_to_name(block_n);
+      auto content = iroha::readTextFile(block_path).assumeValue();
+      boost::replace_first(content, "133.0", "266.0");
+
+      boost::filesystem::ofstream block_file(block_path);
+      block_file << content;
+      block_file.close();
+    } break;
+    default:
+      ASSERT_FALSE("Unexpected branch");
+  }
+
+  try {
     IntegrationTestFramework(1,
                              GetParam(),
                              dbname,
@@ -270,53 +304,17 @@ TEST_P(RegressionTest, PoisonedBlock) {
                              getDefaultItfLogManager(),
                              wsv_path,
                              store_path)
-        .setInitialState(kAdminKeypair)
-        .sendTx(tx1)
-        .checkProposal(check_one)
-        .checkVerifiedProposal(check_one)
-        .checkBlock(check_one)
-        .sendTx(tx2)
-        .checkProposal(check_one)
-        .checkVerifiedProposal(check_one)
-        .checkBlock(check_one);
+        .recoverState(kAdminKeypair);
+    ADD_FAILURE() << "No exception thrown";
+  } catch (std::runtime_error const &e) {
+    using ::testing::HasSubstr;
+    EXPECT_THAT(e.what(), HasSubstr("Bad signature"));
+  } catch (...) {
+    ADD_FAILURE() << "Unexpected exception thrown";
   }
-  size_t block_n = 2;
 
-  auto block_path = boost::filesystem::path{block_store_path}
-      / iroha::ametsuchi::FlatFile::id_to_name(block_n);
-  auto content = iroha::readTextFile(block_path).assumeValue();
-  boost::replace_first(content, "133.0", "266.0");
-
-  boost::filesystem::ofstream block_file(block_path);
-  block_file << content;
-  block_file.close();
-  {
-    try {
-      IntegrationTestFramework(1,
-                               GetParam(),
-                               dbname,
-                               iroha::StartupWsvDataPolicy::kDrop,
-                               false,
-                               false,
-                               block_store_path,
-                               milliseconds(20000),
-                               milliseconds(20000),
-                               milliseconds(10000),
-                               getDefaultItfLogManager(),
-                               wsv_path,
-                               store_path)
-          .recoverState(kAdminKeypair);
-      ADD_FAILURE() << "No exception thrown";
-    } catch (std::runtime_error const &e) {
-      using ::testing::HasSubstr;
-      EXPECT_THAT(e.what(), HasSubstr("Bad signature"));
-    } catch (...) {
-      ADD_FAILURE() << "Unexpected exception thrown";
-    }
-
-    boost::filesystem::remove_all(wsv_path);
-    boost::filesystem::remove_all(store_path);
-  }
+  boost::filesystem::remove_all(wsv_path);
+  boost::filesystem::remove_all(store_path);
   boost::filesystem::remove_all(block_store_path);
 }
 

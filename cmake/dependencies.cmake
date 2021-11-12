@@ -98,7 +98,7 @@ find_package(rxcpp)
 ##########################
 #         boost          #
 ##########################
-find_package(Boost 1.65.0 REQUIRED
+find_package(Boost 1.73.0 REQUIRED
     COMPONENTS
     filesystem
     iostreams

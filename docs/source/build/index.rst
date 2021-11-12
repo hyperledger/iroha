@@ -52,45 +52,70 @@ Please choose your preferred platform below for a quick access:
 Docker
 ^^^^^^
 
+The idea of having up-to-date Docker images is to be able to run Iroha without the need to build it.
+But now you have the option to run not only the ready-to-use images but also a special **Iroha Builder** within Docker, to build Iroha the way you would like it.
+
 First of all, you need to install ``docker`` and ``docker-compose``. You can
 read how to install it on the
 `Docker's website <https://www.docker.com/community-edition/>`_
 
 .. note:: Please, use the latest available docker daemon and docker-compose.
 
-Then you should clone the `Iroha repository <https://github.com/hyperledger/iroha>`_
-to the directory of your choice:
+Iroha Images
+""""""""""""
+
+You can find all the Iroha Docker Images by `searching the Docker Hub <https://hub.docker.com/search?q=hyperledger%2Firoha&type=image>`_ or on `GitHub <https://github.com/orgs/hyperledger/packages?repo_name=iroha>`_.
+
+There are currently the following images:
+
+- ``iroha`` -- general build of Iroha 1.x; 
+- ``iroha-burrow`` -- build that has Iroha 1.x with `Burrow integration <../integrations/index.html#hyperledger-burrow>`_;
+- ``iroha-ursa`` -- build that has Iroha 1.x with `Ursa integration <../https://iroha.readthedocs.io/en/develop/integrations/index.html#hyperledger-ursa>`_;
+- ``iroha2`` -- Iroha 2 build;
+- ``iroha-builder`` -- a special image that allows you to run an Iroha builder within Docker.
+
+.. hint:: You can read more on running the images in the `Quick Start Guide <../getting_started/index.html>`_.
+
+Each image can be used with a respective tag indicating a branch from which the image is built.
+All the available tags can be found on Docker Hub. `Here are all the tags <https://hub.docker.com/r/hyperledger/iroha/tags>`_ for ``iroha`` image.
+
+For example, you can use ``iroha:develop`` for the development version of Iroha, or ``iroha:main`` for the release version. The same works with all the other images, too. 
+
+
+Iroha Builder
+"""""""""""""
+
+Iroha builder allows you to build Iroha with `any of the parameters available <#cmake-parameters>`_ for any other platform but to do it conveniently and securely in Docker. 
+
+Here are the steps: 
+
+1. First of all, let's run the builder:
 
 .. code-block:: shell
 
-  git clone -b master https://github.com/hyperledger/iroha --depth=1
+  docker run -it hyperledger/iroha-builder:latest
 
-.. hint:: ``--depth=1`` option allows us to download only latest commit and
-  save some time and bandwidth. If you want to get a full commit history, you
-  can omit this option.
+On this step you will start and run the image in a container in an interactive mode. You can use any available tags, default one would be ``latest``, and developmnet tag is ``develop``. Note that you might need to perform some actions with ``sudo`` rights. 
 
-When it is done, you need to run the development environment. Run the
-``scripts/run-iroha-dev.sh`` script:
+2. When you are inside the container, clone Iroha repository: 
 
 .. code-block:: shell
 
-  bash scripts/run-iroha-dev.sh
+  git clone https://github.com/hyperledger/iroha.git
 
-.. hint:: Please make sure that Docker is running before executing the script.
-  MacOS users could find a Docker icon in system tray, Linux users can use
-  ``systemctl start docker``
+3. When Iroha is cloned, go into Iroha folder: 
 
-After you execute this script, the following things will happen:
+.. code-block:: shell
 
-#. The script will check whether you have containers with Iroha already running. Successful completion finishes with the new container shell.
+  cd iroha
 
-#. The script will download ``hyperledger/iroha:develop-build`` and ``postgres`` images. ``hyperledger/iroha:develop-build`` image contains all development dependencies and is based on top of ``ubuntu:20.04``. ``postgres`` image is required for starting and running Iroha.
+4. Then run the script that will build all the necessary dependencies via vcpkg: 
 
-#. Two containers are created and launched.
+.. code-block:: shell
 
-#. The user is attached to the interactive environment for development and testing with ``iroha`` folder mounted from the host machine. Iroha folder is mounted to ``/opt/iroha`` in Docker container.
+  ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build
 
-Now your are ready to build Iroha! Please go directly to `Building Iroha <#build-process>`_ section.
+
 
 .. _linux-pre:
 
@@ -109,6 +134,12 @@ Use this code to install environment dependencies on Debian-based Linux distro.
   apt-get -y --no-install-recommends install \
   build-essential ninja-build \
   git ca-certificates tar curl unzip cmake
+
+.. Important:: If you would like to use `Burrow integration <../integrations/burrow.html>`_ you will also need GO. Install it following the instructions on `the official website <https://golang.org/doc/install>`_ and then use the following command:
+
+.. code-block:: shell
+
+  go get github.com/golang/protobuf/protoc-gen-go
 
 .. note::  If you are willing to actively develop Iroha and to build shared
   libraries, please consider installing the
@@ -132,6 +163,12 @@ to install all environment dependencies with Homebrew:
 .. hint:: To install the Homebrew itself please run
 
   ``ruby -e "$(curl -fsSL https://raw.githubusercontent.com/homebrew/install/master/install)"``
+
+.. Important:: If you would like to use `Burrow integration <../integrations/burrow.html>`_ you will also need GO. Install it following the instructions on `the official website <https://golang.org/doc/install>`_ and then use the following command:
+
+.. code-block:: shell
+
+  go get github.com/golang/protobuf/protoc-gen-go
 
 Now you are ready to `install Iroha dependencies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
 
@@ -184,12 +221,10 @@ Run in terminal:
 .. code-block:: shell
 
   git clone https://github.com/hyperledger/iroha.git
-  iroha/vcpkg/build_iroha_deps.sh
-  iroha/vcpkg-build/vcpkg integrate install
+  cd iroha
+  ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build
 
-After the installation of vcpkg you will be provided with a CMake build parameter like
-``-DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
-Save it somewhere for later use and move to `Building Iroha <#build-process>`_ section.
+And that is it! You can now move to `Building Iroha <#build-process>`_ section.
 
 Windows
 ^^^^^^^
@@ -199,11 +234,11 @@ Execute from Power Shell:
 .. code-block:: shell
 
   git clone https://github.com/hyperledger/iroha.git
-  powershell -ExecutionPolicy ByPass -File .\iroha\.packer\win\scripts\vcpkg.ps1 .\vcpkg .\iroha\vcpkg
+  cd iroha
+  powershell -ExecutionPolicy ByPass -File .\.packer\win\scripts\vcpkg.ps1 .\vcpkg .\iroha\vcpkg
 
-After the installation of vcpkg you will be provided with a CMake build parameter like
-``-DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
-Save it somewhere for later use and move to `Building Iroha <#build-process>`_ section.
+
+Great job! You can now move to `Building Iroha <#build-process>`_ section.
 
 .. note:: If you plan to build 32-bit version of Iroha -
   you will need to install all the mentioned librares above
@@ -212,56 +247,43 @@ Save it somewhere for later use and move to `Building Iroha <#build-process>`_ s
 Build Process
 =============
 
-Cloning the Repository
-^^^^^^^^^^^^^^^^^^^^^^
-This step is currently unnecessary since you have already cloned Iroha in the previous step.
-But if you want, you can clone the `Iroha repository <https://github.com/hyperledger/iroha>`_ to the
-directory of your choice.
-
-.. code-block:: shell
-
-  git clone -b master https://github.com/hyperledger/iroha
-  cd iroha
-
-.. hint:: If you have installed the prerequisites with Docker, you don't need
-  to clone Iroha again, because when you run ``run-iroha-dev.sh`` it attaches
-  to Iroha source code folder. Feel free to edit source code files with your
-  host environment and build it within docker container.
-
-
 Building Iroha
 ^^^^^^^^^^^^^^
 
-To build Iroha, use these commands:
+1. So, after the dependencies are built, we can start building Iroha itself: 
 
 .. code-block:: shell
 
-  mkdir build
-  cd build
-  cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja" ..
-  cmake --build . --target irohad -- -j<number of threads>
+  cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake . -DCMAKE_BUILD_TYPE=RELEASE   -GNinja -DUSE_BURROW=OFF -DUSE_URSA=OFF -DTESTING=OFF -DPACKAGE_DEB=OFF
+
+The cmake parameters such as ``-DUSE_BURROW=ON`` are exactly the parameters you can choose for your very special build. You can see the full list and description of these parameters `here <#cmake-parameters>`_.
+
+2. Run 
+
+.. code-block:: shell
+
+  cmake --build . --target irohad
 
 .. warning:: If you want to use tests later, instead of building `irohad` target, you need to use this:
 
 .. code-block:: shell
 
-  mkdir build
-  cd build
-  cmake -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja" ..
-  cmake --build . --target all -- -j<number of threads>
+  cmake --build . --target all 
 
-.. note:: On Docker the path to a toolchain file is ``/opt/dependencies/scripts/buildsystems/vcpkg.cmake``. In other
-  environment please use the path you have got in previous steps.
 
-Number of threads will be defined differently depending on the platform:
+3. Check the result by running the help: 
 
-- On Linux: via ``nproc``.
-- On MacOS: with ``sysctl -n hw.ncpu``.
-- On Windows: use ``echo %NUMBER_OF_PROCESSORS%``.
+.. code-block:: shell
+
+  ./build/bin/irohad --help
+
+This step will show you all the parameters. And that is it! 
 
 .. note:: When building on Windows do not execute this from the Power Shell. Better use x64 Native tools command prompt.
 
 Now Iroha is built. Although, if you like, you can build it with additional parameters described below.
+
+If you are content with the results, you can move to the next step and `run an Iroha instance <../deploy/single.html>`_. 
 
 CMake Parameters
 ^^^^^^^^^^^^^^^^

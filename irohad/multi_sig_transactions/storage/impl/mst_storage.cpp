@@ -35,7 +35,7 @@ namespace iroha {
     return getDiffStateImpl(target_peer_key, current_time);
   }
 
-  MstState MstStorage::whatsNew(ConstRefState new_state) const {
+  MstState MstStorage::whatsNew(MstState const& new_state) const {
     std::lock_guard<std::mutex> lock{this->mutex_};
     return whatsNewImpl(new_state);
   }

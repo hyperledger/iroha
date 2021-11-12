@@ -25,7 +25,7 @@ using shared_model::interface::types::PublicKeyHexStringView;
 static void BM_QueryAccount(benchmark::State &state) {
   for (auto const type :
        {iroha::StorageType::kPostgres, iroha::StorageType::kRocksDb}) {
-    IntegrationTestFramework itf(1, GetParam());
+    IntegrationTestFramework itf(1, type);
     itf.setInitialState(kAdminKeypair);
     itf.sendTx(
         createUserWithPerms(

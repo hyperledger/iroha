@@ -68,6 +68,8 @@ namespace integration_framework {
 
     void run();
 
+    void printDbStatus();
+
     std::shared_ptr<TestIrohad> &getTestIrohad();
 
     /// Terminate Iroha instance and clean the resources up.

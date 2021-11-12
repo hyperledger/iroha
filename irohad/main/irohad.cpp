@@ -117,6 +117,10 @@ DEFINE_string(metrics_port,
               "",
               "Prometeus HTTP server listens port, disabled by default");
 
+DEFINE_bool(exit_after_init,
+              false,
+              "Use this flag to reindex WSV and exit");
+
 std::sig_atomic_t caught_signal = 0;
 std::promise<void> exit_requested;
 
@@ -208,7 +212,14 @@ getCommonObjectsFactory() {
 }
 
 int main(int argc, char *argv[]) {
-  gflags::SetVersionString(iroha::kGitPrettyVersion);
+  auto version = std::string(iroha::kGitPrettyVersion);
+#if defined(USE_BURROW)
+  version += " burrow";
+#endif
+#if defined(USE_LIBURSA)
+  version += " ursa";
+#endif
+  gflags::SetVersionString(version);
 
   // Parsing command line arguments
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -452,6 +463,10 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
+    if(FLAGS_exit_after_init){
+      return EXIT_SUCCESS;
+    }
+
     auto handler = [](int s) { caught_signal = s; };
     std::signal(SIGINT, handler);
     std::signal(SIGTERM, handler);
@@ -501,6 +516,7 @@ int main(int argc, char *argv[]) {
         break;
       }
     }
+    irohad->printDbStatus();
     daemon_status_notifier->notify(
         ::iroha::utility_service::Status::kTermination);
 
