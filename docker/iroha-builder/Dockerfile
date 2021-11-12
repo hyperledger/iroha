@@ -87,3 +87,6 @@ RUN set -e; \
 
 USER iroha-ci
 # CMD /bin/bash
+
+
+RUN echo hello FAIL
