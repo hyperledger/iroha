@@ -93,6 +93,7 @@ jobs:
         run: |
           set -x
           [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
+  ## Just to react to valid comment with rocket
   pr_comment_reaction_rocket:
     ## Just to react to valid comment with rocket
     runs-on: ubuntu-20.04 #ubuntu-latest
@@ -129,7 +130,6 @@ jobs:
     runs-on: ubuntu-20.04 #ubuntu-latest
     #container: ubuntu:latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
-    # needs: check_workflow_yaml_coressponds_to_src_yaml
     steps:
       - name: Show context
         run: |
@@ -165,7 +165,7 @@ jobs:
         if: ${{ steps.comment_body.outcome == 'skipped' }} ## i.e. not github.event.issue.pull_request
         run: |
           set -x
-          git fetch origin ${{github.event.after}} --depth=2  ## depth=2 to detect if fetched commit is merge commit
+          git fetch origin ${{github.event.pull_request.head.sha}} --depth=2  ## depth=2 to detect if fetched commit is merge commit
           git log -1 FETCH_HEAD
           commit_message_body_build_spec(){
             git log -n1 $1 --format=%B | grep '^/build '
@@ -458,7 +458,7 @@ jobs:
   ## Build iroha in a container made of the image earlier prepared
   ## Result artifacts are
   ## - stand-alone irohad (linked statically)
-  ## - iroha.deb (with irohad inside)
+  ## - iroha.deb (with irohad, migration-tool, wsv_checker inside)
   build-UD:
     needs:
       - Docker-iroha-builder
@@ -588,7 +588,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
-          key: ${{runner.os}}-ccache-${{ github.event.after }}
+          key: ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
           restore-keys: ${{runner.os}}-ccache-
       - run: ccache --show-stats | tee /tmp/ccache-stats
       - #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
@@ -895,7 +895,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
-          key: ${{runner.os}}-ccache-${{ github.event.after }}
+          key: ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
           restore-keys: ${{runner.os}}-ccache-
       - run: ccache --show-stats | tee /tmp/ccache-stats
       - #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
@@ -1203,7 +1203,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
-          key: ${{runner.os}}-ccache-${{ github.event.after }}
+          key: ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
           restore-keys: ${{runner.os}}-ccache-
       - run: ccache --show-stats | tee /tmp/ccache-stats
       - #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
