@@ -338,7 +338,6 @@ jobs:
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
           #  type=semver,pattern={{version}}
           #  type=semver,pattern={{major}}.{{minor}}
           #  type=sha,prefix=commit-,format=short
@@ -361,7 +360,6 @@ jobs:
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
           #  type=semver,pattern={{version}}
           #  type=semver,pattern={{major}}.{{minor}}
           #  type=sha,prefix=commit-,format=short
@@ -1527,20 +1525,13 @@ jobs:
         id: meta
         uses: docker/metadata-action@v3
         with:
+          images: |
+            ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
           tags: |
-            type=raw,value=${{env.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
-
-          images: |
-            ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
           flavor: |
             suffix=${{env._compiler_suffix}}${{env._debug_suffix}},onlatest=true
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
@@ -1549,17 +1540,10 @@ jobs:
         id: meta_ghcr
         with:
           tags: |
-            type=raw,value=${{env.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
-
           flavor: |
             suffix=${{env._compiler_suffix}}${{env._debug_suffix}},onlatest=true
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
@@ -1716,20 +1700,13 @@ jobs:
         id: meta
         uses: docker/metadata-action@v3
         with:
+          images: |
+            ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
           tags: |
-            type=raw,value=${{env.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
-
-          images: |
-            ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
           flavor: |
             suffix=${{env._compiler_suffix}}${{env._debug_suffix}},onlatest=true
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
@@ -1738,17 +1715,10 @@ jobs:
         id: meta_ghcr
         with:
           tags: |
-            type=raw,value=${{env.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
-
           flavor: |
             suffix=${{env._compiler_suffix}}${{env._debug_suffix}},onlatest=true
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx

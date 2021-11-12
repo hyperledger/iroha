@@ -318,7 +318,6 @@ jobs:
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
           #  type=semver,pattern={{version}}
           #  type=semver,pattern={{major}}.{{minor}}
           #  type=sha,prefix=commit-,format=short
@@ -866,20 +865,22 @@ jobs:
         uses: actions/download-artifact@v2
         with:
           name: iroha-deb${{env.ARTIFACT_SUFFIX}}
-      -
-        name: Rename artifact debs
+      - name: Rename artifact debs
         run: |
           mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
           mv *irohad.deb         docker/release/iroha.deb
-      -
-        <<: *step_docker_tag
+      - <<: *step_docker_tag
         env:
           dockertag: ${{ hashFiles('docker/release/**') }}
       - <<: *step_docker_meta
         with: &step_docker_release_meta_with
-          <<: *step_docker_meta_with
           images: |
             ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
+            type=schedule
           flavor: |
             suffix=${{env._compiler_suffix}}${{env._debug_suffix}},onlatest=true
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
