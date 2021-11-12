@@ -66,7 +66,7 @@ namespace iroha {
      * @return state that contains new data with respect to own state
      * General note: implementation of method covered by lock
      */
-    MstState whatsNew(ConstRefState new_state) const;
+    MstState whatsNew(MstState const& new_state) const;
 
     /**
      * Check, if passed batch is in the storage
@@ -105,7 +105,7 @@ namespace iroha {
         const TimeType &current_time)
         -> decltype(getDiffState(target_peer_key, current_time)) = 0;
 
-    virtual auto whatsNewImpl(ConstRefState new_state) const
+    virtual auto whatsNewImpl(MstState const& new_state) const
         -> decltype(whatsNew(new_state)) = 0;
 
     virtual bool batchInStorageImpl(const DataType &batch) const = 0;
@@ -115,9 +115,8 @@ namespace iroha {
 
     // -------------------------------| fields |--------------------------------
 
-    mutable std::mutex mutex_;
-
    protected:
+    mutable std::mutex mutex_;
     logger::LoggerPtr log_;
   };
 }  // namespace iroha

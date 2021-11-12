@@ -294,12 +294,3 @@ First we provide the location part of the argument measured in bytes from the st
 This can be achieved with the help of functions in the example.
 
 For more examples and how the code works, you can visit `here  <https://github.com/hyperledger/iroha/tree/main/example/burrow_integration>`_ .
-
-
-
-
-
-
-
-
-
