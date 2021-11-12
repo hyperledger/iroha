@@ -135,7 +135,6 @@ namespace iroha::ametsuchi {
       return "Tried to commit mutable storage twice.";
     }
     if (not ledger_state_) {
-      assert(ledger_state_);
       return "Tried to commit mutable storage with no blocks applied.";
     }
     return block_storage_->forEach([&block_storage](auto const &block)
@@ -162,7 +161,7 @@ namespace iroha::ametsuchi {
       try {
         db_tx_.rollback();
       } catch (std::exception &e) {
-        log_->warn("Apply has been failed. Reason: {}", e.what());
+        log_->warn("~MutableStorageImpl(): rollback failed. Reason: {}", e.what());
       }
     }
   }

@@ -41,11 +41,13 @@ namespace iroha {
     kOnProposalResponse,
     kOnTransactionResponse,
     kOnConsensusGateEvent,
+    kSendBatchComplete,
 
     // MST
-    kOnStateUpdate,
-    kOnPreparedBatches,
-    kOnExpiredBatches,
+    kOnMstStateUpdate,
+    kOnMstPreparedBatches,
+    kOnMstExpiredBatches,
+    kOnMstMetrics,
 
     // YAC
     kTimer,

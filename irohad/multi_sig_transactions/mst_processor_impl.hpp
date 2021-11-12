@@ -16,6 +16,7 @@
 #include "multi_sig_transactions/mst_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_time_provider.hpp"
 #include "multi_sig_transactions/storage/mst_storage.hpp"
+#include "common/common.hpp"
 
 namespace iroha {
 
@@ -69,20 +70,20 @@ namespace iroha {
      * signatures and ready to move forward
      * @param state with those batches
      */
-    void completedBatchesNotify(ConstRefState state) const;
+    void completedBatchesNotify(MstState const& state) const;
 
     /**
      * Notify subscribers when some of the batches received new signatures, but
      * still are not completed
      * @param state with those batches
      */
-    void updatedBatchesNotify(ConstRefState state) const;
+    void updatedBatchesNotify(MstState const& state) const;
 
     /**
      * Notify subscribers when some of the batches get expired
      * @param state with those batches
      */
-    void expiredBatchesNotify(ConstRefState state) const;
+    void expiredBatchesNotify(MstState const& state) const;
 
     // -------------------------------| fields |--------------------------------
     logger::LoggerPtr log_;
@@ -106,6 +107,9 @@ namespace iroha {
     /// use for tracking the propagation subscription
 
     rxcpp::composite_subscription propagation_subscriber_;
+
+    utils::WaitForSingleObject expiration_thread_stopper_waiter_;
+    std::thread expirator_thread_;
   };
 }  // namespace iroha
 

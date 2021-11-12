@@ -65,7 +65,7 @@ namespace iroha {
     return MstState(completer, std::move(log));
   }
 
-  StateUpdateResult MstState::operator+=(const DataType &rhs) {
+  StateUpdateResult MstState::operator+=(const BatchPtr &rhs) {
     auto state_update = StateUpdateResult{
         std::make_shared<MstState>(MstState::empty(log_, completer_)),
         std::make_shared<MstState>(MstState::empty(log_, completer_))};
@@ -178,13 +178,13 @@ namespace iroha {
     log_->info("batch: {}", *rhs_batch);
     auto corresponding = batches_.right.find(rhs_batch);
     if (corresponding == batches_.right.end()) {
-      // when state does not contain transaction
+      // when this state does not contain transaction
       rawInsert(rhs_batch);
       state_update.updated_state_->rawInsert(rhs_batch);
       return;
     }
 
-    DataType found = corresponding->first;
+    BatchPtr found = corresponding->first;
     // Append new signatures to the existing state
     auto inserted_new_signatures = mergeSignaturesInBatch(found, rhs_batch);
 

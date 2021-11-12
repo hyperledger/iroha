@@ -9,6 +9,7 @@
 #include <prometheus/exposer.h>
 #include <prometheus/registry.h>
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -23,23 +24,30 @@
 #include "network/ordering_gate_common.hpp"
 
 class Metrics : public std::enable_shared_from_this<Metrics> {
-  using OnProposalSubscription = iroha::BaseSubscriber<
+  using OnProposalSubscriber = iroha::BaseSubscriber<
       bool,
       iroha::network::OrderingEvent>;  // FixMe subscribtion ≠ subscriber
   using BlockPtr = std::shared_ptr<const shared_model::interface::Block>;
   using BlockSubscriber = iroha::BaseSubscriber<bool, BlockPtr>;
+  using MstMetrics = std::tuple<size_t,size_t>;
+  using MstSubscriber = iroha::BaseSubscriber<bool, MstMetrics>;
 
   std::string listen_addr_port_;
   std::shared_ptr<prometheus::Exposer> exposer_;
   std::shared_ptr<prometheus::Registry> registry_;
   std::shared_ptr<iroha::ametsuchi::Storage> storage_;
   std::shared_ptr<BlockSubscriber> block_subscriber_;
-  std::shared_ptr<OnProposalSubscription> on_proposal_subscription_;
+  std::shared_ptr<MstSubscriber> mst_subscriber_;
   logger::LoggerPtr logger_;
+  std::chrono::steady_clock::time_point uptime_start_timepoint_;
+  std::thread uptime_thread_;
+  std::atomic_bool uptime_thread_cancelation_flag_{false};
 
   Metrics(std::string const &listen_addr,
           std::shared_ptr<iroha::ametsuchi::Storage> storage,
           logger::LoggerPtr const &logger);
+
+  ~Metrics();
 
  public:
   std::string const &getListenAddress() const {
@@ -47,9 +55,9 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
   }
 
   template <class... Ts>
-  static std::shared_ptr<Metrics> create(Ts &&... args) {
+  static std::shared_ptr<Metrics> create(Ts &&...args) {
     struct Resolver : Metrics {
-      Resolver(Ts &&... args) : Metrics(std::forward<Ts>(args)...) {}
+      Resolver(Ts &&...args) : Metrics(std::forward<Ts>(args)...) {}
     };
     return std::make_shared<Resolver>(std::forward<Ts>(args)...);
   }

@@ -14,6 +14,7 @@
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/shared_model/validators/validators.hpp"
+#include "ordering/impl/os_executor_keepers.hpp"
 #include "ordering_mock.grpc.pb.h"
 
 using namespace iroha;
@@ -50,13 +51,28 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
     proto_proposal_validator = proto_validator.get();
     proposal_factory = std::make_shared<ProtoProposalTransportFactory>(
         std::move(validator), std::move(proto_validator));
+    auto exec_keeper = std::make_shared<ExecutorKeeper>();
+
+    struct Peer {
+      std::string pk;
+      Peer(std::string_view p) : pk(p) {}
+      std::string &pubkey() {
+        return pk;
+      }
+    };
+
+    std::shared_ptr<Peer> pk[] = {std::make_shared<Peer>("123")};
+    exec_keeper->syncronize(&pk[0], &pk[1]);
+
     client = std::make_shared<OnDemandOsClientGrpc>(
         std::move(ustub),
         proposal_factory,
         [&] { return timepoint; },
         timeout,
         getTestLogger("OdOsClientGrpc"),
-        [this](ProposalEvent event) { received_event = event; });
+        [this](ProposalEvent event) { received_event = event; },
+        exec_keeper,
+        "123");
   }
 
   proto::MockOnDemandOrderingStub *stub;
@@ -77,6 +93,8 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
  * @then data is correctly serialized and sent
  */
 TEST_F(OnDemandOsClientGrpcTest, onBatches) {
+  auto manager = getSubscription();
+
   proto::BatchesRequest request;
   EXPECT_CALL(*stub, SendBatches(_, _, _))
       .WillOnce(DoAll(SaveArg<1>(&request), Return(grpc::Status::OK)));
@@ -90,7 +108,28 @@ TEST_F(OnDemandOsClientGrpcTest, onBatches) {
       std::make_unique<shared_model::interface::TransactionBatchImpl>(
           shared_model::interface::types::SharedTxsCollectionType{
               std::make_unique<shared_model::proto::Transaction>(tx)}));
+
+  auto scheduler = std::make_shared<subscription::SchedulerBase>();
+  auto tid = getSubscription()->dispatcher()->bind(scheduler);
+
+  uint64_t txCount = 1ull;
+  auto batches_subscription =
+      SubscriberCreator<bool, uint64_t>::template create<
+          EventTypes::kSendBatchComplete>(
+          static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+          [scheduler(utils::make_weak(scheduler)), &txCount](auto,
+                                                             uint64_t count) {
+            assert(count <= txCount);
+            txCount -= count;
+            if (txCount == 0ull)
+              if (auto maybe_scheduler = scheduler.lock())
+                maybe_scheduler->dispose();
+          });
+
   client->onBatches(std::move(collection));
+
+  scheduler->process();
+  getSubscription()->dispatcher()->unbind(*tid);
 
   ASSERT_EQ(request.transactions()
                 .Get(0)
@@ -98,6 +137,8 @@ TEST_F(OnDemandOsClientGrpcTest, onBatches) {
                 .reduced_payload()
                 .creator_account_id(),
             creator);
+
+  manager->dispose();
 }
 
 /**

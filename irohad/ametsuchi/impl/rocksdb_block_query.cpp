@@ -25,7 +25,7 @@ namespace iroha::ametsuchi {
 
     if (auto status =
             forTransactionStatus<kDbOperation::kGet, kDbEntry::kCanExist>(
-                common, hash.hex());
+                common, hash);
         expected::hasError(status)) {
       log_->error("Failed to execute query: {}, code: {}",
                   status.assumeError().description,

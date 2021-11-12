@@ -17,6 +17,7 @@
 #include "ordering/impl/on_demand_ordering_service_impl.hpp"
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
+#include "ordering/impl/os_executor_keepers.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 
 using iroha::ordering::OnDemandOrderingInit;
@@ -30,7 +31,8 @@ namespace {
 }  // namespace
 
 OnDemandOrderingInit::OnDemandOrderingInit(logger::LoggerPtr log)
-    : log_(std::move(log)) {}
+    : log_(std::move(log)),
+      os_execution_keepers_(std::make_shared<ExecutorKeeper>()) {}
 
 /**
  * Creates notification factory for individual connections to peers with
@@ -41,7 +43,8 @@ auto createNotificationFactory(
         proposal_transport_factory,
     std::chrono::milliseconds delay,
     const logger::LoggerManagerTreePtr &ordering_log_manager,
-    std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
+    std::shared_ptr<iroha::network::GenericClientFactory> client_factory,
+    std::shared_ptr<iroha::ordering::ExecutorKeeper> os_execution_keepers) {
   return std::make_shared<
       iroha::ordering::transport::OnDemandOsClientGrpcFactory>(
       std::move(proposal_transport_factory),
@@ -54,7 +57,8 @@ auto createNotificationFactory(
       [](iroha::ordering::ProposalEvent event) {
         iroha::getSubscription()->notify(iroha::EventTypes::kOnProposalResponse,
                                          std::move(event));
-      });
+      },
+      std::move(os_execution_keepers));
 }
 
 auto OnDemandOrderingInit::createConnectionManager(
@@ -66,7 +70,8 @@ auto OnDemandOrderingInit::createConnectionManager(
       createNotificationFactory(std::move(proposal_transport_factory),
                                 delay,
                                 ordering_log_manager,
-                                std::move(client_factory)),
+                                std::move(client_factory),
+                                os_execution_keepers_),
       ordering_log_manager->getChild("ConnectionManager")->getLogger());
   return connection_manager_;
 }
@@ -148,6 +153,8 @@ iroha::ordering::RoundSwitch OnDemandOrderingInit::processSynchronizationEvent(
   iroha::consensus::Round current_round = event.round;
 
   auto &current_peers = event.ledger_state->ledger_peers;
+  os_execution_keepers_->syncronize(
+      current_peers.data(), current_peers.data() + current_peers.size());
 
   /// permutations for peers lists
   std::array<std::vector<size_t>, kCount> permutations;
