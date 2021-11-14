@@ -309,17 +309,11 @@ jobs:
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
         ## Docker image will be pushed with tags:
         ##  - hash of file Dockerfile.builder
         ##  - branchname, when branch is pushed
         ##  - pr-NUMBER, when pushed to PR
         ##  - git tag when tag is pushed
-        ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-        ##  - tag 'edge' when branch support/1.2.x is pushed
         ##  - schedule, see the docs
       - &step_docker_meta_ghcr
         <<: *step_docker_meta
@@ -755,7 +749,6 @@ jobs:
       - &step_brew_postgres
         name: Install Postgres on MacOS
         run: brew install postgresql
-        ## ToDo may be optimize, i.e. cache package
       - <<: *step_ctest
         timeout-minutes: 70
 
@@ -777,10 +770,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
-    #if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
     if: ${{ false && ( fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
-      # matrix:
-      #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
     defaults:
       run:
         shell: bash  #pwsh
@@ -817,17 +807,16 @@ jobs:
       - *step_cmake_configure
       - *step_cmake_build
       - *step_always_after_build
-      -
-        name: Install Postgres on Windows
+      - name: Install Postgres on Windows
         run: choco install postgresql
       # - *step_ctest
 
   ## Build and publish docker image named 'hyperledger/iroha'  with irohad and iroha tools inside.
-  ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
-  ## and conditional tags :edge (for development branches) and :latest (for git-tags)
+  ## The result docker image is pushed with tags :branch_name, :pr-NUMBER, :tag_name,
+  ## and :latest (for git-tags).
   ## Those docker image tags could be extended with suffixes with compiler and build type like
-  ## -gcc10, -clang, -debug, -gcc10-debug.
-  ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha-burrow:commit-XXXXX-debug
+  ## -gcc10, -clang, -debug, -gcc10-debug. Like :latest-debug, :main-debug, :1.3.0-gcc10-debug.
+  ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha:nightly.
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   docker-R: &job_docker_image_release
     needs:
@@ -851,8 +840,7 @@ jobs:
       - *step_detect_commented_pr
       - *step_checkout
       - *step_artifact_suffix
-      -
-        name: Download artifact
+      - name: Download artifact
         uses: actions/download-artifact@v2
         with:
           name: iroha-deb${{env.ARTIFACT_SUFFIX}}
