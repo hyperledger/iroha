@@ -1,13 +1,13 @@
 use std::{
     collections::HashMap,
-    convert::{TryFrom, TryInto},
+    convert::TryFrom,
     fmt::{self, Debug, Formatter},
     sync::mpsc,
     thread,
     time::Duration,
 };
 
-use eyre::{eyre, Error, Result, WrapErr};
+use eyre::{eyre, Result, WrapErr};
 use http_client::WebSocketStream;
 use iroha_core::{smartcontracts::Query, torii::GetConfiguration, wsv::World};
 use iroha_crypto::{HashOf, KeyPair};
@@ -31,7 +31,7 @@ pub struct Client {
     pub max_instruction_number: u64,
     /// Accounts keypair
     pub key_pair: KeyPair,
-    /// Transaction time to live in miliseconds
+    /// Transaction time to live in milliseconds
     pub proposed_transaction_ttl_ms: u64,
     /// Transaction status timeout
     pub transaction_status_timeout: Duration,
@@ -323,7 +323,10 @@ impl Client {
                 std::str::from_utf8(response.body()).unwrap_or(""),
             ));
         }
-        let QueryResult(result) = response.body().clone().try_into().map_err(Error::msg)?;
+        let QueryResult(result) = VersionedQueryResult::decode_versioned(response.body())?
+            .into_v1()
+            .ok_or_else(|| eyre!("Expected query result V1"))?
+            .into();
         R::Output::try_from(result)
             .map_err(Into::into)
             .wrap_err("Unexpected type")

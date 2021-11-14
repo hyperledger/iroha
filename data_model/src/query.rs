@@ -144,7 +144,7 @@ pub struct SignedQueryRequest {
     pub signature: SignatureOf<Payload>,
 }
 
-declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_derive::FromVariant, Io, IntoSchema);
 
 /// Sized container for all possible Query results.
 #[version_with_scale(
