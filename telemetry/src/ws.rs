@@ -147,8 +147,8 @@ where
                     self.sink = None;
                     self.schedule_reconnect();
                 }
-                Err(e) => {
-                    iroha_logger::error!("send failed: {:?}", e);
+                Err(error) => {
+                    iroha_logger::error!(%error, "send failed");
                 }
             }
         }

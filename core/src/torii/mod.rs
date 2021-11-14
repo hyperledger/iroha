@@ -273,7 +273,7 @@ async fn handle_queries<W: WorldTrait>(
     state: ToriiState<W>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
-) -> Result<Scale<QueryResult>, query::Error> {
+) -> Result<Scale<VersionedQueryResult>, query::Error> {
     let valid_request = request.validate(&*state.wsv, &state.query_validator)?;
     let result = valid_request
         .execute(&*state.wsv)
@@ -283,7 +283,7 @@ async fn handle_queries<W: WorldTrait>(
     } else {
         result
     });
-    Ok(Scale(result))
+    Ok(Scale(result.into()))
 }
 
 #[derive(Serialize)]
@@ -504,9 +504,8 @@ mod tests {
 
             let pagination = Pagination { start, limit };
             handle_queries(state.clone(), pagination, query).map(|result| {
-                if let Scale(QueryResult(Value::Vec(domain))) =
-                    result.expect("Failed request with query")
-                {
+                let Scale(query_result) = result.expect("Failed request with query");
+                if let QueryResult(Value::Vec(domain)) = query_result.into_v1().unwrap().into() {
                     domain
                 } else {
                     unreachable!()
