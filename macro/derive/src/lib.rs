@@ -1,4 +1,4 @@
-//! Crate with various derive macroes
+//! Crate with various derive macros
 
 #![allow(clippy::restriction)]
 
