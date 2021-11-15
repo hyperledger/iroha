@@ -78,10 +78,10 @@ pub struct Init {
     pub height: u64,
 }
 
-/// Get sorted peers
+/// Get random amount of peers
 #[derive(Debug, Clone, Copy, iroha_actor::Message)]
 #[message(result = "Vec<PeerId>")]
-pub struct GetSortedPeers;
+pub struct GetRandomPeers(pub usize);
 
 /// Get network topology
 #[derive(Debug, Clone, iroha_actor::Message)]
@@ -147,7 +147,7 @@ pub trait SumeragiTrait:
     + ContextHandler<Init, Result = ()>
     + ContextHandler<CommitBlock, Result = ()>
     + ContextHandler<GetNetworkTopology, Result = Topology>
-    + ContextHandler<GetSortedPeers, Result = Vec<PeerId>>
+    + ContextHandler<GetRandomPeers, Result = Vec<PeerId>>
     + ContextHandler<IsLeader, Result = bool>
     + ContextHandler<GetLeader, Result = PeerId>
     + ContextHandler<NetworkMessage, Result = ()>
@@ -377,12 +377,17 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> ContextHandler<Init>
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetSortedPeers>
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetRandomPeers>
     for Sumeragi<G, K, W>
 {
     type Result = Vec<PeerId>;
-    async fn handle(&mut self, GetSortedPeers: GetSortedPeers) -> Vec<PeerId> {
-        self.topology.sorted_peers().to_vec()
+    async fn handle(&mut self, GetRandomPeers(amount): GetRandomPeers) -> Vec<PeerId> {
+        let mut rng = &mut rand::thread_rng();
+        self.topology
+            .sorted_peers()
+            .choose_multiple(&mut rng, amount)
+            .cloned()
+            .collect()
     }
 }
 

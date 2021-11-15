@@ -40,6 +40,7 @@ The following is the default configuration used by Iroha.
     "MAX_INSTRUCTION_NUMBER": 4096
   },
   "BLOCK_SYNC": {
+    "SYNC_PEERS_COUNT": 3,
     "GOSSIP_PERIOD_MS": 10000,
     "BATCH_SIZE": 4,
     "MAILBOX": 100
@@ -107,13 +108,14 @@ Has type `BlockSyncConfiguration`. Can be configured via environment variable `I
 {
   "BATCH_SIZE": 4,
   "GOSSIP_PERIOD_MS": 10000,
-  "MAILBOX": 100
+  "MAILBOX": 100,
+  "SYNC_PEERS_COUNT": 3
 }
 ```
 
 ### `block_sync.batch_size`
 
-The number of blocks, which can be send in one message.
+The number of blocks, which can be sent in one message.
 
 Has type `u32`. Can be configured via environment variable `BLOCK_SYNC_BATCH_SIZE`
 
@@ -123,7 +125,7 @@ Has type `u32`. Can be configured via environment variable `BLOCK_SYNC_BATCH_SIZ
 
 ### `block_sync.gossip_period_ms`
 
-The time between peer sharing its latest block hash with other peers in milliseconds.
+The time between peer requesting latest blocks from [`sync_peers_count`] other peers in milliseconds.
 
 Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PERIOD_MS`
 
@@ -139,6 +141,16 @@ Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_MAILBOX
 
 ```json
 100
+```
+
+### `block_sync.sync_peers_count`
+
+Number of randomly selected peers which are polled for latest blocks.
+
+Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_SYNC_PEERS_COUNT`
+
+```json
+3
 ```
 
 ## `genesis`
