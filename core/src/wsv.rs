@@ -478,7 +478,7 @@ pub mod config {
         MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
     const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
 
-    /// [`WorldStateView`](super::WorldStateView) configuration.
+    /// [`WorldStateView`] configuration.
     #[derive(Clone, Deserialize, Serialize, Debug, Copy, Configurable, PartialEq, Eq)]
     #[config(env_prefix = "WSV_")]
     #[serde(rename_all = "UPPERCASE", default)]
@@ -491,7 +491,7 @@ pub mod config {
         pub account_metadata_limits: MetadataLimits,
         /// [`MetadataLimits`] of any domain's metadata.
         pub domain_metadata_limits: MetadataLimits,
-        /// [`LengthLimits`]for the number of chars in identifiers that can be stored in the WSV.
+        /// [`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
         pub ident_length_limits: LengthLimits,
     }
 

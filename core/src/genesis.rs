@@ -286,7 +286,7 @@ pub mod config {
 mod tests {
     use super::*;
 
-    const GENESIS_BLOCK_PATH: &str = "tests/genesis.json";
+    const GENESIS_BLOCK_PATH: &str = "../test_configs/core/tests/genesis.json";
 
     #[test]
     fn load_genesis_block() -> Result<()> {

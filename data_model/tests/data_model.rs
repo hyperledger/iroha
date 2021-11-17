@@ -11,10 +11,10 @@ use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
-const CONFIGURATION_PATH: &str = "tests/test_config.json";
-const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
-const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
-const GENESIS_PATH: &str = "tests/genesis.json";
+const CONFIGURATION_PATH: &str = "../test_configs/data_model/test_config.json";
+const TRUSTED_PEERS_PATH: &str = "../test_configs/data_model/test_trusted_peers.json";
+const CLIENT_CONFIGURATION_PATH: &str = "../test_configs/data_model/test_client_config.json";
+const GENESIS_PATH: &str = "../test_configs/data_model/genesis.json";
 
 #[test]
 fn find_rate_and_make_exchange_isi_should_be_valid() {

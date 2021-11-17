@@ -504,7 +504,7 @@ mod tests {
     use super::*;
     use crate::{config::Configuration, init, smartcontracts::permissions::AllowAll, wsv::World};
 
-    const CONFIGURATION_PATH: &str = "tests/test_config.json";
+    const CONFIGURATION_PATH: &str = "../test_configs/core/tests/test_config.json";
 
     #[test]
     fn hash_should_be_the_same() {

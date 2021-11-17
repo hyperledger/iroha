@@ -440,8 +440,8 @@ mod tests {
         config::Configuration, queue::Queue, smartcontracts::permissions::DenyAll, wsv::World,
     };
 
-    const CONFIGURATION_PATH: &str = "tests/test_config.json";
-    const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
+    const CONFIGURATION_PATH: &str = "../test_configs/core/tests/test_config.json";
+    const TRUSTED_PEERS_PATH: &str = "../test_configs/core/tests/test_trusted_peers.json";
 
     fn get_config() -> Configuration {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.")

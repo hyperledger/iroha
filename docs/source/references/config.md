@@ -1,6 +1,10 @@
-# Iroha config description
+# Iroha Configuration reference
 
-Configuration of iroha is done via options in the following document. Here is defaults for whole config:
+In this document we provide a reference and detailed descriptions of Iroha's configuration options.
+
+## Default configuration
+
+The following is the default configuration used by Iroha.
 
 ```json
 {
@@ -740,7 +744,7 @@ Has type `MetadataLimits`. Can be configured via environment variable `WSV_DOMAI
 
 ### `wsv.ident_length_limits`
 
-[`LengthLimits`]for the number of chars in identifiers that can be stored in the WSV.
+[`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
 
 Has type `LengthLimits`. Can be configured via environment variable `WSV_IDENT_LENGTH_LIMITS`
 

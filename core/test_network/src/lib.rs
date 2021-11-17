@@ -107,10 +107,10 @@ impl std::cmp::PartialEq for Peer {
 
 impl std::cmp::Eq for Peer {}
 
-pub const CONFIGURATION_PATH: &str = "tests/test_config.json";
-pub const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
-pub const GENESIS_PATH: &str = "tests/genesis.json";
-pub const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
+pub const CONFIGURATION_PATH: &str = "../test_configs/core/test_network/test_config.json";
+pub const CLIENT_CONFIGURATION_PATH: &str = "../test_configs/core/test_network/test_client_config.json";
+pub const GENESIS_PATH: &str = "../test_configs/core/test_network/genesis.json";
+pub const TRUSTED_PEERS_PATH: &str = "../test_configs/core/test_network/test_trusted_peers.json";
 
 pub trait TestGenesis: Sized {
     fn test(submit_genesis: bool) -> Option<Self>;
