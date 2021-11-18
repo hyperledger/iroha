@@ -48,17 +48,17 @@ mkdir deploy
 Build and copy Iroha binary into the directory. 
 
 ```bash
-cargo build
-cp ./target/debug/iroha deploy
+cargo build --release
+cp ./target/release/iroha deploy
 ```
 
 #### Copy configs
 
 Copy and if necessary edit config, genesis and trusted peers.
 ```bash
-cp ./core/config.json deploy
-cp ./core/genesis.json deploy
-cp ./core/trusted_peers.json deploy
+cp ./configs/docker/config.json deploy
+cp ./configs/docker/genesis.json deploy
+cp ./configs/docker/trusted_peers.json deploy
 ```
 
 Depending on how many peers you plan to run, update the config:

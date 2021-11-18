@@ -32,6 +32,7 @@ use tokio::{sync::mpsc, time};
 use utils::{genesis, kura, kura::*, sumeragi, world};
 
 pub mod utils {
+    use iroha_core::genesis::RawGenesisBlock;
     use iroha_crypto::HashOf;
 
     use super::*;
@@ -53,9 +54,9 @@ pub mod utils {
 
         #[async_trait::async_trait]
         impl GenesisNetworkTrait for NoGenesis {
-            fn from_configuration<P: AsRef<Path> + Debug>(
+            fn from_configuration(
                 _submit_genesis: bool,
-                _block_path: P,
+                _block_path: RawGenesisBlock,
                 _genesis_config: &GenesisConfiguration,
                 _max_instructions_number: u64,
             ) -> Result<Option<Self>> {

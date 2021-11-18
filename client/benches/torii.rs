@@ -16,9 +16,9 @@ use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
-const CONFIGURATION_PATH: &str = "tests/test_config.json";
-const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
-const GENESIS_PATH: &str = "tests/genesis.json";
+const CONFIGURATION_PATH: &str = "../configs/test_config.json";
+const CLIENT_CONFIGURATION_PATH: &str = "../configs/test_client_config.json";
+const GENESIS_PATH: &str = "../configs/genesis.json";
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
 
 fn query_requests(criterion: &mut Criterion) {

@@ -139,8 +139,8 @@ mod tests {
 
     use super::*;
 
-    const CONFIGURATION_PATH: &str = "../test_configs/core/tests/test_config.json";
-    const TRUSTED_PEERS_PATH: &str = "../test_configs/core/tests/test_trusted_peers.json";
+    const CONFIGURATION_PATH: &str = "../configs/test_config.json";
+    const TRUSTED_PEERS_PATH: &str = "../configs/test_trusted_peers.json";
 
     #[test]
     fn parse_example_json() -> Result<()> {

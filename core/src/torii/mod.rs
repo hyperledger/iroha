@@ -389,11 +389,11 @@ pub mod config {
     use iroha_config::derive::Configurable;
     use serde::{Deserialize, Serialize};
 
-    const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
-    const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
-    const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
-    const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
-    const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
+    pub const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
+    pub const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
+    pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
+    pub const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+    pub const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
     #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
@@ -427,31 +427,19 @@ pub mod config {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     #![allow(clippy::pedantic, clippy::restriction)]
 
-    use std::{convert::TryInto, iter, time::Duration};
+    use std::{convert::TryInto, time::Duration};
 
     use futures::future::FutureExt;
     use tokio::time;
-
+	use crate::samples::{get_config, get_trusted_peers};
     use super::*;
-    use crate::{
-        config::Configuration, queue::Queue, smartcontracts::permissions::DenyAll, wsv::World,
-    };
-
-    const CONFIGURATION_PATH: &str = "../test_configs/core/tests/test_config.json";
-    const TRUSTED_PEERS_PATH: &str = "../test_configs/core/tests/test_trusted_peers.json";
-
-    fn get_config() -> Configuration {
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.")
-    }
+    use crate::{queue::Queue, smartcontracts::permissions::DenyAll, wsv::World};
 
     fn create_torii() -> (Torii<World>, KeyPair) {
-        let mut config = get_config();
-        config
-            .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
-            .expect("Failed to load trusted peers.");
+        let config = get_config(get_trusted_peers(None), None);
         let (events, _) = tokio::sync::broadcast::channel(100);
         let wsv = Arc::new(WorldStateView::new(World::with(
             ('a'..'z')
@@ -464,7 +452,7 @@ mod tests {
             "wonderland".to_owned(),
             Domain::with_accounts(
                 "wonderland",
-                iter::once(Account::with_signatory(
+                std::iter::once(Account::with_signatory(
                     AccountId::new("alice", "wonderland"),
                     keys.public_key.clone(),
                 )),

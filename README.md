@@ -22,26 +22,19 @@ Iroha has the following features:
 
 # System Requirements
 
-## Building
-### Minimum
+| Use-case          | CPU               | RAM   | Storage |
+|-------------------|-------------------|-------|---------|
+| Build (minimum)   | Dual-core CPU     | 4GB   | 20GB    |
+| Build (recommend) | AMD Ryzen™ 5 1600 | 16GB  | 40GB    |
+| Deploy (small)    | Dual-core CPU     | 8GB+  | 20GB+   |
+| Deploy (large)    | AMD Epyc™ 64-core | 128GB | 128GB+  |
 
-A modern multi-core CPU with at least 2GB of RAM per core as well as approximately 20 GB of free storage space.
+## Notes
+* Rust compilation highly favours multi-core CPUs such as Apple M1™, AMD Ryzen™/Threadripper™/Epyc™, Intel Alder Lake
+* On systems with restricted memory but many CPU cores, compilation of Iroha may sometimes fail with (`SIGKILL`). If this happens to you, restrict the number of CPU cores using `cargo build -j <number>`, where `<number>` (without the angle brackets) is half your RAM capacity rounded down. 
+* Blockchain operations are done in-memory, so RAM requirements may increase over time, depending on the size and number of blocks in your blockchain. 
+* Iroha itself does not require any persistent storage, as all of its configuration options can be specified via environment variables. 
 
-### Recommended
-
-Ryzen 5 1600 or above, 16GB of RAM or more. 40GB of SSD storage.
-
-## Running
-
-The actual minimum requirements depend on the load that your deployment will experience. As Iroha performs most of the operations in-memory, it is recommended to revise and increase the amount of available RAM or consider Optane-based solutions.
-
-### Minimum (small-scale deployment)
-
-Network connection, a 1 core CPU with 1GB of RAM. 1GB of persistent storage.
-
-### Recommended (enterprise-grade single server)
-
-High-bandwidth network connection, a 64 core single-socket or dual-socket CPU(s) with 512GB of ECC-capable RAM and 2TB of persistent storage
 
 # Building, testing and running
 
@@ -94,7 +87,7 @@ More details about the usage of Iroha can be found [here](https://github.com/hyp
 With the `docker-compose` instance running,
 
 ```bash
-cp client/config.json target/debug/
+cp configs/client_config.json target/debug/config.json
 cd target/debug
 ./iroha_client_cli --help
 ```
@@ -121,7 +114,7 @@ Iroha project mainly consists of the following crates:
 * [`iroha_p2p`](p2p) — peer creation and handshake logic
 * [`iroha_permissions_validators`](permissions_validators) — permission validation logic
 * [`iroha_substrate`](substrate) — bridge substrate `XClaim` external module
-* [`iroha_telemetry`](telemetry) provides telemetry monitoring and analysis
+* [`iroha_telemetry`](telemetry) — monitoring and analysis of telemetry data
 * [`iroha_version`](version) — message versioning for non-simultaneous system updates
 
 # Maintenance 
@@ -164,7 +157,7 @@ The provided `docker-compose` file showcases a minimum viable network and the ge
 
   * [Iroha 2 Whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md)
   * [Minting your first asset (tutorial)](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/tutorials/mint-your-first-asset.md)
-  * [Gloassary of terms](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/glossary.md)
+  * [Glossary](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/glossary.md)
   * [Configuration](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md)
   * [Iroha Special Instructions](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/isi.md)
   * [API specification](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/api_spec.md)

@@ -1258,9 +1258,9 @@ dependencies = [
 
 [[package]]
 name = "hex-literal"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21e4590e13640f19f249fe3e4eca5113bc4289f2497710378190e7f4bd96f45b"
+checksum = "7ebdb29d2ea9ed0083cd8cece49bbd968021bd99b0849edb4a9a7ee0fdf6a4e0"
 
 [[package]]
 name = "hex-literal-impl"
@@ -1543,6 +1543,7 @@ dependencies = [
  "serde_json",
  "structopt",
  "tempfile",
+ "test_network",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -1558,7 +1559,7 @@ dependencies = [
  "derive_more",
  "eyre",
  "hex",
- "hex-literal 0.3.3",
+ "hex-literal 0.3.4",
  "iroha_schema",
  "openssl-sys",
  "parity-scale-codec",
@@ -1586,10 +1587,12 @@ dependencies = [
  "dashmap",
  "eyre",
  "fixnum",
+ "hex-literal 0.3.4",
  "iroha_client",
  "iroha_core",
  "iroha_crypto",
  "iroha_derive",
+ "iroha_logger",
  "iroha_macro",
  "iroha_schema",
  "iroha_version",
@@ -3035,6 +3038,7 @@ dependencies = [
  "color-eyre",
  "eyre",
  "futures",
+ "hex-literal 0.3.4",
  "iroha_actor",
  "iroha_client",
  "iroha_config",

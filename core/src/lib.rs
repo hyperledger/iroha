@@ -15,6 +15,7 @@ pub mod sumeragi;
 pub mod torii;
 pub mod tx;
 pub mod wsv;
+pub mod samples;
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -147,7 +148,7 @@ where
     ) -> Result<Self> {
         let genesis = G::from_configuration(
             args.submit_genesis,
-            &args.genesis_path,
+            crate::genesis::RawGenesisBlock::from_path(&args.genesis_path)?,
             &config.genesis,
             config.torii.max_instruction_number,
         )

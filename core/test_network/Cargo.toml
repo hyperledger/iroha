@@ -12,11 +12,13 @@ mock = []
 iroha_core = { path = "../../core" }
 iroha_client = { path = "../../client" }
 iroha_data_model = { path = "../../data_model" }
+iroha_crypto = { path = "../../crypto" } 
 iroha_logger = { path = "../../logger" }
 iroha_config = { path = "../../config" }
 iroha_p2p = { path = "../../p2p" }
 iroha_actor = { path = "../../actor" }
 
+hex-literal = "0.3.4"
 eyre = "0.6.5"
 tempfile = "3"
 unique_port = "0.1.0"
@@ -26,7 +28,6 @@ futures = { version = "0.3.17", default-features = false, features = ["std", "as
 
 [dev-dependencies]
 iroha_crypto = { path = "../../crypto" }
-
 async-trait = "0.1"
 color-eyre = "0.5.11"
 once_cell = "1"

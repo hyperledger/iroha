@@ -34,8 +34,11 @@ where
 
         writeln!(writer, "# Iroha Configuration reference\n")?;
         writeln!(writer, "In this document we provide a reference and detailed descriptions of Iroha's configuration options.\n")?;
-		writeln!(writer, "## Default configuration\n")?;
-		writeln!(writer, "The following is the default configuration used by Iroha.\n")?;
+        writeln!(writer, "## Default configuration\n")?;
+        writeln!(
+            writer,
+            "The following is the default configuration used by Iroha.\n"
+        )?;
         writeln!(writer, "```json\n{}\n```\n", defaults)?;
         Self::get_markdown_with_depth(writer, &docs, &mut vec, 2)?;
         Ok(())

@@ -1,3 +1,4 @@
+
 //! Module with queue actor
 
 use std::time::Duration;
@@ -9,7 +10,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::transaction::VersionedTransaction;
 use thiserror::Error;
 
-use self::config::QueueConfiguration;
+pub use self::config::QueueConfiguration;
 use crate::{prelude::*, wsv::WorldTrait};
 
 /// Lockfree queue for transactions
