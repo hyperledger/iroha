@@ -145,7 +145,7 @@ Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_MAILBOX
 
 ### `block_sync.sync_peers_count`
 
-Number of randomly selected peers which are polled for latest blocks.
+Number of peers which are selected at random and polled for latest blocks.
 
 Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_SYNC_PEERS_COUNT`
 

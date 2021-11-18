@@ -1889,6 +1889,7 @@ pub mod peer {
     //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
     use std::{
+        borrow::Borrow,
         hash::{Hash, Hasher},
         iter::FromIterator,
     };
@@ -1965,6 +1966,12 @@ pub mod peer {
     impl Hash for Id {
         fn hash<H: Hasher>(&self, state: &mut H) {
             self.public_key.hash(state);
+        }
+    }
+
+    impl Borrow<PublicKey> for Id {
+        fn borrow(&self) -> &PublicKey {
+            &self.public_key
         }
     }
 
