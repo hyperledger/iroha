@@ -73,7 +73,7 @@ namespace iroha {
       /// max number of transactions passed to one ordering service
       size_t transaction_limit_;
       std::shared_ptr<OnDemandOrderingService> ordering_service_;
-      std::shared_ptr<transport::OdOsNotification> network_client_;
+      std::shared_ptr<transport::OdOsNotification> connection_manager_;
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;

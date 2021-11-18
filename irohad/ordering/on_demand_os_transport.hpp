@@ -53,7 +53,8 @@ namespace iroha {
          * @param round - number of collaboration round.
          * Calculated as block_height + 1
          */
-        virtual void onRequestProposal(consensus::Round round) = 0;
+        virtual void onRequestProposal(consensus::Round,
+                                       shared_model::crypto::Hash const &) = 0;
 
         virtual ~OdOsNotification() = default;
       };

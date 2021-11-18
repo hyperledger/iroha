@@ -6,8 +6,6 @@
 #ifndef IROHA_ON_DEMAND_ORDERING_SERVICE_IMPL_HPP
 #define IROHA_ON_DEMAND_ORDERING_SERVICE_IMPL_HPP
 
-#include "ordering/on_demand_ordering_service.hpp"
-
 #include <map>
 #include <mutex>
 #include <shared_mutex>
@@ -16,6 +14,7 @@
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/hash.hpp"
 #include "ordering/impl/batches_cache.hpp"
+#include "ordering/on_demand_ordering_service.hpp"
 // TODO 2019-03-15 andrei: IR-403 Separate BatchHashEquality and MstState
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "ordering/impl/on_demand_common.hpp"
@@ -26,8 +25,9 @@ namespace iroha {
   }
   namespace ordering {
     namespace detail {
-      using ProposalMapType =
-          std::map<consensus::Round,
+      using ProposalMapType = std::map<consensus::Round, ProposalWithHash>;
+      using ProposalsMapByHash =
+          std::map<shared_model::crypto::Hash,
                    std::optional<std::shared_ptr<
                        const OnDemandOrderingService::ProposalType>>>;
     }  // namespace detail
@@ -37,7 +37,7 @@ namespace iroha {
       /**
        * Create on_demand ordering service with following options:
        * @param transaction_limit - number of maximum transactions in one
-       * proposal
+       * proposal_or_hash
        * @param proposal_factory - used to generate proposals
        * @param tx_cache - cache of transactions
        * @param log to print progress
@@ -56,8 +56,9 @@ namespace iroha {
 
       void onBatches(CollectionType batches) override;
 
-      std::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
-          consensus::Round round) override;
+      // std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+      ProposalWithHash onRequestProposal(consensus::Round const &) override;
+      // shared_model::crypto::Hash const &) override;
 
       void onCollaborationOutcome(consensus::Round round) override;
 
@@ -71,22 +72,23 @@ namespace iroha {
 
       void processReceivedProposal(CollectionType batches) override;
 
+      shared_model::crypto::Hash getProposalHash(
+          consensus::Round round) override;
+
+      ProposalWithHash getProposalWithHash(consensus::Round round) override;
+
      private:
       /**
        * Packs new proposals and creates new rounds
        * Note: method is not thread-safe
        */
-      std::optional<std::shared_ptr<shared_model::interface::Proposal>>
-      packNextProposals(const consensus::Round &round);
+      //      std::tuple<
+      //          std::optional<std::shared_ptr<shared_model::interface::Proposal>>,
+      //          shared_model::crypto::Hash>
+      ProposalWithHash packNextProposals(const consensus::Round &round);
 
       using TransactionsCollectionType =
           std::vector<std::shared_ptr<shared_model::interface::Transaction>>;
-
-      std::optional<std::shared_ptr<shared_model::interface::Proposal>>
-      tryCreateProposal(
-          consensus::Round const &round,
-          const TransactionsCollectionType &txs,
-          shared_model::interface::types::TimestampType created_time);
 
       /**
        * Removes last elements if it is required
@@ -118,7 +120,7 @@ namespace iroha {
       bool hasProposal(consensus::Round round) const override;
 
       /**
-       * Max number of transaction in one proposal
+       * Max number of transaction in one proposal_or_hash
        */
       size_t transaction_limit_;
 
@@ -131,6 +133,8 @@ namespace iroha {
        * Map of available proposals
        */
       detail::ProposalMapType proposal_map_;
+
+      // detail::ProposalsMapByHash proposals_by_hash_;
 
       /**
        * Proposal collection mutexes for public methods

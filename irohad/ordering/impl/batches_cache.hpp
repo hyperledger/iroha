@@ -26,10 +26,11 @@ namespace iroha::ordering {
    */
   class BatchesContext {
    public:
-    using BatchesSetType = std::unordered_set<
-        std::shared_ptr<shared_model::interface::TransactionBatch>,
-        OnDemandOrderingService::BatchPointerHasher,
-        shared_model::interface::BatchHashEquality>;
+    using BatchesSetType =
+        std::set<std::shared_ptr<shared_model::interface::TransactionBatch>,
+                 shared_model::interface::BatchHashLess>;
+    //        OnDemandOrderingService::BatchPointerHasher,
+    //        shared_model::interface::BatchHashEquality>;
 
     BatchesContext(BatchesContext const &) = delete;
     BatchesContext &operator=(BatchesContext const &) = delete;

@@ -77,6 +77,8 @@ namespace shared_model {
 
       bool operator==(const Blob &rhs) const override;
 
+      bool operator<(const Blob &rhs) const;
+
      protected:
       Blob *clone() const override;
 

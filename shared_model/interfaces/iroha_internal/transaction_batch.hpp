@@ -69,6 +69,15 @@ namespace shared_model {
       bool operator()(const std::shared_ptr<TransactionBatch> &left_tx,
                       const std::shared_ptr<TransactionBatch> &right_tx) const;
     };
+
+    struct BatchHashLess {
+      /**
+       * The function used to compare batches which is less:
+       * check only hashes of batches, without signatures
+       */
+      bool operator()(const std::shared_ptr<TransactionBatch> &left_tx,
+                      const std::shared_ptr<TransactionBatch> &right_tx) const;
+    };
   }  // namespace interface
 }  // namespace shared_model
 

@@ -22,6 +22,10 @@ namespace shared_model {
 namespace iroha {
   namespace ordering {
 
+    using ProposalWithHash = std::tuple<
+        std::optional<std::shared_ptr<const shared_model::interface::Proposal>>,
+        shared_model::crypto::Hash>;
+
     /**
      * Ordering Service aka OS which can share proposals by request
      */
@@ -43,10 +47,11 @@ namespace iroha {
         }
       };
 
-      using BatchesSetType = std::unordered_set<
-          std::shared_ptr<shared_model::interface::TransactionBatch>,
-          BatchPointerHasher,
-          shared_model::interface::BatchHashEquality>;
+      using BatchesSetType =
+          std::set<std::shared_ptr<shared_model::interface::TransactionBatch>,
+                   shared_model::interface::BatchHashLess>;
+      //          BatchPointerHasher,
+      //          shared_model::interface::BatchHashEquality>;
 
       /**
        * Type of stored transaction batches
@@ -65,8 +70,11 @@ namespace iroha {
        */
       virtual void onBatches(CollectionType batches) = 0;
 
-      virtual std::optional<std::shared_ptr<const ProposalType>>
-      onRequestProposal(consensus::Round round) = 0;
+      //      virtual std::optional<
+      //          std::shared_ptr<const shared_model::interface::Proposal>>
+      virtual ProposalWithHash onRequestProposal(
+          consensus::Round const
+              &) = 0;  //, shared_model::crypto::Hash const &) = 0;
 
       using HashesSetType =
           std::unordered_set<shared_model::crypto::Hash,
@@ -74,7 +82,7 @@ namespace iroha {
 
       /**
        * Method which should be invoked on outcome of collaboration for round
-       * @param round - proposal round which has started
+       * @param round - proposal_or_hash round which has started
        */
       virtual void onCollaborationOutcome(consensus::Round round) = 0;
 
@@ -104,6 +112,11 @@ namespace iroha {
       virtual bool hasProposal(consensus::Round round) const = 0;
 
       virtual void processReceivedProposal(CollectionType batches) = 0;
+
+      virtual shared_model::crypto::Hash getProposalHash(
+          consensus::Round round) = 0;
+
+      virtual ProposalWithHash getProposalWithHash(consensus::Round round) = 0;
     };
 
   }  // namespace ordering

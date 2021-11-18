@@ -6,13 +6,12 @@
 #ifndef IROHA_ON_DEMAND_CONNECTION_MANAGER_HPP
 #define IROHA_ON_DEMAND_CONNECTION_MANAGER_HPP
 
-#include "ordering/on_demand_os_transport.hpp"
-
 #include <array>
 #include <atomic>
 #include <shared_mutex>
 
 #include "logger/logger_fwd.hpp"
+#include "ordering/on_demand_os_transport.hpp"
 
 namespace iroha {
   namespace ordering {
@@ -56,7 +55,8 @@ namespace iroha {
 
       void onBatches(CollectionType batches) override;
 
-      void onRequestProposal(consensus::Round round) override;
+      void onRequestProposal(consensus::Round,
+                             shared_model::crypto::Hash const &) override;
 
       /**
        * Initialize corresponding peers in connections_ using factory_

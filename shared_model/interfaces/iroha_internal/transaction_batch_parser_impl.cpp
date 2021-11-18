@@ -7,6 +7,7 @@
 
 #include <boost/range/adaptor/indirected.hpp>
 #include <boost/range/combine.hpp>
+
 #include "interfaces/iroha_internal/batch_meta.hpp"
 #include "interfaces/transaction.hpp"
 
@@ -26,6 +27,8 @@ namespace {
     auto begin = std::begin(range), end = std::end(range);
     while (begin != end) {
       const auto beginning_tx_meta_opt = meta(*begin);
+      // find next without batch_meta or with different batch_meta to separate
+      // batches
       auto next = std::find_if(std::next(begin), end, [&](const auto &tx) {
         const auto current_tx_meta_opt = meta(tx);
         return not(current_tx_meta_opt and beginning_tx_meta_opt)

@@ -299,14 +299,14 @@ Irohad::RunResult Irohad::initStorage(
                                process_block,
                                log_manager_->getChild("Storage"))
         : type == StorageType::kRocksDb
-            ? ::iroha::initStorage(db_context_,
-                                   pending_txs_storage_,
-                                   query_response_factory_,
-                                   config_.block_store_path,
-                                   vm_caller_ref,
-                                   process_block,
-                                   log_manager_->getChild("Storage"))
-            : iroha::expected::makeError("Unexpected storage type.");
+        ? ::iroha::initStorage(db_context_,
+                               pending_txs_storage_,
+                               query_response_factory_,
+                               config_.block_store_path,
+                               vm_caller_ref,
+                               process_block,
+                               log_manager_->getChild("Storage"))
+        : iroha::expected::makeError("Unexpected storage type.");
 
     return st | [&](auto &&v) -> RunResult {
       storage = std::move(v);
@@ -651,7 +651,7 @@ Irohad::RunResult Irohad::initOrderingGate() {
 }
 
 /**
- * Initializing iroha verified proposal creator and block creator
+ * Initializing iroha verified proposal_or_hash creator and block creator
  */
 Irohad::RunResult Irohad::initSimulator() {
   IROHA_EXPECTED_TRY_GET_VALUE(command_executor,
@@ -997,49 +997,47 @@ namespace {
  * Run iroha daemon
  */
 Irohad::RunResult Irohad::run() {
-  ordering_init->subscribe([simulator(utils::make_weak(simulator)),
-                            consensus_gate(utils::make_weak(consensus_gate)),
-                            tx_processor(utils::make_weak(tx_processor)),
-                            subscription(utils::make_weak(getSubscription()))](
+  ordering_init->subscribe([w_simulator(utils::make_weak(simulator)),
+                            w_consensus_gate(utils::make_weak(consensus_gate)),
+                            w_tx_processor(utils::make_weak(tx_processor)),
+                            w_subscription(
+                                utils::make_weak(getSubscription()))](
                                network::OrderingEvent const &event) {
-    auto maybe_simulator = simulator.lock();
-    auto maybe_consensus_gate = consensus_gate.lock();
-    auto maybe_tx_processor = tx_processor.lock();
-    auto maybe_subscription = subscription.lock();
-    if (maybe_simulator and maybe_consensus_gate and maybe_tx_processor
-        and maybe_subscription) {
-      maybe_subscription->notify(EventTypes::kOnProposal, event);
-      auto verified_proposal = maybe_simulator->processProposal(event);
-      maybe_subscription->notify(EventTypes::kOnVerifiedProposal,
-                                 verified_proposal);
-      maybe_tx_processor->processVerifiedProposalCreatorEvent(
-          verified_proposal);
-      auto block = maybe_simulator->processVerifiedProposal(
-          std::move(verified_proposal));
-      maybe_consensus_gate->vote(std::move(block));
-    }
+    auto simulator = w_simulator.lock();
+    auto consensus_gate = w_consensus_gate.lock();
+    auto tx_processor = w_tx_processor.lock();
+    auto subscription = w_subscription.lock();
+    if (not(simulator and consensus_gate and tx_processor and subscription))
+      return;
+    subscription->notify(EventTypes::kOnProposal, event);  // only testing
+    auto verified_proposal = simulator->processProposal(event);
+    subscription->notify(EventTypes::kOnVerifiedProposal, verified_proposal);
+    tx_processor->processVerifiedProposalCreatorEvent(verified_proposal);
+    auto block =
+        simulator->processVerifiedProposal(std::move(verified_proposal));
+    consensus_gate->vote(std::move(block));
   });
 
-  yac_init->subscribe([synchronizer(utils::make_weak(synchronizer)),
-                       ordering_init(utils::make_weak(ordering_init)),
-                       yac_init(utils::make_weak(yac_init)),
-                       log(utils::make_weak(log_)),
-                       subscription(utils::make_weak(getSubscription()))](
+  yac_init->subscribe([w_synchronizer(utils::make_weak(synchronizer)),
+                       w_ordering_init(utils::make_weak(ordering_init)),
+                       w_yac_init(utils::make_weak(yac_init)),
+                       w_log(utils::make_weak(log_)),
+                       w_subscription(utils::make_weak(getSubscription()))](
                           consensus::GateObject const &object) {
-    auto maybe_synchronizer = synchronizer.lock();
-    auto maybe_ordering_init = ordering_init.lock();
-    auto maybe_yac_init = yac_init.lock();
-    auto maybe_log = log.lock();
-    auto maybe_subscription = subscription.lock();
-    if (maybe_synchronizer and maybe_ordering_init and maybe_yac_init
-        and maybe_log and maybe_subscription) {
-      processGateObject({std::move(maybe_synchronizer),
-                         std::move(maybe_ordering_init),
-                         std::move(maybe_yac_init),
-                         std::move(maybe_log),
-                         std::move(maybe_subscription)},
-                        object);
-    }
+    auto synchronizer = w_synchronizer.lock();
+    auto ordering_init = w_ordering_init.lock();
+    auto yac_init = w_yac_init.lock();
+    auto log = w_log.lock();
+    auto subscription = w_subscription.lock();
+    if (not(synchronizer and ordering_init and yac_init and log
+            and subscription))
+      return;
+    processGateObject({std::move(synchronizer),
+                       std::move(ordering_init),
+                       std::move(yac_init),
+                       std::move(log),
+                       std::move(subscription)},
+                      object);
   });
 
   // Initializing torii server

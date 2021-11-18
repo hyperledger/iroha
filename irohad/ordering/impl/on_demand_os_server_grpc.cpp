@@ -67,47 +67,45 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
     proto::ProposalResponse *response) {
   consensus::Round round{request->round().block_round(),
                          request->round().reject_round()};
-  log_->info("Received RequestProposal for {} from {}", round, context->peer());
+  log_->info("Received RequestProposal for {} with hash {} from {}",
+             round,
+             request->own_proposal_hash(),
+             context->peer());
+  // Wait for proposal_or_hash created or for number of transactions for
+  // proposal_or_hash
   if (not ordering_service_->hasProposal(round)
       and not ordering_service_->hasEnoughBatchesInCache()) {
     auto scheduler = std::make_shared<subscription::SchedulerBase>();
     auto tid = getSubscription()->dispatcher()->bind(scheduler);
-
     auto batches_subscription = SubscriberCreator<
         bool,
         std::shared_ptr<shared_model::interface::TransactionBatch>>::
         template create<EventTypes::kOnTxsEnoughForProposal>(
             static_cast<iroha::SubscriptionEngineHandlers>(*tid),
-            [scheduler(utils::make_weak(scheduler))](auto, auto) {
-              if (auto maybe_scheduler = scheduler.lock())
-                maybe_scheduler->dispose();
-            });
+            [&scheduler](auto, auto) { scheduler->dispose(); });
     auto proposals_subscription =
         SubscriberCreator<bool, consensus::Round>::template create<
             EventTypes::kOnPackProposal>(
             static_cast<iroha::SubscriptionEngineHandlers>(*tid),
-            [round, scheduler(utils::make_weak(scheduler))](auto,
-                                                            auto packed_round) {
-              if (auto maybe_scheduler = scheduler.lock();
-                  maybe_scheduler and round == packed_round)
-                maybe_scheduler->dispose();
+            [round, &scheduler](auto, auto packed_round) {
+              if (round == packed_round)
+                scheduler->dispose();
             });
-    scheduler->addDelayed(delay_, [scheduler(utils::make_weak(scheduler))] {
-      if (auto maybe_scheduler = scheduler.lock()) {
-        maybe_scheduler->dispose();
-      }
-    });
-
+    scheduler->addDelayed(delay_, [&scheduler] { scheduler->dispose(); });
     scheduler->process();
-
     getSubscription()->dispatcher()->unbind(*tid);
   }
 
-  if (auto maybe_proposal = ordering_service_->onRequestProposal(round)) {
-    *response->mutable_proposal() =
-        static_cast<const shared_model::proto::Proposal *>(
-            maybe_proposal->get())
-            ->getTransport();
+  if (auto proposal_with_hash = ordering_service_->onRequestProposal(round);
+      std::get<0>(proposal_with_hash)) {
+    auto &[opt_proposal, hash] = proposal_with_hash;
+    if (hash == shared_model::crypto::Hash(request->own_proposal_hash()))
+      *response->mutable_same_proposal_hash() = request->own_proposal_hash();
+    else
+      *response->mutable_proposal() =
+          static_cast<const shared_model::proto::Proposal *>(
+              opt_proposal->get())
+              ->getTransport();
   }
   return ::grpc::Status::OK;
 }

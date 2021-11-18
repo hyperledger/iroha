@@ -6,14 +6,13 @@
 #ifndef IROHA_ON_DEMAND_OS_TRANSPORT_CLIENT_GRPC_HPP
 #define IROHA_ON_DEMAND_OS_TRANSPORT_CLIENT_GRPC_HPP
 
-#include "ordering/on_demand_os_transport.hpp"
-
 #include "common/result.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "logger/logger_fwd.hpp"
 #include "main/subscription.hpp"
 #include "ordering.grpc.pb.h"
 #include "ordering/impl/on_demand_common.hpp"
+#include "ordering/on_demand_os_transport.hpp"
 #include "subscription/dispatcher.hpp"
 
 namespace iroha {
@@ -37,7 +36,7 @@ namespace iroha {
                 iroha::protocol::Proposal>;
         using TimepointType = std::chrono::system_clock::time_point;
         using TimeoutType = std::chrono::milliseconds;
-        using DynamicEventType = uint64_t;
+        // using DynamicEventType = uint64_t;
 
         /**
          * Constructor is left public because testing required passing a mock
@@ -57,7 +56,8 @@ namespace iroha {
 
         void onBatches(CollectionType batches) override;
 
-        void onRequestProposal(consensus::Round round) override;
+        void onRequestProposal(consensus::Round round,
+                               shared_model::crypto::Hash const &hash) override;
 
        private:
         logger::LoggerPtr log_;

@@ -40,6 +40,10 @@ namespace shared_model {
       return blob() == rhs.blob();
     }
 
+    bool Blob::operator<(const Blob &rhs) const {
+      return blob_ < rhs.blob_;
+    }
+
     Blob Blob::fromHexString(std::string_view hex) {
       using iroha::operator|;
       Blob b("");

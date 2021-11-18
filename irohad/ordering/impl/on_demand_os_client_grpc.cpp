@@ -7,6 +7,7 @@
 
 #include "backend/protobuf/proposal.hpp"
 #include "backend/protobuf/transaction.hpp"
+#include "common/result_try.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
@@ -140,17 +141,18 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   }
 }
 
-void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
+void OnDemandOsClientGrpc::onRequestProposal(
+    consensus::Round round, shared_model::crypto::Hash const &hash) {
   // Cancel an unfinished request
-  if (auto maybe_context = context_.lock()) {
+  if (auto maybe_context = context_.lock())
     maybe_context->TryCancel();
-  }
 
   auto context = std::make_shared<grpc::ClientContext>();
   context_ = context;
   proto::ProposalRequest request;
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
+  request.set_own_proposal_hash(hash.toString());
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
       [round,
@@ -158,41 +160,46 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
        proposal_request_timeout(proposal_request_timeout_),
        context(std::move(context)),
        request(std::move(request)),
-       stub(utils::make_weak(stub_)),
-       log(utils::make_weak(log_)),
-       proposal_factory(utils::make_weak(proposal_factory_)),
+       w_stub(utils::make_weak(stub_)),
+       w_log(utils::make_weak(log_)),
+       w_proposal_factory(utils::make_weak(proposal_factory_)),
        callback(callback_)] {
-        auto maybe_stub = stub.lock();
-        auto maybe_log = log.lock();
-        auto maybe_proposal_factory = proposal_factory.lock();
-        if (not(maybe_stub and maybe_log and maybe_proposal_factory)) {
+        auto stub = w_stub.lock();
+        auto log = w_log.lock();
+        auto proposal_factory = w_proposal_factory.lock();
+        if (not(stub and log and proposal_factory)) {
           return;
         }
         context->set_deadline(time_provider() + proposal_request_timeout);
         proto::ProposalResponse response;
-        maybe_log->info("Requesting proposal");
-        auto status =
-            maybe_stub->RequestProposal(context.get(), request, &response);
+        log->info("Requesting proposal_or_hash");
+        auto status = stub->RequestProposal(context.get(), request, &response);
         if (not status.ok()) {
-          maybe_log->warn(
+          log->warn(
               "RPC failed: {} {}", context->peer(), status.error_message());
-          callback({std::nullopt, round});
+          callback({std::monostate{}, round});
           return;
         } else {
-          maybe_log->info("RPC succeeded: {}", context->peer());
+          log->info("RPC succeeded: {}", context->peer());
         }
-        if (not response.has_proposal()) {
-          callback({std::nullopt, round});
-          return;
+        switch (response.optional_proposal_case()) {
+          case proto::ProposalResponse::kSameProposalHash:
+            // ToDo special handling for empty proposal_or_hash which is the
+            // same we requested
+            callback({std::monostate{}, round});
+            break;
+          default:
+            callback({std::monostate{}, round});
+            break;
+          case proto::ProposalResponse::kProposal:
+            auto proposal_result = proposal_factory->build(response.proposal());
+            if (expected::hasError(proposal_result)) {
+              log->info("{}", proposal_result.assumeError().error);
+              callback({std::monostate{}, round});
+            } else
+              callback({std::move(proposal_result).assumeValue(), round});
+            break;
         }
-        auto maybe_proposal =
-            maybe_proposal_factory->build(response.proposal());
-        if (expected::hasError(maybe_proposal)) {
-          maybe_log->info("{}", maybe_proposal.assumeError().error);
-          callback({std::nullopt, round});
-          return;
-        }
-        callback({std::move(maybe_proposal).assumeValue(), round});
       });
 }
 
@@ -218,15 +225,13 @@ iroha::expected::Result<
     std::unique_ptr<iroha::ordering::transport::OdOsNotification>,
     std::string>
 OnDemandOsClientGrpcFactory::create(const shared_model::interface::Peer &to) {
-  return client_factory_->createClient(to) |
-             [&](auto &&client) -> std::unique_ptr<OdOsNotification> {
-    return std::make_unique<OnDemandOsClientGrpc>(std::move(client),
-                                                  proposal_factory_,
-                                                  time_provider_,
-                                                  proposal_request_timeout_,
-                                                  client_log_,
-                                                  callback_,
-                                                  os_execution_keepers_,
-                                                  to.pubkey());
-  };
+  IROHA_EXPECTED_TRY_GET_VALUE(client, client_factory_->createClient(to));
+  return std::make_unique<OnDemandOsClientGrpc>(std::move(client),
+                                                proposal_factory_,
+                                                time_provider_,
+                                                proposal_request_timeout_,
+                                                client_log_,
+                                                callback_,
+                                                os_execution_keepers_,
+                                                to.pubkey());
 }

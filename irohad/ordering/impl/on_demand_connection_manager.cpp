@@ -43,30 +43,26 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
    * Issuer      Reject      Commit
    */
 
-  auto propagate = [&](auto consumer) {
+  for (auto consumer : {kIssuer, kRejectConsumer, kCommitConsumer}) {
     std::shared_lock<std::shared_timed_mutex> lock(mutex_);
-    if (not stop_requested_.load(std::memory_order_relaxed)) {
-      if (auto &connection = connections_.peers[consumer]) {
-        (*connection)->onBatches(batches);
-      };
-    }
-  };
-
-  propagate(kIssuer);
-  propagate(kRejectConsumer);
-  propagate(kCommitConsumer);
+    if (stop_requested_.load(std::memory_order_relaxed))
+      continue;
+    if (auto &connection = connections_.peers[consumer])
+      (*connection)->onBatches(batches);
+  }
 }
 
-void OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
+void OnDemandConnectionManager::onRequestProposal(
+    consensus::Round round, shared_model::crypto::Hash const &hash) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed)) {
     return;
   }
 
-  log_->debug("onRequestProposal, {}", round);
+  log_->debug("OnDemandConnectionManager::onRequestProposal() round {}", round);
 
   if (auto &connection = connections_.peers[kIssuer]) {
-    (*connection)->onRequestProposal(round);
+    (*connection)->onRequestProposal(round, hash);
   }
 }
 
@@ -77,16 +73,12 @@ void OnDemandConnectionManager::initializeConnections(
     // Object was destroyed and `this' is no longer valid.
     return;
   }
-  auto create_assign = [&](auto target) {
-    auto maybe_connection = factory_->create(*peers.peers[target]);
-    if (expected::hasError(maybe_connection)) {
+  for (auto target : {kIssuer, kRejectConsumer, kCommitConsumer}) {
+    auto result_connection = factory_->create(*peers.peers[target]);
+    if (expected::hasError(result_connection)) {
       connections_.peers[target] = std::nullopt;
-      return;
+      continue;
     }
-    connections_.peers[target] = std::move(maybe_connection).assumeValue();
+    connections_.peers[target] = std::move(result_connection).assumeValue();
   };
-
-  create_assign(kIssuer);
-  create_assign(kRejectConsumer);
-  create_assign(kCommitConsumer);
 }

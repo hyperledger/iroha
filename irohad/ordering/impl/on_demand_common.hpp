@@ -7,9 +7,11 @@
 #define IROHA_ON_DEMAND_COMMON_HPP
 
 #include <memory>
-#include <optional>
+//#include <optional>
+#include <variant>
 
 #include "consensus/round.hpp"
+#include "cryptography/hash.hpp"
 
 namespace shared_model::interface {
   class Proposal;
@@ -25,8 +27,10 @@ namespace iroha {
     consensus::Round nextRejectRound(const consensus::Round &round);
 
     struct ProposalEvent {
-      std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-          proposal;
+      using ProposalPtr =
+          std::shared_ptr<const shared_model::interface::Proposal>;
+      std::variant<std::monostate, ProposalPtr, shared_model::crypto::Hash>
+          proposal_or_hash;
       consensus::Round round;
     };
 

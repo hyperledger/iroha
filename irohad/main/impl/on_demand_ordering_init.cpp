@@ -255,19 +255,12 @@ void OnDemandOrderingInit::subscribe(
       SubscriberCreator<bool, ProposalEvent>::template create<
           EventTypes::kOnProposalResponse>(
           iroha::SubscriptionEngineHandlers::kYac,
-          [ordering_gate(utils::make_weak(ordering_gate_)),
-           callback(std::move(callback))](auto, auto event) {
-            auto maybe_ordering_gate = ordering_gate.lock();
-            if (not maybe_ordering_gate) {
-              return;
-            }
-            auto maybe_event =
-                maybe_ordering_gate->processProposalRequest(std::move(event));
-            if (not maybe_event) {
-              return;
-            }
-            if (maybe_event) {
-              callback(*std::move(maybe_event));
-            }
+          [w_ordering_gate(utils::make_weak(ordering_gate_)),
+           callback(std::move(callback))](auto, auto proposal_event) {
+            if (auto ordering_gate = w_ordering_gate.lock())
+              if (auto opt_ordering_event =
+                      ordering_gate->processProposalRequest(
+                          std::move(proposal_event)))
+                callback(*std::move(opt_ordering_event));
           });
 }
