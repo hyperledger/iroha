@@ -7,6 +7,7 @@
 
 #include <grpcpp/impl/grpc_library.h>
 #include <gtest/gtest.h>
+
 #include "backend/protobuf/proposal.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "backend/protobuf/transaction.hpp"
@@ -133,7 +134,8 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
   std::shared_ptr<const shared_model::interface::Proposal> iproposal(
       std::make_shared<const shared_model::proto::Proposal>(proposal));
   EXPECT_CALL(*notification, onRequestProposal(round))
-      .WillOnce(Return(ByMove(std::move(iproposal))));
+      .WillOnce(Return(
+          ByMove(iroha::ordering::ProposalWithHash{std::move(iproposal)})));
   EXPECT_CALL(*notification, hasEnoughBatchesInCache()).WillOnce(Return(true));
 
   grpc::ServerContext context;
@@ -161,7 +163,7 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposalNone) {
   request.mutable_round()->set_reject_round(round.reject_round);
   proto::ProposalResponse response;
   EXPECT_CALL(*notification, onRequestProposal(round))
-      .WillOnce(Return(ByMove(std::move(std::nullopt))));
+      .WillOnce(Return(ByMove(std::move(iroha::ordering::ProposalWithHash{}))));
   EXPECT_CALL(*notification, hasEnoughBatchesInCache()).WillOnce(Return(false));
 
   grpc::ServerContext context;

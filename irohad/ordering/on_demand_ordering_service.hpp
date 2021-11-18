@@ -70,11 +70,7 @@ namespace iroha {
        */
       virtual void onBatches(CollectionType batches) = 0;
 
-      //      virtual std::optional<
-      //          std::shared_ptr<const shared_model::interface::Proposal>>
-      virtual ProposalWithHash onRequestProposal(
-          consensus::Round const
-              &) = 0;  //, shared_model::crypto::Hash const &) = 0;
+      virtual ProposalWithHash onRequestProposal(consensus::Round const &) = 0;
 
       using HashesSetType =
           std::unordered_set<shared_model::crypto::Hash,

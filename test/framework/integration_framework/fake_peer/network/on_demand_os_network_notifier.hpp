@@ -6,9 +6,8 @@
 #ifndef FAKE_PEER_ODOS_NETWORK_NOTIFIER_HPP_
 #define FAKE_PEER_ODOS_NETWORK_NOTIFIER_HPP_
 
-#include <rxcpp/rx-lite.hpp>
-
 #include <mutex>
+#include <rxcpp/rx-lite.hpp>
 
 #include "consensus/round.hpp"
 #include "framework/integration_framework/fake_peer/types.hpp"
@@ -23,8 +22,8 @@ namespace integration_framework::fake_peer {
 
     void onBatches(CollectionType batches) override;
 
-    std::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
-        iroha::consensus::Round round) override;
+    iroha::ordering::ProposalWithHash onRequestProposal(
+        iroha::consensus::Round const &) override;
 
     void onCollaborationOutcome(iroha::consensus::Round round) override;
 
@@ -48,6 +47,16 @@ namespace integration_framework::fake_peer {
 
     rxcpp::observable<std::shared_ptr<BatchesCollection>>
     getBatchesObservable();
+
+    shared_model::crypto::Hash getProposalHash(
+        iroha::consensus::Round round) override {
+      return {};
+    }
+
+    iroha::ordering::ProposalWithHash getProposalWithHash(
+        iroha::consensus::Round round) override {
+      return {};
+    }
 
    private:
     std::weak_ptr<FakePeer> fake_peer_wptr_;

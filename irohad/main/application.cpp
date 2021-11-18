@@ -651,7 +651,7 @@ Irohad::RunResult Irohad::initOrderingGate() {
 }
 
 /**
- * Initializing iroha verified proposal_or_hash creator and block creator
+ * Initializing iroha verified proposal creator and block creator
  */
 Irohad::RunResult Irohad::initSimulator() {
   IROHA_EXPECTED_TRY_GET_VALUE(command_executor,

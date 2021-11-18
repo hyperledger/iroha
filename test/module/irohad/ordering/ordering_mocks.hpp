@@ -27,9 +27,9 @@ namespace iroha::ordering {
   struct MockOnDemandOrderingService : public OnDemandOrderingService {
     MOCK_METHOD(void, onBatches, (CollectionType), (override));
 
-    MOCK_METHOD((std::optional<std::shared_ptr<const ProposalType>>),
+    MOCK_METHOD(iroha::ordering::ProposalWithHash,
                 onRequestProposal,
-                (consensus::Round),
+                (consensus::Round const &),
                 (override));
 
     MOCK_METHOD(void, onCollaborationOutcome, (consensus::Round), (override));
@@ -43,6 +43,14 @@ namespace iroha::ordering {
     MOCK_METHOD(bool, hasEnoughBatchesInCache, (), (const, override));
     MOCK_METHOD(bool, hasProposal, (consensus::Round), (const, override));
     MOCK_METHOD(void, processReceivedProposal, (CollectionType), (override));
+    MOCK_METHOD(shared_model::crypto::Hash,
+                getProposalHash,
+                (consensus::Round round),
+                (override));
+    MOCK_METHOD(ProposalWithHash,
+                getProposalWithHash,
+                (consensus::Round round),
+                (override));
   };
 }  // namespace iroha::ordering
 

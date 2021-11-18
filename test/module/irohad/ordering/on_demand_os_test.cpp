@@ -3,11 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "ordering/impl/on_demand_ordering_service_impl.hpp"
+#include <gtest/gtest.h>
 
 #include <memory>
 
-#include <gtest/gtest.h>
 #include "backend/protobuf/proto_proposal_factory.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "datetime/time.hpp"
@@ -19,6 +18,7 @@
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "ordering/impl/on_demand_ordering_service_impl.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -120,11 +120,11 @@ class OnDemandOsTest : public ::testing::Test {
  * @then  check that previous round doesn't have proposal
  */
 TEST_F(OnDemandOsTest, EmptyRound) {
-  ASSERT_FALSE(os->onRequestProposal(initial_round));
+  ASSERT_FALSE(std::get<0>(os->onRequestProposal(initial_round)));
 
   os->onCollaborationOutcome(commit_round);
 
-  ASSERT_FALSE(os->onRequestProposal(initial_round));
+  ASSERT_FALSE(std::get<0>(os->onRequestProposal(initial_round)));
 }
 
 /**
@@ -138,7 +138,8 @@ TEST_F(OnDemandOsTest, NormalRound) {
 
   os->onCollaborationOutcome(commit_round);
 
-  ASSERT_TRUE(os->onRequestProposal(target_round));
+  auto [opt_proposal, hash] = os->onRequestProposal(target_round);
+  ASSERT_TRUE(opt_proposal);
 }
 
 /**
@@ -153,9 +154,11 @@ TEST_F(OnDemandOsTest, OverflowRound) {
 
   os->onCollaborationOutcome(commit_round);
 
-  ASSERT_TRUE(os->onRequestProposal(target_round));
+  ASSERT_TRUE(std::get<0>(os->onRequestProposal(target_round)));
   ASSERT_EQ(transaction_limit,
-            (*os->onRequestProposal(target_round))->transactions().size());
+            (*std::get<0>(os->onRequestProposal(target_round)))
+                ->transactions()
+                .size());
 }
 
 /**
@@ -170,8 +173,8 @@ TEST_F(OnDemandOsTest, Erase) {
   generateTransactionsAndInsert({1, 2});
   os->onCollaborationOutcome(
       {commit_round.block_round, commit_round.reject_round});
-  ASSERT_TRUE(os->onRequestProposal(
-      {commit_round.block_round + 1, commit_round.reject_round}));
+  ASSERT_TRUE(std::get<0>(os->onRequestProposal(
+      {commit_round.block_round + 1, commit_round.reject_round})));
 
   for (auto i = commit_round.reject_round + 1;
        i < (commit_round.reject_round + 1) + (proposal_limit + 2);
@@ -179,8 +182,8 @@ TEST_F(OnDemandOsTest, Erase) {
     generateTransactionsAndInsert({1, 2});
     os->onCollaborationOutcome({commit_round.block_round, i});
   }
-  ASSERT_TRUE(os->onRequestProposal(
-      {commit_round.block_round + 1, commit_round.reject_round}));
+  ASSERT_TRUE(std::get<0>(os->onRequestProposal(
+      {commit_round.block_round + 1, commit_round.reject_round})));
 }
 
 /**
@@ -221,7 +224,8 @@ TEST_F(OnDemandOsTest, UseFactoryForProposal) {
 
   os->onCollaborationOutcome(commit_round);
 
-  ASSERT_TRUE(os->onRequestProposal(target_round));
+  auto [opt_proposal, hash] = os->onRequestProposal(target_round);
+  ASSERT_TRUE(opt_proposal);
 }
 
 // Return matcher for batch, which passes it by const &
@@ -247,7 +251,7 @@ TEST_F(OnDemandOsTest, AlreadyProcessedProposalDiscarded) {
 
   os->onCollaborationOutcome(commit_round);
 
-  auto proposal = os->onRequestProposal(initial_round);
+  auto [proposal, hash] = os->onRequestProposal(initial_round);
 
   EXPECT_FALSE(proposal);
 }
@@ -269,11 +273,11 @@ TEST_F(OnDemandOsTest, PassMissingTransaction) {
 
   os->onCollaborationOutcome(commit_round);
 
-  auto proposal = os->onRequestProposal(target_round);
+  auto [opt_proposal, hash] = os->onRequestProposal(target_round);
 
   // since we only sent one transaction,
   // if the proposal is present, there is no need to check for that specific tx
-  EXPECT_TRUE(proposal);
+  EXPECT_TRUE(opt_proposal);
 }
 
 /**
@@ -301,7 +305,7 @@ TEST_F(OnDemandOsTest, SeveralTransactionsOneCommited) {
 
   os->onCollaborationOutcome(commit_round);
 
-  auto proposal = os->onRequestProposal(target_round);
+  auto [proposal, hash] = os->onRequestProposal(target_round);
   const auto &txs = proposal->get()->transactions();
   auto &batch2_tx = *batch2.transactions().at(0);
 
@@ -324,7 +328,7 @@ TEST_F(OnDemandOsTest, DuplicateTxTest) {
   auto txs2 = generateTransactions({1, 2}, now);
   os->onBatches(txs2);
   os->onCollaborationOutcome(commit_round);
-  auto proposal = os->onRequestProposal(target_round);
+  auto [proposal, hash] = os->onRequestProposal(target_round);
 
   ASSERT_EQ(1, boost::size((*proposal)->transactions()));
 }
@@ -345,12 +349,12 @@ TEST_F(OnDemandOsTest, RejectCommit) {
   os->onBatches(txs2);
   os->onCollaborationOutcome(
       {initial_round.block_round, initial_round.reject_round + 2});
-  auto proposal = os->onRequestProposal(
+  auto [proposal, hash] = os->onRequestProposal(
       {initial_round.block_round, initial_round.reject_round + 3});
 
   ASSERT_EQ(2, boost::size((*proposal)->transactions()));
 
-  proposal = os->onRequestProposal(commit_round);
+  std::tie(proposal, std::ignore) = os->onRequestProposal(commit_round);
   ASSERT_EQ(2, boost::size((*proposal)->transactions()));
 }
 
@@ -364,5 +368,6 @@ TEST_F(OnDemandOsTest, FailOnCreationStrategy) {
 
   os->onCollaborationOutcome(commit_round);
 
-  ASSERT_TRUE(os->onRequestProposal(target_round));
+  auto [opt_proposal, hash] = os->onRequestProposal(target_round);
+  ASSERT_TRUE(opt_proposal);
 }

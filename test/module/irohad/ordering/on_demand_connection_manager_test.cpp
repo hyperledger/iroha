@@ -6,7 +6,9 @@
 #include "ordering/impl/on_demand_connection_manager.hpp"
 
 #include <gtest/gtest.h>
+
 #include <boost/range/combine.hpp>
+
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "module/irohad/ordering/ordering_mocks.hpp"
@@ -94,9 +96,10 @@ TEST_F(OnDemandConnectionManagerTest, onBatches) {
  */
 TEST_F(OnDemandConnectionManagerTest, onRequestProposal) {
   consensus::Round round{};
+  shared_model::crypto::Hash hash{};
   EXPECT_CALL(*connections[OnDemandConnectionManager::kIssuer],
-              onRequestProposal(round))
+              onRequestProposal(round, hash))
       .Times(1);
 
-  manager->onRequestProposal(round);
+  manager->onRequestProposal(round, hash);
 }

@@ -59,7 +59,7 @@ void OnDemandConnectionManager::onRequestProposal(
     return;
   }
 
-  log_->debug("OnDemandConnectionManager::onRequestProposal() round {}", round);
+  log_->debug("OnDemandConnectionManager::onRequestProposal() {}", round);
 
   if (auto &connection = connections_.peers[kIssuer]) {
     (*connection)->onRequestProposal(round, hash);

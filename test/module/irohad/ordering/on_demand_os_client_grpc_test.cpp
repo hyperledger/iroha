@@ -6,6 +6,7 @@
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
 
 #include <gtest/gtest.h>
+
 #include "backend/protobuf/proposal.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "backend/protobuf/transaction.hpp"
@@ -171,14 +172,17 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposal) {
                       SetArgPointee<2>(response),
                       Return(grpc::Status::OK)));
 
-  client->onRequestProposal(round);
+  client->onRequestProposal(round, {});
 
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);
   ASSERT_EQ(request.round().reject_round(), round.reject_round);
-  ASSERT_TRUE(received_event.proposal);
+  ASSERT_TRUE(std::holds_alternative<ProposalEvent::ProposalPtr>(
+      received_event.proposal_or_hash));
   ASSERT_EQ(
-      received_event.proposal.value()->transactions()[0].creatorAccountId(),
+      std::get<ProposalEvent::ProposalPtr>(received_event.proposal_or_hash)
+          ->transactions()[0]
+          .creatorAccountId(),
       creator);
 }
 
@@ -199,10 +203,11 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposalNone) {
                       SetArgPointee<2>(response),
                       Return(grpc::Status::OK)));
 
-  client->onRequestProposal(round);
+  client->onRequestProposal(round, {});
 
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);
   ASSERT_EQ(request.round().reject_round(), round.reject_round);
-  ASSERT_FALSE(received_event.proposal);
+  ASSERT_FALSE(
+      std::holds_alternative<std::monostate>(received_event.proposal_or_hash));
 }

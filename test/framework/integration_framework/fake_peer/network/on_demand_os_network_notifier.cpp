@@ -22,8 +22,9 @@ namespace integration_framework::fake_peer {
         std::make_shared<BatchesCollection>(std::move(batches)));
   }
 
-  std::optional<std::shared_ptr<const OnDemandOsNetworkNotifier::ProposalType>>
-  OnDemandOsNetworkNotifier::onRequestProposal(iroha::consensus::Round round) {
+  iroha::ordering::ProposalWithHash
+  OnDemandOsNetworkNotifier::onRequestProposal(
+      iroha::consensus::Round const &round) {
     {
       std::lock_guard<std::mutex> guard(rounds_subject_mutex_);
       rounds_subject_.get_subscriber().on_next(round);
@@ -34,9 +35,10 @@ namespace integration_framework::fake_peer {
     if (behaviour) {
       auto opt_proposal = behaviour->processOrderingProposalRequest(round);
       if (opt_proposal) {
-        return std::shared_ptr<const shared_model::interface::Proposal>(
-            std::static_pointer_cast<const shared_model::proto::Proposal>(
-                *opt_proposal));
+        return iroha::ordering::ProposalWithHash{
+            std::shared_ptr<const shared_model::interface::Proposal>(
+                std::static_pointer_cast<const shared_model::proto::Proposal>(
+                    *opt_proposal))};
       }
     }
     return {};

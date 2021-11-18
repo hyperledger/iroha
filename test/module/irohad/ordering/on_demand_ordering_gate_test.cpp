@@ -5,10 +5,11 @@
 
 #include "ordering/impl/on_demand_ordering_gate.hpp"
 
+#include <gtest/gtest.h>
+
+#include <boost/range/adaptor/indirected.hpp>
 #include <functional>
 
-#include <gtest/gtest.h>
-#include <boost/range/adaptor/indirected.hpp>
 #include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
@@ -132,7 +133,8 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
   EXPECT_CALL(*ordering_service, forCachedBatches(_))
       .WillOnce(InvokeArgument<0>(transactions));
 
-  EXPECT_CALL(*notification, onRequestProposal(round)).Times(1);
+  shared_model::crypto::Hash hash;
+  EXPECT_CALL(*notification, onRequestProposal(round, hash)).Times(1);
 
   auto event = RoundSwitch(round, ledger_state);
 
@@ -160,7 +162,9 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
           .build());
 
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
-  EXPECT_CALL(*notification, onRequestProposal(round)).Times(1);
+
+  shared_model::crypto::Hash hash;
+  EXPECT_CALL(*notification, onRequestProposal(round, hash)).Times(1);
 
   auto event = RoundSwitch(round, ledger_state);
 
@@ -183,12 +187,14 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
       proposal;
 
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
-  EXPECT_CALL(*notification, onRequestProposal(round)).Times(1);
+
+  shared_model::crypto::Hash hash;
+  EXPECT_CALL(*notification, onRequestProposal(round, hash)).Times(1);
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
   auto val =
-      ordering_gate->processProposalRequest({std::move(proposal), round});
+      ordering_gate->processProposalRequest({*std::move(proposal), round});
 
   ASSERT_FALSE(val->proposal);
 }
@@ -201,15 +207,17 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
  */
 TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
   std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-      proposal;
+      opt_proposal;
 
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
-  EXPECT_CALL(*notification, onRequestProposal(round)).Times(1);
+
+  shared_model::crypto::Hash hash;
+  EXPECT_CALL(*notification, onRequestProposal(round, hash)).Times(1);
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
-  auto val =
-      ordering_gate->processProposalRequest({std::move(proposal), round});
+  iroha::ordering::ProposalEvent event{*std::move(opt_proposal), round};
+  auto val = ordering_gate->processProposalRequest(event);
 
   ASSERT_FALSE(val->proposal);
 }
@@ -237,7 +245,8 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
 
   // set expectations for ordering service
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
-  EXPECT_CALL(*notification, onRequestProposal(round)).Times(1);
+  shared_model::crypto::Hash hash2;
+  EXPECT_CALL(*notification, onRequestProposal(round, hash2)).Times(1);
   EXPECT_CALL(*tx_cache,
               check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
       .WillOnce(Return(boost::make_optional<ametsuchi::TxCacheStatusType>(
@@ -261,7 +270,7 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
   auto val = ordering_gate->processProposalRequest(
-      {std::move(arriving_proposal), round});
+      {*std::move(arriving_proposal), round});
   ASSERT_TRUE(val);
 }
 
@@ -291,7 +300,8 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
 
   // set expectations for ordering service
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
-  EXPECT_CALL(*notification, onRequestProposal(round)).Times(1);
+  shared_model::crypto::Hash hash;
+  EXPECT_CALL(*notification, onRequestProposal(round, hash)).Times(1);
   EXPECT_CALL(*tx_cache,
               check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
       .WillRepeatedly(Return(boost::make_optional<ametsuchi::TxCacheStatusType>(
@@ -311,7 +321,7 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
   auto val = ordering_gate->processProposalRequest(
-      {std::move(arriving_proposal), round});
+      {*std::move(arriving_proposal), round});
   ASSERT_TRUE(val);
 }
 

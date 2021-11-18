@@ -69,14 +69,15 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
   // notify our ordering service about new round
   ordering_service_->onCollaborationOutcome(event.next_round);
 
-  // ToDo reduce network load: first send proposal_or_hash hash to announce the
-  // proposal_or_hash, then remote peers should request proposal_or_hash if they
+  // ToDo reduce network load: first send proposal hash to announce the
+  // proposal with its hash, then remote peers should request propos if they
   // does not have it. Or send announce with transactions metainfo, remote peers
   // request only those they do not have. Order is guarantied by BatchesCache
   // and BatchesSet.
   this->sendCachedTransactions();
 
-  // request proposal_or_hash from remote peer for the current round
+  // request proposal from remote peer for the current round,
+  // send hash of own proposal
   connection_manager_->onRequestProposal(
       event.next_round, ordering_service_->getProposalHash(event.next_round));
 }
@@ -113,14 +114,14 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
     return network::OrderingEvent{
         std::nullopt, event.round, current_ledger_state_};
   }
-  auto result = removeReplaysAndDuplicates(proposal);
+  auto result_proposal = removeReplaysAndDuplicates(proposal);
   // no need to check empty proposal
-  if (boost::empty(result->transactions())) {
+  if (boost::empty(result_proposal->transactions())) {
     return network::OrderingEvent{
         std::nullopt, event.round, current_ledger_state_};
   }
   shared_model::interface::types::SharedTxsCollectionType transactions;
-  for (auto &transaction : result->transactions()) {
+  for (auto &transaction : result_proposal->transactions()) {
     transactions.push_back(clone(transaction));
   }
   auto batch_txs =
@@ -134,7 +135,7 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
   }
   ordering_service_->processReceivedProposal(std::move(batches));
   return network::OrderingEvent{
-      std::move(result), event.round, current_ledger_state_};
+      std::move(result_proposal), event.round, current_ledger_state_};
 }
 
 void OnDemandOrderingGate::sendCachedTransactions() {

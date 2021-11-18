@@ -122,14 +122,14 @@ OnDemandOrderingServiceImpl::onRequestProposal(
     }
   } while (false);
 
-  auto &[proposal, hash] = result_proposal;
+  auto &[opt_proposal, hash] = result_proposal;
   log_->debug("onRequestProposal() req_round {}, {}.",
               req_round,
-              proposal ? fmt::format(
+              opt_proposal ? fmt::format(
                   "returning a proposal_or_hash with hash {} of {} txs",
                   hash,
-                  boost::size((*proposal)->transactions()))
-                       : "NOT returning a proposal_or_hash");
+                  boost::size((*opt_proposal)->transactions()))
+                           : "NOT returning a proposal_or_hash");
   return result_proposal;
 }
 
@@ -158,7 +158,7 @@ static shared_model::crypto::Hash calculateProposalHash(
 iroha::ordering::ProposalWithHash
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
-  if (hasEnoughBatchesInCache())
+  if (hasEnoughBatchesInCache())  // FIXME right? was !isEmptyBatchesCache()
     batches_cache_.getTransactions(transaction_limit_, txs);
 
   std::optional<std::shared_ptr<shared_model::interface::Proposal>> proposal;
@@ -241,12 +241,9 @@ bool OnDemandOrderingServiceImpl::hasProposal(consensus::Round round) const {
 
 shared_model::crypto::Hash OnDemandOrderingServiceImpl::getProposalHash(
     iroha::consensus::Round round) {
-  std::lock_guard<std::mutex> lock(proposals_mutex_);
-  auto it = proposal_map_.find(round);
-  if (it != proposal_map_.end())
-    return std::get<shared_model::crypto::Hash>(it->second);
-  return {};
+  return std::get<shared_model::crypto::Hash>(getProposalWithHash(round));
 }
+
 iroha::ordering::ProposalWithHash
 OnDemandOrderingServiceImpl::getProposalWithHash(
     iroha::consensus::Round round) {
