@@ -3,14 +3,10 @@
 use std::thread;
 
 use iroha_client::client::Client;
-use iroha_core::{config::Configuration, torii::Status};
+use iroha_core::config::Configuration;
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
 use test_network::{Network as TestNetwork, TestConfiguration};
-
-fn status(client: &Client) -> Status {
-    serde_json::from_value(client.get_status().unwrap()).unwrap()
-}
 
 fn ready_for_mint(client: &mut Client) -> MintBox {
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
@@ -46,22 +42,27 @@ fn ready_for_mint(client: &mut Client) -> MintBox {
 #[test]
 fn connected_peers() {
     const N_PEERS: u64 = 4;
+    let mut n_peers;
 
     let (rt, network, mut client) = <TestNetwork>::start_test_with_runtime(N_PEERS as u32, 1);
     client.status_url.insert_str(0, "http://");
+    let pipeline_time = Configuration::pipeline_time();
 
     // Confirm all peers connected
-    assert_eq!(status(&client).peers, N_PEERS - 1);
+    n_peers = client.get_status().unwrap().peers;
+    assert_eq!(n_peers, N_PEERS - 1);
 
     // Add a peer then #peers should be incremented
     let (mut peer, _) = rt.block_on(network.add_peer());
-    thread::sleep(std::time::Duration::from_millis(5_000));
-    // FIXME 'assertion failed: `(left == right)` left: `3`, right: `4`'
-    assert_eq!(status(&client).peers, N_PEERS);
+    n_peers = client.get_status().unwrap().peers;
+    assert_eq!(n_peers, N_PEERS);
 
     // Drop the peer then #peers should be decremented
     peer.stop();
-    assert_eq!(status(&client).peers, N_PEERS - 1);
+    thread::sleep(pipeline_time * 5);
+    n_peers = client.get_status().unwrap().peers;
+    // FIXME 'assertion failed: `(left == right)` left: `4`, right: `3`'
+    assert_eq!(n_peers, N_PEERS - 1);
 }
 
 #[test]
@@ -75,7 +76,7 @@ fn committed_blocks() {
     thread::sleep(pipeline_time * 2);
 
     // Confirm only the genesis block committed
-    assert_eq!(status(&client).blocks, 1);
+    assert_eq!(client.get_status().unwrap().blocks, 1);
 
     // Send transactions then #blocks should be increased
     // FIXME Not sending message to myself
@@ -87,5 +88,5 @@ fn committed_blocks() {
         thread::sleep(pipeline_time / 4);
     }
     thread::sleep(pipeline_time * 5);
-    assert_eq!(status(&client).blocks, 1 + N_BLOCKS)
+    assert_eq!(client.get_status().unwrap().blocks, 1 + N_BLOCKS)
 }

@@ -232,6 +232,9 @@ impl<W: WorldTrait> Torii<W> {
             start_status(Arc::clone(&state))
                 .await
                 .wrap_err("Failed to start status service")
+                .unwrap_or_else(|error| {
+                    iroha_logger::error!(%error);
+                })
         });
 
         match self.iroha_cfg.torii.api_url.to_socket_addrs() {
@@ -403,15 +406,6 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::R
     }
 
     Ok(())
-}
-
-/// Response body for get status request
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
-pub struct Status {
-    /// Number of connected peers, except for the reporting peer itself
-    pub peers: u64,
-    /// Number of committed blocks
-    pub blocks: u64,
 }
 
 async fn handle_status<W: WorldTrait>(state: ToriiState<W>) -> Result<Json> {

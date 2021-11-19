@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     convert::TryFrom,
-    fmt::{self, Debug, Display, Formatter},
+    fmt::{self, Debug, Formatter},
     sync::mpsc,
     thread,
     time::Duration,
@@ -189,7 +189,7 @@ impl Client {
         let hash = transaction.hash();
         let transaction_bytes: Vec<u8> = transaction.encode_versioned()?;
         let response = http_client::post(
-            url(&self.torii_url, uri::TRANSACTION),
+            format!("{}/{}", &self.torii_url, uri::TRANSACTION),
             transaction_bytes,
             Vec::<(String, String)>::new(),
             self.headers.clone(),
@@ -319,7 +319,7 @@ impl Client {
         let request = QueryRequest::new(request.into(), self.account_id.clone());
         let request: VersionedSignedQueryRequest = request.sign(self.key_pair.clone())?.into();
         let response = http_client::post(
-            url(&self.torii_url, uri::QUERY),
+            format!("{}/{}", &self.torii_url, uri::QUERY),
             request.encode_versioned()?,
             pagination,
             self.headers.clone(),
@@ -359,7 +359,7 @@ impl Client {
     /// Fails if subscribing to websocket fails
     pub fn listen_for_events(&mut self, event_filter: EventFilter) -> Result<EventIterator> {
         EventIterator::new(
-            &url(&self.torii_url, uri::SUBSCRIPTION),
+            &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
             event_filter,
             self.headers.clone(),
         )
@@ -381,7 +381,7 @@ impl Client {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
             let response = http_client::get(
-                url(&self.torii_url, uri::PENDING_TRANSACTIONS),
+                format!("{}/{}", &self.torii_url, uri::PENDING_TRANSACTIONS),
                 Vec::new(),
                 pagination.clone(),
                 self.headers.clone(),
@@ -439,7 +439,7 @@ impl Client {
         let get_cfg = serde_json::to_vec(get_config).wrap_err("Failed to serialize")?;
 
         let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
-            url(&self.torii_url, uri::CONFIGURATION),
+            format!("{}/{}", &self.torii_url, uri::CONFIGURATION),
             get_cfg,
             vec![],
             headers,
@@ -474,9 +474,9 @@ impl Client {
     /// Gets network status seen from the peer
     /// # Errors
     /// Fails if sending request or decoding fails
-    pub fn get_status(&self) -> Result<serde_json::Value> {
+    pub fn get_status(&self) -> Result<Status> {
         let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
-            url(&self.status_url, uri::STATUS),
+            format!("{}/{}", &self.status_url, uri::STATUS),
             Bytes::new(),
             vec![],
             self.headers.clone(),
@@ -490,10 +490,6 @@ impl Client {
         }
         serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
     }
-}
-
-fn url<L: Display, R: Display>(lhs: L, rhs: R) -> String {
-    format!("{}/{}", lhs, rhs)
 }
 
 /// Iterator for getting events from the `WebSocket` stream.
