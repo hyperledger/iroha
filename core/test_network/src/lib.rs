@@ -568,8 +568,8 @@ pub trait TestConfiguration {
     fn test() -> Self;
     /// Returns default pipeline time.
     fn pipeline_time() -> Duration;
-    /// Returns default time between bocksync gossips for new blocks.
-    fn block_sync_gossip_time() -> Duration;
+    /// Returns default time between block sync requests
+    fn block_sync_time() -> Duration;
 }
 
 pub trait TestClientConfiguration {
@@ -669,8 +669,8 @@ impl TestConfiguration for Configuration {
         Duration::from_millis(Self::test().sumeragi.pipeline_time_ms())
     }
 
-    fn block_sync_gossip_time() -> Duration {
-        Duration::from_millis(Self::test().block_sync.gossip_period_ms)
+    fn block_sync_time() -> Duration {
+        Duration::from_millis(Self::test().block_sync.sync_period_ms)
     }
 }
 

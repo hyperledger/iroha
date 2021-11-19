@@ -40,8 +40,8 @@ The following is the default configuration used by Iroha.
     "MAX_INSTRUCTION_NUMBER": 4096
   },
   "BLOCK_SYNC": {
-    "SYNC_PEERS_COUNT": 3,
-    "GOSSIP_PERIOD_MS": 10000,
+    "HEIGHTS_GOSSIP_PERIOD_MS": 10000,
+    "SYNC_PERIOD_MS": 10000,
     "BATCH_SIZE": 4,
     "MAILBOX": 100
   },
@@ -107,9 +107,9 @@ Has type `BlockSyncConfiguration`. Can be configured via environment variable `I
 ```json
 {
   "BATCH_SIZE": 4,
-  "GOSSIP_PERIOD_MS": 10000,
+  "HEIGHTS_GOSSIP_PERIOD_MS": 10000,
   "MAILBOX": 100,
-  "SYNC_PEERS_COUNT": 3
+  "SYNC_PERIOD_MS": 10000
 }
 ```
 
@@ -123,11 +123,11 @@ Has type `u32`. Can be configured via environment variable `BLOCK_SYNC_BATCH_SIZ
 4
 ```
 
-### `block_sync.gossip_period_ms`
+### `block_sync.heights_gossip_period_ms`
 
-The time between peer requesting latest blocks from [`sync_peers_count`] other peers in milliseconds.
+Also time between sending requests for block heights
 
-Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PERIOD_MS`
+Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_HEIGHTS_GOSSIP_PERIOD_MS`
 
 ```json
 10000
@@ -143,14 +143,14 @@ Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_MAILBOX
 100
 ```
 
-### `block_sync.sync_peers_count`
+### `block_sync.sync_period_ms`
 
-Number of peers which are selected at random and polled for latest blocks.
+The time between sending request for latest block.
 
-Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_SYNC_PEERS_COUNT`
+Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_SYNC_PERIOD_MS`
 
 ```json
-3
+10000
 ```
 
 ## `genesis`

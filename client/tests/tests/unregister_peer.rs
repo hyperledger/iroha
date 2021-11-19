@@ -64,7 +64,7 @@ fn check_assets(
 ) {
     iroha_client.poll_request_with_period(
         client::asset::by_account_id(account_id.clone()),
-        Configuration::block_sync_gossip_time(),
+        Configuration::block_sync_time(),
         15,
         |result| {
             result.iter().any(|asset| {
