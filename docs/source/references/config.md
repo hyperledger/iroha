@@ -40,8 +40,7 @@ The following is the default configuration used by Iroha.
     "MAX_INSTRUCTION_NUMBER": 4096
   },
   "BLOCK_SYNC": {
-    "HEIGHTS_GOSSIP_PERIOD_MS": 10000,
-    "SYNC_PERIOD_MS": 10000,
+    "GOSSIP_PERIOD_MS": 10000,
     "BATCH_SIZE": 4,
     "MAILBOX": 100
   },
@@ -107,9 +106,8 @@ Has type `BlockSyncConfiguration`. Can be configured via environment variable `I
 ```json
 {
   "BATCH_SIZE": 4,
-  "HEIGHTS_GOSSIP_PERIOD_MS": 10000,
-  "MAILBOX": 100,
-  "SYNC_PERIOD_MS": 10000
+  "GOSSIP_PERIOD_MS": 10000,
+  "MAILBOX": 100
 }
 ```
 
@@ -123,11 +121,11 @@ Has type `u32`. Can be configured via environment variable `BLOCK_SYNC_BATCH_SIZ
 4
 ```
 
-### `block_sync.heights_gossip_period_ms`
+### `block_sync.gossip_period_ms`
 
-Also time between sending requests for block heights
+The time between sending request for latest block.
 
-Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_HEIGHTS_GOSSIP_PERIOD_MS`
+Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PERIOD_MS`
 
 ```json
 10000
@@ -141,16 +139,6 @@ Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_MAILBOX
 
 ```json
 100
-```
-
-### `block_sync.sync_period_ms`
-
-The time between sending request for latest block.
-
-Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_SYNC_PERIOD_MS`
-
-```json
-10000
 ```
 
 ## `genesis`

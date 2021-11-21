@@ -13,16 +13,13 @@ use dashmap::{DashMap, DashSet};
 use eyre::{eyre, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*};
-use iroha_crypto::SignatureOf;
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{
     current_time, events::Event, peer::Id as PeerId, transaction::VersionedTransaction,
 };
-use iroha_derive::Io;
 use iroha_logger::Instrument;
 use iroha_p2p::ConnectPeer;
 use network_topology::{Role, Topology};
-use parity_scale_codec::{Decode, Encode};
 use rand::prelude::SliceRandom;
 use tokio::{sync::RwLock, task, time};
 
@@ -51,32 +48,6 @@ trait Consensus {
         transactions: Vec<VersionedAcceptedTransaction>,
     ) -> Option<VersionedPendingBlock>;
 }
-
-/// Signed block height
-#[derive(Io, Decode, Encode, Debug, Clone, Eq)]
-pub struct SignedHeight {
-    /// Signature of the block height
-    pub signature: SignatureOf<u64>,
-    /// Block height
-    pub height: u64,
-}
-
-impl PartialEq for SignedHeight {
-    fn eq(&self, other: &Self) -> bool {
-        self.signature.public_key.eq(&other.signature.public_key)
-    }
-}
-
-impl std::hash::Hash for SignedHeight {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.signature.public_key.hash(state);
-    }
-}
-
-/// Message for getting signed block height
-#[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
-#[message(result = "Result<SignedHeight>")]
-pub struct GetSignedHeight;
 
 /// Message to send to sumeragi. It will call `update_network_topology` method on it.
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
@@ -107,10 +78,10 @@ pub struct Init {
     pub height: u64,
 }
 
-/// Get all peers in the network
+/// Get one randomly seletected peer from the topology
 #[derive(Debug, Clone, Copy, iroha_actor::Message)]
-#[message(result = "Vec<PeerId>")]
-pub struct GetPeers;
+#[message(result = "PeerId")]
+pub struct GetRandomPeer;
 
 /// Get network topology
 #[derive(Debug, Clone, iroha_actor::Message)]
@@ -176,8 +147,7 @@ pub trait SumeragiTrait:
     + ContextHandler<Init, Result = ()>
     + ContextHandler<CommitBlock, Result = ()>
     + ContextHandler<GetNetworkTopology, Result = Topology>
-    + ContextHandler<GetPeers, Result = Vec<PeerId>>
-    + ContextHandler<GetSignedHeight, Result = Result<SignedHeight>>
+    + ContextHandler<GetRandomPeer, Result = PeerId>
     + ContextHandler<IsLeader, Result = bool>
     + ContextHandler<GetLeader, Result = PeerId>
     + ContextHandler<NetworkMessage, Result = ()>
@@ -407,24 +377,18 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> ContextHandler<Init>
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetSignedHeight>
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetRandomPeer>
     for Sumeragi<G, K, W>
 {
-    type Result = Result<SignedHeight>;
-    async fn handle(&mut self, GetSignedHeight: GetSignedHeight) -> Self::Result {
-        let signature = SignatureOf::new(self.key_pair.clone(), &self.block_height)?;
-        Ok(SignedHeight {
-            signature,
-            height: self.wsv.height(),
-        })
-    }
-}
-
-#[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetPeers> for Sumeragi<G, K, W> {
-    type Result = Vec<PeerId>;
-    async fn handle(&mut self, GetPeers: GetPeers) -> Self::Result {
-        self.topology.sorted_peers().to_vec()
+    type Result = PeerId;
+    async fn handle(&mut self, GetRandomPeer: GetRandomPeer) -> Self::Result {
+        let rng = &mut rand::thread_rng();
+        #[allow(clippy::expect_used)]
+        self.topology
+            .sorted_peers()
+            .choose(rng)
+            .expect("No nodes in topology")
+            .clone()
     }
 }
 

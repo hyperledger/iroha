@@ -1,11 +1,10 @@
 //! This module contains structures and messages for synchronization of blocks between peers.
 
-use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_crypto::SignatureOf;
 use iroha_data_model::prelude::*;
-use rand::{prelude::SliceRandom, rngs::StdRng, seq::IteratorRandom, SeedableRng};
 
 use self::{
     config::BlockSyncConfiguration,
@@ -14,8 +13,7 @@ use self::{
 use crate::{
     prelude::*,
     sumeragi::{
-        network_topology::Role, CommitBlock, GetNetworkTopology, GetPeers, GetSignedHeight,
-        SignedHeight, SumeragiTrait,
+        network_topology::Role, CommitBlock, GetNetworkTopology, GetRandomPeer, SumeragiTrait,
     },
     wsv::WorldTrait,
     VersionedCommittedBlock,
@@ -38,11 +36,9 @@ pub struct BlockSynchronizer<S: SumeragiTrait, W: WorldTrait> {
     sumeragi: AlwaysAddr<S>,
     peer_id: PeerId,
     state: State,
-    sync_period: Duration,
-    heights_gossip_period: Duration,
+    gossip_period: Duration,
     batch_size: u32,
     n_topology_shifts_before_reshuffle: u64,
-    signed_peer_heights: HashMap<PeerId, SignedHeight>,
     broker: Broker,
     mailbox: usize,
 }
@@ -82,11 +78,9 @@ impl<S: SumeragiTrait, W: WorldTrait> BlockSynchronizerTrait for BlockSynchroniz
             peer_id,
             sumeragi,
             state: State::Idle,
-            sync_period: Duration::from_millis(config.sync_period_ms),
-            heights_gossip_period: Duration::from_millis(config.heights_gossip_period_ms),
+            gossip_period: Duration::from_millis(config.gossip_period_ms),
             batch_size: config.batch_size,
             n_topology_shifts_before_reshuffle,
-            signed_peer_heights: HashMap::new(),
             broker,
             mailbox: config.mailbox,
         }
@@ -97,17 +91,11 @@ impl<S: SumeragiTrait, W: WorldTrait> BlockSynchronizerTrait for BlockSynchroniz
 #[derive(Debug, Clone, Copy, iroha_actor::Message)]
 pub struct ContinueSync;
 
-/// Message to get blockchain height updates from other peers
+/// Message to initiate receiving of latest blocks from other peers
 ///
-/// Every `heights_gossip_period` peer would push blockchain heights to other peers
+/// Every `gossip_period` peer will poll one randomly selected peer for latest blocks
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
-pub struct PushHeightUpdates;
-
-/// Message to get latest block updates from other peers
-///
-/// Every `sync_period` peer will poll one of the other peers for their latest block hashes
-#[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
-pub struct PollBlockUpdates;
+pub struct ReceiveUpdates;
 
 #[async_trait::async_trait]
 impl<S: SumeragiTrait, W: WorldTrait> Actor for BlockSynchronizer<S, W> {
@@ -118,43 +106,16 @@ impl<S: SumeragiTrait, W: WorldTrait> Actor for BlockSynchronizer<S, W> {
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
         self.broker.subscribe::<Message, _>(ctx);
         self.broker.subscribe::<ContinueSync, _>(ctx);
-        ctx.notify_every::<PollBlockUpdates>(self.sync_period);
-        ctx.notify_every::<PushHeightUpdates>(self.heights_gossip_period);
+        ctx.notify_every::<ReceiveUpdates>(self.gossip_period);
     }
 }
 
 #[async_trait::async_trait]
-impl<S: SumeragiTrait, W: WorldTrait> Handler<PollBlockUpdates> for BlockSynchronizer<S, W> {
+impl<S: SumeragiTrait, W: WorldTrait> Handler<ReceiveUpdates> for BlockSynchronizer<S, W> {
     type Result = ();
-    async fn handle(&mut self, PollBlockUpdates: PollBlockUpdates) {
-        self.request_latest_blocks().await;
-    }
-}
-
-#[async_trait::async_trait]
-impl<S: SumeragiTrait, W: WorldTrait> Handler<PushHeightUpdates> for BlockSynchronizer<S, W> {
-    type Result = ();
-    async fn handle(&mut self, PushHeightUpdates: PushHeightUpdates) {
-        let mut signed_heights: Vec<_> = self.signed_peer_heights.values().cloned().collect();
-
-        match self.sumeragi.send(GetSignedHeight).await {
-            Ok(signed_height) => signed_heights.push(signed_height),
-            Err(error) => iroha_logger::error!(%error),
-        }
-
-        let peers = self.sumeragi.send(GetPeers).await;
-        #[allow(clippy::integer_division)]
-        let choose_cnt = std::cmp::max(peers.len() / 2, 1);
-        let mut rng: StdRng = SeedableRng::from_entropy();
-
-        let peers: Vec<_> = peers
-            .choose_multiple(&mut rng, choose_cnt)
-            .cloned()
-            .collect();
-
-        Message::Heights(signed_heights)
-            .send_to_peers(self.broker.clone(), peers.as_slice())
-            .await;
+    async fn handle(&mut self, ReceiveUpdates: ReceiveUpdates) {
+        let random_peer = self.sumeragi.send(GetRandomPeer).await;
+        self.request_latest_blocks_from_peer(random_peer).await;
     }
 }
 
@@ -176,42 +137,13 @@ impl<S: SumeragiTrait, W: WorldTrait> Handler<Message> for BlockSynchronizer<S, 
 
 impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
     /// Sends request for latest blocks to a chosen peer
-    pub async fn request_latest_blocks(&mut self) {
-        let height = self.wsv.height();
-        let heights = self
-            .signed_peer_heights
-            .iter()
-            .filter(|(_, h)| h.height > height)
-            .map(|(p, h)| {
-                let height_diff = h.height - height;
-                #[allow(clippy::cast_possible_truncation)]
-                let batch_size = std::cmp::min(height_diff, u64::from(self.batch_size)) as u32;
-
-                (p.clone(), batch_size)
-            })
-            .fold(vec![vec![]; self.batch_size as usize], |mut acc, (p, h)| {
-                acc[(h - 1) as usize].push(p);
-                acc
-            });
-
-        let mut rng: StdRng = SeedableRng::from_entropy();
-
-        #[allow(clippy::integer_division)]
-        let take_cnt = std::cmp::max(heights.len() / 3, 1);
-        if let Some(peer_id) = heights
-            .into_iter()
-            .rev()
-            .flatten()
-            .take(take_cnt)
-            .choose(&mut rng)
-        {
-            Message::GetBlocksAfter(GetBlocksAfter::new(
-                self.wsv.latest_block_hash(),
-                self.peer_id.clone(),
-            ))
-            .send_to(self.broker.clone(), peer_id)
-            .await;
-        }
+    async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
+        Message::GetBlocksAfter(GetBlocksAfter::new(
+            self.wsv.latest_block_hash(),
+            self.peer_id.clone(),
+        ))
+        .send_to(self.broker.clone(), peer_id)
+        .await;
     }
 
     /// Continues the synchronization if it was ongoing. Should be called after `WSV` update.
@@ -229,7 +161,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
             (block, blocks)
         } else {
             self.state = State::Idle;
-            self.request_latest_blocks().await;
+            self.request_latest_blocks_from_peer(peer_id).await;
             return;
         };
 
@@ -270,7 +202,6 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
 
 /// The module for block synchronization related peer to peer messages.
 pub mod message {
-    use futures::{prelude::*, stream::FuturesUnordered};
     use iroha_actor::broker::Broker;
     use iroha_crypto::*;
     use iroha_data_model::prelude::*;
@@ -279,14 +210,10 @@ pub mod message {
     use iroha_p2p::Post;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
-    use std::collections::HashSet;
 
     use super::{BlockSynchronizer, State};
     use crate::{
-        block::VersionedCommittedBlock,
-        sumeragi::{GetPeers, SignedHeight, SumeragiTrait},
-        wsv::WorldTrait,
-        NetworkMessage,
+        block::VersionedCommittedBlock, sumeragi::SumeragiTrait, wsv::WorldTrait, NetworkMessage,
     };
 
     declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_derive::FromVariant, iroha_actor::Message);
@@ -350,8 +277,6 @@ pub mod message {
     #[version_with_scale(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
     #[derive(Io, Decode, Encode, Debug, Clone, FromVariant, iroha_actor::Message)]
     pub enum Message {
-        /// Message to share block heights with other peers
-        Heights(Vec<SignedHeight>),
         /// Request for blocks after the block with `Hash` for the peer with `PeerId`.
         GetBlocksAfter(GetBlocksAfter),
         /// The response to `GetBlocksAfter`. Contains the requested blocks and the id of the peer who shared them.
@@ -366,41 +291,15 @@ pub mod message {
             block_sync: &mut BlockSynchronizer<S, W>,
         ) {
             match self {
-                Message::Heights(signed_heights) => {
-                    let peers: HashSet<_> = block_sync
-                        .sumeragi
-                        .send(GetPeers)
-                        .await
-                        .into_iter()
-                        .collect();
-
-                    for height in signed_heights.iter().collect::<HashSet<_>>() {
-                        let peer_public_key = &height.signature.public_key;
-                        if *peer_public_key == block_sync.peer_id.public_key {
-                            continue;
-                        }
-
-                        if let Some(peer_id) = peers.get(peer_public_key) {
-                            if let Err(error) = height.signature.verify(&height.height) {
-                                iroha_logger::warn!(%error);
-                                continue;
-                            }
-
-                            block_sync
-                                .signed_peer_heights
-                                .entry(peer_id.clone())
-                                .and_modify(|h| h.height = std::cmp::max(h.height, height.height))
-                                .or_insert_with(|| height.clone());
-                        } else {
-                            iroha_logger::warn!(%peer_public_key, "Public key not found");
-                        }
-                    }
-                }
                 Message::GetBlocksAfter(GetBlocksAfter { hash, peer_id }) => {
                     if block_sync.batch_size == 0 {
                         iroha_logger::warn!(
                             "Error: not sending any blocks as batch_size is equal to zero."
                         );
+                        return;
+                    }
+
+                    if *hash == block_sync.wsv.latest_block_hash() {
                         return;
                     }
 
@@ -431,24 +330,8 @@ pub mod message {
         #[log("TRACE")]
         pub async fn send_to(self, broker: Broker, peer: PeerId) {
             let data = NetworkMessage::BlockSync(Box::new(VersionedMessage::from(self)));
-            let message = Post {
-                data,
-                id: peer.clone(),
-            };
+            let message = Post { data, id: peer };
             broker.issue_send(message).await;
-        }
-
-        /// Send this message over the network to the specified `peers`.
-        #[iroha_futures::telemetry_future]
-        #[log("TRACE")]
-        pub async fn send_to_multiple(self, broker: Broker, peers: &[PeerId]) {
-            let futures = peers
-                .iter()
-                .map(|peer| self.clone().send_to(broker.clone(), peer.clone()))
-                .collect::<FuturesUnordered<_>>()
-                .collect::<()>();
-
-            tokio::task::spawn(futures);
         }
     }
 }
@@ -459,9 +342,8 @@ pub mod config {
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_BATCH_SIZE: u32 = 4;
-    const DEFAULT_SYNC_PERIOD_MS: u64 = 10000;
+    const DEFAULT_GOSSIP_PERIOD_MS: u64 = 10000;
     const DEFAULT_MAILBOX_SIZE: usize = 100;
-    const DEFAULT_HEIGHTS_GOSSIP_PERIOD_MS: u64 = 10000;
 
     /// Configuration for `BlockSynchronizer`.
     #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
@@ -469,10 +351,8 @@ pub mod config {
     #[serde(default)]
     #[config(env_prefix = "BLOCK_SYNC_")]
     pub struct BlockSyncConfiguration {
-        /// Also time between sending requests for block heights
-        pub heights_gossip_period_ms: u64,
         /// The time between sending request for latest block.
-        pub sync_period_ms: u64,
+        pub gossip_period_ms: u64,
         /// The number of blocks, which can be sent in one message.
         /// Underlying network (`iroha_network`) should support transferring messages this large.
         pub batch_size: u32,
@@ -483,8 +363,7 @@ pub mod config {
     impl Default for BlockSyncConfiguration {
         fn default() -> Self {
             Self {
-                heights_gossip_period_ms: DEFAULT_HEIGHTS_GOSSIP_PERIOD_MS,
-                sync_period_ms: DEFAULT_SYNC_PERIOD_MS,
+                gossip_period_ms: DEFAULT_GOSSIP_PERIOD_MS,
                 batch_size: DEFAULT_BATCH_SIZE,
                 mailbox: DEFAULT_MAILBOX_SIZE,
             }
