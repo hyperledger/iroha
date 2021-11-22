@@ -4,17 +4,17 @@ on:
   pull_request:
     branches: [iroha2-dev]
     paths:
-      - '**.rs'
-      - '**.json'
-      - '**.toml'
-      - '**.yml'
+      - "**.rs"
+      - "**.json"
+      - "**.toml"
+      - "**.yml"
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   test:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: ubuntu-latest
     #container: rust:1.56-buster
     container:
       image: 7272721/i2-ci:latest
@@ -24,11 +24,11 @@ jobs:
       - uses: actions/cache@v2
         with:
           path: |
-              ${{ env.CARGO_HOME }}
-              target/
+            ${{ env.CARGO_HOME }}
+            target/
           key: iroha2-rust-test-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-              iroha2-rust-test
+            iroha2-rust-test
       - name: Run tests
         run: mold -run cargo test --workspace --no-fail-fast -- --skip unstable_network
         env:
@@ -44,12 +44,11 @@ jobs:
           RUSTC_BOOTSTRAP: 1
         working-directory: actor
 
-
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
   # 2  Coverage bot can have results from `iroha2-dev` to report coverage changes.
   coverage:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
     #container: rust:1.56-buster
     container:
       image: 7272721/i2-ci:latest
@@ -58,11 +57,11 @@ jobs:
       - uses: actions/cache@v2
         with:
           path: |
-              ${{ env.CARGO_HOME }}
-              target/
+            ${{ env.CARGO_HOME }}
+            target/
           key: iroha2-rust-test-coverage-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-              iroha2-rust-test-coverage
+            iroha2-rust-test-coverage
       - name: Run tests
         run: mold -run cargo test --workspace --no-fail-fast -- --skip  unstable_network || true
         env:

@@ -342,9 +342,9 @@ where
             },
             logger: LoggerConfiguration {
                 #[cfg(profile = "bench")]
-                max_log_level: LevelEnv::ERROR,
+                max_log_level: LevelEnv::WARN,
                 #[cfg(not(profile = "bench"))]
-                max_log_level: LevelEnv::TRACE,
+                max_log_level: LevelEnv::INFO,
                 compact_mode: false,
                 ..LoggerConfiguration::default()
             },

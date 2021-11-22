@@ -9,7 +9,7 @@ env:
 
 jobs:
   coverage:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: ubuntu-latest
     container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
@@ -45,7 +45,7 @@ jobs:
           file: ${{ steps.coverage.outputs.report }}
 
   bench:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Run benchmarks
