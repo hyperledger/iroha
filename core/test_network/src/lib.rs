@@ -10,7 +10,7 @@
 use std::{convert::TryFrom, fmt::Debug, thread, time::Duration};
 
 use eyre::{Error, Result};
-use futures::future;
+use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_core::{
@@ -151,8 +151,10 @@ where
             .peers()
             .map(|p| p.iroha.as_ref().unwrap())
             .map(lense)
-            .map(|actor| actor.send(msg.clone()));
-        time::timeout(Duration::from_secs(60), future::join_all(fut))
+            .map(|actor| actor.send(msg.clone()))
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<_>>();
+        time::timeout(Duration::from_secs(60), fut)
             .await
             .unwrap()
             .into_iter()
@@ -248,13 +250,13 @@ where
 
         let rng = &mut rand::thread_rng();
         let online_peers = n_peers - offline_peers;
+        let futures = FuturesUnordered::new();
 
-        let mut futures = vec![genesis.start_with_config(G::test(true), configuration.clone())];
-
+        futures.push(genesis.start_with_config(G::test(true), configuration.clone()));
         for peer in peers.iter_mut().choose_multiple(rng, online_peers as usize) {
             futures.push(peer.start_with_config(G::test(false), configuration.clone()));
         }
-        futures::future::join_all(futures).await;
+        futures.collect::<()>().await;
 
         time::sleep(Duration::from_millis(500) * (n_peers + 1)).await;
 

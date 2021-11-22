@@ -9,7 +9,7 @@ use std::{
     },
 };
 
-use futures::future::join_all;
+use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_logger::{
@@ -207,15 +207,11 @@ async fn multiple_networks() {
     let mut brokers = Vec::new();
     let mut peer_ids = Vec::new();
     let messages = Arc::new(AtomicU32::new(0));
-    let mut futures = Vec::new();
-    for addr in &peers {
-        futures.push(start_network(
-            addr.clone(),
-            peers.clone(),
-            Arc::clone(&messages),
-        ));
-    }
-    join_all(futures)
+    peers
+        .iter()
+        .map(|addr| start_network(addr.clone(), peers.clone(), Arc::clone(&messages)))
+        .collect::<FuturesUnordered<_>>()
+        .collect::<Vec<_>>()
         .await
         .into_iter()
         .for_each(|(address, broker, public_key)| {
