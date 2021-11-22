@@ -57,7 +57,7 @@ pub struct Network<
 {
     /// Genesis peer which sends genesis block to everyone
     pub genesis: Peer<W, G, K, S, B>,
-    /// peers
+    /// Peers excluding the `genesis` peer. Use [`peers()`] function to get all instead.
     pub peers: Vec<Peer<W, G, K, S, B>>,
 }
 
@@ -331,7 +331,7 @@ where
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     fn drop(&mut self) {
-        iroha_logger::error!(
+        iroha_logger::info!(
             p2p_addr = %self.p2p_address,
             api_addr = %self.api_address,
             "Stopping peer",
@@ -359,7 +359,7 @@ where
     pub fn stop(&mut self) {
         if let Some(shutdown) = self.shutdown.take() {
             shutdown.abort();
-            iroha_logger::error!("Shutting down peer...");
+            iroha_logger::info!("Shutting down peer...");
         }
     }
 
@@ -588,7 +588,7 @@ pub trait TestClient: Sized {
     fn test_with_account(api_url: &str, keys: KeyPair, account_id: &AccountId) -> Self;
 
     /// loops for events with filter and handler function
-    fn loop_on_events(self, event_filter: EventFilter, f: impl Fn(Result<Event>));
+    fn for_each_event(self, event_filter: EventFilter, f: impl Fn(Result<Event>));
 
     /// Submits instruction with polling
     fn submit_till<R>(
@@ -708,7 +708,7 @@ impl TestClient for Client {
         Client::new(&configuration)
     }
 
-    fn loop_on_events(mut self, event_filter: EventFilter, f: impl Fn(Result<Event>)) {
+    fn for_each_event(mut self, event_filter: EventFilter, f: impl Fn(Result<Event>)) {
         for event in self
             .listen_for_events(event_filter)
             .expect("Failed to create event iterator.")

@@ -96,6 +96,18 @@ When server is ready to transmit events it sends: `SubscriptionAccepted`
 
 Server sends `Event` and expects `EventReceived` after each, before sending the next event.
 
+**Notes**:
+
+Usually, the client  waits for Transaction events. 
+
+Transaction event statuses can be either `Validating`, `Committed` or `Rejected`.
+
+Transaction statuses proceed from `Validating` to either  `Committed` or `Rejected`. 
+However, due to the distributed nature of the network, some peers might receive events out of order (e.g. `Committed` before `Validating`).
+
+It's possible that some peers in the network are offline for the validation round. If the client connects to them while they are offline, the peers might not respond with the `Validating` status.
+But when the offline peers come back online they will synchronize the blocks. They are then guaranteed to respond with the `Committed` (or `Rejected`) status depending on the information found in the block.
+
 ### Configuration
 
 **Protocol**: HTTP
