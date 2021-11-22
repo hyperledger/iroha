@@ -4,10 +4,9 @@ on:
   pull_request:
     branches: [iroha2-dev]
 
-
 jobs:
   check:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: ubuntu-latest
     #container: rust:1.56-buster
     container:
       image: 7272721/i2-ci:latest
@@ -16,11 +15,11 @@ jobs:
       - uses: actions/cache@v2
         with:
           path: |
-              ${{ env.CARGO_HOME }}
-              target/
+            ${{ env.CARGO_HOME }}
+            target/
           key: iroha2-rust-check-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-              iroha2-rust-check
+            iroha2-rust-check
       - name: Print all info
         run: |
           cargo version

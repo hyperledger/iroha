@@ -6,17 +6,16 @@ on:
     tags:
       - "v*.*.*"
     paths:
-      - '**.rs'
-      - '**.json'
-      - '**.toml'
+      - "**.rs"
+      - "**.json"
+      - "**.toml"
+      - "**.yml"
 
 env:
   CARGO_TERM_COLOR: always
 
-
 jobs:
   test-docker:
-    # runs-on: [self-hosted, Linux]
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -27,11 +26,11 @@ jobs:
       - uses: actions/cache@v2
         with:
           path: |
-              ~/.cargo
-              target/
+            ~/.cargo
+            target/
           key: iroha2-rust-docker-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-              iroha2-rust-docker-
+            iroha2-rust-docker-
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v1
@@ -55,7 +54,7 @@ jobs:
         run: ./scripts/cleanup_docker_test_env.sh
 
   bench:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
     container: rust:1.56-buster
     if: ${{ false }}
     steps:
@@ -63,11 +62,11 @@ jobs:
       - uses: actions/cache@v2
         with:
           path: |
-              ${{ env.CARGO_HOME }}
-              target/
+            ${{ env.CARGO_HOME }}
+            target/
           key: iroha2-rust-bench-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-              iroha2-rust-bench-
+            iroha2-rust-bench-
 
       - name: Install dependencies
         run: |
@@ -80,9 +79,8 @@ jobs:
       - name: Run benchmarks
         run: cargo bench --workspace --verbose
 
-
   test-api:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: ubuntu-latest #ubuntu-latest
     if: ${{ false }}
     steps:
       - uses: actions/checkout@v2

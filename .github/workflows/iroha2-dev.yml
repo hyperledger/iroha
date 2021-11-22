@@ -9,7 +9,7 @@ env:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
     # container: rust:1.56-buster
     container:
       image: 7272721/i2-ci:latest
@@ -58,9 +58,8 @@ jobs:
             PROFILE=--release
             BIN=iroha_crypto_cli
 
-
   archive-and-publish-schema:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
     container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
@@ -100,18 +99,18 @@ jobs:
           path: target/schema
 
   print-telemetry:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: ubuntu-latest
     container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
         with:
           path: |
-              ${{ env.CARGO_HOME }}
-              target/
+            ${{ env.CARGO_HOME }}
+            target/
           key: iroha2-rust-telemetry-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-              iroha2-rust-telemetry-
+            iroha2-rust-telemetry-
 
       - name: Run debug tests and save telemetry
         env:
@@ -156,15 +155,11 @@ jobs:
           name: telemetry
           path: target/telemetry
 
-
-
-
-
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
   # 2  Coverage bot can have results from `iroha2-dev` to report coverage changes.
   coverage:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
     #container: rust:1.56-buster
     container:
       image: 7272721/i2-ci:latest
@@ -173,11 +168,11 @@ jobs:
       - uses: actions/cache@v2
         with:
           path: |
-              ${{ env.CARGO_HOME }}
-              target/
+            ${{ env.CARGO_HOME }}
+            target/
           key: iroha2-rust-test-coverage-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-              iroha2-rust-test-coverage
+            iroha2-rust-test-coverage
       - name: Run tests
         run: mold -run cargo test --workspace --no-fail-fast -- --skip  unstable_network || true
         env:

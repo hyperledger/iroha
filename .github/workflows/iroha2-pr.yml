@@ -9,7 +9,7 @@ env:
 
 jobs:
   long-tests:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
+    runs-on: ubuntu-latest
     container: rust:1.56-buster
     steps:
       - uses: actions/checkout@v2
