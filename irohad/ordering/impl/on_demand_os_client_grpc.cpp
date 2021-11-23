@@ -156,6 +156,7 @@ void OnDemandOsClientGrpc::onRequestProposal(
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
       [round,
+       hash(std::move(hash)),
        time_provider(time_provider_),
        proposal_request_timeout(proposal_request_timeout_),
        context(std::move(context)),
@@ -172,7 +173,7 @@ void OnDemandOsClientGrpc::onRequestProposal(
         }
         context->set_deadline(time_provider() + proposal_request_timeout);
         proto::ProposalResponse response;
-        log->info("Requesting proposal_or_hash");
+        log->info("Requesting proposal {}, {}", round, hash);
         auto status = stub->RequestProposal(context.get(), request, &response);
         if (not status.ok()) {
           log->warn(

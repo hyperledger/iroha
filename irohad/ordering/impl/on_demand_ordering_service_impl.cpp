@@ -89,95 +89,70 @@ void OnDemandOrderingServiceImpl::forCachedBatches(
 iroha::ordering::ProposalWithHash
 OnDemandOrderingServiceImpl::onRequestProposal(
     consensus::Round const &req_round) {
-  // shared_model::crypto::Hash const &req_proposal_hash) {
-  log_->debug("Requesting a proposal_or_hash for req_round {}", req_round);
-  //  std::optional<
-  //      std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+  log_->debug("Requesting a proposal for {}", req_round);
   iroha::ordering::ProposalWithHash result_proposal;
   do {
     std::lock_guard<std::mutex> lock(proposals_mutex_);
     if (auto it = proposal_map_.find(req_round); it != proposal_map_.end()) {
-      // result_proposal = std::get<0>(it->second);
-      // std::tie(result_proposal, std::ignore) = it->second;
       result_proposal = it->second;
+      auto &[opt_proposal, hash] = result_proposal;
+      if (opt_proposal) {
+        assert((*opt_proposal)->transactions().size() > 0);
+        assert(hash.size() && "empty hash for valid proposal");
+      }
       break;
     }
-    //    if (auto ith = proposals_by_hash_.find(req_proposal_hash);
-    //        ith != proposals_by_hash_.end()) {
-    //      result_proposal = ith->second;
-    //      break;
-    //    }
     bool const is_current_round_or_next2 =
         (req_round.block_round == current_round_.block_round
              ? (req_round.reject_round - current_round_.reject_round)
              : (req_round.block_round - current_round_.block_round))
         <= 2ull;
     if (is_current_round_or_next2) {
-      //      auto [proposal_or_hash, hash] = packNextProposals(req_round);
-      //      result_proposal = proposal_or_hash;
-      //      shared_model::crypto::Hash hash;
-      //      std::tie(result_proposal, hash) = packNextProposals(req_round);
       result_proposal = packNextProposals(req_round);
+      auto &[opt_proposal, hash] = result_proposal;
+      if (opt_proposal and (*opt_proposal)->transactions().size() > 0
+          and hash.size() == 0) {
+        log_->error("STRANGE-X");
+      }
+      //      if (opt_proposal) {
+      //        assert((*opt_proposal)->transactions().size() > 0);
+      //        assert(hash.size() && "empty hash for valid proposal");
+      //      }
       getSubscription()->notify(EventTypes::kOnPackProposal, req_round);
     }
   } while (false);
 
   auto &[opt_proposal, hash] = result_proposal;
-  log_->debug("onRequestProposal() req_round {}, {}.",
+  if (opt_proposal and (*opt_proposal)->transactions().size() > 0
+      and hash.size() == 0) {
+    log_->error("STRANGE-Y");
+  }
+  log_->debug("onRequestProposal() {}, {}.",
               req_round,
-              opt_proposal ? fmt::format(
-                  "returning a proposal_or_hash with hash {} of {} txs",
-                  hash,
-                  boost::size((*opt_proposal)->transactions()))
-                           : "NOT returning a proposal_or_hash");
+              opt_proposal
+                  ? fmt::format("returning a proposal with hash {} of {} txs",
+                                hash,
+                                boost::size((*opt_proposal)->transactions()))
+                  : "NOT returning a proposal");
   return result_proposal;
 }
 
-#if 0
-static shared_model::crypto::Hash calculateTransactionsHash(
-    std::vector<std::shared_ptr<shared_model::interface::Transaction>> const
-        &txs) {
-  return shared_model::interface::TransactionBatchHelpers::
-      calculateReducedBatchHash(
-          txs | boost::adaptors::transformed([](const auto &tx) {
-            return tx->reducedHash();
-          }));
-}
-static shared_model::crypto::Hash calculateProposalHash(
-    std::shared_ptr<shared_model::interface::Proposal> prop) {
-  return shared_model::interface::TransactionBatchHelpers::
-      calculateReducedBatchHash(
-          prop->transactions()
-          | boost::adaptors::transformed(
-              [](const auto &tx) { return tx.reducedHash(); }));
-}
-#endif
-
-// std::tuple<std::optional<std::shared_ptr<shared_model::interface::Proposal>>,
-//            shared_model::crypto::Hash>
 iroha::ordering::ProposalWithHash
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
-  if (hasEnoughBatchesInCache())  // FIXME right? was !isEmptyBatchesCache()
+  if (!isEmptyBatchesCache())  // todo hasEnoughBatchesInCache?
     batches_cache_.getTransactions(transaction_limit_, txs);
 
-  std::optional<std::shared_ptr<shared_model::interface::Proposal>> proposal;
-  if (txs.size())
-    proposal = proposal_factory_->unsafeCreateProposal(
+  iroha::ordering::ProposalWithHash proposal_with_hash;
+  if (txs.size()) {
+    auto &[opt_proposal, hash] = proposal_with_hash;
+    opt_proposal = proposal_factory_->unsafeCreateProposal(
         round.block_round,
         iroha::time::now(),
         txs | boost::adaptors::indirected);
-
-  shared_model::crypto::Hash proposal_hash = shared_model::interface::
-      TransactionBatchHelpers::calculateReducedBatchHash(
-          txs | boost::adaptors::transformed([](const auto &tx) {
-            return tx->reducedHash();
-          }));
-  //  shared_model::crypto::Hash proposal_hash = calculateTransactionsHash(txs);
-  assert(txs.size() || proposal_hash.size() == 0);  // if txs.empty => hash too
-
-  iroha::ordering::ProposalWithHash proposal_with_hash{proposal, proposal_hash};
-
+    hash = shared_model::interface::Proposal::calculateHash(*opt_proposal);
+    assert(boost::empty((*opt_proposal)->transactions()) || hash.size() > 0);
+  }
   assert(proposal_map_.find(round) == proposal_map_.end());
   proposal_map_.emplace(round, proposal_with_hash);
   return proposal_with_hash;
@@ -249,8 +224,16 @@ OnDemandOrderingServiceImpl::getProposalWithHash(
     iroha::consensus::Round round) {
   std::lock_guard<std::mutex> lock(proposals_mutex_);
   auto it = proposal_map_.find(round);
-  if (it != proposal_map_.end())
+  if (it != proposal_map_.end()) {
+    auto &[opt_proposal, hash] = it->second;
+    //    if (opt_proposal) {
+    //      assert((*opt_proposal)->transactions().size());
+    //      assert(hash.size() && "empty hash for valid proposal");
+    //    }
+    assert((*opt_proposal)->transactions().empty()
+           || hash.size() && "empty hash for valid proposal");
     return it->second;
+  }
   return {};
 }
 

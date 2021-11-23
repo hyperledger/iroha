@@ -517,7 +517,7 @@ void IntegrationTestFramework::subscribeQueuesAndRun() {
                 auto maybe_proposal_queue = proposal_queue.lock();
                 auto maybe_log = log.lock();
                 if (maybe_proposal_queue and maybe_log and event.proposal) {
-                  maybe_proposal_queue->push(getProposalUnsafe(event));
+                  maybe_proposal_queue->push(*event.proposal);
                   maybe_log->info("proposal");
                 }
               });

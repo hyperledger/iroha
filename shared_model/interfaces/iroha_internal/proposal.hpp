@@ -6,9 +6,11 @@
 #ifndef IROHA_SHARED_MODEL_PROPOSAL_HPP
 #define IROHA_SHARED_MODEL_PROPOSAL_HPP
 
+#include "boost/range/adaptor/transformed.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
+#include "interfaces/iroha_internal/transaction_batch_helpers.hpp"
 #include "interfaces/transaction.hpp"
 
 namespace shared_model {
@@ -46,6 +48,15 @@ namespace shared_model {
             .appendNamed("height", height())
             .appendNamed("transactions", transactions())
             .finalize();
+      }
+
+      static shared_model::crypto::Hash calculateHash(
+          std::shared_ptr<const shared_model::interface::Proposal> prop) {
+        return shared_model::interface::TransactionBatchHelpers::
+            calculateReducedBatchHash(
+                prop->transactions()
+                | boost::adaptors::transformed(
+                    [](const auto &tx) { return tx.reducedHash(); }));
       }
     };
 

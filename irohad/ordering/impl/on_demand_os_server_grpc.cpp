@@ -96,16 +96,27 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
     getSubscription()->dispatcher()->unbind(*tid);
   }
 
-  if (auto proposal_with_hash = ordering_service_->onRequestProposal(round);
-      std::get<0>(proposal_with_hash)) {
-    auto &[opt_proposal, hash] = proposal_with_hash;
-    if (hash == shared_model::crypto::Hash(request->own_proposal_hash()))
+  auto [opt_proposal, hash] = ordering_service_->onRequestProposal(round);
+  if (opt_proposal) {
+    //    assert((*opt_proposal)->transactions().size() > 0);
+    //    assert(hash.size() && "empty hash for valid proposal");
+    if (hash == shared_model::crypto::Hash(request->own_proposal_hash())) {
+      fmt::print("SAME HASH {}", request->own_proposal_hash());
       *response->mutable_same_proposal_hash() = request->own_proposal_hash();
-    else
+    } else
       *response->mutable_proposal() =
           static_cast<const shared_model::proto::Proposal *>(
               opt_proposal->get())
               ->getTransport();
   }
+  log_->debug(
+      "Responding for {} {}: our proposal {}",
+      round,
+      request->own_proposal_hash(),
+      response->optional_proposal_case() == response->kProposal
+          ? fmt::format("has DIFFERENT hash {}, sending full proposal", hash)
+          : response->optional_proposal_case() == response->kSameProposalHash
+          ? "has SAME hash, sending only hash"
+          : "is EMPTY");
   return ::grpc::Status::OK;
 }

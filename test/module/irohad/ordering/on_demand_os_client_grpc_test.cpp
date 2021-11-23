@@ -203,11 +203,14 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposalNone) {
                       SetArgPointee<2>(response),
                       Return(grpc::Status::OK)));
 
-  client->onRequestProposal(round, {});
+  client->onRequestProposal(
+      round, shared_model::crypto::Hash::fromHexString("adfe1234"));
 
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);
   ASSERT_EQ(request.round().reject_round(), round.reject_round);
-  ASSERT_FALSE(
+  ASSERT_TRUE(
       std::holds_alternative<std::monostate>(received_event.proposal_or_hash));
 }
+
+// todo add test case return proposal by hash

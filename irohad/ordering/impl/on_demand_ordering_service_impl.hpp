@@ -56,9 +56,7 @@ namespace iroha {
 
       void onBatches(CollectionType batches) override;
 
-      // std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
       ProposalWithHash onRequestProposal(consensus::Round const &) override;
-      // shared_model::crypto::Hash const &) override;
 
       void onCollaborationOutcome(consensus::Round round) override;
 
@@ -76,6 +74,9 @@ namespace iroha {
           consensus::Round round) override;
 
       ProposalWithHash getProposalWithHash(consensus::Round round) override;
+
+      static shared_model::crypto::Hash calculateProposalHash(
+          std::shared_ptr<shared_model::interface::Proposal> prop);
 
      private:
       /**

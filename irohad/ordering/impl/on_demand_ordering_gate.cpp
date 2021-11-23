@@ -97,23 +97,25 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
     return std::nullopt;
   }
   std::shared_ptr<const shared_model::interface::Proposal> proposal;
-  if (std::holds_alternative<shared_model::crypto::Hash>(
-          event.proposal_or_hash)) {
+  if (std::holds_alternative<std::monostate>(event.proposal_or_hash))
+    return network::OrderingEvent{
+        std::nullopt, event.round, current_ledger_state_};
+  else if (std::holds_alternative<shared_model::crypto::Hash>(
+               event.proposal_or_hash)) {
     // assume proposal_or_hash already exist in ordering_service's cache and has
     // same hash for the round
     auto [opt_proposal, hash] =
         ordering_service_->getProposalWithHash(event.round);
+    log_->debug("processProposalRequest(): holds hash {}", hash);
     assert(opt_proposal);
     assert(*opt_proposal);
     assert(hash
            == std::get<shared_model::crypto::Hash>(event.proposal_or_hash));
     if (opt_proposal)
       proposal = *opt_proposal;
-  }
-  if (not proposal) {
-    return network::OrderingEvent{
-        std::nullopt, event.round, current_ledger_state_};
-  }
+  } else
+    proposal = std::get<decltype(proposal)>(event.proposal_or_hash);
+
   auto result_proposal = removeReplaysAndDuplicates(proposal);
   // no need to check empty proposal
   if (boost::empty(result_proposal->transactions())) {

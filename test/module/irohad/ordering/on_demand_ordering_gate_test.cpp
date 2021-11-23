@@ -183,9 +183,6 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
  * @then new empty proposal round based on the received height is initiated
  */
 TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-      proposal;
-
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
 
   shared_model::crypto::Hash hash;
@@ -193,8 +190,7 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
-  auto val =
-      ordering_gate->processProposalRequest({*std::move(proposal), round});
+  auto val = ordering_gate->processProposalRequest({{}, round});
 
   ASSERT_FALSE(val->proposal);
 }
@@ -206,9 +202,6 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
  * @then new empty proposal round based on the received height is initiated
  */
 TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-      opt_proposal;
-
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
 
   shared_model::crypto::Hash hash;
@@ -216,7 +209,7 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
-  iroha::ordering::ProposalEvent event{*std::move(opt_proposal), round};
+  iroha::ordering::ProposalEvent event{{}, round};
   auto val = ordering_gate->processProposalRequest(event);
 
   ASSERT_FALSE(val->proposal);

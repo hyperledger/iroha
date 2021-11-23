@@ -124,18 +124,19 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
   proto::ProposalRequest request;
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
+  request.set_own_proposal_hash("testing_hash");
   proto::ProposalResponse response;
   protocol::Proposal proposal;
   proposal.add_transactions()
       ->mutable_payload()
       ->mutable_reduced_payload()
       ->set_creator_account_id(creator);
-
   std::shared_ptr<const shared_model::interface::Proposal> iproposal(
       std::make_shared<const shared_model::proto::Proposal>(proposal));
+  iroha::ordering::ProposalWithHash pwh{
+      iproposal, shared_model::interface::Proposal::calculateHash(iproposal)};
   EXPECT_CALL(*notification, onRequestProposal(round))
-      .WillOnce(Return(
-          ByMove(iroha::ordering::ProposalWithHash{std::move(iproposal)})));
+      .WillOnce(Return(ByMove(std::move(pwh))));
   EXPECT_CALL(*notification, hasEnoughBatchesInCache()).WillOnce(Return(true));
 
   grpc::ServerContext context;
@@ -163,7 +164,7 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposalNone) {
   request.mutable_round()->set_reject_round(round.reject_round);
   proto::ProposalResponse response;
   EXPECT_CALL(*notification, onRequestProposal(round))
-      .WillOnce(Return(ByMove(std::move(iroha::ordering::ProposalWithHash{}))));
+      .WillOnce(Return(ByMove(iroha::ordering::ProposalWithHash{})));
   EXPECT_CALL(*notification, hasEnoughBatchesInCache()).WillOnce(Return(false));
 
   grpc::ServerContext context;
