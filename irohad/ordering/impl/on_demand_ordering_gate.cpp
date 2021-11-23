@@ -49,8 +49,7 @@ void OnDemandOrderingGate::propagateBatch(
   }
 
   // TODO iceseer 14.01.21 IR-959 Refactor to avoid copying.
-  ordering_service_->onBatches(
-      transport::OdOsNotification::CollectionType{batch});
+  forLocalOS(&OnDemandOrderingService::onBatches, transport::OdOsNotification::CollectionType{batch});
   network_client_->onBatches(
       transport::OdOsNotification::CollectionType{batch});
 }
@@ -67,7 +66,7 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
   }
 
   // notify our ordering service about new round
-  ordering_service_->onCollaborationOutcome(event.next_round);
+  forLocalOS(&OnDemandOrderingService::onCollaborationOutcome, event.next_round);
 
   this->sendCachedTransactions();
 
@@ -112,7 +111,7 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
         std::make_shared<shared_model::interface::TransactionBatchImpl>(
             std::move(txs)));
   }
-  ordering_service_->processReceivedProposal(std::move(batches));
+  forLocalOS(&OnDemandOrderingService::processReceivedProposal, std::move(batches));
   return network::OrderingEvent{
       std::move(result), event.round, current_ledger_state_};
 }
@@ -120,7 +119,7 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
 void OnDemandOrderingGate::sendCachedTransactions() {
   assert(not stop_mutex_.try_lock());  // lock must be taken before
   // TODO iceseer 14.01.21 IR-958 Check that OS is remote
-  ordering_service_->forCachedBatches([this](auto const &batches) {
+  forLocalOS(&OnDemandOrderingService::forCachedBatches, [this](auto const &batches) {
     auto end_iterator = batches.begin();
     auto current_number_of_transactions = 0u;
     for (; end_iterator != batches.end(); ++end_iterator) {
@@ -190,9 +189,8 @@ OnDemandOrderingGate::removeReplaysAndDuplicates(
     return proposal;
   }
 
-  if (!dup_hashes->empty()) {
-    ordering_service_->onDuplicates(*dup_hashes);
-  }
+  if (!dup_hashes->empty())
+    forLocalOS(&OnDemandOrderingService::onDuplicates, *dup_hashes);
 
   auto unprocessed_txs =
       proposal->transactions() | boost::adaptors::indexed()

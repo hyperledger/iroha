@@ -60,6 +60,18 @@ namespace iroha {
      private:
       void sendCachedTransactions();
 
+      template<typename Func, typename...Args>
+      void forLocalOS(Func func, Args&&...args) {
+        if (ordering_service_)
+          (ordering_service_.get()->*func)(std::forward<Args>(args)...);
+      }
+
+      template<typename Func, typename...Args>
+      void forLocalOS(Func func, Args&&...args) const {
+        if (ordering_service_)
+          (ordering_service_.get()->*func)(std::forward<Args>(args)...);
+      }
+
       /**
        * remove already processed transactions from proposal
        */
