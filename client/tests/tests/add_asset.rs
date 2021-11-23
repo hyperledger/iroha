@@ -5,7 +5,7 @@ use std::{convert::TryFrom, thread};
 use eyre::Result;
 use iroha_client::client;
 use iroha_core::config::Configuration;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{fixed::Fixed, prelude::*};
 use test_network::{Peer as TestPeer, *};
 
 #[test]
@@ -80,7 +80,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
         },
     );
 
-    // Add some fractional part and check that it is added without errors
+    // Add some fractional part
     let quantity2: Fixed = Fixed::try_from(0.55_f64).unwrap();
     let mint = MintBox::new(
         Value::Fixed(quantity2),
@@ -89,13 +89,13 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
             account_id.clone(),
         )),
     );
+    // and check that it is added without errors
     let sum = Fixed::try_from(124.00_f64).unwrap();
     test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
             asset.id.definition_id == asset_definition_id && asset.value == AssetValue::Fixed(sum)
         })
     });
-
     Ok(())
 }
 
