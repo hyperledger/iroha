@@ -280,9 +280,9 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<UpdateNetworkT
 #[async_trait::async_trait]
 impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<Message> for Sumeragi<G, K, W> {
     type Result = ();
-    async fn handle(&mut self, message: Message) {
-        iroha_logger::trace!(peer_role=?self.topology.role(&self.peer_id), msg=?message);
-        if let Err(error) = message.handle(&mut self).await {
+    async fn handle(&mut self, msg: Message) {
+        iroha_logger::trace!(peer_role=?self.topology.role(&self.peer_id), ?msg);
+        if let Err(error) = msg.handle(&mut self).await {
             iroha_logger::error!(%error, "Handle message failed");
         }
     }
@@ -761,7 +761,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
                     "Block commit timeout detected!",
                 );
                 #[allow(clippy::expect_used)]
-                let message = VersionedMessage::from(Message::ViewChangeSuggested(
+                let msg = VersionedMessage::from(Message::ViewChangeSuggested(
                     view_change::Proof::commit_timeout(
                         voting_block.block.hash(),
                         latest_view_change,
@@ -772,7 +772,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
                     .into(),
                 ));
 
-                message.send_to_multiple(&broker, &recipient_peers).await;
+                msg.send_to_multiple(&broker, &recipient_peers).await;
             }
             .in_current_span(),
         );

@@ -206,10 +206,10 @@ async fn multiple_networks() {
 
     let mut brokers = Vec::new();
     let mut peer_ids = Vec::new();
-    let messages = Arc::new(AtomicU32::new(0));
+    let msgs = Arc::new(AtomicU32::new(0));
     peers
         .iter()
-        .map(|addr| start_network(addr.clone(), peers.clone(), Arc::clone(&messages)))
+        .map(|addr| start_network(addr.clone(), peers.clone(), Arc::clone(&msgs)))
         .collect::<FuturesUnordered<_>>()
         .collect::<Vec<_>>()
         .await
@@ -238,7 +238,7 @@ async fn multiple_networks() {
     iroha_logger::info!("Posts sent");
     tokio::time::sleep(delay * 5).await;
 
-    assert_eq!(messages.load(Ordering::SeqCst), 90);
+    assert_eq!(msgs.load(Ordering::SeqCst), 90);
 }
 
 async fn start_network(

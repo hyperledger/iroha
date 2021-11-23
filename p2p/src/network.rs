@@ -297,8 +297,8 @@ where
 {
     type Result = ();
 
-    async fn handle(&mut self, ctx: &mut Context<Self>, message: StopSelf) {
-        match message {
+    async fn handle(&mut self, ctx: &mut Context<Self>, msg: StopSelf) {
+        match msg {
             StopSelf::Peer(_) => {}
             StopSelf::Network => {
                 debug!("Stopping Network");
@@ -308,7 +308,7 @@ where
                 let futures = self
                     .peers
                     .values()
-                    .flat_map(|peers| peers.iter().map(|peer| peer.0.do_send(message)))
+                    .flat_map(|peers| peers.iter().map(|peer| peer.0.do_send(msg)))
                     .collect::<FuturesUnordered<_>>();
 
                 futures.collect::<()>().await;

@@ -116,12 +116,13 @@ impl<S: SumeragiTrait, W: WorldTrait> Actor for BlockSynchronizer<S, W> {
 impl<S: SumeragiTrait, W: WorldTrait> Handler<ReceiveUpdates> for BlockSynchronizer<S, W> {
     type Result = ();
     async fn handle(&mut self, ReceiveUpdates: ReceiveUpdates) {
-        let message = Message::LatestBlock(LatestBlock::new(
+        let peers = self.sumeragi.send(GetSortedPeers).await;
+        Message::LatestBlock(LatestBlock::new(
             self.wsv.latest_block_hash(),
             self.peer_id.clone(),
-        ));
-        let peers = self.sumeragi.send(GetSortedPeers).await;
-        message.send_to_multiple(self.broker.clone(), &peers).await;
+        ))
+        .send_to_multiple(self.broker.clone(), &peers)
+        .await;
     }
 }
 
