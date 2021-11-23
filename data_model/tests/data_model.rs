@@ -1,17 +1,16 @@
 #![allow(clippy::too_many_lines, clippy::restriction)]
 
-use std::{thread, time::Duration};
+use std::{str::FromStr, thread, time::Duration};
 
-use iroha_client::client::Client;
-use iroha_core::genesis::{GenesisNetwork, GenesisNetworkTrait};
+use iroha_client::{client::Client, samples::get_client_config};
+use iroha_core::{
+    genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
+    prelude::*,
+    samples::get_config,
+};
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
-
-// const CONFIGURATION_PATH: &str = "../configs/test_config.json";
-// const TRUSTED_PEERS_PATH: &str = "../configs/test_trusted_peers.json";
-// const CLIENT_CONFIGURATION_PATH: &str = "../configs/test_client_config.json";
-// const GENESIS_PATH: &str = "../configs/test_genesis.json";
 
 #[test]
 fn find_rate_and_make_exchange_isi_should_be_valid() {
@@ -97,41 +96,33 @@ fn find_rate_and_check_it_greater_than_value_predefined_isi_should_be_valid() {
     let _instruction = FindRateAndCheckItGreaterThanValue::new("btc", "eth", 10).into_isi();
 }
 
-use iroha_core::prelude::*;
-use std::str::FromStr;
-use iroha_core::samples::get_config;
-use iroha_client::samples::get_client_config;
-
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
-	let kp = KeyPair{
-		public_key: PublicKey::from_str(r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#).unwrap(),
-		private_key: PrivateKey{
-			digest_function: "ed25519".to_string(),
-			payload: hex_literal::hex!("9AC47ABF 59B356E0
-                                       BD7DCBBB B4DEC080
-                                       E302156A 48CA907E
-                                       47CB6AEA 1D32719E
-                                       7233BFC8 9DCBD68C
-									   19FDE6CE 61582252
-									   98EC1131 B6A130D1
-									   AEB454C1 AB5183C0").into()
-		}
-	};
-	let mut peer = <TestPeer>::new().expect("Failed to create peer");
-	let configuration = get_config(std::iter::once(peer.id.clone()).collect(), Some(kp.clone()));
+    let kp = KeyPair {
+        public_key: PublicKey::from_str(
+            r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,
+        )
+        .unwrap(),
+        private_key: PrivateKey {
+            digest_function: "ed25519".to_string(),
+            payload: hex_literal::hex!("9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0")
+				.into(),
+        },
+    };
+    let mut peer = <TestPeer>::new().expect("Failed to create peer");
+    let configuration = get_config(std::iter::once(peer.id.clone()).collect(), Some(kp.clone()));
     let pipeline_time = Duration::from_millis(configuration.sumeragi.pipeline_time_ms());
 
     // Given
     let genesis = GenesisNetwork::from_configuration(
         true,
-		("alice", "wonderland", &kp.public_key).into(), 
+        RawGenesisBlock::new("alice", "wonderland", &kp.public_key),
         &configuration.genesis,
         configuration.sumeragi.max_instruction_number,
     )
     .unwrap();
     let rt = Runtime::test();
-	let mut client_configuration = get_client_config(&configuration.sumeragi.key_pair);
+    let mut client_configuration = get_client_config(&configuration.sumeragi.key_pair);
 
     rt.block_on(peer.start_with_config(genesis, configuration));
     thread::sleep(pipeline_time);

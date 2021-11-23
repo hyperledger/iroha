@@ -6,21 +6,24 @@ pub mod client;
 pub mod config;
 pub use config::Configuration;
 mod http_client;
+
+/// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
-	use super::Configuration;
-	use iroha_core::prelude::KeyPair;
-	/// Get sample client configuration. 
-	pub fn get_client_config(key_pair: &KeyPair) -> Configuration {
-		let (public_key, private_key) = key_pair.clone().into();
-		Configuration {
-			public_key,
-			private_key,
-			account_id: iroha_data_model::prelude::AccountId{
-				name: "alice".to_string(),
-				domain_name: "wonderland".to_string(),
-			},
-			torii_api_url: iroha_core::torii::config::DEFAULT_TORII_API_URL.to_string(),
-			..Configuration::default()
-		}
-	}
+    use iroha_core::prelude::KeyPair;
+
+    use super::Configuration;
+    /// Get sample client configuration.
+    pub fn get_client_config(key_pair: &KeyPair) -> Configuration {
+        let (public_key, private_key) = key_pair.clone().into();
+        Configuration {
+            public_key,
+            private_key,
+            account_id: iroha_data_model::prelude::AccountId {
+                name: "alice".to_owned(),
+                domain_name: "wonderland".to_owned(),
+            },
+            torii_api_url: iroha_core::torii::config::DEFAULT_TORII_API_URL.to_owned(),
+            ..Configuration::default()
+        }
+    }
 }

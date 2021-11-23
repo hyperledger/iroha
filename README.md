@@ -92,7 +92,7 @@ cd target/debug
 ./iroha_client_cli --help
 ```
 
-More details about Iroha Client CLI can be found [here](https://github.com/hyperledger/iroha/blob/iroha2-dev/client_cli/README.md).
+More details about Iroha Client CLI can be found [here](./client_cli/README.md).
 
 # Integration
 ## Overall structure
@@ -120,26 +120,28 @@ Iroha project mainly consists of the following crates:
 # Maintenance 
 ## Configuration
 
-A detailed breakdown of all available configuration parameters is available [here](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md). All configuration parameters can be either provided as a `config.json` or using environment variables. 
+A detailed breakdown of all available configuration parameters is available [here](./docs/source/references/config.md). All configuration parameters can be either provided as a `config.json` or using environment variables. 
+
+The tests in the repository verify that the `trusted_peers.json` is compatible with the provided `config.json`, and that the `client/config.json` can be used to operate on the provided `genesis.json` block. It may be useful to generate the configurations by looking at [`core/src/samples.rs`](./core/src/samples.rs) and [`client/src/samples.rs`](./core/src/samples.rs) to see examples that can be serialised into `json` and used for your needs. 
 
 ## Endpoints
 
-A detailed list of all available endpoints is available [here](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/api_spec.md#endpoints). 
+A detailed list of all available endpoints is available [here](./docs/source/references/api_spec.md#endpoints). 
 
 ## Logging
 
-By default Iroha logs in a human readable format to `stdout`. The logging level is set as described [here](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md#loggermax_log_level), and it can be changed at run-time using the `configuration` endpoint. 
+By default Iroha logs in a human readable format to `stdout`. The logging level is set as described [here](./docs/source/references/config.md#loggermax_log_level), and it can be changed at run-time using the `configuration` endpoint. 
 
 For example if your iroha instance is running at `127.0.0.1:8080` to change the log level to `DEBUG` using `curl` one can 
 ```bash
 curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"ChangeLogLevel": "DEBUG"}' -i
 ```
 
-Optional JSON formatted logging can be saved to the [logging file](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md#loggerlog_file_path). [Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the peer administrator's responsibility. 
+Optional JSON formatted logging can be saved to the [logging file](./docs/source/references/config.md#loggerlog_file_path). [Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the peer administrator's responsibility. 
 
 ## Monitoring
 
-The details of the `Health` endpoint can be found [here](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/api_spec.md#health). 
+The details of the `Health` endpoint can be found [here](./docs/source/references/api_spec.md#health). 
 
 ## Storage
 
@@ -155,22 +157,22 @@ The provided `docker-compose` file showcases a minimum viable network and the ge
 
 # Further reading
 
-  * [Iroha 2 Whitepaper](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/iroha_2_whitepaper.md)
-  * [Minting your first asset (tutorial)](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/tutorials/mint-your-first-asset.md)
-  * [Glossary](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/glossary.md)
-  * [Configuration](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md)
-  * [Iroha Special Instructions](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/isi.md)
-  * [API specification](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/api_spec.md)
+  * [Iroha 2 Whitepaper](./docs/source/iroha_2_whitepaper.md)
+  * [Minting your first asset (tutorial)](./docs/source/tutorials/mint-your-first-asset.md)
+  * [Glossary](./docs/source/references/glossary.md)
+  * [Configuration](./docs/source/references/config.md)
+  * [Iroha Special Instructions](./docs/source/references/isi.md)
+  * [API specification](./docs/source/references/api_spec.md)
   * [Iroha Python](https://github.com/hyperledger/iroha-python)
 
 # Contributing
 
 That's great!
-Check out [`Contributing guide`](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md)
+Check out our [contributing guide](./CONTRIBUTING.md)
 
 # Help
 
-* Join [Telegram chat](https://t.me/hyperledgeriroha) or [Hyperledger RocketChat](https://chat.hyperledger.org/channel/iroha) where the maintainers, contributors and fellow users are ready to help you.
+* Join our [Telegram chat](https://t.me/hyperledgeriroha) or [Hyperledger RocketChat](https://chat.hyperledger.org/channel/iroha) where the maintainers, contributors and fellow users are ready to help you.
 You can also discuss your concerns and proposals and simply chat about Iroha there or in Gitter [![Join the chat at https://gitter.im/hyperledger-iroha/Lobby](https://badges.gitter.im/hyperledger-iroha/Lobby.svg)](https://gitter.im/hyperledger-iroha/Lobby)
 * Submit issues and improvement suggestions via [Hyperledger Jira](https://jira.hyperledger.org/secure/CreateIssue!default.jspa)
 * Subscribe to our [mailing list](https://lists.hyperledger.org/g/iroha) to receive the latest and most important news and spread your word within Iroha community

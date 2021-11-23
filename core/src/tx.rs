@@ -502,13 +502,20 @@ mod tests {
     };
 
     use super::*;
-    use crate::{init, smartcontracts::permissions::AllowAll, wsv::World};	
-	use crate::samples::{get_config, get_trusted_peers};
-	
+    use crate::{
+        init,
+        samples::{get_config, get_trusted_peers},
+        smartcontracts::permissions::AllowAll,
+        wsv::World,
+    };
+
     #[test]
     fn hash_should_be_the_same() {
         let key_pair = &KeyPair::generate().expect("Failed to generate key pair.");
-        let mut config = get_config(get_trusted_peers(Some(&key_pair.public_key)), Some(key_pair.clone()));
+        let mut config = get_config(
+            get_trusted_peers(Some(&key_pair.public_key)),
+            Some(key_pair.clone()),
+        );
         config.genesis.account_private_key = Some(key_pair.private_key.clone());
         config.genesis.account_public_key = Some(key_pair.public_key.clone());
 

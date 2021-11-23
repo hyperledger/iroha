@@ -34,10 +34,10 @@ const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
 pub trait GenesisNetworkTrait:
     Deref<Target = Vec<VersionedAcceptedTransaction>> + Sync + Send + 'static + Sized + Debug
 {
-    /// Construct `GenesisNetwork` from configuration.
+    /// Construct [`GenesisNetwork`] from configuration.
     ///
     /// # Errors
-    /// Fail if genesis block loading fails
+    /// Fails if genesis block is not found or cannot be deserialised.
     fn from_configuration(
         submit_genesis: bool,
         raw_block: RawGenesisBlock,
@@ -45,7 +45,7 @@ pub trait GenesisNetworkTrait:
         max_instructions_number: u64,
     ) -> Result<Option<Self>>;
 
-    /// Waits for a minimum number of `peers` needed for consensus to be online.
+    /// Waits for a minimum number of [`Peer`]s needed for consensus to be online.
     /// Returns initialized network [`Topology`] with the set A consisting of online peers.
     async fn wait_for_peers(
         &self,
@@ -73,7 +73,7 @@ pub trait GenesisNetworkTrait:
     }
 }
 
-/// `GenesisNetwork` contains initial transactions and genesis setup related parameters.
+/// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
 #[derive(Clone, Debug)]
 pub struct GenesisNetwork {
     /// transactions from `GenesisBlock`, any transaction is accepted
@@ -124,8 +124,8 @@ async fn try_get_online_topology(
     Ok(genesis_topology)
 }
 
-/// Checks which peers are online and which are offline
-/// Returns (online, offline) peers respectively
+/// Checks which [`Peer`]s are online and which are offline
+/// Returns `(online, offline)` [`Peer`]s.
 async fn check_peers_status(
     this_peer_id: &PeerId,
     network_topology: &Topology,
@@ -214,13 +214,24 @@ pub struct RawGenesisBlock {
 }
 
 impl RawGenesisBlock {
+    /// Construct a genesis block from a `.json` file at the specified path.
+    ///
+    /// # Errors
+    /// If file not found or deserialization from file fails.
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
         let file = File::open(&path).wrap_err(format!("Failed to open {:?}", &path))?;
         let reader = BufReader::new(file);
-        Ok(serde_json::from_reader(reader).wrap_err(format!(
+        serde_json::from_reader(reader).wrap_err(format!(
             "Failed to deserialise raw genesis block from {:?}",
             &path
-        ))?)
+        ))
+    }
+
+    /// Create a [`RawGenesisBlock`] with specified [`Domain`] and [`NewAccount`].
+    pub fn new(name: &str, domain_name: &str, public_key: &PublicKey) -> Self {
+        RawGenesisBlock {
+            transactions: vec![GenesisTransaction::new(name, domain_name, public_key)],
+        }
     }
 }
 
@@ -233,7 +244,7 @@ pub struct GenesisTransaction {
 
 impl GenesisTransaction {
     /// Convert `GenesisTransaction` into `AcceptedTransaction` with signature
-	/// 
+    ///
     /// # Errors
     /// Fails if signing fails
     pub fn sign_and_accept(
@@ -249,95 +260,90 @@ impl GenesisTransaction {
         .sign(genesis_key_pair)?;
         VersionedAcceptedTransaction::from_transaction(transaction, max_instruction_number)
     }
-}
 
-impl From<(&str, &str, &PublicKey)> for GenesisTransaction {
-    fn from((name, domain, pubkey): (&str, &str, &PublicKey)) -> Self {
-		Self {
-			isi: vec![
-				RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain).into())).into(),
-				RegisterBox::new(IdentifiableBox::NewAccount(
-					NewAccount::with_signatory(
-						iroha_data_model::account::Id::new(name, domain), pubkey.clone()).into())).into()
-			]
-		}
+    /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`NewAccount`].
+    pub fn new(name: &str, domain: &str, pubkey: &PublicKey) -> Self {
+        Self {
+            isi: vec![
+                RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain).into())).into(),
+                RegisterBox::new(IdentifiableBox::NewAccount(
+                    NewAccount::with_signatory(
+                        iroha_data_model::account::Id::new(name, domain),
+                        pubkey.clone(),
+                    )
+                    .into(),
+                ))
+                .into(),
+            ],
+        }
     }
 }
 
-impl From<(&str, &str, &PublicKey)> for RawGenesisBlock {
-	fn from(tuple: (&str, &str, &PublicKey)) -> Self {
-		RawGenesisBlock {
-			transactions: vec![tuple.into()]
-		}
-	}
-}
-
-
-/// This module contains all genesis configuration related logic.
+/// Module with genesis configuration logic.
 pub mod config {
-	use iroha_config::derive::Configurable;
-	use iroha_crypto::{PrivateKey, PublicKey};
-	use serde::{Deserialize, Serialize};
+    use iroha_config::derive::Configurable;
+    use iroha_crypto::{PrivateKey, PublicKey};
+    use serde::{Deserialize, Serialize};
 
-	const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT: u64 = 100;
-	const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
+    const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT: u64 = 100;
+    const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
 
-	#[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
-	#[serde(rename_all = "UPPERCASE")]
-	#[config(env_prefix = "IROHA_GENESIS_")]
-	/// Configuration of the genesis block and its submission process.
-	pub struct GenesisConfiguration {
-		/// Genesis account public key, should be supplied to all the peers.
-		/// The type is `Option` just because it might be loaded from environment variables and not from `config.json`.
-		#[config(serde_as_str)]
-		pub account_public_key: Option<PublicKey>,
-		/// Genesis account private key, only needed on the peer that submits the genesis block.
-		pub account_private_key: Option<PrivateKey>,
-		/// Number of attempts to connect to peers, while waiting for them to submit genesis.
-		#[serde(default = "default_wait_for_peers_retry_count")]
-		pub wait_for_peers_retry_count: u64,
-		/// Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
-		#[serde(default = "default_wait_for_peers_retry_period_ms")]
-		pub wait_for_peers_retry_period_ms: u64,
-	}
+    #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
+    #[serde(rename_all = "UPPERCASE")]
+    #[config(env_prefix = "IROHA_GENESIS_")]
+    /// Configuration of the genesis block and the process of its submission.
+    pub struct GenesisConfiguration {
+        /// The genesis account public key, should be supplied to all peers.
+        /// The type is `Option` just because it might be loaded from environment variables and not from `config.json`.
+        #[config(serde_as_str)]
+        pub account_public_key: Option<PublicKey>,
+        /// Genesis account private key, only needed on the peer that submits the genesis block.
+        pub account_private_key: Option<PrivateKey>,
+        /// Number of attempts to connect to peers, while waiting for them to submit genesis.
+        #[serde(default = "default_wait_for_peers_retry_count")]
+        pub wait_for_peers_retry_count: u64,
+        /// Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
+        #[serde(default = "default_wait_for_peers_retry_period_ms")]
+        pub wait_for_peers_retry_period_ms: u64,
+    }
 
-	impl Default for GenesisConfiguration {
-		fn default() -> Self {
-			Self {
-				account_public_key: None,
-				account_private_key: None,
-				wait_for_peers_retry_count: DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT,
-				wait_for_peers_retry_period_ms: DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS
-			}
-		}
-	}
+    impl Default for GenesisConfiguration {
+        fn default() -> Self {
+            Self {
+                account_public_key: None,
+                account_private_key: None,
+                wait_for_peers_retry_count: DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT,
+                wait_for_peers_retry_period_ms: DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS,
+            }
+        }
+    }
 
-	const fn default_wait_for_peers_retry_count() -> u64 {
-		DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT
-	}
+    const fn default_wait_for_peers_retry_count() -> u64 {
+        DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT
+    }
 
-	const fn default_wait_for_peers_retry_period_ms() -> u64 {
-		DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS
-	}
+    const fn default_wait_for_peers_retry_period_ms() -> u64 {
+        DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS
+    }
 }
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+    use super::*;
 
-	#[test]
-	fn load_default_genesis_block() -> Result<()> {
-		let genesis_key_pair = KeyPair::generate()?;
-		let _genesis_block = GenesisNetwork::from_configuration(
-			true,
-			RawGenesisBlock::default(),
-			&GenesisConfiguration {
-				account_public_key: Some(genesis_key_pair.public_key),
-				account_private_key: Some(genesis_key_pair.private_key),
-				..GenesisConfiguration::default()
-			},
-			4096,
-		)?;
-		Ok(())
-	}
+    #[test]
+    fn load_default_genesis_block() -> Result<()> {
+        let genesis_key_pair = KeyPair::generate()?;
+        let _genesis_block = GenesisNetwork::from_configuration(
+            true,
+            RawGenesisBlock::default(),
+            &GenesisConfiguration {
+                account_public_key: Some(genesis_key_pair.public_key),
+                account_private_key: Some(genesis_key_pair.private_key),
+                ..GenesisConfiguration::default()
+            },
+            4096,
+        )?;
+        Ok(())
+    }
 }

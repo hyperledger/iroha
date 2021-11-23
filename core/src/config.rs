@@ -12,7 +12,7 @@ use crate::{
     block_sync::config::BlockSyncConfiguration,
     genesis::config::GenesisConfiguration,
     kura::config::KuraConfiguration,
-    queue::config::QueueConfiguration,
+    queue::Configuration as QueueConfiguration,
     sumeragi::config::{SumeragiConfiguration, TrustedPeers},
     torii::config::ToriiConfiguration,
     wsv::config::Configuration as WorldStateViewConfiguration,
@@ -139,8 +139,8 @@ mod tests {
 
     use super::*;
 
-    const CONFIGURATION_PATH: &str = "../configs/test_config.json";
-    const TRUSTED_PEERS_PATH: &str = "../configs/test_trusted_peers.json";
+    const CONFIGURATION_PATH: &str = "../configs/peer/config.json";
+    const TRUSTED_PEERS_PATH: &str = "../configs/peer/trusted_peers.json";
 
     #[test]
     fn parse_example_json() -> Result<()> {
@@ -173,39 +173,39 @@ mod tests {
         let public_key2 = PublicKey {
             digest_function: iroha_crypto::ED_25519.to_string(),
             payload: hex::decode(
-                "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c1",
+                "CC25624D62896D3A0BFD8940F928DC2ABF27CC57CEFEB442AA96D9081AAE58A1",
             )
             .expect("Failed to decode"),
         };
         let public_key3 = PublicKey {
             digest_function: iroha_crypto::ED_25519.to_string(),
             payload: hex::decode(
-                "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c2",
+                "FACA9E8AA83225CB4D16D67F27DD4F93FC30FFA11ADC1F5C88FD5495ECC91020",
             )
             .expect("Failed to decode"),
         };
         let public_key4 = PublicKey {
             digest_function: iroha_crypto::ED_25519.to_string(),
             payload: hex::decode(
-                "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c3",
+                "8E351A70B6A603ED285D666B8D689B680865913BA03CE29FB7D13A166C4E7F1F",
             )
             .expect("Failed to decode"),
         };
         let expected_trusted_peers = vec![
             PeerId {
-                address: "127.0.0.1:1337".to_string(),
+                address: "127.0.0.1:1337".to_owned(),
                 public_key: public_key1,
             },
             PeerId {
-                address: "localhost:1338".to_string(),
+                address: "127.0.0.1:1338".to_owned(),
                 public_key: public_key2,
             },
             PeerId {
-                address: "195.162.0.1:23".to_string(),
+                address: "127.0.0.1:1339".to_owned(),
                 public_key: public_key3,
             },
             PeerId {
-                address: "195.162.0.1:24".to_string(),
+                address: "127.0.0.1:1340".to_owned(),
                 public_key: public_key4,
             },
         ]

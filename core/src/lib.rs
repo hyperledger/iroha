@@ -10,12 +10,12 @@ pub mod kura;
 mod merkle;
 pub mod modules;
 pub mod queue;
+pub mod samples;
 pub mod smartcontracts;
 pub mod sumeragi;
 pub mod torii;
 pub mod tx;
 pub mod wsv;
-pub mod samples;
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 

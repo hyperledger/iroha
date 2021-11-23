@@ -389,10 +389,15 @@ pub mod config {
     use iroha_config::derive::Configurable;
     use serde::{Deserialize, Serialize};
 
+    /// Default socket for p2p communication
     pub const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
+    /// Default socket for listening on external requests.
     pub const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
+    /// Default maximum size of single transaction.
     pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
+    /// Default maximum instruction number
     pub const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+    /// Default maxiumum size of [`Sumeragi`] message size.
     pub const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
@@ -427,16 +432,21 @@ pub mod config {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     #![allow(clippy::pedantic, clippy::restriction)]
 
     use std::{convert::TryInto, time::Duration};
 
     use futures::future::FutureExt;
     use tokio::time;
-	use crate::samples::{get_config, get_trusted_peers};
+
     use super::*;
-    use crate::{queue::Queue, smartcontracts::permissions::DenyAll, wsv::World};
+    use crate::{
+        queue::Queue,
+        samples::{get_config, get_trusted_peers},
+        smartcontracts::permissions::DenyAll,
+        wsv::World,
+    };
 
     fn create_torii() -> (Torii<World>, KeyPair) {
         let config = get_config(get_trusted_peers(None), None);
