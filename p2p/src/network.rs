@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_stream::stream;
-use futures::Stream;
+use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{
     broker::{Broker, BrokerMessage},
     Actor, Addr, Context, ContextHandler, Handler,
@@ -297,8 +297,8 @@ where
 {
     type Result = ();
 
-    async fn handle(&mut self, ctx: &mut Context<Self>, message: StopSelf) {
-        match message {
+    async fn handle(&mut self, ctx: &mut Context<Self>, msg: StopSelf) {
+        match msg {
             StopSelf::Peer(_) => {}
             StopSelf::Network => {
                 debug!("Stopping Network");
@@ -308,15 +308,10 @@ where
                 let futures = self
                     .peers
                     .values()
-                    .map(|peers| {
-                        let futures = peers
-                            .iter()
-                            .map(|peer| peer.0.do_send(message))
-                            .collect::<Vec<_>>();
-                        futures::future::join_all(futures)
-                    })
-                    .collect::<Vec<_>>();
-                futures::future::join_all(futures).await;
+                    .flat_map(|peers| peers.iter().map(|peer| peer.0.do_send(msg)))
+                    .collect::<FuturesUnordered<_>>();
+
+                futures.collect::<()>().await;
                 ctx.stop_after_buffered_processed();
             }
         }

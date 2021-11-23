@@ -116,12 +116,13 @@ impl<S: SumeragiTrait, W: WorldTrait> Actor for BlockSynchronizer<S, W> {
 impl<S: SumeragiTrait, W: WorldTrait> Handler<ReceiveUpdates> for BlockSynchronizer<S, W> {
     type Result = ();
     async fn handle(&mut self, ReceiveUpdates: ReceiveUpdates) {
-        let message = Message::LatestBlock(LatestBlock::new(
+        let peers = self.sumeragi.send(GetSortedPeers).await;
+        Message::LatestBlock(LatestBlock::new(
             self.wsv.latest_block_hash(),
             self.peer_id.clone(),
-        ));
-        let peers = self.sumeragi.send(GetSortedPeers).await;
-        message.send_to_peers(self.broker.clone(), &peers).await;
+        ))
+        .send_to_multiple(self.broker.clone(), &peers)
+        .await;
     }
 }
 
@@ -203,6 +204,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
 
 /// The module for block synchronization related peer to peer messages.
 pub mod message {
+    use futures::{prelude::*, stream::FuturesUnordered};
     use iroha_actor::broker::Broker;
     use iroha_crypto::*;
     use iroha_data_model::prelude::*;
@@ -366,16 +368,14 @@ pub mod message {
         /// Send this message over the network to the specified `peer`.
         #[iroha_futures::telemetry_future]
         #[log("TRACE")]
-        pub async fn send_to_peers(self, broker: Broker, peers: &[PeerId]) {
-            let mut futures = Vec::new();
-            for peer in peers {
-                let message = self.clone();
-                let peer = peer.clone();
-                let broker = broker.clone();
-                futures.push(message.send_to(broker, peer));
-            }
+        pub async fn send_to_multiple(self, broker: Broker, peers: &[PeerId]) {
+            let futures = peers
+                .iter()
+                .map(|peer| self.clone().send_to(broker.clone(), peer.clone()))
+                .collect::<FuturesUnordered<_>>()
+                .collect::<()>();
 
-            tokio::task::spawn(futures::future::join_all(futures));
+            tokio::task::spawn(futures);
         }
     }
 }
