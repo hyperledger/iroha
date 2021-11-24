@@ -85,42 +85,71 @@ impl Chain {
 /// Chain iterator
 pub struct ChainIterator<'a> {
     chain: &'a Chain,
-    pos: u64,
+    pos_front: u64,
+    pos_back: u64,
 }
 
 impl<'a> ChainIterator<'a> {
     fn new(chain: &'a Chain) -> Self {
-        ChainIterator { chain, pos: 0 }
+        ChainIterator {
+            chain,
+            pos_front: 1,
+            pos_back: chain.len() as u64,
+        }
+    }
+
+    fn is_exhausted(&self) -> bool {
+        self.pos_front > self.pos_back
     }
 }
 
 impl<'a> Iterator for ChainIterator<'a> {
     type Item = MapRef<'a, u64, VersionedCommittedBlock>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.pos += 1;
-        self.chain.blocks.get(&self.pos)
+        if !self.is_exhausted() {
+            let val = self.chain.blocks.get(&self.pos_front);
+            self.pos_front += 1;
+            return val;
+        }
+        None
     }
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.pos += n as u64;
+        self.pos_front += n as u64;
         self.next()
     }
 
     fn last(mut self) -> Option<Self::Item> {
-        self.pos = self.chain.len() as u64;
-        self.chain.blocks.get(&self.pos)
+        self.pos_front = self.chain.len() as u64;
+        self.chain.blocks.get(&self.pos_front)
     }
 
     fn count(self) -> usize {
         #[allow(clippy::cast_possible_truncation)]
-        let count = (self.chain.len() as u64 - self.pos) as usize;
+        let count = (self.chain.len() as u64 - (self.pos_front - 1)) as usize;
         count
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         #[allow(clippy::cast_possible_truncation)]
-        let height = (self.chain.len() as u64 - self.pos) as usize;
+        let height = (self.chain.len() as u64 - (self.pos_front - 1)) as usize;
         (height, Some(height))
+    }
+}
+
+impl<'a> DoubleEndedIterator for ChainIterator<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if !self.is_exhausted() {
+            let val = self.chain.blocks.get(&self.pos_back);
+            self.pos_back -= 1;
+            return val;
+        }
+        None
+    }
+
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        self.pos_back -= n as u64;
+        self.next_back()
     }
 }
 
@@ -753,7 +782,7 @@ mod tests {
     }
 
     #[test]
-    pub fn chain_iter_with_skip_returns_blocks_ordered() {
+    pub fn chain_iter_returns_blocks_ordered() {
         const BLOCK_CNT: usize = 10;
         let chain = Chain::new();
 
@@ -776,5 +805,37 @@ mod tests {
         );
 
         assert_eq!(BLOCK_CNT - 2, chain.iter().skip(2).count());
+        assert_eq!(3, *chain.iter().nth(2).unwrap().key());
+    }
+
+    #[test]
+    pub fn chain_rev_iter_returns_blocks_ordered() {
+        const BLOCK_CNT: usize = 10;
+        let chain = Chain::new();
+
+        let mut block = ValidBlock::new_dummy().commit();
+
+        for i in 1..=BLOCK_CNT {
+            block.header.height = i as u64;
+            chain.push(block.clone().into());
+        }
+
+        assert_eq!(
+            (1..=BLOCK_CNT - 4)
+                .rev()
+                .map(|i| i as u64)
+                .collect::<Vec<_>>(),
+            chain
+                .iter()
+                .rev()
+                .skip(BLOCK_CNT - 6)
+                .map(|b| *b.key())
+                .collect::<Vec<_>>()
+        );
+
+        assert_eq!(
+            (BLOCK_CNT - 2) as u64,
+            *chain.iter().nth_back(2).unwrap().key()
+        );
     }
 }
