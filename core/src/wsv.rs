@@ -17,11 +17,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use tokio::task;
 
-use crate::{
-    block::Chain,
-    prelude::*,
-    smartcontracts::{FindError, ParentHashNotFound},
-};
+use crate::{block::Chain, prelude::*, smartcontracts::FindError};
 
 /// World proxy for using with `WorldTrait`
 #[derive(Debug, Default, Clone)]
@@ -164,26 +160,17 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Returns blocks after hash
-    ///
-    /// # Errors
-    /// Block with `hash` was not found.
     pub fn blocks_after(
         &self,
         hash: HashOf<VersionedCommittedBlock>,
         max_blocks: u32,
-    ) -> Result<Vec<VersionedCommittedBlock>> {
-        let from_pos = self
-            .blocks
+    ) -> Vec<VersionedCommittedBlock> {
+        self.blocks
             .iter()
-            .position(|block_entry| block_entry.value().header().previous_block_hash == hash)
-            .ok_or(FindError::Block(ParentHashNotFound(hash)))?;
-        Ok(self
-            .blocks
-            .iter()
-            .skip(from_pos)
+            .skip_while(|block_entry| block_entry.value().header().previous_block_hash != hash)
             .take(max_blocks as usize)
             .map(|block_entry| block_entry.value().clone())
-            .collect())
+            .collect()
     }
 
     /// Get `World` without an ability to modify it.
@@ -505,5 +492,44 @@ pub mod config {
                 ident_length_limits: DEFAULT_IDENT_LENGTH_LIMITS,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::restriction)]
+
+    use super::{World, *};
+
+    #[tokio::test]
+    async fn get_blocks_after_hash() {
+        const BLOCK_CNT: usize = 10;
+        const BATCH_SIZE: u32 = 3;
+
+        let mut block = ValidBlock::new_dummy().commit();
+        let wsv = WorldStateView::<World>::default();
+
+        let mut block_hashes = vec![];
+        for i in 1..=BLOCK_CNT {
+            block.header.height = i as u64;
+            if let Some(block_hash) = block_hashes.last() {
+                block.header.previous_block_hash = *block_hash;
+            }
+            let block: VersionedCommittedBlock = block.clone().into();
+            block_hashes.push(block.hash());
+            wsv.apply(block).await;
+        }
+
+        assert_eq!(
+            wsv.blocks_after(block_hashes[2], BATCH_SIZE)
+                .iter()
+                .map(VersionedCommittedBlock::hash)
+                .collect::<Vec<_>>(),
+            block_hashes
+                .into_iter()
+                .skip(3)
+                .take(BATCH_SIZE as usize)
+                .collect::<Vec<_>>(),
+        );
     }
 }

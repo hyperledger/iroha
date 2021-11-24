@@ -298,22 +298,17 @@ pub mod message {
                         );
                         return;
                     }
-
                     if *hash == block_sync.wsv.latest_block_hash() {
                         return;
                     }
 
-                    match block_sync.wsv.blocks_after(*hash, block_sync.batch_size) {
-                        Ok(blocks) if !blocks.is_empty() => {
-                            Message::ShareBlocks(ShareBlocks::new(
-                                blocks.clone(),
-                                block_sync.peer_id.clone(),
-                            ))
+                    let blocks = block_sync.wsv.blocks_after(*hash, block_sync.batch_size);
+                    if blocks.is_empty() {
+                        iroha_logger::warn!(%hash, "Block hash not found");
+                    } else {
+                        Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
                             .send_to(block_sync.broker.clone(), peer_id.clone())
                             .await;
-                        }
-                        Ok(_) => (),
-                        Err(error) => iroha_logger::error!(%error),
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, peer_id }) => {

@@ -506,6 +506,32 @@ impl ValidBlock {
                 .iter()
                 .any(|transaction| transaction.is_in_blockchain(wsv))
     }
+
+    /// Creates dummy `ValidBlock`. Used in tests
+    ///
+    /// # Panics
+    /// Should never panic
+    #[cfg(test)]
+    #[allow(clippy::restriction)]
+    pub fn new_dummy() -> Self {
+        ValidBlock {
+            header: BlockHeader {
+                timestamp: 0,
+                height: 1,
+                previous_block_hash: EmptyChainHash::default().into(),
+                transactions_hash: EmptyChainHash::default().into(),
+                rejected_transactions_hash: EmptyChainHash::default().into(),
+                view_change_proofs: ViewChangeProofs::empty(),
+                invalidated_blocks_hashes: Vec::new(),
+                genesis_topology: None,
+            },
+            rejected_transactions: vec![],
+            transactions: vec![],
+            signatures: BTreeSet::default(),
+        }
+        .sign(KeyPair::generate().unwrap())
+        .unwrap()
+    }
 }
 
 impl From<&VersionedValidBlock> for Vec<Event> {
@@ -715,31 +741,12 @@ impl From<&CommittedBlock> for Vec<Event> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
-    use super::*;
 
-    fn get_dummy_signed_valid_block() -> ValidBlock {
-        ValidBlock {
-            header: BlockHeader {
-                timestamp: 0,
-                height: 1,
-                previous_block_hash: EmptyChainHash::default().into(),
-                transactions_hash: EmptyChainHash::default().into(),
-                rejected_transactions_hash: EmptyChainHash::default().into(),
-                view_change_proofs: ViewChangeProofs::empty(),
-                invalidated_blocks_hashes: Vec::new(),
-                genesis_topology: None,
-            },
-            rejected_transactions: vec![],
-            transactions: vec![],
-            signatures: BTreeSet::default(),
-        }
-        .sign(KeyPair::generate().unwrap())
-        .unwrap()
-    }
+    use super::*;
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
-        let valid_block = get_dummy_signed_valid_block();
+        let valid_block = ValidBlock::new_dummy();
         let committed_block = valid_block.clone().commit();
 
         assert_eq!(valid_block.hash().transmute(), committed_block.hash())
@@ -750,13 +757,11 @@ mod tests {
         const BLOCK_CNT: usize = 10;
         let chain = Chain::new();
 
-        let committed_block = get_dummy_signed_valid_block().commit();
+        let mut block = ValidBlock::new_dummy().commit();
 
         for i in 1..=BLOCK_CNT {
-            let mut block = committed_block.clone();
-
             block.header.height = i as u64;
-            chain.push(block.into());
+            chain.push(block.clone().into());
         }
 
         assert_eq!(
