@@ -32,9 +32,14 @@ where
         let mut vec = Vec::new();
         let defaults = serde_json::to_string_pretty(&Self::default())?;
 
-        write!(writer, "# Iroha config description\n\n")?;
-        writeln!(writer, "Configuration of iroha is done via options in the following document. Here is defaults for whole config:\n")?;
-        write!(writer, "```json\n{}\n```\n\n", defaults)?;
+        writeln!(writer, "# Iroha Configuration reference\n")?;
+        writeln!(writer, "In this document we provide a reference and detailed descriptions of Iroha's configuration options.\n")?;
+        writeln!(writer, "## Default configuration\n")?;
+        writeln!(
+            writer,
+            "The following is the default configuration used by Iroha.\n"
+        )?;
+        writeln!(writer, "```json\n{}\n```\n", defaults)?;
         Self::get_markdown_with_depth(writer, &docs, &mut vec, 2)?;
         Ok(())
     }

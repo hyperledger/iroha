@@ -384,3 +384,8 @@ Versioning support will have the following benefits:
 
 - 20,000 tps
 - 2-3 s block time
+
+
+# Glossary
+
+The glossary of commonly used terms can be found [here](./references/glossary.md)

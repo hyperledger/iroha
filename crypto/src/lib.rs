@@ -189,6 +189,12 @@ impl KeyPair {
     }
 }
 
+impl From<KeyPair> for (PublicKey, PrivateKey) {
+    fn from(key_pair: KeyPair) -> Self {
+        (key_pair.public_key, key_pair.private_key)
+    }
+}
+
 /// Public Key used in signatures.
 #[derive(Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Clone, Hash, IntoSchema)]
 pub struct PublicKey {
@@ -297,7 +303,7 @@ impl<'de> Deserialize<'de> for PublicKey {
 pub struct PrivateKey {
     /// Digest function
     pub digest_function: String,
-    /// key payload
+    /// key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
     #[serde(deserialize_with = "from_hex", serialize_with = "to_hex")]
     pub payload: Vec<u8>,
 }

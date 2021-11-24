@@ -16,7 +16,7 @@ use iroha_client::{client::Client, config::Configuration as ClientConfiguration}
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     config::Configuration,
-    genesis::{GenesisNetwork, GenesisNetworkTrait},
+    genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     kura::{Kura, KuraTrait},
     prelude::*,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
@@ -107,10 +107,20 @@ impl std::cmp::PartialEq for Peer {
 
 impl std::cmp::Eq for Peer {}
 
-pub const CONFIGURATION_PATH: &str = "tests/test_config.json";
-pub const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
-pub const GENESIS_PATH: &str = "tests/genesis.json";
-pub const TRUSTED_PEERS_PATH: &str = "tests/test_trusted_peers.json";
+pub fn get_key_pair() -> KeyPair {
+    KeyPair {
+        public_key: PublicKey::from_str(
+            r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,
+        )
+        .unwrap(),
+        private_key: PrivateKey {
+            digest_function: "ed25519".to_string(),
+            payload: hex_literal::hex!("9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0"
+            )
+            .into(),
+        },
+    }
+}
 
 pub trait TestGenesis: Sized {
     fn test(submit_genesis: bool) -> Option<Self>;
@@ -119,9 +129,32 @@ pub trait TestGenesis: Sized {
 impl<G: GenesisNetworkTrait> TestGenesis for G {
     fn test(submit_genesis: bool) -> Option<Self> {
         let cfg = Configuration::test();
+        let mut genesis = RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key);
+        genesis.transactions[0].isi.push(
+            RegisterBox::new(IdentifiableBox::AssetDefinition(
+                AssetDefinition::new_quantity(AssetDefinitionId::new("rose", "wonderland")).into(),
+            ))
+            .into(),
+        );
+        genesis.transactions[0].isi.push(
+            RegisterBox::new(IdentifiableBox::AssetDefinition(
+                AssetDefinition::new_quantity(AssetDefinitionId::new("tulip", "wonderland")).into(),
+            ))
+            .into(),
+        );
+        genesis.transactions[0].isi.push(
+            MintBox::new(
+                Value::U32(13),
+                IdBox::AssetId(AssetId::new(
+                    AssetDefinitionId::new("rose", "wonderland"),
+                    AccountId::new("alice", "wonderland"),
+                )),
+            )
+            .into(),
+        );
         G::from_configuration(
             submit_genesis,
-            GENESIS_PATH,
+            genesis,
             &cfg.genesis,
             cfg.sumeragi.max_instruction_number,
         )
@@ -228,6 +261,7 @@ where
     }
 
     /// Creates new network with some offline peers
+    ///
     /// # Panics
     /// Panics if fails to find or decode default configuration
     pub async fn new_with_offline_peers(
@@ -329,7 +363,7 @@ where
         }
     }
 
-    /// Returns per peer config with all addresses, keys, and id setted up
+    /// Returns per peer config with all addresses, keys, and id set up
     fn get_config(&self, configuration: Configuration) -> Configuration {
         Configuration {
             sumeragi: SumeragiConfiguration {
@@ -616,10 +650,12 @@ impl TestRuntime for Runtime {
     }
 }
 
+use std::collections::HashSet;
+
 impl TestConfiguration for Configuration {
     fn test() -> Self {
         let mut configuration =
-            Self::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+            iroha_core::samples::get_config(HashSet::new(), Some(get_key_pair()));
         configuration
             .load_environment()
             .expect("Failed to load configuration from environment");
@@ -638,10 +674,11 @@ impl TestConfiguration for Configuration {
     }
 }
 
+use std::str::FromStr;
+
 impl TestClientConfiguration for ClientConfiguration {
     fn test(api_url: &str) -> Self {
-        let mut configuration = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-            .expect("Failed to load configuration.");
+        let mut configuration = iroha_client::samples::get_client_config(&get_key_pair());
         if !api_url.starts_with("http") {
             configuration.torii_api_url = "http://".to_owned() + api_url;
         } else {

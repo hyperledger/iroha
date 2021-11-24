@@ -37,7 +37,7 @@ iroha_actor = { path = "../actor" }
 iroha_config = { version = "=0.1.0", path = "../config" }
 iroha_futures = { path = "../futures" }
 iroha_telemetry = { path = "../telemetry", optional = true }
-iroha_schema = { path = "../schema"}
+iroha_schema = { path = "../schema" }
 
 async-trait = "0.1"
 async-stream = "0.3.2"
@@ -58,8 +58,11 @@ structopt = { version = "0.3", optional = true }
 thiserror = "1.0.28"
 pin-project = "1"
 
+
 [dev-dependencies]
-hex-literal = "0.2.1"
+test_network = { version = "=0.1.0", path = "./test_network" }
+
+hex-literal = "0.3.4"
 tempfile = "3"
 criterion = "0.3"
 hex = "0.4.0"

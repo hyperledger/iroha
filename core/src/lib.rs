@@ -10,6 +10,7 @@ pub mod kura;
 mod merkle;
 pub mod modules;
 pub mod queue;
+pub mod samples;
 pub mod smartcontracts;
 pub mod sumeragi;
 pub mod torii;
@@ -147,7 +148,7 @@ where
     ) -> Result<Self> {
         let genesis = G::from_configuration(
             args.submit_genesis,
-            &args.genesis_path,
+            crate::genesis::RawGenesisBlock::from_path(&args.genesis_path)?,
             &config.genesis,
             config.torii.max_instruction_number,
         )

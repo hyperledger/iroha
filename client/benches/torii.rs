@@ -3,33 +3,28 @@
 use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use iroha_client::{
-    client::{asset, Client},
-    config::Configuration as ClientConfiguration,
-};
+use iroha_client::client::{asset, Client};
 use iroha_core::{
-    config::Configuration,
-    genesis::{GenesisNetwork, GenesisNetworkTrait},
+    genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     prelude::*,
+    samples::get_config,
 };
 use iroha_data_model::prelude::*;
-use test_network::{Peer as TestPeer, TestRuntime};
+use test_network::{get_key_pair, Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
-const CONFIGURATION_PATH: &str = "tests/test_config.json";
-const CLIENT_CONFIGURATION_PATH: &str = "tests/test_client_config.json";
-const GENESIS_PATH: &str = "tests/genesis.json";
 const MINIMUM_SUCCESS_REQUEST_RATIO: f32 = 0.9;
 
 fn query_requests(criterion: &mut Criterion) {
-    let mut configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
+    let configuration = get_config(
+        std::iter::once(peer.id.clone()).collect(),
+        Some(get_key_pair()),
+    );
     let rt = Runtime::test();
-    configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
     let genesis = GenesisNetwork::from_configuration(
         true,
-        GENESIS_PATH,
+        RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key),
         &configuration.genesis,
         configuration.sumeragi.max_instruction_number,
     )
@@ -61,8 +56,7 @@ fn query_requests(criterion: &mut Criterion) {
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
-    let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-        .expect("Failed to load configuration.");
+    let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
     client_config.torii_api_url = peer.api_address.clone();
     let mut iroha_client = Client::new(&client_config);
     let _ = iroha_client
@@ -104,15 +98,15 @@ fn query_requests(criterion: &mut Criterion) {
 }
 
 fn instruction_submits(criterion: &mut Criterion) {
-    let mut configuration =
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let rt = Runtime::test();
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
-    configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
-
+    let configuration = get_config(
+        std::iter::once(peer.id.clone()).collect(),
+        Some(get_key_pair()),
+    );
     let genesis = GenesisNetwork::from_configuration(
         true,
-        GENESIS_PATH,
+        RawGenesisBlock::new("alice", "wonderland", &configuration.public_key),
         &configuration.genesis,
         configuration.sumeragi.max_instruction_number,
     )
@@ -135,8 +129,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         .into(),
     ));
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-    let mut client_config = ClientConfiguration::from_path(CLIENT_CONFIGURATION_PATH)
-        .expect("Failed to load configuration.");
+    let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
     client_config.torii_api_url = peer.api_address.clone();
     let mut iroha_client = Client::new(&client_config);
     let _ = iroha_client

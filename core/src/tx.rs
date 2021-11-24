@@ -502,16 +502,20 @@ mod tests {
     };
 
     use super::*;
-    use crate::{config::Configuration, init, smartcontracts::permissions::AllowAll, wsv::World};
-
-    const CONFIGURATION_PATH: &str = "tests/test_config.json";
+    use crate::{
+        init,
+        samples::{get_config, get_trusted_peers},
+        smartcontracts::permissions::AllowAll,
+        wsv::World,
+    };
 
     #[test]
     fn hash_should_be_the_same() {
         let key_pair = &KeyPair::generate().expect("Failed to generate key pair.");
-
-        let mut config =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        let mut config = get_config(
+            get_trusted_peers(Some(&key_pair.public_key)),
+            Some(key_pair.clone()),
+        );
         config.genesis.account_private_key = Some(key_pair.private_key.clone());
         config.genesis.account_public_key = Some(key_pair.public_key.clone());
 

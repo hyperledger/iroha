@@ -53,7 +53,13 @@ impl Signature {
             Algorithm::BlsSmall => BlsSmall::new().sign(payload, &private_key),
             Algorithm::BlsNormal => BlsNormal::new().sign(payload, &private_key),
         }
-        .map_err(|e| eyre!("Failed to sign payload: {}", e))?;
+        .map_err(|e| {
+            eyre!(
+                "Failed to sign payload with public_key {}: {}",
+                public_key,
+                e
+            )
+        })?;
         Ok(Signature {
             public_key,
             signature,

@@ -1,6 +1,10 @@
-# Iroha config description
+# Iroha Configuration reference
 
-Configuration of iroha is done via options in the following document. Here is defaults for whole config:
+In this document we provide a reference and detailed descriptions of Iroha's configuration options.
+
+## Default configuration
+
+The following is the default configuration used by Iroha.
 
 ```json
 {
@@ -55,8 +59,8 @@ Configuration of iroha is done via options in the following document. Here is de
   "GENESIS": {
     "ACCOUNT_PUBLIC_KEY": null,
     "ACCOUNT_PRIVATE_KEY": null,
-    "WAIT_FOR_PEERS_RETRY_COUNT": 0,
-    "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 0
+    "WAIT_FOR_PEERS_RETRY_COUNT": 100,
+    "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500
   },
   "WSV": {
     "ASSET_METADATA_LIMITS": {
@@ -147,8 +151,8 @@ Has type `GenesisConfiguration`. Can be configured via environment variable `IRO
 {
   "ACCOUNT_PRIVATE_KEY": null,
   "ACCOUNT_PUBLIC_KEY": null,
-  "WAIT_FOR_PEERS_RETRY_COUNT": 0,
-  "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 0
+  "WAIT_FOR_PEERS_RETRY_COUNT": 100,
+  "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500
 }
 ```
 
@@ -164,7 +168,7 @@ null
 
 ### `genesis.account_public_key`
 
-Genesis account public key, should be supplied to all the peers.
+The genesis account public key, should be supplied to all peers.
 
 Has type `Option<PublicKey>`. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PUBLIC_KEY`
 
@@ -179,7 +183,7 @@ Number of attempts to connect to peers, while waiting for them to submit genesis
 Has type `u64`. Can be configured via environment variable `IROHA_GENESIS_WAIT_FOR_PEERS_RETRY_COUNT`
 
 ```json
-0
+100
 ```
 
 ### `genesis.wait_for_peers_retry_period_ms`
@@ -189,7 +193,7 @@ Period in milliseconds in which to retry connecting to peers, while waiting for 
 Has type `u64`. Can be configured via environment variable `IROHA_GENESIS_WAIT_FOR_PEERS_RETRY_PERIOD_MS`
 
 ```json
-0
+500
 ```
 
 ## `kura`
@@ -740,7 +744,7 @@ Has type `MetadataLimits`. Can be configured via environment variable `WSV_DOMAI
 
 ### `wsv.ident_length_limits`
 
-[`LengthLimits`]for the number of chars in identifiers that can be stored in the WSV.
+[`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
 
 Has type `LengthLimits`. Can be configured via environment variable `WSV_IDENT_LENGTH_LIMITS`
 
