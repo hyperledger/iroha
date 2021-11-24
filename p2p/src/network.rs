@@ -228,7 +228,7 @@ where
         match self.peers.get(&msg.id.public_key) {
             Some(peers) if !peers.is_empty() => peers[0].0.do_send(msg).await,
             None if msg.id.public_key == self.public_key => debug!("Not sending message to myself"),
-            Some(_) | None => warn!(
+            Some(_) | None => debug!(
                 peer.id=?msg.id,
                 "Didn't find peer to send message",
             ),

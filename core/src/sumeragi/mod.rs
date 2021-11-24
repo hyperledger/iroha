@@ -854,7 +854,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
 
     /// Connects all peers from current network topology.
     pub async fn connect_peers(&self) {
-        iroha_logger::debug!("Connecting peers...");
+        iroha_logger::trace!("Connecting peers...");
         let mut peers = self.topology.sorted_peers().to_owned();
         let self_address = self.peer_id.address.clone();
 
