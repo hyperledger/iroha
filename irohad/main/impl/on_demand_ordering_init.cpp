@@ -123,18 +123,23 @@ OnDemandOrderingInit::initOrderingGate(
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     logger::LoggerManagerTreePtr ordering_log_manager,
     std::shared_ptr<iroha::network::GenericClientFactory> client_factory,
-    std::chrono::milliseconds proposal_creation_timeout) {
-  auto ordering_service = createService(max_number_of_transactions,
-                                        proposal_factory,
-                                        tx_cache,
-                                        ordering_log_manager);
-  service = std::make_shared<transport::OnDemandOsServerGrpc>(
-      ordering_service,
-      std::move(transaction_factory),
-      std::move(batch_parser),
-      std::move(transaction_batch_factory),
-      ordering_log_manager->getChild("Server")->getLogger(),
-      proposal_creation_timeout);
+    std::chrono::milliseconds proposal_creation_timeout,
+    bool syncing_mode) {
+  std::shared_ptr<OnDemandOrderingService> ordering_service;
+  if (!syncing_mode) {
+    ordering_service = createService(max_number_of_transactions,
+                                     proposal_factory,
+                                     tx_cache,
+                                     ordering_log_manager);
+    service = std::make_shared<transport::OnDemandOsServerGrpc>(
+        ordering_service,
+        std::move(transaction_factory),
+        std::move(batch_parser),
+        std::move(transaction_batch_factory),
+        ordering_log_manager->getChild("Server")->getLogger(),
+        proposal_creation_timeout);
+  }
+
   ordering_gate_ =
       createGate(ordering_service,
                  createConnectionManager(std::move(proposal_transport_factory),
