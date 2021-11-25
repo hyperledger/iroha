@@ -5,6 +5,7 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_crypto::SignatureOf;
 use iroha_data_model::prelude::*;
+use rand::{prelude::SliceRandom, SeedableRng};
 
 use self::{
     config::BlockSyncConfiguration,
@@ -12,9 +13,7 @@ use self::{
 };
 use crate::{
     prelude::*,
-    sumeragi::{
-        network_topology::Role, CommitBlock, GetNetworkTopology, GetSortedPeers, SumeragiTrait,
-    },
+    sumeragi::{network_topology::Role, CommitBlock, GetNetworkTopology, SumeragiTrait},
     wsv::WorldTrait,
     VersionedCommittedBlock,
 };
@@ -91,11 +90,9 @@ impl<S: SumeragiTrait, W: WorldTrait> BlockSynchronizerTrait for BlockSynchroniz
 #[derive(Debug, Clone, Copy, iroha_actor::Message)]
 pub struct ContinueSync;
 
-/// Message for getting updates from other peers
+/// Message to initiate receiving of latest blocks from other peers
 ///
-/// Starts the `BlockSync`, meaning that every `gossip_period`
-/// the peers would gossip about latest block hashes
-/// and try to synchronize their blocks.
+/// Every `gossip_period` peer will poll one randomly selected peer for latest blocks
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
 pub struct ReceiveUpdates;
 
@@ -116,13 +113,12 @@ impl<S: SumeragiTrait, W: WorldTrait> Actor for BlockSynchronizer<S, W> {
 impl<S: SumeragiTrait, W: WorldTrait> Handler<ReceiveUpdates> for BlockSynchronizer<S, W> {
     type Result = ();
     async fn handle(&mut self, ReceiveUpdates: ReceiveUpdates) {
-        let peers = self.sumeragi.send(GetSortedPeers).await;
-        Message::LatestBlock(LatestBlock::new(
-            self.wsv.latest_block_hash(),
-            self.peer_id.clone(),
-        ))
-        .send_to_multiple(self.broker.clone(), &peers)
-        .await;
+        let rng = &mut rand::rngs::StdRng::from_entropy();
+
+        if let Some(random_peer) = self.wsv.peers().choose(rng) {
+            self.request_latest_blocks_from_peer(random_peer.id.clone())
+                .await;
+        }
     }
 }
 
@@ -138,11 +134,21 @@ impl<S: SumeragiTrait, W: WorldTrait> Handler<ContinueSync> for BlockSynchronize
 impl<S: SumeragiTrait, W: WorldTrait> Handler<Message> for BlockSynchronizer<S, W> {
     type Result = ();
     async fn handle(&mut self, message: Message) {
-        message.handle(&mut self).await
+        message.handle(&mut self).await;
     }
 }
 
 impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
+    /// Sends request for latest blocks to a chosen peer
+    async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
+        Message::GetBlocksAfter(GetBlocksAfter::new(
+            self.wsv.latest_block_hash(),
+            self.peer_id.clone(),
+        ))
+        .send_to(self.broker.clone(), peer_id)
+        .await;
+    }
+
     /// Continues the synchronization if it was ongoing. Should be called after `WSV` update.
     #[iroha_futures::telemetry_future]
     pub async fn continue_sync(&mut self) {
@@ -158,12 +164,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
             (block, blocks)
         } else {
             self.state = State::Idle;
-            Message::GetBlocksAfter(GetBlocksAfter::new(
-                self.wsv.latest_block_hash(),
-                self.peer_id.clone(),
-            ))
-            .send_to(self.broker.clone(), peer_id.clone())
-            .await;
+            self.request_latest_blocks_from_peer(peer_id).await;
             return;
         };
 
@@ -171,7 +172,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
             .sumeragi
             .send(GetNetworkTopology(block.header().clone()))
             .await;
-        // If it is genesis topology we can not apply view changes as peers have custom order!
+        // If it is genesis topology we cannot apply view changes as peers have custom order!
         #[allow(clippy::expect_used)]
         if !block.header().is_genesis() {
             network_topology = network_topology
@@ -204,7 +205,6 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
 
 /// The module for block synchronization related peer to peer messages.
 pub mod message {
-    use futures::{prelude::*, stream::FuturesUnordered};
     use iroha_actor::broker::Broker;
     use iroha_crypto::*;
     use iroha_data_model::prelude::*;
@@ -244,22 +244,6 @@ pub mod message {
         }
     }
 
-    /// Message variant to send our current latest block
-    #[derive(Io, Decode, Encode, Debug, Clone)]
-    pub struct LatestBlock {
-        /// Block hash
-        pub hash: HashOf<VersionedCommittedBlock>,
-        /// Peer id
-        pub peer_id: PeerId,
-    }
-
-    impl LatestBlock {
-        /// Default constructor
-        pub const fn new(hash: HashOf<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
-            Self { hash, peer_id }
-        }
-    }
-
     /// Get blocks after some block
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub struct GetBlocksAfter {
@@ -296,8 +280,6 @@ pub mod message {
     #[version_with_scale(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
     #[derive(Io, Decode, Encode, Debug, Clone, FromVariant, iroha_actor::Message)]
     pub enum Message {
-        /// Gossip about latest block.
-        LatestBlock(LatestBlock),
         /// Request for blocks after the block with `Hash` for the peer with `PeerId`.
         GetBlocksAfter(GetBlocksAfter),
         /// The response to `GetBlocksAfter`. Contains the requested blocks and the id of the peer who shared them.
@@ -312,17 +294,6 @@ pub mod message {
             block_sync: &mut BlockSynchronizer<S, W>,
         ) {
             match self {
-                Message::LatestBlock(LatestBlock { hash, peer_id }) => {
-                    let latest_block_hash = block_sync.wsv.latest_block_hash();
-                    if *hash != latest_block_hash {
-                        Message::GetBlocksAfter(GetBlocksAfter::new(
-                            latest_block_hash,
-                            block_sync.peer_id.clone(),
-                        ))
-                        .send_to(block_sync.broker.clone(), peer_id.clone())
-                        .await;
-                    }
-                }
                 Message::GetBlocksAfter(GetBlocksAfter { hash, peer_id }) => {
                     if block_sync.batch_size == 0 {
                         iroha_logger::warn!(
@@ -330,18 +301,17 @@ pub mod message {
                         );
                         return;
                     }
+                    if *hash == block_sync.wsv.latest_block_hash() {
+                        return;
+                    }
 
-                    match block_sync.wsv.blocks_after(*hash, block_sync.batch_size) {
-                        Ok(blocks) if !blocks.is_empty() => {
-                            Message::ShareBlocks(ShareBlocks::new(
-                                blocks.clone(),
-                                block_sync.peer_id.clone(),
-                            ))
+                    let blocks = block_sync.wsv.blocks_after(*hash, block_sync.batch_size);
+                    if blocks.is_empty() {
+                        iroha_logger::warn!(%hash, "Block hash not found");
+                    } else {
+                        Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
                             .send_to(block_sync.broker.clone(), peer_id.clone())
                             .await;
-                        }
-                        Ok(_) => (),
-                        Err(error) => iroha_logger::error!(%error),
                     }
                 }
                 Message::ShareBlocks(ShareBlocks { blocks, peer_id }) => {
@@ -358,24 +328,8 @@ pub mod message {
         #[log("TRACE")]
         pub async fn send_to(self, broker: Broker, peer: PeerId) {
             let data = NetworkMessage::BlockSync(Box::new(VersionedMessage::from(self)));
-            let message = Post {
-                data,
-                id: peer.clone(),
-            };
+            let message = Post { data, id: peer };
             broker.issue_send(message).await;
-        }
-
-        /// Send this message over the network to the specified `peer`.
-        #[iroha_futures::telemetry_future]
-        #[log("TRACE")]
-        pub async fn send_to_multiple(self, broker: Broker, peers: &[PeerId]) {
-            let futures = peers
-                .iter()
-                .map(|peer| self.clone().send_to(broker.clone(), peer.clone()))
-                .collect::<FuturesUnordered<_>>()
-                .collect::<()>();
-
-            tokio::task::spawn(futures);
         }
     }
 }
@@ -395,9 +349,9 @@ pub mod config {
     #[serde(default)]
     #[config(env_prefix = "BLOCK_SYNC_")]
     pub struct BlockSyncConfiguration {
-        /// The time between peer sharing its latest block hash with other peers in milliseconds.
+        /// The time between sending request for latest block.
         pub gossip_period_ms: u64,
-        /// The number of blocks, which can be send in one message.
+        /// The number of blocks, which can be sent in one message.
         /// Underlying network (`iroha_network`) should support transferring messages this large.
         pub batch_size: u32,
         /// Mailbox size

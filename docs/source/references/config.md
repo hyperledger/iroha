@@ -113,7 +113,7 @@ Has type `BlockSyncConfiguration`. Can be configured via environment variable `I
 
 ### `block_sync.batch_size`
 
-The number of blocks, which can be send in one message.
+The number of blocks, which can be sent in one message.
 
 Has type `u32`. Can be configured via environment variable `BLOCK_SYNC_BATCH_SIZE`
 
@@ -123,7 +123,7 @@ Has type `u32`. Can be configured via environment variable `BLOCK_SYNC_BATCH_SIZ
 
 ### `block_sync.gossip_period_ms`
 
-The time between peer sharing its latest block hash with other peers in milliseconds.
+The time between sending request for latest block.
 
 Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PERIOD_MS`
 

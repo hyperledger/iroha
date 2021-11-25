@@ -391,7 +391,7 @@ impl Topology {
         signatures: impl IntoIterator<Item = &'a SignatureOf<VersionedValidBlock>> + 'a,
     ) -> Vec<SignatureOf<VersionedValidBlock>> {
         let roles: HashSet<Role> = roles.iter().copied().collect();
-        let public_keys: Vec<_> = roles
+        let public_keys: HashSet<_> = roles
             .iter()
             .flat_map(|role| role.peers(self))
             .map(|peer| peer.public_key)

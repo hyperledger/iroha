@@ -5,7 +5,7 @@
 
 use std::{collections::BTreeSet, iter, marker::PhantomData};
 
-use dashmap::{iter::Iter as MapIter, mapref::one::Ref as MapRef, DashMap};
+use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{Context, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
 use iroha_data_model::{current_time, events::prelude::*, transaction::prelude::*};
@@ -62,8 +62,8 @@ impl Chain {
     }
 
     /// Iterator over height and block.
-    pub fn iter(&self) -> MapIter<u64, VersionedCommittedBlock> {
-        self.blocks.iter()
+    pub fn iter(&self) -> ChainIterator {
+        ChainIterator::new(self)
     }
 
     /// Latest block reference and its height.
@@ -79,6 +79,77 @@ impl Chain {
     /// Whether blockchain is empty.
     pub fn is_empty(&self) -> bool {
         self.blocks.is_empty()
+    }
+}
+
+/// Chain iterator
+pub struct ChainIterator<'a> {
+    chain: &'a Chain,
+    pos_front: u64,
+    pos_back: u64,
+}
+
+impl<'a> ChainIterator<'a> {
+    fn new(chain: &'a Chain) -> Self {
+        ChainIterator {
+            chain,
+            pos_front: 1,
+            pos_back: chain.len() as u64,
+        }
+    }
+
+    fn is_exhausted(&self) -> bool {
+        self.pos_front > self.pos_back
+    }
+}
+
+impl<'a> Iterator for ChainIterator<'a> {
+    type Item = MapRef<'a, u64, VersionedCommittedBlock>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.is_exhausted() {
+            let val = self.chain.blocks.get(&self.pos_front);
+            self.pos_front += 1;
+            return val;
+        }
+        None
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.pos_front += n as u64;
+        self.next()
+    }
+
+    fn last(mut self) -> Option<Self::Item> {
+        self.pos_front = self.chain.len() as u64;
+        self.chain.blocks.get(&self.pos_front)
+    }
+
+    fn count(self) -> usize {
+        #[allow(clippy::cast_possible_truncation)]
+        let count = (self.chain.len() as u64 - (self.pos_front - 1)) as usize;
+        count
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        #[allow(clippy::cast_possible_truncation)]
+        let height = (self.chain.len() as u64 - (self.pos_front - 1)) as usize;
+        (height, Some(height))
+    }
+}
+
+impl<'a> DoubleEndedIterator for ChainIterator<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if !self.is_exhausted() {
+            let val = self.chain.blocks.get(&self.pos_back);
+            self.pos_back -= 1;
+            return val;
+        }
+        None
+    }
+
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        self.pos_back -= n as u64;
+        self.next_back()
     }
 }
 
@@ -464,6 +535,32 @@ impl ValidBlock {
                 .iter()
                 .any(|transaction| transaction.is_in_blockchain(wsv))
     }
+
+    /// Creates dummy `ValidBlock`. Used in tests
+    ///
+    /// # Panics
+    /// If generating keys or block signing fails.
+    #[cfg(test)]
+    #[allow(clippy::restriction)]
+    pub fn new_dummy() -> Self {
+        ValidBlock {
+            header: BlockHeader {
+                timestamp: 0,
+                height: 1,
+                previous_block_hash: EmptyChainHash::default().into(),
+                transactions_hash: EmptyChainHash::default().into(),
+                rejected_transactions_hash: EmptyChainHash::default().into(),
+                view_change_proofs: ViewChangeProofs::empty(),
+                invalidated_blocks_hashes: Vec::new(),
+                genesis_topology: None,
+            },
+            rejected_transactions: vec![],
+            transactions: vec![],
+            signatures: BTreeSet::default(),
+        }
+        .sign(KeyPair::generate().unwrap())
+        .unwrap()
+    }
 }
 
 impl From<&VersionedValidBlock> for Vec<Event> {
@@ -674,35 +771,71 @@ impl From<&CommittedBlock> for Vec<Event> {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::collections::BTreeSet;
-
-    use iroha_crypto::KeyPair;
-
-    use crate::{
-        block::{BlockHeader, EmptyChainHash, ValidBlock},
-        sumeragi::view_change,
-    };
+    use super::*;
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
-        let valid_block = ValidBlock {
-            header: BlockHeader {
-                timestamp: 0,
-                height: 0,
-                previous_block_hash: EmptyChainHash::default().into(),
-                transactions_hash: EmptyChainHash::default().into(),
-                rejected_transactions_hash: EmptyChainHash::default().into(),
-                view_change_proofs: view_change::ProofChain::empty(),
-                invalidated_blocks_hashes: Vec::new(),
-                genesis_topology: None,
-            },
-            rejected_transactions: vec![],
-            transactions: vec![],
-            signatures: BTreeSet::default(),
+        let valid_block = ValidBlock::new_dummy();
+        let committed_block = valid_block.clone().commit();
+
+        assert_eq!(*valid_block.hash(), *committed_block.hash())
+    }
+
+    #[test]
+    pub fn chain_iter_returns_blocks_ordered() {
+        const BLOCK_COUNT: usize = 10;
+        let chain = Chain::new();
+
+        let mut block = ValidBlock::new_dummy().commit();
+
+        for i in 1..=BLOCK_COUNT {
+            block.header.height = i as u64;
+            chain.push(block.clone().into());
         }
-        .sign(KeyPair::generate().unwrap())
-        .unwrap();
-        let commited_block = valid_block.clone().commit();
-        assert_eq!(valid_block.hash().transmute(), commited_block.hash())
+
+        assert_eq!(
+            (BLOCK_COUNT - 5..=BLOCK_COUNT)
+                .map(|i| i as u64)
+                .collect::<Vec<_>>(),
+            chain
+                .iter()
+                .skip(BLOCK_COUNT - 6)
+                .map(|b| *b.key())
+                .collect::<Vec<_>>()
+        );
+
+        assert_eq!(BLOCK_COUNT - 2, chain.iter().skip(2).count());
+        assert_eq!(3, *chain.iter().nth(2).unwrap().key());
+    }
+
+    #[test]
+    pub fn chain_rev_iter_returns_blocks_ordered() {
+        const BLOCK_COUNT: usize = 10;
+        let chain = Chain::new();
+
+        let mut block = ValidBlock::new_dummy().commit();
+
+        for i in 1..=BLOCK_COUNT {
+            block.header.height = i as u64;
+            chain.push(block.clone().into());
+        }
+
+        assert_eq!(
+            (1..=BLOCK_COUNT - 4)
+                .rev()
+                .map(|i| i as u64)
+                .collect::<Vec<_>>(),
+            chain
+                .iter()
+                .rev()
+                .skip(BLOCK_COUNT - 6)
+                .map(|b| *b.key())
+                .collect::<Vec<_>>()
+        );
+
+        assert_eq!(
+            (BLOCK_COUNT - 2) as u64,
+            *chain.iter().nth_back(2).unwrap().key()
+        );
     }
 }

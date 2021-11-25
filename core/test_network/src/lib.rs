@@ -568,7 +568,7 @@ pub trait TestConfiguration {
     fn test() -> Self;
     /// Returns default pipeline time.
     fn pipeline_time() -> Duration;
-    /// Returns default time between bocksync gossips for new blocks.
+    /// Returns default time between block sync requests
     fn block_sync_gossip_time() -> Duration;
 }
 

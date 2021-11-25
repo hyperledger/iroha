@@ -78,11 +78,6 @@ pub struct Init {
     pub height: u64,
 }
 
-/// Get sorted peers
-#[derive(Debug, Clone, Copy, iroha_actor::Message)]
-#[message(result = "Vec<PeerId>")]
-pub struct GetSortedPeers;
-
 /// Get network topology
 #[derive(Debug, Clone, iroha_actor::Message)]
 #[message(result = "Topology")]
@@ -147,7 +142,6 @@ pub trait SumeragiTrait:
     + ContextHandler<Init, Result = ()>
     + ContextHandler<CommitBlock, Result = ()>
     + ContextHandler<GetNetworkTopology, Result = Topology>
-    + ContextHandler<GetSortedPeers, Result = Vec<PeerId>>
     + ContextHandler<IsLeader, Result = bool>
     + ContextHandler<GetLeader, Result = PeerId>
     + ContextHandler<NetworkMessage, Result = ()>
@@ -377,21 +371,11 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> ContextHandler<Init>
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetSortedPeers>
-    for Sumeragi<G, K, W>
-{
-    type Result = Vec<PeerId>;
-    async fn handle(&mut self, GetSortedPeers: GetSortedPeers) -> Vec<PeerId> {
-        self.topology.sorted_peers().to_vec()
-    }
-}
-
-#[async_trait::async_trait]
 impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetNetworkTopology>
     for Sumeragi<G, K, W>
 {
     type Result = Topology;
-    async fn handle(&mut self, GetNetworkTopology(header): GetNetworkTopology) -> Topology {
+    async fn handle(&mut self, GetNetworkTopology(header): GetNetworkTopology) -> Self::Result {
         self.network_topology_current_or_genesis(&header)
     }
 }
@@ -414,7 +398,7 @@ pub struct IsLeader;
 #[async_trait::async_trait]
 impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<IsLeader> for Sumeragi<G, K, W> {
     type Result = bool;
-    async fn handle(&mut self, IsLeader: IsLeader) -> bool {
+    async fn handle(&mut self, IsLeader: IsLeader) -> Self::Result {
         self.is_leader()
     }
 }
@@ -427,7 +411,7 @@ pub struct GetLeader;
 #[async_trait::async_trait]
 impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetLeader> for Sumeragi<G, K, W> {
     type Result = PeerId;
-    async fn handle(&mut self, GetLeader: GetLeader) -> PeerId {
+    async fn handle(&mut self, GetLeader: GetLeader) -> Self::Result {
         self.topology.leader().clone()
     }
 }
