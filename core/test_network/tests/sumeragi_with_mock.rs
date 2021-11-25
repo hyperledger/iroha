@@ -423,7 +423,6 @@ pub mod utils {
             Faulty: Handler<UpdateNetworkTopology, Result = ()>
                      + Handler<CommitBlock, Result = ()>
                      + Handler<GetNetworkTopology, Result = Topology>
-                     + Handler<GetRandomPeer, Result = PeerId>
                      + Handler<IsLeader, Result = bool>
                      + Handler<GetLeader, Result = PeerId>
                      + Handler<Voting, Result = ()>

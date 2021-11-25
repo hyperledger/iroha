@@ -78,11 +78,6 @@ pub struct Init {
     pub height: u64,
 }
 
-/// Get one randomly seletected peer from the topology
-#[derive(Debug, Clone, Copy, iroha_actor::Message)]
-#[message(result = "PeerId")]
-pub struct GetRandomPeer;
-
 /// Get network topology
 #[derive(Debug, Clone, iroha_actor::Message)]
 #[message(result = "Topology")]
@@ -147,7 +142,6 @@ pub trait SumeragiTrait:
     + ContextHandler<Init, Result = ()>
     + ContextHandler<CommitBlock, Result = ()>
     + ContextHandler<GetNetworkTopology, Result = Topology>
-    + ContextHandler<GetRandomPeer, Result = PeerId>
     + ContextHandler<IsLeader, Result = bool>
     + ContextHandler<GetLeader, Result = PeerId>
     + ContextHandler<NetworkMessage, Result = ()>
@@ -373,22 +367,6 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> ContextHandler<Init>
         if self.telemetry_started {
             ctx.notify_every::<UpdateTelemetry>(TELEMETRY_INTERVAL);
         }
-    }
-}
-
-#[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<GetRandomPeer>
-    for Sumeragi<G, K, W>
-{
-    type Result = PeerId;
-    async fn handle(&mut self, GetRandomPeer: GetRandomPeer) -> Self::Result {
-        let rng = &mut rand::thread_rng();
-        #[allow(clippy::expect_used)]
-        self.topology
-            .sorted_peers()
-            .choose(rng)
-            .expect("No nodes in topology")
-            .clone()
     }
 }
 

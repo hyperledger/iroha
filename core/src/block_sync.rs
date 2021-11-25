@@ -5,6 +5,7 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_crypto::SignatureOf;
 use iroha_data_model::prelude::*;
+use rand::{prelude::SliceRandom, SeedableRng};
 
 use self::{
     config::BlockSyncConfiguration,
@@ -12,9 +13,7 @@ use self::{
 };
 use crate::{
     prelude::*,
-    sumeragi::{
-        network_topology::Role, CommitBlock, GetNetworkTopology, GetRandomPeer, SumeragiTrait,
-    },
+    sumeragi::{network_topology::Role, CommitBlock, GetNetworkTopology, SumeragiTrait},
     wsv::WorldTrait,
     VersionedCommittedBlock,
 };
@@ -114,8 +113,12 @@ impl<S: SumeragiTrait, W: WorldTrait> Actor for BlockSynchronizer<S, W> {
 impl<S: SumeragiTrait, W: WorldTrait> Handler<ReceiveUpdates> for BlockSynchronizer<S, W> {
     type Result = ();
     async fn handle(&mut self, ReceiveUpdates: ReceiveUpdates) {
-        let random_peer = self.sumeragi.send(GetRandomPeer).await;
-        self.request_latest_blocks_from_peer(random_peer).await;
+        let rng = &mut rand::rngs::StdRng::from_entropy();
+
+        if let Some(random_peer) = self.wsv.peers().choose(rng) {
+            self.request_latest_blocks_from_peer(random_peer.id.clone())
+                .await;
+        }
     }
 }
 

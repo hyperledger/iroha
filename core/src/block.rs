@@ -539,7 +539,7 @@ impl ValidBlock {
     /// Creates dummy `ValidBlock`. Used in tests
     ///
     /// # Panics
-    /// Should never panic
+    /// If generating keys or block signing fails.
     #[cfg(test)]
     #[allow(clippy::restriction)]
     pub fn new_dummy() -> Self {
@@ -778,63 +778,63 @@ mod tests {
         let valid_block = ValidBlock::new_dummy();
         let committed_block = valid_block.clone().commit();
 
-        assert_eq!(valid_block.hash().transmute(), committed_block.hash())
+        assert_eq!(*valid_block.hash(), *committed_block.hash())
     }
 
     #[test]
     pub fn chain_iter_returns_blocks_ordered() {
-        const BLOCK_CNT: usize = 10;
+        const BLOCK_COUNT: usize = 10;
         let chain = Chain::new();
 
         let mut block = ValidBlock::new_dummy().commit();
 
-        for i in 1..=BLOCK_CNT {
+        for i in 1..=BLOCK_COUNT {
             block.header.height = i as u64;
             chain.push(block.clone().into());
         }
 
         assert_eq!(
-            (BLOCK_CNT - 5..=BLOCK_CNT)
+            (BLOCK_COUNT - 5..=BLOCK_COUNT)
                 .map(|i| i as u64)
                 .collect::<Vec<_>>(),
             chain
                 .iter()
-                .skip(BLOCK_CNT - 6)
+                .skip(BLOCK_COUNT - 6)
                 .map(|b| *b.key())
                 .collect::<Vec<_>>()
         );
 
-        assert_eq!(BLOCK_CNT - 2, chain.iter().skip(2).count());
+        assert_eq!(BLOCK_COUNT - 2, chain.iter().skip(2).count());
         assert_eq!(3, *chain.iter().nth(2).unwrap().key());
     }
 
     #[test]
     pub fn chain_rev_iter_returns_blocks_ordered() {
-        const BLOCK_CNT: usize = 10;
+        const BLOCK_COUNT: usize = 10;
         let chain = Chain::new();
 
         let mut block = ValidBlock::new_dummy().commit();
 
-        for i in 1..=BLOCK_CNT {
+        for i in 1..=BLOCK_COUNT {
             block.header.height = i as u64;
             chain.push(block.clone().into());
         }
 
         assert_eq!(
-            (1..=BLOCK_CNT - 4)
+            (1..=BLOCK_COUNT - 4)
                 .rev()
                 .map(|i| i as u64)
                 .collect::<Vec<_>>(),
             chain
                 .iter()
                 .rev()
-                .skip(BLOCK_CNT - 6)
+                .skip(BLOCK_COUNT - 6)
                 .map(|b| *b.key())
                 .collect::<Vec<_>>()
         );
 
         assert_eq!(
-            (BLOCK_CNT - 2) as u64,
+            (BLOCK_COUNT - 2) as u64,
             *chain.iter().nth_back(2).unwrap().key()
         );
     }
