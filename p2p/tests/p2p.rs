@@ -71,14 +71,18 @@ async fn network_create() {
         address: address.clone(),
         public_key: public_key.clone(),
     };
-    broker.issue_send(ConnectPeer { id: peer1.clone() }).await;
+    broker
+        .issue_send(ConnectPeer {
+            address: peer1.address.clone(),
+        })
+        .await;
     tokio::time::sleep(delay).await;
 
     info!("Posting message...");
     broker
         .issue_send(Post {
             data: TestMessage("Some data to send to peer".to_owned()),
-            id: peer1,
+            peer: peer1,
         })
         .await;
 
@@ -157,14 +161,18 @@ async fn two_networks() {
         public_key: public_key2,
     };
     // Connecting to second peer from network1
-    broker1.issue_send(ConnectPeer { id: peer2.clone() }).await;
+    broker1
+        .issue_send(ConnectPeer {
+            address: peer2.address.clone(),
+        })
+        .await;
     tokio::time::sleep(delay).await;
 
     info!("Posting message...");
     broker1
         .issue_send(Post {
             data: TestMessage("Some data to send to peer".to_owned()),
-            id: peer2.clone(),
+            peer: peer2.clone(),
         })
         .await;
 
@@ -178,7 +186,11 @@ async fn two_networks() {
     assert_eq!(connected_peers.peers.len(), 1);
 
     // Connecting to the same peer from network1
-    broker1.issue_send(ConnectPeer { id: peer2.clone() }).await;
+    broker1
+        .issue_send(ConnectPeer {
+            address: peer2.address.clone(),
+        })
+        .await;
     tokio::time::sleep(delay).await;
 
     let connected_peers: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
@@ -230,7 +242,7 @@ async fn multiple_networks() {
         for id in &peer_ids {
             let post = Post {
                 data: TestMessage(String::from("Some data to send to peer")),
-                id: id.clone(),
+                peer: id.clone(),
             };
             b.issue_send(post).await;
         }
@@ -279,7 +291,11 @@ async fn start_network(
                 public_key: keypair.public_key.clone(),
             };
 
-            broker.issue_send(ConnectPeer { id: peer }).await;
+            broker
+                .issue_send(ConnectPeer {
+                    address: peer.address,
+                })
+                .await;
             conn_count += 1;
             tokio::time::sleep(Duration::from_millis(100)).await;
         }

@@ -39,7 +39,7 @@ const MAX_HANDSHAKE_LENGTH: usize = 255;
 pub const DEFAULT_AAD: &[u8; 10] = b"Iroha2 AAD";
 
 #[derive(Debug)]
-/// Peer's connection data. Not to be confused with [`crate::network::Connection`]
+/// P2P connection
 pub struct Connection {
     /// A unique connection id
     id: ConnectionId,
@@ -53,11 +53,11 @@ pub struct Connection {
 
 impl Connection {
     /// Instantiate new connection from `connection_id` and `stream`.
-    pub fn new(connection_id: ConnectionId, stream: TcpStream) -> Self {
+    pub fn new(id: ConnectionId, stream: TcpStream) -> Self {
         let (read, write) = stream.into_split();
         // let outgoing = read.is_none() && write.is_none();
         Connection {
-            id: connection_id,
+            id,
             read: Some(read),
             write: Some(write),
             // outgoing,
@@ -399,7 +399,7 @@ where
         }
     }
 
-    /// Establish a [`crate::Peer::Connection`] with external
+    /// Establish a [`Connection`] with external
     /// peer. The external peer's address is encoded in
     /// `self.id.address`.
     /// # Errors
@@ -609,9 +609,9 @@ where
 {
     type Result = ();
 
-    async fn handle(&mut self, ctx: &mut Context<Self>, message: StopSelf) {
+    async fn handle(&mut self, ctx: &mut Context<Self>, msg: StopSelf) {
         trace!(peer = ?self, "Stop request");
-        let stop_self = match message {
+        let stop_self = match msg {
             StopSelf::Peer(id) => match self.connection_id() {
                 Ok(my_id) => id == my_id,
                 Err(_) => false,

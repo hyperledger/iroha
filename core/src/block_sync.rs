@@ -328,7 +328,10 @@ pub mod message {
         #[log("TRACE")]
         pub async fn send_to(self, broker: Broker, peer: PeerId) {
             let data = NetworkMessage::BlockSync(Box::new(VersionedMessage::from(self)));
-            let message = Post { data, id: peer };
+            let message = Post {
+                data,
+                peer: peer.clone(),
+            };
             broker.issue_send(message).await;
         }
     }

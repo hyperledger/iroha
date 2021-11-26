@@ -840,7 +840,6 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
     pub async fn connect_peers(&self) {
         iroha_logger::trace!("Connecting peers...");
         let mut peers = self.topology.sorted_peers().to_owned();
-        let self_address = self.peer_id.address.clone();
 
         #[allow(clippy::expect_used)]
         let peers_online = self
@@ -855,11 +854,13 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
             peers.shuffle(&mut rng);
         }
         for peer in peers {
-            if peer.address == self_address || peers_online.contains(&peer.public_key) {
+            if peer.address == self.peer_id.address || peers_online.contains(&peer.public_key) {
                 continue;
             }
-            iroha_logger::info!(peer_addr = %peer.address, "Connecting peer");
-            let connect = ConnectPeer { id: peer.clone() };
+            iroha_logger::info!(%peer.address, "Connecting peer");
+            let connect = ConnectPeer {
+                address: peer.address,
+            };
             self.broker.issue_send(connect).await;
         }
     }
@@ -961,7 +962,7 @@ pub mod message {
         pub async fn send_to(self, broker: &Broker, peer: &PeerId) {
             let post = Post {
                 data: NetworkMessage::SumeragiMessage(Box::new(self)),
-                id: peer.clone(),
+                peer: peer.clone(),
             };
             broker.issue_send(post).await;
         }
