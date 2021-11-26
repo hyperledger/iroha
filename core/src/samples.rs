@@ -78,12 +78,9 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
                 private_key: private_key.clone(),
             },
             peer_id: PeerId::new(DEFAULT_TORII_P2P_ADDR, &public_key),
-            block_time_ms: 1000,
             trusted_peers: TrustedPeers {
                 peers: trusted_peers,
             },
-            commit_time_ms: 1000,
-            tx_receipt_time_ms: 100,
             ..SumeragiConfiguration::default()
         },
         torii: ToriiConfiguration {
@@ -91,8 +88,8 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
             ..ToriiConfiguration::default()
         },
         block_sync: BlockSyncConfiguration {
-            gossip_period_ms: 10000,
             batch_size: 1,
+            gossip_period_ms: 5000,
             ..BlockSyncConfiguration::default()
         },
         queue: QueueConfiguration {

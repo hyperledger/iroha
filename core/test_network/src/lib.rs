@@ -7,7 +7,7 @@
     clippy::future_not_send
 )]
 
-use std::{convert::TryFrom, fmt::Debug, thread, time::Duration};
+use std::{collections::HashMap, convert::TryFrom, fmt::Debug, thread, time::Duration};
 
 use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
@@ -58,7 +58,7 @@ pub struct Network<
     /// Genesis peer which sends genesis block to everyone
     pub genesis: Peer<W, G, K, S, B>,
     /// Peers excluding the `genesis` peer. Use [`peers()`] function to get all instead.
-    pub peers: Vec<Peer<W, G, K, S, B>>,
+    pub peers: HashMap<PeerId, Peer<W, G, K, S, B>>,
 }
 
 impl From<Peer> for Box<iroha_core::tx::Peer> {
@@ -170,11 +170,11 @@ where
     S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
-    pub async fn send<M, A>(
+    pub async fn send_to_actor_on_peers<M, A>(
         &self,
-        lense: impl Fn(&Iroha<W, G, K, S, B>) -> &Addr<A>,
+        select_actor: impl Fn(&Iroha<W, G, K, S, B>) -> &Addr<A>,
         msg: M,
-    ) -> Vec<M::Result>
+    ) -> Vec<(M::Result, PeerId)>
     where
         M: Message + Clone + Send + 'static,
         M::Result: Send,
@@ -182,16 +182,15 @@ where
     {
         let fut = self
             .peers()
-            .map(|p| p.iroha.as_ref().unwrap())
-            .map(lense)
-            .map(|actor| actor.send(msg.clone()))
+            .map(|peer| (select_actor(peer.iroha.as_ref().unwrap()), peer.id.clone()))
+            .map(|(actor, peer_id)| async { (actor.send(msg.clone()).await, peer_id) })
             .collect::<FuturesUnordered<_>>()
             .collect::<Vec<_>>();
         time::timeout(Duration::from_secs(60), fut)
             .await
             .unwrap()
             .into_iter()
-            .map(Result::unwrap)
+            .map(|(result, peer_id)| (result.unwrap(), peer_id))
             .collect()
     }
 
@@ -243,7 +242,7 @@ where
         .await
     }
 
-    /// Adds peer to network
+    /// Adds peer to network and waits for it to start block synchronization.
     pub async fn add_peer(&self) -> (Peer, Client) {
         let mut client = Client::test(&self.genesis.api_address);
         let mut peer = Peer::new().expect("Failed to create new peer");
@@ -251,7 +250,7 @@ where
         config.sumeragi.trusted_peers.peers = self.peers().map(|peer| &peer.id).cloned().collect();
         peer.start_with_config(GenesisNetwork::test(false), config)
             .await;
-        time::sleep(Configuration::pipeline_time() * 2).await;
+        time::sleep(Configuration::pipeline_time() + Configuration::block_sync_gossip_time()).await;
         let add_peer = RegisterBox::new(IdentifiableBox::Peer(
             DataModelPeer::new(peer.id.clone()).into(),
         ));
@@ -273,11 +272,12 @@ where
         let mut genesis = Peer::new()?;
         let mut peers = (0..n_peers)
             .map(|_| Peer::new())
-            .collect::<Result<Vec<_>>>()?;
+            .map(|result| result.map(|peer| (peer.id.clone(), peer)))
+            .collect::<Result<HashMap<_, _>>>()?;
 
         let mut configuration = default_configuration.unwrap_or_else(Configuration::test);
         configuration.sumeragi.trusted_peers.peers = peers
-            .iter()
+            .values()
             .chain(std::iter::once(&genesis))
             .map(|peer| peer.id.clone())
             .collect();
@@ -287,7 +287,10 @@ where
         let futures = FuturesUnordered::new();
 
         futures.push(genesis.start_with_config(G::test(true), configuration.clone()));
-        for peer in peers.iter_mut().choose_multiple(rng, online_peers as usize) {
+        for peer in peers
+            .values_mut()
+            .choose_multiple(rng, online_peers as usize)
+        {
             futures.push(peer.start_with_config(G::test(false), configuration.clone()));
         }
         futures.collect::<()>().await;
@@ -297,9 +300,18 @@ where
         Ok(Self { genesis, peers })
     }
 
-    /// Returns peers
+    /// Returns all peers.
     pub fn peers(&self) -> impl Iterator<Item = &Peer<W, G, K, S, B>> + '_ {
-        std::iter::once(&self.genesis).chain(self.peers.iter())
+        std::iter::once(&self.genesis).chain(self.peers.values())
+    }
+
+    /// Get peer by its Id.
+    pub fn peer_by_id(&self, id: &PeerId) -> Option<&Peer<W, G, K, S, B>> {
+        self.peers.get(id).or(if self.genesis.id == *id {
+            Some(&self.genesis)
+        } else {
+            None
+        })
     }
 
     /// Creates new network from configuration and with that number of peers

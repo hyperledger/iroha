@@ -26,8 +26,8 @@ The following is the default configuration used by Iroha.
     },
     "BLOCK_TIME_MS": 1000,
     "TRUSTED_PEERS": [],
-    "COMMIT_TIME_MS": 1000,
-    "TX_RECEIPT_TIME_MS": 200,
+    "COMMIT_TIME_MS": 2000,
+    "TX_RECEIPT_TIME_MS": 500,
     "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
     "MAX_INSTRUCTION_NUMBER": 4096,
     "MAILBOX": 100
@@ -415,7 +415,7 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
 ```json
 {
   "BLOCK_TIME_MS": 1000,
-  "COMMIT_TIME_MS": 1000,
+  "COMMIT_TIME_MS": 2000,
   "MAILBOX": 100,
   "MAX_INSTRUCTION_NUMBER": 4096,
   "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
@@ -424,7 +424,7 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
     "public_key": "ed0100"
   },
   "TRUSTED_PEERS": [],
-  "TX_RECEIPT_TIME_MS": 200
+  "TX_RECEIPT_TIME_MS": 500
 }
 ```
 
@@ -445,7 +445,7 @@ Amount of time Peer waits for CommitMessage from the proxy tail.
 Has type `u64`. Can be configured via environment variable `SUMERAGI_COMMIT_TIME_MS`
 
 ```json
-1000
+2000
 ```
 
 ### `sumeragi.key_pair`
@@ -524,7 +524,7 @@ Amount of time Peer waits for TxReceipt from the leader.
 Has type `u64`. Can be configured via environment variable `SUMERAGI_TX_RECEIPT_TIME_MS`
 
 ```json
-200
+500
 ```
 
 ## `telemetry`
