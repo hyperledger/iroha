@@ -815,7 +815,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
             block_hash = %self.latest_block_hash(),
             view_changes_count = %self.number_of_view_changes(),
             reason = %proof.reason(),
-            "Changing view at block"
+            "Changing view at block",
         );
     }
 
@@ -1573,7 +1573,7 @@ pub mod message {
                         return;
                     }
 
-                    iroha_logger::warn!("Block creation timeout detected!");
+                    iroha_logger::warn!(?block_time, "Block creation timeout detected!");
                     VersionedMessage::from(Message::ViewChangeSuggested(
                         block_creation_timeout.into(),
                     ))
@@ -1598,8 +1598,8 @@ pub mod config {
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
-    const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
-    const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 200;
+    const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
+    const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
     const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
     const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
     const DEFAULT_MAILBOX_SIZE: usize = 100;
