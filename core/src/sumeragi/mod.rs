@@ -867,7 +867,6 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
         }
         for peer_to_be_disconnected in
             peers_online.difference(&peers_expected.into_iter().map(|id| id.public_key).collect())
-
         {
             iroha_logger::info!(%peer_to_be_disconnected, "Disconnecting peer");
             self.broker

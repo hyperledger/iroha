@@ -45,20 +45,21 @@ fn connected_peers() {
     let mut n_peers;
 
     let (rt, network, mut client) = <TestNetwork>::start_test_with_runtime(N_PEERS as u32, 1);
-    client.status_url.insert_str(0, "http://");
     let pipeline_time = Configuration::pipeline_time();
+    client.status_url.insert_str(0, "http://");
 
     // Confirm all peers connected
     n_peers = client.get_status().unwrap().peers;
     assert_eq!(n_peers, N_PEERS - 1);
 
     // Add a peer then #peers should be incremented
-    let (mut peer, _) = rt.block_on(network.add_peer());
+    let (peer, _) = rt.block_on(network.add_peer());
+    thread::sleep(pipeline_time * 2);
     n_peers = client.get_status().unwrap().peers;
     assert_eq!(n_peers, N_PEERS);
 
-    // Drop the peer then #peers should be decremented
-    peer.stop();
+    // Remove the peer then #peers should be decremented
+    rt.block_on(network.remove_peer(peer, &mut client));
     thread::sleep(pipeline_time * 5);
     n_peers = client.get_status().unwrap().peers;
     // FIXME 'assertion failed: `(left == right)` left: `4`, right: `3`'
