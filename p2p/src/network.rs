@@ -15,7 +15,7 @@ use iroha_crypto::{
     ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme},
     PublicKey,
 };
-use iroha_logger::{debug, info, warn};
+use iroha_logger::{debug, error, info, warn};
 use parity_scale_codec::{Decode, Encode};
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -169,6 +169,8 @@ where
         info!(listen_addr = %self.listen_addr, "Starting network actor");
         // to start connections
         self.broker.subscribe::<ConnectPeer, _>(ctx);
+        // to stop connections
+        self.broker.subscribe::<DisconnectPeer, _>(ctx);
         // from peer
         self.broker.subscribe::<PeerMessage<T>, _>(ctx);
         // from other iroha subsystems
@@ -222,6 +224,27 @@ where
         debug!(%conn_id, ?addr, "Inserting into new_peers");
         self.new_peers.insert(conn_id, addr.clone());
         addr.do_send(Start).await;
+    }
+}
+
+#[async_trait::async_trait]
+impl<T, K, E> Handler<DisconnectPeer> for NetworkBase<T, K, E>
+where
+    T: Debug + Encode + Decode + BrokerMessage + Send + Sync + Clone + 'static,
+    K: KeyExchangeScheme + Send + 'static,
+    E: Encryptor + Send + 'static,
+{
+    type Result = ();
+
+    async fn handle(&mut self, DisconnectPeer(public_key): DisconnectPeer) {
+        let peers = match self.peers.remove(&public_key) {
+            Some(peers) => peers,
+            _ => return error!(?public_key, "Not found peer to disconnect"),
+        };
+        for peer in peers {
+            debug!(%self.listen_addr, %peer.conn_id, "Disconnecting peer");
+            self.broker.issue_send(StopSelf::Peer(peer.conn_id)).await
+        }
     }
 }
 
@@ -340,7 +363,7 @@ where
         let peers = self
             .peers
             .iter()
-            .filter_map(|(key, refs)| (!refs.is_empty()).then(|| key.clone()))
+            .filter_map(|(key, peers)| (!peers.is_empty()).then(|| key.clone()))
             .collect();
 
         ConnectedPeers { peers }
@@ -385,6 +408,10 @@ pub struct ConnectPeer {
     /// Socket address of the outgoing peer
     pub address: String,
 }
+
+/// The message that is sent to [`NetworkBase`] to stop connection to some other peer.
+#[derive(Clone, Debug, iroha_actor::Message)]
+pub struct DisconnectPeer(pub PublicKey);
 
 /// The message that is sent to [`Peer`] to start connection.
 #[derive(Clone, Copy, Debug, iroha_actor::Message)]
