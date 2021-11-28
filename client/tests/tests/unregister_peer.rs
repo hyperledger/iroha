@@ -20,36 +20,12 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     )?;
     // and a new peer is registered
     let (peer, mut peer_client) = rt.block_on(network.add_peer());
-    // Then the new peer should already have the result of the mint.
+    // Then the new peer should already have the mint result.
     check_assets(&mut peer_client, &account_id, &asset_definition_id, 100);
-    // Also, when a peer is unregisteredfix
-
-    let mut n_peers;
-    n_peers = network
-        .genesis
-        .iroha
-        .as_ref()
-        .unwrap()
-        .wsv
-        .trusted_peers_ids()
-        .len();
-    assert_eq!(n_peers, 5);
-
+    // Also, when a peer is unregistered
+    let remove_peer = UnregisterBox::new(IdBox::PeerId(peer.id.clone()));
+    genesis_client.submit(remove_peer)?;
     thread::sleep(pipeline_time * 2);
-    rt.block_on(network.remove_peer(peer, &mut genesis_client));
-    thread::sleep(pipeline_time * 2);
-
-    n_peers = network
-        .genesis
-        .iroha
-        .as_ref()
-        .unwrap()
-        .wsv
-        .trusted_peers_ids()
-        .len();
-    // FIXME impl Execute for UnregisterBox
-    assert_eq!(n_peers, 4);
-
     // We can mint without error.
     mint(
         &asset_definition_id,
@@ -60,7 +36,7 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     )?;
     // Assets are increased on the main network.
     check_assets(&mut genesis_client, &account_id, &asset_definition_id, 300);
-    // But not on the unregistered peer's  network.
+    // But not on the unregistered peer's network.
     check_assets(&mut peer_client, &account_id, &asset_definition_id, 100);
     Ok(())
 }
@@ -112,7 +88,7 @@ fn init() -> Result<(
     AccountId,
     AssetDefinitionId,
 )> {
-    let (rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
+    let (rt, network, mut client) = <Network>::start_test_with_runtime(4, 1);
     let pipeline_time = Configuration::pipeline_time();
     thread::sleep(pipeline_time * 2);
     iroha_logger::info!("Started");
@@ -125,7 +101,7 @@ fn init() -> Result<(
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
-    iroha_client.submit_all(vec![
+    client.submit_all(vec![
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
@@ -135,7 +111,7 @@ fn init() -> Result<(
     Ok((
         rt,
         network,
-        iroha_client,
+        client,
         pipeline_time,
         account_id,
         asset_definition_id,

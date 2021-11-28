@@ -841,6 +841,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
         iroha_logger::trace!("Connecting peers...");
         let peers_expected = {
             let mut res = self.topology.sorted_peers().to_owned();
+            res.retain(|id| id.address != self.peer_id.address);
             res.shuffle(&mut rand::thread_rng());
             res
         };
@@ -855,7 +856,6 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
 
         for peer_to_be_connected in peers_expected
             .iter()
-            .filter(|id| id.address != self.peer_id.address)
             .filter(|id| !peers_online.contains(&id.public_key))
         {
             iroha_logger::info!(%peer_to_be_connected.address, "Connecting peer");

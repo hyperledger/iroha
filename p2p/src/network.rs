@@ -40,6 +40,7 @@ where
 {
     addr: Addr<Peer<T, K, E>>,
     conn_id: ConnectionId,
+    p2p_addr: String,
 }
 
 /// Base network layer structure, holding connections, called
@@ -55,7 +56,9 @@ where
     /// [`Peer`]s performing [`Peer::handshake`]
     pub new_peers: HashMap<ConnectionId, Addr<Peer<T, K, E>>>,
     /// Current [`Peer`]s in `Ready` state.
-    pub peers: HashMap<PublicKey, Vec<RefPeer<T, K, E>>>,
+    pub peers: HashMap<PublicKey, RefPeer<T, K, E>>,
+    /// Untrusted hostnames or [`IpAddr`]s of remote peers: inserted by [`DisconnectPeer`] and removed by [`ConnectPeer`] from Sumeragi
+    untrusted_peers: HashSet<String>,
     /// [`TcpListener`] that is accepting [`Peer`]s' connections
     pub listener: Option<TcpListener>,
     /// Our app-level public key
@@ -91,6 +94,7 @@ where
             listen_addr,
             new_peers: HashMap::new(),
             peers: HashMap::new(),
+            untrusted_peers: HashSet::new(),
             listener: Some(listener),
             public_key,
             broker,
@@ -131,14 +135,6 @@ where
             }
         }
     }
-
-    fn count_new_peers(&self) -> usize {
-        self.new_peers.len()
-    }
-
-    fn count_peers(&self) -> usize {
-        self.peers.values().map(Vec::len).sum()
-    }
 }
 
 impl<T, K, E> Debug for NetworkBase<T, K, E>
@@ -149,7 +145,7 @@ where
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Network")
-            .field("peers", &self.count_peers())
+            .field("peers", &self.peers.len())
             .finish()
     }
 }
@@ -201,9 +197,10 @@ where
 
     async fn handle(&mut self, msg: ConnectPeer) {
         debug!(
-            %self.listen_addr, peer.id.address = %msg.address,
+            listen_addr = %self.listen_addr, peer.id.address = %msg.address,
             "Creating new peer actor",
         );
+        self.untrusted_peers.remove(&ip(&msg.address));
         let peer_to_key_exchange = match Peer::new_to(
             PeerId::new(&msg.address, &self.public_key),
             self.broker.clone(),
@@ -237,14 +234,13 @@ where
     type Result = ();
 
     async fn handle(&mut self, DisconnectPeer(public_key): DisconnectPeer) {
-        let peers = match self.peers.remove(&public_key) {
-            Some(peers) => peers,
+        let peer = match self.peers.remove(&public_key) {
+            Some(peer) => peer,
             _ => return error!(?public_key, "Not found peer to disconnect"),
         };
-        for peer in peers {
-            debug!(%self.listen_addr, %peer.conn_id, "Disconnecting peer");
-            self.broker.issue_send(StopSelf::Peer(peer.conn_id)).await
-        }
+        debug!(listen_addr = %self.listen_addr, %peer.conn_id, "Disconnecting peer");
+        self.untrusted_peers.insert(ip(&peer.p2p_addr));
+        self.broker.issue_send(StopSelf::Peer(peer.conn_id)).await
     }
 }
 
@@ -259,7 +255,7 @@ where
 
     async fn handle(&mut self, msg: Post<T>) {
         match self.peers.get(&msg.peer.public_key) {
-            Some(peers) if !peers.is_empty() => peers[0].addr.do_send(msg).await,
+            Some(peer) => peer.addr.do_send(msg).await,
             None if msg.peer.public_key == self.public_key => {
                 debug!("Not sending message to myself")
             }
@@ -286,30 +282,32 @@ where
         debug!(?msg);
         match msg {
             Connected(id, conn_id) => {
-                let peers = self.peers.entry(id.public_key).or_default();
                 if let Some(addr) = self.new_peers.remove(&conn_id) {
-                    let peer = RefPeer { addr, conn_id };
-                    peers.push(peer);
+                    let peer = RefPeer {
+                        addr,
+                        conn_id,
+                        p2p_addr: id.address,
+                    };
+                    self.peers.insert(id.public_key, peer);
                 }
                 info!(
-                    %self.listen_addr,
-                    count_new_peers = self.count_new_peers(),
-                    count_peers = self.count_peers(),
+                    listen_addr = %self.listen_addr,
+                    count.new_peers = self.new_peers.len(),
+                    count.peers = self.peers.len(),
                     "Peer connected"
                 );
             }
             Disconnected(id, conn_id) => {
-                let peers = self.peers.entry(id.public_key).or_default();
-                peers.retain(|peer| peer.conn_id != conn_id);
+                self.peers.remove(&id.public_key);
 
                 // In case the peer is new and has failed to connect
                 self.new_peers.remove(&conn_id);
 
                 self.broker.issue_send(StopSelf::Peer(conn_id)).await;
                 info!(
-                    %self.listen_addr,
-                    count_new_peers = self.count_new_peers(),
-                    count_peers = self.count_peers(),
+                    listen_addr = %self.listen_addr,
+                    count.new_peers = self.new_peers.len(),
+                    count.peers = self.peers.len(),
                     "Peer disconnected"
                 );
             }
@@ -340,7 +338,7 @@ where
                 let futures = self
                     .peers
                     .values()
-                    .flat_map(|peers| peers.iter().map(|peer| peer.0.do_send(msg)))
+                    .map(|peer| peer.addr.do_send(msg))
                     .collect::<FuturesUnordered<_>>();
 
                 futures.collect::<()>().await;
@@ -360,11 +358,7 @@ where
     type Result = ConnectedPeers;
 
     async fn handle(&mut self, _msg: GetConnectedPeers) -> Self::Result {
-        let peers = self
-            .peers
-            .iter()
-            .filter_map(|(key, peers)| (!peers.is_empty()).then(|| key.clone()))
-            .collect();
+        let peers: HashSet<_> = self.peers.keys().cloned().collect();
 
         ConnectedPeers { peers }
     }
@@ -387,6 +381,9 @@ where
                 return;
             }
         };
+        if self.untrusted_peers.contains(&ip(&soc_addr.to_string())) {
+            return debug!(%soc_addr, "Untrusted new peer");
+        }
         let peer_to_key_exchange = Peer::ConnectedFrom(
             PeerId::new(&soc_addr.to_string(), &self.public_key),
             self.broker.clone(),
@@ -464,3 +461,8 @@ pub enum StopSelf {
 /// The result of an incoming [`Peer`] connection.
 #[derive(Debug, iroha_actor::Message)]
 pub struct NewPeer(pub io::Result<(TcpStream, SocketAddr)>);
+
+/// Substitute for [`SocketAddr::ip`]
+fn ip(address: &str) -> String {
+    address.split(':').next().unwrap_or_default().to_owned()
+}
