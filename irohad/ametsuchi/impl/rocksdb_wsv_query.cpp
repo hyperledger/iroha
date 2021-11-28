@@ -76,7 +76,7 @@ namespace iroha::ametsuchi {
   }
 
   boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
-  RocksDBWsvQuery::getPeers() {
+  RocksDBWsvQuery::getPeers(bool syncing_peers) {
     using RetType = std::vector<std::shared_ptr<shared_model::interface::Peer>>;
     return execute<RetType>(
         db_context_,
@@ -97,7 +97,7 @@ namespace iroha::ametsuchi {
 
                 return true;
               },
-              fmtstrings::kPathPeers);
+              syncing_peers ? fmtstrings::kPathSPeers : fmtstrings::kPathPeers);
           RDB_ERROR_CHECK(canExist(
               status, [&]() { return fmt::format("Enumerate peers"); }));
 
@@ -186,11 +186,11 @@ namespace iroha::ametsuchi {
     }
   }
 
-  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers() {
+  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers(bool syncing_peers) {
     RocksDbCommon common(db_context_);
     RDB_TRY_GET_VALUE_OR_STR_ERR(
         opt_count,
-        forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common));
+        forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common, syncing_peers));
 
     return *opt_count;
   }

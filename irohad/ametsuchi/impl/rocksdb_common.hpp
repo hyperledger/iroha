@@ -1360,7 +1360,7 @@ namespace iroha::ametsuchi {
   }
 
   /**
-   * Access to peers count file
+   * Access to peers and syncing peers count file
    * @tparam kOp @see kDbOperation
    * @tparam kSc @see kDbEntry
    * @param common @see RocksDbCommon
@@ -1369,22 +1369,11 @@ namespace iroha::ametsuchi {
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError> forPeersCount(
-      RocksDbCommon &common) {
-    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kPeersCount);
-  }
+      RocksDbCommon &common, bool is_syncing_peer) {
+    if (is_syncing_peer)
+      return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kSPeersCount);
 
-  /**
-   * Access to syncing peers count file
-   * @tparam kOp @see kDbOperation
-   * @tparam kSc @see kDbEntry
-   * @param common @see RocksDbCommon
-   * @return operation result
-   */
-  template <kDbOperation kOp = kDbOperation::kGet,
-      kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<std::optional<uint64_t>, DbError> forSyncPeersCount(
-      RocksDbCommon &common) {
-    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kSPeersCount);
+    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kPeersCount);
   }
 
   /**
@@ -1467,67 +1456,45 @@ namespace iroha::ametsuchi {
   }
 
   /**
-   * Access to peer address file
+   * Access to peer and syncing peer address file
    * @tparam kOp @see kDbOperation
    * @tparam kSc @see kDbEntry
    * @param common @see RocksDbCommon
    * @param pubkey public key of the peer
+   * @param is_sync_peer node mode
    * @return operation result
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
-  forPeerAddress(RocksDbCommon &common, std::string_view pubkey) {
+  forPeerAddress(RocksDbCommon &common, std::string_view pubkey, bool is_sync_peer) {
+    if (is_sync_peer)
+      return dbCall<std::string_view, kOp, kSc>(
+          common, fmtstrings::kSPeerAddress, pubkey);
+
     return dbCall<std::string_view, kOp, kSc>(
         common, fmtstrings::kPeerAddress, pubkey);
   }
 
   /**
-   * Access to syncing peer address file
-   * @tparam kOp @see kDbOperation
-   * @tparam kSc @see kDbEntry
-   * @param common @see RocksDbCommon
-   * @param pubkey public key of the peer
-   * @return operation result
-   */
-  template <kDbOperation kOp = kDbOperation::kGet,
-      kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<std::optional<std::string_view>, DbError>
-  forSyncPeerAddress(RocksDbCommon &common, std::string_view pubkey) {
-    return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kSPeerAddress, pubkey);
-  }
-
-  /**
-   * Access to peer TLS file
+   * Access to peer and syncing peer TLS file
    * @tparam kOp @see kDbOperation
    * @tparam kSc @see kDbEntry
    * @param common @see RocksDbCommon
    * @param pubkey is a public key of the peer
+   * @param is_sync_peer node mode
    * @return operation result
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError> forPeerTLS(
-      RocksDbCommon &common, std::string_view pubkey) {
+      RocksDbCommon &common, std::string_view pubkey, bool is_sync_peer) {
+    if (is_sync_peer)
+      return dbCall<std::string_view, kOp, kSc>(
+          common, fmtstrings::kSPeerTLS, pubkey);
+
     return dbCall<std::string_view, kOp, kSc>(
         common, fmtstrings::kPeerTLS, pubkey);
-  }
-
-  /**
-   * Access to syncing peer TLS file
-   * @tparam kOp @see kDbOperation
-   * @tparam kSc @see kDbEntry
-   * @param common @see RocksDbCommon
-   * @param pubkey is a public key of the peer
-   * @return operation result
-   */
-  template <kDbOperation kOp = kDbOperation::kGet,
-      kDbEntry kSc = kDbEntry::kMustExist>
-  inline expected::Result<std::optional<std::string_view>, DbError> forSyncPeerTLS(
-      RocksDbCommon &common, std::string_view pubkey) {
-    return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kSPeerTLS, pubkey);
   }
 
   /**
