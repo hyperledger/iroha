@@ -37,13 +37,21 @@
  *        |         +-<version>
  *        |         +-<blocks_total_count, value>
  *        |
- *        +-|WSV|-+-|NETWORK|-+-|PEERS|-+-|ADDRESS|-+-<peer_1_pubkey, value:address>
- *                |           |         |           +-<peer_2_pubkey, value:address>
- *                |           |         |
- *                |           |         +-|TLS|-+-<peer_1_pubkey, value:tls>
- *                |           |         |       +-<peer_2_pubkey, value:tls>
- *                |           |         |
- *                |           |         +-<count, value>
+ *        +-|WSV|-+-|NETWORK|-+-|PEERS|---+-|ADDRESS|-+-<peer_1_pubkey, value:address>
+ *                |           |           |           +-<peer_2_pubkey, value:address>
+ *                |           |           |
+ *                |           |           +-|TLS|-+-<peer_1_pubkey, value:tls>
+ *                |           |           |       +-<peer_2_pubkey, value:tls>
+ *                |           |           |
+ *                |           |           +-<count, value>
+ *                |           |
+ *                |           +-|S_PEERS|-+-|ADDRESS|-+-<peer_1_pubkey, value:address>
+ *                |           |           |           +-<peer_2_pubkey, value:address>
+ *                |           |           |
+ *                |           |           +-|TLS|-+-<peer_1_pubkey, value:tls>
+ *                |           |           |       +-<peer_2_pubkey, value:tls>
+ *                |           |           |
+ *                |           |           +-<count, value>
  *                |           |
  *                |           +-|STORE|-+-<top_block, value: store height#top block hash>
  *                |
@@ -125,6 +133,7 @@
  * ### TRANSACTIONS  ##       t       ###
  * ### ACCOUNTS      ##       a       ###
  * ### PEERS         ##       p       ###
+ * ### S_PEERS       ##       l       ###
  * ### STATUSES      ##       u       ###
  * ### DETAILS       ##       d       ###
  * ### GRANTABLE_PER ##       g       ###
@@ -170,6 +179,7 @@
 #define RDB_TRANSACTIONS "t"
 #define RDB_ACCOUNTS "a"
 #define RDB_PEERS "p"
+#define RDB_S_PEERS "l"
 #define RDB_STATUSES "u"
 #define RDB_DETAILS "d"
 #define RDB_GRANTABLE_PER "g"
@@ -218,6 +228,10 @@ namespace iroha::ametsuchi::fmtstrings {
   // no params
   static auto constexpr kPathPeers{FMT_STRING(
       RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/ RDB_ADDRESS)};
+
+  // no params
+  static auto constexpr kPathSPeers{FMT_STRING(
+                                       RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/ RDB_ADDRESS)};
 
   // domain_id/account_name
   static auto constexpr kPathSignatories{
@@ -310,9 +324,19 @@ namespace iroha::ametsuchi::fmtstrings {
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/
                      RDB_ADDRESS /**/ RDB_XXX)};
 
+  // pubkey ➡️ address
+  static auto constexpr kSPeerAddress{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/
+                     RDB_ADDRESS /**/ RDB_XXX)};
+
   // pubkey ➡️ tls
   static auto constexpr kPeerTLS{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/
+                     RDB_TLS /**/ RDB_XXX)};
+
+  // pubkey ➡️ tls
+  static auto constexpr kSPeerTLS{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/
                      RDB_TLS /**/ RDB_XXX)};
 
   // domain_id/account_name/grantee_domain_id/grantee_account_name
@@ -347,6 +371,10 @@ namespace iroha::ametsuchi::fmtstrings {
 
   static auto constexpr kPeersCount{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/
+                     RDB_F_PEERS_COUNT)};
+
+  static auto constexpr kSPeersCount{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/
                      RDB_F_PEERS_COUNT)};
 
   // account ➡️ txs total count
@@ -1346,6 +1374,20 @@ namespace iroha::ametsuchi {
   }
 
   /**
+   * Access to syncing peers count file
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+      kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError> forSyncPeersCount(
+      RocksDbCommon &common) {
+    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kSPeersCount);
+  }
+
+  /**
    * Access to transactions statuses
    * @tparam kOp @see kDbOperation
    * @tparam kSc @see kDbEntry
@@ -1441,6 +1483,22 @@ namespace iroha::ametsuchi {
   }
 
   /**
+   * Access to syncing peer address file
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param pubkey public key of the peer
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+      kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forSyncPeerAddress(RocksDbCommon &common, std::string_view pubkey) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kSPeerAddress, pubkey);
+  }
+
+  /**
    * Access to peer TLS file
    * @tparam kOp @see kDbOperation
    * @tparam kSc @see kDbEntry
@@ -1454,6 +1512,22 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common, std::string_view pubkey) {
     return dbCall<std::string_view, kOp, kSc>(
         common, fmtstrings::kPeerTLS, pubkey);
+  }
+
+  /**
+   * Access to syncing peer TLS file
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param pubkey is a public key of the peer
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+      kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError> forSyncPeerTLS(
+      RocksDbCommon &common, std::string_view pubkey) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common, fmtstrings::kSPeerTLS, pubkey);
   }
 
   /**
