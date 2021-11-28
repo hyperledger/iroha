@@ -181,9 +181,7 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
             IdentifiableBox::Domain(domain) => {
                 Register::<Domain>::new(*domain).execute(authority, wsv)
             }
-            IdentifiableBox::Peer(peer) => {
-                Register::<Peer>::new(*peer).execute(authority, wsv)
-            }
+            IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
             _ => Err(eyre!("Unsupported register instruction.").into()),
         }
     }
@@ -209,9 +207,7 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
             IdBox::DomainName(domain_name) => {
                 Unregister::<Domain>::new(domain_name).execute(authority, wsv)
             }
-            IdBox::PeerId(peer_id) => {
-                Unregister::<Peer>::new(peer_id).execute(authority, wsv)
-            }
+            IdBox::PeerId(peer_id) => Unregister::<Peer>::new(peer_id).execute(authority, wsv),
             _ => Err(eyre!("Unsupported unregister instruction.").into()),
         }
     }

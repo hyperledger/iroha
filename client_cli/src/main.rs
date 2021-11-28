@@ -76,6 +76,8 @@ pub enum Subcommand {
     Account(account::Args),
     /// Use this command to work with Assets in Iroha Peer
     Asset(asset::Args),
+    /// Use this command to work with another Iroha Peer
+    Peer(peer::Args),
     /// Use this command to listen to Iroha events over the streaming API
     Events(events::Args),
 }
@@ -99,7 +101,7 @@ macro_rules! match_run_all {
 impl RunArgs for Subcommand {
     fn run(self, cfg: &ClientConfiguration) -> Result<()> {
         use Subcommand::*;
-        match_run_all!((self, cfg), { Domain, Account, Asset, Events })
+        match_run_all!((self, cfg), { Domain, Account, Asset, Peer, Events })
     }
 }
 
@@ -555,6 +557,90 @@ mod asset {
             }?;
             println!("{:#?}", vec);
             Ok(())
+        }
+    }
+}
+
+mod peer {
+    use super::*;
+
+    /// Subcommand for dealing with peer
+    #[derive(StructOpt, Debug)]
+    pub enum Args {
+        /// Register subcommand of peer
+        Register(Register),
+        /// Unregister subcommand of peer
+        Unregister(Unregister),
+    }
+
+    impl RunArgs for Args {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            match_run_all!(
+                (self, cfg),
+                { Args::Register, Args::Unregister }
+            )
+        }
+    }
+
+    /// Register subcommand of peer
+    #[derive(StructOpt, Debug)]
+    pub struct Register {
+        /// P2P address of the peer e.g. `127.0.0.1:1337`
+        #[structopt(short, long)]
+        pub address: String,
+        /// Public key of the peer
+        #[structopt(short, long)]
+        pub key: PublicKey,
+        /// The filename with key-value metadata pairs in JSON
+        #[structopt(short, long, default_value = "")]
+        pub metadata: super::Metadata,
+    }
+
+    impl RunArgs for Register {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            let Self {
+                address,
+                key,
+                metadata: Metadata(metadata),
+            } = self;
+            submit(
+                RegisterBox::new(IdentifiableBox::Peer(
+                    Peer::new(PeerId::new(&address, &key)).into(),
+                )),
+                cfg,
+                metadata,
+            )
+            .wrap_err("Failed to register peer")
+        }
+    }
+
+    /// Unregister subcommand of peer
+    #[derive(StructOpt, Debug)]
+    pub struct Unregister {
+        /// P2P address of the peer e.g. `127.0.0.1:1337`
+        #[structopt(short, long)]
+        pub address: String,
+        /// Public key of the peer
+        #[structopt(short, long)]
+        pub key: PublicKey,
+        /// The filename with key-value metadata pairs in JSON
+        #[structopt(short, long, default_value = "")]
+        pub metadata: super::Metadata,
+    }
+
+    impl RunArgs for Unregister {
+        fn run(self, cfg: &ClientConfiguration) -> Result<()> {
+            let Self {
+                address,
+                key,
+                metadata: Metadata(metadata),
+            } = self;
+            submit(
+                UnregisterBox::new(IdBox::PeerId(PeerId::new(&address, &key))),
+                cfg,
+                metadata,
+            )
+            .wrap_err("Failed to unregister peer")
         }
     }
 }
