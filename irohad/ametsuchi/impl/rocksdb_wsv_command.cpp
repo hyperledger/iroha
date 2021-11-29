@@ -339,27 +339,20 @@ namespace iroha::ametsuchi {
 
           RDB_TRY_GET_VALUE(
               opt_peers_count,
-              peer.isSyncingPeer()
-                  ? forSyncPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(
-                      common)
-                  : forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(
-                      common));
+              forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(
+                  common, peer.isSyncingPeer()));
 
           common.encode((opt_peers_count ? *opt_peers_count : 0ull) + 1ull);
-          RDB_ERROR_CHECK(forPeersCount<kDbOperation::kPut>(common));
+          RDB_ERROR_CHECK(forPeersCount<kDbOperation::kPut>(common, peer.isSyncingPeer()));
 
           common.valueBuffer().assign(peer.address());
-          RDB_ERROR_CHECK(
-              peer.isSyncingPeer()
-                  ? forSyncPeerAddress<kDbOperation::kPut>(common, result)
-                  : forPeerAddress<kDbOperation::kPut>(common, result));
+          RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kPut>(
+              common, result, peer.isSyncingPeer()));
 
           if (peer.tlsCertificate()) {
             common.valueBuffer().assign(peer.tlsCertificate().value());
-            RDB_ERROR_CHECK(
-                peer.isSyncingPeer()
-                    ? forSyncPeerTLS<kDbOperation::kPut>(common, result)
-                    : forPeerTLS<kDbOperation::kPut>(common, result));
+            RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kPut>(
+                common, result, peer.isSyncingPeer()));
           }
 
           return {};
@@ -383,33 +376,22 @@ namespace iroha::ametsuchi {
 
           RDB_TRY_GET_VALUE(
               opt_peers_count,
-              peer.isSyncingPeer()
-                  ? forSyncPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(
-                      common)
-                  : forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(
-                      common));
+              forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(
+                  common, peer.isSyncingPeer()));
           if (!peer.isSyncingPeer() && *opt_peers_count == 1ull)
             return makeError<void>(ErrorCodes::kCommandUnexeptable,
                                    "Can not remove last validating peer {}.",
                                    peer.pubkey());
 
           common.encode(*opt_peers_count - 1ull);
-          RDB_ERROR_CHECK(peer.isSyncingPeer()
-                              ? forSyncPeersCount<kDbOperation::kPut>(common)
-                              : forPeersCount<kDbOperation::kPut>(common));
+          RDB_ERROR_CHECK(
+              forPeersCount<kDbOperation::kPut>(common, peer.isSyncingPeer()));
 
           RDB_ERROR_CHECK(
-              peer.isSyncingPeer()
-                  ? forSyncPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(
-                      common, result)
-                  : forPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(
-                      common, result));
-          RDB_ERROR_CHECK(
-              peer.isSyncingPeer()
-                  ? forSyncPeerTLS<kDbOperation::kDel, kDbEntry::kCanExist>(
-                      common, result)
-                  : forPeerTLS<kDbOperation::kDel, kDbEntry::kCanExist>(
-                      common, result));
+              forPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(
+                  common, result, peer.isSyncingPeer()));
+          RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kDel, kDbEntry::kCanExist>(
+              common, result, peer.isSyncingPeer()));
           return {};
         },
         [&]() {

@@ -201,36 +201,27 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   std::string pk;
   toLowerAppend(peer.pubkey(), pk);
 
-  RDB_ERROR_CHECK(
-      peer.isSyncingPeer()
-          ? forSyncPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-              common, pk)
-          : forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-              common, pk));
+  RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+      common, pk, peer.isSyncingPeer()));
 
-  RDB_TRY_GET_VALUE(
-      opt_peers_count,
-      peer.isSyncingPeer()
-          ? forSyncPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(common)
-          : forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(common));
+  RDB_TRY_GET_VALUE(opt_peers_count,
+                    forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(
+                        common, peer.isSyncingPeer()));
 
   common.encode((opt_peers_count ? *opt_peers_count : 0ull) + 1ull);
-  RDB_ERROR_CHECK(peer.isSyncingPeer()
-                      ? forSyncPeersCount<kDbOperation::kPut>(common)
-                      : forPeersCount<kDbOperation::kPut>(common));
+  RDB_ERROR_CHECK(
+      forPeersCount<kDbOperation::kPut>(common, peer.isSyncingPeer()));
 
   /// Store address
   common.valueBuffer().assign(peer.address());
-  RDB_ERROR_CHECK(peer.isSyncingPeer()
-                      ? forSyncPeerAddress<kDbOperation::kPut>(common, pk)
-                      : forPeerAddress<kDbOperation::kPut>(common, pk));
+  RDB_ERROR_CHECK(
+      forPeerAddress<kDbOperation::kPut>(common, pk, peer.isSyncingPeer()));
 
   /// Store TLS if present
   if (peer.tlsCertificate().has_value()) {
     common.valueBuffer().assign(peer.tlsCertificate().value());
-    RDB_ERROR_CHECK(peer.isSyncingPeer()
-                        ? forSyncPeerTLS<kDbOperation::kPut>(common, pk)
-                        : forPeerTLS<kDbOperation::kPut>(common, pk));
+    RDB_ERROR_CHECK(
+        forPeerTLS<kDbOperation::kPut>(common, pk, peer.isSyncingPeer()));
   }
 
   return {};
