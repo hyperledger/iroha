@@ -366,20 +366,20 @@ pub mod pipeline {
         IntoSchema,
     )]
     pub enum TransactionRejectionReason {
-        /// Failed due to low authority.
-        #[error("Transaction rejected due to low authority")]
+        /// Insufficient authorisation.
+        #[error("Transaction rejected due to insufficient authorisation")]
         NotPermitted(#[source] NotPermittedFail),
-        /// Failed verify signature condition specified in the account.
-        #[error("Transaction rejected due to unsatisfied signature condition")]
+        /// Failed to verify signature condition specified in the account.
+        #[error("Transaction rejected due to an unsatisfied signature condition")]
         UnsatisfiedSignatureCondition(#[source] UnsatisfiedSignatureConditionFail),
         /// Failed to execute instruction.
-        #[error("Transaction rejected due to instruction execution")]
+        #[error("Transaction rejected due to failure in instruction execution")]
         InstructionExecution(#[source] InstructionExecutionFail),
         /// Failed to verify signatures.
-        #[error("Transaction rejected due to signature verification")]
+        #[error("Transaction rejected due to failed signature verification")]
         SignatureVerification(#[source] SignatureVerificationFail<Payload>),
         /// Genesis account can sign only transactions in the genesis block.
-        #[error("Genesis account can sign only transactions in the genesis block.")]
+        #[error("The genesis account can only sign transactions in the genesis block.")]
         UnexpectedGenesisAccountSignature,
     }
 

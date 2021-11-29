@@ -1585,6 +1585,7 @@ dependencies = [
  "test_network",
  "thiserror",
  "tokio",
+ "trybuild",
  "warp",
 ]
 

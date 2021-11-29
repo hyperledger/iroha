@@ -274,6 +274,8 @@ impl BlockHeader {
     }
 }
 
+use std::error::Error;
+
 impl ChainedBlock {
     /// Validate block transactions against current state of the world.
     pub fn validate<W: WorldTrait>(
@@ -295,6 +297,7 @@ impl ChainedBlock {
                 Err(tx) => {
                     iroha_logger::warn!(
                         reason = %tx.as_inner_v1().rejection_reason,
+                        caused_by = ?tx.as_inner_v1().rejection_reason.source(),
                         "Transaction validation failed",
                     );
                     rejected.push(tx)

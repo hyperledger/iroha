@@ -229,6 +229,9 @@ impl<W: WorldTrait> Execute<W> for MintBox {
             (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
                 Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
             }
+            (IdBox::AssetId(asset_id), Value::U128(quantity)) => {
+                Mint::<Asset, u128>::new(quantity, asset_id).execute(authority, wsv)
+            }
             (IdBox::AssetId(asset_id), Value::Fixed(quantity)) => {
                 Mint::<Asset, Fixed>::new(quantity, asset_id).execute(authority, wsv)
             }

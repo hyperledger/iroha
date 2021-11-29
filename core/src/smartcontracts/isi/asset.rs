@@ -112,9 +112,7 @@ pub mod isi {
             wsv.asset_or_insert(&self.destination_id, Fixed::ZERO)?;
             wsv.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut Fixed = asset.try_as_mut()?;
-                *quantity = quantity
-                    .checked_add(self.object)
-                    .ok_or(MathError::OverflowError)?;
+                *quantity = quantity.checked_add(self.object)?;
                 Ok(())
             })
             .map_err(Into::into)
@@ -208,9 +206,7 @@ pub mod isi {
             )?;
             wsv.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut Fixed = asset.try_as_mut()?;
-                *quantity = quantity
-                    .checked_sub(self.object)
-                    .ok_or(MathError::NotEnoughQuantity)?;
+                *quantity = quantity.checked_sub(self.object)?;
                 Ok(())
             })
             .map_err(Into::into)

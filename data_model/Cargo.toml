@@ -19,6 +19,7 @@ maintenance = { status = "actively-developed" }
 [features]
 default = []
 roles = []
+test = []
 
 [dependencies]
 iroha_crypto = { path = "../crypto" }
@@ -48,3 +49,4 @@ test_network = { path = "../core/test_network" }
 port_check = "0.1.5"
 tempfile = "3"
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
+trybuild = "1"
