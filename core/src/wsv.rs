@@ -173,6 +173,20 @@ impl<W: WorldTrait> WorldStateView<W> {
             .collect()
     }
 
+    /// Calculates network TPS.
+    ///
+    /// `None` means that transactions can not yet be calculated.
+    #[allow(clippy::float_arithmetic, clippy::cast_precision_loss)]
+    pub fn transactions_per_second(&self) -> Option<f64> {
+        let start_time_ms = self.blocks.iter().next()?.as_inner_v1().header.timestamp;
+        let end_time_ms = current_time().as_millis();
+        let transactions_number = self.blocks.iter().fold(0_u64, |acc, block| {
+            acc + block.as_inner_v1().transactions.len() as u64
+                + block.as_inner_v1().rejected_transactions.len() as u64
+        });
+        Some(transactions_number as f64 / ((end_time_ms - start_time_ms) as f64 / 1000_f64))
+    }
+
     /// Get `World` without an ability to modify it.
     pub fn world(&self) -> &W {
         &self.world
@@ -531,5 +545,18 @@ mod tests {
                 .take(BATCH_SIZE as usize)
                 .collect::<Vec<_>>(),
         );
+    }
+
+    #[tokio::test]
+    async fn calculate_tps() {
+        let block = ValidBlock::new_dummy().commit();
+        let block: VersionedCommittedBlock = block.clone().into();
+        let wsv = WorldStateView::<World>::default();
+
+        assert!(wsv.transactions_per_second().is_none());
+
+        wsv.apply(block).await;
+
+        assert!(wsv.transactions_per_second().is_some());
     }
 }
