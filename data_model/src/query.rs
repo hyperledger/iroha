@@ -134,7 +134,7 @@ declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, ir
 #[version_with_scale(
     n = 1,
     versioned = "VersionedSignedQueryRequest",
-    derive = "Debug, Clone, IntoSchema"
+    derive = "Debug, Clone, iroha_schema::IntoSchema"
 )]
 #[derive(Debug, Clone, Io, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct SignedQueryRequest {
@@ -150,7 +150,7 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_der
 #[version_with_scale(
     n = 1,
     versioned = "VersionedQueryResult",
-    derive = "Debug, Clone, IntoSchema"
+    derive = "Debug, Clone, iroha_schema::IntoSchema"
 )]
 #[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode, IntoSchema)]
 pub struct QueryResult(pub Value);

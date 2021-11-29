@@ -447,7 +447,6 @@ pub mod private_blockchain {
                         Err("Only access to the assets of the same domain is permitted.".to_owned())
                     }
                     #[cfg(feature = "roles")]
-                    #[allow(clippy::match_same_arms)]
                     FindAllRoles(_) => Ok(()),
                     FindAllPeers(_) => Ok(()),
                     FindAccountById(query) => {

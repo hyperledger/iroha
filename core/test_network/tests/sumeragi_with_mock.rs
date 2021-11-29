@@ -524,7 +524,7 @@ pub mod utils {
         use std::ops::{Deref, DerefMut};
 
         use iroha_core::{prelude::*, tx::Domain, wsv::WorldTrait};
-        use iroha_data_model::{prelude::*, world::World};
+        use iroha_data_model::prelude::*;
         use once_cell::sync::Lazy;
 
         #[derive(Debug, Clone, Default)]
@@ -532,7 +532,7 @@ pub mod utils {
 
         impl Deref for WithRoot {
             type Target = World;
-            fn deref(&self) -> &World {
+            fn deref(&self) -> &Self::Target {
                 &self.0
             }
         }
@@ -562,7 +562,7 @@ pub mod utils {
                 domains: impl IntoIterator<Item = (Name, Domain)>,
                 trusted_peers_ids: impl IntoIterator<Item = PeerId>,
             ) -> Self {
-                Self(iroha_data_model::world::World::with(
+                Self(World::with(
                     vec![(GLOBAL.name.clone(), GLOBAL.clone())]
                         .into_iter()
                         .chain(domains),

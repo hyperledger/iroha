@@ -8,6 +8,8 @@ use std::{
 };
 
 use config::Configuration;
+#[cfg(feature = "roles")]
+use dashmap::DashMap;
 use dashmap::{
     mapref::one::{Ref as DashmapRef, RefMut as DashmapRefMut},
     DashSet,
@@ -17,62 +19,39 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use tokio::task;
 
-use crate::{block::Chain, prelude::*, smartcontracts::FindError};
-
-/// World proxy for using with `WorldTrait`
-#[derive(Debug, Default, Clone)]
-pub struct World(iroha_data_model::world::World);
-
-impl Deref for World {
-    type Target = iroha_data_model::world::World;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for World {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl WorldTrait for World {
-    /// Creates `World` with these `domains` and `trusted_peers_ids`
-    fn with(
-        domains: impl IntoIterator<Item = (Name, Domain)>,
-        trusted_peers_ids: impl IntoIterator<Item = PeerId>,
-    ) -> Self {
-        Self(iroha_data_model::world::World::with(
-            domains,
-            trusted_peers_ids,
-        ))
-    }
-}
-
-impl World {
-    /// Creates an empty `World`.
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
+use crate::{
+    block::Chain,
+    prelude::*,
+    smartcontracts::{Execute, FindError},
+};
 
 /// World trait for mocking
 pub trait WorldTrait:
-    Deref<Target = iroha_data_model::world::World>
-    + DerefMut
-    + Send
-    + Sync
-    + 'static
-    + Debug
-    + Default
-    + Sized
-    + Clone
+    Deref<Target = World> + DerefMut + Send + Sync + 'static + Debug + Default + Sized + Clone
 {
     /// Creates `World` with these `domains` and `trusted_peers_ids`
     fn with(
         domains: impl IntoIterator<Item = (Name, Domain)>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
     ) -> Self;
+}
+
+/// The global entity consisting of `domains`, `triggers` and etc.
+/// For example registration of domain, will have this as an ISI target.
+#[derive(Debug, Default, Clone)]
+pub struct World {
+    /// Registered domains.
+    pub domains: DomainsMap,
+    /// Identifications of discovered trusted peers.
+    pub trusted_peers_ids: PeersIds,
+    /// Iroha `Triggers` registered on the peer.
+    pub triggers: Vec<Instruction>,
+    /// Iroha parameters.
+    pub parameters: Vec<Parameter>,
+    /// Roles.
+    /// (`Role`) pairs.
+    #[cfg(feature = "roles")]
+    pub roles: DashMap<RoleId, Role>,
 }
 
 /// Current state of the blockchain alligned with `Iroha` module.
@@ -91,6 +70,28 @@ pub struct WorldStateView<W: WorldTrait> {
 impl<W: WorldTrait + Default> Default for WorldStateView<W> {
     fn default() -> Self {
         Self::new(W::default())
+    }
+}
+
+impl World {
+    /// Creates an empty `World`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl WorldTrait for World {
+    fn with(
+        domains: impl IntoIterator<Item = (Name, Domain)>,
+        trusted_peers_ids: impl IntoIterator<Item = PeerId>,
+    ) -> Self {
+        let domains = domains.into_iter().collect();
+        let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
+        World {
+            domains,
+            trusted_peers_ids,
+            ..World::new()
+        }
     }
 }
 
@@ -124,12 +125,54 @@ impl<W: WorldTrait> WorldStateView<W> {
         }
     }
 
+    #[cfg(feature = "roles")]
+    /// Returns a set of permission tokens granted to this account as part of roles and separately.
+    pub fn account_permission_tokens(
+        &self,
+        account: &Account,
+    ) -> iroha_data_model::account::Permissions {
+        let mut tokens = account.permission_tokens.clone();
+        for role_id in &account.roles {
+            if let Some(role) = self.world.roles.get(role_id) {
+                let mut role_tokens = role.permissions.clone();
+                tokens.append(&mut role_tokens);
+            }
+        }
+        tokens
+    }
+
+    #[allow(clippy::unused_self)]
+    #[cfg(not(feature = "roles"))]
+    /// Returns a set of permission tokens granted to this account as part of roles and separately.
+    pub fn account_permission_tokens(
+        &self,
+        account: &Account,
+    ) -> iroha_data_model::account::Permissions {
+        account.permission_tokens.clone()
+    }
+
+    /// Apply instructions to the `WorldStateView<W>`.
+    ///
+    /// # Errors
+    /// Can fail if execution of instructions fail(should be fine after validation)
+    fn proceed(&self, tx: &VersionedValidTransaction) -> Result<()> {
+        let tx = tx.as_inner_v1();
+
+        for instruction in &tx.payload.instructions {
+            instruction
+                .clone()
+                .execute(tx.payload.account_id.clone(), self)?;
+        }
+        // XXX: Should it just return `()`?
+        Ok(())
+    }
+
     /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
     #[iroha_futures::telemetry_future]
     #[iroha_logger::log(skip(self, block))]
     pub async fn apply(&self, block: VersionedCommittedBlock) {
         for tx in &block.as_inner_v1().transactions {
-            if let Err(error) = tx.proceed(self) {
+            if let Err(error) = self.proceed(tx) {
                 iroha_logger::warn!(%error, "Failed to proceed transaction on WSV");
             }
             self.transactions.insert(tx.hash());
@@ -455,6 +498,19 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 }
 
+impl Deref for World {
+    type Target = World;
+    fn deref(&self) -> &Self::Target {
+        self
+    }
+}
+
+impl DerefMut for World {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self
+    }
+}
+
 /// This module contains all configuration related logic.
 pub mod config {
     use iroha_config::derive::Configurable;
@@ -499,7 +555,7 @@ pub mod config {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use super::{World, *};
+    use super::*;
 
     #[tokio::test]
     async fn get_blocks_after_hash() {

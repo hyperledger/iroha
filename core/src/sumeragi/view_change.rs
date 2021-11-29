@@ -7,13 +7,14 @@ use eyre::{Context, Result};
 use iroha_crypto::{HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
 use iroha_data_model::{prelude::PeerId, transaction::VersionedTransaction};
 use iroha_derive::*;
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 
 use super::message::TransactionReceipt;
 use crate::block::{EmptyChainHash, VersionedCommittedBlock, VersionedValidBlock};
 
 /// The proof of a view change. It needs to be signed by f+1 peers for proof to be valid and view change to happen.
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
 pub struct Proof {
     payload: ProofPayload,
     signatures: SignaturesOf<Self>,
@@ -140,7 +141,7 @@ impl Proof {
 }
 
 /// Payload of [`Proof`]
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
 pub struct ProofPayload {
     ///
     previous_proof: HashOf<Proof>,
@@ -151,7 +152,7 @@ pub struct ProofPayload {
 }
 
 /// Reason for a view change.
-#[derive(Clone, Debug, Io, Encode, Decode, FromVariant)]
+#[derive(Clone, Debug, Io, Encode, Decode, FromVariant, IntoSchema)]
 pub enum Reason {
     /// Proxy tail have not committed a block in time.
     CommitTimeout(CommitTimeout),
@@ -172,28 +173,28 @@ impl Display for Reason {
 }
 
 /// Block `CommitTimeout` reason for a view change.
-#[derive(Clone, Debug, Io, Encode, Decode, Copy)]
+#[derive(Clone, Debug, Io, Encode, Decode, Copy, IntoSchema)]
 pub struct CommitTimeout {
     /// The hash of the block in discussion in this round.
     pub hash: HashOf<VersionedValidBlock>,
 }
 
 /// `NoTransactionReceiptReceived` (from leader) reason for a view change.
-#[derive(Clone, Debug, Io, Encode, Decode, Copy)]
+#[derive(Clone, Debug, Io, Encode, Decode, Copy, IntoSchema)]
 pub struct NoTransactionReceiptReceived {
     /// The hash of the transaction for which there was no `TransactionReceipt`.
     pub transaction_hash: HashOf<VersionedTransaction>,
 }
 
 /// `BlockCreationTimeout` reason for a view change.
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
 pub struct BlockCreationTimeout {
     /// A proof of the leader receiving and accepting a transaction.
     pub transaction_receipt: TransactionReceipt,
 }
 
 /// A chain of view change proofs. Stored in block for roles to be known at that point in history.
-#[derive(Clone, Debug, Io, Encode, Decode, Default)]
+#[derive(Clone, Debug, Io, Encode, Decode, Default, IntoSchema)]
 pub struct ProofChain {
     proofs: Vec<Proof>,
 }

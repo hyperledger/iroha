@@ -391,101 +391,6 @@ pub struct Status {
     pub blocks: u64,
 }
 
-pub mod world {
-    //! Structures, traits and impls related to `World`.
-    use iroha_schema::prelude::*;
-    use parity_scale_codec::{Decode, Encode};
-    use serde::{Deserialize, Serialize};
-
-    #[cfg(feature = "roles")]
-    use crate::role::RolesMap;
-    use crate::{
-        domain::{Domain, DomainsMap},
-        isi::Instruction,
-        peer::{Id as PeerId, PeersIds},
-        IdBox, Identifiable, IdentifiableBox, Name, Parameter,
-    };
-
-    /// The global entity consisting of `domains`, `triggers` and etc.
-    /// For example registration of domain, will have this as an ISI target.
-    #[derive(Debug, Default, Clone)]
-    pub struct World {
-        /// Registered domains.
-        pub domains: DomainsMap,
-        /// Identifications of discovered trusted peers.
-        pub trusted_peers_ids: PeersIds,
-        /// Iroha `Triggers` registered on the peer.
-        pub triggers: Vec<Instruction>,
-        /// Iroha parameters.
-        pub parameters: Vec<Parameter>,
-        /// Roles.
-        #[cfg(feature = "roles")]
-        pub roles: RolesMap,
-    }
-
-    impl World {
-        /// Creates an empty `World`.
-        #[inline]
-        pub fn new() -> Self {
-            Self::default()
-        }
-
-        /// Creates `World` with these `domains` and `trusted_peers_ids`
-        pub fn with(
-            domains: impl IntoIterator<Item = (Name, Domain)>,
-            trusted_peers_ids: impl IntoIterator<Item = PeerId>,
-        ) -> Self {
-            let domains = domains.into_iter().collect();
-            let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
-            World {
-                domains,
-                trusted_peers_ids,
-                ..World::new()
-            }
-        }
-    }
-
-    /// The ID of the `World`. The `World` has only a single instance, therefore the ID has no fields.
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Copy,
-        Serialize,
-        Deserialize,
-        Decode,
-        Encode,
-        IntoSchema,
-    )]
-    pub struct WorldId;
-
-    impl From<WorldId> for IdBox {
-        #[inline]
-        fn from(_: WorldId) -> IdBox {
-            IdBox::WorldId
-        }
-    }
-
-    impl Identifiable for World {
-        type Id = WorldId;
-    }
-
-    impl From<World> for IdentifiableBox {
-        #[inline]
-        fn from(_: World) -> Self {
-            IdentifiableBox::World
-        }
-    }
-
-    /// The prelude re-exports most commonly used traits, structs and macros from this crate.
-    pub mod prelude {
-        pub use super::{World, WorldId};
-    }
-}
-
 #[cfg(feature = "roles")]
 pub mod role {
     //! Structures, traits and impls related to `Role`s.
@@ -496,16 +401,11 @@ pub mod role {
         fmt::{Display, Formatter, Result as FmtResult},
     };
 
-    use dashmap::DashMap;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
     use crate::{permissions::PermissionToken, IdBox, Identifiable, IdentifiableBox, Name, Value};
-
-    /// `RolesMap` provides an API to work with collection of key (`Id`) - value
-    /// (`Role`) pairs.
-    pub type RolesMap = DashMap<Id, Role>;
 
     /// Identification of a role.
     #[derive(
@@ -705,15 +605,17 @@ pub mod account {
         metadata::Metadata,
         permissions::PermissionToken,
         transaction::Payload,
-        world::World,
         Identifiable, Name, PublicKey, Value,
     };
 
     /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
     /// (`Account`) pairs.
     pub type AccountsMap = BTreeMap<Id, Account>;
+
+    /// Collection of [`PermissionToken`]s
+    pub type Permissions = BTreeSet<PermissionToken>;
+
     type Signatories = Vec<PublicKey>;
-    type Permissions = BTreeSet<PermissionToken>;
 
     /// Genesis account name.
     pub const GENESIS_ACCOUNT_NAME: &str = "genesis";
@@ -1004,26 +906,6 @@ pub mod account {
         #[inline]
         pub fn insert_permission_token(&mut self, token: PermissionToken) -> bool {
             self.permission_tokens.insert(token)
-        }
-
-        /// Returns a set of permission tokens granted to this account as part of roles and separately.
-        #[cfg(feature = "roles")]
-        pub fn permission_tokens(&self, world: &World) -> Permissions {
-            let mut tokens = self.permission_tokens.clone();
-            for role_id in &self.roles {
-                if let Some(role) = world.roles.get(role_id) {
-                    let mut role_tokens = role.permissions.clone();
-                    tokens.append(&mut role_tokens);
-                }
-            }
-            tokens
-        }
-
-        /// Returns a set of permission tokens granted to this account as part of roles and separately.
-        #[cfg(not(feature = "roles"))]
-        #[inline]
-        pub fn permission_tokens(&self, _: &World) -> Permissions {
-            self.permission_tokens.clone()
         }
     }
 
@@ -1949,6 +1831,7 @@ pub mod transaction {
         Clone,
         iroha_derive::FromVariant,
         IntoSchema,
+        Eq
     );
 
     /// This structure represents transaction in non-trusted form.
@@ -2270,6 +2153,75 @@ pub mod transaction {
         }
     }
 
+    declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
+
+    impl VersionedValidTransaction {
+        /// Same as [`as_v1`](`VersionedValidTransaction::as_v1()`) but also does conversion
+        pub const fn as_inner_v1(&self) -> &ValidTransaction {
+            match self {
+                Self::V1(v1) => &v1.0,
+            }
+        }
+
+        /// Same as [`as_inner_v1`](`VersionedValidTransaction::as_inner_v1()`) but returns mutable reference
+        pub fn as_mut_inner_v1(&mut self) -> &mut ValidTransaction {
+            match self {
+                Self::V1(v1) => &mut v1.0,
+            }
+        }
+
+        /// Same as [`into_v1`](`VersionedValidTransaction::into_v1()`) but also does conversion
+        pub fn into_inner_v1(self) -> ValidTransaction {
+            match self {
+                Self::V1(v1) => v1.0,
+            }
+        }
+
+        /// Calculate transaction `Hash`.
+        pub fn hash(&self) -> HashOf<VersionedTransaction> {
+            self.as_inner_v1().hash().transmute()
+        }
+
+        /// # Errors
+        /// Asserts specific instruction number of instruction in transaction constraint
+        pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
+            self.as_inner_v1()
+                .check_instruction_len(max_instruction_len)
+        }
+
+        /// Returns payload of transaction
+        pub const fn payload(&self) -> &Payload {
+            &self.as_inner_v1().payload
+        }
+    }
+
+    /// `ValidTransaction` represents trustfull Transaction state.
+    #[version_with_scale(
+        n = 1,
+        versioned = "VersionedValidTransaction",
+        derive = "Debug, Clone, iroha_schema::IntoSchema"
+    )]
+    #[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
+    pub struct ValidTransaction {
+        /// [`ValidTransaction`]'s payload.
+        pub payload: Payload,
+        /// [`ValidTransaction`]'s [`Signature`]s.
+        pub signatures: SignaturesOf<Payload>,
+    }
+
+    impl ValidTransaction {
+        /// # Errors
+        /// Asserts specific instruction number of instruction in transaction constraint
+        pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
+            self.payload.check_instruction_len(max_instruction_len)
+        }
+
+        /// Calculate transaction `Hash`.
+        pub fn hash(&self) -> HashOf<Transaction> {
+            HashOf::new(&self.payload).transmute()
+        }
+    }
+
     declare_versioned!(VersionedRejectedTransaction 1..2, iroha_derive::FromVariant, Clone, Debug, IntoSchema);
 
     impl VersionedRejectedTransaction {
@@ -2325,8 +2277,6 @@ pub mod transaction {
         }
     }
 
-    impl Eq for VersionedTransaction {}
-
     impl PartialEq for VersionedTransaction {
         fn eq(&self, other: &Self) -> bool {
             use VersionedTransaction::*;
@@ -2337,17 +2287,39 @@ pub mod transaction {
         }
     }
 
+    impl From<VersionedValidTransaction> for VersionedTransaction {
+        fn from(transaction: VersionedValidTransaction) -> Self {
+            match transaction {
+                VersionedValidTransaction::V1(v1) => {
+                    let transaction: ValidTransaction = v1.0;
+
+                    let signatures = transaction
+                        .signatures
+                        .values()
+                        .iter()
+                        .cloned()
+                        .collect::<BTreeSet<_>>();
+                    let tx = Transaction {
+                        payload: transaction.payload,
+                        signatures,
+                    };
+                    tx.into()
+                }
+            }
+        }
+    }
+
     /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
     #[version(
         n = 1,
         versioned = "VersionedRejectedTransaction",
-        derive = "Debug, Clone, IntoSchema"
+        derive = "Debug, Clone, iroha_schema::IntoSchema"
     )]
     #[derive(
         Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
     )]
     pub struct RejectedTransaction {
-        /// [`Transaction`] payload.
+        /// [`Transaction`]'s payload.
         pub payload: Payload,
         /// [`Transaction`]'s [`Signature`]s.
         pub signatures: SignaturesOf<Payload>,
@@ -2372,7 +2344,8 @@ pub mod transaction {
     pub mod prelude {
         pub use super::{
             Payload, PendingTransactions, RejectedTransaction, Transaction, TransactionValue,
-            VersionedPendingTransactions, VersionedRejectedTransaction, VersionedTransaction,
+            ValidTransaction, VersionedPendingTransactions, VersionedRejectedTransaction,
+            VersionedTransaction, VersionedValidTransaction,
         };
     }
 }
@@ -2742,8 +2715,8 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, current_time, domain::prelude::*,
         fixed::prelude::*, pagination::prelude::*, peer::prelude::*, transaction::prelude::*,
-        world::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, Status,
-        TryAsMut, TryAsRef, Value,
+        Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, Status, TryAsMut, TryAsRef,
+        Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

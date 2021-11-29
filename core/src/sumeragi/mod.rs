@@ -926,6 +926,7 @@ pub mod message {
     use iroha_derive::*;
     use iroha_logger::Instrument;
     use iroha_p2p::Post;
+    use iroha_schema::IntoSchema;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use tokio::{task, time};
@@ -1498,7 +1499,7 @@ pub mod message {
     }
 
     /// `Message` structure describing a receipt sent by the leader to the peer it got this transaction from.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[derive(Io, Decode, Encode, Debug, Clone, IntoSchema)]
     #[non_exhaustive]
     pub struct TransactionReceipt {
         /// The hash of the transaction that the leader received.

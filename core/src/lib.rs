@@ -27,7 +27,6 @@ use iroha_logger::{FutureTelemetry, SubstrateTelemetry};
 use parity_scale_codec::{Decode, Encode};
 use smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed};
 use tokio::{sync::broadcast, task::JoinHandle};
-use wsv::{World, WorldTrait};
 
 use crate::{
     block::VersionedValidBlock,
@@ -41,6 +40,7 @@ use crate::{
     queue::Queue,
     sumeragi::{message::VersionedMessage as SumeragiMessage, Sumeragi, SumeragiTrait},
     torii::Torii,
+    wsv::WorldTrait,
 };
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
@@ -375,7 +375,7 @@ pub mod prelude {
             AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,
             VersionedValidTransaction,
         },
-        wsv::WorldStateView,
+        wsv::{World, WorldStateView},
         IsInBlockchain,
     };
 }

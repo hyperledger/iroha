@@ -178,8 +178,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let account_id = self.id.evaluate(wsv, &Context::new())?;
             let tokens = wsv.map_account(&account_id, |account| {
-                account
-                    .permission_tokens(&wsv.world)
+                wsv.account_permission_tokens(account)
                     .iter()
                     .cloned()
                     .collect::<Vec<_>>()
