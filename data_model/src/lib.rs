@@ -374,6 +374,7 @@ impl LengthLimits {
 }
 
 impl From<LengthLimits> for RangeInclusive<usize> {
+	#[inline]
     fn from(limits: LengthLimits) -> Self {
         RangeInclusive::new(limits.min as usize, limits.max as usize)
     }
@@ -421,6 +422,7 @@ pub mod world {
 
     impl World {
         /// Creates an empty `World`.
+		#[inline]
         pub fn new() -> Self {
             Self::default()
         }
@@ -458,6 +460,7 @@ pub mod world {
     pub struct WorldId;
 
     impl From<WorldId> for IdBox {
+		#[inline]
         fn from(_: WorldId) -> IdBox {
             IdBox::WorldId
         }
@@ -468,6 +471,7 @@ pub mod world {
     }
 
     impl From<World> for IdentifiableBox {
+		#[inline]
         fn from(_: World) -> Self {
             IdentifiableBox::World
         }
@@ -522,18 +526,21 @@ pub mod role {
 
     impl Id {
         /// Constructor.
+		#[inline]
         pub fn new(name: impl Into<Name>) -> Self {
             Id { name: name.into() }
         }
     }
 
     impl From<Name> for Id {
+		#[inline]
         fn from(name: Name) -> Self {
             Id::new(name)
         }
     }
 
     impl From<Id> for Value {
+		#[inline]
         fn from(id: Id) -> Self {
             Value::Id(IdBox::RoleId(id))
         }
@@ -542,6 +549,7 @@ pub mod role {
     impl TryFrom<Value> for Id {
         type Error = iroha_macro::error::ErrorTryFromEnum<Value, Id>;
 
+		#[inline]
         fn try_from(value: Value) -> Result<Self, Self::Error> {
             if let Value::Id(IdBox::RoleId(id)) = value {
                 Ok(id)
@@ -558,6 +566,7 @@ pub mod role {
     }
 
     impl From<Role> for Value {
+		#[inline]
         fn from(role: Role) -> Self {
             IdentifiableBox::from(Box::new(role)).into()
         }
@@ -566,6 +575,7 @@ pub mod role {
     impl TryFrom<Value> for Role {
         type Error = iroha_macro::error::ErrorTryFromEnum<Value, Role>;
 
+		#[inline]
         fn try_from(value: Value) -> Result<Self, Self::Error> {
             if let Value::Identifiable(IdentifiableBox::Role(role)) = value {
                 Ok(*role)
@@ -598,6 +608,7 @@ pub mod role {
 
     impl Role {
         /// Constructor.
+		#[inline]
         pub fn new(id: impl Into<Id>, permissions: impl Into<BTreeSet<PermissionToken>>) -> Role {
             Role {
                 id: id.into(),
@@ -650,6 +661,7 @@ pub mod permissions {
 
     impl PermissionToken {
         /// Constructor.
+		#[inline]
         pub fn new(name: impl Into<Name>, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
             let params = params.into_iter().collect();
             let name = name.into();
@@ -723,6 +735,7 @@ pub mod account {
     }
 
     impl From<GenesisAccount> for Account {
+		#[inline]
         fn from(account: GenesisAccount) -> Self {
             Account::with_signatory(Id::genesis_account(), account.public_key)
         }
@@ -747,6 +760,7 @@ pub mod account {
 
     impl SignatureCheckCondition {
         /// Gets reference to the raw `ExpressionBox`.
+		#[inline]
         pub const fn as_expression(&self) -> &ExpressionBox {
             let Self(condition) = self;
             &condition.expression
@@ -754,6 +768,7 @@ pub mod account {
     }
 
     impl From<EvaluatesTo<bool>> for SignatureCheckCondition {
+		#[inline]
         fn from(condition: EvaluatesTo<bool>) -> Self {
             SignatureCheckCondition(condition)
         }
@@ -761,6 +776,7 @@ pub mod account {
 
     /// Default signature condition check for accounts. Returns true if any of the signatories have signed a transaction.
     impl Default for SignatureCheckCondition {
+		#[inline]
         fn default() -> Self {
             Self(
                 ContainsAny::new(
@@ -797,6 +813,7 @@ pub mod account {
     }
 
     impl From<NewAccount> for Account {
+		#[inline]
         fn from(account: NewAccount) -> Self {
             let NewAccount {
                 id,
@@ -818,6 +835,7 @@ pub mod account {
 
     impl NewAccount {
         /// Default `NewAccount` constructor.
+		#[inline]
         pub fn new(id: Id) -> Self {
             Self {
                 id,
@@ -827,6 +845,7 @@ pub mod account {
         }
 
         /// Account with single `signatory` constructor.
+		#[inline]
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
             let signatories = vec![signatory];
             Self {
@@ -878,12 +897,14 @@ pub mod account {
     }
 
     impl PartialOrd for Account {
+		#[inline]
         fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
             self.id.partial_cmp(&other.id)
         }
     }
 
     impl Ord for Account {
+		#[inline]
         fn cmp(&self, other: &Self) -> std::cmp::Ordering {
             self.id.cmp(&other.id)
         }
@@ -922,6 +943,7 @@ pub mod account {
 
     impl Account {
         /// Default [`Account`] constructor.
+		#[inline]
         pub fn new(id: Id) -> Self {
             Account {
                 id,
@@ -936,6 +958,7 @@ pub mod account {
         }
 
         /// Account with single `signatory` constructor.
+		#[inline]
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
             let signatories = vec![signatory];
             Account {
@@ -975,6 +998,7 @@ pub mod account {
         }
 
         /// Inserts permission token into account.
+		#[inline]
         pub fn insert_permission_token(&mut self, token: PermissionToken) -> bool {
             self.permission_tokens.insert(token)
         }
@@ -994,6 +1018,7 @@ pub mod account {
 
         /// Returns a set of permission tokens granted to this account as part of roles and separately.
         #[cfg(not(feature = "roles"))]
+		#[inline]
         pub fn permission_tokens(&self, _: &World) -> Permissions {
             self.permission_tokens.clone()
         }
@@ -1002,6 +1027,7 @@ pub mod account {
     impl Id {
         /// `Id` constructor used to easily create an `Id` from two string slices - one for the
         /// account's name, another one for the container's name.
+		#[inline]
         pub fn new(name: &str, domain_name: &str) -> Self {
             Id {
                 name: name.to_owned(),
@@ -1010,6 +1036,7 @@ pub mod account {
         }
 
         /// `Id` of the genesis account.
+		#[inline]
         pub fn genesis_account() -> Self {
             Id {
                 name: GENESIS_ACCOUNT_NAME.to_owned(),
@@ -1111,12 +1138,14 @@ pub mod asset {
     }
 
     impl PartialOrd for AssetDefinitionEntry {
+		#[inline]
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
             Some(self.definition.cmp(&other.definition))
         }
     }
 
     impl Ord for AssetDefinitionEntry {
+		#[inline]
         fn cmp(&self, other: &Self) -> Ordering {
             self.definition.cmp(&other.definition)
         }
@@ -1304,12 +1333,14 @@ pub mod asset {
     }
 
     impl PartialOrd for Asset {
+		#[inline]
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
             Some(self.id.cmp(&other.id))
         }
     }
 
     impl Ord for Asset {
+		#[inline]
         fn cmp(&self, other: &Self) -> Ordering {
             self.id.cmp(&other.id)
         }
@@ -1371,6 +1402,7 @@ pub mod asset {
 
     impl AssetDefinition {
         /// Default [`AssetDefinition`] constructor.
+		#[inline]
         pub fn new(id: DefinitionId, value_type: AssetValueType, mintable: bool) -> Self {
             AssetDefinition {
                 value_type,
@@ -1381,41 +1413,49 @@ pub mod asset {
         }
 
         /// Asset definition with quantity asset value type.
+		#[inline]
         pub fn new_quantity(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Quantity, true)
         }
 
         /// Token definition with quantity asset value type.
+		#[inline]
         pub fn new_quantity_token(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::BigQuantity, true)
         }
 
         /// Asset definition with big quantity asset value type.
+		#[inline]
         pub fn new_big_quantity(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::BigQuantity, true)
         }
 
         /// Token definition with big quantity asset value type.
+		#[inline]
         pub fn new_bin_quantity_token(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::BigQuantity, false)
         }
 
         /// Asset definition with decimal quantity asset value type.
+		#[inline]
         pub fn with_precision(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Fixed, true)
         }
 
         /// Token definition with decimal quantity asset value type.
+		#[inline]
         pub fn with_precision_token(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Fixed, true)
         }
 
         /// Asset definition with store asset value type.
+		#[inline]
         pub fn new_store(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Store, true)
         }
 
         /// Token definition with store asset value type.
+		#[inline]
         pub fn new_store_token(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Store, false)
         }
@@ -1448,6 +1488,7 @@ pub mod asset {
         }
 
         /// `Asset` with `quantity` value constructor.
+		#[inline]
         pub fn with_quantity(id: Id, quantity: u32) -> Self {
             Asset {
                 id,
@@ -1456,6 +1497,7 @@ pub mod asset {
         }
 
         /// `Asset` with `big_quantity` value constructor.
+		#[inline]
         pub fn with_big_quantity(id: Id, big_quantity: u128) -> Self {
             Asset {
                 id,
@@ -1493,6 +1535,7 @@ pub mod asset {
     {
         type Error = Error;
 
+		#[inline]
         fn try_as_mut(&mut self) -> Result<&mut T> {
             self.value.try_as_mut()
         }
@@ -1504,6 +1547,7 @@ pub mod asset {
     {
         type Error = Error;
 
+		#[inline]
         fn try_as_ref(&self) -> Result<&T> {
             self.value.try_as_ref()
         }
@@ -1512,6 +1556,7 @@ pub mod asset {
     impl DefinitionId {
         /// [`Id`] constructor used to easily create an [`Id`] from three string slices - one for the
         /// asset definition's name, another one for the domain's name.
+		#[inline]
         pub fn new(name: &str, domain_name: &str) -> Self {
             DefinitionId {
                 name: name.to_owned(),
@@ -1523,6 +1568,7 @@ pub mod asset {
     impl Id {
         /// [`Id`] constructor used to easily create an [`Id`] from an names of asset definition and
         /// account.
+		#[inline]
         pub fn from_names(
             asset_definition_name: &str,
             asset_definition_domain_name: &str,
@@ -1540,6 +1586,7 @@ pub mod asset {
 
         /// [`Id`] constructor used to easily create an [`Id`] from an [`DefinitionId`](`crate::asset::DefinitionId`) and
         /// an [`AccountId`].
+		#[inline]
         pub const fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
             Id {
                 definition_id,
@@ -1651,6 +1698,7 @@ pub mod domain {
 
     impl GenesisDomain {
         /// Returns `GenesisDomain`.
+		#[inline]
         pub const fn new(genesis_key: PublicKey) -> Self {
             Self { genesis_key }
         }
@@ -1694,12 +1742,14 @@ pub mod domain {
     }
 
     impl PartialOrd for Domain {
+		#[inline]
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
             Some(self.name.cmp(&other.name))
         }
     }
 
     impl Ord for Domain {
+		#[inline]
         fn cmp(&self, other: &Self) -> Ordering {
             self.name.cmp(&other.name)
         }
@@ -1828,6 +1878,7 @@ pub mod peer {
 
     impl Peer {
         /// Construct `Peer` given `id`.
+		#[inline]
         pub const fn new(id: Id) -> Self {
             Peer { id }
         }
@@ -1839,6 +1890,7 @@ pub mod peer {
 
     impl Id {
         /// Construct `Id` given `public_key` and `address`.
+		#[inline]
         pub fn new(address: &str, public_key: &PublicKey) -> Self {
             Id {
                 address: address.to_owned(),
@@ -1944,6 +1996,7 @@ pub mod transaction {
         }
 
         /// Same as [`as_inner_v1`](`VersionedTransaction::as_inner_v1()`) but returns mutable reference
+		#[inline]
         pub fn as_mut_inner_v1(&mut self) -> &mut Transaction {
             match self {
                 Self::V1(v1) => &mut v1.0,
@@ -1951,6 +2004,7 @@ pub mod transaction {
         }
 
         /// Same as [`into_v1`](`VersionedTransaction::into_v1()`) but also does conversion
+		#[inline]
         pub fn into_inner_v1(self) -> Transaction {
             match self {
                 Self::V1(v1) => v1.0,
@@ -1958,6 +2012,7 @@ pub mod transaction {
         }
 
         /// Default [`Transaction`] constructor.
+		#[inline]
         pub fn new(
             instructions: Vec<Instruction>,
             account_id: <Account as Identifiable>::Id,
@@ -1989,6 +2044,7 @@ pub mod transaction {
         }
 
         /// Returns payload of transaction
+		#[inline]
         pub const fn payload(&self) -> &Payload {
             match self {
                 Self::V1(v1) => &v1.0.payload,
@@ -1998,6 +2054,7 @@ pub mod transaction {
 
     impl Transaction {
         /// Default [`Transaction`] constructor.
+		#[inline]
         pub fn new(
             instructions: Vec<Instruction>,
             account_id: <Account as Identifiable>::Id,
@@ -2013,6 +2070,7 @@ pub mod transaction {
         }
 
         /// [`Transaction`] constructor with nonce.
+		#[inline]
         pub fn with_nonce(
             instructions: Vec<Instruction>,
             account_id: <Account as Identifiable>::Id,
@@ -2029,6 +2087,7 @@ pub mod transaction {
         }
 
         /// [`Transaction`] constructor with metadata.
+		#[inline]
         pub fn with_metadata(
             instructions: Vec<Instruction>,
             account_id: <Account as Identifiable>::Id,

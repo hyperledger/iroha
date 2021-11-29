@@ -54,6 +54,7 @@ impl Fixed {
         *self.0.as_bits() == Base::ZERO
     }
 
+	#[inline]
     fn valid(self) -> Result<Self, FixedPointOperationError> {
         if self > Self::ZERO || self.is_zero() {
             Ok(self)
@@ -102,6 +103,7 @@ pub enum FixedPointOperationError {
 }
 
 impl From<ArithmeticError> for FixedPointOperationError {
+	#[inline]
     fn from(err: ArithmeticError) -> Self {
         Self::Arithmetic(err)
     }
@@ -110,6 +112,7 @@ impl From<ArithmeticError> for FixedPointOperationError {
 impl TryFrom<f64> for Fixed {
     type Error = FixedPointOperationError;
 
+	#[inline]
     fn try_from(value: f64) -> Result<Self, Self::Error> {
         match FixNum::try_from(value) {
             Ok(n) => Fixed(n).valid(),
@@ -119,6 +122,7 @@ impl TryFrom<f64> for Fixed {
 }
 
 impl PartialEq for Fixed {
+	#[inline]
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
@@ -131,16 +135,19 @@ impl PartialOrd for Fixed {
 }
 
 impl Ord for Fixed {
+	#[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.0.cmp(&other.0)
     }
 }
 
 impl Encode for Fixed {
+	#[inline]
     fn size_hint(&self) -> usize {
         size_of::<Base>()
     }
 
+	#[inline]
     fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
         let bits = self.0.into_bits();
         let buf = bits.to_le_bytes();
@@ -149,6 +156,7 @@ impl Encode for Fixed {
 }
 
 impl Decode for Fixed {
+	#[inline]
     fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
         let mut buf = [0_u8; size_of::<Base>()];
         input.read(&mut buf)?;
@@ -156,6 +164,7 @@ impl Decode for Fixed {
         Ok(Fixed(FixedPoint::from_bits(value)))
     }
 
+	#[inline]
     fn encoded_fixed_size() -> Option<usize> {
         Some(size_of::<Base>())
     }
