@@ -1,7 +1,5 @@
 //! Types used for Fixed-point operations. Uses [`fixnum::FixedPoint`].
-#![allow(variant_size_differences)]
 
-use core::cmp::Ordering;
 use std::{convert::TryFrom, mem::size_of};
 
 use fixnum::{
@@ -30,7 +28,7 @@ pub type FixNum = FixedPoint<Base, U9>;
 
 /// An encapsulation of [`Fixed`] in encodable form. [`Fixed`] values
 /// should never become negative.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, IntoSchema, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, IntoSchema, PartialEq, Ord, PartialOrd, Eq)]
 pub struct Fixed(FixNum);
 
 impl Fixed {
@@ -54,7 +52,7 @@ impl Fixed {
         *self.0.as_bits() == Base::ZERO
     }
 
-	#[inline]
+    #[inline]
     fn valid(self) -> Result<Self, FixedPointOperationError> {
         if self > Self::ZERO || self.is_zero() {
             Ok(self)
@@ -90,20 +88,21 @@ impl Fixed {
 
 /// Custom error type for Fixed point operation errors.
 #[derive(Debug, Clone, Error)]
+#[allow(variant_size_differences)]
 pub enum FixedPointOperationError {
     /// All [`Fixed`] values should be positive.
     #[error("Negative value {0}")]
     NegativeValue(FixNum),
     /// Conversion failed.
     #[error("Failed to produce fixed point number")]
-    FixNum(#[source] ConvertError),
+    Conversion(#[source] ConvertError),
     /// The arithmetic operation failed.
     #[error("Arithmetic error")]
     Arithmetic(#[source] ArithmeticError),
 }
 
 impl From<ArithmeticError> for FixedPointOperationError {
-	#[inline]
+    #[inline]
     fn from(err: ArithmeticError) -> Self {
         Self::Arithmetic(err)
     }
@@ -112,42 +111,22 @@ impl From<ArithmeticError> for FixedPointOperationError {
 impl TryFrom<f64> for Fixed {
     type Error = FixedPointOperationError;
 
-	#[inline]
+    #[inline]
     fn try_from(value: f64) -> Result<Self, Self::Error> {
         match FixNum::try_from(value) {
             Ok(n) => Fixed(n).valid(),
-            Err(e) => Err(FixedPointOperationError::FixNum(e)),
+            Err(e) => Err(FixedPointOperationError::Conversion(e)),
         }
     }
 }
 
-impl PartialEq for Fixed {
-	#[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl PartialOrd for Fixed {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.0.partial_cmp(&other.0)
-    }
-}
-
-impl Ord for Fixed {
-	#[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
-    }
-}
-
 impl Encode for Fixed {
-	#[inline]
+    #[inline]
     fn size_hint(&self) -> usize {
         size_of::<Base>()
     }
 
-	#[inline]
+    #[inline]
     fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
         let bits = self.0.into_bits();
         let buf = bits.to_le_bytes();
@@ -156,7 +135,7 @@ impl Encode for Fixed {
 }
 
 impl Decode for Fixed {
-	#[inline]
+    #[inline]
     fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
         let mut buf = [0_u8; size_of::<Base>()];
         input.read(&mut buf)?;
@@ -164,7 +143,7 @@ impl Decode for Fixed {
         Ok(Fixed(FixedPoint::from_bits(value)))
     }
 
-	#[inline]
+    #[inline]
     fn encoded_fixed_size() -> Option<usize> {
         Some(size_of::<Base>())
     }

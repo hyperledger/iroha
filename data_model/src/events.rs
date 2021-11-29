@@ -366,7 +366,7 @@ pub mod pipeline {
         IntoSchema,
     )]
     pub enum TransactionRejectionReason {
-        /// Insufficient authorisation. 
+        /// Insufficient authorisation.
         #[error("Transaction rejected due to insufficient authorisation")]
         NotPermitted(#[source] NotPermittedFail),
         /// Failed to verify signature condition specified in the account.
