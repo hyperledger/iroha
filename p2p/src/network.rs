@@ -15,7 +15,7 @@ use iroha_crypto::{
     ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme},
     PublicKey,
 };
-use iroha_logger::{debug, error, info, warn};
+use iroha_logger::{debug, error, info, log, warn};
 use parity_scale_codec::{Decode, Encode};
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -276,10 +276,10 @@ where
 {
     type Result = ();
 
+    #[log]
     async fn handle(&mut self, msg: PeerMessage<T>) {
         use PeerMessage::*;
 
-        debug!(?msg);
         match msg {
             Connected(id, conn_id) => {
                 if let Some(addr) = self.new_peers.remove(&conn_id) {

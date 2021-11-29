@@ -72,8 +72,8 @@ pub enum Error {
     /// Failed to push into queue.
     #[error("Failed to push into queue")]
     PushIntoQueue(#[source] Box<queue::Error>),
-    /// Error while getting or setting configuration
-    #[error("Failed to get network status")]
+    /// Error while getting status
+    #[error("Failed to get status")]
     Status(#[source] iroha_actor::Error),
 }
 
@@ -240,12 +240,12 @@ impl<W: WorldTrait> Torii<W> {
         match self.iroha_cfg.torii.api_url.to_socket_addrs() {
             Ok(mut i) => {
                 #[allow(clippy::expect_used)]
-                let addr = i.next().expect("Failed to get socket addr");
+                let addr = i.next().expect("ToSocketAddrs iteration failed");
                 warp::serve(router).run(addr).await;
                 Ok(())
             }
             Err(error) => {
-                iroha_logger::error!(%error, "Failed to get socket addr");
+                iroha_logger::error!(%error, "API address configuration parse error");
                 Err(eyre::Error::new(error))
             }
         }
@@ -266,12 +266,12 @@ async fn start_status<W: WorldTrait>(state: ToriiState<W>) -> eyre::Result<()> {
     match state.iroha_cfg.torii.status_url.to_socket_addrs() {
         Ok(mut i) => {
             #[allow(clippy::expect_used)]
-            let addr = i.next().expect("Failed to get socket addr");
+            let addr = i.next().expect("ToSocketAddrs iteration failed");
             warp::serve(router).run(addr).await;
             Ok(())
         }
         Err(e) => {
-            iroha_logger::error!("Failed to get socket addr");
+            iroha_logger::error!("Status address configuration parse error");
             Err(eyre::Error::new(e))
         }
     }
@@ -445,7 +445,7 @@ pub mod uri {
     pub const STATUS: &str = "status";
     // TODO /// Metrics URI is used to export metrics according to [Prometheus
     // /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
-    // pub const METRICS: &str = "/metrics";
+    // pub const METRICS: &str = "metrics";
 }
 
 /// This module contains all configuration related logic.
@@ -457,13 +457,13 @@ pub mod config {
     pub const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
     /// Default socket for listening on external requests
     pub const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
-    /// Default socket for reporting internal metrics
+    /// Default socket for reporting internal status
     pub const DEFAULT_TORII_STATUS_URL: &str = "127.0.0.1:8180";
     /// Default maximum size of single transaction
     pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
     /// Default maximum instruction number
     pub const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
-    /// Default maximum size of [`Sumeragi`] message size
+    /// Default maximum [`Sumeragi`] message size
     pub const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.

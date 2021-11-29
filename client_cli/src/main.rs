@@ -70,15 +70,15 @@ pub struct Args {
 
 #[derive(StructOpt, Debug)]
 pub enum Subcommand {
-    /// Use this command to work with Domain Entities in Iroha Peer
+    /// The subcommand related to domains
     Domain(domain::Args),
-    /// Use this command to work with Account Entities in Iroha Peer
+    /// The subcommand related to accounts
     Account(account::Args),
-    /// Use this command to work with Assets in Iroha Peer
+    /// The subcommand related to assets
     Asset(asset::Args),
-    /// Use this command to work with another Iroha Peer
+    /// The subcommand related to p2p networking
     Peer(peer::Args),
-    /// Use this command to listen to Iroha events over the streaming API
+    /// The subcommand related to event streaming
     Events(events::Args),
 }
 
