@@ -663,7 +663,7 @@ Has type `String`. Can be configured via environment variable `TORII_P2P_ADDR`
 
 ### `torii.status_url`
 
-Torii URL for reporting status for administration.
+Torii URL for reporting internal status for administration.
 
 Has type `String`. Can be configured via environment variable `TORII_STATUS_URL`
 

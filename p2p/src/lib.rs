@@ -7,7 +7,7 @@ use std::{io, net::AddrParseError};
 use iroha_crypto::ursa::{
     encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256, CryptoError,
 };
-pub use network::{ConnectPeer, NetworkBase, Post};
+pub use network::{ConnectPeer, DisconnectPeer, NetworkBase, Post};
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 

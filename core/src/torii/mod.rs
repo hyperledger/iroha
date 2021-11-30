@@ -29,7 +29,7 @@ use crate::{
         permissions::IsQueryAllowedBoxed,
     },
     wsv::WorldTrait,
-    Configuration,
+    Addr, Configuration, IrohaNetwork,
 };
 
 /// Main network handler and the only entrypoint of the Iroha.
@@ -39,6 +39,7 @@ pub struct Torii<W: WorldTrait> {
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     queue: Arc<Queue>,
+    network: Addr<IrohaNetwork>,
 }
 
 /// Torii errors.
@@ -128,6 +129,7 @@ impl<W: WorldTrait> Torii<W> {
         queue: Arc<Queue>,
         query_validator: Arc<IsQueryAllowedBoxed<W>>,
         events: EventsSender,
+        network: Addr<IrohaNetwork>,
     ) -> Self {
         Self {
             iroha_cfg,
@@ -135,6 +137,7 @@ impl<W: WorldTrait> Torii<W> {
             events,
             query_validator,
             queue,
+            network,
         }
     }
 
@@ -144,12 +147,14 @@ impl<W: WorldTrait> Torii<W> {
         let queue = Arc::clone(&self.queue);
         let iroha_cfg = self.iroha_cfg.clone();
         let query_validator = Arc::clone(&self.query_validator);
+        let network = self.network.clone();
 
         Arc::new(InnerToriiState {
             iroha_cfg,
             wsv,
             queue,
             query_validator,
+            network,
         })
     }
 
@@ -235,12 +240,12 @@ impl<W: WorldTrait> Torii<W> {
         match self.iroha_cfg.torii.api_url.to_socket_addrs() {
             Ok(mut i) => {
                 #[allow(clippy::expect_used)]
-                let addr = i.next().expect("Failed to get socket addr");
+                let addr = i.next().expect("ToSocketAddrs iteration failed");
                 warp::serve(router).run(addr).await;
                 Ok(())
             }
             Err(error) => {
-                iroha_logger::error!(%error, "Failed to get socket addr");
+                iroha_logger::error!(%error, "API address configuration parse error");
                 Err(eyre::Error::new(error))
             }
         }
@@ -261,12 +266,12 @@ async fn start_status<W: WorldTrait>(state: ToriiState<W>) -> eyre::Result<()> {
     match state.iroha_cfg.torii.status_url.to_socket_addrs() {
         Ok(mut i) => {
             #[allow(clippy::expect_used)]
-            let addr = i.next().expect("Failed to get socket addr");
+            let addr = i.next().expect("ToSocketAddrs iteration failed");
             warp::serve(router).run(addr).await;
             Ok(())
         }
         Err(e) => {
-            iroha_logger::error!("Failed to get socket addr");
+            iroha_logger::error!("Status address configuration parse error");
             Err(eyre::Error::new(e))
         }
     }
@@ -277,6 +282,7 @@ struct InnerToriiState<W: WorldTrait> {
     wsv: Arc<WorldStateView<W>>,
     queue: Arc<Queue>,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
+    network: Addr<IrohaNetwork>,
 }
 
 type ToriiState<W> = Arc<InnerToriiState<W>>;
@@ -402,9 +408,16 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::R
     Ok(())
 }
 
-#[allow(clippy::unused_async)]
 async fn handle_status<W: WorldTrait>(state: ToriiState<W>) -> Result<Json> {
+    let peers = state
+        .network
+        .send(iroha_p2p::network::GetConnectedPeers)
+        .await
+        .map_err(Error::Status)?
+        .peers
+        .len() as u64;
     let status = Status {
+        peers,
         blocks: state.wsv.height(),
     };
     Ok(reply::json(&status))
@@ -463,7 +476,7 @@ pub mod config {
         pub p2p_addr: String,
         /// Torii URL for client API.
         pub api_url: String,
-        /// Torii URL for reporting status for administration.
+        /// Torii URL for reporting internal status for administration.
         pub status_url: String,
         /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
         pub max_transaction_size: usize,
@@ -494,6 +507,7 @@ mod tests {
     use std::{convert::TryInto, time::Duration};
 
     use futures::future::FutureExt;
+    use iroha_actor::{broker::Broker, Actor};
     use tokio::time;
 
     use super::*;
@@ -504,7 +518,6 @@ mod tests {
         wsv::World,
     };
 
-    #[allow(clippy::unused_async)]
     async fn create_torii() -> (Torii<World>, KeyPair) {
         let config = get_config(get_trusted_peers(None), None);
         let (events, _) = tokio::sync::broadcast::channel(100);
@@ -526,9 +539,26 @@ mod tests {
             ),
         );
         let queue = Arc::new(Queue::from_configuration(&config.queue));
+        let network = IrohaNetwork::new(
+            Broker::new(),
+            config.torii.p2p_addr.clone(),
+            config.public_key.clone(),
+            config.network.mailbox,
+        )
+        .await
+        .expect("Failed to create network")
+        .start()
+        .await;
 
         (
-            Torii::from_configuration(config, wsv, queue, Arc::new(AllowAll.into()), events),
+            Torii::from_configuration(
+                config,
+                wsv,
+                queue,
+                Arc::new(AllowAll.into()),
+                events,
+                network,
+            ),
             keys,
         )
     }
@@ -947,50 +977,5 @@ mod tests {
             .status(StatusCode::NOT_FOUND)
             .assert()
             .await
-    }
-
-    #[tokio::test]
-    async fn status_committed_block() {
-        use iroha_crypto::HashOf;
-
-        use crate::sumeragi::view_change;
-
-        const BLOCKS: u64 = 20;
-
-        let (torii, keys) = create_torii().await;
-        let state = torii.create_state();
-
-        let get_router = endpoint1(
-            handle_status,
-            warp::path(uri::STATUS).and(add_state(Arc::clone(&state))),
-        );
-        let router = warp::get().and(get_router);
-
-        // Modify number of committed blocks
-        let mut hash = HashOf::new(&()).transmute::<VersionedCommittedBlock>();
-        for height in 0..BLOCKS {
-            let block = PendingBlock::new(Vec::new());
-            let block = match height {
-                0 => block.chain_first(),
-                _ => block.chain(height, hash, view_change::ProofChain::empty(), Vec::new()),
-            };
-            let block = block
-                .validate(&state.wsv, &AllowAll.into(), &AllowAll.into())
-                .sign(keys.clone())
-                .expect("Failed to sign blocks")
-                .commit();
-            hash = block.hash();
-            state.wsv.apply(block).await;
-        }
-
-        // GET Request
-        let response = warp::test::request()
-            .method("GET")
-            .path("/status")
-            .reply(&router)
-            .await;
-        let response_body: Status = serde_json::from_slice(response.body()).unwrap();
-
-        assert_eq!(response_body.blocks, BLOCKS);
     }
 }

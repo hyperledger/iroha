@@ -41,7 +41,10 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         IdBox::AccountId(account_id.clone()),
     );
 
-    let mut client_configuration = ClientConfiguration::test(&network.genesis.api_address);
+    let mut client_configuration = ClientConfiguration::test(
+        &network.genesis.api_address,
+        &network.genesis.status_address,
+    );
     let mut iroha_client = Client::new(&client_configuration);
     iroha_client
         .submit_all(vec![

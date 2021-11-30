@@ -1682,6 +1682,7 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
+ "tracing",
  "unique_port",
 ]
 

@@ -44,7 +44,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     thread::sleep(pipeline_time);
 
     //Then
-    client::Client::test(&network.peers.values().last().unwrap().api_address).poll_request(
+    let peer = network.peers.values().last().unwrap();
+    client::Client::test(&peer.api_address, &peer.status_address).poll_request(
         client::asset::by_account_id(account_id),
         |result| {
             result.iter().any(|asset| {

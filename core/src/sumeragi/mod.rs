@@ -18,7 +18,7 @@ use iroha_data_model::{
     current_time, events::Event, peer::Id as PeerId, transaction::VersionedTransaction,
 };
 use iroha_logger::Instrument;
-use iroha_p2p::ConnectPeer;
+use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use network_topology::{Role, Topology};
 use rand::prelude::SliceRandom;
 use tokio::{sync::RwLock, task, time};
@@ -61,7 +61,7 @@ pub struct Voting;
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
 pub struct Gossip;
 
-/// Message reminder for peer (re)connection.
+/// Message reminder for peer (re/dis)connection.
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
 pub struct ConnectPeers;
 
@@ -241,7 +241,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait> SumeragiTra
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(200);
 /// The interval at which sumeragi forwards txs from `queue` to other peers.
 pub const TX_GOSSIP_INTERVAL: Duration = Duration::from_millis(100);
-/// The interval of peers (re)connection.
+/// The interval of peers (re/dis)connection.
 pub const PEERS_CONNECT_INTERVAL: Duration = Duration::from_secs(1);
 /// The interval of telemetry updates.
 pub const TELEMETRY_INTERVAL: Duration = Duration::from_secs(5);
@@ -441,7 +441,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
     }
 
     /// Updates network topology by taking the actual list of peers from `WorldStateView`.
-    /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
+    /// Updates it only if there is a change in WSV peers, otherwise leaves the order unchanged.
     #[allow(clippy::expect_used)]
     pub async fn update_network_topology(&mut self) {
         let wsv_peers: HashSet<_> = self.wsv.trusted_peers_ids().clone().into_iter().collect();
@@ -788,7 +788,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
             new_peer_role = ?self.topology.role(&self.peer_id),
             new_block_height = %self.block_height,
             %block_hash,
-            "Commiting block"
+            "Committing block"
         );
         *self.voting_block.write().await = None;
         self.votes_for_blocks.clear();
@@ -836,31 +836,42 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
         self.topology.clone()
     }
 
-    /// Connects all peers from current network topology.
+    /// Connects or disconnects peers according to the current network topology.
     pub async fn connect_peers(&self) {
         iroha_logger::trace!("Connecting peers...");
-        let mut peers = self.topology.sorted_peers().to_owned();
-        let self_address = self.peer_id.address.clone();
+        let peers_expected = {
+            let mut res = self.topology.sorted_peers().to_owned();
+            res.retain(|id| id.address != self.peer_id.address);
+            res.shuffle(&mut rand::thread_rng());
+            res
+        };
 
         #[allow(clippy::expect_used)]
         let peers_online = self
             .network
             .send(iroha_p2p::network::GetConnectedPeers)
             .await
-            .expect("Could not get connected peers from Network!")
+            .expect("Failed to get connected peers from the network")
             .peers;
 
+        for peer_to_be_connected in peers_expected
+            .iter()
+            .filter(|id| !peers_online.contains(&id.public_key))
         {
-            let mut rng = rand::thread_rng();
-            peers.shuffle(&mut rng);
+            iroha_logger::info!(%peer_to_be_connected.address, "Connecting peer");
+            self.broker
+                .issue_send(ConnectPeer {
+                    address: peer_to_be_connected.address.clone(),
+                })
+                .await
         }
-        for peer in peers {
-            if peer.address == self_address || peers_online.contains(&peer.public_key) {
-                continue;
-            }
-            iroha_logger::info!(peer_addr = %peer.address, "Connecting peer");
-            let connect = ConnectPeer { id: peer.clone() };
-            self.broker.issue_send(connect).await;
+        for peer_to_be_disconnected in
+            peers_online.difference(&peers_expected.into_iter().map(|id| id.public_key).collect())
+        {
+            iroha_logger::info!(%peer_to_be_disconnected, "Disconnecting peer");
+            self.broker
+                .issue_send(DisconnectPeer(peer_to_be_disconnected.clone()))
+                .await
         }
     }
 }
@@ -961,7 +972,7 @@ pub mod message {
         pub async fn send_to(self, broker: &Broker, peer: &PeerId) {
             let post = Post {
                 data: NetworkMessage::SumeragiMessage(Box::new(self)),
-                id: peer.clone(),
+                peer: peer.clone(),
             };
             broker.issue_send(post).await;
         }

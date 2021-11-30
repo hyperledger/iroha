@@ -32,7 +32,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
-    let mut iroha_client = Client::test(&peer.api_address);
+    let mut iroha_client = Client::test(&peer.api_address, &peer.status_address);
     iroha_client.submit(create_asset)?;
     thread::sleep(pipeline_time * 2);
     //When

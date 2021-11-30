@@ -385,6 +385,8 @@ pub fn current_time() -> Duration {
 /// Response body for GET status request
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub struct Status {
+    /// Number of connected peers, except for the reporting peer itself
+    pub peers: u64,
     /// Number of committed blocks
     pub blocks: u64,
 }
