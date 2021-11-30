@@ -29,7 +29,7 @@ use crate::{
         permissions::IsQueryAllowedBoxed,
     },
     wsv::WorldTrait,
-    Configuration,
+    Addr, Configuration, IrohaNetwork,
 };
 
 /// Main network handler and the only entrypoint of the Iroha.
@@ -39,6 +39,7 @@ pub struct Torii<W: WorldTrait> {
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     queue: Arc<Queue>,
+    network: Addr<IrohaNetwork>,
 }
 
 /// Torii errors.
@@ -71,8 +72,8 @@ pub enum Error {
     /// Failed to push into queue.
     #[error("Failed to push into queue")]
     PushIntoQueue(#[source] Box<queue::Error>),
-    /// Error while getting status
-    #[error("Failed to get status")]
+    /// Error while getting or setting configuration
+    #[error("Failed to get network status")]
     Status(#[source] iroha_actor::Error),
 }
 
@@ -128,6 +129,7 @@ impl<W: WorldTrait> Torii<W> {
         queue: Arc<Queue>,
         query_validator: Arc<IsQueryAllowedBoxed<W>>,
         events: EventsSender,
+        network: Addr<IrohaNetwork>,
     ) -> Self {
         Self {
             iroha_cfg,
@@ -135,6 +137,7 @@ impl<W: WorldTrait> Torii<W> {
             events,
             query_validator,
             queue,
+            network,
         }
     }
 
@@ -144,12 +147,14 @@ impl<W: WorldTrait> Torii<W> {
         let queue = Arc::clone(&self.queue);
         let iroha_cfg = self.iroha_cfg.clone();
         let query_validator = Arc::clone(&self.query_validator);
+        let network = self.network.clone();
 
         Arc::new(InnerToriiState {
             iroha_cfg,
             wsv,
             queue,
             query_validator,
+            network,
         })
     }
 
@@ -277,6 +282,7 @@ struct InnerToriiState<W: WorldTrait> {
     wsv: Arc<WorldStateView<W>>,
     queue: Arc<Queue>,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
+    network: Addr<IrohaNetwork>,
 }
 
 type ToriiState<W> = Arc<InnerToriiState<W>>;
@@ -402,9 +408,16 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::R
     Ok(())
 }
 
-#[allow(clippy::unused_async)]
 async fn handle_status<W: WorldTrait>(state: ToriiState<W>) -> Result<Json> {
+    let peers = state
+        .network
+        .send(iroha_p2p::network::GetConnectedPeers)
+        .await
+        .map_err(Error::Status)?
+        .peers
+        .len() as u64;
     let status = Status {
+        peers,
         blocks: state.wsv.height(),
     };
     Ok(reply::json(&status))
@@ -432,7 +445,7 @@ pub mod uri {
     pub const STATUS: &str = "status";
     // TODO /// Metrics URI is used to export metrics according to [Prometheus
     // /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
-    // pub const METRICS: &str = "metrics";
+    // pub const METRICS: &str = "/metrics";
 }
 
 /// This module contains all configuration related logic.
@@ -444,13 +457,13 @@ pub mod config {
     pub const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
     /// Default socket for listening on external requests
     pub const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
-    /// Default socket for reporting internal status
+    /// Default socket for reporting internal metrics
     pub const DEFAULT_TORII_STATUS_URL: &str = "127.0.0.1:8180";
     /// Default maximum size of single transaction
     pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
     /// Default maximum instruction number
     pub const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
-    /// Default maximum [`Sumeragi`] message size
+    /// Default maximum size of [`Sumeragi`] message size
     pub const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
@@ -494,6 +507,7 @@ mod tests {
     use std::{convert::TryInto, time::Duration};
 
     use futures::future::FutureExt;
+    use iroha_actor::{broker::Broker, Actor};
     use tokio::time;
 
     use super::*;
@@ -504,7 +518,6 @@ mod tests {
         wsv::World,
     };
 
-    #[allow(clippy::unused_async)]
     async fn create_torii() -> (Torii<World>, KeyPair) {
         let config = get_config(get_trusted_peers(None), None);
         let (events, _) = tokio::sync::broadcast::channel(100);
@@ -526,9 +539,26 @@ mod tests {
             ),
         );
         let queue = Arc::new(Queue::from_configuration(&config.queue));
+        let network = IrohaNetwork::new(
+            Broker::new(),
+            config.torii.p2p_addr.clone(),
+            config.public_key.clone(),
+            config.network.mailbox,
+        )
+        .await
+        .expect("Failed to create network")
+        .start()
+        .await;
 
         (
-            Torii::from_configuration(config, wsv, queue, Arc::new(AllowAll.into()), events),
+            Torii::from_configuration(
+                config,
+                wsv,
+                queue,
+                Arc::new(AllowAll.into()),
+                events,
+                network,
+            ),
             keys,
         )
     }
@@ -949,6 +979,7 @@ mod tests {
             .await
     }
 
+    // FIXME ? move to client integration tests
     #[tokio::test]
     async fn status_committed_block() {
         use iroha_crypto::HashOf;

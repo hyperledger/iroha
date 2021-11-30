@@ -28,9 +28,7 @@ pub type FixNum = FixedPoint<Base, U9>;
 
 /// An encapsulation of [`Fixed`] in encodable form. [`Fixed`] values
 /// should never become negative.
-#[derive(
-    Clone, Copy, Debug, Serialize, Deserialize, IntoSchema, PartialEq, Ord, PartialOrd, Eq,
-)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, IntoSchema, PartialEq, Ord, PartialOrd, Eq)]
 pub struct Fixed(FixNum);
 
 impl Fixed {

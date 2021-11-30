@@ -382,9 +382,11 @@ pub fn current_time() -> Duration {
         .expect("Failed to get the current system time")
 }
 
-/// Response body for GET status request
+/// Response body for get status request
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub struct Status {
+    /// Number of connected peers, except for the reporting peer itself
+    pub peers: u64,
     /// Number of committed blocks
     pub blocks: u64,
 }

@@ -166,9 +166,11 @@ Also returns current status of peer in json string:
 
 **Responses**:
 - 200 OK - reports status:
+  + Number of connected peers, except for the reporting peer itself
   + Number of committed blocks
   ```json
   {
+      "peers": 3,
       "blocks": 1
   }
   ```

@@ -11,6 +11,7 @@ mod offline_peers;
 mod pagination;
 mod permissions;
 mod restart_peer;
+mod status;
 mod transfer_asset;
 mod tx_history;
 mod tx_rollback;
