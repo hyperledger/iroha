@@ -83,14 +83,14 @@ auto OnDemandOrderingInit::createGate(
         proposal_factory,
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     size_t max_number_of_transactions,
-    const logger::LoggerManagerTreePtr &ordering_log_manager) {
+    const logger::LoggerManagerTreePtr &ordering_log_manager, bool syncing_mode) {
   return std::make_shared<OnDemandOrderingGate>(
       std::move(ordering_service),
       std::move(network_client),
       std::move(proposal_factory),
       std::move(tx_cache),
       max_number_of_transactions,
-      ordering_log_manager->getChild("Gate")->getLogger());
+      ordering_log_manager->getChild("Gate")->getLogger(), syncing_mode);
 }
 
 auto OnDemandOrderingInit::createService(
@@ -149,7 +149,7 @@ OnDemandOrderingInit::initOrderingGate(
                  std::move(proposal_factory),
                  std::move(tx_cache),
                  max_number_of_transactions,
-                 ordering_log_manager);
+                 ordering_log_manager, syncing_mode);
   return ordering_gate_;
 }
 

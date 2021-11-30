@@ -1017,6 +1017,7 @@ Irohad::RunResult Irohad::run() {
           verified_proposal);
       auto block = maybe_simulator->processVerifiedProposal(
           std::move(verified_proposal));
+      
       maybe_consensus_gate->vote(std::move(block));
     }
   });

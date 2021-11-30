@@ -39,7 +39,7 @@ namespace iroha {
               factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           size_t transaction_limit,
-          logger::LoggerPtr log);
+          logger::LoggerPtr log, bool syncing_mode);
 
       ~OnDemandOrderingGate() override;
 
@@ -94,6 +94,7 @@ namespace iroha {
 
       std::shared_timed_mutex stop_mutex_;
       bool stop_requested_{false};
+      bool syncing_mode_;
     };
 
   }  // namespace ordering

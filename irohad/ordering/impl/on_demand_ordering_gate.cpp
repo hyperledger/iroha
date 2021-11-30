@@ -28,13 +28,13 @@ OnDemandOrderingGate::OnDemandOrderingGate(
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory> factory,
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
     size_t transaction_limit,
-    logger::LoggerPtr log)
+    logger::LoggerPtr log, bool syncing_mode)
     : log_(std::move(log)),
       transaction_limit_(transaction_limit),
       ordering_service_(std::move(ordering_service)),
       network_client_(std::move(network_client)),
       proposal_factory_(std::move(factory)),
-      tx_cache_(std::move(tx_cache)) {}
+      tx_cache_(std::move(tx_cache)), syncing_mode_(syncing_mode) {}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {
   stop();
@@ -71,7 +71,8 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
   this->sendCachedTransactions();
 
   // request proposal for the current round
-  network_client_->onRequestProposal(event.next_round);
+  if (!syncing_mode_)
+    network_client_->onRequestProposal(event.next_round);
 }
 
 void OnDemandOrderingGate::stop() {
