@@ -451,18 +451,15 @@ async fn handle_status<W: WorldTrait>(state: ToriiState<W>) -> Result<Json> {
 /// This module contains all configuration related logic.
 pub mod config {
     use iroha_config::derive::Configurable;
+    use iroha_data_model::{transaction::DEFAULT_MAX_INSTRUCTION_NUMBER, uri::DEFAULT_API_URL};
     use serde::{Deserialize, Serialize};
 
     /// Default socket for p2p communication
     pub const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
-    /// Default socket for listening on external requests
-    pub const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
     /// Default socket for reporting internal status
     pub const DEFAULT_TORII_STATUS_URL: &str = "127.0.0.1:8180";
     /// Default maximum size of single transaction
     pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
-    /// Default maximum instruction number
-    pub const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
     /// Default maximum [`Sumeragi`] message size
     pub const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
 
@@ -490,11 +487,11 @@ pub mod config {
         fn default() -> Self {
             Self {
                 p2p_addr: DEFAULT_TORII_P2P_ADDR.to_owned(),
-                api_url: DEFAULT_TORII_API_URL.to_owned(),
+                api_url: DEFAULT_API_URL.to_owned(),
                 status_url: DEFAULT_TORII_STATUS_URL.to_owned(),
                 max_transaction_size: DEFAULT_TORII_MAX_TRANSACTION_SIZE,
                 max_sumeragi_message_size: DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE,
-                max_instruction_number: DEFAULT_TORII_MAX_INSTRUCTION_NUMBER,
+                max_instruction_number: DEFAULT_MAX_INSTRUCTION_NUMBER,
             }
         }
     }

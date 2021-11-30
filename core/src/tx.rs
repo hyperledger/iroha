@@ -391,7 +391,7 @@ mod tests {
     use eyre::Result;
     use iroha_data_model::{
         account::GENESIS_ACCOUNT_NAME, domain::GENESIS_DOMAIN_NAME,
-        transaction::MAX_INSTRUCTION_NUMBER,
+        transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
     };
 
     use super::*;
@@ -447,7 +447,7 @@ mod tests {
             message: "Will fail".to_owned(),
         };
         let tx = Transaction::new(
-            vec![inst.into(); MAX_INSTRUCTION_NUMBER + 1],
+            vec![inst.into(); DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
             AccountId::new("root", "global"),
             1000,
         );

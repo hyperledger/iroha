@@ -10,6 +10,7 @@ mod http_client;
 /// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
     use iroha_crypto::KeyPair;
+    use iroha_data_model::uri;
 
     use super::Configuration;
     /// Get sample client configuration.
@@ -22,7 +23,7 @@ pub mod samples {
                 name: "alice".to_owned(),
                 domain_name: "wonderland".to_owned(),
             },
-            torii_api_url: crate::config::DEFAULT_TORII_API_URL.to_owned(),
+            torii_api_url: uri::DEFAULT_API_URL.to_owned(),
             ..Configuration::default()
         }
     }

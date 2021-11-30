@@ -1823,8 +1823,8 @@ pub mod transaction {
         prelude::TransactionRejectionReason, Identifiable,
     };
 
-    /// Maximum number of instructions and expressions per transaction
-    pub const MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
+    /// Default maximum number of instructions and expressions per transaction
+    pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
 
     declare_versioned!(
         VersionedTransaction 1..2,
@@ -2720,8 +2720,12 @@ pub mod metadata {
     }
 }
 
-/// URI that `Torii` uses to route incoming requests.
 pub mod uri {
+    //! URI that `Torii` uses to route incoming requests.
+
+    /// Default socket for listening on external requests
+    pub const DEFAULT_API_URL: &str = "127.0.0.1:8080";
+
     /// Query URI is used to handle incoming Query requests.
     pub const QUERY: &str = "query";
     /// Transaction URI is used to handle incoming ISI requests.
