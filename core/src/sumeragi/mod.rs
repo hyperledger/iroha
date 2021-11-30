@@ -12,11 +12,9 @@ use std::{
 use dashmap::{DashMap, DashSet};
 use eyre::{eyre, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
-use iroha_actor::{broker::*, prelude::*};
+use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_crypto::{HashOf, KeyPair};
-use iroha_data_model::{
-    current_time, events::Event, peer::Id as PeerId, transaction::VersionedTransaction,
-};
+use iroha_data_model::prelude::*;
 use iroha_logger::Instrument;
 use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use network_topology::{Role, Topology};

@@ -5,7 +5,7 @@
 use std::{cmp::min, time::Duration};
 
 use eyre::{Result, WrapErr};
-use iroha_crypto::{HashOf, SignaturesOf};
+use iroha_crypto::SignaturesOf;
 pub use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
@@ -54,11 +54,6 @@ impl VersionedAcceptedTransaction {
         AcceptedTransaction::from_transaction(transaction, max_instruction_number).map(Into::into)
     }
 
-    /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> HashOf<VersionedTransaction> {
-        self.as_inner_v1().hash().transmute()
-    }
-
     /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
     /// Meaning that the transaction will be expired as soon as the lesser of the specified TTLs was reached.
     pub fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
@@ -104,16 +99,13 @@ impl VersionedAcceptedTransaction {
     ) -> VersionedRejectedTransaction {
         self.into_inner_v1().reject(rejection_reason).into()
     }
+}
 
-    /// # Errors
-    /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
-        self.as_inner_v1()
-            .check_instruction_len(max_instruction_len)
-    }
+impl Txn for VersionedAcceptedTransaction {
+    type HashOf = VersionedTransaction;
 
-    /// Returns payload of transaction
-    pub const fn payload(&self) -> &Payload {
+    #[inline]
+    fn payload(&self) -> &Payload {
         &self.as_inner_v1().payload
     }
 }
@@ -134,12 +126,6 @@ pub struct AcceptedTransaction {
 }
 
 impl AcceptedTransaction {
-    /// # Errors
-    /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
-        self.payload.check_instruction_len(max_instruction_len)
-    }
-
     /// Accepts transaction
     ///
     /// # Errors
@@ -158,11 +144,6 @@ impl AcceptedTransaction {
             payload: transaction.payload,
             signatures,
         })
-    }
-
-    /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> HashOf<Transaction> {
-        HashOf::new(&self.payload).transmute()
     }
 
     /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
@@ -309,6 +290,14 @@ impl AcceptedTransaction {
             signatures: self.signatures,
             rejection_reason,
         }
+    }
+}
+impl Txn for AcceptedTransaction {
+    type HashOf = Transaction;
+
+    #[inline]
+    fn payload(&self) -> &Payload {
+        &self.payload
     }
 }
 

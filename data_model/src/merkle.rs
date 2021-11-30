@@ -1,10 +1,8 @@
-#![allow(clippy::module_name_repetitions)]
+//! Merkle tree implementation
 
 use std::{collections::VecDeque, iter::FromIterator};
 
-use iroha_crypto::HashOf;
-
-use crate::prelude::*;
+use iroha_crypto::{Hash, HashOf};
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate and prove data at
 /// each block height.
@@ -12,6 +10,34 @@ use crate::prelude::*;
 #[derive(Debug)]
 pub struct MerkleTree<T> {
     root_node: Node<T>,
+}
+
+/// Binary Tree's node with possible variants: Subtree, Leaf (with data or links to data) and Empty.
+#[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
+pub enum Node<T> {
+    /// Node is root of a subtree
+    Subtree {
+        /// Left subtree
+        left: Box<Self>,
+        /// Right subtree
+        right: Box<Self>,
+        /// Hash of the node
+        hash: HashOf<Self>,
+    },
+    /// Leaf node
+    Leaf {
+        /// Hash of the node
+        hash: HashOf<T>,
+    },
+    /// Empty node
+    Empty,
+}
+
+#[derive(Debug)]
+/// BFS iterator over the Merkle tree
+pub struct BreadthFirstIter<'a, T> {
+    queue: Vec<&'a Node<T>>,
 }
 
 impl<U> FromIterator<HashOf<U>> for MerkleTree<U> {
@@ -41,12 +67,14 @@ impl<U> FromIterator<HashOf<U>> for MerkleTree<U> {
 }
 
 impl<T> MerkleTree<T> {
+    /// Constructs new instance of the merkle tree
     pub const fn new() -> Self {
         MerkleTree {
             root_node: Node::Empty,
         }
     }
 
+    /// Returns leaf node
     pub fn get_leaf(&self, idx: usize) -> Option<HashOf<T>> {
         self.root_node.get_leaf_inner(idx).ok()
     }
@@ -56,10 +84,12 @@ impl<T> MerkleTree<T> {
         self.root_node.hash().transmute()
     }
 
+    /// Returns BFS iterator over the tree
     pub fn iter(&self) -> BreadthFirstIter<T> {
         BreadthFirstIter::new(&self.root_node)
     }
 
+    /// Inserts hash into the tree
     pub fn add(&self, hash: HashOf<T>) -> Self {
         self.iter()
             .filter_map(Node::leaf_hash)
@@ -72,20 +102,6 @@ impl<T> Default for MerkleTree<T> {
     fn default() -> Self {
         MerkleTree::new()
     }
-}
-
-/// Binary Tree's node with possible variants: Subtree, Leaf (with data or links to data) and Empty.
-#[derive(Debug)]
-pub enum Node<T> {
-    Subtree {
-        left: Box<Self>,
-        right: Box<Self>,
-        hash: HashOf<Self>,
-    },
-    Leaf {
-        hash: HashOf<T>,
-    },
-    Empty,
 }
 
 impl<T> Node<T> {
@@ -118,6 +134,7 @@ impl<T> Node<T> {
         }
     }
 
+    /// Return the `Hash` of the root node.
     pub fn hash(&self) -> HashOf<Self> {
         use Node::*;
         match self {
@@ -127,6 +144,7 @@ impl<T> Node<T> {
         }
     }
 
+    /// Returns leaf node hash
     pub const fn leaf_hash(&self) -> Option<HashOf<T>> {
         if let Self::Leaf { hash } = *self {
             Some(hash)
@@ -147,11 +165,6 @@ impl<T> Node<T> {
             .collect();
         HashOf::from_hash(Hash::new(&sum))
     }
-}
-
-#[derive(Debug)]
-pub struct BreadthFirstIter<'a, T> {
-    queue: Vec<&'a Node<T>>,
 }
 
 impl<'a, T> BreadthFirstIter<'a, T> {

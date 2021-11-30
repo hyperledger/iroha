@@ -7,7 +7,6 @@ pub mod event;
 pub mod genesis;
 mod init;
 pub mod kura;
-mod merkle;
 pub mod modules;
 pub mod queue;
 pub mod samples;
@@ -29,7 +28,6 @@ use smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed
 use tokio::{sync::broadcast, task::JoinHandle};
 
 use crate::{
-    block::VersionedValidBlock,
     block_sync::{
         message::VersionedMessage as BlockSyncMessage, BlockSynchronizer, BlockSynchronizerTrait,
     },

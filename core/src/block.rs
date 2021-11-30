@@ -8,14 +8,15 @@ use std::{collections::BTreeSet, iter, marker::PhantomData};
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{Context, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
-use iroha_data_model::{current_time, events::prelude::*, transaction::prelude::*};
+use iroha_data_model::{
+    current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*,
+};
 use iroha_derive::Io;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
 use crate::{
-    merkle::MerkleTree,
     prelude::*,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{

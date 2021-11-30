@@ -8,8 +8,6 @@ use std::{
 };
 
 use config::Configuration;
-#[cfg(feature = "roles")]
-use dashmap::DashMap;
 use dashmap::{
     mapref::one::{Ref as DashmapRef, RefMut as DashmapRefMut},
     DashSet,
@@ -49,7 +47,7 @@ pub struct World {
     /// Iroha parameters.
     pub parameters: Vec<Parameter>,
     /// Roles.
-    /// (`Role`) pairs.
+    /// [`Role`] pairs.
     #[cfg(feature = "roles")]
     pub roles: iroha_data_model::role::RolesMap,
 }
