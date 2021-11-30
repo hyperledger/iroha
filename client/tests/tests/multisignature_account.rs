@@ -37,7 +37,7 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
             account_id.clone(),
         )),
     );
-    Client::test_with_key(&peer.api_address, key_pair).submit_till(
+    Client::test_with_key(&peer.api_address, &peer.status_address, key_pair).submit_till(
         mint_asset,
         client::asset::by_account_id(account_id),
         |result| {

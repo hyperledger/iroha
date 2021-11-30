@@ -476,7 +476,7 @@ pub mod config {
         pub p2p_addr: String,
         /// Torii URL for client API.
         pub api_url: String,
-        /// Torii URL for reporting status for administration.
+        /// Torii URL for reporting internal status for administration.
         pub status_url: String,
         /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
         pub max_transaction_size: usize,

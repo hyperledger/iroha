@@ -42,14 +42,20 @@ fn test_with_instruction_and_status(
         let validating_event_received = Arc::new(RwLock::new([false; PEER_COUNT]));
         let rejected_event_received = Arc::new(RwLock::new([false; PEER_COUNT]));
         let peers: Vec<_> = network.peers().collect();
-        let mut submitter_client = Client::test(&peers[submitting_peer].api_address);
+        let mut submitter_client = Client::test(
+            &peers[submitting_peer].api_address,
+            &peers[submitting_peer].status_address,
+        );
         let transaction = submitter_client
             .build_transaction(vec![instruction.clone()], UnlimitedMetadata::new())?;
         for receiving_peer in 0..PEER_COUNT {
             let committed_event_received_clone = committed_event_received.clone();
             let validating_event_received_clone = validating_event_received.clone();
             let rejected_event_received_clone = rejected_event_received.clone();
-            let listener_client = Client::test(&peers[receiving_peer].api_address);
+            let listener_client = Client::test(
+                &peers[receiving_peer].api_address,
+                &peers[receiving_peer].status_address,
+            );
             let hash = transaction.hash();
             let _handle = thread::spawn(move || {
                 listener_client.for_each_event(

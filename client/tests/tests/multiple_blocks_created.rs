@@ -65,7 +65,8 @@ fn long_multiple_blocks_created() {
     thread::sleep(pipeline_time * 5);
 
     //Then
-    Client::test(&network.peers().last().unwrap().api_address).poll_request(
+    let peer = network.peers().last().unwrap();
+    Client::test(&peer.api_address, &peer.status_address).poll_request(
         client::asset::by_account_id(account_id),
         |result| {
             result.iter().any(|asset| {

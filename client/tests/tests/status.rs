@@ -13,7 +13,6 @@ fn test_status() {
 
     let (rt, network, mut client) = <TestNetwork>::start_test_with_runtime(N_PEERS as u32, 1);
     let pipeline_time = Configuration::pipeline_time();
-    client.status_url.insert_str(0, "http://");
     thread::sleep(pipeline_time * 2);
 
     // Confirm all peers connected
