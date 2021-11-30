@@ -246,7 +246,6 @@ where
             Arc::clone(&queue),
             query_validator,
             events_sender,
-            network_addr.clone(),
         );
         let torii = Some(torii);
         Ok(Self {
