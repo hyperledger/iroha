@@ -50,6 +50,8 @@
 ///     let broker = Broker::new();
 ///     Actor2(broker.clone()).start().await;
 ///     Actor1(broker).start().await;
+///     // Actor2: Hello
+///     // Actor1: Hello world
 /// })
 /// ```
 use std::any::{Any, TypeId};
