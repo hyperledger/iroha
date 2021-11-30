@@ -15,7 +15,7 @@ use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{Hash, PublicKey};
 use iroha_derive::FromVariant;
 use iroha_macro::error::ErrorTryFromEnum;
-use iroha_schema::prelude::*;
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +25,7 @@ use crate::{
 
 pub mod events;
 pub mod expression;
+pub mod fixed;
 pub mod isi;
 pub mod query;
 
@@ -401,11 +402,13 @@ pub mod role {
         fmt::{Display, Formatter, Result as FmtResult},
     };
 
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
     use crate::{permissions::PermissionToken, IdBox, Identifiable, IdentifiableBox, Name, Value};
+
+    pub type RolesMap = DashMap<RoleId, Role>;
 
     /// Identification of a role.
     #[derive(
@@ -535,7 +538,7 @@ pub mod permissions {
 
     use std::collections::BTreeMap;
 
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -592,7 +595,7 @@ pub mod account {
     //TODO: get rid of it?
     use iroha_crypto::SignatureOf;
     use iroha_derive::Io;
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -975,8 +978,6 @@ pub mod account {
     }
 }
 
-pub mod fixed;
-
 pub mod asset {
     //! This module contains [`Asset`] structure, it's implementation and related traits and
     //! instructions implementations.
@@ -992,7 +993,7 @@ pub mod asset {
 
     use eyre::{eyre, Error, Result, WrapErr};
     use iroha_derive::{FromVariant, Io};
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -1557,7 +1558,7 @@ pub mod domain {
     use eyre::{eyre, Result};
     use iroha_crypto::PublicKey;
     use iroha_derive::Io;
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -1709,7 +1710,7 @@ pub mod peer {
 
     use dashmap::DashSet;
     use iroha_derive::Io;
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -1808,7 +1809,7 @@ pub mod transaction {
     use eyre::{eyre, Result};
     use iroha_crypto::{prelude::*, HashOf, SignatureOf, SignaturesOf};
     use iroha_derive::Io;
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use iroha_version::{
         declare_versioned, declare_versioned_with_scale, version, version_with_scale,
     };
@@ -2580,7 +2581,7 @@ pub mod metadata {
     use std::{borrow::Borrow, collections::BTreeMap};
 
     use eyre::{eyre, Result};
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -2719,13 +2720,38 @@ pub mod metadata {
     }
 }
 
+/// URI that `Torii` uses to route incoming requests.
+pub mod uri {
+    /// Query URI is used to handle incoming Query requests.
+    pub const QUERY: &str = "query";
+    /// Transaction URI is used to handle incoming ISI requests.
+    pub const TRANSACTION: &str = "transaction";
+    /// Block URI is used to handle incoming Block requests.
+    pub const CONSENSUS: &str = "consensus";
+    /// Health URI is used to handle incoming Healthcheck requests.
+    pub const HEALTH: &str = "health";
+    /// The URI used for block synchronization.
+    pub const BLOCK_SYNC: &str = "block";
+    /// The web socket uri used to subscribe to block and transactions statuses.
+    pub const SUBSCRIPTION: &str = "events";
+    /// Get pending transactions.
+    pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
+    /// The URI for local config changing inspecting
+    pub const CONFIGURATION: &str = "configuration";
+    /// URI to report status for administration
+    pub const STATUS: &str = "status";
+    // TODO /// Metrics URI is used to export metrics according to [Prometheus
+    // /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
+    // pub const METRICS: &str = "metrics";
+}
+
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, current_time, domain::prelude::*,
-        fixed::prelude::*, pagination::prelude::*, peer::prelude::*, transaction::prelude::*,
+        fixed::prelude::*, pagination::prelude::*, peer::prelude::*, transaction::prelude::*, uri,
         Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, Status, TryAsMut, TryAsRef,
         Value,
     };

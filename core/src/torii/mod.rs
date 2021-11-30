@@ -4,9 +4,9 @@
 use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 
 use eyre::Context;
-use iroha_config::Configurable;
+use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
 use iroha_data_model::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use thiserror::Error;
 use utils::*;
 use warp::{
@@ -374,26 +374,6 @@ async fn handle_pending_transactions<W: WorldTrait>(
     ))
 }
 
-/// Json config for getting configuration
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum GetConfiguration {
-    /// Getting docs of specific field
-    ///
-    /// Top-level fields must be enclosed in an array (of strings). This array
-    /// provides the fully qualified path to the fields.
-    ///
-    /// # Examples
-    ///
-    /// To get the top-level configuration docs for [`Torii`]
-    /// `curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["torii"]} ' -i`
-    ///
-    /// To get the documentation on the [`Logger::config::Configuration.max_log_level`]
-    /// `curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["logger", "max_log_level"]}' -i`
-    Docs(Vec<String>),
-    /// Get the original Value of the full configuration.
-    Value,
-}
-
 #[iroha_futures::telemetry_future]
 async fn handle_get_configuration<W: WorldTrait>(
     state: ToriiState<W>,
@@ -417,17 +397,6 @@ async fn handle_get_configuration<W: WorldTrait>(
     .map_err(Error::Config)
 }
 
-/// Message acceptable for `POST` requests to the configuration endpoint.
-#[derive(Clone, Debug, Deserialize, Serialize, Copy)]
-pub enum PostConfiguration {
-    /// Change the maximum logging level of logger.
-    ///
-    /// # Examples
-    /// To silence all logging events that aren't `ERROR`s
-    /// `curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"ChangeLogLevel": "ERROR"}' -i`
-    LogLevel(iroha_logger::Level),
-}
-
 #[iroha_futures::telemetry_future]
 async fn handle_post_configuration<W: WorldTrait>(
     state: ToriiState<W>,
@@ -440,7 +409,7 @@ async fn handle_post_configuration<W: WorldTrait>(
     match cfg {
         // TODO: Now the configuration value and the actual value don't match.
         LogLevel(level) => {
-            state.iroha_cfg.logger.max_log_level.reload(level)?;
+            state.iroha_cfg.logger.max_log_level.reload(level.into())?;
         }
     };
 
@@ -477,31 +446,6 @@ async fn handle_status<W: WorldTrait>(state: ToriiState<W>) -> Result<Json> {
         blocks: state.wsv.height(),
     };
     Ok(reply::json(&status))
-}
-
-/// URI that `Torii` uses to route incoming requests.
-pub mod uri {
-    /// Query URI is used to handle incoming Query requests.
-    pub const QUERY: &str = "query";
-    /// Transaction URI is used to handle incoming ISI requests.
-    pub const TRANSACTION: &str = "transaction";
-    /// Block URI is used to handle incoming Block requests.
-    pub const CONSENSUS: &str = "consensus";
-    /// Health URI is used to handle incoming Healthcheck requests.
-    pub const HEALTH: &str = "health";
-    /// The URI used for block synchronization.
-    pub const BLOCK_SYNC: &str = "block";
-    /// The web socket uri used to subscribe to block and transactions statuses.
-    pub const SUBSCRIPTION: &str = "events";
-    /// Get pending transactions.
-    pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
-    /// The URI for local config changing inspecting
-    pub const CONFIGURATION: &str = "configuration";
-    /// URI to report status for administration
-    pub const STATUS: &str = "status";
-    // TODO /// Metrics URI is used to export metrics according to [Prometheus
-    // /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
-    // pub const METRICS: &str = "metrics";
 }
 
 /// This module contains all configuration related logic.

@@ -32,5 +32,7 @@ thiserror = "1.0.28"
 tracing = "0.1"
 
 [dev-dependencies]
+iroha_config = { path = "../config" }
+
 unique_port = "0.1.1"
 tokio = { version = "1.6.0", features = ["rt-multi-thread", "macros"] }

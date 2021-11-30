@@ -115,7 +115,7 @@ pub mod query {
     use super::*;
 
     #[cfg(feature = "roles")]
-    impl<W: WorldTrait> Query<W> for FindAllRoles {
+    impl<W: WorldTrait> ValidQuery<W> for FindAllRoles {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             Ok(wsv
@@ -127,7 +127,7 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> Query<W> for FindAllPeers {
+    impl<W: WorldTrait> ValidQuery<W> for FindAllPeers {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             Ok(wsv.peers())

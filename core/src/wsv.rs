@@ -51,7 +51,7 @@ pub struct World {
     /// Roles.
     /// (`Role`) pairs.
     #[cfg(feature = "roles")]
-    pub roles: DashMap<RoleId, Role>,
+    pub roles: iroha_data_model::role::RolesMap,
 }
 
 /// Current state of the blockchain alligned with `Iroha` module.
@@ -131,13 +131,15 @@ impl<W: WorldTrait> WorldStateView<W> {
         }
     }
 
-    #[cfg(feature = "roles")]
     /// Returns a set of permission tokens granted to this account as part of roles and separately.
+    #[allow(clippy::unused_self)]
     pub fn account_permission_tokens(
         &self,
         account: &Account,
     ) -> iroha_data_model::account::Permissions {
+        #[allow(unused_mut)]
         let mut tokens = account.permission_tokens.clone();
+        #[cfg(feature = "roles")]
         for role_id in &account.roles {
             if let Some(role) = self.world.roles.get(role_id) {
                 let mut role_tokens = role.permissions.clone();
@@ -145,16 +147,6 @@ impl<W: WorldTrait> WorldStateView<W> {
             }
         }
         tokens
-    }
-
-    #[allow(clippy::unused_self)]
-    #[cfg(not(feature = "roles"))]
-    /// Returns a set of permission tokens granted to this account as part of roles and separately.
-    pub fn account_permission_tokens(
-        &self,
-        account: &Account,
-    ) -> iroha_data_model::account::Permissions {
-        account.permission_tokens.clone()
     }
 
     /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
@@ -502,7 +494,7 @@ impl<W: WorldTrait> WorldStateView<W> {
 }
 
 impl Deref for World {
-    type Target = World;
+    type Target = Self;
     #[inline]
     fn deref(&self) -> &Self::Target {
         self

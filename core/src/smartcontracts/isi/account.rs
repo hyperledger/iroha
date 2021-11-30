@@ -162,7 +162,7 @@ pub mod query {
     use crate::smartcontracts::isi::prelude::WorldTrait;
 
     #[cfg(feature = "roles")]
-    impl<W: WorldTrait> Query<W> for FindRolesByAccountId {
+    impl<W: WorldTrait> ValidQuery<W> for FindRolesByAccountId {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let account_id = self.id.evaluate(wsv, &Context::new())?;
@@ -173,7 +173,7 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> Query<W> for FindPermissionTokensByAccountId {
+    impl<W: WorldTrait> ValidQuery<W> for FindPermissionTokensByAccountId {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let account_id = self.id.evaluate(wsv, &Context::new())?;
@@ -187,7 +187,7 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> Query<W> for FindAllAccounts {
+    impl<W: WorldTrait> ValidQuery<W> for FindAllAccounts {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let mut vec = Vec::new();
@@ -200,7 +200,7 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> Query<W> for FindAccountById {
+    impl<W: WorldTrait> ValidQuery<W> for FindAccountById {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
@@ -211,7 +211,7 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> Query<W> for FindAccountsByName {
+    impl<W: WorldTrait> ValidQuery<W> for FindAccountsByName {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
@@ -230,7 +230,7 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> Query<W> for FindAccountsByDomainName {
+    impl<W: WorldTrait> ValidQuery<W> for FindAccountsByDomainName {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
@@ -246,7 +246,7 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> Query<W> for FindAccountKeyValueByIdAndKey {
+    impl<W: WorldTrait> ValidQuery<W> for FindAccountKeyValueByIdAndKey {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self

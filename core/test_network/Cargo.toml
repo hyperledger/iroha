@@ -12,7 +12,6 @@ mock = []
 iroha_core = { path = "../../core" }
 iroha_client = { path = "../../client" }
 iroha_data_model = { path = "../../data_model" }
-iroha_crypto = { path = "../../crypto" } 
 iroha_logger = { path = "../../logger" }
 iroha_config = { path = "../../config" }
 iroha_p2p = { path = "../../p2p" }

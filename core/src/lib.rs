@@ -370,7 +370,7 @@ pub mod prelude {
             CommittedBlock, PendingBlock, ValidBlock, VersionedCommittedBlock, VersionedValidBlock,
         },
         smartcontracts::permissions::AllowAll,
-        smartcontracts::Query,
+        smartcontracts::ValidQuery,
         tx::{
             AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,
             VersionedValidTransaction,

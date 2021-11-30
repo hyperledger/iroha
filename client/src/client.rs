@@ -12,11 +12,7 @@ use std::{
 
 use eyre::{eyre, Result, WrapErr};
 use http_client::WebSocketStream;
-use iroha_core::{
-    smartcontracts::Query,
-    torii::{uri, GetConfiguration, PostConfiguration},
-    wsv::World,
-};
+use iroha_config::{GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_logger::log;
@@ -316,7 +312,7 @@ impl Client {
         pagination: Pagination,
     ) -> Result<R::Output>
     where
-        R: Query<World> + Into<QueryBox> + Debug,
+        R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         let pagination: Vec<_> = pagination.into();
@@ -351,7 +347,7 @@ impl Client {
     #[log]
     pub fn request<R>(&mut self, request: R) -> Result<R::Output>
     where
-        R: Query<World> + Into<QueryBox> + Debug,
+        R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination(request, Pagination::default())

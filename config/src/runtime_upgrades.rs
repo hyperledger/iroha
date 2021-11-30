@@ -1,3 +1,5 @@
+//! Module handling runtime upgrade logic.
+
 use std::{
     fmt::Debug,
     sync::{MutexGuard, PoisonError},

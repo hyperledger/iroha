@@ -169,7 +169,7 @@ impl TryFrom<&Bytes> for VerifiedQueryRequest {
     }
 }
 
-impl<W: WorldTrait> Query<W> for QueryBox {
+impl<W: WorldTrait> ValidQuery<W> for QueryBox {
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Value> {
         use QueryBox::*;
 

@@ -38,7 +38,7 @@ pub trait Evaluate<W: WorldTrait> {
 
 /// This trait should be implemented for all Iroha Queries.
 #[allow(clippy::missing_errors_doc)]
-pub trait Query<W: WorldTrait>: QueryOutput {
+pub trait ValidQuery<W: WorldTrait>: Query {
     /// Execute query on the [`WorldStateView`].
     /// Should not mutate [`WorldStateView`]!
     ///

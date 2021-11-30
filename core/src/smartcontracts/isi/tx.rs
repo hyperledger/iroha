@@ -5,7 +5,7 @@ use iroha_data_model::prelude::*;
 
 use super::*;
 
-impl<W: WorldTrait> Query<W> for FindTransactionsByAccountId {
+impl<W: WorldTrait> ValidQuery<W> for FindTransactionsByAccountId {
     #[iroha_logger::log]
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
         let id = self
@@ -16,7 +16,7 @@ impl<W: WorldTrait> Query<W> for FindTransactionsByAccountId {
     }
 }
 
-impl<W: WorldTrait> Query<W> for FindTransactionByHash {
+impl<W: WorldTrait> ValidQuery<W> for FindTransactionByHash {
     #[iroha_logger::log]
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
         let hash = self

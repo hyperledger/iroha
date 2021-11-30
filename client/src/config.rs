@@ -7,7 +7,8 @@ use iroha_data_model::prelude::*;
 use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
+/// Default socket Iroha client will try to send requests to
+pub const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
 const DEFAULT_TORII_STATUS_URL: &str = "127.0.0.1:8180";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;
