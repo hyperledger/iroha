@@ -1,0 +1,16 @@
+name: Check PR Title
+
+on:
+  pull_request:
+    branches: [iroha2-dev]
+    types: [opened, edited, reopened]
+
+jobs:
+  check_pr_title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title format
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        # Example: "[feature] #1: Some new feature"
+        run: echo $PR_TITLE | grep -Eq "^\[(feature|fix|refactor)\] \#[[:digit:]]+:.+$"
