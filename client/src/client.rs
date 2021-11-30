@@ -1,3 +1,6 @@
+//! Contains the end-point querying logic building on top of
+//! [`crate::http_client`].  This is where you need to add any custom
+//! end-point related logic.
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -11,7 +14,7 @@ use eyre::{eyre, Result, WrapErr};
 use http_client::WebSocketStream;
 use iroha_core::{
     smartcontracts::Query,
-    torii::{uri, GetConfiguration},
+    torii::{uri, GetConfiguration, PostConfiguration},
     wsv::World,
 };
 use iroha_crypto::{HashOf, KeyPair};
@@ -45,7 +48,8 @@ pub struct Client {
     pub account_id: AccountId,
     /// Http headers which will be appended to each request
     pub headers: http_client::Headers,
-    /// If `true` add nonce, which make different hashes for transactions which occur repeatedly and simultaneously
+    /// If `true` add nonce, which makes different hashes for
+    /// transactions which occur repeatedly and/or simultaneously
     pub add_transaction_nonce: bool,
 }
 
@@ -434,8 +438,9 @@ impl Client {
     }
 
     fn get_config<T: DeserializeOwned>(&self, get_config: &GetConfiguration) -> Result<T> {
-        let mut headers = self.headers.clone();
-        headers.insert("Content-Type".to_owned(), "application/json".to_owned());
+        let headers = [("Content-Type".to_owned(), "application/json".to_owned())]
+            .into_iter()
+            .collect();
         let get_cfg = serde_json::to_vec(get_config).wrap_err("Failed to serialize")?;
 
         let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
@@ -454,16 +459,44 @@ impl Client {
         serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
     }
 
-    /// Gets documentation of some field on config
+    /// Send a request to change the configuration of a specified field.
+    ///
+    /// # Errors
+    /// If sending request or decoding fails
+    pub fn set_config(&self, post_config: PostConfiguration) -> Result<bool> {
+        let headers = [("Content-type".to_owned(), "application/json".to_owned())]
+            .into_iter()
+            .collect();
+        let resp = http_client::post::<_, Vec<(&str, &str)>, _, _>(
+            &format!("{}/{}", self.torii_url, uri::CONFIGURATION),
+            serde_json::to_vec(&post_config)
+                .wrap_err(format!("Failed to serialize {:?}", post_config))?,
+            vec![],
+            headers,
+        )?;
+        if resp.status() != StatusCode::OK {
+            return Err(eyre!(
+                "Failed to post configuration with HTTP status: {}. {}",
+                resp.status(),
+                std::str::from_utf8(resp.body()).unwrap_or(""),
+            ));
+        }
+        serde_json::from_slice(resp.body())
+            .wrap_err(format!("Failed to decode body {:?}", resp.body()))
+    }
+
+    /// Get documentation of some field on config
+    ///
     /// # Errors
     /// Fails if sending request or decoding fails
     pub fn get_config_docs(&self, field: &[&str]) -> Result<Option<String>> {
         let field = field.iter().copied().map(ToOwned::to_owned).collect();
-        self.get_config(&GetConfiguration::Docs { field })
+        self.get_config(&GetConfiguration::Docs(field))
             .wrap_err("Failed to get docs for field")
     }
 
-    /// Gets value of config on peer
+    /// Get value of config on peer
+    ///
     /// # Errors
     /// Fails if sending request or decoding fails
     pub fn get_config_value(&self) -> Result<serde_json::Value> {

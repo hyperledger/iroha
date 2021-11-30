@@ -26,10 +26,7 @@ use iroha_core::{
     Iroha,
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
-use iroha_logger::{
-    config::{LevelEnv, LoggerConfiguration},
-    InstrumentFutures,
-};
+use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures, Level};
 use rand::seq::IteratorRandom;
 use tempfile::TempDir;
 use tokio::{
@@ -396,9 +393,9 @@ where
             },
             logger: LoggerConfiguration {
                 #[cfg(profile = "bench")]
-                max_log_level: LevelEnv::WARN,
+                max_log_level: Level::ERROR.into(),
                 #[cfg(not(profile = "bench"))]
-                max_log_level: LevelEnv::INFO,
+                max_log_level: Level::INFO.into(),
                 compact_mode: false,
                 ..LoggerConfiguration::default()
             },
@@ -544,7 +541,9 @@ where
         })
     }
 
-    /// Starts peer with default configuration.
+    /// Starts peer with default configuration.  **IMPORTANT**: Retain
+    /// all three parameters for the scope of the test. Do not ignore
+    /// the first two elements of the tuple.
     /// Returns its info and client for connecting to it.
     pub fn start_test_with_runtime() -> (Runtime, Self, Client) {
         let rt = Runtime::test();

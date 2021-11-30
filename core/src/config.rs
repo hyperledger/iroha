@@ -5,7 +5,7 @@ use eyre::{Result, WrapErr};
 use iroha_config::derive::Configurable;
 use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
-use iroha_logger::config::LoggerConfiguration;
+use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Configuration parameters container.
-#[derive(Clone, Default, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
+#[derive(Clone, Default, Deserialize, Serialize, Debug, Configurable)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]

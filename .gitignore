@@ -43,3 +43,4 @@ cmake-build*
 *.deb
 \#*
 /test_docker
+/cargo-timing*.html
