@@ -84,7 +84,7 @@ macro_rules! impl_custom_and_then {
     }
 }
 
-//impl_custom_and_then!(endpoint1(a: A));
+impl_custom_and_then!(endpoint1(a: A));
 impl_custom_and_then!(endpoint2(a: A, b: B));
 impl_custom_and_then!(endpoint3(a: A, b: B, c: C));
 //impl_custom_and_then!(endpoint4 (a: A, b: B, c: C, d: D));

@@ -35,6 +35,7 @@ The following is the default configuration used by Iroha.
   "TORII": {
     "P2P_ADDR": "127.0.0.1:1337",
     "API_URL": "127.0.0.1:8080",
+    "STATUS_URL": "127.0.0.1:8180",
     "MAX_TRANSACTION_SIZE": 32768,
     "MAX_SUMERAGI_MESSAGE_SIZE": 16384000,
     "MAX_INSTRUCTION_NUMBER": 4096
@@ -605,7 +606,8 @@ Has type `ToriiConfiguration`. Can be configured via environment variable `IROHA
   "MAX_INSTRUCTION_NUMBER": 4096,
   "MAX_SUMERAGI_MESSAGE_SIZE": 16384000,
   "MAX_TRANSACTION_SIZE": 32768,
-  "P2P_ADDR": "127.0.0.1:1337"
+  "P2P_ADDR": "127.0.0.1:1337",
+  "STATUS_URL": "127.0.0.1:8180"
 }
 ```
 
@@ -657,6 +659,16 @@ Has type `String`. Can be configured via environment variable `TORII_P2P_ADDR`
 
 ```json
 "127.0.0.1:1337"
+```
+
+### `torii.status_url`
+
+Torii URL for reporting status for administration.
+
+Has type `String`. Can be configured via environment variable `TORII_STATUS_URL`
+
+```json
+"127.0.0.1:8180"
 ```
 
 ## `wsv`

@@ -382,6 +382,13 @@ pub fn current_time() -> Duration {
         .expect("Failed to get the current system time")
 }
 
+/// Response body for GET status request
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+pub struct Status {
+    /// Number of committed blocks
+    pub blocks: u64,
+}
+
 pub mod world {
     //! Structures, traits and impls related to `World`.
     use iroha_schema::prelude::*;
@@ -2733,8 +2740,8 @@ pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, current_time, domain::prelude::*,
         fixed::prelude::*, pagination::prelude::*, peer::prelude::*, transaction::prelude::*,
-        world::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut,
-        TryAsRef, Value,
+        world::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, Status,
+        TryAsMut, TryAsRef, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
