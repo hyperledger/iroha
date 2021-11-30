@@ -337,6 +337,11 @@ namespace iroha::ametsuchi {
                          std::back_inserter(result),
                          [](auto c) { return std::tolower(c); });
 
+          RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+              common, result, false));
+          RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+              common, result, true));
+
           RDB_TRY_GET_VALUE(
               opt_peers_count,
               forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(

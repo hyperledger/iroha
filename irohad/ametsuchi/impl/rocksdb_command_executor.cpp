@@ -202,7 +202,9 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   toLowerAppend(peer.pubkey(), pk);
 
   RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-      common, pk, peer.isSyncingPeer()));
+      common, pk, false));
+  RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+      common, pk, true));
 
   RDB_TRY_GET_VALUE(opt_peers_count,
                     forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(
