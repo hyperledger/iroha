@@ -2031,8 +2031,10 @@ pub mod transaction {
                 && self.metadata == other.metadata
         }
 
+        /// Checks if number of instructions in payload exceeds maximum
+        ///
         /// # Errors
-        /// Asserts specific instruction number of instruction constraint
+        /// Fails if instruction length exceeds maximum instruction number
         pub fn check_instruction_len(&self, max_instruction_number: u64) -> Result<()> {
             if self
                 .instructions
@@ -2157,6 +2159,7 @@ pub mod transaction {
 
     impl VersionedValidTransaction {
         /// Same as [`as_v1`](`VersionedValidTransaction::as_v1()`) but also does conversion
+        #[inline]
         pub const fn as_inner_v1(&self) -> &ValidTransaction {
             match self {
                 Self::V1(v1) => &v1.0,
@@ -2182,8 +2185,10 @@ pub mod transaction {
             self.as_inner_v1().hash().transmute()
         }
 
+        /// Checks if number of instructions in payload exceeds maximum
+        ///
         /// # Errors
-        /// Asserts specific instruction number of instruction in transaction constraint
+        /// Fails if instruction length exceeds maximum instruction number
         pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
             self.as_inner_v1()
                 .check_instruction_len(max_instruction_len)
@@ -2203,15 +2208,17 @@ pub mod transaction {
     )]
     #[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
     pub struct ValidTransaction {
-        /// [`ValidTransaction`]'s payload.
+        /// The [`Transaction`]'s payload.
         pub payload: Payload,
-        /// [`ValidTransaction`]'s [`Signature`]s.
+        /// [`Transaction`]'s [`Signature`]s.
         pub signatures: SignaturesOf<Payload>,
     }
 
     impl ValidTransaction {
+        /// Checks if number of instructions in payload exceeds maximum
+        ///
         /// # Errors
-        /// Asserts specific instruction number of instruction in transaction constraint
+        /// Fails if instruction length exceeds maximum instruction number
         pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
             self.payload.check_instruction_len(max_instruction_len)
         }
@@ -2257,8 +2264,10 @@ pub mod transaction {
             }
         }
 
+        /// Checks if number of instructions in payload exceeds maximum
+        ///
         /// # Errors
-        /// Asserts specific instruction number of instruction in transaction constraint
+        /// Fails if instruction length exceeds maximum instruction number
         pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
             self.as_inner_v1()
                 .check_instruction_len(max_instruction_len)
@@ -2319,7 +2328,7 @@ pub mod transaction {
         Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
     )]
     pub struct RejectedTransaction {
-        /// [`Transaction`]'s payload.
+        /// The [`Transaction`]'s payload.
         pub payload: Payload,
         /// [`Transaction`]'s [`Signature`]s.
         pub signatures: SignaturesOf<Payload>,
@@ -2328,8 +2337,10 @@ pub mod transaction {
     }
 
     impl RejectedTransaction {
+        /// Checks if number of instructions in payload exceeds maximum
+        ///
         /// # Errors
-        /// Asserts specific instruction number of instruction in transaction constraint
+        /// Fails if instruction length exceeds maximum instruction number
         pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
             self.payload.check_instruction_len(max_instruction_len)
         }

@@ -123,7 +123,7 @@ pub mod utils {
 
             async fn handle(&mut self, StoreBlock(block): StoreBlock) -> Self::Result {
                 self.broker.issue_send(Stored(block.hash())).await;
-                self.wsv.apply(block).await;
+                self.wsv.apply(block).await.unwrap();
                 self.broker.issue_send(UpdateNetworkTopology).await;
                 self.broker.issue_send(ContinueSync).await;
             }

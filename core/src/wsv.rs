@@ -68,6 +68,7 @@ pub struct WorldStateView<W: WorldTrait> {
 }
 
 impl<W: WorldTrait + Default> Default for WorldStateView<W> {
+    #[inline]
     fn default() -> Self {
         Self::new(W::default())
     }
@@ -75,6 +76,7 @@ impl<W: WorldTrait + Default> Default for WorldStateView<W> {
 
 impl World {
     /// Creates an empty `World`.
+    #[inline]
     pub fn new() -> Self {
         Self::default()
     }
@@ -121,7 +123,11 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[iroha_futures::telemetry_future]
     pub async fn init(&self, blocks: Vec<VersionedCommittedBlock>) {
         for block in blocks {
-            self.apply(block).await
+            #[allow(clippy::panic)]
+            if let Err(error) = self.apply(block).await {
+                iroha_logger::error!(%error, "Initialization of WSV failed");
+                panic!("WSV initialization failed");
+            }
         }
     }
 
@@ -151,39 +157,36 @@ impl<W: WorldTrait> WorldStateView<W> {
         account.permission_tokens.clone()
     }
 
-    /// Apply instructions to the `WorldStateView<W>`.
+    /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
     ///
     /// # Errors
-    /// Can fail if execution of instructions fail(should be fine after validation)
-    fn proceed(&self, tx: &VersionedValidTransaction) -> Result<()> {
-        let tx = tx.as_inner_v1();
-
-        for instruction in &tx.payload.instructions {
-            instruction
-                .clone()
-                .execute(tx.payload.account_id.clone(), self)?;
-        }
-        // XXX: Should it just return `()`?
-        Ok(())
-    }
-
-    /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
+    /// Can fail if execution of instruction fails(should be fine after validation)
     #[iroha_futures::telemetry_future]
     #[iroha_logger::log(skip(self, block))]
-    pub async fn apply(&self, block: VersionedCommittedBlock) {
+    pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
         for tx in &block.as_inner_v1().transactions {
-            if let Err(error) = self.proceed(tx) {
-                iroha_logger::warn!(%error, "Failed to proceed transaction on WSV");
-            }
+            let account_id = &tx.payload().account_id;
+            tx.as_inner_v1()
+                .payload
+                .instructions
+                .iter()
+                .cloned()
+                .try_for_each(|instruction| instruction.execute(account_id.clone(), self))?;
+
             self.transactions.insert(tx.hash());
             // Yeild control cooperatively to the task scheduler.
             // The transaction processing is a long CPU intensive task, so this should be included here.
             task::yield_now().await;
         }
-        for tx in &block.as_inner_v1().rejected_transactions {
-            self.transactions.insert(tx.hash());
-        }
+        block
+            .as_inner_v1()
+            .rejected_transactions
+            .iter()
+            .for_each(|tx| {
+                self.transactions.insert(tx.hash());
+            });
         self.blocks.push(block);
+        Ok(())
     }
 
     /// Hash of latest block
@@ -500,12 +503,14 @@ impl<W: WorldTrait> WorldStateView<W> {
 
 impl Deref for World {
     type Target = World;
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self
     }
 }
 
 impl DerefMut for World {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self
     }
@@ -573,7 +578,7 @@ mod tests {
             }
             let block: VersionedCommittedBlock = block.clone().into();
             block_hashes.push(block.hash());
-            wsv.apply(block).await;
+            wsv.apply(block).await.unwrap();
         }
 
         assert_eq!(

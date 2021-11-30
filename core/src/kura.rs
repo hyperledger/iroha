@@ -181,7 +181,7 @@ impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
             }
             Err(error) => {
                 iroha_logger::error!(%error, "Initialization of kura failed");
-                panic!("Init failed");
+                panic!("Kura initialization failed");
             }
         }
     }
@@ -245,7 +245,9 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
         match self.block_store.write(&block).await {
             Ok(hash) => {
                 self.merkle_tree = self.merkle_tree.add(hash);
-                self.wsv.apply(block).await;
+                if let Err(error) = self.wsv.apply(block).await {
+                    iroha_logger::warn!(%error, "Failed to execute transaction on WSV");
+                }
                 self.broker.issue_send(UpdateNetworkTopology).await;
                 self.broker.issue_send(ContinueSync).await;
                 Ok(hash)

@@ -313,16 +313,19 @@ impl AcceptedTransaction {
 }
 
 impl IsInBlockchain for VersionedAcceptedTransaction {
+    #[inline]
     fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         wsv.has_transaction(&self.hash())
     }
 }
 impl IsInBlockchain for VersionedValidTransaction {
+    #[inline]
     fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         wsv.has_transaction(&self.hash())
     }
 }
 impl IsInBlockchain for VersionedRejectedTransaction {
+    #[inline]
     fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
         wsv.has_transaction(&self.hash())
     }
