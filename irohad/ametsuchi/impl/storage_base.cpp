@@ -177,9 +177,9 @@ namespace iroha::ametsuchi {
 
       callback_(block);
 
-      decltype(std::declval<WsvQuery>().getPeers()) opt_ledger_peers;
+      decltype(std::declval<WsvQuery>().getPeers(false)) opt_ledger_peers;
       {
-        if (not(opt_ledger_peers = wsv_query.getPeers())) {
+        if (not(opt_ledger_peers = wsv_query.getPeers(false))) {
           return expected::makeError(
               std::string{"Failed to get ledger peers! Will retry."});
         }

@@ -17,14 +17,14 @@
 namespace {
   template <typename T>
   boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
-  getPeersFromSociRowSet(T &&rowset) {
+  getPeersFromSociRowSet(T &&rowset, bool syncing_peer) {
     return iroha::ametsuchi::flatMapValues<
         std::vector<std::shared_ptr<shared_model::interface::Peer>>>(
         std::forward<T>(rowset),
         [&](auto &public_key, auto &address, auto &tls_certificate) {
           return boost::make_optional(
               std::make_shared<shared_model::plain::Peer>(
-                  address, std::move(public_key), tls_certificate));
+                  address, std::move(public_key), tls_certificate, syncing_peer));
         });
   }
 }  // namespace
@@ -69,7 +69,7 @@ namespace iroha {
     }
 
     boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
-    PostgresWsvQuery::getPeers() {
+    PostgresWsvQuery::getPeers(bool syncing_peers) {
       using T = boost::
           tuple<std::string, AddressType, std::optional<TLSCertificateType>>;
       auto result = execute<T>([&] {
@@ -77,7 +77,7 @@ namespace iroha {
                 << "SELECT public_key, address, tls_certificate FROM peer");
       });
 
-      return getPeersFromSociRowSet(result);
+      return getPeersFromSociRowSet(result, syncing_peers);
     }
 
     iroha::expected::Result<size_t, std::string> PostgresWsvQuery::count(
@@ -93,7 +93,7 @@ namespace iroha {
     }
 
     iroha::expected::Result<size_t, std::string>
-    PostgresWsvQuery::countPeers() {
+    PostgresWsvQuery::countPeers(bool syncing_peers) {
       return count("peer");
     }
 
@@ -123,7 +123,7 @@ namespace iroha {
                 soci::use(target_public_key, "public_key"));
       });
 
-      return getPeersFromSociRowSet(result) | [](auto &&peers)
+      return getPeersFromSociRowSet(result, false) | [](auto &&peers)
                  -> boost::optional<
                      std::shared_ptr<shared_model::interface::Peer>> {
         if (!peers.empty()) {

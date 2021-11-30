@@ -1500,7 +1500,7 @@ namespace iroha {
                     if (peer_key and address) {
                       peers.push_back(
                           std::make_shared<shared_model::plain::Peer>(
-                              *address, *std::move(peer_key), tls_certificate));
+                              *address, *std::move(peer_key), tls_certificate, false));
                     } else {
                       log_->error(
                           "Address or public key not set for some peer!");

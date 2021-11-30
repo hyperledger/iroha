@@ -1106,7 +1106,7 @@ Irohad::RunResult Irohad::run() {
   auto block_height = block->height();
 
   auto peers = storage->createPeerQuery() |
-      [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
+      [](auto &&peer_query) { return peer_query->getLedgerPeers(false); };
   if (not peers) {
     return expected::makeError("Failed to fetch ledger peers!");
   }

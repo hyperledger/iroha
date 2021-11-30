@@ -166,7 +166,7 @@ namespace iroha::ametsuchi {
                                 log_manager->getChild("WsvQuery")->getLogger());
 
       auto maybe_top_block_info = wsv_query.getTopBlockInfo();
-      auto maybe_ledger_peers = wsv_query.getPeers();
+      auto maybe_ledger_peers = wsv_query.getPeers(false);
 
       if (expected::hasValue(maybe_top_block_info) and maybe_ledger_peers)
         ledger_state = std::make_shared<const iroha::LedgerState>(

@@ -78,7 +78,7 @@ namespace iroha::ametsuchi {
       block_storage_->insert(block);
       block_index_->index(*block);
 
-      auto opt_ledger_peers = peer_query_->getLedgerPeers();
+      auto opt_ledger_peers = peer_query_->getLedgerPeers(false);
       if (not opt_ledger_peers) {
         log_->error("Failed to get ledger peers!");
         return false;

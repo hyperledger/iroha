@@ -16,8 +16,8 @@ namespace iroha {
         : wsv_(std::move(wsv)) {}
 
     boost::optional<std::vector<PeerQuery::wPeer>>
-    PeerQueryWsv::getLedgerPeers() {
-      return wsv_->getPeers();
+    PeerQueryWsv::getLedgerPeers(bool syncing_peers) {
+      return wsv_->getPeers(syncing_peers);
     }
 
     boost::optional<PeerQuery::wPeer> PeerQueryWsv::getLedgerPeerByPublicKey(

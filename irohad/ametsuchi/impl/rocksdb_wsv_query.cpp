@@ -89,7 +89,7 @@ namespace iroha::ametsuchi {
               peers.emplace_back(std::make_shared<shared_model::plain::Peer>(
                   address.ToStringView(),
                   std::string{pubkey.ToStringView()},
-                  std::nullopt));
+                  std::nullopt, syncing_peers));
             else
               assert(!"Pubkey can not be empty!");
 

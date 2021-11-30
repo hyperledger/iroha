@@ -652,23 +652,31 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   std::string pk;
   toLowerAppend(command.pubkey(), pk);
 
-  RDB_ERROR_CHECK(
-      forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustExist>(common, pk));
+  bool syncing_node = false;
+  auto res = forPeerAddress<kDbOperation::kCheck, kDbEntry::kCanExist>(
+      common, pk, syncing_node);
+  if (expected::hasError(res)) {
+    syncing_node = true;
+    if (res = forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustExist>(
+            common, pk, syncing_node);
+        expected::hasError(res))
+      return res.assumeError();
+  }
 
-  RDB_TRY_GET_VALUE(
-      opt_peers_count,
-      forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common));
+  RDB_TRY_GET_VALUE(opt_peers_count,
+                    forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(
+                        common, syncing_node));
   if (*opt_peers_count == 1ull)
     return makeError<void>(
         ErrorCodes::kPeersCountIsNotEnough, "Can not remove last peer {}.", pk);
 
   common.encode(*opt_peers_count - 1ull);
-  RDB_ERROR_CHECK(forPeersCount<kDbOperation::kPut>(common));
+  RDB_ERROR_CHECK(forPeersCount<kDbOperation::kPut>(common, syncing_node));
 
-  RDB_ERROR_CHECK(
-      forPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(common, pk));
-  RDB_ERROR_CHECK(
-      forPeerTLS<kDbOperation::kDel, kDbEntry::kCanExist>(common, pk));
+  RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(
+      common, pk, syncing_node));
+  RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kDel, kDbEntry::kCanExist>(
+      common, pk, syncing_node));
 
   return {};
 }
