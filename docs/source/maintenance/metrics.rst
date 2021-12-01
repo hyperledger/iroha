@@ -11,6 +11,9 @@ How to use metrics?
 
 To use metrics, you need to add it to your `Iroha configuration <../configure/index.html#deployment-specific-parameters>`_ and use Iroha version that is newer than 1.2.1.
 
+.. note:: If you are running Iroha in Docker, to access metrics from outside the countainer you will need to: 1) In `config <../configure/index.html>`_ -- set up ``"metrics":0.0.0.0:PORT``; 2) Expose corresponding port in Docker while executing ``run ... -pPORT:PORT ...``
+
+
 Then, you can simply use the ip address to access the data from the running Iroha instance.
 
 Here is an example:
@@ -18,7 +21,6 @@ Here is an example:
 .. code-block:: shell
 
   > curl http://127.0.0.1:8080/metrics
-
 
 will give you results like: 
 
