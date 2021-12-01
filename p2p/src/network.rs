@@ -182,7 +182,7 @@ where
             .listener
             .take()
             .expect("Unreachable, as it is supposed to have listener on the start");
-        ctx.notify_with_context(Self::listener_stream(listener, receiver));
+        ctx.notify_with(Self::listener_stream(listener, receiver));
     }
 }
 
