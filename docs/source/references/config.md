@@ -52,7 +52,7 @@ The following is the default configuration used by Iroha.
     "FUTURE_THRESHOLD_MS": 1000
   },
   "LOGGER": {
-    "MAX_LOG_LEVEL": "DEBUG",
+    "MAX_LOG_LEVEL": "INFO",
     "TELEMETRY_CAPACITY": 1000,
     "COMPACT_MODE": false,
     "LOG_FILE_PATH": null
@@ -262,7 +262,7 @@ Has type `LoggerConfiguration`. Can be configured via environment variable `IROH
 {
   "COMPACT_MODE": false,
   "LOG_FILE_PATH": null,
-  "MAX_LOG_LEVEL": "DEBUG",
+  "MAX_LOG_LEVEL": "INFO",
   "TELEMETRY_CAPACITY": 1000
 }
 ```
@@ -281,7 +281,7 @@ false
 
 If provided, logs will be copied to said file in the
 
-Has type `Option<PathBuf>`. Can be configured via environment variable `LOG_FILE_PATH`
+Has type `Option<std::path::PathBuf>`. Can be configured via environment variable `LOG_FILE_PATH`
 
 ```json
 null
@@ -291,10 +291,10 @@ null
 
 Maximum log level
 
-Has type `LevelEnv`. Can be configured via environment variable `MAX_LOG_LEVEL`
+Has type `handle::SyncValue<Level,handle::Singleton<Level>>`. Can be configured via environment variable `MAX_LOG_LEVEL`
 
 ```json
-"DEBUG"
+"INFO"
 ```
 
 ### `logger.telemetry_capacity`

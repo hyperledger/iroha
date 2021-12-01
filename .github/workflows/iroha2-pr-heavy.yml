@@ -2,7 +2,7 @@ name: I2::Dev::Tests (Heavy)
 
 on:
   pull_request:
-    branches: [iroha2-dev]
+    branches: [iroha2]
     tags:
       - "v*.*.*"
     paths:
@@ -56,7 +56,6 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     container: rust:1.56-buster
-    if: ${{ false }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -80,8 +79,7 @@ jobs:
         run: cargo bench --workspace --verbose
 
   test-api:
-    runs-on: ubuntu-latest #ubuntu-latest
-    if: ${{ false }}
+    runs-on: [self-hosted, Linux] #ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Set up JDK 11

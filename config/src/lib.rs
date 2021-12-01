@@ -125,6 +125,9 @@ pub mod derive {
     }
 }
 
+/// Module handling runtime upgrade logic.
+pub mod runtime_upgrades;
+
 /// Trait for dynamic and asynchronous configuration via maintanence endpoint for rust structures
 pub trait Configurable: Serialize + DeserializeOwned {
     /// Error type returned by methods of trait

@@ -5,7 +5,8 @@ use test_network::{Peer as TestPeer, *};
 
 #[test]
 fn get_config() {
-    let (_rt, _peer, cl) = <TestPeer>::start_test_with_runtime();
+    // The underscored variables must not be dropped until end of closure.
+    let (_dont_drop, _dont_drop_either, cl) = <TestPeer>::start_test_with_runtime();
 
     let field = cl.get_config_docs(&["torii"]).unwrap().unwrap();
     assert!(field.contains("IROHA_TORII"));

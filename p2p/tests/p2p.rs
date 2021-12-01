@@ -12,10 +12,7 @@ use std::{
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_logger::{
-    config::{LevelEnv, LoggerConfiguration},
-    info,
-};
+use iroha_logger::{info, Configuration, Level};
 use iroha_p2p::{
     network::{ConnectedPeers, GetConnectedPeers},
     peer::PeerId,
@@ -35,10 +32,10 @@ static INIT: Once = Once::new();
 
 fn setup_logger() {
     INIT.call_once(|| {
-        let log_config = LoggerConfiguration {
-            max_log_level: LevelEnv::TRACE,
+        let log_config = Configuration {
+            max_log_level: Level::TRACE.into(),
             compact_mode: false,
-            ..LoggerConfiguration::default()
+            ..Configuration::default()
         };
         iroha_logger::init(&log_config).expect("Failed to start logger");
     })
@@ -199,10 +196,10 @@ async fn two_networks() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn multiple_networks() {
-    let log_config = LoggerConfiguration {
-        max_log_level: LevelEnv::TRACE,
+    let log_config = Configuration {
+        max_log_level: Level::TRACE.into(),
         compact_mode: false,
-        ..LoggerConfiguration::default()
+        ..Configuration::default()
     };
     drop(iroha_logger::init(&log_config));
     iroha_logger::info!("Starting...");

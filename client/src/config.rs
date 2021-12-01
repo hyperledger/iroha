@@ -4,7 +4,7 @@ use eyre::{Result, WrapErr};
 use iroha_config::derive::Configurable;
 use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
-use iroha_logger::config::LoggerConfiguration;
+use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
@@ -65,10 +65,12 @@ impl Default for Configuration {
 impl Configuration {
     /// This method will build `Configuration` from a json *pretty* formatted file (without `:` in
     /// key names).
+    ///
     /// # Panics
-    /// This method will panic if configuration file presented, but has incorrect scheme or format.
+    /// If configuration file present, but has incorrect format.
+    ///
     /// # Errors
-    /// This method will return error if system will fail to find a file or read it's content.
+    /// If system  fails to find a file or read it's content.
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration> {
         let file = File::open(path).wrap_err("Failed to open the config file")?;
         let reader = BufReader::new(file);

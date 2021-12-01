@@ -5,7 +5,7 @@ use std::time::Duration;
 use chrono::Local;
 use eyre::{eyre, Result};
 use futures::{stream::SplitSink, Sink, SinkExt, StreamExt};
-use iroha_logger::telemetry::Telemetry;
+use iroha_logger::Telemetry;
 use serde_json::Map;
 use tokio::{
     net::TcpStream,
@@ -18,14 +18,14 @@ use tokio_tungstenite::{
 };
 use url::Url;
 
-use crate::{retry_period::RetryPeriod, Configuration};
+use crate::retry_period::RetryPeriod;
 
 type WebSocketSplitSink = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 
 /// Starts telemetry sending data to a server
 /// # Errors
 /// Fails if unable to connect to the server
-pub async fn start(config: &Configuration, telemetry: Receiver<Telemetry>) -> Result<bool> {
+pub async fn start(config: &crate::Configuration, telemetry: Receiver<Telemetry>) -> Result<bool> {
     if let (Some(name), Some(url)) = (&config.name, &config.url) {
         iroha_logger::info!(%url, "Starting telemetry");
         let (ws, _) = tokio_tungstenite::connect_async(url).await?;
@@ -277,10 +277,7 @@ mod tests {
 
     use eyre::{eyre, Result};
     use futures::{Sink, StreamExt};
-    use iroha_logger::{
-        config::LoggerConfiguration,
-        telemetry::{Telemetry, TelemetryFields},
-    };
+    use iroha_logger::telemetry::{Telemetry, TelemetryFields};
     use serde_json::{Map, Value};
     use tokio::task::JoinHandle;
     use tokio_tungstenite::tungstenite::{Error, Message};
@@ -435,7 +432,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_succeeds() {
-        iroha_logger::init(&LoggerConfiguration::default()).unwrap();
+        iroha_logger::init(&iroha_logger::Configuration::default()).unwrap();
 
         let Suite {
             telemetry_sender,
@@ -511,7 +508,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconnect_fails() {
-        iroha_logger::init(&LoggerConfiguration::default()).unwrap();
+        iroha_logger::init(&iroha_logger::Configuration::default()).unwrap();
 
         let Suite {
             fail_send,
@@ -556,7 +553,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_after_reconnect_fails() {
-        iroha_logger::init(&LoggerConfiguration::default()).unwrap();
+        iroha_logger::init(&iroha_logger::Configuration::default()).unwrap();
 
         let Suite {
             fail_send,

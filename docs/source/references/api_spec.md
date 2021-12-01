@@ -129,6 +129,12 @@ There are 2 variants:
 }
 ```
 
+**Examples**: 
+To get the top-level configuration docs for [`Torii`]
+```bash
+curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["torii"]} ' -i
+```
+
 **Responses**:
 - 200 OK - Field was found and either doc or value is returned in json body.
 - 404 Not Found - Field wasn't found

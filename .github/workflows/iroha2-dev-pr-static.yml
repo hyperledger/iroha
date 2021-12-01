@@ -29,9 +29,12 @@ jobs:
         run: cargo +nightly-2021-10-22 fmt --all -- --check
       - name: Static analysis without features
         run: cargo lints clippy --workspace --benches --tests
+        if: always()
       - name: Static analysis with all features enabled
         run: cargo lints clippy --workspace --benches --tests --all-features
+        if: always()
       - name: Documentation check
         run: |
           cargo doc --no-deps
           ./scripts/check_docs.sh
+        if: always()

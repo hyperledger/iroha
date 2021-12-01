@@ -2,16 +2,12 @@
 
 use std::time::Duration;
 
-use iroha_logger::{
-    config::LoggerConfiguration,
-    info, init,
-    telemetry::{Telemetry, TelemetryFields},
-};
+use iroha_logger::{info, init, Configuration, Telemetry, TelemetryFields};
 use tokio::time;
 
 #[tokio::test]
 async fn telemetry_separation_default() {
-    let (mut receiver, _) = init(&LoggerConfiguration::default()).unwrap().unwrap();
+    let (mut receiver, _) = init(&Configuration::default()).unwrap().unwrap();
     info!(target: "telemetry::test", a = 2, c = true, d = "this won't be logged");
     info!("This will be logged");
     let telemetry = Telemetry {
