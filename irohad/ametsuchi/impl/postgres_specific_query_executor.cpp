@@ -1481,6 +1481,8 @@ namespace iroha {
           R"(WITH has_perms AS ({})
       SELECT public_key, address, tls_certificate, perm FROM peer
       RIGHT OUTER JOIN has_perms ON TRUE
+      UNION
+      SELECT public_key, address, tls_certificate, perm FROM sync_peer
       )",
           getAccountRolePermissionCheckSql(Role::kGetPeers));
 

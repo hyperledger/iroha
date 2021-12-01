@@ -74,7 +74,9 @@ namespace iroha {
           tuple<std::string, AddressType, std::optional<TLSCertificateType>>;
       auto result = execute<T>([&] {
         return (sql_.prepare
-                << "SELECT public_key, address, tls_certificate FROM peer");
+                << (syncing_peers ?
+                "SELECT public_key, address, tls_certificate FROM sync_peer":
+                "SELECT public_key, address, tls_certificate FROM peer"));
       });
 
       return getPeersFromSociRowSet(result, syncing_peers);
@@ -117,9 +119,9 @@ namespace iroha {
       std::string target_public_key{public_key};
       auto result = execute<T>([&] {
         return (sql_.prepare << R"(
-            SELECT public_key, address, tls_certificate
-            FROM peer
-            WHERE public_key = :public_key)",
+            SELECT public_key, address, tls_certificate FROM peer WHERE public_key = :public_key
+            UNION
+            SELECT public_key, address, tls_certificate FROM sync_peer WHERE public_key = :public_key)",
                 soci::use(target_public_key, "public_key"));
       });
 
