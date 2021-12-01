@@ -133,7 +133,7 @@ Environment-specific parameters
   track a transaction if for some reason it is not updated with new rounds.
   However large values increase the average number of connected clients during
   each round.
-  
+
     It is recommended to limit this parameter to make sure the node is not overloaded with streams.
 
 - ``initial_peers`` is an optional parameter specifying list of peers a node
@@ -167,7 +167,7 @@ Here is the configuration we used:
   "vote_delay" : 1000,
   "mst_enable" : true,
   "mst_expiration_time": 1440,
-  "max_rounds_delay": 500,
+  "proposal_creation_timeout": 500,
   "stale_stream_max_rounds": 100000
 
 
@@ -194,7 +194,7 @@ Unix
   export IROHA_VOTE_DELAY=5000
   export IROHA_MST_ENABLE=false
   export IROHA_MST_EXPIRATION_TIME=1440
-  export IROHA_MAX_ROUNDS_DELAY=3000
+  export IROHA_PROPOSAL_CREATION_TIMEOUT=3000
   export IROHA_CRYPTO_PROVIDERS_0_KEY=p1
   export IROHA_CRYPTO_PROVIDERS_0_CRYPTO_TYPE=ed25519_sha3_256
   export IROHA_CRYPTO_PROVIDERS_0_PRIVATE_KEY=cc5013e43918bd0e5c4d800416c88bed77892ff077929162bb03ead40a745e88
