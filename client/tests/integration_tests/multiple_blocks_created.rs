@@ -14,9 +14,8 @@ const N_BLOCKS: usize = 510;
 fn long_multiple_blocks_created() {
     // Given
     let (_rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
+    wait_for_genesis_committed(network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
-
-    thread::sleep(pipeline_time * 2);
 
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
     let account_id = AccountId::new("account", "domain");

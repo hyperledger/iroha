@@ -1,9 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::thread;
-
 use iroha_client::client;
-use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
 use test_network::*;
 use tokio::runtime::Runtime;
@@ -12,10 +9,8 @@ use tokio::runtime::Runtime;
 fn genesis_block_is_commited_with_some_offline_peers() {
     // Given
     let rt = Runtime::test();
-    let (_network, mut iroha_client) = rt.block_on(<Network>::start_test_with_offline(4, 1, 1));
-    let pipeline_time = Configuration::pipeline_time();
-
-    thread::sleep(pipeline_time * 8);
+    let (network, mut iroha_client) = rt.block_on(<Network>::start_test_with_offline(4, 1, 1));
+    wait_for_genesis_committed(network.clients(), 1);
 
     //When
     let alice_id = AccountId::new("alice", "wonderland");

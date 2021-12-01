@@ -4,7 +4,7 @@ use std::thread;
 
 use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
-use test_network::{Network as TestNetwork, TestConfiguration};
+use test_network::{Network as TestNetwork, *};
 
 #[test]
 fn test_status() {
@@ -12,8 +12,8 @@ fn test_status() {
     let mut status;
 
     let (rt, network, mut client) = <TestNetwork>::start_test_with_runtime(N_PEERS as u32, 1);
+    wait_for_genesis_committed(network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
-    thread::sleep(pipeline_time * 2);
 
     // Confirm all peers connected
     status = client.get_status().unwrap();

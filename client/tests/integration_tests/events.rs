@@ -15,29 +15,23 @@ const PEER_COUNT: usize = 7;
 
 #[test]
 fn transaction_event_should_be_sent_to_all_peers_from_all_peers() -> Result<()> {
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id).into(),
-    ));
-    test_with_instruction_and_status(create_asset, true)?;
+    test_with_instruction_and_status(None, true)?;
     let fail = FailBox::new("Failing transaction to test Rejected event.");
-    test_with_instruction_and_status(fail, false)
+    test_with_instruction_and_status(Some(fail.into()), false)
 }
 
-#[allow(clippy::needless_range_loop)]
+#[allow(clippy::needless_range_loop, clippy::needless_pass_by_value)]
 fn test_with_instruction_and_status(
-    instruction: impl Into<Instruction>,
+    instruction: Option<Instruction>,
     should_be_committed: bool,
 ) -> Result<()> {
-    let instruction: Instruction = instruction.into();
+    let (_rt, network, _) = <Network>::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), 1);
+    wait_for_genesis_committed(network.clients(), 0);
+
     for submitting_peer in 0..PEER_COUNT {
-        let (_rt, network, _) =
-            <Network>::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), 1);
         let pipeline_time = Configuration::pipeline_time();
 
         // Given
-        thread::sleep(pipeline_time * 4);
-
         let committed_event_received = Arc::new(RwLock::new([false; PEER_COUNT]));
         let validating_event_received = Arc::new(RwLock::new([false; PEER_COUNT]));
         let rejected_event_received = Arc::new(RwLock::new([false; PEER_COUNT]));
@@ -46,8 +40,10 @@ fn test_with_instruction_and_status(
             &peers[submitting_peer].api_address,
             &peers[submitting_peer].status_address,
         );
-        let transaction = submitter_client
-            .build_transaction(vec![instruction.clone()], UnlimitedMetadata::new())?;
+        let transaction = submitter_client.build_transaction(
+            instruction.clone().into_iter().collect(),
+            UnlimitedMetadata::new(),
+        )?;
         for receiving_peer in 0..PEER_COUNT {
             let committed_event_received_clone = committed_event_received.clone();
             let validating_event_received_clone = validating_event_received.clone();

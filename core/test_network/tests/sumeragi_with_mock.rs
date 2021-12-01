@@ -71,6 +71,10 @@ pub mod utils {
             ) -> Result<Topology> {
                 unreachable!()
             }
+
+            fn genesis_submission_delay_ms(&self) -> u64 {
+                0
+            }
         }
     }
 

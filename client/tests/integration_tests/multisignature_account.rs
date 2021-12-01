@@ -11,8 +11,8 @@ use test_network::{Peer as TestPeer, *};
 #[test]
 fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     let (_rt, peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
-    thread::sleep(pipeline_time);
 
     // Given
     let account_id = AccountId::new("alice", "wonderland");

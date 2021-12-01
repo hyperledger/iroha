@@ -23,16 +23,14 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     // Given
     let rt = Runtime::test();
     rt.block_on(peer.start_with_config_permissions_dir(configuration.clone(), AllowAll, &temp_dir));
-
-    // Wait for genesis to be committed.
-    thread::sleep(pipeline_time * 2);
+    let mut iroha_client = Client::test(&peer.api_address, &peer.status_address);
+    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
 
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
-    let mut iroha_client = Client::test(&peer.api_address, &peer.status_address);
     iroha_client.submit(create_asset)?;
     thread::sleep(pipeline_time * 2);
     //When

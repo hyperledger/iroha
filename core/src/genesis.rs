@@ -66,11 +66,15 @@ pub trait GenesisNetworkTrait:
         let genesis_topology = self
             .wait_for_peers(sumeragi.peer_id.clone(), sumeragi.topology.clone(), network)
             .await?;
+        time::sleep(Duration::from_millis(self.genesis_submission_delay_ms())).await;
         iroha_logger::info!("Initializing iroha using the genesis block.");
         sumeragi
             .start_genesis_round(self.deref().clone(), genesis_topology)
             .await
     }
+
+    /// See [`GenesisConfiguration`] docs.
+    fn genesis_submission_delay_ms(&self) -> u64;
 }
 
 /// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
@@ -82,6 +86,9 @@ pub struct GenesisNetwork {
     pub wait_for_peers_retry_count: u64,
     /// Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
     pub wait_for_peers_retry_period_ms: u64,
+    /// Delay before genesis block submission after minimum number of peers were discovered to be online.
+    /// Used to ensure that other peers had time to connect to each other.
+    pub genesis_submission_delay_ms: u64,
 }
 
 impl Deref for GenesisNetwork {
@@ -180,6 +187,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
                 .collect(),
             wait_for_peers_retry_count: genesis_config.wait_for_peers_retry_count,
             wait_for_peers_retry_period_ms: genesis_config.wait_for_peers_retry_period_ms,
+            genesis_submission_delay_ms: genesis_config.genesis_submission_delay_ms,
         }))
     }
 
@@ -203,6 +211,10 @@ impl GenesisNetworkTrait for GenesisNetwork {
             time::sleep(Duration::from_millis(reconnect_in_ms)).await;
         }
         Err(eyre!("Waiting for peers failed."))
+    }
+
+    fn genesis_submission_delay_ms(&self) -> u64 {
+        self.genesis_submission_delay_ms
     }
 }
 
@@ -287,6 +299,7 @@ pub mod config {
 
     const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT: u64 = 100;
     const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
+    const DEFAULT_GENESIS_SUBMISSION_DELAY_MS: u64 = 1000;
 
     #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
     #[serde(rename_all = "UPPERCASE")]
@@ -305,6 +318,10 @@ pub mod config {
         /// Period in milliseconds in which to retry connecting to peers, while waiting for them to submit genesis.
         #[serde(default = "default_wait_for_peers_retry_period_ms")]
         pub wait_for_peers_retry_period_ms: u64,
+        /// Delay before genesis block submission after minimum number of peers were discovered to be online.
+        /// Used to ensure that other peers had time to connect to each other.
+        #[serde(default = "default_genesis_submission_delay_ms")]
+        pub genesis_submission_delay_ms: u64,
     }
 
     impl Default for GenesisConfiguration {
@@ -314,6 +331,7 @@ pub mod config {
                 account_private_key: None,
                 wait_for_peers_retry_count: DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT,
                 wait_for_peers_retry_period_ms: DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS,
+                genesis_submission_delay_ms: DEFAULT_GENESIS_SUBMISSION_DELAY_MS,
             }
         }
     }
@@ -324,6 +342,10 @@ pub mod config {
 
     const fn default_wait_for_peers_retry_period_ms() -> u64 {
         DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS
+    }
+
+    const fn default_genesis_submission_delay_ms() -> u64 {
+        DEFAULT_GENESIS_SUBMISSION_DELAY_MS
     }
 }
 
