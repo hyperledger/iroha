@@ -37,7 +37,7 @@ The following is the default configuration used by Iroha.
     "API_URL": "127.0.0.1:8080",
     "STATUS_URL": "127.0.0.1:8180",
     "MAX_TRANSACTION_SIZE": 32768,
-    "MAX_SUMERAGI_MESSAGE_SIZE": 16384000,
+    "MAX_CONTENT_LEN": 16384000,
     "MAX_INSTRUCTION_NUMBER": 4096
   },
   "BLOCK_SYNC": {
@@ -603,8 +603,8 @@ Has type `ToriiConfiguration`. Can be configured via environment variable `IROHA
 ```json
 {
   "API_URL": "127.0.0.1:8080",
+  "MAX_CONTENT_LEN": 16384000,
   "MAX_INSTRUCTION_NUMBER": 4096,
-  "MAX_SUMERAGI_MESSAGE_SIZE": 16384000,
   "MAX_TRANSACTION_SIZE": 32768,
   "P2P_ADDR": "127.0.0.1:1337",
   "STATUS_URL": "127.0.0.1:8180"
@@ -621,6 +621,16 @@ Has type `String`. Can be configured via environment variable `TORII_API_URL`
 "127.0.0.1:8080"
 ```
 
+### `torii.max_content_len`
+
+Maximum number of bytes in raw message. Used to prevent from DOS attacks.
+
+Has type `usize`. Can be configured via environment variable `TORII_MAX_CONTENT_LEN`
+
+```json
+16384000
+```
+
 ### `torii.max_instruction_number`
 
 Maximum number of instruction per transaction. Used to prevent from DOS attacks.
@@ -629,16 +639,6 @@ Has type `u64`. Can be configured via environment variable `TORII_MAX_INSTRUCTIO
 
 ```json
 4096
-```
-
-### `torii.max_sumeragi_message_size`
-
-Maximum number of bytes in raw message. Used to prevent from DOS attacks.
-
-Has type `usize`. Can be configured via environment variable `TORII_MAX_SUMERAGI_MESSAGE_SIZE`
-
-```json
-16384000
 ```
 
 ### `torii.max_transaction_size`

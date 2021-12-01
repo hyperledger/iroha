@@ -91,7 +91,6 @@ cp configs/client_config.json target/debug/config.json
 cd target/debug
 ./iroha_client_cli --help
 ```
-
 More details about Iroha Client CLI can be found [here](./client_cli/README.md).
 
 # Integration
@@ -142,6 +141,14 @@ Optional JSON formatted logging can be saved to the [logging file](./docs/source
 ## Monitoring
 
 The details of the `Health` endpoint can be found [here](./docs/source/references/api_spec.md#health). 
+
+Iroha is instrumented to produce both JSON-formatted as well as `prometheus`-readable metrics at the `status` and `metrics` endpoints respectively. More information is found in the [API specifications](./docs/source/references/api_spec.md).
+
+The [`prometheus`](https://prometheus.io/docs/introduction/overview/) monitoring system is the de-factor standard for monitoring long-running services such as an Iroha peer. In order to get started, please [install `prometheus`](https://prometheus.io/docs/introduction/first_steps/), and execute the following in the project root. 
+
+```
+prometheus --config.file=configs/prometheus.yml
+```
 
 ## Storage
 

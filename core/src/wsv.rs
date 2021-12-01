@@ -1,4 +1,4 @@
-//! This module provides `WorldStateView` - in-memory representations of the current blockchain
+//! This module provides the [`WorldStateView`] - in-memory representations of the current blockchain
 //! state.
 
 use std::{
@@ -14,7 +14,7 @@ use dashmap::{
 };
 use eyre::Result;
 use iroha_crypto::HashOf;
-use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
+use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*, Metrics};
 use iroha_logger::prelude::*;
 use tokio::task;
 
@@ -28,7 +28,7 @@ use crate::{
 pub trait WorldTrait:
     Deref<Target = World> + DerefMut + Send + Sync + 'static + Debug + Default + Sized + Clone
 {
-    /// Creates `World` with these `domains` and `trusted_peers_ids`
+    /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
     fn with(
         domains: impl IntoIterator<Item = (Name, Domain)>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
@@ -64,6 +64,8 @@ pub struct WorldStateView<W: WorldTrait> {
     blocks: Arc<Chain>,
     /// Hashes of transactions
     pub transactions: DashSet<HashOf<VersionedTransaction>>,
+    /// Metrics for prometheus endpoint.
+    pub metrics: Arc<Metrics>,
 }
 
 impl<W: WorldTrait + Default> Default for WorldStateView<W> {
@@ -105,16 +107,15 @@ impl<W: WorldTrait> WorldStateView<W> {
             config: Configuration::default(),
             transactions: DashSet::new(),
             blocks: Arc::new(Chain::new()),
+            metrics: Arc::new(Metrics::default()),
         }
     }
 
-    /// [`WorldStateView`] constructor with configuration.
+    /// [`WorldStateView`] constructor.
     pub fn from_config(config: Configuration, world: W) -> Self {
         WorldStateView {
-            world,
-            blocks: Arc::new(Chain::new()),
-            transactions: DashSet::new(),
             config,
+            ..WorldStateView::new(world)
         }
     }
 
@@ -152,6 +153,8 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Can fail if execution of instruction fails(should be fine after validation)
+
+    /// Apply [`CommittedBlock`] with changes in form of **Iroha Special Instructions** to `self`.
     #[iroha_futures::telemetry_future]
     #[log(skip(self, block))]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
@@ -169,13 +172,11 @@ impl<W: WorldTrait> WorldStateView<W> {
             // The transaction processing is a long CPU intensive task, so this should be included here.
             task::yield_now().await;
         }
-        block
-            .as_inner_v1()
-            .rejected_transactions
-            .iter()
-            .for_each(|tx| {
-                self.transactions.insert(tx.hash());
-            });
+
+        for tx in &block.as_inner_v1().rejected_transactions {
+            self.transactions.insert(tx.hash());
+        }
+        self.tx_metric_update();
         self.blocks.push(block);
         Ok(())
     }
@@ -190,10 +191,41 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Height of blockchain
+    #[inline]
     pub fn height(&self) -> u64 {
+        self.metrics.block_height.get()
+    }
+
+    #[cfg(test)]
+    pub fn transactions_number(&self) -> u64 {
+        self.blocks.iter().fold(0_u64, |acc, block| {
+            acc + block.as_inner_v1().transactions.len() as u64
+                + block.as_inner_v1().rejected_transactions.len() as u64
+        })
+    }
+
+    /// Returns [`Some`] milliseconds since the genesis block was
+    /// committed, or [`None`] if it wasn't.
+    pub fn genesis_timestamp(&self) -> Option<u128> {
         self.blocks
-            .latest_block()
-            .map_or(0, |block_entry| block_entry.value().header().height)
+            .iter()
+            .next()
+            .map(|val| val.as_inner_v1().header.timestamp)
+    }
+
+    /// Update metrics; run when block commits.
+    fn tx_metric_update(&self) {
+        let last_block_txs_total = self
+            .blocks
+            .iter()
+            .last()
+            .map(|block| {
+                block.as_inner_v1().transactions.len() as u64
+                    + block.as_inner_v1().rejected_transactions.len() as u64
+            })
+            .unwrap_or_default();
+        self.metrics.txs.inc_by(last_block_txs_total);
+        self.metrics.block_height.inc();
     }
 
     /// Returns blocks after hash
@@ -210,7 +242,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             .collect()
     }
 
-    /// Get `World` without an ability to modify it.
+    /// Get an immutable view of the `World`.
     pub fn world(&self) -> &W {
         &self.world
     }
@@ -257,6 +289,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Get `Domain` and pass it to closure.
+    ///
     /// # Errors
     /// Fails if there is no domain
     pub fn map_domain<T>(
@@ -269,6 +302,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Get `Domain` and pass it to closure to modify it
+    ///
     /// # Errors
     /// Fails if there is no domain
     pub fn modify_domain(
@@ -281,6 +315,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Get `Account` and pass it to closure.
+    ///
     /// # Errors
     /// Fails if there is no domain or account
     pub fn map_account<T>(
@@ -297,6 +332,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Get `Account` and pass it to closure to modify it
+    ///
     /// # Errors
     /// Fails if there is no domain or account
     pub fn modify_account(
@@ -430,12 +466,12 @@ impl<W: WorldTrait> WorldStateView<W> {
         f(asset_definition_entry)
     }
 
-    /// Checks if this `tx` is already committed or rejected.
+    /// Check if this [`VersionedTransaction`] is already committed or rejected.
     pub fn has_transaction(&self, hash: &HashOf<VersionedTransaction>) -> bool {
         self.transactions.contains(hash)
     }
 
-    /// Find a transaction by provided hash
+    /// Find a [`VersionedTransaction`] by hash.
     pub fn transaction_value_by_hash(
         &self,
         hash: &HashOf<VersionedTransaction>,
@@ -517,7 +553,7 @@ pub mod config {
         MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
     const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
 
-    /// [`WorldStateView`] configuration.
+    /// [`WorldStateView`](super::WorldStateView) configuration.
     #[derive(Clone, Deserialize, Serialize, Debug, Copy, Configurable, PartialEq, Eq)]
     #[config(env_prefix = "WSV_")]
     #[serde(rename_all = "UPPERCASE", default)]

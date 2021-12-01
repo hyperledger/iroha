@@ -63,13 +63,13 @@ pub enum Error {
     /// Failed to encode pending transactions
     #[error("Failed to encode pending transactions")]
     EncodePendingTransactions(#[source] iroha_version::error::Error),
-    /// The block sync message channel is full. Dropping the incoming message.
+    /// The block sync message channel is full. Dropping the incoming message
     #[error("Transaction is too big")]
     TxTooBig,
     /// Error while getting or setting configuration
     #[error("Configuration error: {0}")]
     Config(eyre::Error),
-    /// Failed to push into queue.
+    /// Failed to push into queue
     #[error("Failed to push into queue")]
     PushIntoQueue(#[source] Box<queue::Error>),
     /// Error while getting status
@@ -78,6 +78,9 @@ pub enum Error {
     /// Configuration change error.
     #[error("Attempt to change configuration failed. {0}")]
     ConfigurationReload(#[source] iroha_config::runtime_upgrades::ReloadError),
+    /// Error while getting Prometheus metrics
+    #[error("Failed to produce Prometheus metrics")]
+    Prometheus(#[source] eyre::Report),
 }
 
 impl Reply for Error {
@@ -100,7 +103,7 @@ impl Reply for Error {
                     queue::Error::SignatureCondition(_) => StatusCode::UNAUTHORIZED,
                     _ => StatusCode::BAD_REQUEST,
                 },
-                Status(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                Prometheus(_) | Status(_) => StatusCode::INTERNAL_SERVER_ERROR,
             }
         }
 
@@ -208,7 +211,7 @@ impl<W: WorldTrait> Torii<W> {
             warp::path(uri::TRANSACTION)
                 .and(add_state(Arc::clone(&state)))
                 .and(warp::body::content_length_limit(
-                    state.iroha_cfg.torii.max_sumeragi_message_size as u64,
+                    state.iroha_cfg.torii.max_content_len as u64,
                 ))
                 .and(body::versioned()),
         )
@@ -273,11 +276,15 @@ impl<W: WorldTrait> Torii<W> {
 /// # Errors
 /// Can fail due to listening to network or if http server fails
 async fn start_status<W: WorldTrait>(state: ToriiState<W>) -> eyre::Result<()> {
-    let get_router = endpoint1(
+    let get_router_status = endpoint1(
         handle_status,
         warp::path(uri::STATUS).and(add_state(Arc::clone(&state))),
     );
-    let router = warp::get().and(get_router);
+    let get_router_metrics = endpoint1(
+        handle_metrics,
+        warp::path(uri::METRICS).and(add_state(Arc::clone(&state))),
+    );
+    let router = warp::get().and(get_router_status).or(get_router_metrics);
 
     match state.iroha_cfg.torii.status_url.to_socket_addrs() {
         Ok(mut i) => {
@@ -433,7 +440,12 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::R
     Ok(())
 }
 
-async fn handle_status<W: WorldTrait>(state: ToriiState<W>) -> Result<Json> {
+async fn handle_metrics<W: WorldTrait>(state: ToriiState<W>) -> Result<String> {
+    update_metrics(&state).await?;
+    state.wsv.metrics.try_to_string().map_err(Error::Prometheus)
+}
+
+async fn update_metrics<W: WorldTrait>(state: &Arc<InnerToriiState<W>>) -> Result<()> {
     let peers = state
         .network
         .send(iroha_p2p::network::GetConnectedPeers)
@@ -441,17 +453,29 @@ async fn handle_status<W: WorldTrait>(state: ToriiState<W>) -> Result<Json> {
         .map_err(Error::Status)?
         .peers
         .len() as u64;
-    let status = Status {
-        peers,
-        blocks: state.wsv.height(),
-    };
+    #[allow(clippy::cast_possible_truncation)]
+    if let Some(timestamp) = state.wsv.genesis_timestamp() {
+        // this will overflow in 584942417years.
+        state
+            .wsv
+            .metrics
+            .uptime_since_genesis_ms
+            .set((current_time().as_millis() - timestamp) as u64)
+    }
+    state.wsv.metrics.connected_peers.set(peers);
+    Ok(())
+}
+
+async fn handle_status<W: WorldTrait>(state: ToriiState<W>) -> Result<Json> {
+    update_metrics(&state).await?;
+    let status = Status::from(&state.wsv.metrics);
     Ok(reply::json(&status))
 }
 
 /// This module contains all configuration related logic.
 pub mod config {
     use iroha_config::derive::Configurable;
-    use iroha_data_model::{transaction::DEFAULT_MAX_INSTRUCTION_NUMBER, uri::DEFAULT_API_URL};
+    use iroha_data_model::uri::DEFAULT_API_URL;
     use serde::{Deserialize, Serialize};
 
     /// Default socket for p2p communication
@@ -460,8 +484,10 @@ pub mod config {
     pub const DEFAULT_TORII_STATUS_URL: &str = "127.0.0.1:8180";
     /// Default maximum size of single transaction
     pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
-    /// Default maximum [`Sumeragi`] message size
-    pub const DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE: usize = 2_usize.pow(12) * 4000;
+    /// Default maximum instruction number
+    pub const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+    /// Default upper bound on `content-length` specified in the HTTP request header
+    pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: usize = 2_usize.pow(12) * 4000;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
     #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
@@ -478,7 +504,7 @@ pub mod config {
         /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
         pub max_transaction_size: usize,
         /// Maximum number of bytes in raw message. Used to prevent from DOS attacks.
-        pub max_sumeragi_message_size: usize,
+        pub max_content_len: usize,
         /// Maximum number of instruction per transaction. Used to prevent from DOS attacks.
         pub max_instruction_number: u64,
     }
@@ -490,8 +516,8 @@ pub mod config {
                 api_url: DEFAULT_API_URL.to_owned(),
                 status_url: DEFAULT_TORII_STATUS_URL.to_owned(),
                 max_transaction_size: DEFAULT_TORII_MAX_TRANSACTION_SIZE,
-                max_sumeragi_message_size: DEFAULT_TORII_MAX_SUMERAGI_MESSAGE_SIZE,
-                max_instruction_number: DEFAULT_MAX_INSTRUCTION_NUMBER,
+                max_content_len: DEFAULT_TORII_MAX_CONTENT_LENGTH,
+                max_instruction_number: DEFAULT_TORII_MAX_INSTRUCTION_NUMBER,
             }
         }
     }
