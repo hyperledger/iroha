@@ -10,22 +10,22 @@ use serde::{Deserialize, Serialize};
 declare_versioned_with_scale!(VersionedEventSocketMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
 impl VersionedEventSocketMessage {
-    /// The same as [`as_v1`](`VersionedEventSocketMessage::as_v1()`) but also runs into on it
-    pub const fn as_inner_v1(&self) -> &EventSocketMessage {
+    /// Converts from `&VersionedEventSocketMessage` to V1 reference
+    pub const fn as_v1(&self) -> &EventSocketMessage {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// The same as [`as_v1`](`VersionedEventSocketMessage::as_v1()`) but also runs into on it
-    pub fn as_mut_inner_v1(&mut self) -> &mut EventSocketMessage {
+    /// Converts from `&mut VersionedEventSocketMessage` to V1 mutable reference
+    pub fn as_mut_v1(&mut self) -> &mut EventSocketMessage {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// The same as [`as_v1`](`VersionedEventSocketMessage::as_v1()`) but also runs into on it
-    pub fn into_inner_v1(self) -> EventSocketMessage {
+    /// Performs the conversion from `VersionedEventSocketMessage` to V1
+    pub fn into_v1(self) -> EventSocketMessage {
         match self {
             Self::V1(v1) => v1,
         }

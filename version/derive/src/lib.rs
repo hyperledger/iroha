@@ -204,22 +204,6 @@ impl DeclareVersionedArgs {
     pub fn version_numbers(&self) -> Vec<u8> {
         self.range.clone().into_iter().collect()
     }
-
-    pub fn version_method_idents_into(&self) -> Vec<Ident> {
-        self.range
-            .clone()
-            .into_iter()
-            .map(|i| Ident::new(&format!("into_v{}", i), Span::call_site()))
-            .collect()
-    }
-
-    pub fn version_method_idents_as(&self) -> Vec<Ident> {
-        self.range
-            .clone()
-            .into_iter()
-            .map(|i| Ident::new(&format!("as_v{}", i), Span::call_site()))
-            .collect()
-    }
 }
 
 impl Parse for DeclareVersionedArgs {
@@ -314,40 +298,6 @@ fn impl_json(enum_name: &Ident, version_field_name: &str) -> proc_macro2::TokenS
     )
 }
 
-fn impl_as_from(args: &DeclareVersionedArgs) -> proc_macro2::TokenStream {
-    let version_idents = args.version_idents();
-    let version_struct_idents = args.version_struct_idents();
-    let version_method_idents_as = args.version_method_idents_as();
-    let version_method_idents_into = args.version_method_idents_into();
-    let enum_name = &args.enum_name;
-    quote!(
-        impl #enum_name {
-            #(
-            /// Returns Some(ref _) if this container has this version. None otherwise.
-            pub fn #version_method_idents_as (&self) -> Option<& #version_struct_idents> {
-                use #enum_name::*;
-
-                match self {
-                    #version_idents (content) => Some(content),
-                    _ => None
-                }
-            }
-            )*
-            #(
-            /// Returns Some(_) if this container has this version. None otherwise.
-            pub fn #version_method_idents_into (self) -> Option<#version_struct_idents> {
-                use #enum_name::*;
-
-                match self {
-                    #version_idents (content) => Some(content),
-                    _ => None
-                }
-            }
-            )*
-        }
-    )
-}
-
 //TODO using this cause linters issue FIXME https://jira.hyperledger.org/browse/IR-1048
 fn impl_declare_versioned(
     args: &DeclareVersionedArgs,
@@ -408,7 +358,6 @@ fn impl_declare_versioned(
             }
         })
         .collect();
-    let impl_as_from = impl_as_from(args);
     let derives = &args.derive;
 
     quote!(
@@ -435,8 +384,6 @@ fn impl_declare_versioned(
                 #range_start .. #range_end
             }
         }
-
-        #impl_as_from
 
         #scale_impl
 

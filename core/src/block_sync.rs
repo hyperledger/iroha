@@ -221,22 +221,22 @@ pub mod message {
     declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
 
     impl VersionedMessage {
-        /// Same as [`as_v1`](`VersionedMessage::as_v1()`) but also does conversion
-        pub const fn as_inner_v1(&self) -> &Message {
+        /// Converts from `&VersionedMessage` to V1 reference
+        pub const fn as_v1(&self) -> &Message {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Same as [`as_inner_v1`](`VersionedMessage::as_inner_v1()`) but returns mutable reference
-        pub fn as_mut_inner_v1(&mut self) -> &mut Message {
+        /// Converts from `&mut VersionedMessage` to V1 mutable reference
+        pub fn as_mut_v1(&mut self) -> &mut Message {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Same as [`into_v1`](`VersionedMessage::into_v1()`) but also does conversion
-        pub fn into_inner_v1(self) -> Message {
+        /// Performs the conversion from `VersionedMessage` to V1
+        pub fn into_v1(self) -> Message {
             match self {
                 Self::V1(v1) => v1,
             }

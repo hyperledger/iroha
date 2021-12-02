@@ -329,9 +329,8 @@ impl Client {
                 std::str::from_utf8(response.body()).unwrap_or(""),
             ));
         }
-        let QueryResult(result) = VersionedQueryResult::decode_versioned(response.body())?
-            .into_v1()
-            .ok_or_else(|| eyre!("Expected query result V1"))?;
+        let result = VersionedQueryResult::decode_versioned(response.body())?;
+        let VersionedQueryResult::V1(QueryResult(result)) = result;
         R::Output::try_from(result)
             .map_err(Into::into)
             .wrap_err("Unexpected type")
@@ -384,10 +383,9 @@ impl Client {
                 self.headers.clone(),
             )?;
             if response.status() == StatusCode::OK {
-                let pending_transactions: PendingTransactions =
-                    VersionedPendingTransactions::decode_versioned(response.body())?
-                        .into_v1()
-                        .ok_or_else(|| eyre!("Expected pending transaction message version 1."))?;
+                let pending_transactions =
+                    VersionedPendingTransactions::decode_versioned(response.body())?;
+                let VersionedPendingTransactions::V1(pending_transactions) = pending_transactions;
                 let transaction = pending_transactions
                     .into_iter()
                     .find(|pending_transaction| {
@@ -398,7 +396,7 @@ impl Client {
                 if transaction.is_some() {
                     return Ok(transaction);
                 }
-                thread::sleep(retry_in)
+                thread::sleep(retry_in);
             } else {
                 return Err(eyre!(
                     "Failed to make query request with HTTP status: {}, {}",
@@ -542,10 +540,9 @@ impl EventIterator {
         ))?;
         loop {
             match stream.read_message() {
-                Ok(WebSocketMessage::Binary(this_message)) => {
+                Ok(WebSocketMessage::Binary(message)) => {
                     if let EventSocketMessage::SubscriptionAccepted =
-                        VersionedEventSocketMessage::decode_versioned(&this_message)?
-                            .into_inner_v1()
+                        VersionedEventSocketMessage::decode_versioned(&message)?.into_v1()
                     {
                         break;
                     }
@@ -571,7 +568,7 @@ impl Iterator for EventIterator {
                 Ok(WebSocketMessage::Binary(message)) => {
                     let event_socket_message =
                         match VersionedEventSocketMessage::decode_versioned(&message) {
-                            Ok(event_socket_message) => event_socket_message.into_inner_v1(),
+                            Ok(event_socket_message) => event_socket_message.into_v1(),
                             Err(err) => return Some(Err(err.into())),
                         };
                     let event = match event_socket_message {

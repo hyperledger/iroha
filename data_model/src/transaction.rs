@@ -97,29 +97,29 @@ declare_versioned!(
     Clone,
     PartialEq,
     Eq,
-    iroha_derive::FromVariant,
+    iroha_macro::FromVariant,
     IntoSchema,
 );
 
 impl VersionedTransaction {
-    /// Same as [`as_v1`](`VersionedTransaction::as_v1()`) but also does conversion
-    pub const fn as_inner_v1(&self) -> &Transaction {
+    /// Converts from `&VersionedTransaction` to V1 reference
+    pub const fn as_v1(&self) -> &Transaction {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Same as [`as_inner_v1`](`VersionedTransaction::as_inner_v1()`) but returns mutable reference
+    /// Converts from `&mut VersionedTransaction` to V1 mutable reference
     #[inline]
-    pub fn as_mut_inner_v1(&mut self) -> &mut Transaction {
+    pub fn as_mut_v1(&mut self) -> &mut Transaction {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Same as [`into_v1`](`VersionedTransaction::into_v1()`) but also does conversion
+    /// Performs the conversion from `VersionedTransaction` to V1
     #[inline]
-    pub fn into_inner_v1(self) -> Transaction {
+    pub fn into_v1(self) -> Transaction {
         match self {
             Self::V1(v1) => v1,
         }
@@ -140,7 +140,7 @@ impl VersionedTransaction {
     /// # Errors
     /// Fails if signature creation fails
     pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedTransaction> {
-        self.into_inner_v1().sign(key_pair).map(Into::into)
+        self.into_v1().sign(key_pair).map(Into::into)
     }
 }
 
@@ -165,11 +165,11 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
                     .iter()
                     .cloned()
                     .collect::<BTreeSet<_>>();
-                let tx = Transaction {
-                    payload: tx.payload,
+                let transaction = Transaction {
+                    payload: transaction.payload,
                     signatures,
                 };
-                tx.into()
+                transaction.into()
             }
         }
     }
@@ -272,22 +272,22 @@ impl Txn for Transaction {
 declare_versioned_with_scale!(VersionedPendingTransactions 1..2, iroha_macro::FromVariant, Clone, Debug);
 
 impl VersionedPendingTransactions {
-    /// Same as [`as_v1`](`VersionedPendingTransactions::as_v1()`) but also does conversion
-    pub const fn as_inner_v1(&self) -> &PendingTransactions {
+    /// Converts from `&VersionedPendingTransactions` to V1 reference
+    pub const fn as_v1(&self) -> &PendingTransactions {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Same as [`as_inner_v1`](`VersionedPendingTransactions::as_inner_v1()`) but returns mutable reference
-    pub fn as_mut_inner_v1(&mut self) -> &mut PendingTransactions {
+    /// Converts from `&mut VersionedPendingTransactions` to V1 mutable reference
+    pub fn as_mut_v1(&mut self) -> &mut PendingTransactions {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Same as [`into_v1`](`VersionedPendingTransactions::into_v1()`) but also does conversion
-    pub fn into_inner_v1(self) -> PendingTransactions {
+    /// Performs the conversion from `VersionedPendingTransactions` to V1
+    pub fn into_v1(self) -> PendingTransactions {
         match self {
             Self::V1(v1) => v1,
         }
@@ -376,23 +376,23 @@ impl PartialOrd for TransactionValue {
 declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 impl VersionedValidTransaction {
-    /// Same as [`as_v1`](`VersionedValidTransaction::as_v1()`) but also does conversion
+    /// Converts from `&VersionedValidTransaction` to V1 reference
     #[inline]
-    pub const fn as_inner_v1(&self) -> &ValidTransaction {
+    pub const fn as_v1(&self) -> &ValidTransaction {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Same as [`as_inner_v1`](`VersionedValidTransaction::as_inner_v1()`) but returns mutable reference
-    pub fn as_mut_inner_v1(&mut self) -> &mut ValidTransaction {
+    /// Converts from `&mut VersionedValidTransaction` to V1 mutable reference
+    pub fn as_mut_v1(&mut self) -> &mut ValidTransaction {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Same as [`into_v1`](`VersionedValidTransaction::into_v1()`) but also does conversion
-    pub fn into_inner_v1(self) -> ValidTransaction {
+    /// Performs the conversion from `VersionedValidTransaction` to V1
+    pub fn into_v1(self) -> ValidTransaction {
         match self {
             Self::V1(v1) => v1,
         }
@@ -404,7 +404,7 @@ impl Txn for VersionedValidTransaction {
 
     #[inline]
     fn payload(&self) -> &Payload {
-        &self.as_inner_v1().payload
+        &self.as_v1().payload
     }
 }
 
@@ -427,25 +427,25 @@ impl Txn for ValidTransaction {
     }
 }
 
-declare_versioned!(VersionedRejectedTransaction 1..2, Clone, Debug, PartialEq, Eq, iroha_derive::FromVariant, IntoSchema);
+declare_versioned!(VersionedRejectedTransaction 1..2, Clone, Debug, PartialEq, Eq, iroha_macro::FromVariant, IntoSchema);
 
 impl VersionedRejectedTransaction {
-    /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
-    pub const fn as_inner_v1(&self) -> &RejectedTransaction {
+    /// Converts from `&VersionedRejectedTransaction` to V1 reference
+    pub const fn as_v1(&self) -> &RejectedTransaction {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
-    pub fn as_mut_inner_v1(&mut self) -> &mut RejectedTransaction {
+    /// Converts from `&mut VersionedRejectedTransaction` to V1 mutable reference
+    pub fn as_mut_v1(&mut self) -> &mut RejectedTransaction {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
-    pub fn into_inner_v1(self) -> RejectedTransaction {
+    /// Performs the conversion from `VersionedRejectedTransaction` to V1
+    pub fn into_v1(self) -> RejectedTransaction {
         match self {
             Self::V1(v1) => v1,
         }

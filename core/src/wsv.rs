@@ -158,9 +158,9 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[iroha_futures::telemetry_future]
     #[log(skip(self, block))]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
-        for tx in &block.as_inner_v1().transactions {
+        for tx in &block.as_v1().transactions {
             let account_id = &tx.payload().account_id;
-            tx.as_inner_v1()
+            tx.as_v1()
                 .payload
                 .instructions
                 .iter()
@@ -172,8 +172,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             // The transaction processing is a long CPU intensive task, so this should be included here.
             task::yield_now().await;
         }
-
-        for tx in &block.as_inner_v1().rejected_transactions {
+        for tx in &block.as_v1().rejected_transactions {
             self.transactions.insert(tx.hash());
         }
         self.tx_metric_update();
@@ -199,8 +198,8 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[cfg(test)]
     pub fn transactions_number(&self) -> u64 {
         self.blocks.iter().fold(0_u64, |acc, block| {
-            acc + block.as_inner_v1().transactions.len() as u64
-                + block.as_inner_v1().rejected_transactions.len() as u64
+            acc + block.as_v1().transactions.len() as u64
+                + block.as_v1().rejected_transactions.len() as u64
         })
     }
 
@@ -210,7 +209,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.blocks
             .iter()
             .next()
-            .map(|val| val.as_inner_v1().header.timestamp)
+            .map(|val| val.as_v1().header.timestamp)
     }
 
     /// Update metrics; run when block commits.
@@ -220,8 +219,8 @@ impl<W: WorldTrait> WorldStateView<W> {
             .iter()
             .last()
             .map(|block| {
-                block.as_inner_v1().transactions.len() as u64
-                    + block.as_inner_v1().rejected_transactions.len() as u64
+                block.as_v1().transactions.len() as u64
+                    + block.as_v1().rejected_transactions.len() as u64
             })
             .unwrap_or_default();
         self.metrics.txs.inc_by(last_block_txs_total);
@@ -477,14 +476,14 @@ impl<W: WorldTrait> WorldStateView<W> {
         hash: &HashOf<VersionedTransaction>,
     ) -> Option<TransactionValue> {
         self.blocks.iter().find_map(|b| {
-            b.as_inner_v1()
+            b.as_v1()
                 .rejected_transactions
                 .iter()
                 .find(|e| e.hash() == *hash)
                 .cloned()
                 .map(TransactionValue::RejectedTransaction)
                 .or_else(|| {
-                    b.as_inner_v1()
+                    b.as_v1()
                         .transactions
                         .iter()
                         .find(|e| e.hash() == *hash)
@@ -504,7 +503,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             .blocks
             .iter()
             .flat_map(|block_entry| {
-                let block = block_entry.value().as_inner_v1();
+                let block = block_entry.value().as_v1();
                 block
                     .rejected_transactions
                     .iter()

@@ -131,9 +131,9 @@ impl Queue {
                 // MST case
                 old_tx
                     .get_mut()
-                    .as_mut_inner_v1()
+                    .as_mut_v1()
                     .signatures
-                    .merge(tx.into_inner_v1().signatures);
+                    .merge(tx.into_v1().signatures);
                 return Ok(());
             }
             Entry::Vacant(entry) => entry,
@@ -412,7 +412,7 @@ mod tests {
             .txs
             .get(&queue.queue.pop().unwrap())
             .unwrap()
-            .as_inner_v1()
+            .as_v1()
             .signatures
             .len();
         assert_eq!(signature_count, 2);
@@ -632,7 +632,7 @@ mod tests {
         let mut tx = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
         assert!(queue.push(tx.clone(), &wsv).is_ok());
         // tamper timestamp
-        tx.as_mut_inner_v1().payload.creation_time += 2 * future_threshold_ms;
+        tx.as_mut_v1().payload.creation_time += 2 * future_threshold_ms;
         assert!(matches!(queue.push(tx, &wsv), Err((_, Error::InFuture))));
         assert_eq!(queue.txs.len(), 1);
     }

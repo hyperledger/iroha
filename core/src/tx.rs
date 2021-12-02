@@ -23,22 +23,22 @@ use crate::{
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_macro::FromVariant);
 
 impl VersionedAcceptedTransaction {
-    /// Same as [`as_v1`](`VersionedAcceptedTransaction::as_v1()`) but also does conversion
-    pub const fn as_inner_v1(&self) -> &AcceptedTransaction {
+    /// Converts from `&VersionedAcceptedTransaction` to V1 reference
+    pub const fn as_v1(&self) -> &AcceptedTransaction {
         match self {
             VersionedAcceptedTransaction::V1(v1) => v1,
         }
     }
 
-    /// Same as [`as_inner_v1`](`VersionedAcceptedTransaction::as_inner_v1()`) but returns mutable reference
-    pub fn as_mut_inner_v1(&mut self) -> &mut AcceptedTransaction {
+    /// Converts from `&mut VersionedAcceptedTransaction` to V1 mutable reference
+    pub fn as_mut_v1(&mut self) -> &mut AcceptedTransaction {
         match self {
             VersionedAcceptedTransaction::V1(v1) => v1,
         }
     }
 
-    /// Same as [`into_v1`](`VersionedAcceptedTransaction::into_v1()`) but also does conversion
-    pub fn into_inner_v1(self) -> AcceptedTransaction {
+    /// Performs the conversion from `VersionedAcceptedTransaction` to V1
+    pub fn into_v1(self) -> AcceptedTransaction {
         match self {
             VersionedAcceptedTransaction::V1(v1) => v1,
         }
@@ -57,12 +57,12 @@ impl VersionedAcceptedTransaction {
     /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
     /// Meaning that the transaction will be expired as soon as the lesser of the specified TTLs was reached.
     pub fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
-        self.as_inner_v1().is_expired(transaction_time_to_live)
+        self.as_v1().is_expired(transaction_time_to_live)
     }
 
     /// If `true`, this transaction is regarded to have been tampered to have a future timestamp.
     pub fn is_in_future(&self, threshold: Duration) -> bool {
-        self.as_inner_v1().is_in_future(threshold)
+        self.as_v1().is_in_future(threshold)
     }
 
     /// Move transaction lifecycle forward by checking an ability to apply instructions to the
@@ -76,7 +76,7 @@ impl VersionedAcceptedTransaction {
         is_query_allowed: &IsQueryAllowedBoxed<W>,
         is_genesis: bool,
     ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
-        self.into_inner_v1()
+        self.into_v1()
             .validate(wsv, is_instruction_allowed, is_query_allowed, is_genesis)
             .map(Into::into)
             .map_err(Into::into)
@@ -89,7 +89,7 @@ impl VersionedAcceptedTransaction {
         &self,
         wsv: &WorldStateView<W>,
     ) -> Result<bool> {
-        self.as_inner_v1().check_signature_condition(wsv)
+        self.as_v1().check_signature_condition(wsv)
     }
 
     /// Rejects transaction with the `rejection_reason`.
@@ -97,7 +97,7 @@ impl VersionedAcceptedTransaction {
         self,
         rejection_reason: TransactionRejectionReason,
     ) -> VersionedRejectedTransaction {
-        self.into_inner_v1().reject(rejection_reason).into()
+        self.into_v1().reject(rejection_reason).into()
     }
 }
 
@@ -106,7 +106,7 @@ impl Txn for VersionedAcceptedTransaction {
 
     #[inline]
     fn payload(&self) -> &Payload {
-        &self.as_inner_v1().payload
+        &self.as_v1().payload
     }
 }
 
@@ -316,7 +316,7 @@ impl IsInBlockchain for VersionedRejectedTransaction {
 
 impl From<VersionedAcceptedTransaction> for VersionedTransaction {
     fn from(tx: VersionedAcceptedTransaction) -> Self {
-        let tx: AcceptedTransaction = tx.into_inner_v1();
+        let tx: AcceptedTransaction = tx.into_v1();
         let tx: Transaction = tx.into();
         tx.into()
     }
@@ -333,7 +333,7 @@ impl From<AcceptedTransaction> for Transaction {
 
 impl From<VersionedValidTransaction> for VersionedAcceptedTransaction {
     fn from(tx: VersionedValidTransaction) -> Self {
-        let tx: ValidTransaction = tx.into_inner_v1();
+        let tx: ValidTransaction = tx.into_v1();
         let tx: AcceptedTransaction = tx.into();
         tx.into()
     }
@@ -350,7 +350,7 @@ impl From<ValidTransaction> for AcceptedTransaction {
 
 impl From<VersionedRejectedTransaction> for VersionedAcceptedTransaction {
     fn from(tx: VersionedRejectedTransaction) -> Self {
-        let tx: RejectedTransaction = tx.into_inner_v1();
+        let tx: RejectedTransaction = tx.into_v1();
         let tx: AcceptedTransaction = tx.into();
         tx.into()
     }

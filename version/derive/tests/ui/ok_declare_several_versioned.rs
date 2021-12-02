@@ -12,6 +12,7 @@ impl Message {
 }
 
 declare_versioned!(VersionedMessage2 1..2, Debug, Clone, iroha_macro::FromVariant);
+#[version(n = 1, versioned = "VersionedMessage2")]
 #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
 pub struct Message2;
 
@@ -23,14 +24,12 @@ pub fn main() {
     let versioned_message: VersionedMessage = Message.into();
     match versioned_message {
         VersionedMessage::V1(message) => {
-            let message: Message = message.into();
             message.handle();
         }
     }
     let versioned_message: VersionedMessage2 = Message2.into();
     match versioned_message {
         VersionedMessage2::V1(message) => {
-            let message: Message2 = message.into();
             message.handle();
         }
     }

@@ -424,8 +424,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<NetworkMessage
         use NetworkMessage::*;
 
         match msg {
-            SumeragiMessage(data) => self.broker.issue_send(data.into_inner_v1()).await,
-            BlockSync(data) => self.broker.issue_send(data.into_inner_v1()).await,
+            SumeragiMessage(data) => self.broker.issue_send(data.into_v1()).await,
+            BlockSync(data) => self.broker.issue_send(data.into_v1()).await,
             Health => {}
         }
     }
@@ -943,22 +943,22 @@ pub mod message {
     declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
 
     impl VersionedMessage {
-        /// Same as [`as_v1`](`VersionedMessage::as_v1()`) but also does conversion
-        pub const fn as_inner_v1(&self) -> &Message {
+        /// Converts from `&VersionedMessage` to V1 reference
+        pub const fn as_v1(&self) -> &Message {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Same as [`as_inner_v1`](`VersionedMessage::as_inner_v1()`) but returns mutable reference
-        pub fn as_mut_inner_v1(&mut self) -> &mut Message {
+        /// Converts from `&mut VersionedMessage` to V1 mutable reference
+        pub fn as_mut_v1(&mut self) -> &mut Message {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Same as [`into_v1`](`VersionedMessage::into_v1()`) but also does conversion
-        pub fn into_inner_v1(self) -> Message {
+        /// Performs the conversion from `VersionedMessage` to V1
+        pub fn into_v1(self) -> Message {
             match self {
                 Self::V1(v1) => v1,
             }
@@ -1001,7 +1001,7 @@ pub mod message {
             self,
             sumeragi: &mut Sumeragi<G, K, W>,
         ) -> Result<()> {
-            self.into_inner_v1().handle(sumeragi).await
+            self.into_v1().handle(sumeragi).await
         }
     }
 
@@ -1332,7 +1332,7 @@ pub mod message {
                 .votes_for_blocks
                 .entry(block_hash)
                 .or_insert_with(|| self.block.clone());
-            entry.as_mut_inner_v1().signatures.extend(
+            entry.as_mut_v1().signatures.extend(
                 self.block
                     .verified_signatures()
                     .cloned()
@@ -1360,7 +1360,7 @@ pub mod message {
                 .map(SignatureOf::transmute)
                 .collect();
             let mut block = entry.clone();
-            block.as_mut_inner_v1().signatures = signatures;
+            block.as_mut_v1().signatures = signatures;
             let block = block.sign(sumeragi.key_pair.clone())?;
 
             iroha_logger::info!(
@@ -1428,9 +1428,9 @@ pub mod message {
                 && sumeragi.latest_block_hash() == &self.block.header().previous_block_hash
             {
                 let mut block = self.block.clone();
-                block.as_mut_inner_v1().signatures.clear();
+                block.as_mut_v1().signatures.clear();
                 block
-                    .as_mut_inner_v1()
+                    .as_mut_v1()
                     .signatures
                     .extend(valid_signatures.into_iter().map(SignatureOf::transmute));
                 sumeragi.commit_block(block).await;

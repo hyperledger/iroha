@@ -60,7 +60,7 @@ impl Chain {
 
     /// Push latest block.
     pub fn push(&self, block: VersionedCommittedBlock) {
-        let height = block.as_inner_v1().header.height;
+        let height = block.as_v1().header.height;
         self.blocks.insert(height, block);
     }
 
@@ -303,8 +303,8 @@ impl ChainedBlock {
                 Ok(tx) => txs.push(tx),
                 Err(tx) => {
                     iroha_logger::warn!(
-                        reason = %tx.as_inner_v1().rejection_reason,
-                        caused_by = ?tx.as_inner_v1().rejection_reason.source(),
+                        reason = %tx.as_v1().rejection_reason,
+                        caused_by = ?tx.as_v1().rejection_reason.source(),
                         "Transaction validation failed",
                     );
                     rejected.push(tx)
@@ -340,25 +340,25 @@ impl ChainedBlock {
 declare_versioned_with_scale!(VersionedValidBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 impl VersionedValidBlock {
-    /// Same as [`as_v1`](`VersionedValidBlock::as_v1()`) but also does conversion
+    /// Converts from `&VersionedValidBlock` to V1 reference
     #[inline]
-    pub const fn as_inner_v1(&self) -> &ValidBlock {
+    pub const fn as_v1(&self) -> &ValidBlock {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Same as [`as_inner_v1`](`VersionedValidBlock::as_inner_v1()`) but returns mutable reference
+    /// Converts from `&mut VersionedValidBlock` to V1 mutable reference
     #[inline]
-    pub fn as_mut_inner_v1(&mut self) -> &mut ValidBlock {
+    pub fn as_mut_v1(&mut self) -> &mut ValidBlock {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Same as [`into_v1`](`VersionedValidBlock::into_v1()`) but also does conversion
+    /// Performs the conversion from `VersionedValidBlock` to V1
     #[inline]
-    pub fn into_inner_v1(self) -> ValidBlock {
+    pub fn into_v1(self) -> ValidBlock {
         match self {
             Self::V1(v1) => v1,
         }
@@ -367,12 +367,12 @@ impl VersionedValidBlock {
     /// Returns header of valid block
     #[inline]
     pub const fn header(&self) -> &BlockHeader {
-        &self.as_inner_v1().header
+        &self.as_v1().header
     }
 
     /// Commit block to the store.
     pub fn commit(self) -> VersionedCommittedBlock {
-        self.into_inner_v1().commit().into()
+        self.into_v1().commit().into()
     }
 
     /// Validate block transactions against current state of the world.
@@ -382,47 +382,46 @@ impl VersionedValidBlock {
         is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
         is_query_allowed: &IsQueryAllowedBoxed<W>,
     ) -> VersionedValidBlock {
-        self.into_inner_v1()
+        self.into_v1()
             .revalidate(wsv, is_instruction_allowed, is_query_allowed)
             .into()
     }
 
     /// Calculate hash of the current block.
     pub fn hash(&self) -> HashOf<Self> {
-        self.as_inner_v1().hash().transmute()
+        self.as_v1().hash().transmute()
     }
 
     /// Sign this block and get [`VersionedValidBlock`](`Self`).
     /// # Errors
     /// Look at [`ValidBlock`](`ValidBlock`) for more info
     pub fn sign(self, key_pair: KeyPair) -> Result<VersionedValidBlock> {
-        self.into_inner_v1().sign(key_pair).map(Into::into)
+        self.into_v1().sign(key_pair).map(Into::into)
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
     pub fn verified_signatures(
         &'_ self,
     ) -> impl Iterator<Item = &'_ SignatureOf<VersionedValidBlock>> + '_ {
-        self.as_inner_v1()
+        self.as_v1()
             .verified_signatures()
             .map(SignatureOf::transmute_ref)
     }
 
     /// Checks if there are no transactions in this block.
     pub fn is_empty(&self) -> bool {
-        self.as_inner_v1().is_empty()
+        self.as_v1().is_empty()
     }
 
     /// Checks if block has transactions that are already in blockchain.
     pub fn has_committed_transactions<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
-        self.as_inner_v1().has_committed_transactions(wsv)
+        self.as_v1().has_committed_transactions(wsv)
     }
 
     /// # Errors
     /// Asserts specific instruction number of instruction in transaction constraint
     pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
-        self.as_inner_v1()
-            .check_instruction_len(max_instruction_len)
+        self.as_v1().check_instruction_len(max_instruction_len)
     }
 
     /// Returns true if block can be send for discussion
@@ -506,7 +505,7 @@ impl ValidBlock {
                     .collect(),
             }
             .validate(wsv, is_instruction_allowed, is_query_allowed)
-            .into_inner_v1()
+            .into_v1()
         }
     }
 
@@ -579,7 +578,7 @@ impl ValidBlock {
 
 impl From<&VersionedValidBlock> for Vec<Event> {
     fn from(block: &VersionedValidBlock) -> Self {
-        block.as_inner_v1().into()
+        block.as_v1().into()
     }
 }
 
@@ -626,22 +625,22 @@ impl From<&ValidBlock> for Vec<Event> {
 declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 impl VersionedCommittedBlock {
-    /// Same as [`as_v1`](`VersionedCommittedBlock::as_v1()`) but also does conversion
-    pub const fn as_inner_v1(&self) -> &CommittedBlock {
+    /// Converts from `&VersionedCommittedBlock` to V1 reference
+    pub const fn as_v1(&self) -> &CommittedBlock {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Same as [`as_inner_v1`](`VersionedCommittedBlock::as_inner_v1()`) but returns mutable reference
-    pub fn as_mut_inner_v1(&mut self) -> &mut CommittedBlock {
+    /// Converts from `&mut VersionedCommittedBlock` to V1 mutable reference
+    pub fn as_mut_v1(&mut self) -> &mut CommittedBlock {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Same as [`into_v1`](`VersionedCommittedBlock::into_v1()`) but also does conversion
-    pub fn into_inner_v1(self) -> CommittedBlock {
+    /// Performs the conversion from `VersionedCommittedBlock` to V1
+    pub fn into_v1(self) -> CommittedBlock {
         match self {
             Self::V1(v1) => v1,
         }
@@ -650,17 +649,17 @@ impl VersionedCommittedBlock {
     /// Calculate hash of the current block.
     /// `VersionedCommitedBlock` should have the same hash as `VersionedCommitedBlock`.
     pub fn hash(&self) -> HashOf<Self> {
-        self.as_inner_v1().hash().transmute()
+        self.as_v1().hash().transmute()
     }
 
     /// Returns header of valid block
     pub const fn header(&self) -> &BlockHeader {
-        &self.as_inner_v1().header
+        &self.as_v1().header
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
     pub fn verified_signatures(&'_ self) -> impl Iterator<Item = &'_ SignatureOf<Self>> + '_ {
-        self.as_inner_v1()
+        self.as_v1()
             .verified_signatures()
             .map(SignatureOf::transmute_ref)
     }
@@ -720,14 +719,14 @@ impl From<CommittedBlock> for ValidBlock {
 impl From<VersionedCommittedBlock> for VersionedValidBlock {
     #[inline]
     fn from(block: VersionedCommittedBlock) -> Self {
-        ValidBlock::from(block.into_inner_v1()).into()
+        ValidBlock::from(block.into_v1()).into()
     }
 }
 
 impl From<&VersionedCommittedBlock> for Vec<Event> {
     #[inline]
     fn from(block: &VersionedCommittedBlock) -> Self {
-        block.as_inner_v1().into()
+        block.as_v1().into()
     }
 }
 
@@ -740,9 +739,7 @@ impl From<&CommittedBlock> for Vec<Event> {
             .map(|transaction| {
                 PipelineEvent::new(
                     PipelineEntityType::Transaction,
-                    PipelineStatus::Rejected(
-                        transaction.as_inner_v1().rejection_reason.clone().into(),
-                    ),
+                    PipelineStatus::Rejected(transaction.as_v1().rejection_reason.clone().into()),
                     transaction.hash().into(),
                 )
                 .into()
