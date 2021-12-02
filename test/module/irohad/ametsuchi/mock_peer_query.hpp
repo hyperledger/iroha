@@ -17,7 +17,7 @@ namespace iroha {
      public:
       MockPeerQuery() = default;
 
-      MOCK_METHOD0(getLedgerPeers, boost::optional<std::vector<wPeer>>());
+      MOCK_METHOD1(getLedgerPeers, boost::optional<std::vector<wPeer>>(bool));
 
       MOCK_CONST_METHOD1(
           getLedgerPeerByPublicKey,

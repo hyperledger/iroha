@@ -208,7 +208,7 @@ TEST_F(AmetsuchiTest, PeerTest) {
 
   apply(storage, block);
 
-  auto peers = wsv->getPeers();
+  auto peers = wsv->getPeers(false);
   ASSERT_TRUE(peers);
   ASSERT_EQ(peers->size(), 1);
   ASSERT_EQ(peers->at(0)->address(), "192.168.9.1:50051");
@@ -399,7 +399,7 @@ TEST_F(AmetsuchiTest, TestingStorageWhenInsertBlock) {
       "=> assert that inserted");
   ASSERT_TRUE(storage);
   auto wsv = storage->getWsvQuery();
-  ASSERT_EQ(0, wsv->getPeers().value().size());
+  ASSERT_EQ(0, wsv->getPeers(false).value().size());
 
   log->info("Try insert block");
 
@@ -408,7 +408,7 @@ TEST_F(AmetsuchiTest, TestingStorageWhenInsertBlock) {
 
   log->info("Request ledger information");
 
-  ASSERT_NE(0, wsv->getPeers().value().size());
+  ASSERT_NE(0, wsv->getPeers(false).value().size());
 
   ASSERT_EQ(1, committed_blocks_.size());
 }
