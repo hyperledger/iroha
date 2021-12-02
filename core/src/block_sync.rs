@@ -135,7 +135,7 @@ impl<S: SumeragiTrait, W: WorldTrait> Handler<ContinueSync> for BlockSynchronize
 impl<S: SumeragiTrait, W: WorldTrait> Handler<Message> for BlockSynchronizer<S, W> {
     type Result = ();
     async fn handle(&mut self, message: Message) {
-        message.handle(&mut self).await;
+        message.handle(self).await;
     }
 }
 

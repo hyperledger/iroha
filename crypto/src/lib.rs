@@ -8,7 +8,6 @@ mod signature;
 mod varint;
 
 use std::{
-    convert::{TryFrom, TryInto},
     fmt::{self, Debug, Display, Formatter},
     str::FromStr,
 };
@@ -165,7 +164,7 @@ impl KeyPair {
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self> {
         let key_gen_option: Option<UrsaKeyGenOption> = configuration
             .key_gen_option
-            .map(|key_gen_option| key_gen_option.try_into())
+            .map(TryInto::try_into)
             .transpose()?;
         let (public_key, private_key) = match configuration.algorithm {
             Algorithm::Ed25519 => Ed25519Sha512.keypair(key_gen_option),

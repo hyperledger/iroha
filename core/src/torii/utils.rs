@@ -1,4 +1,4 @@
-use std::convert::{Infallible, TryInto};
+use std::convert::Infallible;
 
 use iroha_version::scale::DecodeVersioned;
 use parity_scale_codec::Encode;

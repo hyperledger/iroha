@@ -1,6 +1,6 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
-use std::{convert::TryInto, time::Duration};
+use std::time::Duration;
 
 use futures::future::FutureExt;
 use iroha_actor::{broker::Broker, Actor};

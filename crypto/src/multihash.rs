@@ -1,10 +1,6 @@
 //! Module with multihash implementation
 
-use std::{
-    convert::{TryFrom, TryInto},
-    fmt::Display,
-    str::FromStr,
-};
+use std::{fmt::Display, str::FromStr};
 
 use eyre::{eyre, Error, Result};
 
@@ -94,21 +90,12 @@ impl TryFrom<u64> for DigestFunction {
 }
 
 /// Multihash
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Default)]
 pub struct Multihash {
     /// digest
     pub digest_function: DigestFunction,
     /// hash payload
     pub payload: Vec<u8>,
-}
-
-impl Default for Multihash {
-    fn default() -> Self {
-        Self {
-            digest_function: DigestFunction::default(),
-            payload: Vec::new(),
-        }
-    }
 }
 
 impl TryFrom<Vec<u8>> for Multihash {

@@ -11,7 +11,6 @@
 
 use std::{
     collections::{btree_map::Entry, BTreeMap},
-    convert::TryFrom,
     marker::PhantomData,
 };
 

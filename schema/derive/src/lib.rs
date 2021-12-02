@@ -223,11 +223,10 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
         .map(|(discriminant, variant)| {
             let discriminant = variant_index(variant, discriminant);
             let name = &variant.ident;
-            let ty = if let Some(ty) = variant_field(&variant.fields) {
-                quote! { Some(<#ty as iroha_schema::IntoSchema>::type_name()) }
-            } else {
-                quote! { None }
-            };
+            let ty = variant_field(&variant.fields).map_or_else(
+                || quote! { None },
+                |ty| quote! { Some(<#ty as iroha_schema::IntoSchema>::type_name()) },
+            );
             quote! {
                 iroha_schema::EnumVariant {
                     name: stringify!(#name).to_owned(),

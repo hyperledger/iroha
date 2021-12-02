@@ -1,6 +1,6 @@
 //! Types used for Fixed-point operations. Uses [`fixnum::FixedPoint`].
 
-use std::{convert::TryFrom, mem::size_of};
+use std::mem::size_of;
 
 use fixnum::{
     ops::{CheckedAdd, CheckedSub, Zero},

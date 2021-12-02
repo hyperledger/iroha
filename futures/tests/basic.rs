@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::{convert::TryFrom, thread, time::Duration};
+use std::{thread, time::Duration};
 
 use iroha_futures::FuturePollTelemetry;
 use iroha_logger::Configuration;

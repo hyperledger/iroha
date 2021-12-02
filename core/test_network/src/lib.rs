@@ -7,7 +7,7 @@
     clippy::future_not_send
 )]
 
-use std::{collections::HashMap, convert::TryFrom, fmt::Debug, thread, time::Duration};
+use std::{collections::HashMap, fmt::Debug, thread, time::Duration};
 
 use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};

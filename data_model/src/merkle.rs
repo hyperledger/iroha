@@ -1,6 +1,6 @@
 //! Merkle tree implementation
 
-use std::{collections::VecDeque, iter::FromIterator};
+use std::collections::VecDeque;
 
 use iroha_crypto::{Hash, HashOf};
 

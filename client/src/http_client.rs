@@ -1,8 +1,4 @@
-use std::{
-    borrow::Borrow,
-    collections::HashMap,
-    convert::{TryFrom, TryInto},
-};
+use std::{borrow::Borrow, collections::HashMap};
 
 use attohttpc::{body, header::HeaderName, RequestBuilder, Response as AttohttpcResponse};
 use eyre::{eyre, Error, Result, WrapErr};

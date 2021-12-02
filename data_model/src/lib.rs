@@ -4,7 +4,6 @@
 #![allow(clippy::module_name_repetitions)]
 
 use std::{
-    convert::TryFrom,
     error,
     fmt::Debug,
     ops::RangeInclusive,
@@ -690,7 +689,6 @@ pub mod account {
     use std::{
         collections::{BTreeMap, BTreeSet},
         fmt,
-        iter::FromIterator,
         ops::RangeInclusive,
     };
 
@@ -1047,7 +1045,7 @@ pub mod account {
     impl FromIterator<Account> for Value {
         fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
             iter.into_iter()
-                .map(|account| account.into())
+                .map(Into::into)
                 .collect::<Vec<Value>>()
                 .into()
         }
@@ -1089,7 +1087,6 @@ pub mod asset {
         cmp::Ordering,
         collections::BTreeMap,
         fmt::{self, Display, Formatter},
-        iter::FromIterator,
         ops::RangeInclusive,
         str::FromStr,
     };
@@ -1595,7 +1592,7 @@ pub mod asset {
     impl FromIterator<Asset> for Value {
         fn from_iter<T: IntoIterator<Item = Asset>>(iter: T) -> Self {
             iter.into_iter()
-                .map(|asset| asset.into())
+                .map(Into::into)
                 .collect::<Vec<Value>>()
                 .into()
         }
@@ -1604,7 +1601,7 @@ pub mod asset {
     impl FromIterator<AssetDefinition> for Value {
         fn from_iter<T: IntoIterator<Item = AssetDefinition>>(iter: T) -> Self {
             iter.into_iter()
-                .map(|asset_definition| asset_definition.into())
+                .map(Into::into)
                 .collect::<Vec<Value>>()
                 .into()
         }
@@ -1653,8 +1650,8 @@ pub mod domain {
     //! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
 
     use std::{
-        cmp::Ordering, collections::BTreeMap, convert::Infallible, iter, iter::FromIterator,
-        ops::RangeInclusive, str::FromStr,
+        cmp::Ordering, collections::BTreeMap, convert::Infallible, iter, ops::RangeInclusive,
+        str::FromStr,
     };
 
     use dashmap::DashMap;
@@ -1794,7 +1791,7 @@ pub mod domain {
     impl FromIterator<Domain> for Value {
         fn from_iter<T: IntoIterator<Item = Domain>>(iter: T) -> Self {
             iter.into_iter()
-                .map(|domain| domain.into())
+                .map(Into::into)
                 .collect::<Vec<Value>>()
                 .into()
         }
@@ -1809,7 +1806,7 @@ pub mod domain {
 pub mod peer {
     //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
-    use std::{hash::Hash, iter::FromIterator};
+    use std::hash::Hash;
 
     use dashmap::DashSet;
     use iroha_macro::Io;
@@ -1891,7 +1888,7 @@ pub mod peer {
     impl FromIterator<Id> for Value {
         fn from_iter<T: IntoIterator<Item = Id>>(iter: T) -> Self {
             iter.into_iter()
-                .map(|id| id.into())
+                .map(Into::into)
                 .collect::<Vec<Value>>()
                 .into()
         }

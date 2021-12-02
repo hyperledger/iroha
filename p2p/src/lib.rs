@@ -19,7 +19,6 @@ pub mod peer;
 /// The main type to use for secure communication.
 pub type Network<T> = NetworkBase<T, X25519Sha256, ChaCha20Poly1305>;
 
-
 /// Errors used in [`crate`].
 #[derive(Clone, Debug, iroha_macro::FromVariant, Error, iroha_actor::Message)]
 pub enum Error {

@@ -1,7 +1,5 @@
 //! Implementations for Expression evaluation for different expressions.
 
-use std::convert::TryFrom;
-
 use eyre::{eyre, Error, Result};
 use iroha_data_model::{
     expression::{prelude::*, Expression},

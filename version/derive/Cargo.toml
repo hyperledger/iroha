@@ -21,5 +21,5 @@ iroha_macro = {path = "../../macro" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-trybuild = "1.0"
+trybuild = "1"
 parity-scale-codec = { version = "2", features = ["derive"]}
