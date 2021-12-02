@@ -89,7 +89,7 @@ async fn torii_pagination() {
         let pagination = Pagination { start, limit };
         handle_queries(state.clone(), pagination, query).map(|result| {
             let Scale(query_result) = result.unwrap();
-            if let QueryResult(Value::Vec(domain)) = query_result.into_v1().unwrap().into() {
+            if let QueryResult(Value::Vec(domain)) = query_result.into_v1().unwrap() {
                 domain
             } else {
                 unreachable!()
@@ -216,7 +216,7 @@ impl AssertReady {
         let response_body = match response.status() {
             StatusCode::OK => {
                 let response: VersionedQueryResult = response.body().to_vec().try_into().unwrap();
-                let QueryResult(value) = response.into_v1().unwrap().into();
+                let QueryResult(value) = response.into_v1().unwrap();
                 format!("{:?}", value)
             }
             _ => String::from_utf8(response.body().to_vec()).unwrap_or_default(),

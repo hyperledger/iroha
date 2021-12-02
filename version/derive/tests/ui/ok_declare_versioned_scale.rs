@@ -3,17 +3,17 @@ use parity_scale_codec::{Decode, Encode};
 
 declare_versioned_with_scale!(VersionedMessage 1..3, Debug, Clone, iroha_macro::FromVariant);
 
-#[version_with_scale(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
+#[version_with_scale(n = 1, versioned = "VersionedMessage")]
 #[derive(Debug, Clone, Decode, Encode)]
-struct Message;
+pub struct Message;
 
 impl Message {
     pub fn handle(&self) {}
 }
 
-#[version_with_scale(n = 2, versioned = "VersionedMessage", derive = "Debug, Clone")]
+#[version_with_scale(n = 2, versioned = "VersionedMessage")]
 #[derive(Debug, Clone, Decode, Encode)]
-struct Message2;
+pub struct Message2;
 
 impl Message2 {
     pub fn handle(&self) {

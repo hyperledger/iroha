@@ -163,7 +163,7 @@ declare_versioned_with_scale!(VersionedPendingBlock 1..2, Debug, Clone, iroha_ma
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
 /// a linear sequence over time (also known as the block chain).
 /// Blocks lifecycle starts from "Pending" state which is represented by `PendingBlock` struct.
-#[version_with_scale(n = 1, versioned = "VersionedPendingBlock", derive = "Debug, Clone")]
+#[version_with_scale(n = 1, versioned = "VersionedPendingBlock")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct PendingBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
@@ -344,7 +344,7 @@ impl VersionedValidBlock {
     #[inline]
     pub const fn as_inner_v1(&self) -> &ValidBlock {
         match self {
-            Self::V1(v1) => &v1.0,
+            Self::V1(v1) => v1,
         }
     }
 
@@ -352,7 +352,7 @@ impl VersionedValidBlock {
     #[inline]
     pub fn as_mut_inner_v1(&mut self) -> &mut ValidBlock {
         match self {
-            Self::V1(v1) => &mut v1.0,
+            Self::V1(v1) => v1,
         }
     }
 
@@ -360,7 +360,7 @@ impl VersionedValidBlock {
     #[inline]
     pub fn into_inner_v1(self) -> ValidBlock {
         match self {
-            Self::V1(v1) => v1.0,
+            Self::V1(v1) => v1,
         }
     }
 
@@ -444,11 +444,7 @@ impl VersionedValidBlock {
 }
 
 /// After full validation `ChainedBlock` can transform into `ValidBlock`.
-#[version_with_scale(
-    n = 1,
-    versioned = "VersionedValidBlock",
-    derive = "Debug, Clone, iroha_schema::IntoSchema"
-)]
+#[version_with_scale(n = 1, versioned = "VersionedValidBlock")]
 #[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
 pub struct ValidBlock {
     /// Header
@@ -633,21 +629,21 @@ impl VersionedCommittedBlock {
     /// Same as [`as_v1`](`VersionedCommittedBlock::as_v1()`) but also does conversion
     pub const fn as_inner_v1(&self) -> &CommittedBlock {
         match self {
-            Self::V1(v1) => &v1.0,
+            Self::V1(v1) => v1,
         }
     }
 
     /// Same as [`as_inner_v1`](`VersionedCommittedBlock::as_inner_v1()`) but returns mutable reference
     pub fn as_mut_inner_v1(&mut self) -> &mut CommittedBlock {
         match self {
-            Self::V1(v1) => &mut v1.0,
+            Self::V1(v1) => v1,
         }
     }
 
     /// Same as [`into_v1`](`VersionedCommittedBlock::into_v1()`) but also does conversion
     pub fn into_inner_v1(self) -> CommittedBlock {
         match self {
-            Self::V1(v1) => v1.into(),
+            Self::V1(v1) => v1,
         }
     }
 

@@ -946,21 +946,21 @@ pub mod message {
         /// Same as [`as_v1`](`VersionedMessage::as_v1()`) but also does conversion
         pub const fn as_inner_v1(&self) -> &Message {
             match self {
-                Self::V1(v1) => &v1.0,
+                Self::V1(v1) => v1,
             }
         }
 
         /// Same as [`as_inner_v1`](`VersionedMessage::as_inner_v1()`) but returns mutable reference
         pub fn as_mut_inner_v1(&mut self) -> &mut Message {
             match self {
-                Self::V1(v1) => &mut v1.0,
+                Self::V1(v1) => v1,
             }
         }
 
         /// Same as [`into_v1`](`VersionedMessage::into_v1()`) but also does conversion
         pub fn into_inner_v1(self) -> Message {
             match self {
-                Self::V1(v1) => v1.0,
+                Self::V1(v1) => v1,
             }
         }
 
@@ -1006,7 +1006,7 @@ pub mod message {
     }
 
     /// Message's variants that are used by peers to communicate in the process of consensus.
-    #[version_with_scale(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
+    #[version_with_scale(n = 1, versioned = "VersionedMessage")]
     #[derive(Io, Decode, Encode, Debug, Clone, FromVariant, iroha_actor::Message)]
     pub enum Message {
         /// Is sent by leader to all validating peers, when a new block is created.

@@ -129,11 +129,7 @@ pub struct QueryRequest {
 declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 /// I/O ready structure to send queries.
-#[version_with_scale(
-    n = 1,
-    versioned = "VersionedSignedQueryRequest",
-    derive = "Debug, Clone, iroha_schema::IntoSchema"
-)]
+#[version_with_scale(n = 1, versioned = "VersionedSignedQueryRequest")]
 #[derive(Debug, Clone, Io, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct SignedQueryRequest {
     /// Payload
@@ -145,11 +141,7 @@ pub struct SignedQueryRequest {
 declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, Io, IntoSchema);
 
 /// Sized container for all possible Query results.
-#[version_with_scale(
-    n = 1,
-    versioned = "VersionedQueryResult",
-    derive = "Debug, Clone, iroha_schema::IntoSchema"
-)]
+#[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
 #[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode, IntoSchema)]
 pub struct QueryResult(pub Value);
 

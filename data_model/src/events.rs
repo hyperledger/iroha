@@ -13,32 +13,28 @@ impl VersionedEventSocketMessage {
     /// The same as [`as_v1`](`VersionedEventSocketMessage::as_v1()`) but also runs into on it
     pub const fn as_inner_v1(&self) -> &EventSocketMessage {
         match self {
-            Self::V1(v1) => &v1.0,
+            Self::V1(v1) => v1,
         }
     }
 
     /// The same as [`as_v1`](`VersionedEventSocketMessage::as_v1()`) but also runs into on it
     pub fn as_mut_inner_v1(&mut self) -> &mut EventSocketMessage {
         match self {
-            Self::V1(v1) => &mut v1.0,
+            Self::V1(v1) => v1,
         }
     }
 
     /// The same as [`as_v1`](`VersionedEventSocketMessage::as_v1()`) but also runs into on it
     pub fn into_inner_v1(self) -> EventSocketMessage {
         match self {
-            Self::V1(v1) => v1.into(),
+            Self::V1(v1) => v1,
         }
     }
 }
 
 /// Message type used for communication over web socket event stream.
 #[allow(variant_size_differences)]
-#[version_with_scale(
-    n = 1,
-    versioned = "VersionedEventSocketMessage",
-    derive = "Debug, Clone, IntoSchema, Deserialize, Serialize"
-)]
+#[version_with_scale(n = 1, versioned = "VersionedEventSocketMessage")]
 #[derive(Debug, Clone, IntoSchema, FromVariant, Decode, Encode, Deserialize, Serialize)]
 pub enum EventSocketMessage {
     /// Request sent by client to subscribe to events.

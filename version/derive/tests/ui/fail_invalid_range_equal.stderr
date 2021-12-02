@@ -5,11 +5,3 @@ error: The end version should be higher then the start version.
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = note: this error originates in the macro `declare_versioned` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0412]: cannot find type `VersionedMessage` in this scope
- --> tests/ui/fail_invalid_range_equal.rs:7:1
-  |
-7 | #[version(n = 1, versioned = "VersionedMessage")]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
-  |
-  = note: this error originates in the attribute macro `version` (in Nightly builds, run with -Z macro-backtrace for more info)

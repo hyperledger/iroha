@@ -26,21 +26,21 @@ impl VersionedAcceptedTransaction {
     /// Same as [`as_v1`](`VersionedAcceptedTransaction::as_v1()`) but also does conversion
     pub const fn as_inner_v1(&self) -> &AcceptedTransaction {
         match self {
-            VersionedAcceptedTransaction::V1(v1) => &v1.0,
+            VersionedAcceptedTransaction::V1(v1) => v1,
         }
     }
 
     /// Same as [`as_inner_v1`](`VersionedAcceptedTransaction::as_inner_v1()`) but returns mutable reference
     pub fn as_mut_inner_v1(&mut self) -> &mut AcceptedTransaction {
         match self {
-            VersionedAcceptedTransaction::V1(v1) => &mut v1.0,
+            VersionedAcceptedTransaction::V1(v1) => v1,
         }
     }
 
     /// Same as [`into_v1`](`VersionedAcceptedTransaction::into_v1()`) but also does conversion
     pub fn into_inner_v1(self) -> AcceptedTransaction {
         match self {
-            VersionedAcceptedTransaction::V1(v1) => v1.0,
+            VersionedAcceptedTransaction::V1(v1) => v1,
         }
     }
 
@@ -111,11 +111,7 @@ impl Txn for VersionedAcceptedTransaction {
 }
 
 /// `AcceptedTransaction` represents a transaction accepted by iroha peer.
-#[version_with_scale(
-    n = 1,
-    versioned = "VersionedAcceptedTransaction",
-    derive = "Debug, Clone"
-)]
+#[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
 #[derive(Clone, Debug, Io, Encode, Decode)]
 #[non_exhaustive]
 pub struct AcceptedTransaction {

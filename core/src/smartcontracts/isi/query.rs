@@ -163,8 +163,7 @@ impl TryFrom<&Bytes> for VerifiedQueryRequest {
         let version = query.version();
         let query: SignedQueryRequest = query
             .into_v1()
-            .ok_or(Error::Version(UnsupportedVersionError { version }))?
-            .into();
+            .ok_or(Error::Version(UnsupportedVersionError { version }))?;
         VerifiedQueryRequest::try_from(query)
     }
 }

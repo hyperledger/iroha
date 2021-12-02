@@ -331,8 +331,7 @@ impl Client {
         }
         let QueryResult(result) = VersionedQueryResult::decode_versioned(response.body())?
             .into_v1()
-            .ok_or_else(|| eyre!("Expected query result V1"))?
-            .into();
+            .ok_or_else(|| eyre!("Expected query result V1"))?;
         R::Output::try_from(result)
             .map_err(Into::into)
             .wrap_err("Unexpected type")
@@ -388,8 +387,7 @@ impl Client {
                 let pending_transactions: PendingTransactions =
                     VersionedPendingTransactions::decode_versioned(response.body())?
                         .into_v1()
-                        .ok_or_else(|| eyre!("Expected pending transaction message version 1."))?
-                        .into();
+                        .ok_or_else(|| eyre!("Expected pending transaction message version 1."))?;
                 let transaction = pending_transactions
                     .into_iter()
                     .find(|pending_transaction| {
