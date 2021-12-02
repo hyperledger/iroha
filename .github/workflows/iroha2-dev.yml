@@ -9,8 +9,7 @@ env:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-    # container: rust:1.56-buster
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:latest
     steps:

@@ -14,8 +14,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    #container: rust:1.56-buster
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:latest
     timeout-minutes: 60
@@ -30,16 +29,16 @@ jobs:
           restore-keys: |
             iroha2-rust-test
       - name: Run tests
-        run: mold -run cargo test --workspace --no-fail-fast -- --skip unstable_network --test-threads 2
+        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2 
         env:
           RUSTC_BOOTSTRAP: 1
       - name: Run iroha tests with network mock
-        run: mold -run cargo test --features mock -- --ignored --skip unstable_network --test-threads 2
+        run: mold -run cargo test --quiet --features mock -- --ignored --skip unstable_network --test-threads 2
         env:
           RUSTC_BOOTSTRAP: 1
         working-directory: core/test_network
       - name: Run iroha_actor deadlock detection tests
-        run: mold -run cargo  test --features deadlock_detection -- --skip unstable_network --test-threads 2
+        run: mold -run cargo  test --quiet --features deadlock_detection -- --skip unstable_network --test-threads 2
         if: always()
         env:
           RUSTC_BOOTSTRAP: 1
@@ -49,8 +48,7 @@ jobs:
   # 1. PR can get coverage report from bot.
   # 2  Coverage bot can have results from `iroha2-dev` to report coverage changes.
   coverage:
-    runs-on: ubuntu-latest
-    #container: rust:1.56-buster
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:latest
     steps:
@@ -64,7 +62,7 @@ jobs:
           restore-keys: |
             iroha2-rust-test-coverage
       - name: Run tests
-        run: mold -run cargo test --workspace --no-fail-fast -- --skip  unstable_network --test-threads 2 || true
+        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip  unstable_network --test-threads 2 || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTC_BOOTSTRAP: 1

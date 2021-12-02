@@ -13,4 +13,6 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         # Example: "[feature] #1: Some new feature"
-        run: echo $PR_TITLE | grep -Eq "^\[(feature|fix|refactor)\] \#[[:digit:]]+:.+$"
+        run: |
+          echo "$PR_TITLE" | grep -Eq '^\[(feature|fix|refactor)\] \#[[:digit:]]+:.+$'
+          || echo "PR_TITLE" | grep -Eq 

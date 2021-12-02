@@ -14,8 +14,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    #container: rust:1.56-buster
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:latest
     timeout-minutes: 60
@@ -30,4 +29,4 @@ jobs:
           restore-keys: |
             iroha2-rust-test
       - name: Run tests
-        run: cargo test -p iroha_client --tests unstable_network
+        run: cargo test -p iroha_client --tests unstable_network --quiet
