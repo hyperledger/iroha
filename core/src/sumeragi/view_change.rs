@@ -30,8 +30,8 @@ impl Proof {
             .wrap_err("Failed to create proof of view change")?
             .transmute();
         Ok(Self {
-            signatures,
             payload,
+            signatures,
         })
     }
 

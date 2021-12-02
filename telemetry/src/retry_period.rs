@@ -13,7 +13,7 @@ impl RetryPeriod {
     pub const DEFAULT_MAX_EXPONENT: u8 = 4;
 
     /// Constructs a new object
-    pub fn new(min_period: u64, max_exponent: u8) -> Self {
+    pub const fn new(min_period: u64, max_exponent: u8) -> Self {
         Self {
             min_period,
             max_exponent,

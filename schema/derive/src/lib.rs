@@ -210,7 +210,7 @@ fn variant_field(fields: &Fields) -> Option<Type> {
             panic!("Please don't use named fields on enums. It is against iroha styleguide")
         }
     };
-    filter_map_fields_types(field).map(|field| field.ty)
+    filter_map_fields_types(field).map(|this_field| this_field.ty)
 }
 
 /// Returns types for which schema should be called and metadata for struct
@@ -299,8 +299,8 @@ fn variant_index(v: &Variant, i: usize) -> TokenStream2 {
     let index = find_meta_item(v.attrs.iter(), |meta| {
         if let NestedMeta::Meta(Meta::NameValue(ref nv)) = meta {
             if nv.path.is_ident("index") {
-                if let Lit::Int(ref v) = nv.lit {
-                    let byte = v
+                if let Lit::Int(ref val) = nv.lit {
+                    let byte = val
                         .base10_parse::<u8>()
                         .expect("Internal error, index attribute must have been checked");
                     return Some(byte);
@@ -313,7 +313,7 @@ fn variant_index(v: &Variant, i: usize) -> TokenStream2 {
 
     // then fallback to discriminant or just index
     index
-        .map(|i| quote! { #i })
+        .map(|int| quote! { #int })
         .or_else(|| {
             v.discriminant.as_ref().map(|&(_, ref expr)| {
                 let n: Lit = syn::parse2(quote! { #expr }).unwrap();

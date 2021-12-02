@@ -141,9 +141,12 @@ impl Queue {
 
         entry.insert(tx);
 
-        if let Err(hash) = self.queue.push(hash) {
-            let (_, tx) = self.txs.remove(&hash).expect("Inserted just before match");
-            return Err((tx, Error::Full));
+        if let Err(err_hash) = self.queue.push(hash) {
+            let (_, err_tx) = self
+                .txs
+                .remove(&err_hash)
+                .expect("Inserted just before match");
+            return Err((err_tx, Error::Full));
         }
         Ok(())
     }

@@ -712,7 +712,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
         latest_view_change: HashOf<Proof>,
     ) {
         let old_voting_block = voting_block;
-        let voting_block = Arc::clone(&self.voting_block);
+        let voting_blck = Arc::clone(&self.voting_block);
         let key_pair = self.key_pair.clone();
         let commit_time = self.commit_time;
         let broker = self.broker.clone();
@@ -727,25 +727,26 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
         task::spawn(
             async move {
                 time::sleep(commit_time).await;
-                let voting_block = if let Some(voting_block) = voting_block.write().await.clone() {
-                    voting_block
+                let voter_block = if let Some(this_voting_block) = voting_blck.write().await.clone()
+                {
+                    this_voting_block
                 } else {
                     return;
                 };
 
                 // If the block was not yet committed send commit timeout to other peers to initiate view change.
-                if voting_block.block.hash() != old_voting_block.block.hash() {
+                if voter_block.block.hash() != old_voting_block.block.hash() {
                     return;
                 }
 
                 warn!(
-                    block_hash = %voting_block.block.hash(),
+                    block_hash = %voter_block.block.hash(),
                     "Block commit timeout detected!",
                 );
                 #[allow(clippy::expect_used)]
                 let msg = VersionedMessage::from(Message::ViewChangeSuggested(
                     view_change::Proof::commit_timeout(
-                        voting_block.block.hash(),
+                        voter_block.block.hash(),
                         latest_view_change,
                         latest_block,
                         key_pair.clone(),
@@ -801,8 +802,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
         self.txs_awaiting_created_block.clear();
         self.txs_awaiting_receipts.clear();
         let previous_role = self.topology.role(&self.peer_id);
-        if let Some(invalidated_block_hash) = invalidated_block_hash {
-            self.invalidated_blocks_hashes.push(invalidated_block_hash)
+        if let Some(hash) = invalidated_block_hash {
+            self.invalidated_blocks_hashes.push(hash)
         }
         self.topology.apply_view_change(proof.clone());
         *self.voting_block.write().await = None;
@@ -1123,9 +1124,9 @@ pub mod message {
             sumeragi: &Sumeragi<G, K, W>,
         ) -> bool {
             let voting_block = sumeragi.voting_block.read().await.clone();
-            voting_block.map_or(false, |voting_block| {
-                voting_block.block.hash() == reason.hash
-                    && (current_time() - voting_block.voted_at) >= sumeragi.commit_time
+            voting_block.map_or(false, |voter_block| {
+                voter_block.block.hash() == reason.hash
+                    && (current_time() - voter_block.voted_at) >= sumeragi.commit_time
             })
         }
 

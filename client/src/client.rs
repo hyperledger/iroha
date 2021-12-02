@@ -273,8 +273,8 @@ impl Client {
                 .send(EventListenerInitialized)
                 .wrap_err("Failed to send through init channel.")?;
             for event in event_iterator.flatten() {
-                if let Event::Pipeline(event) = event {
-                    match event.status {
+                if let Event::Pipeline(this_event) = event {
+                    match this_event.status {
                         PipelineStatus::Validating => {}
                         PipelineStatus::Rejected(reason) => event_sender
                             .send(Err(reason))
@@ -544,9 +544,10 @@ impl EventIterator {
         ))?;
         loop {
             match stream.read_message() {
-                Ok(WebSocketMessage::Binary(message)) => {
+                Ok(WebSocketMessage::Binary(this_message)) => {
                     if let EventSocketMessage::SubscriptionAccepted =
-                        VersionedEventSocketMessage::decode_versioned(&message)?.into_inner_v1()
+                        VersionedEventSocketMessage::decode_versioned(&this_message)?
+                            .into_inner_v1()
                     {
                         break;
                     }
@@ -577,17 +578,20 @@ impl Iterator for EventIterator {
                         };
                     let event = match event_socket_message {
                         EventSocketMessage::Event(event) => event,
-                        message => return Some(Err(eyre!("Expected Event but got {:?}", message))),
+                        msg => return Some(Err(eyre!("Expected Event but got {:?}", msg))),
                     };
-                    let message =
+                    let versioned_message =
                         match VersionedEventSocketMessage::from(EventSocketMessage::EventReceived)
                             .encode_versioned()
                             .wrap_err("Failed to serialize receipt.")
                         {
-                            Ok(message) => message,
+                            Ok(msg) => msg,
                             Err(e) => return Some(Err(e)),
                         };
-                    return match self.stream.write_message(WebSocketMessage::Binary(message)) {
+                    return match self
+                        .stream
+                        .write_message(WebSocketMessage::Binary(versioned_message))
+                    {
                         Ok(_) => Some(Ok(event)),
                         Err(err) => Some(Err(eyre!("Failed to send receipt: {}", err))),
                     };

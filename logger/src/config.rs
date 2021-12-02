@@ -1,6 +1,5 @@
 //! Module containing logic related to spawning a logger from the
 //! configuration, as well as run-time reloading of the log-level.
-
 use std::fmt::Debug;
 
 use iroha_config::{

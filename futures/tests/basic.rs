@@ -14,7 +14,7 @@ async fn sleep(times: Vec<Duration>) -> i32 {
         task::yield_now().await;
     }
     // Just random result
-    10
+    10_i32
 }
 
 fn almost_equal(a: Duration, b: Duration) -> bool {
@@ -36,7 +36,7 @@ async fn test_sleep() {
     let (_, telemetry_future) = iroha_logger::init(&Configuration::default())
         .unwrap()
         .unwrap();
-    assert_eq!(sleep(sleep_times.clone()).await, 10);
+    assert_eq!(sleep(sleep_times.clone()).await, 10_i32);
     let telemetry = ReceiverStream::new(telemetry_future)
         .map(FuturePollTelemetry::try_from)
         .filter_map(Result::ok)
@@ -46,11 +46,15 @@ async fn test_sleep() {
     assert_eq!(telemetry.len(), 3);
 
     let id = telemetry[0].id;
-    let times = telemetry.iter().map(|telemetry| telemetry.duration);
+    let times = telemetry
+        .iter()
+        .map(|telemetry_item| telemetry_item.duration);
 
     assert!(telemetry
         .iter()
-        .all(|telemetry| telemetry.name == "basic::sleep"));
-    assert!(telemetry.iter().all(|telemetry| telemetry.id == id));
+        .all(|telemetry_item| telemetry_item.name == "basic::sleep"));
+    assert!(telemetry
+        .iter()
+        .all(|telemetry_item| telemetry_item.id == id));
     assert!(times.zip(sleep_times).all(|(a, b)| almost_equal(a, b)));
 }

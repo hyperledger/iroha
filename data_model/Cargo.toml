@@ -45,4 +45,4 @@ iroha_client = { version = "=0.1.0", path = "../client" }
 hex-literal = { version = "0.3.4" }
 test_network = { path = "../core/test_network" }
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
-trybuild = "1"
+trybuild = "1.0.53"

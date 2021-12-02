@@ -177,11 +177,11 @@ async fn two_networks() {
     tokio::time::sleep(delay).await;
     assert_eq!(messages2.load(Ordering::SeqCst), 1);
 
-    let connected_peers: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
-    assert_eq!(connected_peers.peers.len(), 1);
+    let connected_peers1: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
+    assert_eq!(connected_peers1.peers.len(), 1);
 
-    let connected_peers: ConnectedPeers = network2.send(GetConnectedPeers).await.unwrap();
-    assert_eq!(connected_peers.peers.len(), 1);
+    let connected_peers2: ConnectedPeers = network2.send(GetConnectedPeers).await.unwrap();
+    assert_eq!(connected_peers2.peers.len(), 1);
 
     // Connecting to the same peer from network1
     broker1
@@ -209,7 +209,7 @@ async fn multiple_networks() {
     tokio::time::sleep(delay).await;
 
     let mut peers = Vec::new();
-    for _ in 0..10 {
+    for _ in 0_i32..10_i32 {
         let addr = gen_address();
         peers.push(addr);
     }
@@ -280,8 +280,8 @@ async fn start_network(
     let delay: u64 = rand::random();
     tokio::time::sleep(Duration::from_millis(250 + (delay % 500))).await;
 
-    let mut conn_count = 0;
-    let mut test_count = 0;
+    let mut conn_count = 0_usize;
+    let mut test_count = 0_usize;
     for p in &peers {
         if *p != addr {
             let peer = PeerId {
@@ -294,17 +294,17 @@ async fn start_network(
                     address: peer.address,
                 })
                 .await;
-            conn_count += 1;
+            conn_count += 1_usize;
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
     while let Ok(result) = network.send(iroha_p2p::network::GetConnectedPeers).await {
         let connections = result.peers.len();
         info!(peer_addr = %addr, %connections);
-        if connections == conn_count || test_count >= 10 {
+        if connections == conn_count || test_count >= 10_usize {
             break;
         }
-        test_count += 1;
+        test_count += 1_usize;
         tokio::time::sleep(Duration::from_millis(1000)).await;
     }
     info!(peer_addr = %addr, %conn_count, "Got all connections!");
@@ -328,7 +328,7 @@ fn test_encryption() {
     assert!(res.is_ok());
 
     let ciphertext = res.unwrap();
-    let res = encryptor.decrypt_easy(aad.as_ref(), ciphertext.as_slice());
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap().as_slice(), message);
+    let res_cipher = encryptor.decrypt_easy(aad.as_ref(), ciphertext.as_slice());
+    assert!(res_cipher.is_ok());
+    assert_eq!(res_cipher.unwrap().as_slice(), message);
 }

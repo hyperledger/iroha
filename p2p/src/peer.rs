@@ -489,8 +489,8 @@ where
         }
         if let Self::Ready(id, broker, mut connection, crypto) = dummy {
             debug!(peer_addr = %id.address, "Handshake finished");
-            let message = PeerMessage::<T>::Connected(id.clone(), connection.id);
-            broker.issue_send(message).await;
+            let connected_message = PeerMessage::<T>::Connected(id.clone(), connection.id);
+            broker.issue_send(connected_message).await;
 
             #[allow(clippy::unwrap_used)]
             let read: OwnedReadHalf = connection.read.take().unwrap();
@@ -520,12 +520,13 @@ where
     async fn handle(&mut self, MessageResult(msg): MessageResult) {
         if let Self::Ready(id, broker, connection, crypto) = self {
             let message = match msg {
-                Ok(message) => message,
+                Ok(this_message) => this_message,
                 Err(error) => {
                     warn!(%error, "Error reading message");
                     // TODO implement some recovery
-                    let message = PeerMessage::<T>::Disconnected(id.clone(), connection.id);
-                    broker.issue_send(message).await;
+                    let disconnect_message =
+                        PeerMessage::<T>::Disconnected(id.clone(), connection.id);
+                    broker.issue_send(disconnect_message).await;
                     return;
                 }
             };
@@ -546,9 +547,10 @@ where
             };
             let decoded: Result<T, _> = Decode::decode(&mut data.as_slice());
             match decoded {
-                Ok(data) => {
-                    let message = PeerMessage::Message(id.clone(), Box::new(data));
-                    broker.issue_send(message).await;
+                Ok(decoded_data) => {
+                    let message_with_data =
+                        PeerMessage::Message(id.clone(), Box::new(decoded_data));
+                    broker.issue_send(message_with_data).await;
                 }
                 Err(error) => warn!(%error, "Error parsing message!"),
             }

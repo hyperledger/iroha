@@ -25,4 +25,4 @@ thiserror = "1.0.28"
 petgraph = { version = "0.5", optional = true }
 
 [dev-dependencies]
-trybuild = "1"
+trybuild = "1.0.53"

@@ -120,7 +120,9 @@ impl<T> Node<T> {
             Leaf { hash } if idx == 0 => Ok(*hash),
             Subtree { left, right, .. } => match left.get_leaf_inner(idx) {
                 Ok(hash) => Ok(hash),
-                Err(seen) => right.get_leaf_inner(idx - seen).map_err(|idx| idx + seen),
+                Err(seen) => right
+                    .get_leaf_inner(idx - seen)
+                    .map_err(|index| index + seen),
             },
             Leaf { .. } | Empty => Err(1),
         }
@@ -160,7 +162,7 @@ impl<T> Node<T> {
             .as_ref()
             .iter()
             .zip(right_hash.as_ref().iter())
-            .map(|(left, right)| left.saturating_add(*right))
+            .map(|(l, r)| l.saturating_add(*r))
             .take(32)
             .collect();
         HashOf::from_hash(Hash::new(&sum))

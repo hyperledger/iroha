@@ -142,8 +142,8 @@ pub mod private_blockchain {
                 instruction: &Instruction,
                 _wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let _register_box = if let Instruction::Register(instruction) = instruction {
-                    instruction
+                let _register_box = if let Instruction::Register(register) = instruction {
+                    register
                 } else {
                     return Ok(());
                 };
@@ -758,8 +758,8 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let transfer_box = if let Instruction::Transfer(instruction) = instruction {
-                    instruction
+                let transfer_box = if let Instruction::Transfer(transfer) = instruction {
+                    transfer
                 } else {
                     return Ok(());
                 };
@@ -798,8 +798,8 @@ pub mod public_blockchain {
                     .source_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let source_id: AssetId = if let Ok(source_id) = source_id.try_into() {
-                    source_id
+                let source_id: AssetId = if let Ok(id) = source_id.try_into() {
+                    id
                 } else {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
@@ -859,12 +859,12 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let instruction = if let Instruction::Unregister(instruction) = instruction {
-                    instruction
+                let unregister_box = if let Instruction::Unregister(unregister) = instruction {
+                    unregister
                 } else {
                     return Ok(());
                 };
-                let object_id = instruction
+                let object_id = unregister_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
@@ -896,8 +896,8 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
-                let unregister_box = if let Instruction::Unregister(instruction) = instruction {
-                    instruction
+                let unregister_box = if let Instruction::Unregister(unregister) = instruction {
+                    unregister
                 } else {
                     return Err("Instruction is not unregister.".to_owned());
                 };
@@ -905,8 +905,8 @@ pub mod public_blockchain {
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let object_id: AssetDefinitionId = if let Ok(object_id) = object_id.try_into() {
-                    object_id
+                let object_id: AssetDefinitionId = if let Ok(obj_id) = object_id.try_into() {
+                    obj_id
                 } else {
                     return Err("Source id is not an AssetDefinitionId.".to_owned());
                 };
@@ -971,12 +971,12 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let instruction = if let Instruction::Mint(instruction) = instruction {
-                    instruction
+                let mint_box = if let Instruction::Mint(mint) = instruction {
+                    mint
                 } else {
                     return Ok(());
                 };
-                let destination_id = instruction
+                let destination_id = mint_box
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
@@ -1008,8 +1008,8 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
-                let mint_box = if let Instruction::Mint(instruction) = instruction {
-                    instruction
+                let mint_box = if let Instruction::Mint(mint) = instruction {
+                    mint
                 } else {
                     return Err("Instruction is not mint.".to_owned());
                 };
@@ -1017,8 +1017,8 @@ pub mod public_blockchain {
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = if let Ok(destination_id) = destination_id.try_into() {
-                    destination_id
+                let asset_id: AssetId = if let Ok(dest_id) = destination_id.try_into() {
+                    dest_id
                 } else {
                     return Err("Destination is not an Asset.".to_owned());
                 };
@@ -1085,12 +1085,12 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let instruction = if let Instruction::Burn(instruction) = instruction {
-                    instruction
+                let burn_box = if let Instruction::Burn(burn) = instruction {
+                    burn
                 } else {
                     return Ok(());
                 };
-                let destination_id = instruction
+                let destination_id = burn_box
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
@@ -1122,8 +1122,8 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
-                let burn_box = if let Instruction::Burn(instruction) = instruction {
-                    instruction
+                let burn_box = if let Instruction::Burn(burn) = instruction {
+                    burn
                 } else {
                     return Err("Instruction is not burn.".to_owned());
                 };
@@ -1131,8 +1131,8 @@ pub mod public_blockchain {
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let asset_id: AssetId = if let Ok(destination_id) = destination_id.try_into() {
-                    destination_id
+                let asset_id: AssetId = if let Ok(dest_id) = destination_id.try_into() {
+                    dest_id
                 } else {
                     return Err("Destination is not an Asset.".to_owned());
                 };
@@ -1185,12 +1185,12 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let instruction = if let Instruction::Burn(instruction) = instruction {
-                    instruction
+                let burn_box = if let Instruction::Burn(burn) = instruction {
+                    burn
                 } else {
                     return Ok(());
                 };
-                let destination_id = instruction
+                let destination_id = burn_box
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
@@ -1224,9 +1224,8 @@ pub mod public_blockchain {
                     .destination_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let destination_id: AssetId = if let Ok(destination_id) = destination_id.try_into()
-                {
-                    destination_id
+                let destination_id: AssetId = if let Ok(dest_id) = destination_id.try_into() {
+                    dest_id
                 } else {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
@@ -1301,12 +1300,12 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let instruction = if let Instruction::SetKeyValue(instruction) = instruction {
-                    instruction
+                let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+                    set_kv
                 } else {
                     return Ok(());
                 };
-                let object_id = instruction
+                let object_id = set_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
@@ -1334,17 +1333,17 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
-                let set_box = if let Instruction::SetKeyValue(instruction) = instruction {
-                    instruction
+                let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+                    set_kv
                 } else {
                     return Err("Instruction is not set.".to_owned());
                 };
-                let object_id = set_box
+                let object_id = set_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let object_id: AssetId = if let Ok(object_id) = object_id.try_into() {
-                    object_id
+                let object_id: AssetId = if let Ok(obj_id) = object_id.try_into() {
+                    obj_id
                 } else {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
@@ -1398,12 +1397,12 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let instruction = if let Instruction::SetKeyValue(instruction) = instruction {
-                    instruction
+                let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+                    set_kv
                 } else {
                     return Ok(());
                 };
-                let object_id = instruction
+                let object_id = set_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
@@ -1430,17 +1429,17 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
-                let set_box = if let Instruction::SetKeyValue(instruction) = instruction {
-                    instruction
+                let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+                    set_kv
                 } else {
                     return Err("Instruction is not set.".to_owned());
                 };
-                let object_id = set_box
+                let object_id = set_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let object_id: AccountId = if let Ok(object_id) = object_id.try_into() {
-                    object_id
+                let object_id: AccountId = if let Ok(obj_id) = object_id.try_into() {
+                    obj_id
                 } else {
                     return Err("Source id is not an AccountId.".to_owned());
                 };
@@ -1494,12 +1493,12 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let instruction = if let Instruction::RemoveKeyValue(instruction) = instruction {
-                    instruction
+                let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
+                    rem_kv
                 } else {
                     return Ok(());
                 };
-                let object_id = instruction
+                let object_id = rem_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
@@ -1525,17 +1524,17 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
-                let remove_box = if let Instruction::RemoveKeyValue(instruction) = instruction {
-                    instruction
+                let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
+                    rem_kv
                 } else {
                     return Err("Instruction is not set.".to_owned());
                 };
-                let object_id = remove_box
+                let object_id = rem_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let object_id: AssetId = if let Ok(object_id) = object_id.try_into() {
-                    object_id
+                let object_id: AssetId = if let Ok(obj_id) = object_id.try_into() {
+                    obj_id
                 } else {
                     return Err("Source id is not an AssetId.".to_owned());
                 };
@@ -1589,12 +1588,12 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let instruction = if let Instruction::RemoveKeyValue(instruction) = instruction {
-                    instruction
+                let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
+                    rem_kv
                 } else {
                     return Ok(());
                 };
-                let object_id = instruction
+                let object_id = rem_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
@@ -1621,17 +1620,17 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
-                let remove_box = if let Instruction::RemoveKeyValue(instruction) = instruction {
-                    instruction
+                let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
+                    rem_kv
                 } else {
                     return Err("Instruction is not remove.".to_owned());
                 };
-                let object_id = remove_box
+                let object_id = rem_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let object_id: AccountId = if let Ok(object_id) = object_id.try_into() {
-                    object_id
+                let object_id: AccountId = if let Ok(obj_id) = object_id.try_into() {
+                    obj_id
                 } else {
                     return Err("Source id is not an AccountId.".to_owned());
                 };
@@ -1745,17 +1744,17 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let instruction = if let Instruction::SetKeyValue(instruction) = instruction {
-                    instruction
+                let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+                    set_kv
                 } else {
                     return Ok(());
                 };
-                let object_id = instruction
+                let obj_id = set_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
 
-                let object_id: AssetDefinitionId = try_into_or_exit!(object_id);
+                let object_id: AssetDefinitionId = try_into_or_exit!(obj_id);
                 let registered_by_signer_account = wsv
                     .asset_definition_entry(&object_id)
                     .map(|asset_definition_entry| {
@@ -1785,17 +1784,17 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<(), DenialReason> {
-                let instruction = if let Instruction::RemoveKeyValue(instruction) = instruction {
-                    instruction
+                let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
+                    rem_kv
                 } else {
                     return Ok(());
                 };
-                let object_id = instruction
+                let obj_id = rem_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
 
-                let object_id: AssetDefinitionId = try_into_or_exit!(object_id);
+                let object_id: AssetDefinitionId = try_into_or_exit!(obj_id);
                 let registered_by_signer_account = wsv
                     .asset_definition_entry(&object_id)
                     .map(|asset_definition_entry| {
@@ -1825,17 +1824,17 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
-                let set_box = if let Instruction::SetKeyValue(instruction) = instruction {
-                    instruction
+                let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+                    set_kv
                 } else {
                     return Err("Instruction is not set.".to_owned());
                 };
-                let object_id = set_box
+                let object_id = set_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let object_id: AssetDefinitionId = if let Ok(object_id) = object_id.try_into() {
-                    object_id
+                let object_id: AssetDefinitionId = if let Ok(obj_id) = object_id.try_into() {
+                    obj_id
                 } else {
                     return Err("Source id is not an AssetDefinitionId.".to_owned());
                 };
@@ -1864,17 +1863,17 @@ pub mod public_blockchain {
                 instruction: &Instruction,
                 wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
-                let set_box = if let Instruction::RemoveKeyValue(instruction) = instruction {
-                    instruction
+                let set_kv_box = if let Instruction::RemoveKeyValue(set_kv) = instruction {
+                    set_kv
                 } else {
                     return Err("Instruction is not remove key value.".to_owned());
                 };
-                let object_id = set_box
+                let object_id = set_kv_box
                     .object_id
                     .evaluate(wsv, &Context::new())
                     .map_err(|e| e.to_string())?;
-                let object_id: AssetDefinitionId = if let Ok(object_id) = object_id.try_into() {
-                    object_id
+                let object_id: AssetDefinitionId = if let Ok(obj_id) = object_id.try_into() {
+                    obj_id
                 } else {
                     return Err("Source id is not an AssetDefinitionId.".to_owned());
                 };
