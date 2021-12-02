@@ -7,7 +7,7 @@ use std::{cmp::min, time::Duration};
 use eyre::{Result, WrapErr};
 use iroha_crypto::SignaturesOf;
 pub use iroha_data_model::prelude::*;
-use iroha_derive::Io;
+use iroha_macro::Io;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
@@ -20,7 +20,7 @@ use crate::{
     wsv::WorldTrait,
 };
 
-declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
+declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_macro::FromVariant);
 
 impl VersionedAcceptedTransaction {
     /// Same as [`as_v1`](`VersionedAcceptedTransaction::as_v1()`) but also does conversion

@@ -26,6 +26,3 @@ structopt = "0.3"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
 dialoguer = "0.8"
 serde_json = "1.0"
-
-[dev-dependencies]
-tempfile = "3"

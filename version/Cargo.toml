@@ -13,14 +13,13 @@ json = ["serde_json"]
 derive = ["iroha_version_derive"]
 
 [dependencies]
+iroha_version_derive = { path = "derive", optional = true }
+iroha_macro = { path = "../macro" }
+
 eyre = "0.6.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = {version = "1.0", optional = true }
 thiserror = "1.0.28"
-iroha_derive = { path = "../macro/derive" }
-iroha_macro = { path = "../macro" }
-iroha_schema = { path = "../schema"}
 
 parity-scale-codec = { version = "2", features = ["derive"], optional = true }
-iroha_version_derive = { path = "derive", optional = true }
 warp = { version = "0.3", default-features = false, optional = true }

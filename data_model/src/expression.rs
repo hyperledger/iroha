@@ -16,7 +16,7 @@ use std::{
 };
 
 use eyre::{eyre, Result};
-use iroha_derive::FromVariant;
+use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};

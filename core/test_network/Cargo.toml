@@ -29,5 +29,4 @@ futures = { version = "0.3.17", default-features = false, features = ["std", "as
 iroha_crypto = { path = "../../crypto" }
 
 async-trait = "0.1"
-color-eyre = "0.5.11"
 once_cell = "1.8.0"

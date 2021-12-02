@@ -1,7 +1,7 @@
 use iroha_version_derive::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
-declare_versioned_with_scale!(VersionedMessage 1..3, Debug, Clone, iroha_derive::FromVariant);
+declare_versioned_with_scale!(VersionedMessage 1..3, Debug, Clone, iroha_macro::FromVariant);
 
 #[version_with_scale(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
 #[derive(Debug, Clone, Decode, Encode)]

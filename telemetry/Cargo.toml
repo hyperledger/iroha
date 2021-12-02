@@ -9,6 +9,10 @@ build = "build.rs"
 dev-telemetry = []
 
 [dependencies]
+iroha_config = { path = "../config" }
+iroha_logger = { path = "../logger" }
+iroha_futures = { path = "../futures", features = ["telemetry"] }
+
 async-trait = "0.1"
 chrono = "0.4"
 eyre = "0.6.5"
@@ -16,15 +20,10 @@ futures = { version = "0.3.17", default-features = false, features = ["std", "as
 serde_json = "1"
 streaming-stats = "0.2"
 serde = { version = "1", features = ["derive"] }
-tracing = "0.1"
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
 tokio-stream = { version = "0.1.6", features = ["fs"]}
 tokio-tungstenite = { version = "0.13.0", features = ["tls"] }
 url = { version = "2.2.2", features = ["serde"] }
-
-iroha_config = { path = "../config" }
-iroha_logger = { path = "../logger" }
-iroha_futures = { path = "../futures", features = ["telemetry"] }
 
 [build-dependencies]
 anyhow = "1.0"

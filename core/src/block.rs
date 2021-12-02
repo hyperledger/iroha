@@ -11,7 +11,7 @@ use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*,
 };
-use iroha_derive::Io;
+use iroha_macro::Io;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -155,7 +155,7 @@ impl<'a> DoubleEndedIterator for ChainIterator<'a> {
     }
 }
 
-declare_versioned_with_scale!(VersionedPendingBlock 1..2, Debug, Clone, iroha_derive::FromVariant);
+declare_versioned_with_scale!(VersionedPendingBlock 1..2, Debug, Clone, iroha_macro::FromVariant);
 
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
 /// a linear sequence over time (also known as the block chain).
@@ -332,7 +332,7 @@ impl ChainedBlock {
     }
 }
 
-declare_versioned_with_scale!(VersionedValidBlock 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedValidBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 impl VersionedValidBlock {
     /// Same as [`as_v1`](`VersionedValidBlock::as_v1()`) but also does conversion
@@ -618,7 +618,7 @@ impl From<&ValidBlock> for Vec<Event> {
     }
 }
 
-declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 impl VersionedCommittedBlock {
     /// Same as [`as_v1`](`VersionedCommittedBlock::as_v1()`) but also does conversion

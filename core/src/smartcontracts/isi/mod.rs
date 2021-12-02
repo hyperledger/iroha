@@ -17,7 +17,7 @@ use std::{
 use eyre::{eyre, Result};
 use iroha_crypto::HashOf;
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
-use iroha_derive::FromVariant;
+use iroha_macro::FromVariant;
 use thiserror::Error;
 
 use super::{Evaluate, Execute};

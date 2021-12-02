@@ -1,4 +1,4 @@
-//! Module with actor derive macroses
+//! Module with actor derive macros
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;

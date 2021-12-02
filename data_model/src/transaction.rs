@@ -4,7 +4,7 @@ use std::{cmp::Ordering, collections::BTreeSet, iter::FromIterator, vec::IntoIte
 
 use eyre::{eyre, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
-use iroha_derive::Io;
+use iroha_macro::Io;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -95,7 +95,7 @@ declare_versioned!(
     VersionedTransaction 1..2,
     Debug,
     Clone,
-    iroha_derive::FromVariant,
+    iroha_macro::FromVariant,
     IntoSchema,
     Eq
 );
@@ -284,7 +284,7 @@ impl Txn for Transaction {
     }
 }
 
-declare_versioned_with_scale!(VersionedPendingTransactions 1..2, iroha_derive::FromVariant, Clone, Debug);
+declare_versioned_with_scale!(VersionedPendingTransactions 1..2, iroha_macro::FromVariant, Clone, Debug);
 
 impl VersionedPendingTransactions {
     /// Same as [`as_v1`](`VersionedPendingTransactions::as_v1()`) but also does conversion
@@ -392,7 +392,7 @@ impl PartialOrd for TransactionValue {
     }
 }
 
-declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 impl VersionedValidTransaction {
     /// Same as [`as_v1`](`VersionedValidTransaction::as_v1()`) but also does conversion
@@ -450,7 +450,7 @@ impl Txn for ValidTransaction {
     }
 }
 
-declare_versioned!(VersionedRejectedTransaction 1..2, iroha_derive::FromVariant, Clone, Debug, IntoSchema, Eq);
+declare_versioned!(VersionedRejectedTransaction 1..2, iroha_macro::FromVariant, Clone, Debug, IntoSchema, Eq);
 
 impl VersionedRejectedTransaction {
     /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it

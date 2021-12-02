@@ -19,7 +19,7 @@ mod tests {
         #![allow(unused_results)]
         use super::*;
 
-        declare_versioned!(VersionedMessage 1..3, Debug, Clone, iroha_derive::FromVariant);
+        declare_versioned!(VersionedMessage 1..3, Debug, Clone, iroha_macro::FromVariant);
 
         #[version(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
@@ -35,7 +35,7 @@ mod tests {
 
         use super::*;
 
-        declare_versioned!(VersionedMessage 1..4, Debug, Clone, iroha_derive::FromVariant);
+        declare_versioned!(VersionedMessage 1..4, Debug, Clone, iroha_macro::FromVariant);
 
         #[version(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
         #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]

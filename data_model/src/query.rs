@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 
 use eyre::Result;
 use iroha_crypto::{prelude::*, SignatureOf};
-use iroha_derive::{FromVariant, Io};
+use iroha_macro::{FromVariant, Io};
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -128,7 +128,7 @@ pub struct QueryRequest {
     pub payload: Payload,
 }
 
-declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 /// I/O ready structure to send queries.
 #[version_with_scale(
@@ -144,7 +144,7 @@ pub struct SignedQueryRequest {
     pub signature: SignatureOf<Payload>,
 }
 
-declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_derive::FromVariant, Io, IntoSchema);
+declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, Io, IntoSchema);
 
 /// Sized container for all possible Query results.
 #[version_with_scale(
@@ -200,7 +200,7 @@ impl QueryRequest {
 pub mod role {
     //! Queries related to `Role`.
 
-    use iroha_derive::Io;
+    use iroha_macro::Io;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -263,7 +263,7 @@ pub mod role {
 pub mod permissions {
     //! Queries related to `PermissionToken`.
 
-    use iroha_derive::Io;
+    use iroha_macro::Io;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -303,7 +303,7 @@ pub mod permissions {
 pub mod account {
     //! Queries related to `Account`.
 
-    use iroha_derive::Io;
+    use iroha_macro::Io;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -492,7 +492,7 @@ pub mod asset {
 
     #![allow(clippy::missing_inline_in_public_items)]
 
-    use iroha_derive::Io;
+    use iroha_macro::Io;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -881,7 +881,7 @@ pub mod domain {
 
     #![allow(clippy::missing_inline_in_public_items)]
 
-    use iroha_derive::Io;
+    use iroha_macro::Io;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -995,7 +995,7 @@ pub mod domain {
 pub mod peer {
     //! Queries related to `Domain`.
 
-    use iroha_derive::Io;
+    use iroha_macro::Io;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1074,7 +1074,7 @@ pub mod transaction {
     #![allow(clippy::missing_inline_in_public_items)]
 
     use iroha_crypto::Hash;
-    use iroha_derive::Io;
+    use iroha_macro::Io;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};

@@ -921,7 +921,7 @@ pub mod message {
     use iroha_actor::broker::Broker;
     use iroha_crypto::{HashOf, KeyPair, SignatureOf};
     use iroha_data_model::prelude::*;
-    use iroha_derive::*;
+    use iroha_macro::*;
     use iroha_logger::Instrument;
     use iroha_p2p::Post;
     use iroha_schema::IntoSchema;
@@ -939,7 +939,7 @@ pub mod message {
         VersionedAcceptedTransaction, VersionedValidBlock,
     };
 
-    declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_derive::FromVariant, iroha_actor::Message);
+    declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
 
     impl VersionedMessage {
         /// Same as [`as_v1`](`VersionedMessage::as_v1()`) but also does conversion
