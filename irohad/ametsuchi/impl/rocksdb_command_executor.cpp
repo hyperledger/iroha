@@ -655,7 +655,7 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   toLowerAppend(command.pubkey(), pk);
 
   bool syncing_node = false;
-  auto res = forPeerAddress<kDbOperation::kCheck, kDbEntry::kCanExist>(
+  auto res = forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustExist>(
       common, pk, syncing_node);
   if (expected::hasError(res)) {
     syncing_node = true;

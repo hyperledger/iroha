@@ -381,14 +381,10 @@ namespace iroha::ametsuchi {
 
           RDB_TRY_GET_VALUE(
               opt_peers_count,
-              forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(
+              forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(
                   common, peer.isSyncingPeer()));
-          if (!peer.isSyncingPeer() && *opt_peers_count == 1ull)
-            return makeError<void>(ErrorCodes::kCommandUnexeptable,
-                                   "Can not remove last validating peer {}.",
-                                   peer.pubkey());
 
-          common.encode(*opt_peers_count - 1ull);
+          common.encode((opt_peers_count && *opt_peers_count > 0ull) ? (*opt_peers_count - 1ull) : 0ull);
           RDB_ERROR_CHECK(
               forPeersCount<kDbOperation::kPut>(common, peer.isSyncingPeer()));
 

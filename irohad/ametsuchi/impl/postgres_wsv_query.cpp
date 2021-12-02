@@ -96,7 +96,7 @@ namespace iroha {
 
     iroha::expected::Result<size_t, std::string>
     PostgresWsvQuery::countPeers(bool syncing_peers) {
-      return count("peer");
+      return count(syncing_peers ? "sync_peer" : "peer");
     }
 
     iroha::expected::Result<size_t, std::string>

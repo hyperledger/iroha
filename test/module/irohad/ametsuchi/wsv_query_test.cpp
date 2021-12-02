@@ -110,15 +110,6 @@ namespace iroha {
       ASSERT_EQ(query->countPeers(false).assumeValue(), 2);
     }
 
-    TEST_F(WsvQueryTest, countSyncPeers) {
-      ASSERT_EQ(query->countPeers(true).assumeValue(), 0);
-      command->insertPeer(
-          shared_model::plain::Peer{"127.0.0.1", "111", std::nullopt, true});
-      command->insertPeer(
-          shared_model::plain::Peer{"127.0.0.2", "222", std::nullopt, true});
-      ASSERT_EQ(query->countPeers(true).assumeValue(), 2);
-    }
-
     TEST_F(WsvQueryTest, countTransactions) {
       ASSERT_EQ(query->countTransactions().assumeValue(), 0);
       auto indexer = iroha::ametsuchi::PostgresIndexer(*sql);

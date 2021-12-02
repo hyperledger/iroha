@@ -112,7 +112,7 @@ namespace iroha {
      * @then stored peer is successfully returned
      */
     TEST_F(RdbWsvQueryTest, GetSyncPeerWithoutTls) {
-      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt, true};
+      shared_model::plain::Peer peer1{"some-address", "0c", std::nullopt, true};
       command->insertPeer(peer1);
 
       auto result = query->getPeerByPublicKey(
@@ -130,7 +130,7 @@ namespace iroha {
      * @then stored peer is successfully returned
      */
     TEST_F(RdbWsvQueryTest, GetPeerWithTls) {
-      shared_model::plain::Peer peer1{"some-address", "0a", "tls", false};
+      shared_model::plain::Peer peer1{"some-address", "0d", "tls", false};
       command->insertPeer(peer1);
 
       auto result = query->getPeerByPublicKey(

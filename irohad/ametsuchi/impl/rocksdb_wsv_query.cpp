@@ -143,7 +143,7 @@ namespace iroha::ametsuchi {
 
 
           bool syncing_node = false;
-          auto res = forPeerAddress<kDbOperation::kGet, kDbEntry::kCanExist>(common,
+          auto res = forPeerAddress<kDbOperation::kGet, kDbEntry::kMustExist>(common,
                                                                   result, syncing_node);
           if (expected::hasError(res)) {
             syncing_node = true;
