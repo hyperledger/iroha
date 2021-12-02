@@ -26,7 +26,7 @@
 
 **Method**: `POST`
 
-**Expects**: Body: `Transaction`
+**Expects**: Body: `VersionedTransaction`
 
 **Responses**:
 - 200 OK - Transaction Accepted (But not guaranteed to have passed consensus yet)
@@ -44,14 +44,14 @@
 **Method**: `POST`
 
 **Expects**:
-- Body: `SignedQueryRequest`
+- Body: `VersionedSignedQueryRequest`
 - Query parameters:
   + `start` - Optional parameter in queries where results can be indexed. Use to return results from specified point. Results are ordered where can be by id which uses rust's [PartialOrd](https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html#derivable) and [Ord](https://doc.rust-lang.org/std/cmp/trait.Ord.html) traits.
   + `limit` - Optional parameter in queries where results can be indexed. Use to return specific number of results.
 
 **Responses**:
 - 200 OK - Query Executed Successfully and Found Value
-  + Body: `QueryResult`
+  + Body: `VersionedQueryResult`
 - 4xx - Query Rejected or Found Nothing
 
 Status and whether each step succeeded:
@@ -191,9 +191,9 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 
 ## Iroha Structures
 
-- `Transaction` - `iroha_data_model::transaction::Transaction`
-- `SignedQueryRequest` - `iroha_data_model::query::SignedQueryRequest`
-- `QueryResult` - `iroha_data_model::query::QueryResult`
+- `VersionedTransaction` - `iroha_data_model::transaction::VersionedTransaction`
+- `VersionedSignedQueryRequest` - `iroha_data_model::query::VersionedSignedQueryRequest`
+- `VersionedQueryResult` - `iroha_data_model::query::VersionedQueryResult`
 - `SubscriptionRequest` - `iroha_data_model::events::EventSocketMessage::SubscriptionRequest`
 - `SubscriptionAccepted` - `iroha_data_model::events::EventSocketMessage::SubscriptionAccepted`
 - `Event` - `iroha_data_model::events::EventSocketMessage::Event`
