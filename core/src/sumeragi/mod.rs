@@ -12,11 +12,9 @@ use std::{
 use dashmap::{DashMap, DashSet};
 use eyre::{eyre, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
-use iroha_actor::{broker::*, prelude::*};
+use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_crypto::{HashOf, KeyPair};
-use iroha_data_model::{
-    current_time, events::Event, peer::Id as PeerId, transaction::VersionedTransaction,
-};
+use iroha_data_model::prelude::*;
 use iroha_logger::Instrument;
 use iroha_p2p::{ConnectPeer, DisconnectPeer};
 use network_topology::{Role, Topology};
@@ -926,6 +924,7 @@ pub mod message {
     use iroha_derive::*;
     use iroha_logger::Instrument;
     use iroha_p2p::Post;
+    use iroha_schema::IntoSchema;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use tokio::{task, time};
@@ -1498,7 +1497,7 @@ pub mod message {
     }
 
     /// `Message` structure describing a receipt sent by the leader to the peer it got this transaction from.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[derive(Io, Decode, Encode, Debug, Clone, IntoSchema)]
     #[non_exhaustive]
     pub struct TransactionReceipt {
         /// The hash of the transaction that the leader received.

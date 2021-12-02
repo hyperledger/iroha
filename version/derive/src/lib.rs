@@ -472,7 +472,7 @@ fn impl_declare_versioned(
         #json_enum_attribute
         pub enum #enum_name {
             #(
-                /// This variant represents a particulare version.
+                /// This variant represents a particular version.
                 #scale_variant_attributes #json_variant_attributes
                 #version_idents (#version_struct_idents),
             )*

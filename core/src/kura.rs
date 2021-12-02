@@ -15,6 +15,7 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt, TryStreamExt};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_crypto::HashOf;
+use iroha_data_model::merkle::MerkleTree;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use pin_project::pin_project;
 use serde::{Deserialize, Serialize};
@@ -27,7 +28,6 @@ use tokio_stream::wrappers::ReadDirStream;
 use crate::{
     block::VersionedCommittedBlock,
     block_sync::ContinueSync,
-    merkle::MerkleTree,
     prelude::*,
     sumeragi::{self, UpdateNetworkTopology},
     wsv::WorldTrait,
@@ -181,7 +181,7 @@ impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
             }
             Err(error) => {
                 iroha_logger::error!(%error, "Initialization of kura failed");
-                panic!("Init failed");
+                panic!("Kura initialization failed");
             }
         }
     }
@@ -243,12 +243,14 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
         block: VersionedCommittedBlock,
     ) -> Result<HashOf<VersionedCommittedBlock>> {
         match self.block_store.write(&block).await {
-            Ok(hash) => {
-                self.merkle_tree = self.merkle_tree.add(hash);
-                self.wsv.apply(block).await;
+            Ok(block_hash) => {
+                self.merkle_tree = self.merkle_tree.add(block_hash);
+                if let Err(error) = self.wsv.apply(block).await {
+                    iroha_logger::warn!(%error, %block_hash, "Failed to apply block on WSV");
+                }
                 self.broker.issue_send(UpdateNetworkTopology).await;
                 self.broker.issue_send(ContinueSync).await;
-                Ok(hash)
+                Ok(block_hash)
             }
             Err(error) => {
                 let blocks = self

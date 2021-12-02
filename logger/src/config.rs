@@ -5,6 +5,7 @@ use std::fmt::Debug;
 
 use iroha_config::{
     derive::Configurable,
+    logger as config,
     runtime_upgrades::{handle, ReloadError, ReloadMut},
 };
 use serde::{Deserialize, Serialize};
@@ -15,37 +16,24 @@ const TELEMETRY_CAPACITY: usize = 1000;
 const DEFAULT_COMPACT_MODE: bool = false;
 
 /// Log level for reading from environment and (de)serializing
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Level {
-    /// Error
-    ERROR,
-    /// Warn
-    WARN,
-    /// Info (Default)
-    INFO,
-    /// Debug
-    DEBUG,
-    /// Trace
-    TRACE,
-}
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(transparent)]
+pub struct Level(pub config::Level);
 
-const DEFAULT_MAX_LOG_LEVEL: Level = Level::INFO;
-
-impl Default for Level {
-    fn default() -> Self {
-        DEFAULT_MAX_LOG_LEVEL
+impl From<config::Level> for Level {
+    fn from(level: config::Level) -> Self {
+        Self(level)
     }
 }
 
 impl From<Level> for tracing::Level {
     fn from(level: Level) -> Self {
-        match level {
-            Level::ERROR => Self::ERROR,
-            Level::TRACE => Self::TRACE,
-            Level::INFO => Self::INFO,
-            Level::DEBUG => Self::DEBUG,
-            Level::WARN => Self::WARN,
+        match level.0 {
+            config::Level::ERROR => Self::ERROR,
+            config::Level::TRACE => Self::TRACE,
+            config::Level::INFO => Self::INFO,
+            config::Level::DEBUG => Self::DEBUG,
+            config::Level::WARN => Self::WARN,
         }
     }
 }

@@ -15,7 +15,7 @@ use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{Hash, PublicKey};
 use iroha_derive::FromVariant;
 use iroha_macro::error::ErrorTryFromEnum;
-use iroha_schema::prelude::*;
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -25,8 +25,11 @@ use crate::{
 
 pub mod events;
 pub mod expression;
+pub mod fixed;
 pub mod isi;
+pub mod merkle;
 pub mod query;
+pub mod transaction;
 
 /// `Name` struct represents type for Iroha Entities names, like [`Domain`](`domain::Domain`)'s name or [`Account`](`account::Account`)'s
 /// name.
@@ -391,101 +394,6 @@ pub struct Status {
     pub blocks: u64,
 }
 
-pub mod world {
-    //! Structures, traits and impls related to `World`.
-    use iroha_schema::prelude::*;
-    use parity_scale_codec::{Decode, Encode};
-    use serde::{Deserialize, Serialize};
-
-    #[cfg(feature = "roles")]
-    use crate::role::RolesMap;
-    use crate::{
-        domain::{Domain, DomainsMap},
-        isi::Instruction,
-        peer::{Id as PeerId, PeersIds},
-        IdBox, Identifiable, IdentifiableBox, Name, Parameter,
-    };
-
-    /// The global entity consisting of `domains`, `triggers` and etc.
-    /// For example registration of domain, will have this as an ISI target.
-    #[derive(Debug, Default, Clone)]
-    pub struct World {
-        /// Registered domains.
-        pub domains: DomainsMap,
-        /// Identifications of discovered trusted peers.
-        pub trusted_peers_ids: PeersIds,
-        /// Iroha `Triggers` registered on the peer.
-        pub triggers: Vec<Instruction>,
-        /// Iroha parameters.
-        pub parameters: Vec<Parameter>,
-        /// Roles.
-        #[cfg(feature = "roles")]
-        pub roles: RolesMap,
-    }
-
-    impl World {
-        /// Creates an empty `World`.
-        #[inline]
-        pub fn new() -> Self {
-            Self::default()
-        }
-
-        /// Creates `World` with these `domains` and `trusted_peers_ids`
-        pub fn with(
-            domains: impl IntoIterator<Item = (Name, Domain)>,
-            trusted_peers_ids: impl IntoIterator<Item = PeerId>,
-        ) -> Self {
-            let domains = domains.into_iter().collect();
-            let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
-            World {
-                domains,
-                trusted_peers_ids,
-                ..World::new()
-            }
-        }
-    }
-
-    /// The ID of the `World`. The `World` has only a single instance, therefore the ID has no fields.
-    #[derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Copy,
-        Serialize,
-        Deserialize,
-        Decode,
-        Encode,
-        IntoSchema,
-    )]
-    pub struct WorldId;
-
-    impl From<WorldId> for IdBox {
-        #[inline]
-        fn from(_: WorldId) -> IdBox {
-            IdBox::WorldId
-        }
-    }
-
-    impl Identifiable for World {
-        type Id = WorldId;
-    }
-
-    impl From<World> for IdentifiableBox {
-        #[inline]
-        fn from(_: World) -> Self {
-            IdentifiableBox::World
-        }
-    }
-
-    /// The prelude re-exports most commonly used traits, structs and macros from this crate.
-    pub mod prelude {
-        pub use super::{World, WorldId};
-    }
-}
-
 #[cfg(feature = "roles")]
 pub mod role {
     //! Structures, traits and impls related to `Role`s.
@@ -497,14 +405,13 @@ pub mod role {
     };
 
     use dashmap::DashMap;
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
     use crate::{permissions::PermissionToken, IdBox, Identifiable, IdentifiableBox, Name, Value};
 
-    /// `RolesMap` provides an API to work with collection of key (`Id`) - value
-    /// (`Role`) pairs.
+    /// `RolesMap` provides an API to work with collection of key (`Id`) - value (`Role`) pairs.
     pub type RolesMap = DashMap<Id, Role>;
 
     /// Identification of a role.
@@ -635,7 +542,7 @@ pub mod permissions {
 
     use std::collections::BTreeMap;
 
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -692,7 +599,7 @@ pub mod account {
     //TODO: get rid of it?
     use iroha_crypto::SignatureOf;
     use iroha_derive::Io;
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -705,15 +612,17 @@ pub mod account {
         metadata::Metadata,
         permissions::PermissionToken,
         transaction::Payload,
-        world::World,
         Identifiable, Name, PublicKey, Value,
     };
 
     /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
     /// (`Account`) pairs.
     pub type AccountsMap = BTreeMap<Id, Account>;
+
+    /// Collection of [`PermissionToken`]s
+    pub type Permissions = BTreeSet<PermissionToken>;
+
     type Signatories = Vec<PublicKey>;
-    type Permissions = BTreeSet<PermissionToken>;
 
     /// Genesis account name.
     pub const GENESIS_ACCOUNT_NAME: &str = "genesis";
@@ -1005,26 +914,6 @@ pub mod account {
         pub fn insert_permission_token(&mut self, token: PermissionToken) -> bool {
             self.permission_tokens.insert(token)
         }
-
-        /// Returns a set of permission tokens granted to this account as part of roles and separately.
-        #[cfg(feature = "roles")]
-        pub fn permission_tokens(&self, world: &World) -> Permissions {
-            let mut tokens = self.permission_tokens.clone();
-            for role_id in &self.roles {
-                if let Some(role) = world.roles.get(role_id) {
-                    let mut role_tokens = role.permissions.clone();
-                    tokens.append(&mut role_tokens);
-                }
-            }
-            tokens
-        }
-
-        /// Returns a set of permission tokens granted to this account as part of roles and separately.
-        #[cfg(not(feature = "roles"))]
-        #[inline]
-        pub fn permission_tokens(&self, _: &World) -> Permissions {
-            self.permission_tokens.clone()
-        }
     }
 
     impl Id {
@@ -1093,8 +982,6 @@ pub mod account {
     }
 }
 
-pub mod fixed;
-
 pub mod asset {
     //! This module contains [`Asset`] structure, it's implementation and related traits and
     //! instructions implementations.
@@ -1110,7 +997,7 @@ pub mod asset {
 
     use eyre::{eyre, Error, Result, WrapErr};
     use iroha_derive::{FromVariant, Io};
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -1675,7 +1562,7 @@ pub mod domain {
     use eyre::{eyre, Result};
     use iroha_crypto::PublicKey;
     use iroha_derive::Io;
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -1827,7 +1714,7 @@ pub mod peer {
 
     use dashmap::DashSet;
     use iroha_derive::Io;
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -1914,466 +1801,6 @@ pub mod peer {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{Id as PeerId, Peer};
-    }
-}
-
-pub mod transaction {
-    //! This module contains [`Transaction`] structures and related implementations
-    //! and traits implementations.
-
-    use std::{cmp::Ordering, collections::BTreeSet, iter::FromIterator, vec::IntoIter as VecIter};
-
-    use eyre::{eyre, Result};
-    use iroha_crypto::{prelude::*, HashOf, SignatureOf, SignaturesOf};
-    use iroha_derive::Io;
-    use iroha_schema::prelude::*;
-    use iroha_version::{
-        declare_versioned, declare_versioned_with_scale, version, version_with_scale,
-    };
-    use parity_scale_codec::{Decode, Encode};
-    use serde::{Deserialize, Serialize};
-    #[cfg(feature = "warp")]
-    use warp::{reply::Response, Reply};
-
-    use crate::{
-        account::Account, current_time, isi::Instruction, metadata::UnlimitedMetadata,
-        prelude::TransactionRejectionReason, Identifiable,
-    };
-
-    /// Maximum number of instructions and expressions per transaction
-    pub const MAX_INSTRUCTION_NUMBER: usize = 2_usize.pow(12);
-
-    declare_versioned!(
-        VersionedTransaction 1..2,
-        Debug,
-        Clone,
-        iroha_derive::FromVariant,
-        IntoSchema,
-    );
-
-    /// This structure represents transaction in non-trusted form.
-    ///
-    /// `Iroha` and its' clients use [`Transaction`] to send transactions via network.
-    /// Direct usage in business logic is strongly prohibited. Before any interactions
-    /// `accept`.
-    #[version(
-        n = 1,
-        versioned = "VersionedTransaction",
-        derive = "Clone, Debug, Io, Eq, PartialEq, iroha_schema::IntoSchema"
-    )]
-    #[derive(
-        Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
-    )]
-    pub struct Transaction {
-        /// [`Transaction`] payload.
-        pub payload: Payload,
-        /// [`Transaction`]'s [`Signature`]s.
-        pub signatures: BTreeSet<SignatureOf<Payload>>,
-    }
-
-    /// Iroha [`Transaction`] payload.
-    #[derive(
-        Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
-    )]
-    pub struct Payload {
-        /// Account ID of transaction creator.
-        pub account_id: <Account as Identifiable>::Id,
-        /// An ordered set of instructions.
-        pub instructions: Vec<Instruction>,
-        /// Time of creation (unix time, in milliseconds).
-        pub creation_time: u64,
-        /// The transaction will be dropped after this time if it is still in a `Queue`.
-        pub time_to_live_ms: u64,
-        /// Random value to make different hashes for transactions which occur repeatedly and simultaneously
-        pub nonce: Option<u32>,
-        /// Metadata.
-        pub metadata: UnlimitedMetadata,
-    }
-
-    impl VersionedTransaction {
-        /// Same as [`as_v1`](`VersionedTransaction::as_v1()`) but also does conversion
-        pub const fn as_inner_v1(&self) -> &Transaction {
-            match self {
-                Self::V1(v1) => &v1.0,
-            }
-        }
-
-        /// Same as [`as_inner_v1`](`VersionedTransaction::as_inner_v1()`) but returns mutable reference
-        #[inline]
-        pub fn as_mut_inner_v1(&mut self) -> &mut Transaction {
-            match self {
-                Self::V1(v1) => &mut v1.0,
-            }
-        }
-
-        /// Same as [`into_v1`](`VersionedTransaction::into_v1()`) but also does conversion
-        #[inline]
-        pub fn into_inner_v1(self) -> Transaction {
-            match self {
-                Self::V1(v1) => v1.0,
-            }
-        }
-
-        /// Default [`Transaction`] constructor.
-        #[inline]
-        pub fn new(
-            instructions: Vec<Instruction>,
-            account_id: <Account as Identifiable>::Id,
-            proposed_ttl_ms: u64,
-        ) -> VersionedTransaction {
-            Transaction::new(instructions, account_id, proposed_ttl_ms).into()
-        }
-
-        /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
-        pub fn hash(&self) -> HashOf<Self> {
-            self.as_inner_v1().hash().transmute()
-        }
-
-        /// Checks if number of instructions in payload exceeds maximum
-        ///
-        /// # Errors
-        /// Fails if instruction length exceeds maximum instruction number
-        pub fn check_instruction_len(&self, max_instruction_number: u64) -> Result<()> {
-            self.as_inner_v1()
-                .check_instruction_len(max_instruction_number)
-        }
-
-        /// Sign transaction with the provided key pair.
-        ///
-        /// # Errors
-        /// Fails if signature creation fails
-        pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedTransaction> {
-            self.into_inner_v1().sign(key_pair).map(Into::into)
-        }
-
-        /// Returns payload of transaction
-        #[inline]
-        pub const fn payload(&self) -> &Payload {
-            match self {
-                Self::V1(v1) => &v1.0.payload,
-            }
-        }
-    }
-
-    impl Transaction {
-        /// Default [`Transaction`] constructor.
-        #[inline]
-        pub fn new(
-            instructions: Vec<Instruction>,
-            account_id: <Account as Identifiable>::Id,
-            proposed_ttl_ms: u64,
-        ) -> Transaction {
-            Transaction::with_metadata(
-                instructions,
-                account_id,
-                proposed_ttl_ms,
-                UnlimitedMetadata::new(),
-                None,
-            )
-        }
-
-        /// [`Transaction`] constructor with nonce.
-        #[inline]
-        pub fn with_nonce(
-            instructions: Vec<Instruction>,
-            account_id: <Account as Identifiable>::Id,
-            proposed_ttl_ms: u64,
-            nonce: u32,
-        ) -> Transaction {
-            Transaction::with_metadata(
-                instructions,
-                account_id,
-                proposed_ttl_ms,
-                UnlimitedMetadata::new(),
-                Some(nonce),
-            )
-        }
-
-        /// [`Transaction`] constructor with metadata.
-        #[inline]
-        pub fn with_metadata(
-            instructions: Vec<Instruction>,
-            account_id: <Account as Identifiable>::Id,
-            proposed_ttl_ms: u64,
-            metadata: UnlimitedMetadata,
-            nonce: Option<u32>,
-        ) -> Transaction {
-            #[allow(clippy::cast_possible_truncation, clippy::expect_used)]
-            Transaction {
-                payload: Payload {
-                    instructions,
-                    account_id,
-                    creation_time: current_time().as_millis() as u64,
-                    time_to_live_ms: proposed_ttl_ms,
-                    nonce,
-                    metadata,
-                },
-                signatures: BTreeSet::new(),
-            }
-        }
-
-        /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
-        pub fn hash(&self) -> HashOf<Transaction> {
-            HashOf::new(&self.payload).transmute()
-        }
-
-        /// Checks if number of instructions in payload exceeds maximum
-        ///
-        /// # Errors
-        /// Fails if instruction length exceeds maximum instruction number
-        pub fn check_instruction_len(&self, max_instruction_number: u64) -> Result<()> {
-            self.payload.check_instruction_len(max_instruction_number)
-        }
-
-        /// Sign transaction with the provided key pair.
-        ///
-        /// # Errors
-        /// Fails if signature creation fails
-        pub fn sign(self, key_pair: &KeyPair) -> Result<Transaction> {
-            let mut signatures = self.signatures.clone();
-            signatures.insert(SignatureOf::new(key_pair.clone(), &self.payload)?);
-            Ok(Transaction {
-                payload: self.payload,
-                signatures,
-            })
-        }
-    }
-
-    impl Payload {
-        /// Used to compare the contents of the transaction independent of when it was created.
-        pub fn equals_excluding_creation_time(&self, other: &Payload) -> bool {
-            self.account_id == other.account_id
-                && self.instructions == other.instructions
-                && self.time_to_live_ms == other.time_to_live_ms
-                && self.metadata == other.metadata
-        }
-
-        /// # Errors
-        /// Asserts specific instruction number of instruction constraint
-        pub fn check_instruction_len(&self, max_instruction_number: u64) -> Result<()> {
-            if self
-                .instructions
-                .iter()
-                .map(Instruction::len)
-                .sum::<usize>() as u64
-                > max_instruction_number
-            {
-                return Err(eyre!("Too many instructions in payload"));
-            }
-            Ok(())
-        }
-    }
-
-    declare_versioned_with_scale!(VersionedPendingTransactions 1..2, iroha_derive::FromVariant, Clone, Debug);
-
-    impl FromIterator<Transaction> for VersionedPendingTransactions {
-        fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
-            PendingTransactions(iter.into_iter().collect()).into()
-        }
-    }
-
-    #[cfg(feature = "warp")]
-    impl Reply for VersionedPendingTransactions {
-        fn into_response(self) -> Response {
-            use iroha_version::scale::EncodeVersioned;
-
-            match self.encode_versioned() {
-                Ok(bytes) => Response::new(bytes.into()),
-                Err(e) => e.into_response(),
-            }
-        }
-    }
-
-    impl VersionedPendingTransactions {
-        /// Same as [`as_v1`](`VersionedPendingTransactions::as_v1()`) but also does conversion
-        pub const fn as_inner_v1(&self) -> &PendingTransactions {
-            match self {
-                Self::V1(v1) => &v1.0,
-            }
-        }
-
-        /// Same as [`as_inner_v1`](`VersionedPendingTransactions::as_inner_v1()`) but returns mutable reference
-        pub fn as_mut_inner_v1(&mut self) -> &mut PendingTransactions {
-            match self {
-                Self::V1(v1) => &mut v1.0,
-            }
-        }
-
-        /// Same as [`into_v1`](`VersionedPendingTransactions::into_v1()`) but also does conversion
-        pub fn into_inner_v1(self) -> PendingTransactions {
-            match self {
-                Self::V1(v1) => v1.0,
-            }
-        }
-    }
-
-    /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
-    #[version_with_scale(
-        n = 1,
-        versioned = "VersionedPendingTransactions",
-        derive = "Debug, Clone"
-    )]
-    #[derive(Debug, Clone, Encode, Decode, Deserialize, Serialize, Io, IntoSchema)]
-    pub struct PendingTransactions(pub Vec<Transaction>);
-
-    impl FromIterator<Transaction> for PendingTransactions {
-        fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
-            PendingTransactions(iter.into_iter().collect())
-        }
-    }
-
-    impl IntoIterator for PendingTransactions {
-        type Item = Transaction;
-
-        type IntoIter = VecIter<Self::Item>;
-
-        fn into_iter(self) -> Self::IntoIter {
-            let PendingTransactions(transactions) = self;
-            transactions.into_iter()
-        }
-    }
-
-    /// Transaction Value used in Instructions and Queries
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema)]
-    pub enum TransactionValue {
-        /// Committed transaction
-        Transaction(VersionedTransaction),
-        /// Rejected transaction with reason of rejection
-        RejectedTransaction(VersionedRejectedTransaction),
-    }
-
-    impl TransactionValue {
-        /// Used to return payload of the transaction
-        pub const fn payload(&self) -> &Payload {
-            match self {
-                TransactionValue::Transaction(tx) => tx.payload(),
-                TransactionValue::RejectedTransaction(tx) => tx.payload(),
-            }
-        }
-    }
-
-    impl Ord for TransactionValue {
-        fn cmp(&self, other: &Self) -> Ordering {
-            self.payload()
-                .creation_time
-                .cmp(&other.payload().creation_time)
-        }
-    }
-
-    impl PartialOrd for TransactionValue {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(
-                self.payload()
-                    .creation_time
-                    .cmp(&other.payload().creation_time),
-            )
-        }
-    }
-
-    declare_versioned!(VersionedRejectedTransaction 1..2, iroha_derive::FromVariant, Clone, Debug, IntoSchema);
-
-    impl VersionedRejectedTransaction {
-        /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
-        pub const fn as_inner_v1(&self) -> &RejectedTransaction {
-            match self {
-                Self::V1(v1) => &v1.0,
-            }
-        }
-
-        /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
-        pub fn as_mut_inner_v1(&mut self) -> &mut RejectedTransaction {
-            match self {
-                Self::V1(v1) => &mut v1.0,
-            }
-        }
-
-        /// The same as [`as_v1`](`VersionedRejectedTransaction::as_v1()`) but also runs into on it
-        pub fn into_inner_v1(self) -> RejectedTransaction {
-            match self {
-                Self::V1(v1) => v1.into(),
-            }
-        }
-
-        /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
-        pub fn hash(&self) -> HashOf<VersionedTransaction> {
-            self.as_inner_v1().hash().transmute()
-        }
-        /// Returns payload of transaction
-        pub const fn payload(&self) -> &Payload {
-            match self {
-                Self::V1(v1) => &v1.0.payload,
-            }
-        }
-
-        /// # Errors
-        /// Asserts specific instruction number of instruction in transaction constraint
-        pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
-            self.as_inner_v1()
-                .check_instruction_len(max_instruction_len)
-        }
-    }
-
-    impl Eq for VersionedRejectedTransaction {}
-
-    impl PartialEq for VersionedRejectedTransaction {
-        fn eq(&self, other: &Self) -> bool {
-            use VersionedRejectedTransaction::*;
-
-            match (self, other) {
-                (V1(first), V1(second)) => first.0.eq(&second.0),
-            }
-        }
-    }
-
-    impl Eq for VersionedTransaction {}
-
-    impl PartialEq for VersionedTransaction {
-        fn eq(&self, other: &Self) -> bool {
-            use VersionedTransaction::*;
-
-            match (self, other) {
-                (V1(first), V1(second)) => first.0.eq(&second.0),
-            }
-        }
-    }
-
-    /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
-    #[version(
-        n = 1,
-        versioned = "VersionedRejectedTransaction",
-        derive = "Debug, Clone, IntoSchema"
-    )]
-    #[derive(
-        Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema,
-    )]
-    pub struct RejectedTransaction {
-        /// [`Transaction`] payload.
-        pub payload: Payload,
-        /// [`Transaction`]'s [`Signature`]s.
-        pub signatures: SignaturesOf<Payload>,
-        /// The reason for rejecting this transaction during the validation pipeline.
-        pub rejection_reason: TransactionRejectionReason,
-    }
-
-    impl RejectedTransaction {
-        /// # Errors
-        /// Asserts specific instruction number of instruction in transaction constraint
-        pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
-            self.payload.check_instruction_len(max_instruction_len)
-        }
-
-        /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
-        pub fn hash(&self) -> HashOf<Transaction> {
-            HashOf::new(&self.payload).transmute()
-        }
-    }
-
-    /// The prelude re-exports most commonly used traits, structs and macros from this module.
-    pub mod prelude {
-        pub use super::{
-            Payload, PendingTransactions, RejectedTransaction, Transaction, TransactionValue,
-            VersionedPendingTransactions, VersionedRejectedTransaction, VersionedTransaction,
-        };
     }
 }
 
@@ -2596,7 +2023,7 @@ pub mod metadata {
     use std::{borrow::Borrow, collections::BTreeMap};
 
     use eyre::{eyre, Result};
-    use iroha_schema::prelude::*;
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
@@ -2735,15 +2162,44 @@ pub mod metadata {
     }
 }
 
+pub mod uri {
+    //! URI that `Torii` uses to route incoming requests.
+
+    /// Default socket for listening on external requests
+    pub const DEFAULT_API_URL: &str = "127.0.0.1:8080";
+
+    /// Query URI is used to handle incoming Query requests.
+    pub const QUERY: &str = "query";
+    /// Transaction URI is used to handle incoming ISI requests.
+    pub const TRANSACTION: &str = "transaction";
+    /// Block URI is used to handle incoming Block requests.
+    pub const CONSENSUS: &str = "consensus";
+    /// Health URI is used to handle incoming Healthcheck requests.
+    pub const HEALTH: &str = "health";
+    /// The URI used for block synchronization.
+    pub const BLOCK_SYNC: &str = "block";
+    /// The web socket uri used to subscribe to block and transactions statuses.
+    pub const SUBSCRIPTION: &str = "events";
+    /// Get pending transactions.
+    pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
+    /// The URI for local config changing inspecting
+    pub const CONFIGURATION: &str = "configuration";
+    /// URI to report status for administration
+    pub const STATUS: &str = "status";
+    // TODO /// Metrics URI is used to export metrics according to [Prometheus
+    // /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
+    // pub const METRICS: &str = "metrics";
+}
+
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, current_time, domain::prelude::*,
-        fixed::prelude::*, pagination::prelude::*, peer::prelude::*, transaction::prelude::*,
-        world::prelude::*, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, Status,
-        TryAsMut, TryAsRef, Value,
+        fixed::prelude::*, pagination::prelude::*, peer::prelude::*, transaction::prelude::*, uri,
+        Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, Status, TryAsMut, TryAsRef,
+        Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-roles = ["iroha_data_model/roles"]
+roles = ["iroha_core/roles"]
 
 [dependencies]
 iroha_core = { path = "../core"}

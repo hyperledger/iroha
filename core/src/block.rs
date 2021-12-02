@@ -8,20 +8,22 @@ use std::{collections::BTreeSet, iter, marker::PhantomData};
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{Context, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
-use iroha_data_model::{current_time, events::prelude::*, transaction::prelude::*};
+use iroha_data_model::{
+    current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*,
+};
 use iroha_derive::Io;
+use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
 use crate::{
-    merkle::MerkleTree,
     prelude::*,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{
         network_topology::Topology,
         view_change::{Proof, ProofChain as ViewChangeProofs},
     },
-    tx::{VersionedAcceptedTransaction, VersionedValidTransaction},
+    tx::VersionedAcceptedTransaction,
     wsv::WorldTrait,
 };
 
@@ -246,7 +248,7 @@ pub struct ChainedBlock {
 }
 
 /// Header of the block. The hash should be taken from its byte representation.
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
 pub struct BlockHeader {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
@@ -330,7 +332,7 @@ impl ChainedBlock {
     }
 }
 
-declare_versioned_with_scale!(VersionedValidBlock 1..2, Debug, Clone, iroha_derive::FromVariant);
+declare_versioned_with_scale!(VersionedValidBlock 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
 
 impl VersionedValidBlock {
     /// Same as [`as_v1`](`VersionedValidBlock::as_v1()`) but also does conversion
@@ -433,8 +435,12 @@ impl VersionedValidBlock {
 }
 
 /// After full validation `ChainedBlock` can transform into `ValidBlock`.
-#[version_with_scale(n = 1, versioned = "VersionedValidBlock", derive = "Debug, Clone")]
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[version_with_scale(
+    n = 1,
+    versioned = "VersionedValidBlock",
+    derive = "Debug, Clone, iroha_schema::IntoSchema"
+)]
+#[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
 pub struct ValidBlock {
     /// Header
     pub header: BlockHeader,
@@ -612,7 +618,7 @@ impl From<&ValidBlock> for Vec<Event> {
     }
 }
 
-declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_derive::FromVariant);
+declare_versioned_with_scale!(VersionedCommittedBlock 1..2, Debug, Clone, iroha_derive::FromVariant, IntoSchema);
 
 impl VersionedCommittedBlock {
     /// Same as [`as_v1`](`VersionedCommittedBlock::as_v1()`) but also does conversion
@@ -657,8 +663,12 @@ impl VersionedCommittedBlock {
 
 /// When Kura receives `ValidBlock`, the block is stored and
 /// then sent to later stage of the pipeline as `CommitedBlock`.
-#[version_with_scale(n = 1, versioned = "VersionedCommittedBlock", derive = "Debug, Clone")]
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[version_with_scale(
+    n = 1,
+    versioned = "VersionedCommittedBlock",
+    derive = "Debug, Clone, iroha_schema::IntoSchema"
+)]
+#[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
 pub struct CommittedBlock {
     /// Header
     pub header: BlockHeader,

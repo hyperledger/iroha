@@ -5,6 +5,7 @@ use std::{collections::HashSet, convert::TryInto, iter};
 use eyre::{eyre, Context, Result};
 use iroha_crypto::{Hash, HashOf, SignatureOf};
 use iroha_data_model::{prelude::PeerId, transaction::VersionedTransaction};
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
@@ -239,7 +240,7 @@ impl Builder {
 }
 
 /// Network topology - order of peers that defines their roles in this round.
-#[derive(Clone, Debug, Encode, Decode)]
+#[derive(Clone, Debug, Encode, Decode, IntoSchema)]
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     sorted_peers: Vec<PeerId>,

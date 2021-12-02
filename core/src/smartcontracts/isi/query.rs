@@ -169,7 +169,7 @@ impl TryFrom<&Bytes> for VerifiedQueryRequest {
     }
 }
 
-impl<W: WorldTrait> Query<W> for QueryBox {
+impl<W: WorldTrait> ValidQuery<W> for QueryBox {
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Value> {
         use QueryBox::*;
 
@@ -297,7 +297,7 @@ mod tests {
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();
-        wsv.apply(vcb).await;
+        wsv.apply(vcb).await?;
 
         let wrong_hash = Hash::new(&[2_u8]);
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);

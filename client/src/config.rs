@@ -3,15 +3,13 @@ use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 use eyre::{Result, WrapErr};
 use iroha_config::derive::Configurable;
 use iroha_crypto::{PrivateKey, PublicKey};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, transaction};
 use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_TORII_API_URL: &str = "127.0.0.1:8080";
 const DEFAULT_TORII_STATUS_URL: &str = "127.0.0.1:8180";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;
-const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
 const DEFAULT_ADD_TRANSACTION_NONCE: bool = false;
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
@@ -51,11 +49,11 @@ impl Default for Configuration {
             public_key: PublicKey::default(),
             private_key: PrivateKey::default(),
             account_id: AccountId::new("", ""),
-            torii_api_url: DEFAULT_TORII_API_URL.to_owned(),
+            torii_api_url: uri::DEFAULT_API_URL.to_owned(),
             torii_status_url: DEFAULT_TORII_STATUS_URL.to_owned(),
             transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,
             transaction_status_timeout_ms: DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS,
-            max_instruction_number: DEFAULT_MAX_INSTRUCTION_NUMBER,
+            max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
             add_transaction_nonce: DEFAULT_ADD_TRANSACTION_NONCE,
             logger_configuration: LoggerConfiguration::default(),
         }

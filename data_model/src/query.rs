@@ -92,12 +92,12 @@ pub enum QueryBox {
 }
 
 /// Trait for typesafe query output
-pub trait QueryOutput {
+pub trait Query {
     /// Output type of query
     type Output: Into<Value> + TryFrom<Value>;
 }
 
-impl QueryOutput for QueryBox {
+impl Query for QueryBox {
     type Output = Value;
 }
 
@@ -134,7 +134,7 @@ declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, ir
 #[version_with_scale(
     n = 1,
     versioned = "VersionedSignedQueryRequest",
-    derive = "Debug, Clone, IntoSchema"
+    derive = "Debug, Clone, iroha_schema::IntoSchema"
 )]
 #[derive(Debug, Clone, Io, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct SignedQueryRequest {
@@ -150,7 +150,7 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_der
 #[version_with_scale(
     n = 1,
     versioned = "VersionedQueryResult",
-    derive = "Debug, Clone, IntoSchema"
+    derive = "Debug, Clone, iroha_schema::IntoSchema"
 )]
 #[derive(Debug, Clone, Io, Serialize, Deserialize, Encode, Decode, IntoSchema)]
 pub struct QueryResult(pub Value);
@@ -226,7 +226,7 @@ pub mod role {
     )]
     pub struct FindAllRoles {}
 
-    impl QueryOutput for FindAllRoles {
+    impl Query for FindAllRoles {
         type Output = Vec<Role>;
     }
 
@@ -250,7 +250,7 @@ pub mod role {
         pub id: EvaluatesTo<AccountId>,
     }
 
-    impl QueryOutput for FindRolesByAccountId {
+    impl Query for FindRolesByAccountId {
         type Output = Vec<RoleId>;
     }
 
@@ -290,7 +290,7 @@ pub mod permissions {
         pub id: EvaluatesTo<AccountId>,
     }
 
-    impl QueryOutput for FindPermissionTokensByAccountId {
+    impl Query for FindPermissionTokensByAccountId {
         type Output = Vec<PermissionToken>;
     }
 
@@ -330,7 +330,7 @@ pub mod account {
     )]
     pub struct FindAllAccounts {}
 
-    impl QueryOutput for FindAllAccounts {
+    impl Query for FindAllAccounts {
         type Output = Vec<Account>;
     }
 
@@ -354,7 +354,7 @@ pub mod account {
         pub id: EvaluatesTo<AccountId>,
     }
 
-    impl QueryOutput for FindAccountById {
+    impl Query for FindAccountById {
         type Output = Account;
     }
 
@@ -381,7 +381,7 @@ pub mod account {
         pub key: EvaluatesTo<Name>,
     }
 
-    impl QueryOutput for FindAccountKeyValueByIdAndKey {
+    impl Query for FindAccountKeyValueByIdAndKey {
         type Output = Value;
     }
 
@@ -406,7 +406,7 @@ pub mod account {
         pub name: EvaluatesTo<Name>,
     }
 
-    impl QueryOutput for FindAccountsByName {
+    impl Query for FindAccountsByName {
         type Output = Vec<Account>;
     }
 
@@ -431,7 +431,7 @@ pub mod account {
         pub domain_name: EvaluatesTo<Name>,
     }
 
-    impl QueryOutput for FindAccountsByDomainName {
+    impl Query for FindAccountsByDomainName {
         type Output = Vec<Account>;
     }
 
@@ -518,7 +518,7 @@ pub mod asset {
     )]
     pub struct FindAllAssets {}
 
-    impl QueryOutput for FindAllAssets {
+    impl Query for FindAllAssets {
         type Output = Vec<Asset>;
     }
 
@@ -542,7 +542,7 @@ pub mod asset {
     )]
     pub struct FindAllAssetsDefinitions {}
 
-    impl QueryOutput for FindAllAssetsDefinitions {
+    impl Query for FindAllAssetsDefinitions {
         type Output = Vec<AssetDefinition>;
     }
 
@@ -566,7 +566,7 @@ pub mod asset {
         pub id: EvaluatesTo<AssetId>,
     }
 
-    impl QueryOutput for FindAssetById {
+    impl Query for FindAssetById {
         type Output = Asset;
     }
 
@@ -591,7 +591,7 @@ pub mod asset {
         pub name: EvaluatesTo<Name>,
     }
 
-    impl QueryOutput for FindAssetsByName {
+    impl Query for FindAssetsByName {
         type Output = Vec<Asset>;
     }
 
@@ -616,7 +616,7 @@ pub mod asset {
         pub account_id: EvaluatesTo<AccountId>,
     }
 
-    impl QueryOutput for FindAssetsByAccountId {
+    impl Query for FindAssetsByAccountId {
         type Output = Vec<Asset>;
     }
 
@@ -641,7 +641,7 @@ pub mod asset {
         pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
     }
 
-    impl QueryOutput for FindAssetsByAssetDefinitionId {
+    impl Query for FindAssetsByAssetDefinitionId {
         type Output = Vec<Asset>;
     }
 
@@ -666,7 +666,7 @@ pub mod asset {
         pub domain_name: EvaluatesTo<Name>,
     }
 
-    impl QueryOutput for FindAssetsByDomainName {
+    impl Query for FindAssetsByDomainName {
         type Output = Vec<Asset>;
     }
 
@@ -694,7 +694,7 @@ pub mod asset {
         pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
     }
 
-    impl QueryOutput for FindAssetsByDomainNameAndAssetDefinitionId {
+    impl Query for FindAssetsByDomainNameAndAssetDefinitionId {
         type Output = Vec<Asset>;
     }
 
@@ -719,7 +719,7 @@ pub mod asset {
         pub id: EvaluatesTo<AssetId>,
     }
 
-    impl QueryOutput for FindAssetQuantityById {
+    impl Query for FindAssetQuantityById {
         type Output = u32;
     }
 
@@ -746,7 +746,7 @@ pub mod asset {
         pub key: EvaluatesTo<Name>,
     }
 
-    impl QueryOutput for FindAssetKeyValueByIdAndKey {
+    impl Query for FindAssetKeyValueByIdAndKey {
         type Output = Value;
     }
 
@@ -773,7 +773,7 @@ pub mod asset {
         pub key: EvaluatesTo<Name>,
     }
 
-    impl QueryOutput for FindAssetDefinitionKeyValueByIdAndKey {
+    impl Query for FindAssetDefinitionKeyValueByIdAndKey {
         type Output = Value;
     }
 
@@ -907,7 +907,7 @@ pub mod domain {
     )]
     pub struct FindAllDomains {}
 
-    impl QueryOutput for FindAllDomains {
+    impl Query for FindAllDomains {
         type Output = Vec<Domain>;
     }
 
@@ -931,7 +931,7 @@ pub mod domain {
         pub name: EvaluatesTo<Name>,
     }
 
-    impl QueryOutput for FindDomainByName {
+    impl Query for FindDomainByName {
         type Output = Domain;
     }
 
@@ -982,7 +982,7 @@ pub mod domain {
         }
     }
 
-    impl QueryOutput for FindDomainKeyValueByIdAndKey {
+    impl Query for FindDomainKeyValueByIdAndKey {
         type Output = Value;
     }
 
@@ -1000,7 +1000,7 @@ pub mod peer {
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
-    use super::QueryOutput;
+    use super::Query;
     use crate::{peer::Peer, Parameter};
 
     /// `FindAllPeers` Iroha Query will find all trusted `Peer`s presented in current Iroha `Peer`.
@@ -1022,7 +1022,7 @@ pub mod peer {
     )]
     pub struct FindAllPeers {}
 
-    impl QueryOutput for FindAllPeers {
+    impl Query for FindAllPeers {
         type Output = Vec<Peer>;
     }
 
@@ -1045,7 +1045,7 @@ pub mod peer {
     )]
     pub struct FindAllParameters {}
 
-    impl QueryOutput for FindAllParameters {
+    impl Query for FindAllParameters {
         type Output = Vec<Parameter>;
     }
 
@@ -1079,7 +1079,7 @@ pub mod transaction {
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
-    use super::QueryOutput;
+    use super::Query;
     use crate::{
         account::prelude::AccountId, expression::EvaluatesTo, transaction::TransactionValue,
     };
@@ -1105,7 +1105,7 @@ pub mod transaction {
         pub account_id: EvaluatesTo<AccountId>,
     }
 
-    impl QueryOutput for FindTransactionsByAccountId {
+    impl Query for FindTransactionsByAccountId {
         type Output = Vec<TransactionValue>;
     }
 
@@ -1138,7 +1138,7 @@ pub mod transaction {
         pub hash: EvaluatesTo<Hash>,
     }
 
-    impl QueryOutput for FindTransactionByHash {
+    impl Query for FindTransactionByHash {
         type Output = TransactionValue;
     }
 
@@ -1162,7 +1162,7 @@ pub mod prelude {
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, transaction::*, QueryBox, QueryOutput, QueryRequest, QueryResult,
+        permissions::prelude::*, transaction::*, Query, QueryBox, QueryRequest, QueryResult,
         SignedQueryRequest, VersionedQueryResult, VersionedSignedQueryRequest,
     };
 }

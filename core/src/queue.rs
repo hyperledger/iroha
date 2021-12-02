@@ -6,7 +6,7 @@ use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
 use iroha_crypto::HashOf;
-use iroha_data_model::transaction::VersionedTransaction;
+use iroha_data_model::transaction::prelude::*;
 use thiserror::Error;
 
 pub use self::config::Configuration;

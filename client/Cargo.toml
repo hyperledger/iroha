@@ -18,12 +18,9 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 iroha_config = { path = "../config" }
-iroha_core = { path = "../core" }
 iroha_crypto = { version = "=0.1.0", path = "../crypto" }
 iroha_data_model = { version = "=0.1.0", path = "../data_model" }
-iroha_derive = { version = "=0.1.0", path = "../macro/derive" }
 iroha_logger = { version = "=0.1.0", path = "../logger"}
-iroha_telemetry = { path = "../telemetry" }
 iroha_version = { version = "=0.1.0", path = "../version" }
 
 attohttpc = "0.16.3"
@@ -37,7 +34,6 @@ tungstenite = { version = "0.12.0", features = ["tls-vendored"] }
 
 [dev-dependencies]
 iroha_core = { path = "../core", features = ["dev-telemetry", "telemetry"] }
-iroha_data_model = { path = "../data_model" }
 iroha_permissions_validators = { version = "=0.1.0", path = "../permissions_validators" }
 test_network = { path = "../core/test_network" }
 

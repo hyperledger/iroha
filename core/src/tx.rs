@@ -2,10 +2,10 @@
 //!
 //! `Transaction` is the start of the Transaction lifecycle.
 
-use std::{cmp::min, collections::BTreeSet, time::Duration};
+use std::{cmp::min, time::Duration};
 
 use eyre::{Result, WrapErr};
-use iroha_crypto::{HashOf, SignaturesOf};
+use iroha_crypto::SignaturesOf;
 pub use iroha_data_model::prelude::*;
 use iroha_derive::Io;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
@@ -54,11 +54,6 @@ impl VersionedAcceptedTransaction {
         AcceptedTransaction::from_transaction(transaction, max_instruction_number).map(Into::into)
     }
 
-    /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> HashOf<VersionedTransaction> {
-        self.as_inner_v1().hash().transmute()
-    }
-
     /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
     /// Meaning that the transaction will be expired as soon as the lesser of the specified TTLs was reached.
     pub fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
@@ -104,21 +99,13 @@ impl VersionedAcceptedTransaction {
     ) -> VersionedRejectedTransaction {
         self.into_inner_v1().reject(rejection_reason).into()
     }
+}
 
-    /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
-        wsv.has_transaction(&self.hash())
-    }
+impl Txn for VersionedAcceptedTransaction {
+    type HashOf = VersionedTransaction;
 
-    /// # Errors
-    /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
-        self.as_inner_v1()
-            .check_instruction_len(max_instruction_len)
-    }
-
-    /// Returns payload of transaction
-    pub const fn payload(&self) -> &Payload {
+    #[inline]
+    fn payload(&self) -> &Payload {
         &self.as_inner_v1().payload
     }
 }
@@ -139,12 +126,6 @@ pub struct AcceptedTransaction {
 }
 
 impl AcceptedTransaction {
-    /// # Errors
-    /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
-        self.payload.check_instruction_len(max_instruction_len)
-    }
-
     /// Accepts transaction
     ///
     /// # Errors
@@ -163,11 +144,6 @@ impl AcceptedTransaction {
             payload: transaction.payload,
             signatures,
         })
-    }
-
-    /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> HashOf<Transaction> {
-        HashOf::new(&self.payload).transmute()
     }
 
     /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
@@ -316,6 +292,33 @@ impl AcceptedTransaction {
         }
     }
 }
+impl Txn for AcceptedTransaction {
+    type HashOf = Transaction;
+
+    #[inline]
+    fn payload(&self) -> &Payload {
+        &self.payload
+    }
+}
+
+impl IsInBlockchain for VersionedAcceptedTransaction {
+    #[inline]
+    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
+        wsv.has_transaction(&self.hash())
+    }
+}
+impl IsInBlockchain for VersionedValidTransaction {
+    #[inline]
+    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
+        wsv.has_transaction(&self.hash())
+    }
+}
+impl IsInBlockchain for VersionedRejectedTransaction {
+    #[inline]
+    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
+        wsv.has_transaction(&self.hash())
+    }
+}
 
 impl From<VersionedAcceptedTransaction> for VersionedTransaction {
     fn from(tx: VersionedAcceptedTransaction) -> Self {
@@ -331,127 +334,6 @@ impl From<AcceptedTransaction> for Transaction {
             payload: transaction.payload,
             signatures: transaction.signatures.into_iter().collect(),
         }
-    }
-}
-
-impl From<VersionedValidTransaction> for VersionedTransaction {
-    fn from(transaction: VersionedValidTransaction) -> Self {
-        match transaction {
-            VersionedValidTransaction::V1(v1) => {
-                let transaction: ValidTransaction = v1.0;
-
-                let signatures = transaction
-                    .signatures
-                    .values()
-                    .iter()
-                    .cloned()
-                    .collect::<BTreeSet<_>>();
-                let tx = Transaction {
-                    payload: transaction.payload,
-                    signatures,
-                };
-                tx.into()
-            }
-        }
-    }
-}
-
-impl IsInBlockchain for VersionedRejectedTransaction {
-    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
-        wsv.has_transaction(&self.hash())
-    }
-}
-
-declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, iroha_derive::FromVariant);
-
-impl VersionedValidTransaction {
-    /// Same as [`as_v1`](`VersionedValidTransaction::as_v1()`) but also does conversion
-    pub const fn as_inner_v1(&self) -> &ValidTransaction {
-        match self {
-            Self::V1(v1) => &v1.0,
-        }
-    }
-
-    /// Same as [`as_inner_v1`](`VersionedValidTransaction::as_inner_v1()`) but returns mutable reference
-    pub fn as_mut_inner_v1(&mut self) -> &mut ValidTransaction {
-        match self {
-            Self::V1(v1) => &mut v1.0,
-        }
-    }
-
-    /// Same as [`into_v1`](`VersionedValidTransaction::into_v1()`) but also does conversion
-    pub fn into_inner_v1(self) -> ValidTransaction {
-        match self {
-            Self::V1(v1) => v1.0,
-        }
-    }
-
-    /// Apply instructions to the `WorldStateView<W>`.
-    /// # Errors
-    /// Fails if receives error during execution (should be fine after validation)
-    // XXX: Should it just return `()`?
-    pub fn proceed<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<()> {
-        self.as_inner_v1().proceed(wsv)
-    }
-
-    /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> HashOf<VersionedTransaction> {
-        self.as_inner_v1().hash().transmute()
-    }
-
-    /// Checks if this transaction has already been committed or rejected.
-    pub fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
-        wsv.has_transaction(&self.hash())
-    }
-
-    /// # Errors
-    /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
-        self.as_inner_v1()
-            .check_instruction_len(max_instruction_len)
-    }
-
-    /// Returns payload of transaction
-    pub const fn payload(&self) -> &Payload {
-        &self.as_inner_v1().payload
-    }
-}
-
-/// `ValidTransaction` represents trustfull Transaction state.
-#[version_with_scale(
-    n = 1,
-    versioned = "VersionedValidTransaction",
-    derive = "Debug, Clone"
-)]
-#[derive(Clone, Debug, Io, Encode, Decode)]
-pub struct ValidTransaction {
-    payload: Payload,
-    signatures: SignaturesOf<Payload>,
-}
-
-impl ValidTransaction {
-    /// # Errors
-    /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
-        self.payload.check_instruction_len(max_instruction_len)
-    }
-
-    /// Apply instructions to the `WorldStateView<W>`.
-    ///
-    /// # Errors
-    /// Can fail if execution of instructions fail
-    pub fn proceed<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<()> {
-        for instruction in &self.payload.instructions {
-            instruction
-                .clone()
-                .execute(self.payload.account_id.clone(), wsv)?;
-        }
-        Ok(())
-    }
-
-    /// Calculate transaction `Hash`.
-    pub fn hash(&self) -> HashOf<Transaction> {
-        HashOf::new(&self.payload).transmute()
     }
 }
 
@@ -498,7 +380,7 @@ mod tests {
     use eyre::Result;
     use iroha_data_model::{
         account::GENESIS_ACCOUNT_NAME, domain::GENESIS_DOMAIN_NAME,
-        transaction::MAX_INSTRUCTION_NUMBER,
+        transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
     };
 
     use super::*;
@@ -554,7 +436,7 @@ mod tests {
             message: "Will fail".to_owned(),
         };
         let tx = Transaction::new(
-            vec![inst.into(); MAX_INSTRUCTION_NUMBER + 1],
+            vec![inst.into(); DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
             AccountId::new("root", "global"),
             1000,
         );

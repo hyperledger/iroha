@@ -17,62 +17,39 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use tokio::task;
 
-use crate::{block::Chain, prelude::*, smartcontracts::FindError};
-
-/// World proxy for using with `WorldTrait`
-#[derive(Debug, Default, Clone)]
-pub struct World(iroha_data_model::world::World);
-
-impl Deref for World {
-    type Target = iroha_data_model::world::World;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for World {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl WorldTrait for World {
-    /// Creates `World` with these `domains` and `trusted_peers_ids`
-    fn with(
-        domains: impl IntoIterator<Item = (Name, Domain)>,
-        trusted_peers_ids: impl IntoIterator<Item = PeerId>,
-    ) -> Self {
-        Self(iroha_data_model::world::World::with(
-            domains,
-            trusted_peers_ids,
-        ))
-    }
-}
-
-impl World {
-    /// Creates an empty `World`.
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
+use crate::{
+    block::Chain,
+    prelude::*,
+    smartcontracts::{Execute, FindError},
+};
 
 /// World trait for mocking
 pub trait WorldTrait:
-    Deref<Target = iroha_data_model::world::World>
-    + DerefMut
-    + Send
-    + Sync
-    + 'static
-    + Debug
-    + Default
-    + Sized
-    + Clone
+    Deref<Target = World> + DerefMut + Send + Sync + 'static + Debug + Default + Sized + Clone
 {
     /// Creates `World` with these `domains` and `trusted_peers_ids`
     fn with(
         domains: impl IntoIterator<Item = (Name, Domain)>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
     ) -> Self;
+}
+
+/// The global entity consisting of `domains`, `triggers` and etc.
+/// For example registration of domain, will have this as an ISI target.
+#[derive(Debug, Default, Clone)]
+pub struct World {
+    /// Registered domains.
+    pub domains: DomainsMap,
+    /// Identifications of discovered trusted peers.
+    pub trusted_peers_ids: PeersIds,
+    /// Iroha `Triggers` registered on the peer.
+    pub triggers: Vec<Instruction>,
+    /// Iroha parameters.
+    pub parameters: Vec<Parameter>,
+    /// Roles.
+    /// [`Role`] pairs.
+    #[cfg(feature = "roles")]
+    pub roles: iroha_data_model::role::RolesMap,
 }
 
 /// Current state of the blockchain alligned with `Iroha` module.
@@ -89,8 +66,32 @@ pub struct WorldStateView<W: WorldTrait> {
 }
 
 impl<W: WorldTrait + Default> Default for WorldStateView<W> {
+    #[inline]
     fn default() -> Self {
         Self::new(W::default())
+    }
+}
+
+impl World {
+    /// Creates an empty `World`.
+    #[inline]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl WorldTrait for World {
+    fn with(
+        domains: impl IntoIterator<Item = (Name, Domain)>,
+        trusted_peers_ids: impl IntoIterator<Item = PeerId>,
+    ) -> Self {
+        let domains = domains.into_iter().collect();
+        let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
+        World {
+            domains,
+            trusted_peers_ids,
+            ..World::new()
+        }
     }
 }
 
@@ -120,27 +121,62 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[iroha_futures::telemetry_future]
     pub async fn init(&self, blocks: Vec<VersionedCommittedBlock>) {
         for block in blocks {
-            self.apply(block).await
+            #[allow(clippy::panic)]
+            if let Err(error) = self.apply(block).await {
+                iroha_logger::error!(%error, "Initialization of WSV failed");
+                panic!("WSV initialization failed");
+            }
         }
     }
 
+    /// Returns a set of permission tokens granted to this account as part of roles and separately.
+    #[allow(clippy::unused_self)]
+    pub fn account_permission_tokens(
+        &self,
+        account: &Account,
+    ) -> iroha_data_model::account::Permissions {
+        #[allow(unused_mut)]
+        let mut tokens = account.permission_tokens.clone();
+        #[cfg(feature = "roles")]
+        for role_id in &account.roles {
+            if let Some(role) = self.world.roles.get(role_id) {
+                let mut role_tokens = role.permissions.clone();
+                tokens.append(&mut role_tokens);
+            }
+        }
+        tokens
+    }
+
     /// Apply `CommittedBlock` with changes in form of **Iroha Special Instructions** to `self`.
+    ///
+    /// # Errors
+    /// Can fail if execution of instruction fails(should be fine after validation)
     #[iroha_futures::telemetry_future]
     #[iroha_logger::log(skip(self, block))]
-    pub async fn apply(&self, block: VersionedCommittedBlock) {
+    pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
         for tx in &block.as_inner_v1().transactions {
-            if let Err(error) = tx.proceed(self) {
-                iroha_logger::warn!(%error, "Failed to proceed transaction on WSV");
-            }
+            let account_id = &tx.payload().account_id;
+            tx.as_inner_v1()
+                .payload
+                .instructions
+                .iter()
+                .cloned()
+                .try_for_each(|instruction| instruction.execute(account_id.clone(), self))?;
+
             self.transactions.insert(tx.hash());
             // Yeild control cooperatively to the task scheduler.
             // The transaction processing is a long CPU intensive task, so this should be included here.
             task::yield_now().await;
         }
-        for tx in &block.as_inner_v1().rejected_transactions {
-            self.transactions.insert(tx.hash());
-        }
+        block
+            .as_inner_v1()
+            .rejected_transactions
+            .iter()
+            .for_each(|tx| {
+                self.transactions.insert(tx.hash());
+            });
         self.blocks.push(block);
+        Ok(())
     }
 
     /// Hash of latest block
@@ -455,6 +491,21 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 }
 
+impl Deref for World {
+    type Target = Self;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self
+    }
+}
+
+impl DerefMut for World {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self
+    }
+}
+
 /// This module contains all configuration related logic.
 pub mod config {
     use iroha_config::derive::Configurable;
@@ -499,7 +550,7 @@ pub mod config {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use super::{World, *};
+    use super::*;
 
     #[tokio::test]
     async fn get_blocks_after_hash() {
@@ -517,7 +568,7 @@ mod tests {
             }
             let block: VersionedCommittedBlock = block.clone().into();
             block_hashes.push(block.hash());
-            wsv.apply(block).await;
+            wsv.apply(block).await.unwrap();
         }
 
         assert_eq!(

@@ -7,7 +7,6 @@ pub mod event;
 pub mod genesis;
 mod init;
 pub mod kura;
-mod merkle;
 pub mod modules;
 pub mod queue;
 pub mod samples;
@@ -27,10 +26,8 @@ use iroha_logger::{FutureTelemetry, SubstrateTelemetry};
 use parity_scale_codec::{Decode, Encode};
 use smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed};
 use tokio::{sync::broadcast, task::JoinHandle};
-use wsv::{World, WorldTrait};
 
 use crate::{
-    block::VersionedValidBlock,
     block_sync::{
         message::VersionedMessage as BlockSyncMessage, BlockSynchronizer, BlockSynchronizerTrait,
     },
@@ -41,6 +38,7 @@ use crate::{
     queue::Queue,
     sumeragi::{message::VersionedMessage as SumeragiMessage, Sumeragi, SumeragiTrait},
     torii::Torii,
+    wsv::WorldTrait,
 };
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
@@ -370,12 +368,12 @@ pub mod prelude {
             CommittedBlock, PendingBlock, ValidBlock, VersionedCommittedBlock, VersionedValidBlock,
         },
         smartcontracts::permissions::AllowAll,
-        smartcontracts::Query,
+        smartcontracts::ValidQuery,
         tx::{
             AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,
             VersionedValidTransaction,
         },
-        wsv::WorldStateView,
+        wsv::{World, WorldStateView},
         IsInBlockchain,
     };
 }
