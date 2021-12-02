@@ -39,7 +39,8 @@ namespace iroha {
               factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           size_t transaction_limit,
-          logger::LoggerPtr log, bool syncing_mode);
+          logger::LoggerPtr log,
+          bool syncing_mode);
 
       ~OnDemandOrderingGate() override;
 
@@ -60,14 +61,14 @@ namespace iroha {
      private:
       void sendCachedTransactions();
 
-      template<typename Func, typename...Args>
-      void forLocalOS(Func func, Args&&...args) {
+      template <typename Func, typename... Args>
+      void forLocalOS(Func func, Args &&... args) {
         if (ordering_service_)
           (ordering_service_.get()->*func)(std::forward<Args>(args)...);
       }
 
-      template<typename Func, typename...Args>
-      void forLocalOS(Func func, Args&&...args) const {
+      template <typename Func, typename... Args>
+      void forLocalOS(Func func, Args &&... args) const {
         if (ordering_service_)
           (ordering_service_.get()->*func)(std::forward<Args>(args)...);
       }

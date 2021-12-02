@@ -58,9 +58,11 @@ namespace iroha {
      * @then peer list successfully received
      */
     TEST_F(RdbWsvQueryTest, GetPeers) {
-      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt, false};
+      shared_model::plain::Peer peer1{
+          "some-address", "0a", std::nullopt, false};
       command->insertPeer(peer1);
-      shared_model::plain::Peer peer2{"another-address", "0b", std::nullopt, false};
+      shared_model::plain::Peer peer2{
+          "another-address", "0b", std::nullopt, false};
       command->insertPeer(peer2);
 
       auto result = query->getPeers(false);
@@ -78,7 +80,8 @@ namespace iroha {
     TEST_F(RdbWsvQueryTest, GetSyncPeers) {
       shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt, true};
       command->insertPeer(peer1);
-      shared_model::plain::Peer peer2{"another-address", "0b", std::nullopt, true};
+      shared_model::plain::Peer peer2{
+          "another-address", "0b", std::nullopt, true};
       command->insertPeer(peer2);
 
       auto result = query->getPeers(true);
@@ -94,7 +97,8 @@ namespace iroha {
      * @then stored peer is successfully returned
      */
     TEST_F(RdbWsvQueryTest, GetPeerWithoutTls) {
-      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt, false};
+      shared_model::plain::Peer peer1{
+          "some-address", "0a", std::nullopt, false};
       command->insertPeer(peer1);
 
       auto result = query->getPeerByPublicKey(

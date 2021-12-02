@@ -21,7 +21,8 @@ namespace shared_model {
 
     bool Peer::operator==(const ModelType &rhs) const {
       return address() == rhs.address() and pubkey() == rhs.pubkey()
-          and tlsCertificate() == rhs.tlsCertificate() && isSyncingPeer() == rhs.isSyncingPeer();
+          and tlsCertificate() == rhs.tlsCertificate()
+          && isSyncingPeer() == rhs.isSyncingPeer();
     }
   }  // namespace interface
 }  // namespace shared_model

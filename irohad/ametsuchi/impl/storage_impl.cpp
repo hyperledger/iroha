@@ -233,7 +233,8 @@ namespace iroha::ametsuchi {
       auto maybe_ledger_peers = wsv_query.getPeers(false);
       auto maybe_ledger_syncing_peers = wsv_query.getPeers(true);
 
-      if (expected::hasValue(maybe_top_block_info) && maybe_ledger_peers && maybe_ledger_syncing_peers)
+      if (expected::hasValue(maybe_top_block_info) && maybe_ledger_peers
+          && maybe_ledger_syncing_peers)
         ledger_state = std::make_shared<const iroha::LedgerState>(
             std::move(*maybe_ledger_peers),
             std::move(*maybe_ledger_syncing_peers),

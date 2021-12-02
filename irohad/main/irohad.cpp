@@ -117,13 +117,9 @@ DEFINE_string(metrics_port,
               "",
               "Prometeus HTTP server listens port, disabled by default");
 
-DEFINE_bool(exit_after_init,
-              false,
-              "Use this flag to reindex WSV and exit");
+DEFINE_bool(exit_after_init, false, "Use this flag to reindex WSV and exit");
 
-DEFINE_bool(syncing_node,
-            false,
-            "Use this flag to run iroha as syncing node");
+DEFINE_bool(syncing_node, false, "Use this flag to run iroha as syncing node");
 
 std::sig_atomic_t caught_signal = 0;
 std::promise<void> exit_requested;
@@ -468,7 +464,7 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
-    if(FLAGS_exit_after_init){
+    if (FLAGS_exit_after_init) {
       return EXIT_SUCCESS;
     }
 

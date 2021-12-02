@@ -89,7 +89,8 @@ namespace iroha::ametsuchi {
               peers.emplace_back(std::make_shared<shared_model::plain::Peer>(
                   address.ToStringView(),
                   std::string{pubkey.ToStringView()},
-                  std::nullopt, syncing_peers));
+                  std::nullopt,
+                  syncing_peers));
             else
               assert(!"Pubkey can not be empty!");
 
@@ -141,10 +142,9 @@ namespace iroha::ametsuchi {
                          std::back_inserter(result),
                          [](auto c) { return std::tolower(c); });
 
-
           bool syncing_node = false;
-          auto res = forPeerAddress<kDbOperation::kGet, kDbEntry::kMustExist>(common,
-                                                                  result, syncing_node);
+          auto res = forPeerAddress<kDbOperation::kGet, kDbEntry::kMustExist>(
+              common, result, syncing_node);
           if (expected::hasError(res)) {
             syncing_node = true;
             if (res = forPeerAddress<kDbOperation::kGet, kDbEntry::kMustExist>(
@@ -154,7 +154,10 @@ namespace iroha::ametsuchi {
           }
 
           auto peer = std::make_shared<shared_model::plain::Peer>(
-              std::move(*res.assumeValue()), std::string(pubkey), std::nullopt, syncing_node);
+              std::move(*res.assumeValue()),
+              std::string(pubkey),
+              std::nullopt,
+              syncing_node);
 
           RDB_TRY_GET_VALUE(opt_tls,
                             forPeerTLS<kDbOperation::kGet, kDbEntry::kCanExist>(
@@ -200,11 +203,13 @@ namespace iroha::ametsuchi {
     }
   }
 
-  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers(bool syncing_peers) {
+  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers(
+      bool syncing_peers) {
     RocksDbCommon common(db_context_);
     RDB_TRY_GET_VALUE_OR_STR_ERR(
         opt_count,
-        forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common, syncing_peers));
+        forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common,
+                                                                syncing_peers));
 
     return *opt_count;
   }

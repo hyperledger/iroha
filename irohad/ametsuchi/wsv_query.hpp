@@ -54,7 +54,8 @@ namespace iroha {
        * @brief Fetch number of domains in ledger
        * @return number of domains in ledger
        */
-      virtual iroha::expected::Result<size_t, std::string> countPeers(bool syncing_peers) = 0;
+      virtual iroha::expected::Result<size_t, std::string> countPeers(
+          bool syncing_peers) = 0;
 
       /**
        * @brief Fetch number of domains in ledger

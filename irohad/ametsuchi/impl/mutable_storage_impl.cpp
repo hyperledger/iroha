@@ -169,7 +169,8 @@ namespace iroha::ametsuchi {
       try {
         db_tx_.rollback();
       } catch (std::exception &e) {
-        log_->warn("~MutableStorageImpl(): rollback failed. Reason: {}", e.what());
+        log_->warn("~MutableStorageImpl(): rollback failed. Reason: {}",
+                   e.what());
       }
     }
   }

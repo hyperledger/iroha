@@ -23,8 +23,10 @@ namespace {
         std::forward<T>(rowset),
         [&](auto &public_key, auto &address, auto &tls_certificate) {
           return boost::make_optional(
-              std::make_shared<shared_model::plain::Peer>(
-                  address, std::move(public_key), tls_certificate, syncing_peer));
+              std::make_shared<shared_model::plain::Peer>(address,
+                                                          std::move(public_key),
+                                                          tls_certificate,
+                                                          syncing_peer));
         });
   }
 }  // namespace
@@ -73,10 +75,12 @@ namespace iroha {
       using T = boost::
           tuple<std::string, AddressType, std::optional<TLSCertificateType>>;
       auto result = execute<T>([&] {
-        return (sql_.prepare
-                << (syncing_peers ?
-                "SELECT public_key, address, tls_certificate FROM sync_peer":
-                "SELECT public_key, address, tls_certificate FROM peer"));
+        return (
+            sql_.prepare
+            << (syncing_peers
+                    ? "SELECT public_key, address, tls_certificate FROM "
+                      "sync_peer"
+                    : "SELECT public_key, address, tls_certificate FROM peer"));
       });
 
       return getPeersFromSociRowSet(result, syncing_peers);
@@ -94,8 +98,8 @@ namespace iroha {
       return iroha::expected::makeError(msg);
     }
 
-    iroha::expected::Result<size_t, std::string>
-    PostgresWsvQuery::countPeers(bool syncing_peers) {
+    iroha::expected::Result<size_t, std::string> PostgresWsvQuery::countPeers(
+        bool syncing_peers) {
       return count(syncing_peers ? "sync_peer" : "peer");
     }
 

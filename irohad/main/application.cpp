@@ -726,7 +726,8 @@ Irohad::RunResult Irohad::initConsensusGate() {
       std::chrono::milliseconds(config_.vote_delay),
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"),
-      inter_peer_client_factory_, config_.syncing_mode);
+      inter_peer_client_factory_,
+      config_.syncing_mode);
   log_->info("[Init] => consensus gate");
   return {};
 }
@@ -1017,7 +1018,7 @@ Irohad::RunResult Irohad::run() {
           verified_proposal);
       auto block = maybe_simulator->processVerifiedProposal(
           std::move(verified_proposal));
-      
+
       maybe_consensus_gate->vote(std::move(block));
     }
   });

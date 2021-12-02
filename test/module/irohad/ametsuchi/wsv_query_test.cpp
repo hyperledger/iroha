@@ -54,9 +54,11 @@ namespace iroha {
     TEST_F(WsvQueryTest, GetPeers) {
       ASSERT_EQ(query->countPeers(false).assumeValue(), 0);
 
-      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt, false};
+      shared_model::plain::Peer peer1{
+          "some-address", "0a", std::nullopt, false};
       command->insertPeer(peer1);
-      shared_model::plain::Peer peer2{"another-address", "0b", std::nullopt, false};
+      shared_model::plain::Peer peer2{
+          "another-address", "0b", std::nullopt, false};
       command->insertPeer(peer2);
 
       auto result = query->getPeers(false);
@@ -78,7 +80,8 @@ namespace iroha {
 
       shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt, true};
       command->insertPeer(peer1);
-      shared_model::plain::Peer peer2{"another-address", "0b", std::nullopt, true};
+      shared_model::plain::Peer peer2{
+          "another-address", "0b", std::nullopt, true};
       command->insertPeer(peer2);
 
       auto result = query->getPeers(true);
@@ -89,7 +92,6 @@ namespace iroha {
 
       ASSERT_EQ(query->countPeers(true).assumeValue(), 2);
     }
-
 
     TEST_F(WsvQueryTest, countDomains) {
       using shared_model::plain::Domain;

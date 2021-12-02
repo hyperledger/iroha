@@ -230,8 +230,9 @@ namespace iroha::ametsuchi::fmtstrings {
       RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/ RDB_ADDRESS)};
 
   // no params
-  static auto constexpr kPathSPeers{FMT_STRING(
-                                       RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/ RDB_ADDRESS)};
+  static auto constexpr kPathSPeers{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/
+                     RDB_ADDRESS)};
 
   // domain_id/account_name
   static auto constexpr kPathSignatories{
@@ -1467,7 +1468,9 @@ namespace iroha::ametsuchi {
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
-  forPeerAddress(RocksDbCommon &common, std::string_view pubkey, bool is_sync_peer) {
+  forPeerAddress(RocksDbCommon &common,
+                 std::string_view pubkey,
+                 bool is_sync_peer) {
     if (is_sync_peer)
       return dbCall<std::string_view, kOp, kSc>(
           common, fmtstrings::kSPeerAddress, pubkey);

@@ -179,8 +179,8 @@ namespace iroha::ametsuchi {
 
       boost::optional<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
-          opt_ledger_peers[] = {wsv_query.getPeers(false), // peers
-                                wsv_query.getPeers(true)}; // syncing peers
+          opt_ledger_peers[] = {wsv_query.getPeers(false),  // peers
+                                wsv_query.getPeers(true)};  // syncing peers
       for (auto &peer_list : opt_ledger_peers)
         if (!peer_list)
           return expected::makeError(

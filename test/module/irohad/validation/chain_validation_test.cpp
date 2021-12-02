@@ -35,19 +35,19 @@ class ChainValidationTest : public ::testing::Test {
     sync_peers = std::vector<std::shared_ptr<shared_model::interface::Peer>>();
 
     {
-    auto peer = std::make_shared<MockPeer>();
-    EXPECT_CALL(*peer, pubkey())
-        .WillRepeatedly(ReturnRefOfCopy(
-            iroha::bytestringToHexstring(std::string(32, '0'))));
-    peers.push_back(peer);
+      auto peer = std::make_shared<MockPeer>();
+      EXPECT_CALL(*peer, pubkey())
+          .WillRepeatedly(ReturnRefOfCopy(
+              iroha::bytestringToHexstring(std::string(32, '0'))));
+      peers.push_back(peer);
     }
 
     {
-    auto peer = std::make_shared<MockPeer>();
-    EXPECT_CALL(*peer, pubkey())
-        .WillRepeatedly(ReturnRefOfCopy(
-            iroha::bytestringToHexstring(std::string(32, '1'))));
-    sync_peers.push_back(peer);
+      auto peer = std::make_shared<MockPeer>();
+      EXPECT_CALL(*peer, pubkey())
+          .WillRepeatedly(ReturnRefOfCopy(
+              iroha::bytestringToHexstring(std::string(32, '1'))));
+      sync_peers.push_back(peer);
     }
 
     auto signature = std::make_shared<MockSignature>();
@@ -97,8 +97,8 @@ TEST_F(ChainValidationTest, ValidCase) {
       .WillOnce(DoAll(SaveArg<0>(&block_signatures_amount), Return(true)));
 
   EXPECT_CALL(*storage, applyIf(block, _))
-      .WillOnce(
-          InvokeArgument<1>(block, LedgerState{peers, sync_peers, prev_height, prev_hash}));
+      .WillOnce(InvokeArgument<1>(
+          block, LedgerState{peers, sync_peers, prev_height, prev_hash}));
 
   ASSERT_TRUE(validator->validateAndApply(block, *storage));
   ASSERT_EQ(boost::size(block->signatures()), block_signatures_amount);
@@ -136,8 +136,8 @@ TEST_F(ChainValidationTest, FailWhenNoSupermajority) {
       .WillOnce(DoAll(SaveArg<0>(&block_signatures_amount), Return(false)));
 
   EXPECT_CALL(*storage, applyIf(block, _))
-      .WillOnce(
-          InvokeArgument<1>(block, LedgerState{peers, sync_peers, prev_height, prev_hash}));
+      .WillOnce(InvokeArgument<1>(
+          block, LedgerState{peers, sync_peers, prev_height, prev_hash}));
 
   ASSERT_FALSE(validator->validateAndApply(block, *storage));
   ASSERT_EQ(boost::size(block->signatures()), block_signatures_amount);

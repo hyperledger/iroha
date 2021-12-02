@@ -337,10 +337,12 @@ namespace iroha::ametsuchi {
                          std::back_inserter(result),
                          [](auto c) { return std::tolower(c); });
 
-          RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-              common, result, false));
-          RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-              common, result, true));
+          RDB_ERROR_CHECK(
+              forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+                  common, result, false));
+          RDB_ERROR_CHECK(
+              forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+                  common, result, true));
 
           RDB_TRY_GET_VALUE(
               opt_peers_count,
@@ -348,7 +350,8 @@ namespace iroha::ametsuchi {
                   common, peer.isSyncingPeer()));
 
           common.encode((opt_peers_count ? *opt_peers_count : 0ull) + 1ull);
-          RDB_ERROR_CHECK(forPeersCount<kDbOperation::kPut>(common, peer.isSyncingPeer()));
+          RDB_ERROR_CHECK(
+              forPeersCount<kDbOperation::kPut>(common, peer.isSyncingPeer()));
 
           common.valueBuffer().assign(peer.address());
           RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kPut>(
@@ -384,7 +387,9 @@ namespace iroha::ametsuchi {
               forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(
                   common, peer.isSyncingPeer()));
 
-          common.encode((opt_peers_count && *opt_peers_count > 0ull) ? (*opt_peers_count - 1ull) : 0ull);
+          common.encode((opt_peers_count && *opt_peers_count > 0ull)
+                            ? (*opt_peers_count - 1ull)
+                            : 0ull);
           RDB_ERROR_CHECK(
               forPeersCount<kDbOperation::kPut>(common, peer.isSyncingPeer()));
 

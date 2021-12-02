@@ -299,11 +299,9 @@ void Yac::tryPropagateBack(const std::vector<VoteMessage> &state) {
 // ------|Propagation|------
 
 void Yac::propagateState(const std::vector<VoteMessage> &msg) {
-  for (const auto &peer : cluster_order_)
-    propagateStateDirectly(*peer, msg);
+  for (const auto &peer : cluster_order_) propagateStateDirectly(*peer, msg);
 
-  for (const auto &peer : syncing_peers_)
-    propagateStateDirectly(*peer, msg);
+  for (const auto &peer : syncing_peers_) propagateStateDirectly(*peer, msg);
 }
 
 void Yac::propagateStateDirectly(const shared_model::interface::Peer &to,
