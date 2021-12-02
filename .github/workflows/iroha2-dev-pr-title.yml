@@ -9,44 +9,40 @@ jobs:
   check_pr_title:
     runs-on: ubuntu-latest
     steps:
-      - name: Check PR for Feature
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        # Example: "[feature] #1: Some new feature"
-        run: |
-          echo "$PR_TITLE" | grep -Eqi '^\[(feature|feat\.?)\] \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):.+$'
+      - uses: actions-ecosystem/action-regex-match@v2
+        id: feature-match
+        with:
+          text: ${{ github.event.pull_request.title }}
+          regex: '^\[(feature|feat\.?)\] \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):.+$'
 
-      - name: Check for bugfix
-        if: ${{ failure() }}
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        # Example: "[fix] #1: Some new feature"
-        run: |
-           echo "$PR_TITLE" | grep -Eqi '^\[(bug)?fix(up)?\] \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):.+$'
-        continue-on-error: true
+      - uses: actions-ecosystem/action-regex-match@v2
+        id: refactor-match
+        if: ${{ steps.feature-match.outputs.match == '' }}
+        with:
+          text: ${{ github.event.pull_request.title }}
+          regex: '^\[ref(actor)?\]( \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):)?.+$'
 
-      - name: Check for refactor
-        if: ${{ failure() }}
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        # Example: "[refactor] #1: Some refactor"
-        run: |
-           echo "$PR_TITLE" | grep -Eqi '^\[ref(actor)?\]( \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):)?.+$'
-        continue-on-error: true
+      - uses: actions-ecosystem/action-regex-match@v2
+        id: fix-match
+        if: ${{ steps.refactor-match.outputs.match == '' }}
+        with:
+          text: ${{ github.event.pull_request.title }}
+          regex: '^\[(bug)?fix(up)?\] \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):.+$'
 
-      - name: Check for CI
-        if: ${{ failure() }}
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        # Example: "[refactor] #1: Some refactor"
-        run: |
-           echo "$PR_TITLE" | grep -Eqi '^\[ci\]( \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):)?.+$'
-        continue-on-error: true
+      - uses: actions-ecosystem/action-regex-match@v2
+        id: docs-match
+        if: ${{ steps.feature-match.outputs.match == '' }}
+        with:
+          text: ${{ github.event.pull_request.title }}
+          regex: '^\[doc(s|umentation)?\]( \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):)?.+$'
 
-      - name: Check for Documentation
-        if: ${{ failure() }}
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        # Example: "[refactor] #1: Some refactor"
-        run: |
-           echo "$PR_TITLE" | grep -Eqi '^\[doc(s|\]( \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):)?.+$'
+      - uses: actions-ecosystem/action-regex-match@v2
+        id: ci-match
+        if: ${{ steps.feature-match.outputs.match == '' }}
+        with:
+          text: ${{ github.event.pull_request.title }}
+          regex: '^\[ci\]( \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):)?.+$'
+
+      - name: Failure
+        if: ${{ steps.fix-match.outputs.match == '' && steps.refactor-match.outputs.match == '' && steps.feature-match.outputs.match == '' }}
+        run: exit 1
