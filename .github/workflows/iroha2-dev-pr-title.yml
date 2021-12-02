@@ -9,10 +9,44 @@ jobs:
   check_pr_title:
     runs-on: ubuntu-latest
     steps:
-      - name: Check PR title format
+      - name: Check PR for Feature
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         # Example: "[feature] #1: Some new feature"
         run: |
-          echo "$PR_TITLE" | grep -Eq '^\[(feature|fix|refactor)\] \#[[:digit:]]+:.+$'
-          || echo "PR_TITLE" | grep -Eq 
+          echo "$PR_TITLE" | grep -Eqi '^\[(feature|feat\.?)\] \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):.+$'
+
+      - name: Check for bugfix
+        if: ${{ failure() }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        # Example: "[fix] #1: Some new feature"
+        run: |
+           echo "$PR_TITLE" | grep -Eqi '^\[(bug)?fix(up)?\] \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):.+$'
+        continue-on-error: true
+
+      - name: Check for refactor
+        if: ${{ failure() }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        # Example: "[refactor] #1: Some refactor"
+        run: |
+           echo "$PR_TITLE" | grep -Eqi '^\[ref(actor)?\]( \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):)?.+$'
+        continue-on-error: true
+
+      - name: Check for CI
+        if: ${{ failure() }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        # Example: "[refactor] #1: Some refactor"
+        run: |
+           echo "$PR_TITLE" | grep -Eqi '^\[ci\]( \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):)?.+$'
+        continue-on-error: true
+
+      - name: Check for Documentation
+        if: ${{ failure() }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        # Example: "[refactor] #1: Some refactor"
+        run: |
+           echo "$PR_TITLE" | grep -Eqi '^\[doc(s|\]( \#?([[:digit:]]+|\(([[:digit:]]+,?\s?)+\)):)?.+$'
