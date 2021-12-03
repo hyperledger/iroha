@@ -20,14 +20,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ${{ env.CARGO_HOME }}
-            target/
-          key: iroha2-rust-test-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            iroha2-rust-test
+      # - uses: actions/cache@v2
+      #   with:
+      #     path: |
+      #       ${{ env.CARGO_HOME }}
+      #       target/
+      #     key: iroha2-rust-test-${{ hashFiles('Cargo.lock') }}
+      #     restore-keys: |
+      #       iroha2-rust-test
       - name: Run tests
         run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2 
         env:
@@ -53,14 +53,14 @@ jobs:
       image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ${{ env.CARGO_HOME }}
-            target/
-          key: iroha2-rust-test-coverage-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            iroha2-rust-test-coverage
+      # - uses: actions/cache@v2
+      #   with:
+      #     path: |
+      #       ${{ env.CARGO_HOME }}
+      #       target/
+      #     key: iroha2-rust-test-coverage-${{ hashFiles('Cargo.lock') }}
+      #     restore-keys: |
+      #       iroha2-rust-test-coverage
       - name: Run tests
         run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip  unstable_network --test-threads 2 || true
         env:
