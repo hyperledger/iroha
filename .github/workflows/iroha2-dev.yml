@@ -59,6 +59,8 @@ jobs:
 
   build-ci-image:
     runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
       - name: Login to DockerHub

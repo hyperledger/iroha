@@ -16,14 +16,15 @@ jobs:
       image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ${{ env.CARGO_HOME }}
-            target/
-          key: iroha2-rust-check-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            iroha2-rust-check
+      - uses: Swatinem/rust-cache@v1
+      # - uses: actions/cache@v2
+      #   with:
+      #     path: |
+      #       ${{ env.CARGO_HOME }}
+      #       target/
+      #     key: iroha2-rust-check-${{ hashFiles('Cargo.lock') }}
+      #     restore-keys: |
+      #       iroha2-rust-check
       - name: Print all info
         run: |
           cargo version

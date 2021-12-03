@@ -3,7 +3,7 @@ name: Check PR Title
 on:
   pull_request:
     branches: [iroha2-dev]
-    types: [opened, edited, reopened]
+    types: [opened, edited, reopened, push]
 
 jobs:
   check_pr_title:
