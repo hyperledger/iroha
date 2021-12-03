@@ -246,6 +246,9 @@ void OnDemandOrderingInit::processCommittedBlock(
 
   // take committed & rejected transaction hashes from committed block
   log_->debug("Committed block handle: height {}.", block->height());
+  if (!ordering_service_)
+    return;
+
   auto hashes = std::make_shared<OnDemandOrderingService::HashesSetType>();
   for (shared_model::interface::Transaction const &tx : block->transactions()) {
     hashes->insert(tx.hash());
