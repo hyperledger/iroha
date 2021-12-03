@@ -177,11 +177,11 @@ async fn two_networks() {
     tokio::time::sleep(delay).await;
     assert_eq!(messages2.load(Ordering::SeqCst), 1);
 
-    let connected_peers: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
-    assert_eq!(connected_peers.peers.len(), 1);
+    let connected_peers1: ConnectedPeers = network1.send(GetConnectedPeers).await.unwrap();
+    assert_eq!(connected_peers1.peers.len(), 1);
 
-    let connected_peers: ConnectedPeers = network2.send(GetConnectedPeers).await.unwrap();
-    assert_eq!(connected_peers.peers.len(), 1);
+    let connected_peers2: ConnectedPeers = network2.send(GetConnectedPeers).await.unwrap();
+    assert_eq!(connected_peers2.peers.len(), 1);
 
     // Connecting to the same peer from network1
     broker1
@@ -328,7 +328,7 @@ fn test_encryption() {
     assert!(res.is_ok());
 
     let ciphertext = res.unwrap();
-    let res = encryptor.decrypt_easy(aad.as_ref(), ciphertext.as_slice());
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap().as_slice(), message);
+    let res_cipher = encryptor.decrypt_easy(aad.as_ref(), ciphertext.as_slice());
+    assert!(res_cipher.is_ok());
+    assert_eq!(res_cipher.unwrap().as_slice(), message);
 }

@@ -173,14 +173,14 @@ impl<W: WorldTrait> Torii<W> {
 
     /// Fixing status code for custom rejection, because of argument parsing
     #[allow(clippy::unused_async)]
-    async fn recover_arg_parse(err: Rejection) -> Result<impl Reply, Rejection> {
-        if let Some(err) = err.find::<query::Error>() {
+    async fn recover_arg_parse(rejection: Rejection) -> Result<impl Reply, Rejection> {
+        if let Some(err) = rejection.find::<query::Error>() {
             return Ok(reply::with_status(err.to_string(), err.status_code()));
         }
-        if let Some(err) = err.find::<iroha_version::error::Error>() {
+        if let Some(err) = rejection.find::<iroha_version::error::Error>() {
             return Ok(reply::with_status(err.to_string(), err.status_code()));
         }
-        Err(err)
+        Err(rejection)
     }
 
     /// To handle incoming requests `Torii` should be started first.
@@ -233,8 +233,8 @@ impl<W: WorldTrait> Torii<W> {
             .and(add_state(self.events))
             .and(warp::ws())
             .map(|events, ws: Ws| {
-                ws.on_upgrade(|ws| async move {
-                    if let Err(error) = handle_subscription(events, ws).await {
+                ws.on_upgrade(|this_ws| async move {
+                    if let Err(error) = handle_subscription(events, this_ws).await {
                         iroha_logger::error!(%error, "Failed to subscribe someone");
                     }
                 })

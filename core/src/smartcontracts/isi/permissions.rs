@@ -133,7 +133,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W, Instruction> {
             Instruction::If(if_box) => {
                 self.check(authority, &if_box.then, wsv)
                     .and_then(|_| match &if_box.otherwise {
-                        Some(instruction) => self.check(authority, instruction, wsv),
+                        Some(this_instruction) => self.check(authority, this_instruction, wsv),
                         None => Ok(()),
                     })
             }
@@ -143,7 +143,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W, Instruction> {
             Instruction::Sequence(sequence_box) => sequence_box
                 .instructions
                 .iter()
-                .try_for_each(|instruction| self.check(authority, instruction, wsv)),
+                .try_for_each(|this_instruction| self.check(authority, this_instruction, wsv)),
         }
     }
 }
@@ -326,8 +326,8 @@ pub fn check_query_in_instruction<W: WorldTrait>(
         Instruction::If(if_box) => {
             check_query_in_instruction(authority, &if_box.then, wsv, validator).and_then(|_| {
                 match &if_box.otherwise {
-                    Some(instruction) => {
-                        check_query_in_instruction(authority, instruction, wsv, validator)
+                    Some(this_instruction) => {
+                        check_query_in_instruction(authority, this_instruction, wsv, validator)
                     }
                     None => Ok(()),
                 }
@@ -342,8 +342,8 @@ pub fn check_query_in_instruction<W: WorldTrait>(
             sequence_box
                 .instructions
                 .iter()
-                .try_for_each(|instruction| {
-                    check_query_in_instruction(authority, instruction, wsv, validator)
+                .try_for_each(|this_instruction| {
+                    check_query_in_instruction(authority, this_instruction, wsv, validator)
                 })
         }
     }
@@ -584,8 +584,8 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for IsGrantAllowedBoxed<W> {
         instruction: &Instruction,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        if let Instruction::Grant(instruction) = instruction {
-            self.check_grant(authority, instruction, wsv)
+        if let Instruction::Grant(isi) = instruction {
+            self.check_grant(authority, isi, wsv)
         } else {
             Ok(())
         }

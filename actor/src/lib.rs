@@ -1,6 +1,5 @@
-//!
 //! Iroha simple actor framework.
-//!
+#![allow(clippy::same_name_method)]
 
 #[cfg(feature = "deadlock_detection")]
 use std::any::type_name;
@@ -128,8 +127,10 @@ impl<A: Actor> Addr<A> {
     }
 
     /// Send a message and wait for an answer.
+    ///
     /// # Errors
     /// Fails if no one will send message
+    ///
     /// # Panics
     /// If queue is full
     pub async fn send<M>(&self, message: M) -> Result<M::Result, Error>
@@ -149,6 +150,7 @@ impl<A: Actor> Addr<A> {
     }
 
     /// Send a message without waiting for an answer.
+    ///
     /// # Errors
     /// Fails if queue is full or actor is disconnected
     pub async fn do_send<M>(&self, message: M)

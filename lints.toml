@@ -24,6 +24,7 @@ deny = [
 ]
 allow = [
     'unused_results',
+	'clippy::string_add',
     'clippy::as_conversions',
     'clippy::default_numeric_fallback',
     'clippy::else_if_without_else',
@@ -50,6 +51,11 @@ allow = [
     'clippy::wildcard_imports',
     'elided_lifetimes_in_paths',
     'missing_debug_implementations',
+	'clippy::mod-module-files',
+	'clippy::self-named-module-files',
+	# We often need to shadow the name of the method to specialise.
+	# As soon as trait specialisation is stable we need to remove it. 
+	'clippy::same_name_method',
 
     # TODO: Remove when stabilized
     ## https://rust-lang.github.io/rust-clippy/master/index.html#missing_const_for_fn

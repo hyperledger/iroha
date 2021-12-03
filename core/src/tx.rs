@@ -195,8 +195,6 @@ impl AcceptedTransaction {
         }
 
         for instruction in &self.payload.instructions {
-            let account_id = self.payload.account_id.clone();
-
             instruction
                 .clone()
                 .execute(account_id.clone(), &wsv_temp)

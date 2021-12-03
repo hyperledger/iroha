@@ -175,9 +175,9 @@ fn prepare_message(name: &str, telemetry: Telemetry) -> Result<(Message, Option<
     let fields = telemetry.fields.0;
     let msg_kind = fields
         .iter()
-        .find_map(|(name, map)| (*name == "msg").then(|| map))
+        .find_map(|(this_name, map)| (*this_name == "msg").then(|| map))
         .and_then(|v| {
-            v.as_str().map(|v| match v {
+            v.as_str().map(|val| match val {
                 "system.connected" => Some(MessageKind::Initialization),
                 _ => None,
             })
@@ -219,7 +219,7 @@ fn prepare_message(name: &str, telemetry: Telemetry) -> Result<(Message, Option<
         payload.insert("network_id".into(), "".into());
     }
     let mut map = Map::new();
-    map.insert("id".into(), 0.into());
+    map.insert("id".into(), 0_i32.into());
     map.insert("ts".into(), Local::now().to_rfc3339().into());
     map.insert("payload".into(), payload.into());
     let msg = Message::Binary(serde_json::to_vec(&map)?);
@@ -452,7 +452,7 @@ mod tests {
                 panic!()
             };
             let map: Map<String, Value> = serde_json::from_slice(&bytes).unwrap();
-            assert_eq!(map.get("id"), Some(&Value::Number(0.into())));
+            assert_eq!(map.get("id"), Some(&Value::Number(0_i32.into())));
             assert!(map.contains_key("ts"));
             let payload = map.get("payload").unwrap().as_object().unwrap();
             assert_eq!(
@@ -488,7 +488,7 @@ mod tests {
                 panic!()
             };
             let map: Map<String, Value> = serde_json::from_slice(&bytes).unwrap();
-            assert_eq!(map.get("id"), Some(&Value::Number(0.into())));
+            assert_eq!(map.get("id"), Some(&Value::Number(0_i32.into())));
             assert!(map.contains_key("ts"));
             assert!(map.contains_key("payload"));
             let payload = map.get("payload").unwrap().as_object().unwrap();
@@ -496,7 +496,7 @@ mod tests {
                 payload.get("msg"),
                 Some(&Value::String("system.interval".to_owned()))
             );
-            assert_eq!(payload.get("peers"), Some(&Value::Number(2.into())));
+            assert_eq!(payload.get("peers"), Some(&Value::Number(2_i32.into())));
         }
 
         drop(telemetry_sender);

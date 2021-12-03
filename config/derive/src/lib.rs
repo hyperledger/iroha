@@ -25,8 +25,8 @@ mod attrs {
 }
 
 fn get_type_argument<'a, 'b>(s: &'a str, ty: &'b Type) -> Option<&'b GenericArgument> {
-    let path = if let Type::Path(ty) = ty {
-        ty
+    let path = if let Type::Path(typ) = ty {
+        typ
     } else {
         return None;
     };
@@ -45,9 +45,9 @@ fn get_type_argument<'a, 'b>(s: &'a str, ty: &'b Type) -> Option<&'b GenericArgu
 
 fn is_arc_rwlock(ty: &Type) -> bool {
     let dearced_ty = get_type_argument("Arc", ty)
-        .and_then(|ty| {
-            if let GenericArgument::Type(ty) = ty {
-                Some(ty)
+        .and_then(|typ| {
+            if let GenericArgument::Type(r#type) = typ {
+                Some(r#type)
             } else {
                 None
             }
@@ -125,42 +125,42 @@ fn impl_load_env(
         .zip(field_idents.iter())
         .zip(as_str.iter())
         .zip(lvalue.iter())
-        .map(|(((ty, ident), &as_str), lvalue)| {
+        .map(|(((ty, ident), &as_str_attr), l_value)| {
             let is_string = if let Type::Path(TypePath { path, .. }) = ty {
                 path.is_ident("String")
             } else {
                 false
             };
             let set_field = if is_string {
-                quote! { #lvalue = var }
-            } else if as_str {
+                quote! { #l_value = var }
+            } else if as_str_attr {
                 quote! {
-                    #lvalue = serde_json::from_value(var.into())
+                    #l_value = serde_json::from_value(var.into())
                         .map_err(|e| iroha_config::derive::Error::field_error(stringify!(#ident), e))?
                 }
             } else {
                 quote! {
-                    #lvalue = serde_json::from_str(&var)
+                    #l_value = serde_json::from_str(&var)
                         .map_err(|e| iroha_config::derive::Error::field_error(stringify!(#ident), e))?
                 }
             };
-            (set_field, lvalue)
+            (set_field, l_value)
         })
         .zip(field_environment.iter())
         .zip(inner.iter())
-        .map(|(((set_field, lvalue), field_environment), &inner)| {
-            let inner = if inner {
+        .map(|(((set_field, l_value), field_env), &inner_thing)| {
+            let inner_thing2 = if inner_thing {
                 quote! {
-                    #lvalue.load_environment()?;
+                    #l_value.load_environment()?;
                 }
             } else {
                 quote! {}
             };
             quote! {
-                if let Ok(var) = std::env::var(#field_environment) {
+                if let Ok(var) = std::env::var(#field_env) {
                     #set_field;
                 }
-                #inner
+                #inner_thing2
             }
         });
 
@@ -197,14 +197,14 @@ fn impl_get_doc_recursive(
         .zip(inner)
         .zip(docs)
         .zip(field_ty)
-        .map(|(((ident, inner), docs), ty)| {
-            if inner {
+        .map(|(((ident, inner_thing), documentation), ty)| {
+            if inner_thing {
                 quote! {
-                    [stringify!(#ident)] => Some(#docs),
+                    [stringify!(#ident)] => Some(#documentation),
                     [stringify!(#ident), rest @ ..] => <#ty as iroha_config::Configurable>::get_doc_recursive(rest)?,
                 }
             } else {
-                quote! { [stringify!(#ident)] => Some(#docs), }
+                quote! { [stringify!(#ident)] => Some(#documentation), }
             }
         })
         // XXX: Workaround
@@ -239,14 +239,14 @@ fn impl_get_docs(
         .zip(inner)
         .zip(docs)
         .zip(field_ty)
-        .map(|(((ident, inner), docs), ty)| {
-            let docs = if inner {
+        .map(|(((ident, inner_thing), documentation), ty)| {
+            let doc = if inner_thing {
                 quote!{ <#ty as iroha_config::Configurable>::get_docs().into() }
             } else {
-                quote!{ #docs.into() }
+                quote!{ #documentation.into() }
             };
 
-            quote! { map.insert(stringify!(#ident).to_owned(), #docs); }
+            quote! { map.insert(stringify!(#ident).to_owned(), #doc); }
         })
         // XXX: Workaround
         //Decription of issue is here https://stackoverflow.com/a/65353489
@@ -285,11 +285,11 @@ fn impl_get_recursive(
         .iter()
         .zip(inner)
         .zip(lvalue.iter())
-        .map(|((ident, inner), lvalue)| {
-            let inner = if inner {
+        .map(|((ident, inner_thing), l_value)| {
+            let inner_thing2 = if inner_thing {
                 quote! {
                     [stringify!(#ident), rest @ ..] => {
-                        #lvalue.get_recursive(rest)?
+                        #l_value.get_recursive(rest)?
                     },
                 }
             } else {
@@ -297,10 +297,10 @@ fn impl_get_recursive(
             };
             quote! {
                 [stringify!(#ident)] => {
-                    serde_json::to_value(&#lvalue)
+                    serde_json::to_value(&#l_value)
                         .map_err(|e| iroha_config::derive::Error::field_error(stringify!(#ident), e))?
                 }
-                #inner
+                #inner_thing2
             }
         })
         // XXX: Workaround
@@ -385,12 +385,12 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
         .iter()
         .zip(field_environment.iter())
         .zip(field_ty.iter())
-        .map(|((attrs, env), field_ty)| {
+        .map(|((attrs, env), field_type)| {
             let real_doc = attrs
                 .iter()
                 .filter_map(|attr| attr.parse_meta().ok())
-                .find_map(|meta| {
-                    if let Meta::NameValue(meta) = meta {
+                .find_map(|metadata| {
+                    if let Meta::NameValue(meta) = metadata {
                         if meta.path.is_ident("doc") {
                             if let Lit::Str(s) = meta.lit {
                                 return Some(s);
@@ -403,7 +403,7 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
             let docs = format!(
                 "{}Has type `{}`. Can be configured via environment variable `{}`",
                 real_doc,
-                quote! { #field_ty }.to_string().replace(' ', ""),
+                quote! { #field_type }.to_string().replace(' ', ""),
                 env
             );
             LitStr::new(&docs, Span::mixed_site())

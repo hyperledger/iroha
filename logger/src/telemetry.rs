@@ -154,14 +154,14 @@ impl<S: Subscriber> EventInspectorTrait for TelemetryLayer<S> {
 
     fn event(&self, event: &Event<'_>) {
         let target = event.metadata().target();
-        if let Some(target) = target.strip_prefix(TELEMETRY_TARGET_PREFIX) {
+        if let Some(telemetry_target) = target.strip_prefix(TELEMETRY_TARGET_PREFIX) {
             let _result = self
                 .telemetry_sender
-                .try_send(Telemetry::from_event(target, event));
-        } else if let Some(target) = target.strip_prefix(TELEMETRY_FUTURE_TARGET_PREFIX) {
+                .try_send(Telemetry::from_event(telemetry_target, event));
+        } else if let Some(future_target) = target.strip_prefix(TELEMETRY_FUTURE_TARGET_PREFIX) {
             let _result = self
                 .telemetry_future_sender
-                .try_send(Telemetry::from_event(target, event));
+                .try_send(Telemetry::from_event(future_target, event));
         } else {
             self.subscriber.event(event)
         }

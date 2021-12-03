@@ -6,6 +6,7 @@ use std::{
     ffi::OsString,
     fmt::Debug,
     io,
+    marker::PhantomData,
     num::NonZeroU64,
     path::{Path, PathBuf},
     sync::Arc,
@@ -50,13 +51,15 @@ pub struct GetBlockHash {
 /// Provides all necessary methods to read and write data, hides implementation details.
 #[derive(Debug)]
 pub struct KuraWithIO<W: WorldTrait, IO> {
+    // TODO: Kura doesn't have different initialisation modes!!!
+    #[allow(dead_code)]
     mode: Mode,
     block_store: BlockStore<IO>,
     merkle_tree: MerkleTree<VersionedCommittedBlock>,
     wsv: Arc<WorldStateView<W>>,
     broker: Broker,
     mailbox: usize,
-    io: IO,
+    io: PhantomData<IO>,
 }
 
 /// Production qualification of `KuraWithIO`
@@ -83,7 +86,7 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
             wsv,
             broker,
             mailbox,
-            io,
+            io: PhantomData::default(),
         })
     }
 }
@@ -458,7 +461,7 @@ impl<IO: DiskIO> BlockStore<IO> {
             .map_ok(Self::read_file)
             .try_flatten()
             .enumerate()
-            .map(|(i, b)| b.map(|b| (i, b)))
+            .map(|(i, b)| b.map(|bb| (i, bb)))
             .and_then(|(i, b)| async move {
                 if b.header().height == (i as u64) + 1 {
                     Ok(b)
@@ -474,7 +477,6 @@ impl<IO: DiskIO> BlockStore<IO> {
 ///
 /// # Errors
 /// Will fail on filesystem access error
-///
 async fn storage_files_base_indices<IO: DiskIO>(
     path: &Path,
     io: &IO,
@@ -482,8 +484,8 @@ async fn storage_files_base_indices<IO: DiskIO>(
     let bases = io
         .read_dir(path.to_path_buf())
         .await?
-        .filter_map(|e| async {
-            e.ok()
+        .filter_map(|item| async {
+            item.ok()
                 .and_then(|e| e.to_string_lossy().parse::<NonZeroU64>().ok())
         })
         .collect::<BTreeSet<_>>()

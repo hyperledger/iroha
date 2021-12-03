@@ -91,17 +91,16 @@ pub fn web_socket_connect<U>(uri: U, headers: Headers) -> Result<WebSocketStream
 where
     U: AsRef<str>,
 {
-    #[allow(clippy::string_add)]
-    let uri = if let Some(uri) = uri.as_ref().strip_prefix("https://") {
-        "wss://".to_owned() + uri
-    } else if let Some(uri) = uri.as_ref().strip_prefix("http://") {
-        "ws://".to_owned() + uri
+    let ws_uri = if let Some(https_uri) = uri.as_ref().strip_prefix("https://") {
+        "wss://".to_owned() + https_uri
+    } else if let Some(http_uri) = uri.as_ref().strip_prefix("http://") {
+        "ws://".to_owned() + http_uri
     } else {
         return Err(eyre!("No schema in web socket uri provided"));
     };
 
     let req = http::Request::builder()
-        .uri(uri)
+        .uri(ws_uri)
         .set_headers(headers)
         .wrap_err("Failed to build web socket request")?
         .body(())
