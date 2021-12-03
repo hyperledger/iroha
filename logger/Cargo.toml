@@ -5,7 +5,6 @@ authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
 [dependencies]
-iroha_logger_derive = { path = "derive" }
 iroha_config = { path = "../config" }
 
 color-eyre = "0.5.11"

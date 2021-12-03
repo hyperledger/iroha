@@ -13,8 +13,7 @@ use std::{
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{Hash, PublicKey};
-use iroha_macro::FromVariant;
-use iroha_macro::error::ErrorTryFromEnum;
+use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};

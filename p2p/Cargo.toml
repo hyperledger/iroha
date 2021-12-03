@@ -15,20 +15,17 @@ categories = ["cryptography::cryptocurrencies", "network-programming"]
 iroha_logger = { path = "../logger" }
 iroha_crypto = { path = "../crypto" }
 iroha_actor = { path = "../actor" }
-iroha_macro = { version = "=0.1.0", path = "../macro", features = ["derive"] }
+iroha_macro = { version = "=0.1.0", path = "../macro" }
 iroha_data_model = { path = "../data_model" }
 
-eyre = "0.6.5"
 rand = "0.7.3"
-tokio = { version = "1.6.0", features = ["rt-multi-thread", "net", "sync", "time", "io-util", "macros"]}
+tokio = { version = "1.6.0", features = ["rt-multi-thread", "macros"]}
 async-stream = "0.3"
-futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
+futures = { version = "0.3.17", default-features = false }
 async-trait = "0.1"
-serde = { version = "1", features = ["derive"] }
 parity-scale-codec = { version = "2", features = ["derive"] }
 aead = "0.3.2"
 thiserror = "1.0.28"
-tracing = "0.1"
 
 [dev-dependencies]
 iroha_config = { path = "../config" }

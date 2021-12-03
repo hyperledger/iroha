@@ -5,6 +5,7 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_crypto::SignatureOf;
 use iroha_data_model::prelude::*;
+use iroha_logger::prelude::*;
 use rand::{prelude::SliceRandom, SeedableRng};
 
 use self::{
@@ -158,7 +159,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
             return;
         };
 
-        iroha_logger::info!(blocks_left = blocks.len(), "Synchronizing blocks");
+        info!(blocks_left = blocks.len(), "Synchronizing blocks");
 
         let (block, blocks) = if let Some((block, blocks)) = blocks.split_first() {
             (block, blocks)
@@ -197,7 +198,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
                 .do_send(CommitBlock(block.clone().into()))
                 .await;
         } else {
-            iroha_logger::warn!(block_hash = %block.hash(), "Failed to commit a block received via synchronization request - validation failed");
+            warn!(block_hash = %block.hash(), "Failed to commit a block received via synchronization request - validation failed");
             self.state = State::Idle;
         }
     }
@@ -208,8 +209,8 @@ pub mod message {
     use iroha_actor::broker::Broker;
     use iroha_crypto::*;
     use iroha_data_model::prelude::*;
+    use iroha_logger::prelude::*;
     use iroha_macro::*;
-    use iroha_logger::log;
     use iroha_p2p::Post;
     use iroha_version::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -296,9 +297,7 @@ pub mod message {
             match self {
                 Message::GetBlocksAfter(GetBlocksAfter { hash, peer_id }) => {
                     if block_sync.batch_size == 0 {
-                        iroha_logger::warn!(
-                            "Error: not sending any blocks as batch_size is equal to zero."
-                        );
+                        warn!("Error: not sending any blocks as batch_size is equal to zero.");
                         return;
                     }
                     if *hash == block_sync.wsv.latest_block_hash() {
@@ -307,7 +306,7 @@ pub mod message {
 
                     let blocks = block_sync.wsv.blocks_after(*hash, block_sync.batch_size);
                     if blocks.is_empty() {
-                        iroha_logger::warn!(%hash, "Block hash not found");
+                        warn!(%hash, "Block hash not found");
                     } else {
                         Message::ShareBlocks(ShareBlocks::new(blocks, block_sync.peer_id.clone()))
                             .send_to(block_sync.broker.clone(), peer_id.clone())

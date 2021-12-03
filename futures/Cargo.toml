@@ -20,4 +20,4 @@ serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
 
 [dev-dependencies]
-tokio-stream = { version = "0.1.6", features = ["fs"]}
+tokio-stream = { version = "0.1.6" }

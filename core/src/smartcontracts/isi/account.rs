@@ -156,7 +156,7 @@ pub mod isi {
 pub mod query {
 
     use eyre::{eyre, Result, WrapErr};
-    use iroha_logger::log;
+    use iroha_logger::prelude::*;
 
     use super::{super::Evaluate, *};
     use crate::smartcontracts::isi::prelude::WorldTrait;

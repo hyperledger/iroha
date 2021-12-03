@@ -425,7 +425,7 @@ dependencies = [
  "libc",
  "num-integer",
  "num-traits",
- "time",
+ "time 0.1.43",
  "winapi",
 ]
 
@@ -1452,7 +1452,6 @@ dependencies = [
  "tempfile",
  "test_network",
  "tokio",
- "tracing",
  "tungstenite",
 ]
 
@@ -1526,7 +1525,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
- "tracing",
  "warp",
 ]
 
@@ -1632,7 +1630,6 @@ version = "0.1.0"
 dependencies = [
  "color-eyre",
  "iroha_config",
- "iroha_logger_derive",
  "once_cell",
  "serde",
  "serde_json",
@@ -1645,20 +1642,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_logger_derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
-]
-
-[[package]]
 name = "iroha_macro"
 version = "0.1.0"
 dependencies = [
  "eyre",
  "iroha_derive",
- "parity-scale-codec",
 ]
 
 [[package]]
@@ -1668,7 +1656,6 @@ dependencies = [
  "aead",
  "async-stream",
  "async-trait",
- "eyre",
  "futures",
  "iroha_actor",
  "iroha_config",
@@ -1678,10 +1665,8 @@ dependencies = [
  "iroha_macro",
  "parity-scale-codec",
  "rand 0.7.3",
- "serde",
  "thiserror",
  "tokio",
- "tracing",
  "unique_port",
 ]
 
@@ -3064,6 +3049,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "time"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41effe7cfa8af36f439fac33861b66b049edc6f9a32331e2312660529c1c24ad"
+dependencies = [
+ "itoa",
+ "libc",
+]
+
+[[package]]
 name = "tinytemplate"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3090,9 +3085,9 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.12.0"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2c2416fdedca8443ae44b4527de1ea633af61d8f7169ffa6e72c5b53d24efcc"
+checksum = "70e992e41e0d2fb9f755b37446f20900f64446ef54874f40a60c78f021ac6144"
 dependencies = [
  "autocfg 1.0.1",
  "bytes",
@@ -3107,9 +3102,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2dd85aeaba7b68df939bd357c6afb36c87951be9e80bf9c859f2fc3e9fca0fd"
+checksum = "c9efc1aba077437943f7515666aa2b882dfabfbfdf89c819ea75a8d6e9eaba5e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3207,15 +3202,15 @@ dependencies = [
 
 [[package]]
 name = "tracing-bunyan-formatter"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0814e45b1ba02f79418d90107acc44ae55dceb0623d40f4ee7d981b5e1984869"
+checksum = "1cb2ad6aa9b1c637d84c54db002275bbf72a7f3c6fed80f8b33f5af0c39027e9"
 dependencies = [
- "chrono",
  "gethostname",
  "log",
  "serde",
  "serde_json",
+ "time 0.3.5",
  "tracing",
  "tracing-core",
  "tracing-log",
@@ -3454,7 +3449,7 @@ dependencies = [
  "sha2",
  "sha3 0.9.1",
  "subtle",
- "time",
+ "time 0.1.43",
  "x25519-dalek",
  "zeroize",
 ]

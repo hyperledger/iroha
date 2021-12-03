@@ -15,7 +15,7 @@ use http_client::WebSocketStream;
 use iroha_config::{GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::prelude::*;
-use iroha_logger::log;
+use iroha_logger::prelude::*;
 use iroha_version::prelude::*;
 use rand::Rng;
 use serde::de::DeserializeOwned;

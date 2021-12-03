@@ -15,7 +15,7 @@ use iroha_crypto::{
     ursa::{encryption::symm::Encryptor, kex::KeyExchangeScheme},
     PublicKey,
 };
-use iroha_logger::{debug, error, info, log, warn};
+use iroha_logger::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use tokio::{
     net::{TcpListener, TcpStream},

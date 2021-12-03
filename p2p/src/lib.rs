@@ -20,7 +20,7 @@ pub mod peer;
 pub type Network<T> = NetworkBase<T, X25519Sha256, ChaCha20Poly1305>;
 
 /// Errors used in the [`iroha_p2p`] crate.
-#[derive(Clone, Debug, iroha_macro::FromVariant, Error, iroha_actor::Message)]
+#[derive(Clone, Debug, Error, iroha_macro::FromVariant, iroha_actor::Message)]
 pub enum Error {
     /// Failed to read or write
     #[error("Failed IO operation.")]

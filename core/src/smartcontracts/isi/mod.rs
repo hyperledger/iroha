@@ -17,6 +17,7 @@ use std::{
 use eyre::{eyre, Result};
 use iroha_crypto::HashOf;
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
+use iroha_logger::prelude::*;
 use iroha_macro::FromVariant;
 use thiserror::Error;
 
@@ -164,7 +165,7 @@ impl<W: WorldTrait> Execute<W> for Instruction {
 impl<W: WorldTrait> Execute<W> for RegisterBox {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -190,7 +191,7 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
 impl<W: WorldTrait> Execute<W> for UnregisterBox {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -216,7 +217,7 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
 impl<W: WorldTrait> Execute<W> for MintBox {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -251,7 +252,7 @@ impl<W: WorldTrait> Execute<W> for MintBox {
 impl<W: WorldTrait> Execute<W> for BurnBox {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -279,7 +280,7 @@ impl<W: WorldTrait> Execute<W> for BurnBox {
 impl<W: WorldTrait> Execute<W> for TransferBox {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -309,7 +310,7 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
 impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -342,7 +343,7 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
 impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -369,7 +370,7 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
 impl<W: WorldTrait> Execute<W> for If {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -388,7 +389,7 @@ impl<W: WorldTrait> Execute<W> for If {
 impl<W: WorldTrait> Execute<W> for Pair {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -403,7 +404,7 @@ impl<W: WorldTrait> Execute<W> for Pair {
 impl<W: WorldTrait> Execute<W> for SequenceBox {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -419,7 +420,7 @@ impl<W: WorldTrait> Execute<W> for SequenceBox {
 impl<W: WorldTrait> Execute<W> for FailBox {
     type Error = Error;
 
-    #[iroha_logger::log(skip(_authority, _wsv))]
+    #[log(skip(_authority, _wsv))]
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
@@ -432,7 +433,7 @@ impl<W: WorldTrait> Execute<W> for FailBox {
 impl<W: WorldTrait> Execute<W> for GrantBox {
     type Error = Error;
 
-    #[iroha_logger::log]
+    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,

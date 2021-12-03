@@ -2,7 +2,6 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-#[cfg(feature = "derive")]
 pub use iroha_derive::*;
 
 /// Crate with errors

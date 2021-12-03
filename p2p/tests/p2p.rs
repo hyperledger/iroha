@@ -13,7 +13,7 @@ use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_config::logger;
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_logger::{info, Configuration, Level};
+use iroha_logger::{prelude::*, Configuration, Level};
 use iroha_p2p::{
     network::{ConnectedPeers, GetConnectedPeers},
     peer::PeerId,
@@ -203,7 +203,7 @@ async fn multiple_networks() {
         ..Configuration::default()
     };
     drop(iroha_logger::init(&log_config));
-    iroha_logger::info!("Starting...");
+    info!("Starting...");
 
     let delay = Duration::from_millis(200);
     tokio::time::sleep(delay).await;
@@ -235,7 +235,7 @@ async fn multiple_networks() {
 
     tokio::time::sleep(delay * 3).await;
 
-    iroha_logger::info!("Sending posts...");
+    info!("Sending posts...");
     for b in &brokers {
         for id in &peer_ids {
             let post = Post {
@@ -245,7 +245,7 @@ async fn multiple_networks() {
             b.issue_send(post).await;
         }
     }
-    iroha_logger::info!("Posts sent");
+    info!("Posts sent");
     tokio::time::sleep(delay * 5).await;
 
     assert_eq!(msgs.load(Ordering::SeqCst), 90);

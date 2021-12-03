@@ -27,7 +27,7 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 iroha_data_model = { path = "../data_model", features = ["warp"] }
-iroha_macro = { version = "=0.1.0", path = "../macro", features = ["derive"] }
+iroha_macro = { version = "=0.1.0", path = "../macro" }
 iroha_p2p = { version = "=0.1.0", path = "../p2p" }
 iroha_logger = { version = "=0.1.0", path = "../logger"}
 iroha_crypto = { version = "=0.1.0", path = "../crypto" }
@@ -54,7 +54,6 @@ warp = "0.3"
 structopt = { version = "0.3", optional = true }
 thiserror = "1.0.28"
 pin-project = "1"
-tracing = "0.1"
 
 [dev-dependencies]
 tempfile = "3"

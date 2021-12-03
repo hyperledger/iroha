@@ -204,7 +204,7 @@ pub mod isi {
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
     use eyre::{Result, WrapErr};
-    use iroha_logger::log;
+    use iroha_logger::prelude::*;
 
     use super::*;
 

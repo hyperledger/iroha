@@ -15,6 +15,7 @@ use dashmap::{
 use eyre::Result;
 use iroha_crypto::HashOf;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
+use iroha_logger::prelude::*;
 use tokio::task;
 
 use crate::{
@@ -123,7 +124,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         for block in blocks {
             #[allow(clippy::panic)]
             if let Err(error) = self.apply(block).await {
-                iroha_logger::error!(%error, "Initialization of WSV failed");
+                error!(%error, "Initialization of WSV failed");
                 panic!("WSV initialization failed");
             }
         }
@@ -152,7 +153,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// # Errors
     /// Can fail if execution of instruction fails(should be fine after validation)
     #[iroha_futures::telemetry_future]
-    #[iroha_logger::log(skip(self, block))]
+    #[log(skip(self, block))]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
         for tx in &block.as_inner_v1().transactions {
             let account_id = &tx.payload().account_id;

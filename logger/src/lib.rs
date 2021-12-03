@@ -269,3 +269,9 @@ pub fn install_panic_hook() -> Result<(), Report> {
         Ok(())
     }
 }
+
+pub mod prelude {
+    //! Module with most used items. Needs to be imported when using `log` macro to avoid `tracing` crate dependency
+
+    pub use tracing::{self, debug, error, info, instrument as log, trace, warn};
+}

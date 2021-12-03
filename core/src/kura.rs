@@ -16,6 +16,7 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_crypto::HashOf;
 use iroha_data_model::merkle::MerkleTree;
+use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use pin_project::pin_project;
 use serde::{Deserialize, Serialize};
@@ -180,7 +181,7 @@ impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
                     .await;
             }
             Err(error) => {
-                iroha_logger::error!(%error, "Initialization of kura failed");
+                error!(%error, "Initialization of kura failed");
                 panic!("Kura initialization failed");
             }
         }
@@ -209,7 +210,7 @@ impl<W: WorldTrait, IO: DiskIO> Handler<StoreBlock> for KuraWithIO<W, IO> {
             iroha_logger::telemetry!(msg = iroha_telemetry::msg::SYSTEM_CONNECTED, genesis_hash = %block.hash());
         }
         if let Err(error) = self.store(block).await {
-            iroha_logger::error!(%error, "Failed to write block")
+            error!(%error, "Failed to write block")
         }
     }
 }
@@ -237,7 +238,7 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
 
     /// Methods consumes new validated block and atomically stores and caches it.
     #[iroha_futures::telemetry_future]
-    #[iroha_logger::log("INFO", skip(self, block))]
+    #[log("INFO", skip(self, block))]
     pub async fn store(
         &mut self,
         block: VersionedCommittedBlock,
@@ -246,7 +247,7 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
             Ok(block_hash) => {
                 self.merkle_tree = self.merkle_tree.add(block_hash);
                 if let Err(error) = self.wsv.apply(block).await {
-                    iroha_logger::warn!(%error, %block_hash, "Failed to apply block on WSV");
+                    warn!(%error, %block_hash, "Failed to apply block on WSV");
                 }
                 self.broker.issue_send(UpdateNetworkTopology).await;
                 self.broker.issue_send(ContinueSync).await;

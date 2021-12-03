@@ -2,11 +2,12 @@
 
 use eyre::{Result, WrapErr};
 use iroha_data_model::prelude::*;
+use iroha_logger::prelude::*;
 
 use super::*;
 
 impl<W: WorldTrait> ValidQuery<W> for FindTransactionsByAccountId {
-    #[iroha_logger::log]
+    #[log]
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
         let id = self
             .account_id
@@ -17,7 +18,7 @@ impl<W: WorldTrait> ValidQuery<W> for FindTransactionsByAccountId {
 }
 
 impl<W: WorldTrait> ValidQuery<W> for FindTransactionByHash {
-    #[iroha_logger::log]
+    #[log]
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
         let hash = self
             .hash

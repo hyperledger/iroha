@@ -12,7 +12,7 @@ use crate::prelude::*;
 /// - transfer, etc.
 pub mod isi {
     use eyre::eyre;
-    use iroha_logger::log;
+    use iroha_logger::prelude::*;
 
     use super::*;
 
@@ -274,7 +274,7 @@ pub mod isi {
 /// Query module provides [`Query`] Asset related implementations.
 pub mod query {
     use eyre::{eyre, Result, WrapErr};
-    use iroha_logger::log;
+    use iroha_logger::prelude::*;
 
     use super::*;
 

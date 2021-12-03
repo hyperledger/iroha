@@ -23,9 +23,9 @@ test = []
 
 [dependencies]
 iroha_crypto = { path = "../crypto" }
-iroha_macro = { version = "=0.1.0", path = "../macro", features = ["derive"] }
+iroha_macro = { version = "=0.1.0", path = "../macro" }
 iroha_schema = { path = "../schema"}
-iroha_version = { version = "=0.1.0", path = "../version", features = ["warp"] }
+iroha_version = { version = "=0.1.0", path = "../version", features = ["warp", "derive"] }
 
 eyre = "0.6.5"
 fixnum = { version = "0.6", features = ["i64"]}

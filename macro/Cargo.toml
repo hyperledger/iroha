@@ -16,11 +16,7 @@ is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledg
 is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
 maintenance = { status = "actively-developed" }
 
-[features]
-derive = ["iroha_derive"]
-
 [dependencies]
-iroha_derive = { path="derive", optional = true }
+iroha_derive = { path="derive" }
 
 eyre = "0.6.5"
-parity-scale-codec = "2"

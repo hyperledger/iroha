@@ -16,7 +16,6 @@ members = [
   "futures",
   "futures/derive",
   "logger",
-  "logger/derive",
   "macro",
   "macro/derive",
   "p2p",
