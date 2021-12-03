@@ -44,10 +44,10 @@ impl Default for Configuration {
     }
 }
 
-fn default_min_period() -> u64 {
+const fn default_min_period() -> u64 {
     RetryPeriod::DEFAULT_MIN_PERIOD
 }
 
-fn default_max_exponent() -> u8 {
+const fn default_max_exponent() -> u8 {
     RetryPeriod::DEFAULT_MAX_EXPONENT
 }

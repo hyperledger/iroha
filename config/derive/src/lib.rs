@@ -1,6 +1,4 @@
-#![allow(clippy::string_add, clippy::str_to_string)]
-
-//! Module with Configurable derive macro
+//! Contains the `#[derive(Configurable)]` macro definition.
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
@@ -25,8 +23,8 @@ mod attrs {
 }
 
 fn get_type_argument<'a, 'b>(s: &'a str, ty: &'b Type) -> Option<&'b GenericArgument> {
-    let path = if let Type::Path(typ) = ty {
-        typ
+    let path = if let Type::Path(r#type) = ty {
+        r#type
     } else {
         return None;
     };
@@ -44,9 +42,10 @@ fn get_type_argument<'a, 'b>(s: &'a str, ty: &'b Type) -> Option<&'b GenericArgu
 }
 
 fn is_arc_rwlock(ty: &Type) -> bool {
+    #[allow(clippy::shadow_unrelated)]
     let dearced_ty = get_type_argument("Arc", ty)
-        .and_then(|typ| {
-            if let GenericArgument::Type(r#type) = typ {
+        .and_then(|ty| {
+            if let GenericArgument::Type(r#type) = ty {
                 Some(r#type)
             } else {
                 None
@@ -327,7 +326,7 @@ fn impl_get_recursive(
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::str_to_string)]
 fn impl_configurable(ast: &DeriveInput) -> TokenStream {
     let name = &ast.ident;
     let prefix = ast

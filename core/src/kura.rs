@@ -6,7 +6,6 @@ use std::{
     ffi::OsString,
     fmt::Debug,
     io,
-    marker::PhantomData,
     num::NonZeroU64,
     path::{Path, PathBuf},
     sync::Arc,
@@ -59,7 +58,6 @@ pub struct KuraWithIO<W: WorldTrait, IO> {
     wsv: Arc<WorldStateView<W>>,
     broker: Broker,
     mailbox: usize,
-    io: PhantomData<IO>,
 }
 
 /// Production qualification of `KuraWithIO`
@@ -86,7 +84,6 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
             wsv,
             broker,
             mailbox,
-            io: PhantomData::default(),
         })
     }
 }
@@ -562,7 +559,7 @@ pub mod config {
         )
     }
 
-    fn default_mailbox_size() -> usize {
+    const fn default_mailbox_size() -> usize {
         DEFAULT_MAILBOX_SIZE
     }
 }

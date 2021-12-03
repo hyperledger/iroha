@@ -712,7 +712,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
         latest_view_change: HashOf<Proof>,
     ) {
         let old_voting_block = voting_block;
-        let voting_block_ref = Arc::clone(&self.voting_block);
+        let voting_blck = Arc::clone(&self.voting_block);
         let key_pair = self.key_pair.clone();
         let commit_time = self.commit_time;
         let broker = self.broker.clone();
@@ -727,12 +727,12 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
         task::spawn(
             async move {
                 time::sleep(commit_time).await;
-                let voter_block =
-                    if let Some(this_voting_block) = voting_block_ref.write().await.clone() {
-                        this_voting_block
-                    } else {
-                        return;
-                    };
+                let voter_block = if let Some(this_voting_block) = voting_blck.write().await.clone()
+                {
+                    this_voting_block
+                } else {
+                    return;
+                };
 
                 // If the block was not yet committed send commit timeout to other peers to initiate view change.
                 if voter_block.block.hash() != old_voting_block.block.hash() {

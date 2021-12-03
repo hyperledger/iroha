@@ -213,9 +213,9 @@ impl AcceptedTransaction {
                             wsv,
                         )
                         .expect("Unreachable as evalutions should have been checked previously by instruction executions.");
-                    for instruction in &instructions {
+                    for isi in &instructions {
                         is_instruction_allowed
-                            .check(&account_id, instruction, wsv)
+                            .check(&account_id, isi, wsv)
                             .map_err(|reason| NotPermittedFail { reason })
                             .map_err(TransactionRejectionReason::NotPermitted)?;
                     }

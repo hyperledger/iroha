@@ -243,7 +243,8 @@ struct WebsocketSinkFactory {
 }
 
 impl WebsocketSinkFactory {
-    pub fn new(url: Url) -> Self {
+    #[inline]
+    pub const fn new(url: Url) -> Self {
         Self { url }
     }
 }

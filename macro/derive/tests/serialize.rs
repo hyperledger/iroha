@@ -17,7 +17,7 @@ mod tests {
 
     impl SampleContract {
         fn new() -> Self {
-            SampleContract {
+            Self {
                 boolean_field: true,
                 string_field: "String".to_owned(),
                 vec_field: vec!["String_In_Vec".to_owned()],

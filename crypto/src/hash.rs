@@ -123,14 +123,14 @@ impl<T> hash::Hash for HashOf<T> {
 
 impl<T> HashOf<T> {
     /// Unsafe constructor for typed hash
-    pub fn from_hash(hash: Hash) -> Self {
+    pub const fn from_hash(hash: Hash) -> Self {
         Self(hash, PhantomData)
     }
 
     /// Transmutes hash to some specific type
     /// SAFETY:
     /// Do at your own risk
-    pub fn transmute<F>(self) -> HashOf<F> {
+    pub const fn transmute<F>(self) -> HashOf<F> {
         HashOf(self.0, PhantomData)
     }
 }

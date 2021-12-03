@@ -109,11 +109,11 @@ impl Reply for Error {
 
         fn to_string(mut err: &dyn std::error::Error) -> String {
             let mut s = "Error:\n".to_owned();
-            let mut idx = 0;
+            let mut idx = 0_i32;
 
             loop {
                 s += &format!("    {}: {}\n", idx, &err.to_string());
-                idx += 1;
+                idx += 1_i32;
                 match err.source() {
                     Some(e) => err = e,
                     None => return s,
