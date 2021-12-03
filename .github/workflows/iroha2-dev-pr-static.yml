@@ -28,7 +28,7 @@ jobs:
       - name: Format check
         run: cargo +nightly-2021-10-22 fmt --all -- --check
       - name: Static analysis without features
-        run: cargo lints clippy --workspace --benches --tests
+        run: cargo lints clippy --workspace --benches --tests --no-default-features
         if: always()
       - name: Static analysis with all features enabled
         run: cargo lints clippy --workspace --benches --tests --all-features

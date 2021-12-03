@@ -1,6 +1,6 @@
 //! This module contains [`Transaction`] structures and related implementations
 
-use std::{cmp::Ordering, collections::BTreeSet, iter::FromIterator, vec::IntoIter as VecIter};
+use std::{cmp::Ordering, collections::BTreeSet, vec::IntoIter as VecIter};
 
 use eyre::{eyre, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};

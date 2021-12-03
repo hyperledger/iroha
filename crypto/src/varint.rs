@@ -7,14 +7,14 @@ pub struct VarUint {
     payload: Vec<u8>,
 }
 
-//XXX: impl<T: AsRef<[u8]>> std::convert::TryFrom<T> for VarUint
+//XXX: impl<T: AsRef<[u8]>> TryFrom<T> for VarUint
 // does not compile
 
 macro_rules! try_into_uint(
     { $( $ty:ty ),* } => {
         $(
             #[allow(trivial_numeric_casts)]
-            impl std::convert::TryInto<$ty> for VarUint {
+            impl TryInto<$ty> for VarUint {
                 type Error = Error;
                 fn try_into(self) -> Result<$ty> {
                     let VarUint { payload } = self;
@@ -98,8 +98,6 @@ impl VarUint {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
-
-    use std::convert::TryInto;
 
     use super::*;
 

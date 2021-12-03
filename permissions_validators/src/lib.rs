@@ -2,7 +2,7 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::{collections::BTreeMap, convert::TryInto};
+use std::collections::BTreeMap;
 
 use iroha_core::{
     prelude::*,

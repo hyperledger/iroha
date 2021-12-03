@@ -1,6 +1,6 @@
 //! Module with telemetry future telemetry processing
 
-use std::{collections::HashMap, convert::TryFrom, marker::Unpin, time::Duration};
+use std::{collections::HashMap, marker::Unpin, time::Duration};
 
 use iroha_futures::FuturePollTelemetry;
 use iroha_logger::telemetry::Telemetry;

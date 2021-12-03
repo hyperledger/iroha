@@ -188,11 +188,8 @@ fn prepare_message(name: &str, telemetry: Telemetry) -> Result<(Message, Option<
         .map(|(field, map)| {
             let field = field.to_owned();
             let map = if field == "genesis_hash" || field == "best" || field == "finalized_hash" {
-                if let Some(hash) = map.as_str() {
-                    format!("0x{}", hash).into()
-                } else {
-                    unreachable!()
-                }
+                map.as_str()
+                    .map_or_else(|| unreachable!(), |hash| format!("0x{}", hash).into())
             } else {
                 map
             };

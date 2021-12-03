@@ -2,7 +2,7 @@
 //! This module contains descriptions of such an events and
 //! utilitary Iroha Special Instructions to work with them.
 
-use std::{convert::TryInto, fmt::Debug, time::Duration};
+use std::{fmt::Debug, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
 use futures::{SinkExt, StreamExt};

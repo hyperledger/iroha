@@ -392,11 +392,11 @@ impl<W: WorldTrait> WorldStateView<W> {
         f: impl FnOnce(&mut Asset) -> Result<()>,
     ) -> Result<()> {
         self.modify_account(&id.account_id, |account| {
-            let mut asset = account
+            let asset = account
                 .assets
                 .get_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
-            f(&mut asset)?;
+            f(asset)?;
             if asset.value.is_zero_value() {
                 account.assets.remove(id);
             }

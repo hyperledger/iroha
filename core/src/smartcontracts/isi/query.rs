@@ -1,6 +1,6 @@
 //! This module contains query related Iroha functionality.
 
-use std::{convert::TryFrom, error::Error as StdError, fmt};
+use std::{error::Error as StdError, fmt};
 
 use eyre::{eyre, Result};
 use iroha_crypto::SignatureOf;

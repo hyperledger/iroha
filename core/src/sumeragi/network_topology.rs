@@ -1,6 +1,6 @@
 //! Structs related to topology of the network - order and predefined roles of peers.
 
-use std::{collections::HashSet, convert::TryInto, iter};
+use std::{collections::HashSet, iter};
 
 use eyre::{eyre, Context, Result};
 use iroha_crypto::{Hash, HashOf, SignatureOf};

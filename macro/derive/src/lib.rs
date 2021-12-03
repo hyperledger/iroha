@@ -66,7 +66,7 @@ fn impl_io(ast: &syn::DeriveInput) -> TokenStream {
             }
         }
 
-        impl std::convert::TryFrom<Vec<u8>> for #name {
+        impl TryFrom<Vec<u8>> for #name {
             type Error = iroha_macro::error::Error;
 
             fn try_from(vector: Vec<u8>) -> iroha_macro::error::Result<Self> {
@@ -181,7 +181,7 @@ fn try_into_variant(
     variant_ty: &syn::Type,
 ) -> proc_macro2::TokenStream {
     quote! {
-        impl std::convert::TryFrom<#enum_ty> for #variant_ty {
+        impl TryFrom<#enum_ty> for #variant_ty {
             type Error = iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>;
 
             fn try_from(origin: #enum_ty) -> std::result::Result<Self, iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>> {

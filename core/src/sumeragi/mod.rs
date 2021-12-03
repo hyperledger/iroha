@@ -274,7 +274,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Handler<Message> for S
     type Result = ();
     async fn handle(&mut self, msg: Message) {
         trace!(peer_role=?self.topology.role(&self.peer_id), ?msg);
-        if let Err(error) = msg.handle(&mut self).await {
+        if let Err(error) = msg.handle(self).await {
             error!(%error, "Handle message failed");
         }
     }
@@ -354,7 +354,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> ContextHandler<Init>
             self.init(last_block, height);
         } else if let Some(genesis_network) = self.genesis_network.take() {
             let addr = self.network.clone();
-            if let Err(error) = genesis_network.submit_transactions(&mut self, addr).await {
+            if let Err(error) = genesis_network.submit_transactions(self, addr).await {
                 error!(%error, "Failed to submit genesis transactions")
             }
         }
@@ -531,7 +531,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait> Sumeragi<G, K, W> {
             return Ok(());
         }
 
-        if let Role::Leader = self.topology.role(&self.peer_id) {
+        if Role::Leader == self.topology.role(&self.peer_id) {
             let block = PendingBlock::new(transactions).chain(
                 self.block_height,
                 *self.latest_block_hash(),

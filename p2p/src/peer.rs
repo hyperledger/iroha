@@ -303,11 +303,11 @@ where
             let public_key = read_client_hello(read_half).await?;
             crypto.derive_shared_key(&public_key)?;
             #[allow(clippy::expect_used)]
-            let mut write_half = connection
+            let write_half = connection
                 .write
                 .as_mut()
                 .expect("Never fails as in this function we already have the stream.");
-            send_server_hello(&mut write_half, crypto.public_key.0.as_slice()).await?;
+            send_server_hello(write_half, crypto.public_key.0.as_slice()).await?;
             Ok(Self::SendKey(id, broker, connection, crypto))
         } else {
             error!(peer = ?self, "Incorrect state.");
@@ -320,13 +320,13 @@ where
         if let Self::ConnectedTo(id, broker, mut connection) = self {
             trace!(conn = ?connection, "Sending client hello...");
             #[allow(clippy::expect_used)]
-            let mut write_half = connection
+            let write_half = connection
                 .write
                 .as_mut()
                 .expect("Never fails as in this function we already have the stream.");
             write_half.as_ref().writable().await?;
             let mut crypto = Cryptographer::default_or_err()?;
-            send_client_hello(&mut write_half, crypto.public_key.0.as_slice()).await?;
+            send_client_hello(write_half, crypto.public_key.0.as_slice()).await?;
             // Read server hello with node's public key
             #[allow(clippy::expect_used)]
             let read_half = connection

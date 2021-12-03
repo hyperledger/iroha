@@ -2,7 +2,6 @@
 //! add any custom end-point related logic.
 use std::{
     collections::HashMap,
-    convert::TryFrom,
     fmt::{self, Debug, Formatter},
     sync::mpsc,
     thread,

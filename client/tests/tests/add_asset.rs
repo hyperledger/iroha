@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::{convert::TryFrom, thread};
+use std::thread;
 
 use eyre::Result;
 use iroha_client::client;

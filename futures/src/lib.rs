@@ -1,7 +1,6 @@
 //! Crate with various iroha futures
 
 use std::{
-    convert::TryFrom,
     future::Future,
     pin::Pin,
     task::{Context, Poll},

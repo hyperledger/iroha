@@ -2,8 +2,6 @@
 
 #![allow(clippy::missing_inline_in_public_items)]
 
-use std::convert::TryFrom;
-
 use eyre::Result;
 use iroha_crypto::{prelude::*, SignatureOf};
 use iroha_macro::{FromVariant, Io};
