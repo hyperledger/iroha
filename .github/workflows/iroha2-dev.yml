@@ -9,7 +9,7 @@ env:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
     steps:
@@ -56,6 +56,22 @@ jobs:
             TARGET_DIR=release
             PROFILE=--release
             BIN=iroha_crypto_cli
+
+  build-ci-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build & push Docker container
+        uses: docker/build-push-action@v2
+        with:
+          file: Dockerfile.ci
+          tags: hyperledger/ci-iroha2:latest
+          push: true
 
   archive-and-publish-schema:
     runs-on: ubuntu-latest

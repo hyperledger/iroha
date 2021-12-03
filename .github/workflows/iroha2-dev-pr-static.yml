@@ -11,7 +11,7 @@ on:
 
 jobs:
   check:
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
     steps:
@@ -30,7 +30,7 @@ jobs:
           lscpu
           free -h
       - name: Format check
-        run: cargo +nightly-2021-10-22 fmt --all -- --check
+        run: cargo +nightly-2021-12-02 fmt --all -- --check
       - name: Static analysis without features
         run: cargo lints clippy --workspace --benches --tests --quiet --no-default-features
         if: always()
