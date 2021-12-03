@@ -168,16 +168,16 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
     fn from(transaction: VersionedValidTransaction) -> Self {
         match transaction {
             VersionedValidTransaction::V1(v1) => {
-                let transaction: ValidTransaction = v1.0;
+                let tx: ValidTransaction = v1.0;
 
-                let signatures = transaction
+                let signatures = tx
                     .signatures
                     .values()
                     .iter()
                     .cloned()
                     .collect::<BTreeSet<_>>();
                 let tx = Transaction {
-                    payload: transaction.payload,
+                    payload: tx.payload,
                     signatures,
                 };
                 tx.into()

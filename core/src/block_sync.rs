@@ -38,7 +38,6 @@ pub struct BlockSynchronizer<S: SumeragiTrait, W: WorldTrait> {
     state: State,
     gossip_period: Duration,
     batch_size: u32,
-    n_topology_shifts_before_reshuffle: u64,
     broker: Broker,
     mailbox: usize,
 }
@@ -56,7 +55,6 @@ pub trait BlockSynchronizerTrait: Actor + Handler<ContinueSync> + Handler<Messag
         wsv: Arc<WorldStateView<Self::World>>,
         sumeragi: AlwaysAddr<Self::Sumeragi>,
         peer_id: PeerId,
-        n_topology_shifts_before_reshuffle: u64,
         broker: Broker,
     ) -> Self;
 }
@@ -70,7 +68,6 @@ impl<S: SumeragiTrait, W: WorldTrait> BlockSynchronizerTrait for BlockSynchroniz
         wsv: Arc<WorldStateView<W>>,
         sumeragi: AlwaysAddr<S>,
         peer_id: PeerId,
-        n_topology_shifts_before_reshuffle: u64,
         broker: Broker,
     ) -> Self {
         Self {
@@ -80,7 +77,6 @@ impl<S: SumeragiTrait, W: WorldTrait> BlockSynchronizerTrait for BlockSynchroniz
             state: State::Idle,
             gossip_period: Duration::from_millis(config.gossip_period_ms),
             batch_size: config.batch_size,
-            n_topology_shifts_before_reshuffle,
             broker,
             mailbox: config.mailbox,
         }
@@ -161,8 +157,8 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
 
         info!(blocks_left = blocks.len(), "Synchronizing blocks");
 
-        let (block, blocks) = if let Some((block, blocks)) = blocks.split_first() {
-            (block, blocks)
+        let (this_block, remaining_blocks) = if let Some((blck, blcks)) = blocks.split_first() {
+            (blck, blcks)
         } else {
             self.state = State::Idle;
             self.request_latest_blocks_from_peer(peer_id).await;
@@ -171,34 +167,36 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
 
         let mut network_topology = self
             .sumeragi
-            .send(GetNetworkTopology(block.header().clone()))
+            .send(GetNetworkTopology(this_block.header().clone()))
             .await;
         // If it is genesis topology we cannot apply view changes as peers have custom order!
         #[allow(clippy::expect_used)]
-        if !block.header().is_genesis() {
+        if !this_block.header().is_genesis() {
             network_topology = network_topology
                 .into_builder()
-                .with_view_changes(block.header().view_change_proofs.clone())
+                .with_view_changes(this_block.header().view_change_proofs.clone())
                 .build()
                 .expect(
                     "Unreachable as doing view changes on valid topology will not raise an error.",
                 );
         }
-        if self.wsv.as_ref().latest_block_hash() == block.header().previous_block_hash
+        if self.wsv.as_ref().latest_block_hash() == this_block.header().previous_block_hash
             && network_topology
                 .filter_signatures_by_roles(
                     &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                    block.verified_signatures().map(SignatureOf::transmute_ref),
+                    this_block
+                        .verified_signatures()
+                        .map(SignatureOf::transmute_ref),
                 )
                 .len()
                 >= network_topology.min_votes_for_commit() as usize
         {
-            self.state = State::InProgress(blocks.to_vec(), peer_id);
+            self.state = State::InProgress(remaining_blocks.to_vec(), peer_id);
             self.sumeragi
-                .do_send(CommitBlock(block.clone().into()))
+                .do_send(CommitBlock(this_block.clone().into()))
                 .await;
         } else {
-            warn!(block_hash = %block.hash(), "Failed to commit a block received via synchronization request - validation failed");
+            warn!(block_hash = %this_block.hash(), "Failed to commit a block received via synchronization request - validation failed");
             self.state = State::Idle;
         }
     }

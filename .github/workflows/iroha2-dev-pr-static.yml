@@ -3,11 +3,15 @@ name: I2::Dev::Static Analysis
 on:
   pull_request:
     branches: [iroha2-dev]
+    paths:
+      - "**.rs"
+      - "**.json"
+      - "**.toml"
+      - "**.yml"
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    #container: rust:1.56-buster
     container:
       image: 7272721/i2-ci:latest
     steps:
@@ -26,15 +30,15 @@ jobs:
           lscpu
           free -h
       - name: Format check
-        run: cargo +nightly-2021-10-22 fmt --all -- --check
+        run: cargo +nightly-2021-12-02 fmt --all -- --check
       - name: Static analysis without features
-        run: cargo lints clippy --workspace --benches --tests --no-default-features
+        run: cargo lints clippy --workspace --benches --tests --quiet --no-default-features
         if: always()
       - name: Static analysis with all features enabled
-        run: cargo lints clippy --workspace --benches --tests --all-features
+        run: cargo lints clippy --workspace --benches --tests --all-features --quiet
         if: always()
       - name: Documentation check
         run: |
-          cargo doc --no-deps
+          cargo doc --no-deps --quiet
           ./scripts/check_docs.sh
         if: always()

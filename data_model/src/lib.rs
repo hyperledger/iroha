@@ -471,8 +471,8 @@ impl Default for Metrics {
             txs,
             block_height,
             connected_peers,
-            registry,
             uptime_since_genesis_ms,
+            registry,
         }
     }
 }

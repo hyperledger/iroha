@@ -46,8 +46,8 @@ pub async fn start(
     //
     // TODO: After migration to tokio move to https://docs.rs/tokio-serde
     let join_handle = task::spawn(async move {
-        while let Some(telemetry) = telemetry.next().await {
-            let telemetry_json = match serde_json::to_string(&telemetry) {
+        while let Some(item) = telemetry.next().await {
+            let telemetry_json = match serde_json::to_string(&item) {
                 Ok(json) => json,
                 Err(error) => {
                     iroha_logger::error!(%error, "Failed to serialize telemetry to json");

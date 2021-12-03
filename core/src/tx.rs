@@ -195,8 +195,6 @@ impl AcceptedTransaction {
         }
 
         for instruction in &self.payload.instructions {
-            let account_id = self.payload.account_id.clone();
-
             instruction
                 .clone()
                 .execute(account_id.clone(), &wsv_temp)
@@ -215,9 +213,9 @@ impl AcceptedTransaction {
                             wsv,
                         )
                         .expect("Unreachable as evalutions should have been checked previously by instruction executions.");
-                    for instruction in &instructions {
+                    for isi in &instructions {
                         is_instruction_allowed
-                            .check(&account_id, instruction, wsv)
+                            .check(&account_id, isi, wsv)
                             .map_err(|reason| NotPermittedFail { reason })
                             .map_err(TransactionRejectionReason::NotPermitted)?;
                     }

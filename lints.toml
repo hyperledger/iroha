@@ -23,9 +23,8 @@ deny = [
     'variant_size_differences',
 ]
 allow = [
-    'unused_results',
+	'clippy::string_add',
     'clippy::as_conversions',
-    'clippy::default_numeric_fallback',
     'clippy::else_if_without_else',
     'clippy::enum_glob_use',
     'clippy::exhaustive_enums',
@@ -37,6 +36,7 @@ allow = [
     'clippy::let_underscore_must_use',
     'clippy::match_wildcard_for_single_variants',
     'clippy::missing_docs_in_private_items',
+	# Not all public items should be inline. We only inline **trivial** functions.
     'clippy::missing_inline_in_public_items',
     'clippy::module_name_repetitions',
     'clippy::must_use_candidate',
@@ -49,7 +49,13 @@ allow = [
     'clippy::wildcard_enum_match_arm',
     'clippy::wildcard_imports',
     'elided_lifetimes_in_paths',
-    'missing_debug_implementations',
+	# Our preferred style.
+	'clippy::mod-module-files',
+	# Most trybuild code triggers a false-positive.
+	'clippy::self-named-module-files',
+	# We often need to shadow the name of the method to specialise.
+	# As soon as trait specialisation is stable we need to remove it. 
+	'clippy::same_name_method',
 
     # TODO: Remove when stabilized
     ## https://rust-lang.github.io/rust-clippy/master/index.html#missing_const_for_fn

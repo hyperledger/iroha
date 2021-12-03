@@ -231,7 +231,6 @@ where
             Arc::clone(&wsv),
             sumeragi.clone(),
             PeerId::new(&config.torii.p2p_addr, &config.public_key),
-            config.sumeragi.n_topology_shifts_before_reshuffle,
             broker.clone(),
         )
         .start()
@@ -292,14 +291,14 @@ where
         telemetry: Option<(SubstrateTelemetry, FutureTelemetry)>,
         config: &Configuration,
     ) -> Result<bool> {
-        if let Some((telemetry, telemetry_future)) = telemetry {
+        if let Some((substrate_telemetry, telemetry_future)) = telemetry {
             #[cfg(feature = "dev-telemetry")]
             {
                 iroha_telemetry::dev::start(&config.telemetry, telemetry_future)
                     .await
                     .wrap_err("Failed to setup telemetry for futures")?;
             }
-            iroha_telemetry::ws::start(&config.telemetry, telemetry)
+            iroha_telemetry::ws::start(&config.telemetry, substrate_telemetry)
                 .await
                 .wrap_err("Failed to setup telemetry")
         } else {
