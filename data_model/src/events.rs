@@ -1,7 +1,7 @@
 //! Events for streaming API.
 #![allow(clippy::unused_self)]
 
-use iroha_derive::FromVariant;
+use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -91,7 +91,7 @@ impl EventFilter {
 
 /// Events of data entities.
 pub mod data {
-    use iroha_derive::FromVariant;
+    use iroha_macro::FromVariant;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -189,7 +189,7 @@ pub mod pipeline {
     };
 
     use iroha_crypto::{Hash, SignatureVerificationFail};
-    use iroha_derive::FromVariant;
+    use iroha_macro::FromVariant;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};

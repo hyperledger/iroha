@@ -74,7 +74,7 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// use iroha_version_derive::{declare_versioned, version};
 /// use iroha_version::json::*;
 ///
-/// declare_versioned!(VersionedMessage 1..2, Debug, Clone, iroha_derive::FromVariant);
+/// declare_versioned!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant);
 ///
 /// #[version(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
 /// #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]

@@ -23,14 +23,12 @@ test = []
 
 [dependencies]
 iroha_crypto = { path = "../crypto" }
-iroha_derive = { version = "=0.1.0", path = "../macro/derive" }
 iroha_macro = { version = "=0.1.0", path = "../macro" }
 iroha_schema = { path = "../schema"}
-iroha_version = { version = "=0.1.0", path = "../version", features = ["warp"] }
+iroha_version = { version = "=0.1.0", path = "../version", features = ["warp", "derive"] }
 
 eyre = "0.6.5"
 fixnum = { version = "0.6", features = ["i64"]}
-chrono = "0.4"
 dashmap = { version = "4.0" }
 parity-scale-codec = { version = "2", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -42,11 +40,8 @@ warp = { version = "0.3", default-features = false, optional = true }
 [dev-dependencies]
 iroha_core = { path = "../core" }
 iroha_client = { version = "=0.1.0", path = "../client" }
-iroha_logger = { version = "=0.1.0", path = "../logger" }
 
 hex-literal = { version = "0.3.4" }
 test_network = { path = "../core/test_network" }
-port_check = "0.1.5"
-tempfile = "3"
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
 trybuild = "1"

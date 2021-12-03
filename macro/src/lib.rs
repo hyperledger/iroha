@@ -1,6 +1,8 @@
-//! Crate containing iroha macroses
+//! Crate containing iroha macros
 
 #![allow(clippy::module_name_repetitions)]
+
+pub use iroha_derive::*;
 
 /// Crate with errors
 pub mod error {
@@ -46,6 +48,3 @@ pub mod error {
         }
     }
 }
-
-/// Trait alias for encode + decode
-pub trait Io: parity_scale_codec::Encode + parity_scale_codec::Decode {}

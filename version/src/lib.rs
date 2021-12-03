@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 /// Module which contains error and result for versioning
 pub mod error {
-    use iroha_derive::FromVariant;
+    use iroha_macro::FromVariant;
     use thiserror::Error;
     #[cfg(feature = "warp")]
     use warp::{

@@ -31,5 +31,4 @@ iroha_logger = { version = "=0.1.0", path = "../logger"}
 
 color-eyre = "0.5.11"
 structopt = "0.3"
-tracing = "0.1"
-tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs"]}
+tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}

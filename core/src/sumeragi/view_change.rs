@@ -6,7 +6,7 @@ use std::{collections::HashSet, fmt::Display};
 use eyre::{Context, Result};
 use iroha_crypto::{HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
 use iroha_data_model::{prelude::PeerId, transaction::VersionedTransaction};
-use iroha_derive::*;
+use iroha_macro::*;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 

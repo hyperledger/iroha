@@ -5,7 +5,7 @@ use std::{convert::TryFrom, error::Error as StdError, fmt};
 use eyre::{eyre, Result};
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{prelude::*, query};
-use iroha_derive::Io;
+use iroha_macro::Io;
 use iroha_version::{scale::DecodeVersioned, Version};
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;

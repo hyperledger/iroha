@@ -20,4 +20,3 @@ ursa = "=0.3.7"
 
 [dev-dependencies]
 hex-literal = "0.3.4"
-serde_json = "1.0"

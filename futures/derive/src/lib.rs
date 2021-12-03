@@ -1,4 +1,4 @@
-//! Crate with derive macroses for futures
+//! Crate with derive macros for futures
 
 #![allow(clippy::expect_used, clippy::str_to_string)]
 

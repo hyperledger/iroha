@@ -425,7 +425,7 @@ dependencies = [
  "libc",
  "num-integer",
  "num-traits",
- "time",
+ "time 0.1.43",
  "winapi",
 ]
 
@@ -788,12 +788,6 @@ checksum = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
 dependencies = [
  "generic-array 0.14.4",
 ]
-
-[[package]]
-name = "dissimilar"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31ad93652f40969dead8d4bf897a41e9462095152eb21c56e5830537e41179dd"
 
 [[package]]
 name = "ecdsa"
@@ -1407,7 +1401,6 @@ dependencies = [
  "iroha_permissions_validators",
  "structopt",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1441,12 +1434,10 @@ dependencies = [
 name = "iroha_client"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "attohttpc",
  "color-eyre",
  "criterion",
  "eyre",
- "futures",
  "http",
  "iroha_config",
  "iroha_core",
@@ -1461,9 +1452,7 @@ dependencies = [
  "tempfile",
  "test_network",
  "tokio",
- "tracing",
  "tungstenite",
- "unique_port",
 ]
 
 [[package]]
@@ -1478,7 +1467,6 @@ dependencies = [
  "iroha_data_model",
  "serde_json",
  "structopt",
- "tempfile",
 ]
 
 [[package]]
@@ -1500,7 +1488,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
- "trybuild",
 ]
 
 [[package]]
@@ -1510,19 +1497,16 @@ dependencies = [
  "async-stream",
  "async-trait",
  "byte-unit",
- "chrono",
  "criterion",
  "crossbeam-queue",
  "dashmap",
  "eyre",
  "futures",
  "hex",
- "hex-literal",
  "iroha_actor",
  "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_derive",
  "iroha_futures",
  "iroha_logger",
  "iroha_macro",
@@ -1538,12 +1522,9 @@ dependencies = [
  "serde_json",
  "structopt",
  "tempfile",
- "test_network",
  "thiserror",
  "tokio",
  "tokio-stream",
- "tracing",
- "unique_port",
  "warp",
 ]
 
@@ -1578,7 +1559,6 @@ dependencies = [
 name = "iroha_data_model"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "dashmap",
  "eyre",
  "fixnum",
@@ -1586,16 +1566,12 @@ dependencies = [
  "iroha_client",
  "iroha_core",
  "iroha_crypto",
- "iroha_derive",
- "iroha_logger",
  "iroha_macro",
  "iroha_schema",
  "iroha_version",
  "parity-scale-codec",
- "port_check",
  "serde",
  "serde_json",
- "tempfile",
  "test_network",
  "thiserror",
  "tokio",
@@ -1607,10 +1583,8 @@ dependencies = [
 name = "iroha_derive"
 version = "0.1.0"
 dependencies = [
- "iroha_logger",
  "iroha_macro",
  "parity-scale-codec",
- "proc-macro-error",
  "proc-macro2",
  "quote",
  "syn",
@@ -1648,16 +1622,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
- "trybuild",
 ]
 
 [[package]]
 name = "iroha_logger"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "color-eyre",
- "crossbeam",
  "iroha_config",
  "once_cell",
  "serde",
@@ -1675,7 +1646,7 @@ name = "iroha_macro"
 version = "0.1.0"
 dependencies = [
  "eyre",
- "parity-scale-codec",
+ "iroha_derive",
 ]
 
 [[package]]
@@ -1685,21 +1656,17 @@ dependencies = [
  "aead",
  "async-stream",
  "async-trait",
- "eyre",
  "futures",
  "iroha_actor",
  "iroha_config",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_derive",
  "iroha_logger",
  "iroha_macro",
  "parity-scale-codec",
  "rand 0.7.3",
- "serde",
  "thiserror",
  "tokio",
- "tracing",
  "unique_port",
 ]
 
@@ -1710,7 +1677,6 @@ dependencies = [
  "iroha_core",
  "iroha_data_model",
  "iroha_macro",
- "maplit",
 ]
 
 [[package]]
@@ -1721,8 +1687,6 @@ dependencies = [
  "iroha_schema_derive",
  "parity-scale-codec",
  "serde",
- "serde_json",
- "trybuild",
 ]
 
 [[package]]
@@ -1740,7 +1704,6 @@ dependencies = [
 name = "iroha_schema_derive"
 version = "0.0.0"
 dependencies = [
- "parity-scale-codec",
  "proc-macro2",
  "quote",
  "syn",
@@ -1768,7 +1731,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-tungstenite",
- "tracing",
  "url",
  "vergen",
 ]
@@ -1778,9 +1740,7 @@ name = "iroha_version"
 version = "0.1.0"
 dependencies = [
  "eyre",
- "iroha_derive",
  "iroha_macro",
- "iroha_schema",
  "iroha_version_derive",
  "parity-scale-codec",
  "serde",
@@ -1793,7 +1753,6 @@ dependencies = [
 name = "iroha_version_derive"
 version = "0.1.0"
 dependencies = [
- "iroha_derive",
  "iroha_macro",
  "iroha_version",
  "parity-scale-codec",
@@ -1901,12 +1860,6 @@ checksum = "51b9bbe6c47d51fc3e1a9b945965946b4c44142ab8792c50835a980d362c2710"
 dependencies = [
  "cfg-if",
 ]
-
-[[package]]
-name = "maplit"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
 
 [[package]]
 name = "matches"
@@ -2286,12 +2239,6 @@ dependencies = [
  "opaque-debug 0.3.0",
  "universal-hash",
 ]
-
-[[package]]
-name = "port_check"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6519412c9e0d4be579b9f0618364d19cb434b324fc6ddb1b27b1e682c7105ed"
 
 [[package]]
 name = "ppv-lite86"
@@ -3035,7 +2982,6 @@ name = "test_network"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "color-eyre",
  "eyre",
  "futures",
  "hex-literal",
@@ -3103,6 +3049,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "time"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41effe7cfa8af36f439fac33861b66b049edc6f9a32331e2312660529c1c24ad"
+dependencies = [
+ "itoa",
+ "libc",
+]
+
+[[package]]
 name = "tinytemplate"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3129,9 +3085,9 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.12.0"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2c2416fdedca8443ae44b4527de1ea633af61d8f7169ffa6e72c5b53d24efcc"
+checksum = "70e992e41e0d2fb9f755b37446f20900f64446ef54874f40a60c78f021ac6144"
 dependencies = [
  "autocfg 1.0.1",
  "bytes",
@@ -3146,9 +3102,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2dd85aeaba7b68df939bd357c6afb36c87951be9e80bf9c859f2fc3e9fca0fd"
+checksum = "c9efc1aba077437943f7515666aa2b882dfabfbfdf89c819ea75a8d6e9eaba5e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3246,15 +3202,15 @@ dependencies = [
 
 [[package]]
 name = "tracing-bunyan-formatter"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0814e45b1ba02f79418d90107acc44ae55dceb0623d40f4ee7d981b5e1984869"
+checksum = "1cb2ad6aa9b1c637d84c54db002275bbf72a7f3c6fed80f8b33f5af0c39027e9"
 dependencies = [
- "chrono",
  "gethostname",
  "log",
  "serde",
  "serde_json",
+ "time 0.3.5",
  "tracing",
  "tracing-core",
  "tracing-log",
@@ -3336,7 +3292,6 @@ version = "1.0.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbaccfa9796293406a02ec790614628c88d0b3246249a620ac1ee7076274716b"
 dependencies = [
- "dissimilar",
  "glob",
  "lazy_static",
  "serde",
@@ -3494,7 +3449,7 @@ dependencies = [
  "sha2",
  "sha3 0.9.1",
  "subtle",
- "time",
+ "time 0.1.43",
  "x25519-dalek",
  "zeroize",
 ]
@@ -3525,9 +3480,9 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "vergen"
-version = "5.1.16"
+version = "5.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b62d4fc8fc9c81d139c8106b9f4e583e7c1eb36e320dc28d5c03aab86729495"
+checksum = "1d48696c0fbbdafd9553e14c4584b4b9583931e9474a3ae506f1872b890d0b47"
 dependencies = [
  "anyhow",
  "cfg-if",

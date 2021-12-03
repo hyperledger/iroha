@@ -8,13 +8,12 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-iroha_macro = { path="../" }
-parity-scale-codec = { version = "2", features = ["derive"] }
 syn = {version = "1.0", features = ["parsing", "full"] }
 quote = "1.0"
 proc-macro2 = "1.0"
-proc-macro-error = "1.0"
 
 [dev-dependencies]
-iroha_logger = { version = "=0.1.0", path = "../../logger"}
+iroha_macro = { path="../" }
+
+parity-scale-codec = { version = "2", features = ["derive"] }
 trybuild = "1.0"

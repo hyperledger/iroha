@@ -124,63 +124,63 @@ macro_rules! telemetry_target {
 /// Macro for sending telemetry info
 #[macro_export]
 macro_rules! telemetry {
-	() => {
-		$crate::info!(target: iroha_logger::telemetry_target!(),)
-	};
-	($($k:ident).+ = $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_target!(),
-			$($k).+ = $($field)*
-		)
-	);
-	(?$($k:ident).+ = $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_target!(),
-			?$($k).+ = $($field)*
-		)
-	);
-	(%$($k:ident).+ = $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_target!(),
-			%$($k).+ = $($field)*
-		)
-	);
-	($($k:ident).+, $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_target!(),
-			$($k).+, $($field)*
-		)
-	);
-	(?$($k:ident).+, $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_target!(),
-			?$($k).+, $($field)*
-		)
-	);
-	(%$($k:ident).+, $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_target!(),
-			%$($k).+, $($field)*
-		)
-	);
-	(?$($k:ident).+) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_target!(),
-			?$($k).+
-		)
-	);
-	(%$($k:ident).+) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_target!(),
-			%$($k).+
-		)
-	);
-	($($k:ident).+) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_target!(),
-			$($k).+
-		)
-	);
+    () => {
+        $crate::info!(target: iroha_logger::telemetry_target!(),)
+    };
+    ($($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_target!(),
+            $($k).+ = $($field)*
+        )
+    );
+    (?$($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_target!(),
+            ?$($k).+ = $($field)*
+        )
+    );
+    (%$($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_target!(),
+            %$($k).+ = $($field)*
+        )
+    );
+    ($($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_target!(),
+            $($k).+, $($field)*
+        )
+    );
+    (?$($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_target!(),
+            ?$($k).+, $($field)*
+        )
+    );
+    (%$($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_target!(),
+            %$($k).+, $($field)*
+        )
+    );
+    (?$($k:ident).+) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_target!(),
+            ?$($k).+
+        )
+    );
+    (%$($k:ident).+) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_target!(),
+            %$($k).+
+        )
+    );
+    ($($k:ident).+) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_target!(),
+            $($k).+
+        )
+    );
 }
 
 /// Macro for getting telemetry future target
@@ -194,64 +194,64 @@ macro_rules! telemetry_future_target {
 /// Macro for sending telemetry future info
 #[macro_export]
 macro_rules! telemetry_future {
-	// All arguments match arms are from info macro
-	() => {
-		$crate::info!(target: iroha_logger::telemetry_future_target!(),)
-	};
-	($($k:ident).+ = $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_future_target!(),
-			$($k).+ = $($field)*
-		)
-	);
-	(?$($k:ident).+ = $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_future_target!(),
-			?$($k).+ = $($field)*
-		)
-	);
-	(%$($k:ident).+ = $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_future_target!(),
-			%$($k).+ = $($field)*
-		)
-	);
-	($($k:ident).+, $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_future_target!(),
-			$($k).+, $($field)*
-		)
-	);
-	(?$($k:ident).+, $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_future_target!(),
-			?$($k).+, $($field)*
-		)
-	);
-	(%$($k:ident).+, $($field:tt)*) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_future_target!(),
-			%$($k).+, $($field)*
-		)
-	);
-	(?$($k:ident).+) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_future_target!(),
-			?$($k).+
-		)
-	);
-	(%$($k:ident).+) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_future_target!(),
-			%$($k).+
-		)
-	);
-	($($k:ident).+) => (
-		$crate::info!(
-			target: iroha_logger::telemetry_future_target!(),
-			$($k).+
-		)
-	);
+    // All arguments match arms are from info macro
+    () => {
+        $crate::info!(target: iroha_logger::telemetry_future_target!(),)
+    };
+    ($($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            $($k).+ = $($field)*
+        )
+    );
+    (?$($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            ?$($k).+ = $($field)*
+        )
+    );
+    (%$($k:ident).+ = $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            %$($k).+ = $($field)*
+        )
+    );
+    ($($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            $($k).+, $($field)*
+        )
+    );
+    (?$($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            ?$($k).+, $($field)*
+        )
+    );
+    (%$($k:ident).+, $($field:tt)*) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            %$($k).+, $($field)*
+        )
+    );
+    (?$($k:ident).+) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            ?$($k).+
+        )
+    );
+    (%$($k:ident).+) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            %$($k).+
+        )
+    );
+    ($($k:ident).+) => (
+        $crate::info!(
+            target: iroha_logger::telemetry_future_target!(),
+            $($k).+
+        )
+    );
 }
 
 /// Installs the panic hook with [`color_eyre::install`] if it isn't installed yet
@@ -268,4 +268,10 @@ pub fn install_panic_hook() -> Result<(), Report> {
     } else {
         Ok(())
     }
+}
+
+pub mod prelude {
+    //! Module with most used items. Needs to be imported when using `log` macro to avoid `tracing` crate dependency
+
+    pub use tracing::{self, debug, error, info, instrument as log, trace, warn};
 }

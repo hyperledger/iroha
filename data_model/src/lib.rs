@@ -13,8 +13,7 @@ use std::{
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{Hash, PublicKey};
-use iroha_derive::FromVariant;
-use iroha_macro::error::ErrorTryFromEnum;
+use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -598,7 +597,7 @@ pub mod account {
     use eyre::{eyre, Error, Result};
     //TODO: get rid of it?
     use iroha_crypto::SignatureOf;
-    use iroha_derive::Io;
+    use iroha_macro::Io;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -996,7 +995,7 @@ pub mod asset {
     };
 
     use eyre::{eyre, Error, Result, WrapErr};
-    use iroha_derive::{FromVariant, Io};
+    use iroha_macro::{FromVariant, Io};
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1561,7 +1560,7 @@ pub mod domain {
     use dashmap::DashMap;
     use eyre::{eyre, Result};
     use iroha_crypto::PublicKey;
-    use iroha_derive::Io;
+    use iroha_macro::Io;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1713,7 +1712,7 @@ pub mod peer {
     use std::{hash::Hash, iter::FromIterator};
 
     use dashmap::DashSet;
-    use iroha_derive::Io;
+    use iroha_macro::Io;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};

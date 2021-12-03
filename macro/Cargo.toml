@@ -3,7 +3,7 @@ name = "iroha_macro"
 version = "0.1.0"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
-description = "This crate contains macroses and attributes for Iroha projects. iroha_derive contains derive macroses."
+description = "This crate contains macros and attributes for Iroha projects. iroha_derive contains derive macros."
 readme = "README.md"
 homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
 repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
@@ -17,5 +17,6 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
+iroha_derive = { path="derive" }
+
 eyre = "0.6.5"
-parity-scale-codec = "2"

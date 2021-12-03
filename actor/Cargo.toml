@@ -11,18 +11,18 @@ default = []
 deadlock_detection = ["petgraph"]
 
 [dependencies]
+iroha_actor_derive = { path = "derive" }
+iroha_logger = { path = "../logger" }
+
 async-trait = "0.1"
 once_cell = "1.8.0"
 dashmap = "4"
 eyre = "0.6.5"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
-iroha_actor_derive = { path = "derive" }
-tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread"]}
-iroha_logger = { path = "../logger" }
+tokio = { version = "1.6.0", features = ["sync", "time", "rt", "rt-multi-thread", "macros"]}
 thiserror = "1.0.28"
 
 petgraph = { version = "0.5", optional = true }
 
 [dev-dependencies]
 trybuild = "1"
-tokio = { version = "1.6.0", features = ["macros"]}
