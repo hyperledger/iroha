@@ -39,7 +39,7 @@ pub type Telemetries = (SubstrateTelemetry, FutureTelemetry);
 
 static LOGGER_SET: AtomicBool = AtomicBool::new(false);
 
-/// Initializes `Logger` with given [`LoggerConfiguration`](`config::LoggerConfiguration`).
+/// Initializes `Logger` with given [`Configuration`].
 /// After the initialization `log` macros will print with the use of this `Logger`.
 /// Returns the receiving side of telemetry channels (regular telemetry, future telemetry)
 ///

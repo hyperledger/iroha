@@ -51,7 +51,7 @@ pub fn get_trusted_peers(public_key: Option<&PublicKey>) -> HashSet<PeerId> {
 
 #[allow(clippy::implicit_hasher)]
 /// Get a sample Iroha configuration. Trusted peers must either be
-/// specified in this function, including the current peer. Use [`samples::get_trusted_peers`]
+/// specified in this function, including the current peer. Use [`get_trusted_peers`]
 /// to populate `trusted_peers` if in doubt.
 ///
 /// # Panics

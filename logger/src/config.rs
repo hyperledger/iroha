@@ -51,7 +51,7 @@ impl<T: Subscriber + Debug> ReloadMut<Level> for Handle<LevelFilter, T> {
     }
 }
 
-/// Configuration for [`Logger`].
+/// Configuration for [`crate`].
 #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]

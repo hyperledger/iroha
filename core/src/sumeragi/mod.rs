@@ -124,7 +124,7 @@ where
     pub genesis_network: Option<G>,
     /// Broker
     pub broker: Broker,
-    /// [`Kura`] actor address
+    /// [`Kura`](crate::kura) actor address
     pub kura: AlwaysAddr<K>,
     /// [`iroha_p2p::Network`] actor address
     pub network: Addr<IrohaNetwork>,

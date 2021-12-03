@@ -51,13 +51,13 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    /// Listening address for incoming connections. Must parse into [`std::net::SocketAddr`].
+    /// Listening address for incoming connections. Must parse into [`std::net::SocketAddr`]
     listen_addr: String,
-    /// [`Peer`]s performing [`Peer::handshake`]
+    /// [`Peer`]s performing a `handshake`
     pub new_peers: HashMap<ConnectionId, Addr<Peer<T, K, E>>>,
-    /// Current [`Peer`]s in `Ready` state.
+    /// Current [`Peer`]s in [`Peer::Ready`] state.
     pub peers: HashMap<PublicKey, RefPeer<T, K, E>>,
-    /// Untrusted hostnames or [`IpAddr`]s of remote peers: inserted by [`DisconnectPeer`] and removed by [`ConnectPeer`] from Sumeragi
+    /// a [`HashSet`] of [`String`]s representing the hostnames and/or [`std::net::IpAddr`]s of untrusted remote [`Peer`]s: inserted by [`DisconnectPeer`] and removed by [`ConnectPeer`] from Sumeragi
     untrusted_peers: HashSet<String>,
     /// [`TcpListener`] that is accepting [`Peer`]s' connections
     pub listener: Option<TcpListener>,
@@ -426,7 +426,7 @@ pub struct ConnectedPeers {
     pub peers: HashSet<PublicKey>,
 }
 
-/// The [`Connection`]'s `id`.
+/// An identification for [`Peer`] connections.
 pub type ConnectionId = u64;
 
 /// Variants of messages from [`Peer`] - connection state changes and data messages

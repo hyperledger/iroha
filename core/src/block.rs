@@ -51,13 +51,14 @@ pub struct Chain {
 
 impl Chain {
     /// Constructor.
+    #[inline]
     pub fn new() -> Self {
         Chain {
             blocks: DashMap::new(),
         }
     }
 
-    /// Put latest block.
+    /// Push latest block.
     pub fn push(&self, block: VersionedCommittedBlock) {
         let height = block.as_inner_v1().header.height;
         self.blocks.insert(height, block);
@@ -74,11 +75,13 @@ impl Chain {
     }
 
     /// Length of the blockchain.
+    #[inline]
     pub fn len(&self) -> usize {
         self.blocks.len()
     }
 
     /// Whether blockchain is empty.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.blocks.is_empty()
     }
@@ -171,6 +174,7 @@ pub struct PendingBlock {
 
 impl PendingBlock {
     /// Create a new `PendingBlock` from transactions.
+    #[inline]
     pub fn new(transactions: Vec<VersionedAcceptedTransaction>) -> PendingBlock {
         #[allow(clippy::expect_used)]
         let timestamp = current_time().as_millis();
@@ -271,6 +275,7 @@ pub struct BlockHeader {
 
 impl BlockHeader {
     /// Checks if it's a header of a genesis block.
+    #[inline]
     pub const fn is_genesis(&self) -> bool {
         self.height == 1
     }
@@ -336,6 +341,7 @@ declare_versioned_with_scale!(VersionedValidBlock 1..2, Debug, Clone, iroha_macr
 
 impl VersionedValidBlock {
     /// Same as [`as_v1`](`VersionedValidBlock::as_v1()`) but also does conversion
+    #[inline]
     pub const fn as_inner_v1(&self) -> &ValidBlock {
         match self {
             Self::V1(v1) => &v1.0,
@@ -343,6 +349,7 @@ impl VersionedValidBlock {
     }
 
     /// Same as [`as_inner_v1`](`VersionedValidBlock::as_inner_v1()`) but returns mutable reference
+    #[inline]
     pub fn as_mut_inner_v1(&mut self) -> &mut ValidBlock {
         match self {
             Self::V1(v1) => &mut v1.0,
@@ -350,6 +357,7 @@ impl VersionedValidBlock {
     }
 
     /// Same as [`into_v1`](`VersionedValidBlock::into_v1()`) but also does conversion
+    #[inline]
     pub fn into_inner_v1(self) -> ValidBlock {
         match self {
             Self::V1(v1) => v1.0,
@@ -357,6 +365,7 @@ impl VersionedValidBlock {
     }
 
     /// Returns header of valid block
+    #[inline]
     pub const fn header(&self) -> &BlockHeader {
         &self.as_inner_v1().header
     }
@@ -713,12 +722,14 @@ impl From<CommittedBlock> for ValidBlock {
 }
 
 impl From<VersionedCommittedBlock> for VersionedValidBlock {
+    #[inline]
     fn from(block: VersionedCommittedBlock) -> Self {
         ValidBlock::from(block.into_inner_v1()).into()
     }
 }
 
 impl From<&VersionedCommittedBlock> for Vec<Event> {
+    #[inline]
     fn from(block: &VersionedCommittedBlock) -> Self {
         block.as_inner_v1().into()
     }

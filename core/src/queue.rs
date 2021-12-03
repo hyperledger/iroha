@@ -104,7 +104,7 @@ impl Queue {
     /// Pushes transaction into queue.
     ///
     /// # Errors
-    /// See [`Error`]
+    /// See [`enum@Error`]
     #[allow(
         clippy::unwrap_in_result,
         clippy::expect_used,

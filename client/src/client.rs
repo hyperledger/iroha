@@ -1,6 +1,5 @@
-//! Contains the end-point querying logic building on top of
-//! [`crate::http_client`].  This is where you need to add any custom
-//! end-point related logic.
+//! Contains the end-point querying logic.  This is where you need to
+//! add any custom end-point related logic.
 use std::{
     collections::HashMap,
     convert::TryFrom,

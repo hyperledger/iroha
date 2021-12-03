@@ -160,7 +160,7 @@ where
 }
 
 /// An endpoint, that juggles messages between [`crate::Network`] and another connected node.
-/// Until the [`crate::Peer`] is in the `Ready` state, it doesn't have a fully set up
+/// Until the [`Peer`] is in the `Ready` state, it doesn't have a fully set up
 pub enum Peer<T, K, E>
 where
     T: Encode + Decode + Send + Clone + 'static,

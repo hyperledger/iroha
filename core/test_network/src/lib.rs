@@ -55,7 +55,7 @@ pub struct Network<
 {
     /// Genesis peer which sends genesis block to everyone
     pub genesis: Peer<W, G, K, S, B>,
-    /// Peers excluding the `genesis` peer. Use [`peers()`] function to get all instead.
+    /// Peers excluding the `genesis` peer. Use [`Network::peers`] function to get all instead.
     pub peers: HashMap<PeerId, Peer<W, G, K, S, B>>,
 }
 
