@@ -749,8 +749,9 @@ jobs:
       -
         name: REMOVE ME NOW - generate core dump
         run: |
-          sleep 3 & kill -11 $! ; ls -lA;
-          echo 'int main(){int a=*(int*)nullptr; }' | gcc -xc++ - -o segfault ; ./segfault
+          sleep 3 & kill -11 $!
+          echo 'int main(){int a=*(int*)nullptr; }' | gcc -xc++ - -o segfault ; ./segfault || true
+          ls -lA
           # exit 1
       -
         name: (optional) Upload artifact coredumps
