@@ -781,7 +781,7 @@ jobs:
         if: ${{false}}
       - name: REMOVE ME NOW - generate core dump
         run: |
-          cd build
+          mkdir p build; cd build
           sleep 3 & kill -11 $!
           echo 'int main(){int a=*(int*)nullptr; }' | gcc -xc++ - -o segfault ; ./segfault || true
           ls -lA
@@ -1112,7 +1112,7 @@ jobs:
         if: ${{false}}
       - name: REMOVE ME NOW - generate core dump
         run: |
-          cd build
+          mkdir p build; cd build
           sleep 3 & kill -11 $!
           echo 'int main(){int a=*(int*)nullptr; }' | gcc -xc++ - -o segfault ; ./segfault || true
           ls -lA
