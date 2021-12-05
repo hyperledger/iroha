@@ -781,7 +781,7 @@ jobs:
         if: ${{false}}
       - name: REMOVE ME NOW - generate core dump
         run: |
-          sleep 3 & kill -11 $!
+          sleep 3 & kill -11 $! ; exit 1
       - name: (optional) Upload artifact coredumps
         if: failure()
         uses: actions/upload-artifact@v2
@@ -1108,7 +1108,7 @@ jobs:
         if: ${{false}}
       - name: REMOVE ME NOW - generate core dump
         run: |
-          sleep 3 & kill -11 $!
+          sleep 3 & kill -11 $! ; exit 1
       - name: (optional) Upload artifact coredumps
         if: failure()
         uses: actions/upload-artifact@v2

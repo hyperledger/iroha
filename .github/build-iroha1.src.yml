@@ -749,7 +749,7 @@ jobs:
       -
         name: REMOVE ME NOW - generate core dump
         run: |
-          sleep 3 & kill -11 $!
+          sleep 3 & kill -11 $! ; exit 1
       -
         name: (optional) Upload artifact coredumps
         if: failure()
