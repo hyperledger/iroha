@@ -532,6 +532,7 @@ jobs:
           echo >>$GITHUB_ENV NPROC=$(nproc | awk '{printf("%.0f",$1*0.77)}')
           echo >>$GITHUB_ENV HOME=$HOME
       - &step_restore_ccache
+        if: ${{false}}
         name: Restore cache CCache
         uses: actions/cache@v2
         with:
@@ -541,6 +542,7 @@ jobs:
       - &step_store_ccache_stats
         run: ccache --show-stats | tee /tmp/ccache-stats
       - &step_vcpkg_cache
+        if: ${{false}}
         #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
         ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
@@ -551,6 +553,7 @@ jobs:
           key:          ${{runner.os}}-vcpkg-${{env.CC_NAME}}.${{ hashFiles('vcpkg/**') }}
           restore-keys: ${{runner.os}}-vcpkg-${{env.CC_NAME}}.
       - &step_vcpkg_build
+        if: ${{false}}
         name: Build iroha vcpkg dependancies
         run: ./vcpkg/build_iroha_deps.sh $PWD/vcpkg-build; test -f $PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
         ## Takes 48m16s on default GitHub runner with 2 cores
@@ -566,6 +569,7 @@ jobs:
         #    usr time    2,05 secs  128,00 micros    2,05 secs
         #    sys time    0,70 secs  575,00 micros    0,70 secs
       - &step_cmake_configure
+        if: ${{false}}
         name: CMake configure
         ## Takes 13s on regular GitHub runner
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=$PWD/vcpkg-build/scripts/buildsystems/vcpkg.cmake
@@ -577,6 +581,7 @@ jobs:
           -DPACKAGE_DEB=ON
           #-DCMAKE_VERBOSE_MAKEFILE=ON  ## Note: use for debug
       - &step_cmake_build
+        if: ${{false}}
         name: CMake build
         run: |
           set -x
@@ -587,6 +592,7 @@ jobs:
         ## Debug   takes 7m41s on self-hosted AWS EC2 c5.x4large
         ## Release takes 2m58s on self-hosted AWS EC2 c5.x4large
       - &step_cpack
+        if: ${{false}}
         name: CPack (linux only)
         run: cd build; cpack;  ## cmake --build build --target package
       - &step_compare_ccache_stats
@@ -610,6 +616,7 @@ jobs:
           echo >>$GITHUB_ENV  _compiler_suffix=$(test $cc != gcc9 && echo $_cc)
           echo >>$GITHUB_ENV  _debug_suffix=$(test "$build_type" = dbg && echo -debug || true)
       - &step_artifact_irohad
+        if: ${{false}}
         name: Upload artifact irohad
         uses: actions/upload-artifact@v2
         with:
@@ -618,12 +625,12 @@ jobs:
             build/bin/irohad
             build/bin/iroha-cli
       - &step_artifact_iroha_deb
+        if: ${{false}}
         name: Upload artifact iroha-deb
         uses: actions/upload-artifact@v2
         with:
           name: iroha-deb${{env.ARTIFACT_SUFFIX}}
-          path: &step_artifact_iroha_deb_path |
-            build/*.deb
+          path: build/*.deb
       - &step_artifact_tests
         if: ${{ false }}  ## Maybe test in another job
         name: Upload artifact tests
@@ -665,6 +672,8 @@ jobs:
             #   pg_ctlcluster 12 main start  ## Cluster 'main' exist by default
             #   #OR pg_createcluster -p 5432 --start 12 iroha -- --locale=C --encoding=UTF-8 --username=postgres
           fi
+
+          ulimit -c unlimited
           cd build
 
           ## This is just a small lifehack to TEMPORARY allow some tests to fail
@@ -736,6 +745,19 @@ jobs:
             fi
           done
           $tests_passed
+        if: ${{false}}
+      -
+        name: REMOVE ME NOW - generate core dump
+        run: |
+          sleep 3 & kill -11 $!
+      -
+        name: (optional) Upload artifact coredumps
+        if: failure()
+        uses: actions/upload-artifact@v2
+        with:
+          name: coredumps-${{env.ARTIFACT_SUFFIX}}
+          path: build/core-*
+          if-no-files-found: ignore  # or 'error' 'warn' or 'ignore'
 
   ## Just because release is built 2..3 times faster make it a different job
   build-UR:

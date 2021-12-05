@@ -68,6 +68,10 @@ host    replication     all             ::1/128                 trust \n\
 
 ENV PATH=${PATH}:/usr/lib/postgresql/12/bin/
 
+
+RUN sysctl -w kernel.core_pattern="|bash -c 'bzip2 > core-%e.%p.xz'"
+RUN ulimit -c unlimited
+
 ## non-interactive adduser
 ##   -m = create home dir
 ##   -s = set default shell
