@@ -783,7 +783,7 @@ jobs:
         run: |
           sleep 3 & kill -11 $! ; ls -lA; exit 1
       - name: (optional) Upload artifact coredumps
-        #if: failure()
+        if: failure()
         uses: actions/upload-artifact@v2
         with:
           name: coredumps-${{env.ARTIFACT_SUFFIX}}
@@ -1110,7 +1110,7 @@ jobs:
         run: |
           sleep 3 & kill -11 $! ; ls -lA; exit 1
       - name: (optional) Upload artifact coredumps
-        #if: failure()
+        if: failure()
         uses: actions/upload-artifact@v2
         with:
           name: coredumps-${{env.ARTIFACT_SUFFIX}}
