@@ -406,6 +406,7 @@ impl<IO: DiskIO> BlockStore<IO> {
     ///
     /// # Errors
     /// * Will fail if storage file contents is malformed (incorrect framing or encoding)
+    /// * Most likely, buffer size will be wrong and lead to TryReserveError
     ///
     #[allow(clippy::future_not_send)]
     async fn read_block<R: AsyncBufReadExt + Unpin>(
@@ -418,6 +419,8 @@ impl<IO: DiskIO> BlockStore<IO> {
         let mut buffer = Vec::new();
         #[allow(clippy::cast_possible_truncation)]
         buffer.try_reserve(len as usize)?;
+        #[allow(clippy::cast_possible_truncation)]
+        buffer.resize(len as usize, 0);
         let _len = file_stream.read_exact(&mut buffer).await?;
         Ok(Some(VersionedCommittedBlock::decode_versioned(&buffer)?))
     }
@@ -858,8 +861,9 @@ mod tests {
 
     /// In case we've got gibberish instead of proper data in storage files,
     /// we'll get one of the two possible errors:
-    /// * FraimingError, if file structure is invalid (basically, unexpected EOF)
-    /// * CodecError, if data is impossible to parse back into VersionedComittedBlock
+    /// * IO error, if file structure is invalid (basically, unexpected EOF)
+    /// * Alloc error - allocation failure in try_reserve (buffer size is too large)
+    /// * Codec error, if data is impossible to parse back into VersionedComittedBlock
     /// Both indicating that file is malformed.
     #[tokio::test]
     async fn read_gibberish_failure() {
