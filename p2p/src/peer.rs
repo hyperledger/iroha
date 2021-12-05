@@ -779,7 +779,7 @@ struct Garbage {
 impl Garbage {
     pub fn generate() -> Self {
         let rng = &mut rand::thread_rng();
-        let mut garbage = vec![0_u8; rng.gen_range(64, 256)];
+        let mut garbage = vec![0_u8; rng.gen_range(64..256)];
         rng.fill_bytes(&mut garbage);
         Self { garbage }
     }

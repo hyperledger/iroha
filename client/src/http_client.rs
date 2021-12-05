@@ -1,9 +1,9 @@
-use std::{borrow::Borrow, collections::HashMap};
+use std::{borrow::Borrow, collections::HashMap, net::TcpStream};
 
 use attohttpc::{body, header::HeaderName, RequestBuilder, Response as AttohttpcResponse};
 use eyre::{eyre, Error, Result, WrapErr};
 pub use http::{Response, StatusCode};
-use tungstenite::{client::AutoStream, WebSocket};
+use tungstenite::{stream::MaybeTlsStream, WebSocket};
 pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 
 type Bytes = Vec<u8>;
@@ -85,7 +85,7 @@ where
     ClientResponse(response).try_into()
 }
 
-pub type WebSocketStream = WebSocket<AutoStream>;
+pub type WebSocketStream = WebSocket<MaybeTlsStream<TcpStream>>;
 
 pub fn web_socket_connect<U>(uri: U, headers: Headers) -> Result<WebSocketStream>
 where

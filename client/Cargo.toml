@@ -23,13 +23,13 @@ iroha_data_model = { version = "=0.1.0", path = "../data_model" }
 iroha_logger = { version = "=0.1.0", path = "../logger"}
 iroha_version = { version = "=0.1.0", path = "../version" }
 
-attohttpc = "0.16.3"
+attohttpc = "0.18"
 eyre = "0.6.5"
 http = "0.2.1"
-rand = "0.7.3"
+rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tungstenite = { version = "0.12.0", features = ["tls-vendored"] }
+tungstenite = { version = "0.16" }
 
 [dev-dependencies]
 iroha_core = { path = "../core", features = ["dev-telemetry", "telemetry"] }
