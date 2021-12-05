@@ -754,7 +754,7 @@ jobs:
           # exit 1
       -
         name: (optional) Upload artifact coredumps
-        # if: failure()
+        if: always()
         uses: actions/upload-artifact@v2
         with:
           name: coredumps-${{env.ARTIFACT_SUFFIX}}
