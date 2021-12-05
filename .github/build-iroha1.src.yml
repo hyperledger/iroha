@@ -749,6 +749,8 @@ jobs:
       -
         name: REMOVE ME NOW - generate core dump
         run: |
+          set -x
+          sysctl kernel.core_pattern
           mkdir p build; cd build
           sleep 3 & kill -11 $!
           echo 'int main(){int a=*(int*)nullptr; }' | gcc -xc++ - -o segfault ; ./segfault || true
