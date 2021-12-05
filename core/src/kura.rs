@@ -415,8 +415,8 @@ impl<IO: DiskIO> BlockStore<IO> {
             return Ok(None);
         }
         let len = file_stream.read_u64_le().await?;
-        // #[allow(clippy::cast_possible_truncation)]
         let mut buffer = Vec::new();
+        #[allow(clippy::cast_possible_truncation)]
         buffer.try_reserve(len as usize)?;
         let _len = file_stream.read_exact(&mut buffer).await?;
         Ok(Some(VersionedCommittedBlock::decode_versioned(&buffer)?))
