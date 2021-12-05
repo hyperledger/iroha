@@ -762,7 +762,7 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: coredumps-${{env.ARTIFACT_SUFFIX}}
-          path: build/core-*
+          path: build/core*
           if-no-files-found: ignore  # or 'error' 'warn' or 'ignore'
 
   ## Just because release is built 2..3 times faster make it a different job
