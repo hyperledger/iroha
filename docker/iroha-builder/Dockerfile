@@ -68,8 +68,9 @@ host    replication     all             ::1/128                 trust \n\
 
 ENV PATH=${PATH}:/usr/lib/postgresql/12/bin/
 
-
-RUN sysctl -w kernel.core_pattern="|bash -c 'bzip2 > core-%e.%p.xz'"
+## TODO FIx sysctl: setting key "kernel.core_pattern", ignoring: Read-only file system
+RUN sysctl -w kernel.core_pattern="|bash -c 'bzip2 > core-%e.%p.bz2'"
+RUN sysctl kernel.core_pattern
 RUN ulimit -c unlimited
 
 ## non-interactive adduser
