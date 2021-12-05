@@ -310,7 +310,14 @@ pub enum Error {
     Codec(
         #[from]
         #[source]
-        iroha_version::error::Error,
+        iroha_version::error::Error
+    ),
+    /// Allocation error
+    #[error("Failed to allocate buffer")]
+    Alloc(
+        #[from]
+        #[source]
+        std::collections::TryReserveError
     ),
     /// Zero-height block was provided
     #[error("An attempt to write zero-height block.")]
@@ -322,10 +329,6 @@ pub enum Error {
     #[error("Inconsequential block write.")]
     InconsequentialBlockWrite,
 }
-
-/// Maximum buffer for block deserialization (hardcoded 500Kb for now)
-/// TODO: make it configurable
-static BUFFER_SIZE_LIMIT: u64 = 512_000;
 
 impl<IO: DiskIO> BlockStore<IO> {
     /// Initialize block storage at `path`.
@@ -412,11 +415,9 @@ impl<IO: DiskIO> BlockStore<IO> {
             return Ok(None);
         }
         let len = file_stream.read_u64_le().await?;
-        if len > BUFFER_SIZE_LIMIT {
-            return Err(Error::IO(std::io::ErrorKind::OutOfMemory.into()));
-        }
-        #[allow(clippy::cast_possible_truncation)]
-        let mut buffer: Vec<u8> = vec![0; len as usize];
+        // #[allow(clippy::cast_possible_truncation)]
+        let mut buffer = Vec::new();
+        buffer.try_reserve(len as usize)?;
         let _len = file_stream.read_exact(&mut buffer).await?;
         Ok(Some(VersionedCommittedBlock::decode_versioned(&buffer)?))
     }
@@ -878,9 +879,10 @@ mod tests {
             .unwrap()
             .try_collect::<Vec<_>>()
             .await;
-        let framing_err = matches!(expected_read_fail, Err(Error::IO(_)));
+        let io_err = matches!(expected_read_fail, Err(Error::IO(_)));
         let decode_err = matches!(expected_read_fail, Err(Error::Codec(_)));
-        assert!(framing_err || decode_err);
+        let alloc_err = matches!(expected_read_fail, Err(Error::Alloc(_)));
+        assert!(io_err || decode_err || alloc_err);
     }
 
     /// A test, injecting errors into disk IO operations
