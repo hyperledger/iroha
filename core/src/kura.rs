@@ -406,7 +406,7 @@ impl<IO: DiskIO> BlockStore<IO> {
     ///
     /// # Errors
     /// * Will fail if storage file contents is malformed (incorrect framing or encoding)
-    /// * Most likely, buffer size will be wrong and lead to TryReserveError
+    /// * Most likely, buffer size will be wrong and lead to `TryReserveError`
     ///
     #[allow(clippy::future_not_send)]
     async fn read_block<R: AsyncBufReadExt + Unpin>(
