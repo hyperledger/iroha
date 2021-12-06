@@ -2,13 +2,15 @@
 
 use std::{thread, time::Duration};
 
-use iroha_client::client;
+use iroha_client::client::{self, Client};
+use iroha_config::logger;
 use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
+use iroha_logger::Level;
 use test_network::*;
 use tokio::runtime::Runtime;
 
-const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 1;
+const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 5;
 
 #[test]
 fn unstable_network_4_peers_1_fault() {
@@ -29,7 +31,6 @@ fn unstable_network_4_peers_1_fault() {
 }
 
 #[test]
-#[ignore = "This test fails after reducing the amount of gossipping"]
 fn unstable_network_7_peers_1_fault() {
     let n_peers = 7;
     let n_transactions = 20;
@@ -59,16 +60,24 @@ fn unstable_network(
     drop(iroha_logger::install_panic_hook());
     let rt = Runtime::test();
     // Given
-    let (_network, mut iroha_client) =
-        rt.block_on(<Network>::start_test_with_offline_and_set_n_shifts(
-            n_peers,
-            MAXIMUM_TRANSACTIONS_IN_BLOCK,
-            n_offline_peers,
-            u64::from(n_peers),
-        ));
+    let (network, mut iroha_client) = rt.block_on(async {
+        let mut configuration = Configuration::test();
+        configuration.queue.maximum_transactions_in_block = MAXIMUM_TRANSACTIONS_IN_BLOCK;
+        configuration.sumeragi.n_topology_shifts_before_reshuffle = u64::from(n_peers);
+        configuration.logger.max_log_level = Level(logger::Level::ERROR).into();
+        let network =
+            <Network>::new_with_offline_peers(Some(configuration), n_peers, n_offline_peers)
+                .await
+                .expect("Failed to init peers");
+        let client = Client::test(
+            &network.genesis.api_address,
+            &network.genesis.status_address,
+        );
+        (network, client)
+    });
+    wait_for_genesis_committed(network.clients(), n_offline_peers);
 
     let pipeline_time = Configuration::pipeline_time();
-    thread::sleep(pipeline_time * n_peers);
 
     let account_id = AccountId::new("alice", "wonderland");
     let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");

@@ -10,10 +10,9 @@ use test_network::{Peer as TestPeer, *};
 #[test]
 fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() {
     let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
-    let pipeline_time = Configuration::pipeline_time();
+    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
 
-    // Given
-    thread::sleep(pipeline_time);
+    let pipeline_time = Configuration::pipeline_time();
 
     //When
     let account_id = AccountId::new("alice", "wonderland");

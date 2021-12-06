@@ -15,7 +15,10 @@ use crate::{
 };
 
 async fn create_torii() -> (Torii<World>, KeyPair) {
-    let config = get_config(get_trusted_peers(None), None);
+    let mut config = get_config(get_trusted_peers(None), None);
+    config.torii.p2p_addr = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
+    config.torii.api_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
+    config.torii.status_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     let (events, _) = tokio::sync::broadcast::channel(100);
     let wsv = Arc::new(WorldStateView::new(World::with(
         ('a'..'z')

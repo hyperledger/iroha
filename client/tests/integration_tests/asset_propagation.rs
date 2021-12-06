@@ -13,9 +13,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
 ) -> Result<()> {
     // Given
     let (_rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
+    wait_for_genesis_committed(network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
-
-    thread::sleep(pipeline_time * 5);
 
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
     let account_id = AccountId::new("account", "domain");

@@ -13,7 +13,6 @@ use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
-use iroha_config::logger;
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     config::Configuration,
@@ -27,7 +26,7 @@ use iroha_core::{
     Iroha,
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
-use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures, Level};
+use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use rand::seq::IteratorRandom;
 use tempfile::TempDir;
 use tokio::{
@@ -308,6 +307,12 @@ where
         std::iter::once(&self.genesis).chain(self.peers.values())
     }
 
+    pub fn clients(&self) -> Vec<Client> {
+        self.peers()
+            .map(|peer| Client::test(&peer.api_address, &peer.status_address))
+            .collect()
+    }
+
     /// Get peer by its Id.
     pub fn peer_by_id(&self, id: &PeerId) -> Option<&Peer<W, G, K, S, B>> {
         self.peers.get(id).or(if self.genesis.id == *id {
@@ -335,6 +340,37 @@ where
             peer.send_default::<M>().await
         }
     }
+}
+
+/// Wait for peers to have committed genesis block.
+///
+/// # Panics
+/// When unsuccessful after `MAX_RETRIES`.
+pub fn wait_for_genesis_committed(clients: Vec<Client>, offline_peers: u32) {
+    const POLL_PERIOD: Duration = Duration::from_millis(1000);
+    const MAX_RETRIES: u32 = 60 * 3; // 3 minutes
+
+    for _ in 0..MAX_RETRIES {
+        let without_genesis_peers = clients.iter().fold(0u32, |acc, client| {
+            if let Ok(status) = client.get_status() {
+                if status.blocks < 1 {
+                    acc + 1
+                } else {
+                    acc
+                }
+            } else {
+                acc + 1
+            }
+        });
+        if without_genesis_peers <= offline_peers {
+            return;
+        }
+        thread::sleep(POLL_PERIOD);
+    }
+    panic!(
+        "Failed to wait for online peers to commit genesis block. Total wait time: {:?}",
+        POLL_PERIOD * MAX_RETRIES
+    );
 }
 
 impl<W, G, K, S, B> Drop for Peer<W, G, K, S, B>
@@ -393,12 +429,8 @@ where
                 ..configuration.torii
             },
             logger: LoggerConfiguration {
-                #[cfg(profile = "bench")]
-                max_log_level: Level(logger::Level::ERROR).into(),
-                #[cfg(not(profile = "bench"))]
-                max_log_level: Level(logger::Level::INFO).into(),
                 compact_mode: false,
-                ..LoggerConfiguration::default()
+                ..configuration.logger
             },
             public_key: self.key_pair.public_key.clone(),
             private_key: self.key_pair.private_key.clone(),
