@@ -597,7 +597,7 @@ mod tests {
                     wsv_arc_clone_2.transactions.insert(tx.hash());
                 }
                 // Simulate random small delays
-                thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0, 25)));
+                thread::sleep(Duration::from_millis(rand::thread_rng().gen_range(0..25)));
             }
         });
 

@@ -22,7 +22,7 @@ eyre = "0.6.5"
 tempfile = "3"
 unique_port = "0.1.0"
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
-rand = "0.7.3"
+rand = "0.8"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
 
 [dev-dependencies]
