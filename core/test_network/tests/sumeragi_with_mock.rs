@@ -216,7 +216,7 @@ pub mod utils {
                 S: Deref<Target = Sumeragi<G, K, W>> + DerefMut + Send,
             {
                 let msg = if let SumeragiMessage::BlockCreated(mut block) = msg {
-                    block.block.as_mut_inner_v1().transactions = Vec::new();
+                    block.block.as_mut_v1().transactions = Vec::new();
                     SumeragiMessage::BlockCreated(block)
                 } else {
                     msg

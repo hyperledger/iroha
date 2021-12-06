@@ -3,17 +3,17 @@ use serde::{Deserialize, Serialize};
 
 declare_versioned_with_json!(VersionedMessage 1..3, Debug, Clone, iroha_macro::FromVariant);
 
-#[version_with_json(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
+#[version_with_json(n = 1, versioned = "VersionedMessage")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Message;
+pub struct Message;
 
 impl Message {
     pub fn handle(&self) {}
 }
 
-#[version_with_json(n = 2, versioned = "VersionedMessage", derive = "Debug, Clone")]
+#[version_with_json(n = 2, versioned = "VersionedMessage")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Message2;
+pub struct Message2;
 
 impl Message2 {
     pub fn handle(&self) {

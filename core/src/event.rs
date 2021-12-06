@@ -47,7 +47,7 @@ impl Consumer {
         }
         let SubscriptionRequest(filter): SubscriptionRequest =
             VersionedEventSocketMessage::decode_versioned(message.as_bytes())?
-                .into_inner_v1()
+                .into_v1()
                 .try_into()?;
 
         time::timeout(
@@ -93,7 +93,7 @@ impl Consumer {
         }
 
         if let EventSocketMessage::EventReceived =
-            VersionedEventSocketMessage::decode_versioned(message.as_bytes())?.into_inner_v1()
+            VersionedEventSocketMessage::decode_versioned(message.as_bytes())?.into_v1()
         {
             self.stream.flush().await?;
             Ok(())
