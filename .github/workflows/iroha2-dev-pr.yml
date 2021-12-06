@@ -2,7 +2,7 @@ name: I2::Dev::Tests
 
 on:
   pull_request:
-    branches: [iroha2-dev]
+    branches: [iroha2-dev, 2.0.0-pre.1.rc.1]
     paths:
       - "**.rs"
       - "**.json"
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
-        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2 
+        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2
         env:
           RUSTC_BOOTSTRAP: 1
       - name: Run iroha tests with network mock

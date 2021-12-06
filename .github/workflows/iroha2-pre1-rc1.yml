@@ -1,0 +1,124 @@
+name: Iroha 2 dev branch workflow
+
+on:
+  push:
+    branches: [2.0.0-pre.1.rc.1]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: Swatinem/rust-cache@v1
+      - name: set up buildx
+        uses: docker/setup-buildx-action@v1
+        id: buildx
+        with:
+          install: true
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Iroha Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: hyperledger/iroha2:2.0.0-pre.1.rc.1
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+
+      - name: Build and push Iroha client cli Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: hyperledger/iroha2:client-cli-2.0.0-pre.1.rc.1
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+            BIN=iroha_client_cli
+
+      - name: Build and push Iroha Crypto CLI Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          tags: hyperledger/iroha2:crypto-cli-2.0.0-pre.1.rc.1
+          build-args: |
+            TARGET_DIR=release
+            PROFILE=--release
+            BIN=iroha_crypto_cli
+
+  archive-and-publish-schema:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: Swatinem/rust-cache@v1
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            llvm-dev
+      - name: Build
+        run: cargo build --release --verbose
+      - name: Archive build
+        uses: actions/upload-artifact@v2
+        with:
+          name: cargo-build-release
+          path: target/release/iroha
+      - name: Archive Client CLI build
+        uses: actions/upload-artifact@v2
+        with:
+          name: cargo-client-cli-build-release
+          path: target/release/iroha_client_cli
+      - name: Archive Crypto CLI build
+        uses: actions/upload-artifact@v2
+        with:
+          name: cargo-crypto-cli-build-release
+          path: target/release/iroha_crypto_cli
+      - name: Run schema generation
+        run: |
+          mkdir -p target/schema
+          cargo run -p iroha_schema_bin > target/schema/schema.json
+      - name: Upload schema
+        uses: actions/upload-artifact@v2
+        with:
+          name: schema
+          path: target/schema
+
+  # Coverage is both in PR and in push pipelines so that:
+  # 1. PR can get coverage report from bot.
+  # 2  Coverage bot can have results from `iroha2-dev` to report coverage changes.
+  coverage:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: Swatinem/rust-cache@v1
+      - name: Run tests
+        run: mold -run cargo test --workspace --no-fail-fast -- --skip  unstable_network || true
+        env:
+          RUSTFLAGS: "-Zinstrument-coverage"
+          RUSTC_BOOTSTRAP: 1
+          LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
+      - name: Generate a grcov coverage report
+        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+      - name: Upload coverage to codecov.io
+        uses: codecov/codecov-action@v1
+        with:
+          file: lcov.info
