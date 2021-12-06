@@ -11,11 +11,10 @@ use test_network::{Peer as TestPeer, *};
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(vec![test_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    thread::sleep(pipeline_time);
-
     let account_id = AccountId::new("alice", "wonderland");
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(

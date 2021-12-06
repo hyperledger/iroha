@@ -10,11 +10,11 @@ use test_network::{Peer as TestPeer, *};
 #[test]
 fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
+
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    thread::sleep(pipeline_time);
-
     let account_id = AccountId::new("alice", "wonderland");
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(

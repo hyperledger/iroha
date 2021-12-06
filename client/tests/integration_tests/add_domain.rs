@@ -12,10 +12,10 @@ use test_network::{Peer as TestPeer, *};
 fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()>
 {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(vec![test_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    thread::sleep(pipeline_time);
 
     let normal_domain_name = "sora";
     let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(normal_domain_name)));

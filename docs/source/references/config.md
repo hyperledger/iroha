@@ -61,7 +61,8 @@ The following is the default configuration used by Iroha.
     "ACCOUNT_PUBLIC_KEY": null,
     "ACCOUNT_PRIVATE_KEY": null,
     "WAIT_FOR_PEERS_RETRY_COUNT": 100,
-    "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500
+    "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500,
+    "GENESIS_SUBMISSION_DELAY_MS": 1000
   },
   "WSV": {
     "ASSET_METADATA_LIMITS": {
@@ -152,6 +153,7 @@ Has type `GenesisConfiguration`. Can be configured via environment variable `IRO
 {
   "ACCOUNT_PRIVATE_KEY": null,
   "ACCOUNT_PUBLIC_KEY": null,
+  "GENESIS_SUBMISSION_DELAY_MS": 1000,
   "WAIT_FOR_PEERS_RETRY_COUNT": 100,
   "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500
 }
@@ -175,6 +177,16 @@ Has type `Option<PublicKey>`. Can be configured via environment variable `IROHA_
 
 ```json
 null
+```
+
+### `genesis.genesis_submission_delay_ms`
+
+Delay before genesis block submission after minimum number of peers were discovered to be online.
+
+Has type `u64`. Can be configured via environment variable `IROHA_GENESIS_GENESIS_SUBMISSION_DELAY_MS`
+
+```json
+1000
 ```
 
 ### `genesis.wait_for_peers_retry_count`

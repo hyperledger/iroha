@@ -10,10 +10,8 @@ use test_network::{Peer as TestPeer, *};
 #[test]
 fn client_can_transfer_asset_to_another_account() {
     let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
-
-    // Given
-    thread::sleep(pipeline_time);
 
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
     let account1_id = AccountId::new("account1", "domain");

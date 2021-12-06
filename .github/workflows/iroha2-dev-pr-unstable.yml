@@ -20,13 +20,6 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
-      # - uses: actions/cache@v2
-      #   with:
-      #     path: |
-      #       ${{ env.CARGO_HOME }}
-      #       target/
-      #     key: iroha2-rust-test-${{ hashFiles('Cargo.lock') }}
-      #     restore-keys: |
-      #       iroha2-rust-test
+      - uses: Swatinem/rust-cache@v1
       - name: Run tests
         run: cargo test -p iroha_client --tests unstable_network --quiet
