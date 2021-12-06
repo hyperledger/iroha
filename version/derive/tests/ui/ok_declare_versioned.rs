@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 declare_versioned!(VersionedMessage 1..3, Debug, Clone, iroha_macro::FromVariant);
 
 #[version(n = 1, versioned = "VersionedMessage")]
-#[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Message;
 
 impl Message {
@@ -13,7 +13,7 @@ impl Message {
 }
 
 #[version(n = 2, versioned = "VersionedMessage")]
-#[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Message2;
 
 impl Message2 {
@@ -23,15 +23,8 @@ impl Message2 {
 }
 
 pub fn main() {
-    let versioned_message: VersionedMessage = Message.into();
-    match versioned_message {
-        VersionedMessage::V1(message) => {
-            let message: Message = message.into();
-            message.handle();
-        }
-        VersionedMessage::V2(message) => {
-            let message: Message2 = message.into();
-            message.handle();
-        }
+    match Message.into() {
+        VersionedMessage::V1(message) => message.handle(),
+        VersionedMessage::V2(message) => message.handle(),
     }
 }

@@ -22,15 +22,8 @@ impl Message2 {
 }
 
 pub fn main() {
-    let versioned_message: VersionedMessage = Message.into();
-    match versioned_message {
-        VersionedMessage::V1(message) => {
-            let message: Message = message.into();
-            message.handle();
-        }
-        VersionedMessage::V2(message) => {
-            let message: Message2 = message.into();
-            message.handle();
-        }
+    match Message.into() {
+        VersionedMessage::V1(message) => message.handle(),
+        VersionedMessage::V2(message) => message.handle(),
     }
 }

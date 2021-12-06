@@ -4,7 +4,6 @@ use std::{cmp::Ordering, collections::BTreeSet, vec::IntoIter as VecIter};
 
 use eyre::{eyre, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
-use iroha_macro::Io;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -48,7 +47,7 @@ pub trait Txn {
 }
 
 /// Iroha [`Transaction`] payload.
-#[derive(Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Payload {
     /// Account ID of transaction creator.
     pub account_id: <Account as Identifiable>::Id,
@@ -181,7 +180,7 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 /// Direct usage in business logic is strongly prohibited. Before any interactions
 /// `accept`.
 #[version(n = 1, versioned = "VersionedTransaction")]
-#[derive(Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, Eq, PartialEq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Transaction {
     /// [`Transaction`] payload.
     pub payload: Payload,
@@ -314,7 +313,7 @@ impl Reply for VersionedPendingTransactions {
 
 /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
 #[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
-#[derive(Debug, Clone, Encode, Decode, Deserialize, Serialize, Io, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct PendingTransactions(pub Vec<Transaction>);
 
 impl FromIterator<Transaction> for PendingTransactions {
@@ -335,7 +334,7 @@ impl IntoIterator for PendingTransactions {
 }
 
 /// Transaction Value used in Instructions and Queries
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum TransactionValue {
     /// Committed transaction
     Transaction(VersionedTransaction),
@@ -410,7 +409,7 @@ impl Txn for VersionedValidTransaction {
 
 /// `ValidTransaction` represents trustfull Transaction state.
 #[version_with_scale(n = 1, versioned = "VersionedValidTransaction")]
-#[derive(Clone, Debug, Io, Encode, Decode, iroha_schema::IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct ValidTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,
@@ -465,7 +464,7 @@ impl Txn for VersionedRejectedTransaction {
 
 /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
 #[version(n = 1, versioned = "VersionedRejectedTransaction")]
-#[derive(Clone, Debug, Io, Encode, Decode, Serialize, Deserialize, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct RejectedTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,

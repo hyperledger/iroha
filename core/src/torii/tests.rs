@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use futures::future::FutureExt;
 use iroha_actor::{broker::Broker, Actor};
+use iroha_version::prelude::*;
 use tokio::time;
 
 use super::*;
@@ -171,8 +172,6 @@ impl AssertReady {
         self
     }
     async fn assert(self) {
-        use iroha_version::scale::EncodeVersioned;
-
         use crate::smartcontracts::Execute;
 
         let (mut torii, keys) = create_torii().await;
@@ -215,7 +214,7 @@ impl AssertReady {
 
         let response_body = match response.status() {
             StatusCode::OK => {
-                let response: VersionedQueryResult = response.body().to_vec().try_into().unwrap();
+                let response = VersionedQueryResult::decode_versioned(response.body()).unwrap();
                 let VersionedQueryResult::V1(QueryResult(value)) = response;
                 format!("{:?}", value)
             }
