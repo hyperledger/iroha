@@ -22,7 +22,7 @@ streaming-stats = "0.2"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
 tokio-stream = { version = "0.1.6", features = ["fs"]}
-tokio-tungstenite = { version = "0.13.0", features = ["tls"] }
+tokio-tungstenite = { version = "0.16" }
 url = { version = "2.2.2", features = ["serde"] }
 
 [build-dependencies]
