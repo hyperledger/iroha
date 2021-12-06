@@ -4,17 +4,17 @@ use serde::{Deserialize, Serialize};
 
 declare_versioned!(VersionedMessage 1..3, Debug, Clone, iroha_macro::FromVariant);
 
-#[version(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
+#[version(n = 1, versioned = "VersionedMessage")]
 #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
-struct Message;
+pub struct Message;
 
 impl Message {
     pub fn handle(&self) {}
 }
 
-#[version(n = 2, versioned = "VersionedMessage", derive = "Debug, Clone")]
+#[version(n = 2, versioned = "VersionedMessage")]
 #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
-struct Message2;
+pub struct Message2;
 
 impl Message2 {
     pub fn handle(&self) {

@@ -315,7 +315,7 @@ async fn handle_instructions<W: WorldTrait>(
     state: ToriiState<W>,
     transaction: VersionedTransaction,
 ) -> Result<Empty> {
-    let transaction: Transaction = transaction.into_inner_v1();
+    let transaction: Transaction = transaction.into_v1();
     let transaction = VersionedAcceptedTransaction::from_transaction(
         transaction,
         state.iroha_cfg.torii.max_instruction_number,
@@ -374,7 +374,7 @@ async fn handle_pending_transactions<W: WorldTrait>(
             .queue
             .all_transactions(&*state.wsv)
             .into_iter()
-            .map(VersionedAcceptedTransaction::into_inner_v1)
+            .map(VersionedAcceptedTransaction::into_v1)
             .map(Transaction::from)
             .paginate(pagination)
             .collect(),

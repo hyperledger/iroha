@@ -6,7 +6,7 @@ use eyre::{eyre, Result};
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{prelude::*, query};
 use iroha_macro::Io;
-use iroha_version::{scale::DecodeVersioned, Version};
+use iroha_version::scale::DecodeVersioned;
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 use warp::{
@@ -160,11 +160,7 @@ impl TryFrom<&Bytes> for VerifiedQueryRequest {
     fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
         let query = VersionedSignedQueryRequest::decode_versioned(body.as_ref())
             .map_err(|e| Error::Decode(Box::new(e)))?;
-        let version = query.version();
-        let query: SignedQueryRequest = query
-            .into_v1()
-            .ok_or(Error::Version(UnsupportedVersionError { version }))?
-            .into();
+        let VersionedSignedQueryRequest::V1(query) = query;
         VerifiedQueryRequest::try_from(query)
     }
 }
