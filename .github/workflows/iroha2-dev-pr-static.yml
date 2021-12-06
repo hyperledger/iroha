@@ -11,17 +11,12 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
-      - name: Print all info
-        run: |
-          cargo version
-          lscpu
-          free -h
       - name: Format check
         run: cargo +nightly-2021-12-02 fmt --all -- --check
       - name: Static analysis without features
@@ -35,3 +30,15 @@ jobs:
           cargo doc --no-deps --quiet
           ./scripts/check_docs.sh
         if: always()
+
+  bloat:
+    runs-on: [self-hosted, Linux]
+    container:
+      image: 7272721/i2-ci:latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: Swatinem/rust-cache@v1
+      - uses: orf/cargo-bloat-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          exclude_packages: iroha_actor iroha_actor_derive iroha_client iroha_config iroha_config_derive iroha_core iroha_crypto iroha_data_model iroha_derive iroha_futures iroha_futures_derive iroha_logger iroha_macro iroha_p2p iroha_permissions_validators iroha_schema iroha_schema_derive iroha_substrate iroha_telemetry iroha_version iroha_version_derive test_network
