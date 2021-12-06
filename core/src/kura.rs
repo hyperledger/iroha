@@ -312,6 +312,13 @@ pub enum Error {
         #[source]
         iroha_version::error::Error,
     ),
+    /// Allocation error
+    #[error("Failed to allocate buffer")]
+    Alloc(
+        #[from]
+        #[source]
+        std::collections::TryReserveError,
+    ),
     /// Zero-height block was provided
     #[error("An attempt to write zero-height block.")]
     ZeroBlock,
@@ -322,10 +329,6 @@ pub enum Error {
     #[error("Inconsequential block write.")]
     InconsequentialBlockWrite,
 }
-
-/// Maximum buffer for block deserialization (hardcoded 500Kb for now)
-/// TODO: make it configurable
-static BUFFER_SIZE_LIMIT: u64 = 512_000;
 
 impl<IO: DiskIO> BlockStore<IO> {
     /// Initialize block storage at `path`.
@@ -403,6 +406,7 @@ impl<IO: DiskIO> BlockStore<IO> {
     ///
     /// # Errors
     /// * Will fail if storage file contents is malformed (incorrect framing or encoding)
+    /// * Most likely, buffer size will be wrong and lead to `TryReserveError`
     ///
     #[allow(clippy::future_not_send)]
     async fn read_block<R: AsyncBufReadExt + Unpin>(
@@ -412,11 +416,11 @@ impl<IO: DiskIO> BlockStore<IO> {
             return Ok(None);
         }
         let len = file_stream.read_u64_le().await?;
-        if len > BUFFER_SIZE_LIMIT {
-            return Err(Error::IO(std::io::ErrorKind::OutOfMemory.into()));
-        }
+        let mut buffer = Vec::new();
         #[allow(clippy::cast_possible_truncation)]
-        let mut buffer: Vec<u8> = vec![0; len as usize];
+        buffer.try_reserve(len as usize)?;
+        #[allow(clippy::cast_possible_truncation)]
+        buffer.resize(len as usize, 0);
         let _len = file_stream.read_exact(&mut buffer).await?;
         Ok(Some(VersionedCommittedBlock::decode_versioned(&buffer)?))
     }
@@ -857,8 +861,9 @@ mod tests {
 
     /// In case we've got gibberish instead of proper data in storage files,
     /// we'll get one of the two possible errors:
-    /// * FraimingError, if file structure is invalid (basically, unexpected EOF)
-    /// * CodecError, if data is impossible to parse back into VersionedComittedBlock
+    /// * IO error, if file structure is invalid (basically, unexpected EOF)
+    /// * Alloc error - allocation failure in try_reserve (buffer size is too large)
+    /// * Codec error, if data is impossible to parse back into VersionedComittedBlock
     /// Both indicating that file is malformed.
     #[tokio::test]
     async fn read_gibberish_failure() {
@@ -878,9 +883,10 @@ mod tests {
             .unwrap()
             .try_collect::<Vec<_>>()
             .await;
-        let framing_err = matches!(expected_read_fail, Err(Error::IO(_)));
+        let io_err = matches!(expected_read_fail, Err(Error::IO(_)));
         let decode_err = matches!(expected_read_fail, Err(Error::Codec(_)));
-        assert!(framing_err || decode_err);
+        let alloc_err = matches!(expected_read_fail, Err(Error::Alloc(_)));
+        assert!(io_err || decode_err || alloc_err);
     }
 
     /// A test, injecting errors into disk IO operations
