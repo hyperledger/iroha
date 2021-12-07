@@ -1,57 +1,59 @@
 # API Specification for Client Libraries
 
 - [API Specification for Client Libraries](#api-specification-for-client-libraries)
-  - [Endpoints](#endpoints)
-    - [Submit Instructions](#submit-instructions)
-    - [Submit Query](#submit-query)
+  - [Endpoints for API](#endpoints-for-api)
+    - [Transaction](#transaction)
+    - [Query](#query)
       - [Asset Not Found 404](#asset-not-found-404)
       - [Account Not Found 404](#account-not-found-404)
-    - [Listen to Events](#listen-to-events)
+    - [Events](#events)
     - [Configuration](#configuration)
     - [Health](#health)
-  - [Status Endpoint](#status-endpoint)
+  - [Endpoints for status/metrics](#endpoints-for-statusmetrics)
+    - [Status](#status)
+    - [Metrics](#metrics)
   - [Parity Scale Codec](#parity-scale-codec)
   - [Reference Iroha Client Implementation](#reference-iroha-client-implementation)
   - [Iroha Structures](#iroha-structures)
 
-## Endpoints
+## Endpoints for [API](./config.md#toriiapi_url)
 
-### Submit Instructions
+### Transaction
 
 **Protocol**: HTTP
 
-**Encoding**: Parity Scale Codec
+**Encoding**: [Parity Scale Codec](#parity-scale-codec)
 
 **Endpoint**: `/transaction`
 
 **Method**: `POST`
 
-**Expects**: Body: `VersionedTransaction`
+**Expects**: Body: `VersionedTransaction` [*](#iroha-structures)
 
 **Responses**:
 - 200 OK - Transaction Accepted (But not guaranteed to have passed consensus yet)
 - 400 Bad Request - Transaction Rejected (Malformed)
 - 401 Unauthorized - Transaction Rejected (Improperly signed)
 
-### Submit Query
+### Query
 
 **Protocol**: HTTP
 
-**Encoding**: Parity Scale Codec
+**Encoding**: [Parity Scale Codec](#parity-scale-codec)
 
 **Endpoint**: `/query`
 
 **Method**: `POST`
 
 **Expects**:
-- Body: `VersionedSignedQueryRequest`
+- Body: `VersionedSignedQueryRequest` [*](#iroha-structures)
 - Query parameters:
   + `start` - Optional parameter in queries where results can be indexed. Use to return results from specified point. Results are ordered where can be by id which uses rust's [PartialOrd](https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html#derivable) and [Ord](https://doc.rust-lang.org/std/cmp/trait.Ord.html) traits.
   + `limit` - Optional parameter in queries where results can be indexed. Use to return specific number of results.
 
 **Responses**:
 - 200 OK - Query Executed Successfully and Found Value
-  + Body: `VersionedQueryResult`
+  + Body: `VersionedQueryResult` [*](#iroha-structures)
 - 4xx - Query Rejected or Found Nothing
 
 Status and whether each step succeeded:
@@ -79,7 +81,7 @@ Hint and whether each object exists:
 | "domain" | N | - |
 | - | Y | N |
 
-### Listen to Events
+### Events
 
 **Protocol**: HTTP
 
@@ -91,11 +93,11 @@ Hint and whether each object exists:
 
 **Expects**: 
 
-First message after handshake from client: `SubscriptionRequest`
+First message after handshake from client: `SubscriptionRequest` [*](#iroha-structures)
 
-When server is ready to transmit events it sends: `SubscriptionAccepted`
+When server is ready to transmit events it sends: `SubscriptionAccepted` [*](#iroha-structures)
 
-Server sends `Event` and expects `EventReceived` after each, before sending the next event.
+Server sends `Event` and expects `EventReceived`  [*](#iroha-structures) after each, before sending the next event.
 
 **Notes**:
 
@@ -158,7 +160,9 @@ Also returns current status of peer in json string:
 "Healthy"
 ```
 
-## Status Endpoint
+## Endpoints for [status/metrics](./config.md#toriistatus_url)
+
+### Status
 
 **Protocol**: HTTP
 
@@ -176,16 +180,17 @@ Also returns current status of peer in json string:
   + Number of committed blocks (block height)
   + Total number of transactions
   + `uptime` since creation of the genesis block in milliseconds.
-  ```json
-  {
-      "peers": 3,
-      "blocks": 1,
-      "txs": 3,
-      "uptime": 3200,
-  }
-  ```
 
-## Metrics Endpoint
+```json
+{
+    "peers": 3,
+    "blocks": 1,
+    "txs": 3,
+    "uptime": 3200,
+}
+```
+
+### Metrics
 
 **Protocol**: HTTP
 
@@ -203,20 +208,21 @@ Also returns current status of peer in json string:
   + Number of committed blocks (block height)
   + Total number of transactions
   + `uptime` since creation of the genesis block in milliseconds.
-  ```bash
-  # HELP block_height Current block height
-  # TYPE block_height counter
-  block_height 0
-  # HELP connected_peers Total number of currently connected peers
-  # TYPE connected_peers gauge
-  connected_peers 0
-  # HELP txs Transactions committed
-  # TYPE txs counter
-  txs 0
-  # HELP uptime_since_genesis_ms Uptime of the network, starting from creation of the genesis block
-  # TYPE uptime_since_genesis_ms gauge
-  uptime_since_genesis_ms 0
-  ```
+
+```bash
+# HELP block_height Current block height
+# TYPE block_height counter
+block_height 0
+# HELP connected_peers Total number of currently connected peers
+# TYPE connected_peers gauge
+connected_peers 0
+# HELP txs Transactions committed
+# TYPE txs counter
+txs 0
+# HELP uptime_since_genesis_ms Uptime of the network, starting from creation of the genesis block
+# TYPE uptime_since_genesis_ms gauge
+uptime_since_genesis_ms 0
+```
 
 ## Parity Scale Codec
 
