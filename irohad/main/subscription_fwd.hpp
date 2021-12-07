@@ -43,6 +43,9 @@ namespace iroha {
     kOnConsensusGateEvent,
     kSendBatchComplete,
 
+    // RDB
+    kOnRdbStats,
+
     // MST
     kOnMstStateUpdate,
     kOnMstPreparedBatches,

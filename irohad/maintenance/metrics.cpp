@@ -164,6 +164,65 @@ Metrics::Metrics(std::string const &listen_addr,
         number_of_pending_mst_transactions.Set(std::get<1>(mstmetr));
       });
 
+  ////////////////////////////////////////////////////////////
+
+  auto &param_block_cache_cap =
+      BuildGauge()
+          .Name("rdb_block_cache_capacity")
+          .Help("RocksDB block cache capacity")
+          .Register(*registry_)
+          .Add({});
+
+  auto &param_block_cache_usage =
+      BuildGauge()
+          .Name("rdb_block_cache_usage")
+          .Help("RocksDB block cache usage")
+          .Register(*registry_)
+          .Add({});
+
+  auto &param_all_mem_tables_sz =
+      BuildGauge()
+          .Name("rdb_all_mem_tables_sz")
+          .Help("RocksDB all mem tables size")
+          .Register(*registry_)
+          .Add({});
+
+  auto &param_num_snapshots =
+      BuildGauge()
+          .Name("rdb_num_snapshots")
+          .Help("RocksDB number of snapshots")
+          .Register(*registry_)
+          .Add({});
+
+  auto &param_sst_files_size =
+      BuildGauge()
+          .Name("rdb_sst_files_size")
+          .Help("RocksDB SST files size")
+          .Register(*registry_)
+          .Add({});
+
+  rdb_subscriber_ = SubscriberCreator<bool,
+      iroha::RocksDbStatus>::
+      template create<EventTypes::kOnRdbStats>(
+          SubscriptionEngineHandlers::kMetrics,
+          [&](
+              auto &,
+              iroha::RocksDbStatus status) {
+            if (status.block_cache_capacity)
+              param_block_cache_cap.Set(*status.block_cache_capacity);
+
+            if (status.block_cache_usage)
+              param_block_cache_usage.Set(*status.block_cache_usage);
+
+            if (status.all_mem_tables_sz)
+              param_all_mem_tables_sz.Set(*status.all_mem_tables_sz);
+
+            if (status.num_snapshots)
+              param_num_snapshots.Set(*status.num_snapshots);
+
+            if (status.sst_files_size)
+              param_sst_files_size.Set(*status.sst_files_size);
+          });
   ///////////////////////////////
 
   auto calc_uptime_ms = [uptime_start_timepoint_(uptime_start_timepoint_)] {
