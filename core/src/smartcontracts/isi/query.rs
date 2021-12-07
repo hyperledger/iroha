@@ -5,7 +5,6 @@ use std::{error::Error as StdError, fmt};
 use eyre::{eyre, Result};
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{prelude::*, query};
-use iroha_macro::Io;
 use iroha_version::scale::DecodeVersioned;
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
@@ -20,7 +19,7 @@ use super::permissions::IsQueryAllowedBoxed;
 use crate::{prelude::*, WorldTrait};
 
 /// Query Request verified on the Iroha node side.
-#[derive(Debug, Io, Encode, Decode)]
+#[derive(Debug, Decode, Encode)]
 pub struct VerifiedQueryRequest {
     /// Payload.
     payload: query::Payload,
@@ -74,7 +73,7 @@ impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
 }
 
 /// Query Request statefully validated on the Iroha node side.
-#[derive(Debug, Io, Encode, Decode)]
+#[derive(Debug, Decode, Encode)]
 pub struct ValidQueryRequest {
     query: QueryBox,
 }

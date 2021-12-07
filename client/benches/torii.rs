@@ -10,6 +10,7 @@ use iroha_core::{
     samples::get_config,
 };
 use iroha_data_model::prelude::*;
+use iroha_version::Encode;
 use test_network::{get_key_pair, Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
@@ -71,7 +72,7 @@ fn query_requests(criterion: &mut Criterion) {
     thread::sleep(std::time::Duration::from_millis(1500));
     let mut success_count = 0;
     let mut failures_count = 0;
-    let _dropable = group.throughput(Throughput::Bytes(Vec::from(&request).len() as u64));
+    let _dropable = group.throughput(Throughput::Bytes(request.encode().len() as u64));
     let _dropable2 = group.bench_function("query", |b| {
         b.iter(|| match iroha_client.request(request.clone()) {
             Ok(assets) => {

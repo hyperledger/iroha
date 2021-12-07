@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 declare_versioned_with_json!(VersionedMessage 1..3, Debug, Clone, iroha_macro::FromVariant);
 
 #[version_with_json(n = 1, versioned = "VersionedMessage")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Message;
 
 impl Message {
@@ -12,7 +12,7 @@ impl Message {
 }
 
 #[version_with_json(n = 2, versioned = "VersionedMessage")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Message2;
 
 impl Message2 {
@@ -22,15 +22,8 @@ impl Message2 {
 }
 
 pub fn main() {
-    let versioned_message: VersionedMessage = Message.into();
-    match versioned_message {
-        VersionedMessage::V1(message) => {
-            let message: Message = message.into();
-            message.handle();
-        }
-        VersionedMessage::V2(message) => {
-            let message: Message2 = message.into();
-            message.handle();
-        }
+    match Message.into() {
+        VersionedMessage::V1(message) => message.handle(),
+        VersionedMessage::V2(message) => message.handle(),
     }
 }

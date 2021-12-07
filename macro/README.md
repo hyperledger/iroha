@@ -7,7 +7,6 @@ This crate contains macros and attributes for Iroha projects.
 
 ### Features
 
-* `Io` trait and derive macros for Iroha entities de\serialization
 * `log` attribute for debugging functions inputs and output
 
 ## Usage
@@ -37,7 +36,7 @@ iroha_derive = { git = "https://github.com/hyperledger/iroha/", branch="iroha2-d
 ### Code example
 
 ```rust
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub struct Test [
 ...
 ```

@@ -7,7 +7,6 @@ use std::{cmp::min, time::Duration};
 use eyre::{Result, WrapErr};
 use iroha_crypto::SignaturesOf;
 pub use iroha_data_model::prelude::*;
-use iroha_macro::Io;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 
@@ -112,7 +111,7 @@ impl Txn for VersionedAcceptedTransaction {
 
 /// `AcceptedTransaction` represents a transaction accepted by iroha peer.
 #[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode)]
 #[non_exhaustive]
 pub struct AcceptedTransaction {
     /// Payload of this transaction.

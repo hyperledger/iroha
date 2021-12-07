@@ -63,18 +63,18 @@ pub trait TryAsRef<T> {
 
 /// Represents Iroha Configuration parameters.
 #[derive(
-    Copy,
     Debug,
     Clone,
+    Copy,
     PartialEq,
     Eq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
     PartialOrd,
     Ord,
     Hash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
     IntoSchema,
 )]
 pub enum Parameter {
@@ -92,15 +92,15 @@ pub enum Parameter {
 #[derive(
     Debug,
     Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
     PartialEq,
     Eq,
-    FromVariant,
     PartialOrd,
     Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
     IntoSchema,
 )]
 pub enum IdBox {
@@ -125,15 +125,15 @@ pub enum IdBox {
 #[derive(
     Debug,
     Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
     PartialEq,
     Eq,
-    FromVariant,
     PartialOrd,
     Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
     IntoSchema,
 )]
 pub enum IdentifiableBox {
@@ -163,15 +163,15 @@ pub type ValueBox = Box<Value>;
 #[derive(
     Debug,
     Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
     PartialEq,
     Eq,
-    FromVariant,
     PartialOrd,
     Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
     IntoSchema,
 )]
 #[allow(clippy::enum_variant_names)]
@@ -358,7 +358,7 @@ pub trait Identifiable: Debug + Clone {
 }
 
 /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::NewAccount`], [`asset::AssetDefinition`]) in number of chars
-#[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
 pub struct LengthLimits {
     /// Minimal length in number of chars (inclusive).
     min: u32,
@@ -520,11 +520,11 @@ pub mod role {
         Eq,
         PartialOrd,
         Ord,
-        Serialize,
-        Deserialize,
-        Encode,
-        Decode,
         Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub struct Id {
@@ -601,10 +601,10 @@ pub mod role {
         Eq,
         PartialOrd,
         Ord,
-        Serialize,
-        Deserialize,
-        Encode,
         Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub struct Role {
@@ -654,10 +654,10 @@ pub mod permissions {
         Eq,
         PartialOrd,
         Ord,
-        Serialize,
-        Deserialize,
-        Encode,
         Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub struct PermissionToken {
@@ -695,7 +695,6 @@ pub mod account {
     use eyre::{eyre, Error, Result};
     //TODO: get rid of it?
     use iroha_crypto::SignatureOf;
-    use iroha_macro::Io;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -731,7 +730,7 @@ pub mod account {
     pub const ACCOUNT_SIGNATORIES_VALUE: &str = "account_signatories";
 
     /// Genesis account. Used to mainly be converted to ordinary `Account` struct.
-    #[derive(Debug, Serialize, Deserialize, Decode, Encode, IntoSchema)]
+    #[derive(Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct GenesisAccount {
         public_key: PublicKey,
     }
@@ -752,17 +751,16 @@ pub mod account {
 
     /// Condition which checks if the account has the right signatures.
     #[derive(
-        Clone,
         Debug,
+        Clone,
         PartialEq,
         Eq,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
-        Decode,
         PartialOrd,
         Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
@@ -799,17 +797,16 @@ pub mod account {
 
     /// Type which is used for registering `Account`
     #[derive(
-        Clone,
         Debug,
+        Clone,
         PartialEq,
         Eq,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
-        Decode,
         PartialOrd,
         Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub struct NewAccount {
@@ -883,9 +880,7 @@ pub mod account {
     }
 
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
-    #[derive(
-        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
-    )]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct Account {
         /// An Identification of the [`Account`].
         pub id: Id,
@@ -929,18 +924,17 @@ pub mod account {
     /// let id = Id::new("user", "company");
     /// ```
     #[derive(
-        Clone,
         Debug,
+        Clone,
         PartialEq,
         Eq,
         PartialOrd,
         Ord,
         Hash,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
         Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub struct Id {
@@ -1092,7 +1086,7 @@ pub mod asset {
     };
 
     use eyre::{eyre, Error, Result, WrapErr};
-    use iroha_macro::{FromVariant, Io};
+    use iroha_macro::FromVariant;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1113,9 +1107,7 @@ pub mod asset {
     pub type AssetDefinitionsMap = BTreeMap<DefinitionId, AssetDefinitionEntry>;
 
     /// An entry in [`AssetDefinitionsMap`].
-    #[derive(
-        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
-    )]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct AssetDefinitionEntry {
         /// Asset definition.
         pub definition: AssetDefinition,
@@ -1152,17 +1144,16 @@ pub mod asset {
 
     /// Asset definition defines type of that asset.
     #[derive(
-        Clone,
         Debug,
+        Clone,
         PartialEq,
         Eq,
         PartialOrd,
         Ord,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
         Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub struct AssetDefinition {
@@ -1178,9 +1169,7 @@ pub mod asset {
 
     /// Asset represents some sort of commodity or value.
     /// All possible variants of [`Asset`] entity's components.
-    #[derive(
-        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
-    )]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct Asset {
         /// Component Identification.
         pub id: Id,
@@ -1190,18 +1179,17 @@ pub mod asset {
 
     /// Asset's inner value type.
     #[derive(
-        Copy,
-        Clone,
         Debug,
+        Clone,
+        Copy,
         PartialEq,
         Eq,
         PartialOrd,
         Ord,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
         Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub enum AssetValueType {
@@ -1225,17 +1213,7 @@ pub mod asset {
 
     /// Asset's inner value.
     #[derive(
-        Clone,
-        Debug,
-        PartialEq,
-        Eq,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
-        Decode,
-        FromVariant,
-        IntoSchema,
+        Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
     )]
     pub enum AssetValue {
         /// Asset's Quantity.
@@ -1342,18 +1320,17 @@ pub mod asset {
     /// let definition_id = DefinitionId::new("xor", "soramitsu");
     /// ```
     #[derive(
-        Clone,
         Debug,
+        Clone,
         PartialEq,
         Eq,
         PartialOrd,
         Ord,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
-        Decode,
         Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub struct DefinitionId {
@@ -1365,18 +1342,17 @@ pub mod asset {
 
     /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
     #[derive(
-        Clone,
         Debug,
+        Clone,
         PartialEq,
         Eq,
         PartialOrd,
         Ord,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
-        Decode,
         Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub struct Id {
@@ -1657,7 +1633,6 @@ pub mod domain {
     use dashmap::DashMap;
     use eyre::{eyre, Result};
     use iroha_crypto::PublicKey;
-    use iroha_macro::Io;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1706,9 +1681,7 @@ pub mod domain {
     }
 
     /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
-    #[derive(
-        Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
-    )]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct Domain {
         /// Domain name, for example company name.
         pub name: Name,
@@ -1809,7 +1782,6 @@ pub mod peer {
     use std::hash::Hash;
 
     use dashmap::DashSet;
-    use iroha_macro::Io;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1821,17 +1793,16 @@ pub mod peer {
 
     /// Peer represents Iroha instance.
     #[derive(
-        Clone,
         Debug,
+        Clone,
         PartialEq,
         Eq,
         PartialOrd,
         Ord,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
         Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     pub struct Peer {
@@ -1841,19 +1812,18 @@ pub mod peer {
 
     /// Peer's identification.
     #[derive(
-        Clone,
         Debug,
+        Clone,
         Eq,
         PartialEq,
         PartialOrd,
         Ord,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
-        Decode,
-        IntoSchema,
         Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
     )]
     pub struct Id {
         /// Address of the `Peer`'s entrypoint.
@@ -2129,7 +2099,7 @@ pub mod metadata {
     pub type UnlimitedMetadata = BTreeMap<Name, Value>;
 
     /// Limits for [`Metadata`].
-    #[derive(Debug, Clone, Copy, Decode, Encode, Serialize, Deserialize, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
     pub struct Limits {
         /// Maximum number of entries
         pub max_len: u32,
@@ -2151,15 +2121,15 @@ pub mod metadata {
     #[derive(
         Debug,
         Clone,
+        Default,
         PartialEq,
         Eq,
-        Decode,
-        Encode,
-        Serialize,
-        Deserialize,
-        Default,
         PartialOrd,
         Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
         IntoSchema,
     )]
     #[serde(transparent)]
