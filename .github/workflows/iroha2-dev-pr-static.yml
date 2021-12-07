@@ -11,17 +11,12 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux]
     container:
       image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
-      - name: Print all info
-        run: |
-          cargo version
-          lscpu
-          free -h
       - name: Format check
         run: cargo +nightly-2021-12-02 fmt --all -- --check
       - name: Static analysis without features
@@ -35,3 +30,4 @@ jobs:
           cargo doc --no-deps --quiet
           ./scripts/check_docs.sh
         if: always()
+
