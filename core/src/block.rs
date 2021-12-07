@@ -11,7 +11,6 @@ use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*,
 };
-use iroha_macro::Io;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -164,7 +163,7 @@ declare_versioned_with_scale!(VersionedPendingBlock 1..2, Debug, Clone, iroha_ma
 /// a linear sequence over time (also known as the block chain).
 /// Blocks lifecycle starts from "Pending" state which is represented by `PendingBlock` struct.
 #[version_with_scale(n = 1, versioned = "VersionedPendingBlock")]
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode)]
 pub struct PendingBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
@@ -243,7 +242,7 @@ impl PendingBlock {
 }
 
 /// When `PendingBlock` chained with a blockchain it becomes `ChainedBlock`
-#[derive(Clone, Debug, Io, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode)]
 pub struct ChainedBlock {
     /// Header
     pub header: BlockHeader,
@@ -252,7 +251,7 @@ pub struct ChainedBlock {
 }
 
 /// Header of the block. The hash should be taken from its byte representation.
-#[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct BlockHeader {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
@@ -444,7 +443,7 @@ impl VersionedValidBlock {
 
 /// After full validation `ChainedBlock` can transform into `ValidBlock`.
 #[version_with_scale(n = 1, versioned = "VersionedValidBlock")]
-#[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct ValidBlock {
     /// Header
     pub header: BlockHeader,
@@ -672,7 +671,7 @@ impl VersionedCommittedBlock {
     versioned = "VersionedCommittedBlock",
     derive = "Debug, Clone, iroha_schema::IntoSchema"
 )]
-#[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct CommittedBlock {
     /// Header
     pub header: BlockHeader,

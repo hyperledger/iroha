@@ -1570,7 +1570,6 @@ name = "iroha_derive"
 version = "0.1.0"
 dependencies = [
  "iroha_macro",
- "parity-scale-codec",
  "proc-macro2",
  "quote",
  "syn",

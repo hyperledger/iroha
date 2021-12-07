@@ -13,7 +13,7 @@ use std::{
 #[cfg(feature = "derive")]
 pub use iroha_version_derive::*;
 #[cfg(feature = "scale")]
-use parity_scale_codec::{Decode, Encode};
+pub use parity_scale_codec::{Decode, Encode};
 #[cfg(feature = "json")]
 use serde::{Deserialize, Serialize};
 

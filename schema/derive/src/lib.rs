@@ -13,7 +13,7 @@ use quote::quote;
 use syn::{
     parse::Parse, parse_macro_input, spanned::Spanned, Attribute, Data, DataEnum, DataStruct,
     DeriveInput, Expr, Field, Fields, FieldsNamed, FieldsUnnamed, GenericParam, Generics, Lit,
-    LitStr, Meta, NestedMeta, Type, TypePath, Variant,
+    LitStr, Meta, NestedMeta, Type, Variant,
 };
 
 /// Check out docs in `iroha_schema` crate
@@ -25,14 +25,22 @@ pub fn schema_derive(input: TokenStream) -> TokenStream {
 
 fn impl_schema(input: &DeriveInput) -> TokenStream2 {
     let name = &input.ident;
-    let (params, ident_params, where_clause) = generics(&input.generics);
-    let type_name: TypePath = syn::parse2(quote! { #name <#(#ident_params),*> }).unwrap();
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let type_name_body = type_name_body(name, &input.generics);
+    let ty_params = input.generics.type_params();
     let metadata = metadata(&input.data);
 
-    let type_name_body = type_name_body(name, &input.generics);
+    let where_clause = if let Some(this_where_clause) = where_clause {
+        quote! {
+            #this_where_clause
+            #(#ty_params : iroha_schema::IntoSchema,)*
+        }
+    } else {
+        quote! { where #(#ty_params : iroha_schema::IntoSchema,)* }
+    };
 
     quote! {
-        impl #params iroha_schema::IntoSchema for #type_name
+        impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics
         #where_clause
         {
             fn type_name() -> String {
@@ -80,48 +88,6 @@ fn type_name_body(name: &Ident, generics: &Generics) -> TokenStream2 {
             #name,
             #(<#generics as iroha_schema::IntoSchema>::type_name()),*
         )
-    }
-}
-
-/// Utility function which returns (generic parameters, their idents, and where clause from generic struct
-fn generics(generics: &Generics) -> (TokenStream2, Vec<TokenStream2>, TokenStream2) {
-    let Generics {
-        params,
-        where_clause,
-        ..
-    } = generics;
-    let ident_params = params.iter().map(generic_ident).collect::<Vec<_>>();
-
-    let where_clause = match where_clause {
-        Some(where_clause) => quote! {
-            #where_clause
-            #(#ident_params : iroha_schema::IntoSchema,)*
-        },
-        None => quote! { where #(#ident_params : iroha_schema::IntoSchema,)* },
-    };
-
-    if params.is_empty() {
-        (quote! {}, vec![], quote! {})
-    } else {
-        (quote! { <#params> }, ident_params, quote! { #where_clause })
-    }
-}
-
-/// Returns ident from generic parameter (including lifetimes)
-fn generic_ident(param: &GenericParam) -> TokenStream2 {
-    match param {
-        GenericParam::Type(ty) => {
-            let ident = &ty.ident;
-            quote! { #ident }
-        }
-        GenericParam::Const(constgeneric) => {
-            let ident = &constgeneric.ident;
-            quote! { #ident }
-        }
-        GenericParam::Lifetime(lifetime) => {
-            let lifetime = &lifetime.lifetime;
-            quote! { #lifetime }
-        }
     }
 }
 

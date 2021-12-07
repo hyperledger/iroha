@@ -244,7 +244,7 @@ pub mod message {
     }
 
     /// Get blocks after some block
-    #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[derive(Debug, Clone, Decode, Encode)]
     pub struct GetBlocksAfter {
         /// Block hash
         pub hash: HashOf<VersionedCommittedBlock>,
@@ -260,7 +260,7 @@ pub mod message {
     }
 
     /// Message variant to share blocks to peer
-    #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[derive(Debug, Clone, Decode, Encode)]
     pub struct ShareBlocks {
         /// Blocks
         pub blocks: Vec<VersionedCommittedBlock>,
@@ -277,7 +277,7 @@ pub mod message {
 
     /// Message's variants that are used by peers to communicate in the process of consensus.
     #[version_with_scale(n = 1, versioned = "VersionedMessage")]
-    #[derive(Io, Decode, Encode, Debug, Clone, FromVariant, iroha_actor::Message)]
+    #[derive(Debug, Clone, Decode, Encode, FromVariant, iroha_actor::Message)]
     pub enum Message {
         /// Request for blocks after the block with `Hash` for the peer with `PeerId`.
         GetBlocksAfter(GetBlocksAfter),
@@ -344,7 +344,7 @@ pub mod config {
     const DEFAULT_MAILBOX_SIZE: usize = 100;
 
     /// Configuration for `BlockSynchronizer`.
-    #[derive(Copy, Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(default)]
     #[config(env_prefix = "BLOCK_SYNC_")]

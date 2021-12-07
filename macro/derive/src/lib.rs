@@ -9,13 +9,6 @@ use quote::quote;
 const SKIP_FROM_ATTR: &str = "skip_from";
 const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
 
-/// Deriving `From<Vec<u8>>` and `TryInto<Vec<u8>>` traits for structure
-#[proc_macro_derive(Io)]
-pub fn io_derive(input: TokenStream) -> TokenStream {
-    let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
-    impl_io(&ast)
-}
-
 /// [`FromVariant`] is used for implementing `From<Variant> for Enum` and `TryFrom<Enum> for Variant`.
 ///
 /// ```rust
@@ -48,40 +41,6 @@ pub fn from_variant_derive(input: TokenStream) -> TokenStream {
 
 fn attrs_have_ident(attrs: &[syn::Attribute], ident: &str) -> bool {
     attrs.iter().any(|attr| attr.path.is_ident(ident))
-}
-
-fn impl_io(ast: &syn::DeriveInput) -> TokenStream {
-    let name = &ast.ident;
-    let gen = quote! {
-
-        impl std::convert::From<#name> for Vec<u8> {
-            fn from(origin: #name) -> Self {
-                origin.encode()
-            }
-        }
-
-        impl std::convert::From<&#name> for Vec<u8> {
-            fn from(origin: &#name) -> Self {
-                origin.encode()
-            }
-        }
-
-        impl TryFrom<Vec<u8>> for #name {
-            type Error = iroha_macro::error::Error;
-
-            fn try_from(vector: Vec<u8>) -> iroha_macro::error::Result<Self> {
-                use iroha_macro::error::WrapErr;
-                #name::decode(&mut vector.as_slice())
-                    .wrap_err_with(|| format!(
-                            "Failed to deserialize vector {:?} into {}.",
-                            &vector,
-                            stringify!(#name),
-                        )
-                    )
-            }
-        }
-    };
-    gen.into()
 }
 
 const CONTAINERS: &[&str] = &["Box", "RefCell", "Cell", "Rc", "Arc", "Mutex", "RwLock"];

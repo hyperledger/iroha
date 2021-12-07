@@ -1007,7 +1007,7 @@ pub mod message {
 
     /// Message's variants that are used by peers to communicate in the process of consensus.
     #[version_with_scale(n = 1, versioned = "VersionedMessage")]
-    #[derive(Io, Decode, Encode, Debug, Clone, FromVariant, iroha_actor::Message)]
+    #[derive(Debug, Clone, Decode, Encode, FromVariant, iroha_actor::Message)]
     pub enum Message {
         /// Is sent by leader to all validating peers, when a new block is created.
         BlockCreated(BlockCreated),
@@ -1051,7 +1051,7 @@ pub mod message {
     }
 
     /// `ViewChangeSuggested` message structure.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[derive(Debug, Clone, Decode, Encode)]
     pub struct ViewChangeSuggested {
         /// Proof of view change. As part of this message handling, all peers which agree with view change should sign it.
         pub proof: view_change::Proof,
@@ -1182,7 +1182,7 @@ pub mod message {
     }
 
     /// `BlockCreated` message structure.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[derive(Debug, Clone, Decode, Encode)]
     #[non_exhaustive]
     pub struct BlockCreated {
         /// The corresponding block.
@@ -1305,7 +1305,7 @@ pub mod message {
     }
 
     /// `BlockSigned` message structure.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[derive(Debug, Clone, Decode, Encode)]
     #[non_exhaustive]
     pub struct BlockSigned {
         /// The corresponding block.
@@ -1393,7 +1393,7 @@ pub mod message {
     }
 
     /// `BlockCommitted` message structure.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[derive(Debug, Clone, Decode, Encode)]
     #[non_exhaustive]
     pub struct BlockCommitted {
         /// The corresponding block.
@@ -1446,7 +1446,7 @@ pub mod message {
     }
 
     /// `Message` structure describing a transaction that is forwarded from a client by a peer to the leader.
-    #[derive(Io, Decode, Encode, Debug, Clone)]
+    #[derive(Debug, Clone, Decode, Encode)]
     #[non_exhaustive]
     pub struct TransactionForwarded {
         /// Transaction that is forwarded from a client by a peer to the leader
@@ -1498,7 +1498,7 @@ pub mod message {
     }
 
     /// `Message` structure describing a receipt sent by the leader to the peer it got this transaction from.
-    #[derive(Io, Decode, Encode, Debug, Clone, IntoSchema)]
+    #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
     #[non_exhaustive]
     pub struct TransactionReceipt {
         /// The hash of the transaction that the leader received.
@@ -1617,7 +1617,7 @@ pub mod config {
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
-    #[derive(Clone, Debug, Deserialize, Serialize, Configurable, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
     #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "SUMERAGI_")]
@@ -1679,7 +1679,7 @@ pub mod config {
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
-    #[derive(Default, Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+    #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(transparent)]
     pub struct TrustedPeers {

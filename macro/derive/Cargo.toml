@@ -15,5 +15,4 @@ proc-macro2 = "1.0"
 [dev-dependencies]
 iroha_macro = { path="../" }
 
-parity-scale-codec = { version = "2", features = ["derive"] }
 trybuild = "1.0.53"
