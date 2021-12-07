@@ -34,8 +34,8 @@
 #include "interfaces/commands/set_setting_value.hpp"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
-#include "main/subscription.hpp"
 #include "main/rdb_status.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::ametsuchi;

@@ -678,7 +678,8 @@ namespace iroha::ametsuchi {
     }
 
     auto propGetCurSzAllMemTables() {
-      return tx_context_->db_port->getPropUInt64("rocksdb.cur-size-all-mem-tables");
+      return tx_context_->db_port->getPropUInt64(
+          "rocksdb.cur-size-all-mem-tables");
     }
 
     auto propGetNumSnapshots() {
@@ -686,11 +687,13 @@ namespace iroha::ametsuchi {
     }
 
     auto propGetTotalSSTFilesSize() {
-      return tx_context_->db_port->getPropUInt64("rocksdb.total-sst-files-size");
+      return tx_context_->db_port->getPropUInt64(
+          "rocksdb.total-sst-files-size");
     }
 
     auto propGetBlockCacheCapacity() {
-      return tx_context_->db_port->getPropUInt64("rocksdb.block-cache-capacity");
+      return tx_context_->db_port->getPropUInt64(
+          "rocksdb.block-cache-capacity");
     }
 
     /// Makes commit to DB

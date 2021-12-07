@@ -20,9 +20,9 @@
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/rdb_status.hpp"
 #include "main/subscription.hpp"
 #include "network/ordering_gate_common.hpp"
-#include "main/rdb_status.hpp"
 
 class Metrics : public std::enable_shared_from_this<Metrics> {
   using OnProposalSubscriber = iroha::BaseSubscriber<
@@ -30,7 +30,7 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
       iroha::network::OrderingEvent>;  // FixMe subscribtion ≠ subscriber
   using BlockPtr = std::shared_ptr<const shared_model::interface::Block>;
   using BlockSubscriber = iroha::BaseSubscriber<bool, BlockPtr>;
-  using MstMetrics = std::tuple<size_t,size_t>;
+  using MstMetrics = std::tuple<size_t, size_t>;
   using MstSubscriber = iroha::BaseSubscriber<bool, MstMetrics>;
   using RdbSubscriber = iroha::BaseSubscriber<bool, iroha::RocksDbStatus>;
 
@@ -58,9 +58,9 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
   }
 
   template <class... Ts>
-  static std::shared_ptr<Metrics> create(Ts &&...args) {
+  static std::shared_ptr<Metrics> create(Ts &&... args) {
     struct Resolver : Metrics {
-      Resolver(Ts &&...args) : Metrics(std::forward<Ts>(args)...) {}
+      Resolver(Ts &&... args) : Metrics(std::forward<Ts>(args)...) {}
     };
     return std::make_shared<Resolver>(std::forward<Ts>(args)...);
   }
