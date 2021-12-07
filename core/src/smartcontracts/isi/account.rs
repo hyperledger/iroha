@@ -165,10 +165,18 @@ pub mod query {
     impl<W: WorldTrait> ValidQuery<W> for FindRolesByAccountId {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+            wsv.metrics
+                .queries
+                .with_label_values(&["find_roles_by_account_id", "submission"])
+                .inc();
             let account_id = self.id.evaluate(wsv, &Context::new())?;
             let roles = wsv.map_account(&account_id, |account| {
                 account.roles.iter().cloned().collect::<Vec<_>>()
             })?;
+            wsv.metrics
+                .queries
+                .with_label_values(&["find_roles_by_account_id", "success"])
+                .inc();
             Ok(roles)
         }
     }

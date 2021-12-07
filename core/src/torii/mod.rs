@@ -486,7 +486,15 @@ async fn update_metrics<W: WorldTrait>(
         wsv.metrics
             .uptime_since_genesis_ms
             .set((current_time().as_millis() - timestamp) as u64)
-    }
+    };
+    let domains = wsv.domains();
+    wsv.metrics.domains.set(domains.len() as u64);
+    wsv.metrics.users.set(
+        domains
+            .iter()
+            .map(|d| d.accounts.values().len() as u64)
+            .sum(),
+    );
     wsv.metrics.connected_peers.set(peers);
     Ok(())
 }

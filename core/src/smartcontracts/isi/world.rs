@@ -53,6 +53,7 @@ pub mod isi {
             let domain = self.object;
             domain.validate_len(wsv.config.ident_length_limits)?;
             wsv.domains().insert(domain.name.clone(), domain);
+            wsv.metrics.domains.inc();
             Ok(())
         }
     }
@@ -67,6 +68,7 @@ pub mod isi {
         ) -> Result<(), Error> {
             // TODO: Should we fail if no domain found?
             wsv.domains().remove(&self.object_id);
+            wsv.metrics.domains.dec();
             Ok(())
         }
     }

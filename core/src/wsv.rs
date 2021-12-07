@@ -14,7 +14,7 @@ use dashmap::{
 };
 use eyre::Result;
 use iroha_crypto::HashOf;
-use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*, Metrics};
+use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use iroha_logger::prelude::*;
 use tokio::task;
 
@@ -175,7 +175,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         for tx in &block.as_v1().rejected_transactions {
             self.transactions.insert(tx.hash());
         }
-        self.tx_metric_update();
+        self.block_commit_metrics_update_callback();
         self.blocks.push(block);
         Ok(())
     }
@@ -213,17 +213,31 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Update metrics; run when block commits.
-    fn tx_metric_update(&self) {
-        let last_block_txs_total = self
+    fn block_commit_metrics_update_callback(&self) {
+        let last_block_txs_accepted = self
             .blocks
             .iter()
             .last()
-            .map(|block| {
-                block.as_v1().transactions.len() as u64
-                    + block.as_v1().rejected_transactions.len() as u64
-            })
+            .map(|block| block.as_v1().transactions.len() as u64)
             .unwrap_or_default();
-        self.metrics.txs.inc_by(last_block_txs_total);
+        let last_block_txs_rejected = self
+            .blocks
+            .iter()
+            .last()
+            .map(|block| block.as_v1().rejected_transactions.len() as u64)
+            .unwrap_or_default();
+        self.metrics
+            .txs
+            .with_label_values(&["accepted"])
+            .inc_by(last_block_txs_accepted);
+        self.metrics
+            .txs
+            .with_label_values(&["rejected"])
+            .inc_by(last_block_txs_rejected);
+        self.metrics
+            .txs
+            .with_label_values(&["total"])
+            .inc_by(last_block_txs_accepted + last_block_txs_rejected);
         self.metrics.block_height.inc();
     }
 

@@ -45,7 +45,7 @@ impl VerifiedQueryRequest {
             .map_err(Error::Find)?;
         if !account_has_public_key {
             return Err(Error::Signature(eyre!(
-                "Public key used for the signature does not correspond to the account."
+                "Signature public key doesn't correspond to the account."
             )));
         }
         query_validator
