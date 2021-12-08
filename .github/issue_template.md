@@ -14,6 +14,25 @@
 
 <!-- What I started with -->
 
+Iroha Version: **CHANGE ME**
+
+Iroha peer's `config.json`
+
+```json
+CHANGE ME
+```
+
+Number of Iroha peers in my network: **CHANGE ME**
+
+My Platform is:
+OS: **CHANGE ME**
+CPU: **CHANGE ME**
+RAM: **CHANGE ME**
+
+Other diagnostics (if relevant**
+**CHANGE ME OR WRITE NONE**
+
+
 
 
 ## I expect

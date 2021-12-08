@@ -152,8 +152,6 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 
 ### Rust Style Guide
 
-#### Keep (with tweaks)
-
 - Use `cargo +nightly fmt --all` (We use [`group_imports`](https://github.com/rust-lang/rustfmt/issues/5083) and [`imports_granularity`](https://github.com/rust-lang/rustfmt/issues/4991))
 - Unless otherwise specified refer to [rust's best practices](https://github.com/mre/idiomatic-rust).
 - Use the `mod.rs` style. [Self-named modules](https://rust-lang.github.io/rust-clippy/master/) will not pass static analysis, except as [`trybuild`](https://crates.io/crates/trybuild) tests.
@@ -171,11 +169,12 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 - Prefer to return a `Result` instead of `panic!`.
   - Except when implementing something that uses `issue_send` instead of `send` ([more about actors](docs/source/guides/actor.md)). Actors and parallelism don't mix; you could deadlock the entire peer, so it's better to `panic!` if something goes wrong. This is a necessary concession for asynchronous programming.
 - Group related functionality spatially, preferably inside appropriate modules. For example, instead of having a block with `struct` definitions and then `impl`s for each individual struct, it is better to have the `impl`s related to that `struct` next to it.
-- Otherwise:  declaration before implementation;`use` statements at the top.
+- Otherwise:  declaration before implementation;`use` statements and constants at the top, unit tests at the bottom.
 - When writing non-doc comments, instead of describing *what* your function does, try to explain *why* it does something in a particular way. This will save you and the reviewer time.
 - Try to avoid `use` statements if the imported name is used only once. This makes moving your code into a different file easier.
 - Do not silence clippy lints indiscriminately. If you do, explain your reasoning with a comment (or `expect` message).
 - We use pinned dependencies. If your work depends on a particular crate, see if it wasn't already installed using [`cargo tree`](https://doc.rust-lang.org/cargo/commands/cargo-tree.html) (hint use `bat` or `grep`), and try to use that version, instead of the latest version.
+- We use pinned dependencies. Use the full version "X.Y.Z" in `Cargo.toml`.
 - Version bumps in separate PR.
 
 ### Documentation Style Guide

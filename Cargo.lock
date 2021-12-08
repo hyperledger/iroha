@@ -1377,7 +1377,7 @@ checksum = "b33c9a5c599d67d051c4dc25eb1b6b4ef715d1763c20c85c688717a1734f204e"
 
 [[package]]
 name = "iroha"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "color-eyre",
  "iroha_core",
@@ -1389,7 +1389,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_actor"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -1406,7 +1406,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_actor_derive"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -1416,7 +1416,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_client"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "attohttpc",
  "color-eyre",
@@ -1441,7 +1441,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_client_cli"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "color-eyre",
  "dialoguer",
@@ -1455,7 +1455,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_config"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "crossbeam",
  "iroha_config_derive",
@@ -1466,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_config_derive"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -1476,7 +1476,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_core"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1515,7 +1515,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_crypto"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "derive_more",
  "eyre",
@@ -1531,7 +1531,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_crypto_cli"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_data_model"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "dashmap",
  "eyre",
@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_derive"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "iroha_macro",
  "proc-macro2",
@@ -1578,7 +1578,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_docs"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "color-eyre",
  "iroha_config",
@@ -1588,7 +1588,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_futures"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "iroha_futures_derive",
  "iroha_logger",
@@ -1601,7 +1601,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_futures_derive"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -1611,7 +1611,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_logger"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "color-eyre",
  "iroha_config",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_macro"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "eyre",
  "iroha_derive",
@@ -1636,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_p2p"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "aead",
  "async-stream",
@@ -1657,7 +1657,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_permissions_validators"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "iroha_core",
  "iroha_data_model",
@@ -1666,7 +1666,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_schema"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "fixnum",
  "iroha_schema_derive",
@@ -1676,7 +1676,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_schema_bin"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "eyre",
  "iroha_core",
@@ -1687,7 +1687,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_schema_derive"
-version = "0.0.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1696,11 +1696,11 @@ dependencies = [
 
 [[package]]
 name = "iroha_substrate"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 
 [[package]]
 name = "iroha_telemetry"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_version"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "eyre",
  "iroha_macro",
@@ -1736,7 +1736,7 @@ dependencies = [
 
 [[package]]
 name = "iroha_version_derive"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "iroha_macro",
  "iroha_version",
@@ -2970,7 +2970,7 @@ dependencies = [
 
 [[package]]
 name = "test_network"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 dependencies = [
  "async-trait",
  "eyre",
