@@ -1,6 +1,6 @@
 [package]
 name = "iroha_version"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -13,8 +13,8 @@ json = ["serde_json"]
 derive = ["iroha_version_derive"]
 
 [dependencies]
-iroha_version_derive = { path = "derive", optional = true }
-iroha_macro = { path = "../macro" }
+iroha_version_derive = { version = "=2.0.0-pre.1", path = "derive", optional = true }
+iroha_macro = { version = "=2.0.0-pre.1", path = "../macro" }
 
 eyre = "0.6.5"
 serde = { version = "1.0", features = ["derive"] }
