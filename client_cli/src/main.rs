@@ -1,6 +1,11 @@
 //! iroha client command line
 
-#![allow(missing_docs, clippy::print_stdout, clippy::use_debug)]
+#![allow(
+    missing_docs,
+    clippy::print_stdout,
+    clippy::use_debug,
+    clippy::print_stderr
+)]
 
 use std::{fmt, fs::File, str::FromStr, time::Duration};
 
@@ -30,10 +35,10 @@ impl FromStr for Metadata {
         if file.is_empty() {
             return Ok(Self(UnlimitedMetadata::default()));
         }
-
-        let file = File::open(file).wrap_err("Failed to open the metadata file.")?;
-        let metadata: UnlimitedMetadata = serde_json::from_reader(file)
-            .wrap_err("Failed to deserialize metadata json from reader.")?;
+        let err_msg = format!("Failed to open the metadata file {}.", &file);
+        let deser_err_msg = format!("Failed to deserialize metadata from file: {}", &file);
+        let file = File::open(file).wrap_err(err_msg)?;
+        let metadata: UnlimitedMetadata = serde_json::from_reader(file).wrap_err(deser_err_msg)?;
         Ok(Self(metadata))
     }
 }
@@ -45,14 +50,15 @@ pub struct Configuration(pub ClientConfiguration);
 impl FromStr for Configuration {
     type Err = Error;
     fn from_str(file: &str) -> Result<Self> {
-        let file = File::open(file).wrap_err("Failed to open config file")?;
-        let cfg = serde_json::from_reader(file).wrap_err("Failed to decode config file")?;
+        let deser_err_msg = format!("Failed to decode config file {} ", &file);
+        let err_msg = format!("Failed to open config file {}", &file);
+        let file = File::open(file).wrap_err(err_msg)?;
+        let cfg = serde_json::from_reader(file).wrap_err(deser_err_msg)?;
         Ok(Self(cfg))
     }
 }
 
-/// Iroha CLI Client provides an ability to interact with Iroha Peers Web API
-/// without direct network usage.
+/// Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.
 #[derive(StructOpt, Debug)]
 #[structopt(
     name = "iroha_client_cli",
@@ -85,8 +91,9 @@ pub enum Subcommand {
 /// Runs subcommand
 pub trait RunArgs {
     /// Runs command
+    ///
     /// # Errors
-    /// Depends on inner command
+    /// if inner command errors
     fn run(self, cfg: &ClientConfiguration) -> Result<()>;
 }
 
@@ -115,16 +122,27 @@ fn main() -> Result<()> {
         config: Configuration(config),
         subcommand,
     } = Args::from_args();
-
-    println!("Value for config: {:?}", &config);
-    subcommand
-        .run(&config)
-        .wrap_err("Failed to run subcommand")?;
+    println!("Iroha Client CLI: build v0.0.1 [release]");
+    println!(
+        "User: {}@{}",
+        config.account_id.name, config.account_id.domain_name
+    );
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "{}",
+        &serde_json::to_string(&config).wrap_err("Failed to serialize configuraiton.")?
+    );
+    #[cfg(not(debug_assertions))]
+    eprintln!("This is a release build, debug information omitted from messages");
+    subcommand.run(&config)?;
     Ok(())
 }
 
+/// Submit instruction with metadata to network.
+///
 /// # Errors
 /// Fails if submitting over network fails
+#[allow(clippy::shadow_unrelated)]
 pub fn submit(
     instruction: impl Into<Instruction>,
     cfg: &ClientConfiguration,
@@ -132,24 +150,36 @@ pub fn submit(
 ) -> Result<()> {
     let instruction = instruction.into();
     let mut iroha_client = Client::new(cfg);
+    #[cfg(debug_assertions)]
+    let err_msg = format!(
+        "Failed to build transaction from instruction {:?}",
+        instruction
+    );
+    #[cfg(not(debug_assertions))]
+    let err_msg = "Failed to build transaction.";
     let tx = iroha_client
         .build_transaction(vec![instruction], metadata)
-        .wrap_err("Failed to build transaction.")?;
+        .wrap_err(err_msg)?;
     let tx = match iroha_client.get_original_transaction(
         &tx,
         RETRY_COUNT_MST,
         RETRY_IN_MST,
     ) {
         Ok(Some(original_transaction)) if Confirm::new()
-            .with_prompt("There is a similar transaction from your account waiting for more signatures. Do you want to sign it instead of submitting a new transaction?")
+            .with_prompt("There is a similar transaction from your account waiting for more signatures. \
+						  This could be because it wasn't signed with the right key, \
+						  or because it's a multi-signature transaction (MST). \
+						  Do you want to sign this transaction (yes) \
+						  instead of submitting a new transaction (no)?")
             .interact()
             .wrap_err("Failed to show interactive prompt.")? => iroha_client.sign_transaction(original_transaction).wrap_err("Failed to sign transaction.")?,
         _ => tx,
     };
-
-    iroha_client
-        .submit_transaction(tx)
-        .wrap_err("Failed to submit transaction.")?;
+    #[cfg(debug_assertions)]
+    let err_msg = format!("Failed to submit transaction {:?}", tx);
+    #[cfg(not(debug_assertions))]
+    let err_msg = "Failed to submit transaction.";
+    iroha_client.submit_transaction(tx).wrap_err(err_msg)?;
     Ok(())
 }
 
@@ -182,7 +212,7 @@ mod events {
         println!("Listening to events with filter: {:?}", filter);
         for event in iroha_client
             .listen_for_events(filter)
-            .wrap_err("Failed to listen to events.")?
+            .wrap_err("Failed to listen for events.")?
         {
             match event {
                 Ok(event) => println!("{:#?}", event),
@@ -328,9 +358,12 @@ mod account {
     impl FromStr for Signature {
         type Err = Error;
         fn from_str(s: &str) -> Result<Self> {
-            let file = File::open(s).wrap_err("Failed to open the signature condition file")?;
-            let condition: Box<Expression> = serde_json::from_reader(file)
-                .wrap_err("Failed to deserialize signature expression from reader")?;
+            let err_msg = format!("Failed to open the signature condition file {}", &s);
+            let deser_err_msg =
+                format!("Failed to deserialize signature condition from file {}", &s);
+            let file = File::open(s).wrap_err(err_msg)?;
+            let condition: Box<Expression> =
+                serde_json::from_reader(file).wrap_err(deser_err_msg)?;
             Ok(Self(SignatureCheckCondition(condition.into())))
         }
     }
@@ -473,7 +506,7 @@ mod asset {
                 Value::U32(quantity),
                 IdBox::AssetId(AssetId::new(asset, account)),
             );
-            submit(mint_asset, cfg, metadata).wrap_err("Failed to mint asset value")
+            submit(mint_asset, cfg, metadata).wrap_err("Failed to mint asset of type `Value::U32`")
         }
     }
 
