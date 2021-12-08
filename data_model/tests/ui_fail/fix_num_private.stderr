@@ -1,0 +1,22 @@
+error[E0423]: cannot initialize a tuple struct which contains private fields
+  --> tests/ui_fail/fix_num_private.rs:4:20
+   |
+4  |     let quantity = Fixed(FixNum::try_from(-123.45_f64).unwrap());
+   |                    ^^^^^
+   |
+note: constructor is not visible here due to private fields
+  --> src/fixed.rs
+   |
+   | pub struct Fixed(FixNum);
+   |                  ^^^^^^ private field
+help: consider importing one of these items instead
+   |
+1  | use iroha_core::tx::AssetValue::Fixed;
+   |
+1  | use iroha_core::tx::AssetValueType::Fixed;
+   |
+1  | use iroha_core::tx::Value::Fixed;
+   |
+1  | use iroha_data_model::Value::Fixed;
+   |
+     and 2 other candidates

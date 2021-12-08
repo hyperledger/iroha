@@ -37,19 +37,19 @@ impl Fixed {
     /// Constant, representing zero value
     pub const ZERO: Fixed = Fixed(FixNum::ZERO);
 
-    #[inline]
-    #[cfg(test)]
     /// Return the only possible negative [`Fixed`] value. Only used for tests.
     ///
     /// # Panics
     /// Never.
+    #[inline]
+    #[cfg(test)]
     pub fn negative_one() -> Self {
         #[allow(clippy::unwrap_used)]
         Self("-1".parse().unwrap())
     }
 
-    #[inline]
     /// Checks if this instance is zero
+    #[inline]
     pub const fn is_zero(self) -> bool {
         *self.0.as_bits() == Base::ZERO
     }
@@ -63,11 +63,11 @@ impl Fixed {
         }
     }
 
-    #[inline]
     /// Checked addition
     ///
     /// # Errors
     /// If either of the operands is negative or if addition overflows.
+    #[inline]
     pub fn checked_add(self, rhs: Self) -> Result<Self, FixedPointOperationError> {
         match self.valid()?.0.cadd(rhs.valid()?.0) {
             Ok(n) => Ok(Fixed(n)),
@@ -75,11 +75,11 @@ impl Fixed {
         }
     }
 
-    #[inline]
     /// Checked subtraction
     ///
     /// # Errors
     /// If either of the operands is negative or if the subtraction overflows.
+    #[inline]
     pub fn checked_sub(self, rhs: Self) -> Result<Self, FixedPointOperationError> {
         match self.valid()?.0.csub(rhs.valid()?.0) {
             Ok(n) => Fixed(n).valid(),

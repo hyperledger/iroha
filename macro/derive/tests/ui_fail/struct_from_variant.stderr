@@ -1,5 +1,5 @@
 error: proc-macro derive panicked
- --> $DIR/05-struct.rs:1:10
+ --> tests/ui_fail/struct_from_variant.rs:1:10
   |
 1 | #[derive(iroha_derive::FromVariant)]
   |          ^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -1401,17 +1401,18 @@ dependencies = [
  "petgraph",
  "thiserror",
  "tokio",
- "trybuild",
 ]
 
 [[package]]
 name = "iroha_actor_derive"
 version = "2.0.0-pre.1"
 dependencies = [
+ "iroha_actor",
  "proc-macro-error",
  "proc-macro2",
  "quote",
  "syn",
+ "trybuild",
 ]
 
 [[package]]
@@ -1689,9 +1690,11 @@ dependencies = [
 name = "iroha_schema_derive"
 version = "2.0.0-pre.1"
 dependencies = [
+ "iroha_schema",
  "proc-macro2",
  "quote",
  "syn",
+ "trybuild",
 ]
 
 [[package]]
@@ -2292,9 +2295,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.32"
+version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba508cc11742c0dc5c1659771673afbab7a0efab23aa17e854cbab0837ed0b43"
+checksum = "fb37d2df5df740e582f28f8560cf425f52bb267d872fe58358eadb554909f07a"
 dependencies = [
  "unicode-xid",
 ]
