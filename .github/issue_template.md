@@ -1,7 +1,36 @@
-## Hello! 
+<!-- IMPORTANT: add the `iroha2` for IROHA2-related issues -->
+<!-- If something isn't working, add the `bug` label-->
+<!-- If something isn't explained very well add the `Documentation` label -->
+<!-- If you think you can improve something, add the `Optimisation` label -->
+# TL;DR
 
-It is great that you've decided to contribute to Hyperledger Iroha by telling us more about the issue you've encountered!
-The thing is that we now create and store issues only in [Hyperledger JIRA](https://jira.hyperledger.org/projects/IR) so we would kindly ask you to create your issue there. 
-That way you will be able to track it in JIRA with your [LFID](https://www.youtube.com/watch?v=EEc4JRyaAoA) account. 
+<!-- Explain what's wrong in your own words. -->
 
-Still, if it is more convenient for you to create an issue on GitHub, our Yozhik Bot will carefully transfer it to JIRA and close the issue here. 
+
+
+# Minimum working example
+
+## Given
+
+<!-- What I started with -->
+
+
+
+## I expect
+
+<!-- What should happen -->
+
+
+
+## But, I got
+
+
+<!-- Either something inside triple backticks for code output -->
+
+<!-- "Code output I got". -->
+
+
+
+<!-- Or a screenshot -->
+
+<!-- "screenshot Of What I Got". Drag & Drop Or Copy & Paste-->
