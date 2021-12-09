@@ -201,7 +201,6 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait> SumeragiTra
         }
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash::default().into())
-            .with_max_faults(configuration.max_faulty_peers())
             .reshuffle_after(configuration.n_topology_shifts_before_reshuffle)
             .with_peers(configuration.trusted_peers.peers.clone())
             .build()?;
@@ -1663,12 +1662,6 @@ pub mod config {
         /// Set `trusted_peers` configuration parameter - will overwrite the existing one.
         pub fn trusted_peers(&mut self, trusted_peers: Vec<PeerId>) {
             self.trusted_peers.peers = trusted_peers.into_iter().collect();
-        }
-
-        /// Calculate `max_faulty_peers` configuration parameter as per (f-1)/3.
-        pub fn max_faulty_peers(&self) -> u32 {
-            #![allow(clippy::integer_division, clippy::cast_possible_truncation)]
-            (self.trusted_peers.peers.len() as u32 - 1) / 3
         }
 
         /// Time estimation from receiving a transaction to storing it in a block on all peers for the "sunny day" scenario.
