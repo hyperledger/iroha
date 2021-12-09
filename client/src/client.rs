@@ -540,8 +540,8 @@ impl EventIterator {
         loop {
             match stream.read_message() {
                 Ok(WebSocketMessage::Binary(message)) => {
-                    if let EventPublisherMessage::SubscriptionAccepted =
-                        VersionedEventPublisherMessage::decode_versioned(&message)?.into_v1()
+                    if let EventProducerMessage::SubscriptionAccepted =
+                        VersionedEventProducerMessage::decode_versioned(&message)?.into_v1()
                     {
                         break;
                     }
