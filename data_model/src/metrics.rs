@@ -87,28 +87,29 @@ impl Default for Metrics {
         .expect("Infallible");
         let domains = GenericGauge::new("domains", "Total number of domains").expect("Infallible");
         let users = GenericGauge::new("users", "Total number of users").expect("Infallible");
+
         let registry = Registry::new();
-        registry
-            .register(Box::new(txs.clone()))
-            .expect("register txs should not fail");
-        registry
-            .register(Box::new(block_height.clone()))
-            .expect("register block_height should not fail");
-        registry
-            .register(Box::new(connected_peers.clone()))
-            .expect("register connected_peers should not fail");
-        registry
-            .register(Box::new(uptime_since_genesis_ms.clone()))
-            .expect("register uptime should not fail");
-        registry
-            .register(Box::new(domains.clone()))
-            .expect("register domains counter should not fail");
-        registry
-            .register(Box::new(users.clone()))
-            .expect("register users should not fail");
-        registry
-            .register(Box::new(queries.clone()))
-            .expect("register queries should not fail");
+
+        macro_rules! register {
+			($metric:expr)=> {
+				registry.register(Box::new($metric.clone())).expect("Infallible");
+			};
+			($metric:expr,$($metrics:expr),+)=>{
+				register!($metric);
+				register!($($metrics),+);
+			}
+		}
+
+        register!(
+            txs,
+            block_height,
+            connected_peers,
+            uptime_since_genesis_ms,
+            domains,
+            users,
+            queries
+        );
+
         Self {
             txs,
             block_height,
