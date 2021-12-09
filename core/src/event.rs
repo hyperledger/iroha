@@ -6,7 +6,7 @@ use std::{fmt::Debug, time::Duration};
 
 use eyre::{eyre, Result, WrapErr};
 use futures::{SinkExt, StreamExt};
-use iroha_data_model::events::{prelude::*, SubscriptionRequest};
+use iroha_data_model::events::prelude::*;
 use iroha_version::prelude::*;
 use tokio::{sync::broadcast, time};
 use warp::ws::{self, WebSocket};
@@ -45,15 +45,14 @@ impl Consumer {
         if !message.is_binary() {
             return Err(eyre!("Unexpected message type"));
         }
-        let SubscriptionRequest(filter): SubscriptionRequest =
-            VersionedEventSocketMessage::decode_versioned(message.as_bytes())?
-                .into_v1()
-                .try_into()?;
+        let filter = VersionedEventConsumerMessage::decode_versioned(message.as_bytes())?
+            .into_v1()
+            .try_into()?;
 
         time::timeout(
             TIMEOUT,
             stream.send(ws::Message::binary(
-                VersionedEventSocketMessage::from(EventSocketMessage::SubscriptionAccepted)
+                VersionedEventProducerMessage::from(EventProducerMessage::SubscriptionAccepted)
                     .encode_versioned()?,
             )),
         )
@@ -74,7 +73,7 @@ impl Consumer {
             return Ok(());
         }
 
-        let event = VersionedEventSocketMessage::from(EventSocketMessage::from(event.clone()))
+        let event = VersionedEventProducerMessage::from(EventProducerMessage::from(event.clone()))
             .encode_versioned()
             .wrap_err("Failed to serialize event")?;
         time::timeout(TIMEOUT, self.stream.send(ws::Message::binary(event)))
@@ -92,8 +91,8 @@ impl Consumer {
             return Err(eyre!("Unexpected message type"));
         }
 
-        if let EventSocketMessage::EventReceived =
-            VersionedEventSocketMessage::decode_versioned(message.as_bytes())?.into_v1()
+        if let EventConsumerMessage::EventReceived =
+            VersionedEventConsumerMessage::decode_versioned(message.as_bytes())?.into_v1()
         {
             self.stream.flush().await?;
             Ok(())

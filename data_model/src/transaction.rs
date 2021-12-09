@@ -1,6 +1,12 @@
 //! This module contains [`Transaction`] structures and related implementations
 
-use std::{cmp::Ordering, collections::BTreeSet, vec::IntoIter as VecIter};
+use std::{
+    cmp::Ordering,
+    collections::BTreeSet,
+    error::Error as StdError,
+    fmt::{Display, Formatter, Result as FmtResult},
+    vec::IntoIter as VecIter,
+};
 
 use eyre::{eyre, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignatureVerificationFail, SignaturesOf};
@@ -9,10 +15,6 @@ use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use std::{
-    error::Error as StdError,
-    fmt::{Display, Formatter, Result as FmtResult},
-};
 use thiserror::Error;
 #[cfg(feature = "warp")]
 use warp::{reply::Response, Reply};
@@ -128,24 +130,6 @@ impl VersionedTransaction {
             Self::V1(v1) => v1,
         }
     }
-
-    /// Default [`Transaction`] constructor.
-    #[inline]
-    pub fn new(
-        instructions: Vec<Instruction>,
-        account_id: <Account as Identifiable>::Id,
-        proposed_ttl_ms: u64,
-    ) -> VersionedTransaction {
-        Transaction::new(instructions, account_id, proposed_ttl_ms).into()
-    }
-
-    /// Sign transaction with the provided key pair.
-    ///
-    /// # Errors
-    /// Fails if signature creation fails
-    pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedTransaction> {
-        self.into_v1().sign(key_pair).map(Into::into)
-    }
 }
 
 impl Txn for VersionedTransaction {
@@ -169,11 +153,12 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
                     .iter()
                     .cloned()
                     .collect::<BTreeSet<_>>();
-                let transaction = Transaction {
+
+                Transaction {
                     payload: transaction.payload,
                     signatures,
-                };
-                transaction.into()
+                }
+                .into()
             }
         }
     }
@@ -273,7 +258,7 @@ impl Txn for Transaction {
     }
 }
 
-declare_versioned_with_scale!(VersionedPendingTransactions 1..2, FromVariant, Clone, Debug);
+declare_versioned_with_scale!(VersionedPendingTransactions 1..2, FromVariant, Debug, Clone);
 
 impl VersionedPendingTransactions {
     /// Converts from `&VersionedPendingTransactions` to V1 reference
@@ -431,7 +416,7 @@ impl Txn for ValidTransaction {
     }
 }
 
-declare_versioned!(VersionedRejectedTransaction 1..2, Clone, Debug, PartialEq, Eq, FromVariant, IntoSchema);
+declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema);
 
 impl VersionedRejectedTransaction {
     /// Converts from `&VersionedRejectedTransaction` to V1 reference
@@ -489,7 +474,7 @@ impl Txn for RejectedTransaction {
 }
 
 /// Transaction was reject because it doesn't satisfy signature condition
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct UnsatisfiedSignatureConditionFail {
     /// Reason why signature condition failed
     pub reason: String,
@@ -508,7 +493,7 @@ impl Display for UnsatisfiedSignatureConditionFail {
 impl StdError for UnsatisfiedSignatureConditionFail {}
 
 /// Transaction was rejected because of one of its instructions failing.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct InstructionExecutionFail {
     /// Instruction which execution failed
     pub instruction: Instruction,
@@ -543,7 +528,7 @@ impl Display for InstructionExecutionFail {
 impl StdError for InstructionExecutionFail {}
 
 /// Transaction was reject because of low authority
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct NotPermittedFail {
     /// Reason of failure
     pub reason: String,
@@ -562,14 +547,14 @@ impl StdError for NotPermittedFail {}
     Debug,
     Clone,
     Copy,
-    Eq,
     PartialEq,
-    Serialize,
-    Deserialize,
+    Eq,
+    Error,
     Decode,
     Encode,
+    Deserialize,
+    Serialize,
     FromVariant,
-    Error,
     IntoSchema,
 )]
 pub enum BlockRejectionReason {
@@ -583,14 +568,14 @@ pub enum BlockRejectionReason {
 #[derive(
     Debug,
     Clone,
-    Eq,
     PartialEq,
-    Serialize,
-    Deserialize,
+    Eq,
+    Error,
     Decode,
     Encode,
+    Deserialize,
+    Serialize,
     FromVariant,
-    Error,
     IntoSchema,
 )]
 pub enum TransactionRejectionReason {
@@ -615,14 +600,14 @@ pub enum TransactionRejectionReason {
 #[derive(
     Debug,
     Clone,
-    Eq,
     PartialEq,
-    Serialize,
-    Deserialize,
+    Eq,
+    Error,
     Decode,
     Encode,
+    Deserialize,
+    Serialize,
     FromVariant,
-    Error,
     IntoSchema,
 )]
 pub enum RejectionReason {

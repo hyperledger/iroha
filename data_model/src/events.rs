@@ -1,63 +1,85 @@
 //! Events for streaming API.
-#![allow(clippy::unused_self)]
 
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 
-declare_versioned_with_scale!(VersionedEventSocketMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedEventProducerMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-impl VersionedEventSocketMessage {
-    /// Converts from `&VersionedEventSocketMessage` to V1 reference
-    pub const fn as_v1(&self) -> &EventSocketMessage {
+impl VersionedEventProducerMessage {
+    /// Converts from `&VersionedEventProducerMessage` to V1 reference
+    pub const fn as_v1(&self) -> &EventProducerMessage {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Converts from `&mut VersionedEventSocketMessage` to V1 mutable reference
-    pub fn as_mut_v1(&mut self) -> &mut EventSocketMessage {
+    /// Converts from `&mut VersionedEventProducerMessage` to V1 mutable reference
+    pub fn as_mut_v1(&mut self) -> &mut EventProducerMessage {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
-    /// Performs the conversion from `VersionedEventSocketMessage` to V1
-    pub fn into_v1(self) -> EventSocketMessage {
+    /// Performs the conversion from `VersionedEventProducerMessage` to V1
+    pub fn into_v1(self) -> EventProducerMessage {
         match self {
             Self::V1(v1) => v1,
         }
     }
 }
 
-/// Message type used for communication over web socket event stream.
-#[allow(variant_size_differences)]
-#[version_with_scale(n = 1, versioned = "VersionedEventSocketMessage")]
-#[derive(Debug, Clone, IntoSchema, FromVariant, Decode, Encode, Deserialize, Serialize)]
-pub enum EventSocketMessage {
-    /// Request sent by client to subscribe to events.
-    SubscriptionRequest(SubscriptionRequest),
-    /// Answer sent by peer.
-    /// The message means that all event connection is initialized and will be supplying
-    /// events starting from the next one.
+/// Message sent by the stream producer
+#[version_with_scale(n = 1, versioned = "VersionedEventProducerMessage")]
+#[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
+pub enum EventProducerMessage {
+    /// Answer sent by the peer.
+    /// The message means that event stream connection is initialized and will be supplying
+    /// events starting with the next message.
     SubscriptionAccepted,
-    /// Event, sent by peer.
+    /// Event sent by the peer.
     Event(Event),
-    /// Acknowledgment of receiving event sent from client.
+}
+
+declare_versioned_with_scale!(VersionedEventConsumerMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
+
+impl VersionedEventConsumerMessage {
+    /// Converts from `&VersionedEventConsumerMessage` to V1 reference
+    pub const fn as_v1(&self) -> &EventConsumerMessage {
+        match self {
+            Self::V1(v1) => v1,
+        }
+    }
+
+    /// Converts from `&mut VersionedEventConsumerMessage` to V1 mutable reference
+    pub fn as_mut_v1(&mut self) -> &mut EventConsumerMessage {
+        match self {
+            Self::V1(v1) => v1,
+        }
+    }
+
+    /// Performs the conversion from `VersionedEventConsumerMessage` to V1
+    pub fn into_v1(self) -> EventConsumerMessage {
+        match self {
+            Self::V1(v1) => v1,
+        }
+    }
+}
+
+/// Message sent by the stream consumer
+#[version_with_scale(n = 1, versioned = "VersionedEventConsumerMessage")]
+#[derive(Debug, Clone, Copy, Decode, Encode, FromVariant, IntoSchema)]
+pub enum EventConsumerMessage {
+    /// Request sent by the client to subscribe to events.
+    //TODO: Sign request?
+    SubscriptionRequest(EventFilter),
+    /// Acknowledgment of receiving event sent from the peer.
     EventReceived,
 }
 
-//TODO: Sign request?
-/// Subscription Request to listen to events
-#[derive(Debug, Decode, Encode, Deserialize, Serialize, Copy, Clone, IntoSchema)]
-pub struct SubscriptionRequest(pub EventFilter);
-
 /// Event.
-#[derive(
-    Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Clone, FromVariant, IntoSchema,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, FromVariant, IntoSchema)]
 pub enum Event {
     /// Pipeline event.
     Pipeline(pipeline::Event),
@@ -66,7 +88,7 @@ pub enum Event {
 }
 
 /// Event filter.
-#[derive(Debug, Decode, Encode, Deserialize, Serialize, Clone, Copy, FromVariant, IntoSchema)]
+#[derive(Debug, Clone, Copy, Decode, Encode, FromVariant, IntoSchema)]
 pub enum EventFilter {
     /// Listen to pipeline events with filter.
     Pipeline(pipeline::EventFilter),
@@ -90,12 +112,11 @@ pub mod data {
     use iroha_macro::FromVariant;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
-    use serde::{Deserialize, Serialize};
 
     use crate::prelude::*;
 
     /// Entity type to filter events.
-    #[derive(Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Copy, Clone)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode)]
     pub enum EntityType {
         /// Account.
         Account,
@@ -110,7 +131,7 @@ pub mod data {
     }
 
     /// Entity type to filter events.
-    #[derive(Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Copy, Clone)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode)]
     pub enum Status {
         /// Entity was added, registered, minted or another action was made to make entity appear on
         /// the blockchain for the first time.
@@ -123,7 +144,7 @@ pub mod data {
     }
 
     /// Enumeration of all possible Iroha data entities.
-    #[derive(Clone, Debug, Decode, Encode, Deserialize, Serialize, FromVariant)]
+    #[derive(Debug, Clone, Decode, Encode, FromVariant)]
     pub enum Entity {
         /// Account.
         Account(Box<Account>),
@@ -151,11 +172,12 @@ pub mod data {
 
     //TODO: implement filter for data entities
     /// Event filter.
-    #[derive(Debug, Decode, Encode, Deserialize, Serialize, Copy, Clone, IntoSchema)]
+    #[derive(Debug, Clone, Copy, Decode, Encode, IntoSchema)]
     pub struct EventFilter;
 
     impl EventFilter {
         /// Apply filter to event.
+        #[allow(clippy::unused_self)]
         pub const fn apply(self, _event: Event) -> bool {
             false
         }
@@ -163,9 +185,7 @@ pub mod data {
 
     //TODO: implement event for data entities
     /// Event.
-    #[derive(
-        Debug, Decode, Encode, Deserialize, Serialize, Copy, Clone, Eq, PartialEq, IntoSchema,
-    )]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema)]
     pub struct Event;
 
     /// Exports common structs and enums from this module.
@@ -179,15 +199,15 @@ pub mod data {
 
 /// Pipeline events.
 pub mod pipeline {
-    pub use crate::transaction::RejectionReason as PipelineRejectionReason;
     use iroha_crypto::Hash;
     use iroha_macro::FromVariant;
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
-    use serde::{Deserialize, Serialize};
+
+    pub use crate::transaction::RejectionReason as PipelineRejectionReason;
 
     /// Event filter.
-    #[derive(Debug, Decode, Encode, Deserialize, Serialize, Copy, Clone, IntoSchema)]
+    #[derive(Debug, Clone, Copy, Decode, Encode, IntoSchema)]
     pub struct EventFilter {
         /// Filter by Entity if `Some`, if `None` all entities are accepted.
         pub entity: Option<EntityType>,
@@ -239,9 +259,7 @@ pub mod pipeline {
     }
 
     /// Entity type to filter events.
-    #[derive(
-        Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Copy, Clone, IntoSchema,
-    )]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema)]
     pub enum EntityType {
         /// Block.
         Block,
@@ -250,7 +268,7 @@ pub mod pipeline {
     }
 
     /// Entity type to filter events.
-    #[derive(Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Clone, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
     pub struct Event {
         /// Type of entity that caused this event.
         pub entity_type: EntityType,
@@ -272,9 +290,7 @@ pub mod pipeline {
     }
 
     /// Entity type to filter events.
-    #[derive(
-        Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Clone, FromVariant, IntoSchema,
-    )]
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, FromVariant, IntoSchema)]
     pub enum Status {
         /// Entity has been seen in blockchain, but has not passed validation.
         Validating,
@@ -296,9 +312,10 @@ pub mod pipeline {
     mod tests {
         #![allow(clippy::restriction)]
 
-        use crate::transaction::{RejectionReason::*, TransactionRejectionReason::*};
-
         use super::*;
+        use crate::transaction::{
+            NotPermittedFail, RejectionReason::*, TransactionRejectionReason::*,
+        };
 
         #[test]
         fn events_are_correctly_filtered() {
@@ -390,7 +407,7 @@ pub mod pipeline {
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
-        data::prelude::*, pipeline::prelude::*, Event, EventFilter, EventSocketMessage,
-        SubscriptionRequest, VersionedEventSocketMessage,
+        data::prelude::*, pipeline::prelude::*, Event, EventConsumerMessage, EventFilter,
+        EventProducerMessage, VersionedEventConsumerMessage, VersionedEventProducerMessage,
     };
 }
