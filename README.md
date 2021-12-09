@@ -133,7 +133,7 @@ By default Iroha logs in a human readable format to `stdout`. The logging level 
 
 For example if your iroha instance is running at `127.0.0.1:8080` to change the log level to `DEBUG` using `curl` one can 
 ```bash
-curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"ChangeLogLevel": "DEBUG"}' -i
+curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"LogLevel": "DEBUG"}' -i
 ```
 
 Optional JSON formatted logging can be saved to the [logging file](./docs/source/references/config.md#loggerlog_file_path). [Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the peer administrator's responsibility. 

@@ -79,7 +79,7 @@ pub mod derive {
         }
     }
 
-    /// Derive `Configurable` errror
+    /// Derive `Configurable` error
     #[derive(Debug)]
     pub enum Error {
         /// Got unknown field
@@ -226,6 +226,6 @@ pub enum PostConfiguration {
     ///
     /// # Examples
     /// To silence all logging events that aren't `ERROR`s
-    /// `curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"ChangeLogLevel": "ERROR"}' -i`
+    /// `curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"LogLevel": "ERROR"}' -i`
     LogLevel(logger::Level),
 }

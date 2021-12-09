@@ -53,7 +53,7 @@ pub struct World {
     pub roles: iroha_data_model::role::RolesMap,
 }
 
-/// Current state of the blockchain alligned with `Iroha` module.
+/// Current state of the blockchain aligned with `Iroha` module.
 #[derive(Debug, Clone)]
 pub struct WorldStateView<W: WorldTrait> {
     /// The world - contains `domains`, `triggers`, etc..
@@ -168,7 +168,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .try_for_each(|instruction| instruction.execute(account_id.clone(), self))?;
 
             self.transactions.insert(tx.hash());
-            // Yeild control cooperatively to the task scheduler.
+            // Yield control cooperatively to the task scheduler.
             // The transaction processing is a long CPU intensive task, so this should be included here.
             task::yield_now().await;
         }
