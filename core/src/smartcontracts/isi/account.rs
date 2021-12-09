@@ -5,17 +5,19 @@ use iroha_data_model::prelude::*;
 
 use crate::prelude::*;
 
-/// ISI module contains all instructions related to accounts:
+/// All instructions related to accounts:
 /// - minting/burning public key into account signatories
 /// - minting/burning signature condition check
 /// - update metadata
 /// - grant permissions and roles
+/// - TODO Revoke permissions or roles
 pub mod isi {
     use super::{super::prelude::*, *};
 
     impl<W: WorldTrait> Execute<W> for Mint<Account, PublicKey> {
         type Error = Error;
 
+        #[metrics(+"mint_account_pubkey")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -33,6 +35,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Mint<Account, SignatureCheckCondition> {
         type Error = Error;
 
+        #[metrics(+"mint_account_signature_check_condition")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -50,6 +53,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Burn<Account, PublicKey> {
         type Error = Error;
 
+        #[metrics(+"burn_account_pubkey")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -73,6 +77,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for SetKeyValue<Account, String, Value> {
         type Error = Error;
 
+        #[metrics(+"set_key_value_account_string_value")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -95,6 +100,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Account, String> {
         type Error = Error;
 
+        #[metrics(+"remove_account_key_value")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -114,6 +120,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Grant<Account, PermissionToken> {
         type Error = Error;
 
+        #[metrics(+"grant_account_permission_token")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -132,6 +139,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Grant<Account, RoleId> {
         type Error = Error;
 
+        #[metrics(+"grant_account_role")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -152,7 +160,7 @@ pub mod isi {
     }
 }
 
-/// Query module provides [`Query`] Account related implementations.
+/// Account-related [`Query`] instructions.
 pub mod query {
 
     use eyre::{eyre, Result, WrapErr};
@@ -164,25 +172,19 @@ pub mod query {
     #[cfg(feature = "roles")]
     impl<W: WorldTrait> ValidQuery<W> for FindRolesByAccountId {
         #[log]
+        #[metrics(+"find_roles_by_account_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
-            wsv.metrics
-                .queries
-                .with_label_values(&["find_roles_by_account_id", "submission"])
-                .inc();
             let account_id = self.id.evaluate(wsv, &Context::new())?;
             let roles = wsv.map_account(&account_id, |account| {
                 account.roles.iter().cloned().collect::<Vec<_>>()
             })?;
-            wsv.metrics
-                .queries
-                .with_label_values(&["find_roles_by_account_id", "success"])
-                .inc();
             Ok(roles)
         }
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindPermissionTokensByAccountId {
         #[log]
+        #[metrics(+"find_permission_tokens_by_account_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let account_id = self.id.evaluate(wsv, &Context::new())?;
             let tokens = wsv.map_account(&account_id, |account| {
@@ -197,6 +199,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllAccounts {
         #[log]
+        #[metrics(+"find_all_accounts")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
@@ -210,6 +213,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAccountById {
         #[log]
+        #[metrics(+"find_account_by_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .id
@@ -221,6 +225,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAccountsByName {
         #[log]
+        #[metrics(+"find_account_by_name")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .name
@@ -240,6 +245,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAccountsByDomainName {
         #[log]
+        #[metrics(+"find_accounts_by_domain_name")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .domain_name
@@ -256,6 +262,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAccountKeyValueByIdAndKey {
         #[log]
+        #[metrics(+"find_account_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .id

@@ -18,6 +18,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Register<NewAccount> {
         type Error = Error;
 
+        #[metrics(+"register_account")]
         fn execute(
             self,
             _authority: <NewAccount as Identifiable>::Id,
@@ -45,6 +46,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Unregister<Account> {
         type Error = Error;
 
+        #[metrics(+"unregister_account")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -61,6 +63,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Register<AssetDefinition> {
         type Error = Error;
 
+        #[metrics(+"register_asset_def")]
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
@@ -92,6 +95,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Unregister<AssetDefinition> {
         type Error = Error;
 
+        #[metrics(+"unregister_asset_def")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -121,6 +125,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for SetKeyValue<AssetDefinition, String, Value> {
         type Error = Error;
 
+        #[metrics(+"set_key_value_asset_def")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -141,6 +146,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for RemoveKeyValue<AssetDefinition, String> {
         type Error = Error;
 
+        #[metrics(+"remove_key_value_asset_def")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -161,6 +167,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for SetKeyValue<Domain, String, Value> {
         type Error = Error;
 
+        #[metrics(+"set_key_value_domain")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -183,6 +190,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Domain, String> {
         type Error = Error;
 
+        #[metrics(+"remove_key_value_domain")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -210,6 +218,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllDomains {
         #[log]
+        #[metrics(+"find_all_domains")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             Ok(wsv
                 .domains()
@@ -220,6 +229,7 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindDomainByName {
+        #[metrics(+"find_domain_by_name")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .name
@@ -231,6 +241,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindDomainKeyValueByIdAndKey {
         #[log]
+        #[metrics(+"find_domain_key_value_by_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .name
@@ -246,6 +257,7 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetDefinitionKeyValueByIdAndKey {
+        #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .id

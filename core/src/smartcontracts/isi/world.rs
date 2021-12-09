@@ -1,4 +1,4 @@
-//! This module contains `World` related ISI implementations.
+//! `World`-related ISI implementations.
 
 use super::prelude::*;
 use crate::prelude::*;
@@ -13,6 +13,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Register<Peer> {
         type Error = Error;
 
+        #[metrics(+"register_peer")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -29,6 +30,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Unregister<Peer> {
         type Error = Error;
 
+        #[metrics(+"unregister_peer")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -45,6 +47,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Register<Domain> {
         type Error = Error;
 
+        #[metrics("register_domain")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -61,6 +64,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Unregister<Domain> {
         type Error = Error;
 
+        #[metrics("unregister_domain")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -77,6 +81,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Register<Role> {
         type Error = Error;
 
+        #[metrics(+"register_role")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -92,6 +97,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Unregister<Role> {
         type Error = Error;
 
+        #[metrics("unregister_peer")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,

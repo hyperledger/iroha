@@ -26,7 +26,7 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_data_model = { path = "../data_model", features = ["warp"] }
+iroha_data_model = { version = "=2.0.0-pre.1", path = "../data_model", features = ["warp"] }
 iroha_macro = { version = "=2.0.0-pre.1", path = "../macro" }
 iroha_p2p = { version = "=2.0.0-pre.1", path = "../p2p" }
 iroha_logger = { version = "=2.0.0-pre.1", path = "../logger"}

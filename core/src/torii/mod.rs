@@ -18,7 +18,6 @@ use warp::{
     Filter, Reply,
 };
 
-#[macro_use]
 mod utils;
 
 use crate::{

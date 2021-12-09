@@ -1,9 +1,12 @@
 //! [`Metrics`] and [`Status`]-related logic and functions.
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use prometheus::{
-    core::{AtomicU64, GenericGauge},
-    Encoder, IntCounter, IntCounterVec, Opts, Registry,
+    core::{AtomicU64, GenericGauge, GenericGaugeVec},
+    Encoder, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts, Registry,
 };
 use serde::{Deserialize, Serialize};
 
@@ -54,10 +57,14 @@ pub struct Metrics {
     pub uptime_since_genesis_ms: GenericGauge<AtomicU64>,
     /// Number of domains.
     pub domains: GenericGauge<AtomicU64>,
-    /// Number of users with non-zero assets.
-    pub users: GenericGauge<AtomicU64>,
+    /// Total number of users per domain
+    pub accounts: GenericGaugeVec<AtomicU64>,
+    /// Transaction amounts.
+    pub tx_amounts: Histogram,
     /// Queries handled by this peer
-    pub queries: IntCounterVec,
+    pub isi: IntCounterVec,
+    /// Query handle time Histogram
+    pub isi_times: HistogramVec,
     // Internal use only.
     registry: Registry,
 }
@@ -68,10 +75,20 @@ impl Default for Metrics {
     fn default() -> Self {
         let txs = IntCounterVec::new(Opts::new("txs", "Transactions committed"), &["type"])
             .expect("Infallible");
-        let queries = IntCounterVec::new(
-            Opts::new("queries", "Queries handled by this peer"),
+        let isi = IntCounterVec::new(
+            Opts::new("isi", "Iroha special instructions handled by this peer"),
             &["type", "success_status"],
         )
+        .expect("Infallible");
+        let isi_times = HistogramVec::new(
+            HistogramOpts::new("isi_times", "Time to handle isi in this peer"),
+            &["type"],
+        )
+        .expect("Infallible");
+        let tx_amounts = Histogram::with_opts(HistogramOpts::new(
+            "tx_amount",
+            "average amount involved in a transaction on this peer",
+        ))
         .expect("Infallible");
         let block_height =
             IntCounter::new("block_height", "Current block height").expect("Infallible");
@@ -82,12 +99,15 @@ impl Default for Metrics {
         .expect("Infallible");
         let uptime_since_genesis_ms = GenericGauge::new(
             "uptime_since_genesis_ms",
-            "Network uptime, from creation of the genesis block",
+            "Network up-time, from creation of the genesis block",
         )
         .expect("Infallible");
         let domains = GenericGauge::new("domains", "Total number of domains").expect("Infallible");
-        let users = GenericGauge::new("users", "Total number of users").expect("Infallible");
-
+        let accounts = GenericGaugeVec::new(
+            Opts::new("accounts", "User accounts registered at this time"),
+            &["domain"],
+        )
+        .expect("Infallible");
         let registry = Registry::new();
 
         macro_rules! register {
@@ -102,12 +122,14 @@ impl Default for Metrics {
 
         register!(
             txs,
+            tx_amounts,
             block_height,
             connected_peers,
             uptime_since_genesis_ms,
             domains,
-            users,
-            queries
+            accounts,
+            isi,
+            isi_times
         );
 
         Self {
@@ -117,8 +139,10 @@ impl Default for Metrics {
             uptime_since_genesis_ms,
             registry,
             domains,
-            users,
-            queries,
+            accounts,
+            tx_amounts,
+            isi,
+            isi_times,
         }
     }
 }
@@ -135,5 +159,11 @@ impl Metrics {
         let metric_families = self.registry.gather();
         Encoder::encode(&encoder, &metric_families, &mut buffer)?;
         Ok(String::from_utf8(buffer)?)
+    }
+
+    pub fn current_time(&self) -> Duration {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Failed to get the current system time")
     }
 }

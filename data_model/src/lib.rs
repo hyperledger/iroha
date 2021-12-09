@@ -2150,6 +2150,8 @@ pub mod uri {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
+    pub use iroha_data_model_derive::metrics;
+
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
     pub use super::{

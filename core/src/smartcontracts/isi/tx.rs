@@ -8,6 +8,7 @@ use super::*;
 
 impl<W: WorldTrait> ValidQuery<W> for FindTransactionsByAccountId {
     #[log]
+    #[metrics(+"find_transactions_by_account_id")]
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
         let id = self
             .account_id
@@ -19,6 +20,7 @@ impl<W: WorldTrait> ValidQuery<W> for FindTransactionsByAccountId {
 
 impl<W: WorldTrait> ValidQuery<W> for FindTransactionByHash {
     #[log]
+    #[metrics(+"find_transaction_by_hash")]
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
         let hash = self
             .hash

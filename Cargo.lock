@@ -1552,6 +1552,7 @@ dependencies = [
  "iroha_client",
  "iroha_core",
  "iroha_crypto",
+ "iroha_data_model_derive",
  "iroha_macro",
  "iroha_schema",
  "iroha_version",
@@ -1564,6 +1565,17 @@ dependencies = [
  "tokio",
  "trybuild",
  "warp",
+]
+
+[[package]]
+name = "iroha_data_model_derive"
+version = "2.0.0-pre.1"
+dependencies = [
+ "iroha_core",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

@@ -49,7 +49,8 @@ pub type IsInstructionAllowedBoxed<W> = IsAllowedBoxed<W, Instruction>;
 /// Box with permissions validator for `Query`.
 pub type IsQueryAllowedBoxed<W> = IsAllowedBoxed<W, QueryBox>;
 
-/// Trait for joining validators with `or` method, autoimplemented for all types which convert to [`IsAllowedBoxed`].
+/// Trait for joining validators with `or` method, auto-implemented
+/// for all types which convert to [`IsAllowedBoxed`].
 pub trait ValidatorApplyOr<W: WorldTrait, O: NeedsPermission> {
     /// Combines two validators into [`Or`].
     fn or(self, another: impl Into<IsAllowedBoxed<W, O>>) -> Or<W, O>;
