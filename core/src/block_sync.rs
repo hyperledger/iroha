@@ -189,7 +189,7 @@ impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
                         .map(SignatureOf::transmute_ref),
                 )
                 .len()
-                >= network_topology.min_votes_for_commit() as usize
+                >= network_topology.min_votes_for_commit()
         {
             self.state = State::InProgress(remaining_blocks.to_vec(), peer_id);
             self.sumeragi

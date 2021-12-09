@@ -105,7 +105,7 @@ async fn try_get_online_topology(
 ) -> Result<Topology> {
     let (online_peers, offline_peers) =
         check_peers_status(this_peer_id, network_topology, network).await;
-    let set_a_len = network_topology.min_votes_for_commit() as usize;
+    let set_a_len = network_topology.min_votes_for_commit();
     if online_peers.len() < set_a_len {
         return Err(eyre!("Not enough online peers for consensus."));
     }

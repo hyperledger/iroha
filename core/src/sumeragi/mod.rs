@@ -1350,7 +1350,7 @@ pub mod message {
                 "Received a vote for block",
             );
 
-            if valid_signatures.len() < network_topology.min_votes_for_commit() as usize - 1 {
+            if valid_signatures.len() < network_topology.min_votes_for_commit() - 1 {
                 return Ok(());
             }
 
@@ -1422,7 +1422,7 @@ pub mod message {
             );
             let proxy_tail_signatures = network_topology
                 .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
-            if valid_signatures.len() >= network_topology.min_votes_for_commit() as usize
+            if valid_signatures.len() >= network_topology.min_votes_for_commit()
                 && proxy_tail_signatures.len() == 1
                 && sumeragi.latest_block_hash() == &self.block.header().previous_block_hash
             {

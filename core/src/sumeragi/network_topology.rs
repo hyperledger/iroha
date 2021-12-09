@@ -109,7 +109,6 @@ impl GenesisBuilder {
     /// 1. Required field is omitted.
     /// 2. Could not deduce max faults.
     /// 3. Not enough peers to be Byzantine fault tolerant
-    /// 4. Max faults can not fit into u32.
     pub fn build(self) -> Result<Topology> {
         let leader = field_is_some_or_err!(self.leader)?;
         let mut set_a = field_is_some_or_err!(self.set_a)?;
@@ -275,25 +274,25 @@ impl Topology {
     }
 
     /// The minimum number of signatures needed to commit a block
-    pub fn min_votes_for_commit(&self) -> u32 {
+    pub fn min_votes_for_commit(&self) -> usize {
         2 * self.max_faults() + 1
     }
 
     /// The minimum number of signatures needed to perform a view change (change leader, proxy, etc.)
-    pub fn min_votes_for_view_change(&self) -> u32 {
+    pub fn min_votes_for_view_change(&self) -> usize {
         self.max_faults() + 1
     }
 
     /// Peers of set A. They participate in the consensus.
     pub fn peers_set_a(&self) -> &[PeerId] {
         let n_a_peers = 2 * self.max_faults() + 1;
-        &self.sorted_peers[..n_a_peers as usize]
+        &self.sorted_peers[..n_a_peers]
     }
 
     /// Peers of set B. The watch the consensus process.
     pub fn peers_set_b(&self) -> &[PeerId] {
         let n_a_peers = 2 * self.max_faults() + 1;
-        &self.sorted_peers[n_a_peers as usize..]
+        &self.sorted_peers[n_a_peers..]
     }
 
     /// The leader of the current round.
@@ -399,9 +398,9 @@ impl Topology {
     }
 
     /// Maximum number of faulty peers that the network will tolerate.
-    pub fn max_faults(&self) -> u32 {
-        #![allow(clippy::integer_division, clippy::cast_possible_truncation)]
-        (self.sorted_peers.len() as u32 - 1) / 3
+    pub fn max_faults(&self) -> usize {
+        #![allow(clippy::integer_division)]
+        (self.sorted_peers.len() - 1) / 3
     }
 }
 

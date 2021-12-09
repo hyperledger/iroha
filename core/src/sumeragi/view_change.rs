@@ -102,7 +102,7 @@ impl Proof {
     }
 
     /// Verify if the proof is valid, given the peers in `topology`.
-    pub fn verify(&self, peers: &HashSet<PeerId>, max_faults: u32) -> bool {
+    pub fn verify(&self, peers: &HashSet<PeerId>, max_faults: usize) -> bool {
         let peer_public_keys: HashSet<PublicKey> = peers
             .iter()
             .map(|peer_id| peer_id.public_key.clone())
@@ -115,7 +115,7 @@ impl Proof {
         // See Whitepaper for the information on this limit.
         #[allow(clippy::int_plus_one)]
         {
-            n_signatures >= max_faults as usize + 1
+            n_signatures >= max_faults + 1
         }
     }
 
@@ -209,7 +209,7 @@ impl ProofChain {
     pub fn verify_with_state(
         &self,
         peers: &HashSet<PeerId>,
-        max_faults: u32,
+        max_faults: usize,
         latest_block: &HashOf<VersionedCommittedBlock>,
     ) -> bool {
         let mut previous_proof = EmptyChainHash::default().into();
