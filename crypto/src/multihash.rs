@@ -110,7 +110,7 @@ impl TryFrom<Vec<u8>> for Multihash {
         let (digest_function, bytes) = bytes.split_at(idx + 1);
         let mut bytes = bytes.iter().copied();
 
-        let digest_function: u64 = VarUint::new(digest_function)?.try_into()?;
+        let digest_function: u64 = VarUint::new(&digest_function)?.try_into()?;
         let digest_function = digest_function.try_into()?;
 
         let digest_size = bytes
@@ -135,7 +135,7 @@ impl TryFrom<&Multihash> for Vec<u8> {
         let mut bytes = Vec::new();
         let digest_function: u64 = (&multihash.digest_function).into();
         let digest_function: VarUint = digest_function.into();
-        let mut digest_function: Vec<_> = digest_function.into();
+        let mut digest_function = digest_function.into();
         bytes.append(&mut digest_function);
         bytes.push(multihash.payload.len().try_into()?);
         bytes.extend_from_slice(&multihash.payload);

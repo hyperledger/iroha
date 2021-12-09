@@ -12,7 +12,7 @@ use std::{
     str::FromStr,
 };
 
-use eyre::{eyre, Error, Result, WrapErr};
+use eyre::{eyre, Error, Result};
 pub use hash::*;
 use iroha_schema::IntoSchema;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
@@ -39,7 +39,7 @@ pub const BLS_NORMAL: &str = "bls_normal";
 pub const BLS_SMALL: &str = "bls_small";
 
 /// Algorithm for hashing
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Algorithm {
     /// Ed25519
     Ed25519,
@@ -82,7 +82,7 @@ impl Display for Algorithm {
 }
 
 /// Options for key generation
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub enum KeyGenOption {
     /// Use seed
     UseSeed(Vec<u8>),
@@ -111,7 +111,7 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
 }
 
 /// Configuration of key generation
-#[derive(Default, Clone, Debug)]
+#[derive(Debug, Clone, Default)]
 pub struct KeyGenConfiguration {
     /// Options
     pub key_gen_option: Option<KeyGenOption>,
@@ -140,7 +140,7 @@ impl KeyGenConfiguration {
 }
 
 /// Pair of Public and Private keys.
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct KeyPair {
     /// Public Key.
     pub public_key: PublicKey,
@@ -195,7 +195,7 @@ impl From<KeyPair> for (PublicKey, PrivateKey) {
 }
 
 /// Public Key used in signatures.
-#[derive(Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Clone, Hash, IntoSchema)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, IntoSchema)]
 pub struct PublicKey {
     /// Digest function
     pub digest_function: String,
@@ -205,16 +205,18 @@ pub struct PublicKey {
 
 impl FromStr for PublicKey {
     type Err = Error;
+
     fn from_str(key: &str) -> Result<Self> {
-        serde_json::from_value(serde_json::json!(key))
-            .wrap_err("Failed to deserialize supplied public key argument.")
+        let bytes = hex::decode(key)?;
+        let multihash = Multihash::try_from(bytes)?;
+        multihash.try_into()
     }
 }
 
 impl Default for PublicKey {
     #[allow(clippy::unwrap_used)]
     fn default() -> Self {
-        (&Multihash::default()).try_into().unwrap()
+        Multihash::default().try_into().unwrap()
     }
 }
 
@@ -231,6 +233,7 @@ impl Display for PublicKey {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let multihash: &Multihash = &self
+            .clone()
             .try_into()
             .expect("Failed to get multihash representation.");
         let bytes: Vec<u8> = multihash
@@ -240,28 +243,28 @@ impl Display for PublicKey {
     }
 }
 
-impl TryFrom<&Multihash> for PublicKey {
+impl TryFrom<Multihash> for PublicKey {
     type Error = Error;
 
-    fn try_from(multihash: &Multihash) -> Result<Self> {
+    fn try_from(multihash: Multihash) -> Result<Self> {
         match multihash.digest_function {
-            MultihashDigestFunction::Ed25519Pub => Ok(ED_25519.to_owned()),
-            MultihashDigestFunction::Secp256k1Pub => Ok(SECP_256_K1.to_owned()),
-            MultihashDigestFunction::Bls12381G1Pub => Ok(BLS_NORMAL.to_owned()),
-            MultihashDigestFunction::Bls12381G2Pub => Ok(BLS_SMALL.to_owned()),
+            MultihashDigestFunction::Ed25519Pub => Ok(ED_25519),
+            MultihashDigestFunction::Secp256k1Pub => Ok(SECP_256_K1),
+            MultihashDigestFunction::Bls12381G1Pub => Ok(BLS_NORMAL),
+            MultihashDigestFunction::Bls12381G2Pub => Ok(BLS_SMALL),
         }
         .map(|digest_function| PublicKey {
-            digest_function,
-            payload: multihash.payload.clone(),
+            digest_function: digest_function.to_owned(),
+            payload: multihash.payload,
         })
     }
 }
 
-impl TryFrom<&PublicKey> for Multihash {
+impl TryFrom<PublicKey> for Multihash {
     type Error = Error;
 
-    fn try_from(public_key: &PublicKey) -> Result<Self> {
-        match public_key.digest_function.as_ref() {
+    fn try_from(public_key: PublicKey) -> Result<Self> {
+        match public_key.digest_function.as_str() {
             ED_25519 => Ok(MultihashDigestFunction::Ed25519Pub),
             SECP_256_K1 => Ok(MultihashDigestFunction::Secp256k1Pub),
             BLS_NORMAL => Ok(MultihashDigestFunction::Bls12381G1Pub),
@@ -270,7 +273,7 @@ impl TryFrom<&PublicKey> for Multihash {
         }
         .map(|digest_function| Multihash {
             digest_function,
-            payload: public_key.payload.clone(),
+            payload: public_key.payload,
         })
     }
 }
@@ -289,16 +292,13 @@ impl<'de> Deserialize<'de> for PublicKey {
     where
         D: serde::Deserializer<'de>,
     {
-        let bytes = hex::decode(String::deserialize(deserializer)?).map_err(SerdeError::custom)?;
-        let multihash = &Multihash::try_from(bytes)
-            .map_err(|e| e.to_string())
-            .map_err(SerdeError::custom)?;
-        multihash.try_into().map_err(SerdeError::custom)
+        let public_key_str = <std::borrow::Cow<str>>::deserialize(deserializer)?;
+        PublicKey::from_str(&public_key_str).map_err(SerdeError::custom)
     }
 }
 
 /// Private Key used in signatures.
-#[derive(Clone, Deserialize, PartialEq, Eq, Default, Serialize)]
+#[derive(Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PrivateKey {
     /// Digest function
     pub digest_function: String,
