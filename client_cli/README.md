@@ -29,31 +29,7 @@ All examples below are Unix oriented, to run them on Windows replace `./iroha_cl
 
 ## Examples
 
-Full description and list of commands detailed in `iroha --help`.
-
-```
-$: ./iroha_client_cli --help
-iroha_client_cli 0.1.0
-Soramitsu Iroha2 team (https, //github.com/orgs/soramitsu/teams/iroha2)
-Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage
-
-USAGE:
-    iroha_client_cli [OPTIONS] <SUBCOMMAND>
-
-FLAGS:
-    -h, --help       Prints help information
-    -V, --version    Prints version information
-
-OPTIONS:
-    -c, --config <config>    Sets a config file path [default: config.json]
-
-SUBCOMMANDS:
-    account    Use this command to work with Account Entities in Iroha Peer
-    asset      Use this command to work with Assets in Iroha Peer
-    domain     Use this command to work with Domain Entities in Iroha Peer
-    events     Use this command to listen to Iroha events over the streaming API
-    help       Prints this message or the help of the given subcommand(s)
-```
+Full description and list of commands detailed in `./iroha_client_cli --help`.
 
 ### TL;DR
 
@@ -69,7 +45,7 @@ SUBCOMMANDS:
 
 Let's start with domain creation. We need to provide `register` command first, 
 following by entity type (domain in our case) and list of required parameters.
-For domain entity we only need `id` parameter which is stringly typed.
+For domain entity we only need `id` parameter as a string.
 
 ```bash
 ./iroha_client_cli domain register --id="Soramitsu"
@@ -101,12 +77,12 @@ Every asset has its own value type, here we define domain as quantity (integer/n
 ### Query Account Assets Quantity
 
 Because distributed systems heavily relay on the concept of eventual consistency and Iroha works in Consensus between peers, your requests may or may not be processed
-while Iroha Client will successufully send them and Iroha Peer will accept them. Different stages of transactions processing and different cases may lead to
+while Iroha Client will successfully send them and Iroha Peer will accept them. Different stages of transactions processing and different cases may lead to
 rejection of transaction after your receive response from Command Line Interface. To check that your instruction were applied and system now in the desired state
-you need to become familar and use Query API.
+you need to become familiar and use Query API.
 
-Let's use Get Account Assets Query as an example. Command will look familar because it almost the same as the update command.
-We need to know quantity so we skipp this argument and replace `update asset add` part with `get asset`.
+Let's use Get Account Assets Query as an example. Command will look familiar because it almost the same as the update command.
+We need to know quantity so we skip this argument and replace `update asset add` part with `get asset`.
 
 ```bash
 ./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" 
@@ -117,12 +93,7 @@ We need to know quantity so we skipp this argument and replace `update asset add
 That's great! 
 Check out [this document](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md)
 
-## Need help?
-
-* Join [Telegram chat](https://t.me/hyperledgeriroha) or [Hyperledger RocketChat](https://chat.hyperledger.org/channel/iroha) where the maintainers, contributors and fellow users are ready to help you. 
-You can also discuss your concerns and proposals and simply chat about Iroha there or in Gitter [![Join the chat at https://gitter.im/hyperledger-iroha/Lobby](https://badges.gitter.im/hyperledger-iroha/Lobby.svg)](https://gitter.im/hyperledger-iroha/Lobby)
-* Submit issues and improvement suggestions via [Hyperledger Jira](https://jira.hyperledger.org/secure/CreateIssue!default.jspa) 
-* Subscribe to our [mailing list](https://lists.hyperledger.org/g/iroha) to receive the latest and most important news and spread your word within Iroha community
+## [Need help?](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md#contact)
 
 ## License
 
