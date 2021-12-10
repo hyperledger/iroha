@@ -11,15 +11,22 @@ use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use quote::quote;
 use syn::{
-    parse::Parse, parse_macro_input, spanned::Spanned, Attribute, Data, DataEnum, DataStruct,
-    DeriveInput, Expr, Field, Fields, FieldsNamed, FieldsUnnamed, GenericParam, Generics, Lit,
-    LitStr, Meta, NestedMeta, Type, Variant,
+    parse::Parse, parse_macro_input, parse_quote, spanned::Spanned, Attribute, Data, DataEnum,
+    DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed, FieldsUnnamed, GenericParam,
+    Generics, Lit, LitStr, Meta, NestedMeta, Type, Variant,
 };
 
 /// Check out docs in `iroha_schema` crate
 #[proc_macro_derive(IntoSchema)]
 pub fn schema_derive(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
+    let mut input = parse_macro_input!(input as DeriveInput);
+
+    input.generics.type_params_mut().for_each(|ty_param| {
+        ty_param
+            .bounds
+            .push(parse_quote! {iroha_schema::IntoSchema})
+    });
+
     impl_schema(&input).into()
 }
 
@@ -27,17 +34,7 @@ fn impl_schema(input: &DeriveInput) -> TokenStream2 {
     let name = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let type_name_body = type_name_body(name, &input.generics);
-    let ty_params = input.generics.type_params();
     let metadata = metadata(&input.data);
-
-    let where_clause = if let Some(this_where_clause) = where_clause {
-        quote! {
-            #this_where_clause
-            #(#ty_params : iroha_schema::IntoSchema,)*
-        }
-    } else {
-        quote! { where #(#ty_params : iroha_schema::IntoSchema,)* }
-    };
 
     quote! {
         impl #impl_generics iroha_schema::IntoSchema for #name #ty_generics

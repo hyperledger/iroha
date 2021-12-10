@@ -42,7 +42,7 @@ pub type Name = String;
 pub type Bytes = Vec<u8>;
 
 #[allow(clippy::missing_errors_doc)]
-/// Similar to [`std::convert::AsMut`] but indicating that this reference conversion can fail.
+/// Similar to [`AsMut`] but indicating that this reference conversion can fail.
 pub trait TryAsMut<T> {
     /// The type returned in the event of a conversion error.
     type Error;
@@ -52,7 +52,7 @@ pub trait TryAsMut<T> {
 }
 
 #[allow(clippy::missing_errors_doc)]
-/// Similar to [`std::convert::AsRef`] but indicating that this reference conversion can fail.
+/// Similar to [`AsRef`] but indicating that this reference conversion can fail.
 pub trait TryAsRef<T> {
     /// The type returned in the event of a conversion error.
     type Error;
