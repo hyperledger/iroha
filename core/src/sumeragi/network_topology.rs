@@ -190,9 +190,13 @@ impl Builder {
     ///
     /// # Errors
     /// 1. Required field is omitted.
-    /// 2. Not enough peers to be Byzantine fault tolerant
     pub fn build(self) -> Result<Topology> {
         let peers = field_is_some_or_err!(self.peers)?;
+        if peers.is_empty() {
+            return Err(eyre::eyre!(
+                "There must be at least one peer in the network."
+            ));
+        }
         let reshuffle_after_n_view_changes =
             field_is_some_or_err!(self.reshuffle_after_n_view_changes)?;
         let at_block = field_is_some_or_err!(self.at_block)?;
@@ -398,8 +402,8 @@ impl Topology {
     }
 
     /// Maximum number of faulty peers that the network will tolerate.
+    #[allow(clippy::integer_division)]
     pub fn max_faults(&self) -> usize {
-        #![allow(clippy::integer_division)]
         (self.sorted_peers.len() - 1) / 3
     }
 }

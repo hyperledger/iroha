@@ -176,6 +176,7 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 - We use pinned dependencies. If your work depends on a particular crate, see if it wasn't already installed using [`cargo tree`](https://doc.rust-lang.org/cargo/commands/cargo-tree.html) (hint use `bat` or `grep`), and try to use that version, instead of the latest version.
 - We use pinned dependencies. Use the full version "X.Y.Z" in `Cargo.toml`.
 - Version bumps in separate PR.
+- Prefer  `#[outer_attribute]` to `#![inner_attribute]` if either is available.
 
 ### Documentation Style Guide
 
