@@ -12,11 +12,12 @@ fn connected_peers_with_f_2_1_2() {
     connected_peers_with_f(2)
 }
 
+#[test]
 // TODO This case does not have to be supported, but at least have to be error-handled
-// #[test]
-// fn connected_peers_with_f_1_0_1() {
-//     connected_peers_with_f(1)
-// }
+#[ignore]
+fn connected_peers_with_f_1_0_1() {
+    connected_peers_with_f(1)
+}
 
 /// Test the number of connected peers, changing the number of faults tolerated down and up
 fn connected_peers_with_f(faults: u64) {

@@ -190,6 +190,7 @@ impl Builder {
     ///
     /// # Errors
     /// 1. Required field is omitted.
+    /// 2. No peer exists.
     pub fn build(self) -> Result<Topology> {
         let peers = field_is_some_or_err!(self.peers)?;
         if peers.is_empty() {
