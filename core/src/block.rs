@@ -666,11 +666,7 @@ impl VersionedCommittedBlock {
 
 /// When Kura receives `ValidBlock`, the block is stored and
 /// then sent to later stage of the pipeline as `CommitedBlock`.
-#[version_with_scale(
-    n = 1,
-    versioned = "VersionedCommittedBlock",
-    derive = "Debug, Clone, iroha_schema::IntoSchema"
-)]
+#[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
 #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct CommittedBlock {
     /// Header
