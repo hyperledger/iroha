@@ -106,10 +106,9 @@ impl GenesisBuilder {
     /// Build and get topology.
     ///
     /// # Errors
-    /// 1. Required field is ommitted.
+    /// 1. Required field is omitted.
     /// 2. Could not deduce max faults.
     /// 3. Not enough peers to be Byzantine fault tolerant
-    /// 4. Max faults can not fit into u32.
     pub fn build(self) -> Result<Topology> {
         let leader = field_is_some_or_err!(self.leader)?;
         let mut set_a = field_is_some_or_err!(self.set_a)?;
@@ -137,7 +136,6 @@ impl GenesisBuilder {
             .collect();
         Ok(Topology {
             sorted_peers,
-            max_faults: max_faults.try_into()?,
             reshuffle_after_n_view_changes,
             at_block: EmptyChainHash::default().into(),
             view_change_proofs: ViewChangeProofs::empty(),
@@ -150,8 +148,6 @@ impl GenesisBuilder {
 pub struct Builder {
     /// Current order of peers. The roles of peers are defined based on this order.
     peers: Option<HashSet<PeerId>>,
-    /// Maximum faulty peers in a network.
-    max_faults: Option<u32>,
 
     reshuffle_after_n_view_changes: Option<u64>,
 
@@ -169,12 +165,6 @@ impl Builder {
     /// Set peers that participate in consensus.
     pub fn with_peers(mut self, peers: HashSet<PeerId>) -> Self {
         self.peers = Some(peers);
-        self
-    }
-
-    /// Set maximum number of faulty peers that the network will tolerate.
-    pub fn with_max_faults(mut self, max_faults: u32) -> Self {
-        self.max_faults = Some(max_faults);
         self
     }
 
@@ -199,43 +189,33 @@ impl Builder {
     /// Build and get topology.
     ///
     /// # Errors
-    /// 1. Required field is ommitted.
-    /// 2. Not enough peers to be Byzantine fault tolerant
+    /// 1. Required field is omitted.
+    /// 2. No peer exists.
     pub fn build(self) -> Result<Topology> {
         let peers = field_is_some_or_err!(self.peers)?;
-        let max_faults = field_is_some_or_err!(self.max_faults)?;
+        if peers.is_empty() {
+            return Err(eyre::eyre!(
+                "There must be at least one peer in the network."
+            ));
+        }
         let reshuffle_after_n_view_changes =
             field_is_some_or_err!(self.reshuffle_after_n_view_changes)?;
         let at_block = field_is_some_or_err!(self.at_block)?;
 
-        let min_peers = 3 * max_faults + 1;
         let peers: Vec<_> = peers.into_iter().collect();
-        if peers.len() >= min_peers as usize {
-            let sorted_peers =
-                if self.view_change_proofs.len() as u64 > reshuffle_after_n_view_changes {
-                    sort_peers_by_hash_and_counter(
-                        peers,
-                        &at_block,
-                        self.view_change_proofs.len() as u64,
-                    )
-                } else {
-                    let peers = sort_peers_by_hash(peers, &at_block);
-                    shift_peers_by_n(peers, self.view_change_proofs.len() as u64)
-                };
-            Ok(Topology {
-                sorted_peers,
-                max_faults,
-                reshuffle_after_n_view_changes,
-                at_block,
-                view_change_proofs: self.view_change_proofs,
-            })
+        let sorted_peers = if self.view_change_proofs.len() as u64 > reshuffle_after_n_view_changes
+        {
+            sort_peers_by_hash_and_counter(peers, &at_block, self.view_change_proofs.len() as u64)
         } else {
-            Err(eyre!(
-                "Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}",
-                min_peers,
-                peers.len(),
-            ))
-        }
+            let peers = sort_peers_by_hash(peers, &at_block);
+            shift_peers_by_n(peers, self.view_change_proofs.len() as u64)
+        };
+        Ok(Topology {
+            sorted_peers,
+            reshuffle_after_n_view_changes,
+            at_block,
+            view_change_proofs: self.view_change_proofs,
+        })
     }
 }
 
@@ -244,8 +224,6 @@ impl Builder {
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     sorted_peers: Vec<PeerId>,
-    /// Maximum faulty peers in a network.
-    max_faults: u32,
 
     reshuffle_after_n_view_changes: u64,
 
@@ -264,7 +242,6 @@ impl Topology {
     pub fn into_builder(self) -> Builder {
         Builder {
             peers: Some(self.sorted_peers.into_iter().collect()),
-            max_faults: Some(self.max_faults),
             reshuffle_after_n_view_changes: Some(self.reshuffle_after_n_view_changes),
             at_block: Some(self.at_block),
             view_change_proofs: self.view_change_proofs,
@@ -302,24 +279,25 @@ impl Topology {
     }
 
     /// The minimum number of signatures needed to commit a block
-    pub const fn min_votes_for_commit(&self) -> u32 {
-        2 * self.max_faults + 1
+    pub fn min_votes_for_commit(&self) -> usize {
+        2 * self.max_faults() + 1
     }
 
     /// The minimum number of signatures needed to perform a view change (change leader, proxy, etc.)
-    pub const fn min_votes_for_view_change(&self) -> u32 {
-        self.max_faults + 1
+    pub fn min_votes_for_view_change(&self) -> usize {
+        self.max_faults() + 1
     }
 
     /// Peers of set A. They participate in the consensus.
     pub fn peers_set_a(&self) -> &[PeerId] {
-        let n_a_peers = 2 * self.max_faults + 1;
-        &self.sorted_peers[..n_a_peers as usize]
+        let n_a_peers = 2 * self.max_faults() + 1;
+        &self.sorted_peers[..n_a_peers]
     }
 
     /// Peers of set B. The watch the consensus process.
     pub fn peers_set_b(&self) -> &[PeerId] {
-        &self.sorted_peers[(2 * self.max_faults + 1) as usize..]
+        let n_a_peers = 2 * self.max_faults() + 1;
+        &self.sorted_peers[n_a_peers..]
     }
 
     /// The leader of the current round.
@@ -424,9 +402,10 @@ impl Topology {
         &self.view_change_proofs
     }
 
-    /// Number of view changes.
-    pub const fn max_faults(&self) -> u32 {
-        self.max_faults
+    /// Maximum number of faulty peers that the network will tolerate.
+    #[allow(clippy::integer_division)]
+    pub fn max_faults(&self) -> usize {
+        (self.sorted_peers.len() - 1) / 3
     }
 }
 
@@ -462,25 +441,6 @@ mod tests {
     use iroha_crypto::KeyPair;
 
     use super::*;
-
-    #[test]
-    #[should_panic]
-    fn not_enough_peers() {
-        let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let listen_address = "127.0.0.1".to_owned();
-        let this_peer: HashSet<PeerId> = vec![PeerId {
-            address: listen_address,
-            public_key: key_pair.public_key,
-        }]
-        .into_iter()
-        .collect();
-        let _network_topology = Topology::builder()
-            .with_peers(this_peer)
-            .with_max_faults(3)
-            .reshuffle_after(1)
-            .build()
-            .expect("Failed to create topology.");
-    }
 
     #[test]
     #[should_panic]

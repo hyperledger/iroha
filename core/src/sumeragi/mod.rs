@@ -194,14 +194,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait> SumeragiTra
         kura: AlwaysAddr<K>,
         network: Addr<IrohaNetwork>,
     ) -> Result<Self> {
-        if configuration.trusted_peers.peers.is_empty() {
-            return Err(eyre::eyre!(
-                "There must be at least one trusted peer in the network."
-            ));
-        }
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash::default().into())
-            .with_max_faults(configuration.max_faulty_peers())
             .reshuffle_after(configuration.n_topology_shifts_before_reshuffle)
             .with_peers(configuration.trusted_peers.peers.clone())
             .build()?;
@@ -1351,7 +1345,7 @@ pub mod message {
                 "Received a vote for block",
             );
 
-            if valid_signatures.len() < network_topology.min_votes_for_commit() as usize - 1 {
+            if valid_signatures.len() < network_topology.min_votes_for_commit() - 1 {
                 return Ok(());
             }
 
@@ -1423,7 +1417,7 @@ pub mod message {
             );
             let proxy_tail_signatures = network_topology
                 .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
-            if valid_signatures.len() >= network_topology.min_votes_for_commit() as usize
+            if valid_signatures.len() >= network_topology.min_votes_for_commit()
                 && proxy_tail_signatures.len() == 1
                 && sumeragi.latest_block_hash() == &self.block.header().previous_block_hash
             {
@@ -1663,12 +1657,6 @@ pub mod config {
         /// Set `trusted_peers` configuration parameter - will overwrite the existing one.
         pub fn trusted_peers(&mut self, trusted_peers: Vec<PeerId>) {
             self.trusted_peers.peers = trusted_peers.into_iter().collect();
-        }
-
-        /// Calculate `max_faulty_peers` configuration parameter as per (f-1)/3.
-        pub fn max_faulty_peers(&self) -> u32 {
-            #![allow(clippy::integer_division, clippy::cast_possible_truncation)]
-            (self.trusted_peers.peers.len() as u32 - 1) / 3
         }
 
         /// Time estimation from receiving a transaction to storing it in a block on all peers for the "sunny day" scenario.

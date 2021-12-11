@@ -133,7 +133,7 @@ By default Iroha logs in a human readable format to `stdout`. The logging level 
 
 For example if your iroha instance is running at `127.0.0.1:8080` to change the log level to `DEBUG` using `curl` one can 
 ```bash
-curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"ChangeLogLevel": "DEBUG"}' -i
+curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"LogLevel": "DEBUG"}' -i
 ```
 
 Optional JSON formatted logging can be saved to the [logging file](./docs/source/references/config.md#loggerlog_file_path). [Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the peer administrator's responsibility. 
@@ -177,12 +177,7 @@ The provided `docker-compose` file showcases a minimum viable network and the ge
 That's great!
 Check out our [contributing guide](./CONTRIBUTING.md)
 
-# Help
-
-* Join our [Telegram chat](https://t.me/hyperledgeriroha) or [Hyperledger RocketChat](https://chat.hyperledger.org/channel/iroha) where the maintainers, contributors and fellow users are ready to help you.
-You can also discuss your concerns and proposals and simply chat about Iroha there or in Gitter [![Join the chat at https://gitter.im/hyperledger-iroha/Lobby](https://badges.gitter.im/hyperledger-iroha/Lobby.svg)](https://gitter.im/hyperledger-iroha/Lobby)
-* Submit issues and improvement suggestions via [Hyperledger Jira](https://jira.hyperledger.org/secure/CreateIssue!default.jspa)
-* Subscribe to our [mailing list](https://lists.hyperledger.org/g/iroha) to receive the latest and most important news and spread your word within Iroha community
+# [Help](./CONTRIBUTING.md#contact)
 
 # License
 

@@ -1,21 +1,5 @@
 # API Specification for Client Libraries
 
-- [API Specification for Client Libraries](#api-specification-for-client-libraries)
-  - [Endpoints for API](#endpoints-for-api)
-    - [Transaction](#transaction)
-    - [Query](#query)
-      - [Asset Not Found 404](#asset-not-found-404)
-      - [Account Not Found 404](#account-not-found-404)
-    - [Events](#events)
-    - [Configuration](#configuration)
-    - [Health](#health)
-  - [Endpoints for status/metrics](#endpoints-for-statusmetrics)
-    - [Status](#status)
-    - [Metrics](#metrics)
-  - [Parity Scale Codec](#parity-scale-codec)
-  - [Reference Iroha Client Implementation](#reference-iroha-client-implementation)
-  - [Iroha Structures](#iroha-structures)
-
 ## Endpoints for [API](./config.md#toriiapi_url)
 
 ### Transaction
