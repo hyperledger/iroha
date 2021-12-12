@@ -75,7 +75,6 @@ async fn create_and_start_torii() {
 #[tokio::test(flavor = "multi_thread")]
 async fn torii_pagination() {
     let (torii, keys) = create_torii().await;
-    let state = Arc::new(torii.state);
 
     let get_domains = |start, limit| {
         let query: VerifiedQueryRequest = QueryRequest::new(
@@ -89,8 +88,8 @@ async fn torii_pagination() {
 
         let pagination = Pagination { start, limit };
         handle_queries(
-            Arc::clone(&state.wsv),
-            Arc::clone(&state.query_validator),
+            Arc::clone(&torii.wsv),
+            Arc::clone(&torii.query_validator),
             pagination,
             query,
         )
@@ -182,21 +181,20 @@ impl AssertReady {
 
         let (mut torii, keys) = create_torii().await;
         if self.deny_all {
-            torii.state.query_validator = Arc::new(DenyAll.into());
+            torii.query_validator = Arc::new(DenyAll.into());
         }
-        let state = Arc::new(torii.state);
 
         let authority = AccountId::new("alice", "wonderland");
         for instruction in self.instructions {
             instruction
-                .execute(authority.clone(), &state.wsv)
+                .execute(authority.clone(), &torii.wsv)
                 .expect("Given instructions disorder");
         }
 
         let post_router = endpoint4(
             handle_queries,
             warp::path(uri::QUERY)
-                .and(add_state!(state.wsv, state.query_validator))
+                .and(add_state!(torii.wsv, torii.query_validator))
                 .and(paginate())
                 .and(body::query()),
         );

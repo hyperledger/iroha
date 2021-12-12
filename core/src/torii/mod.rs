@@ -32,19 +32,14 @@ use crate::{
     Addr, Configuration, IrohaNetwork,
 };
 
-#[derive(Clone)]
-pub struct ToriiState<W: WorldTrait> {
+/// Main network handler and the only entrypoint of the Iroha.
+pub struct Torii<W: WorldTrait> {
     iroha_cfg: Configuration,
     wsv: Arc<WorldStateView<W>>,
     queue: Arc<Queue>,
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     network: Addr<IrohaNetwork>,
-}
-
-/// Main network handler and the only entrypoint of the Iroha.
-pub struct Torii<W: WorldTrait> {
-    state: ToriiState<W>,
 }
 
 /// Torii errors.
@@ -150,14 +145,12 @@ impl<W: WorldTrait> Torii<W> {
         network: Addr<IrohaNetwork>,
     ) -> Self {
         Self {
-            state: ToriiState {
-                iroha_cfg,
-                wsv,
-                events,
-                query_validator,
-                queue,
-                network,
-            },
+            iroha_cfg,
+            wsv,
+            events,
+            query_validator,
+            queue,
+            network,
         }
     }
 
@@ -179,48 +172,48 @@ impl<W: WorldTrait> Torii<W> {
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
     pub async fn start(self) -> eyre::Result<()> {
-        let state = Arc::new(self.state.clone());
+        let api_url = self.iroha_cfg.torii.api_url.clone();
 
         let get_router = warp::path(uri::HEALTH)
             .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
             .or(endpoint3(
                 handle_pending_transactions,
                 warp::path(uri::PENDING_TRANSACTIONS)
-                    .and(add_state!(state.wsv, state.queue))
+                    .and(add_state!(self.wsv, self.queue))
                     .and(paginate()),
             ))
             .or(endpoint2(
                 handle_get_configuration,
                 warp::path(uri::CONFIGURATION)
-                    .and(add_state!(state.iroha_cfg))
+                    .and(add_state!(self.iroha_cfg))
                     .and(warp::body::json()),
             ));
 
         let post_router = endpoint4(
             handle_instructions,
             warp::path(uri::TRANSACTION)
-                .and(add_state!(state.iroha_cfg, state.wsv, state.queue))
+                .and(add_state!(self.iroha_cfg, self.wsv, self.queue))
                 .and(warp::body::content_length_limit(
-                    state.iroha_cfg.torii.max_content_len as u64,
+                    self.iroha_cfg.torii.max_content_len as u64,
                 ))
                 .and(body::versioned()),
         )
         .or(endpoint4(
             handle_queries,
             warp::path(uri::QUERY)
-                .and(add_state!(state.wsv, state.query_validator))
+                .and(add_state!(self.wsv, self.query_validator))
                 .and(paginate())
                 .and(body::query()),
         ))
         .or(endpoint2(
             handle_post_configuration,
             warp::path(uri::CONFIGURATION)
-                .and(add_state!(state.iroha_cfg))
+                .and(add_state!(self.iroha_cfg))
                 .and(warp::body::json()),
         ));
 
         let ws_router = warp::path(uri::SUBSCRIPTION)
-            .and(add_state!(state.events))
+            .and(add_state!(self.events))
             .and(warp::ws())
             .map(|events, ws: Ws| {
                 ws.on_upgrade(|this_ws| async move {
@@ -230,15 +223,14 @@ impl<W: WorldTrait> Torii<W> {
                 })
             });
 
-        let router = warp::post()
-            .and(post_router)
+        let router = ws_router
+            .or(warp::post().and(post_router))
             .or(warp::get().and(get_router))
-            .or(ws_router)
             .with(warp::trace::request())
             .recover(Torii::<W>::recover_arg_parse);
 
         tokio::spawn(async move {
-            start_status(Arc::clone(&state))
+            self.start_status()
                 .await
                 .wrap_err("Failed to start status service")
                 .unwrap_or_else(|error| {
@@ -246,7 +238,7 @@ impl<W: WorldTrait> Torii<W> {
                 })
         });
 
-        match self.state.iroha_cfg.torii.api_url.to_socket_addrs() {
+        match api_url.to_socket_addrs() {
             Ok(mut i) => {
                 #[allow(clippy::expect_used)]
                 let addr = i.next().expect("ToSocketAddrs iteration failed");
@@ -254,38 +246,38 @@ impl<W: WorldTrait> Torii<W> {
                 Ok(())
             }
             Err(error) => {
-                iroha_logger::error!(api_url = %self.state.iroha_cfg.torii.api_url, %error, "API address configuration parse error");
+                iroha_logger::error!(%api_url, %error, "API address configuration parse error");
                 Err(eyre::Error::new(error))
             }
         }
     }
-}
 
-/// Start status endpoint.
-///
-/// # Errors
-/// Can fail due to listening to network or if http server fails
-async fn start_status<W: WorldTrait>(state: Arc<ToriiState<W>>) -> eyre::Result<()> {
-    let get_router_status = endpoint2(
-        handle_status,
-        warp::path(uri::STATUS).and(add_state!(state.wsv, state.network)),
-    );
-    let get_router_metrics = endpoint2(
-        handle_metrics,
-        warp::path(uri::METRICS).and(add_state!(state.wsv, state.network)),
-    );
-    let router = warp::get().and(get_router_status).or(get_router_metrics);
+    /// Start status endpoint.
+    ///
+    /// # Errors
+    /// Can fail due to listening to network or if http server fails
+    async fn start_status(self) -> eyre::Result<()> {
+        let get_router_status = endpoint2(
+            handle_status,
+            warp::path(uri::STATUS).and(add_state!(self.wsv, self.network)),
+        );
+        let get_router_metrics = endpoint2(
+            handle_metrics,
+            warp::path(uri::METRICS).and(add_state!(self.wsv, self.network)),
+        );
+        let router = warp::get().and(get_router_status).or(get_router_metrics);
 
-    match state.iroha_cfg.torii.status_url.to_socket_addrs() {
-        Ok(mut i) => {
-            #[allow(clippy::expect_used)]
-            let addr = i.next().expect("ToSocketAddrs iteration failed");
-            warp::serve(router).run(addr).await;
-            Ok(())
-        }
-        Err(e) => {
-            iroha_logger::error!("Status address configuration parse error");
-            Err(eyre::Error::new(e))
+        match self.iroha_cfg.torii.status_url.to_socket_addrs() {
+            Ok(mut i) => {
+                #[allow(clippy::expect_used)]
+                let addr = i.next().expect("ToSocketAddrs iteration failed");
+                warp::serve(router).run(addr).await;
+                Ok(())
+            }
+            Err(e) => {
+                iroha_logger::error!("Status address configuration parse error");
+                Err(eyre::Error::new(e))
+            }
         }
     }
 }
