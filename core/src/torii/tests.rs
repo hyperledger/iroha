@@ -88,7 +88,13 @@ async fn torii_pagination() {
         .expect("Failed to verify");
 
         let pagination = Pagination { start, limit };
-        handle_queries(state.clone(), pagination, query).map(|result| {
+        handle_queries(
+            Arc::clone(&state.wsv),
+            Arc::clone(&state.query_validator),
+            pagination,
+            query,
+        )
+        .map(|result| {
             let Scale(query_result) = result.unwrap();
             if let VersionedQueryResult::V1(QueryResult(Value::Vec(domain))) = query_result {
                 domain
@@ -187,10 +193,10 @@ impl AssertReady {
                 .expect("Given instructions disorder");
         }
 
-        let post_router = endpoint3(
+        let post_router = endpoint4(
             handle_queries,
             warp::path(uri::QUERY)
-                .and(add_state(Arc::clone(&state)))
+                .and(add_state!(state.wsv, state.query_validator))
                 .and(paginate())
                 .and(body::query()),
         );
