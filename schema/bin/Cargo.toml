@@ -1,13 +1,13 @@
 [package]
 name = "iroha_schema_bin"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
 
 [dependencies]
-iroha_schema = { path = "../../schema" }
-iroha_data_model = { path = "../../data_model" }
-iroha_core = { path = "../../core" }
+iroha_schema = { version = "2.0.0-pre.1", path = "../../schema" }
+iroha_data_model = { version = "2.0.0-pre.1",  path = "../../data_model" }
+iroha_core = { version = "2.0.0-pre.1", path = "../../core" }
 eyre = "0.6.5"
 serde_json = "1"

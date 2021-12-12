@@ -1,6 +1,6 @@
 [package]
 name = "iroha_macro"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 description = "This crate contains macros and attributes for Iroha projects. iroha_derive contains derive macros."
@@ -17,6 +17,6 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha_derive = { path="derive" }
+iroha_derive = { version = "=2.0.0-pre.1", path="derive" }
 
 eyre = "0.6.5"

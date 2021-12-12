@@ -1,11 +1,11 @@
 [package]
 name = "iroha_schema"
-version = "0.1.0"
+version = "2.0.0-pre.1"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
 [dependencies]
-iroha_schema_derive = { path = "derive" }
+iroha_schema_derive = { version = "=2.0.0-pre.1", path = "derive" }
 
 serde = { version = "1.0", features = ["derive"] }
 fixnum = { version = "0.6", features = ["i64"]}

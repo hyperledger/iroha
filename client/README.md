@@ -3,7 +3,7 @@
 ## Description
 
 Iroha Client is a Rust Library wich encapsulates network related logic and gives users
-an ability to interact with Iroha Peers like they are non-distributed application.
+an ability to interact with Iroha Peers as if they were a non-distributed application.
 
 ### Features
 
