@@ -32,14 +32,19 @@ use crate::{
     Addr, Configuration, IrohaNetwork,
 };
 
-/// Main network handler and the only entrypoint of the Iroha.
-pub struct Torii<W: WorldTrait> {
+#[derive(Clone)]
+pub struct ToriiState<W: WorldTrait> {
     iroha_cfg: Configuration,
     wsv: Arc<WorldStateView<W>>,
+    queue: Arc<Queue>,
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
-    queue: Arc<Queue>,
     network: Addr<IrohaNetwork>,
+}
+
+/// Main network handler and the only entrypoint of the Iroha.
+pub struct Torii<W: WorldTrait> {
+    state: ToriiState<W>,
 }
 
 /// Torii errors.
@@ -145,30 +150,15 @@ impl<W: WorldTrait> Torii<W> {
         network: Addr<IrohaNetwork>,
     ) -> Self {
         Self {
-            iroha_cfg,
-            wsv,
-            events,
-            query_validator,
-            queue,
-            network,
+            state: ToriiState {
+                iroha_cfg,
+                wsv,
+                events,
+                query_validator,
+                queue,
+                network,
+            },
         }
-    }
-
-    #[allow(clippy::expect_used)]
-    fn create_state(&self) -> ToriiState<W> {
-        let wsv = Arc::clone(&self.wsv);
-        let queue = Arc::clone(&self.queue);
-        let iroha_cfg = self.iroha_cfg.clone();
-        let query_validator = Arc::clone(&self.query_validator);
-        let network = self.network.clone();
-
-        Arc::new(InnerToriiState {
-            iroha_cfg,
-            wsv,
-            queue,
-            query_validator,
-            network,
-        })
     }
 
     /// Fixing status code for custom rejection, because of argument parsing
@@ -189,7 +179,7 @@ impl<W: WorldTrait> Torii<W> {
     /// Can fail due to listening to network or if http server fails
     #[iroha_futures::telemetry_future]
     pub async fn start(self) -> eyre::Result<()> {
-        let state = self.create_state();
+        let state = Arc::new(self.state.clone());
 
         let get_router = warp::path(uri::HEALTH)
             .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
@@ -202,7 +192,7 @@ impl<W: WorldTrait> Torii<W> {
             .or(endpoint2(
                 handle_get_configuration,
                 warp::path(uri::CONFIGURATION)
-                    .and(add_state(Arc::clone(&state)))
+                    .and(add_state(state.iroha_cfg.clone()))
                     .and(warp::body::json()),
             ));
 
@@ -225,12 +215,12 @@ impl<W: WorldTrait> Torii<W> {
         .or(endpoint2(
             handle_post_configuration,
             warp::path(uri::CONFIGURATION)
-                .and(add_state(Arc::clone(&state)))
+                .and(add_state(state.iroha_cfg.clone()))
                 .and(warp::body::json()),
         ));
 
         let ws_router = warp::path(uri::SUBSCRIPTION)
-            .and(add_state(self.events))
+            .and(add_state(state.events.clone()))
             .and(warp::ws())
             .map(|events, ws: Ws| {
                 ws.on_upgrade(|this_ws| async move {
@@ -256,7 +246,7 @@ impl<W: WorldTrait> Torii<W> {
                 })
         });
 
-        match self.iroha_cfg.torii.api_url.to_socket_addrs() {
+        match self.state.iroha_cfg.torii.api_url.to_socket_addrs() {
             Ok(mut i) => {
                 #[allow(clippy::expect_used)]
                 let addr = i.next().expect("ToSocketAddrs iteration failed");
@@ -264,7 +254,7 @@ impl<W: WorldTrait> Torii<W> {
                 Ok(())
             }
             Err(error) => {
-                iroha_logger::error!(%self.iroha_cfg.torii.api_url, %error, "API address configuration parse error");
+                iroha_logger::error!(api_url = %self.state.iroha_cfg.torii.api_url, %error, "API address configuration parse error");
                 Err(eyre::Error::new(error))
             }
         }
@@ -275,7 +265,7 @@ impl<W: WorldTrait> Torii<W> {
 ///
 /// # Errors
 /// Can fail due to listening to network or if http server fails
-async fn start_status<W: WorldTrait>(state: ToriiState<W>) -> eyre::Result<()> {
+async fn start_status<W: WorldTrait>(state: Arc<ToriiState<W>>) -> eyre::Result<()> {
     let get_router_status = endpoint1(
         handle_status,
         warp::path(uri::STATUS).and(add_state(Arc::clone(&state))),
@@ -300,19 +290,9 @@ async fn start_status<W: WorldTrait>(state: ToriiState<W>) -> eyre::Result<()> {
     }
 }
 
-struct InnerToriiState<W: WorldTrait> {
-    iroha_cfg: Configuration,
-    wsv: Arc<WorldStateView<W>>,
-    queue: Arc<Queue>,
-    query_validator: Arc<IsQueryAllowedBoxed<W>>,
-    network: Addr<IrohaNetwork>,
-}
-
-type ToriiState<W> = Arc<InnerToriiState<W>>;
-
 #[iroha_futures::telemetry_future]
 async fn handle_instructions<W: WorldTrait>(
-    state: ToriiState<W>,
+    state: Arc<ToriiState<W>>,
     transaction: VersionedTransaction,
 ) -> Result<Empty> {
     let transaction: Transaction = transaction.into_v1();
@@ -337,7 +317,7 @@ async fn handle_instructions<W: WorldTrait>(
 
 #[iroha_futures::telemetry_future]
 async fn handle_queries<W: WorldTrait>(
-    state: ToriiState<W>,
+    state: Arc<ToriiState<W>>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedQueryResult>, query::Error> {
@@ -366,7 +346,7 @@ async fn handle_health() -> Json {
 
 #[iroha_futures::telemetry_future]
 async fn handle_pending_transactions<W: WorldTrait>(
-    state: ToriiState<W>,
+    state: Arc<ToriiState<W>>,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
     Ok(Scale(
@@ -382,8 +362,8 @@ async fn handle_pending_transactions<W: WorldTrait>(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_get_configuration<W: WorldTrait>(
-    state: ToriiState<W>,
+async fn handle_get_configuration(
+    iroha_cfg: Configuration,
     get_cfg: GetConfiguration,
 ) -> Result<Json> {
     use GetConfiguration::*;
@@ -396,17 +376,15 @@ async fn handle_get_configuration<W: WorldTrait>(
                     Context::wrap_err(serde_json::to_value(doc), "Failed to serialize docs")
                 })
         }
-        Value => {
-            serde_json::to_value(state.iroha_cfg.clone()).wrap_err("Failed to serialize value")
-        }
+        Value => serde_json::to_value(iroha_cfg).wrap_err("Failed to serialize value"),
     }
     .map(|v| reply::json(&v))
     .map_err(Error::Config)
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_post_configuration<W: WorldTrait>(
-    state: ToriiState<W>,
+async fn handle_post_configuration(
+    iroha_cfg: Configuration,
     cfg: PostConfiguration,
 ) -> Result<Json> {
     use iroha_config::runtime_upgrades::Reload;
@@ -416,7 +394,7 @@ async fn handle_post_configuration<W: WorldTrait>(
     match cfg {
         // TODO: Now the configuration value and the actual value don't match.
         LogLevel(level) => {
-            state.iroha_cfg.logger.max_log_level.reload(level.into())?;
+            iroha_cfg.logger.max_log_level.reload(level.into())?;
         }
     };
 
@@ -440,12 +418,12 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::R
     Ok(())
 }
 
-async fn handle_metrics<W: WorldTrait>(state: ToriiState<W>) -> Result<String> {
+async fn handle_metrics<W: WorldTrait>(state: Arc<ToriiState<W>>) -> Result<String> {
     update_metrics(&state).await?;
     state.wsv.metrics.try_to_string().map_err(Error::Prometheus)
 }
 
-async fn update_metrics<W: WorldTrait>(state: &Arc<InnerToriiState<W>>) -> Result<()> {
+async fn update_metrics<W: WorldTrait>(state: &ToriiState<W>) -> Result<()> {
     let peers = state
         .network
         .send(iroha_p2p::network::GetConnectedPeers)
@@ -466,7 +444,7 @@ async fn update_metrics<W: WorldTrait>(state: &Arc<InnerToriiState<W>>) -> Resul
     Ok(())
 }
 
-async fn handle_status<W: WorldTrait>(state: ToriiState<W>) -> Result<Json> {
+async fn handle_status<W: WorldTrait>(state: Arc<ToriiState<W>>) -> Result<Json> {
     update_metrics(&state).await?;
     let status = Status::from(&state.wsv.metrics);
     Ok(reply::json(&status))

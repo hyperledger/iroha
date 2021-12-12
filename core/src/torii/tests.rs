@@ -75,7 +75,7 @@ async fn create_and_start_torii() {
 #[tokio::test(flavor = "multi_thread")]
 async fn torii_pagination() {
     let (torii, keys) = create_torii().await;
-    let state = torii.create_state();
+    let state = Arc::new(torii.state);
 
     let get_domains = |start, limit| {
         let query: VerifiedQueryRequest = QueryRequest::new(
@@ -176,9 +176,9 @@ impl AssertReady {
 
         let (mut torii, keys) = create_torii().await;
         if self.deny_all {
-            torii.query_validator = Arc::new(DenyAll.into());
+            torii.state.query_validator = Arc::new(DenyAll.into());
         }
-        let state = torii.create_state();
+        let state = Arc::new(torii.state);
 
         let authority = AccountId::new("alice", "wonderland");
         for instruction in self.instructions {
