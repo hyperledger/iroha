@@ -263,15 +263,15 @@ impl<W: WorldTrait> WorldStateView<W> {
     // `blocks_after_height`. Also, this method would return references instead of cloning
     // blockchain but comes with the risk of deadlock if consumer of the iterator stores
     // references to blocks
-    ///// Returns iterator over blockchain blocks
-    /////
-    ///// **Locking behaviour**: Holding references to blocks stored in the blockchain can induce
-    ///// deadlock. This limitation is imposed by the fact that blockchain is backed by [`Dashmap`]
-    //pub fn blocks(
-    //    &self,
-    //) -> impl Iterator<Item = impl Deref<Target = VersionedCommittedBlock> + '_> + '_ {
-    //    self.blocks.iter()
-    //}
+    /// Returns iterator over blockchain blocks
+    ///
+    /// **Locking behaviour**: Holding references to blocks stored in the blockchain can induce
+    /// deadlock. This limitation is imposed by the fact that blockchain is backed by [`Dashmap`]
+    pub fn blocks(
+        &self,
+    ) -> impl Iterator<Item = impl Deref<Target = VersionedCommittedBlock> + '_> + '_ {
+        self.blocks.iter()
+    }
 
     /// Returns iterator over blockchain blocks starting with the block of the given `height`
     pub fn blocks_from_height(
@@ -660,12 +660,10 @@ mod tests {
             wsv.apply(block).await.unwrap();
         }
 
-        assert_eq!(
-            wsv.blocks_after_hash(block_hashes[6])
-                .map(|block| block.hash())
-                .collect::<Vec<_>>(),
-            block_hashes.into_iter().skip(7).collect::<Vec<_>>(),
-        );
+        assert!(wsv
+            .blocks_after_hash(block_hashes[6])
+            .map(|block| block.hash())
+            .eq(block_hashes.into_iter().skip(7)));
     }
 
     #[tokio::test]

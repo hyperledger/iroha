@@ -11,6 +11,7 @@ pub mod modules;
 pub mod queue;
 pub mod samples;
 pub mod smartcontracts;
+pub mod stream;
 pub mod sumeragi;
 pub mod torii;
 pub mod tx;

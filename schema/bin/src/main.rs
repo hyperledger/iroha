@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use iroha_core::block::stream::prelude::*;
 use iroha_schema::prelude::*;
 
 macro_rules! to_json {
@@ -26,6 +27,8 @@ fn main() {
         // $ rg '^pub (struct|enum)' | rg -v '(<|Builder|LengthLimits|QueryRequest)' | cut -d' ' -f3 | sed -e 's/[(].*//' -e 's/$/,/' | sort
         Add,
         And,
+        BlockPublisherMessage,
+        BlockSubscriberMessage,
         BurnBox,
         Contains,
         ContainsAll,
@@ -71,11 +74,13 @@ fn main() {
         Where,
 
         // All versioned
-        VersionedTransaction,
-        VersionedSignedQueryRequest,
-        VersionedQueryResult,
+        VersionedBlockPublisherMessage,
+        VersionedBlockSubscriberMessage,
         VersionedEventPublisherMessage,
         VersionedEventSubscriberMessage,
+        VersionedQueryResult,
+        VersionedSignedQueryRequest,
+        VersionedTransaction,
 
         RawGenesisBlock
     };

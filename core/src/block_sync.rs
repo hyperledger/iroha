@@ -302,7 +302,7 @@ pub mod message {
                         return;
                     }
 
-                    let blocks: Vec<VersionedCommittedBlock> = block_sync
+                    let blocks: Vec<_> = block_sync
                         .wsv
                         .blocks_after_hash(*hash)
                         .take(block_sync.batch_size as usize)

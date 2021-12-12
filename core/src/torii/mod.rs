@@ -1,17 +1,13 @@
 //! This module contains incoming requests handling logic of Iroha.
 //! `Torii` is used to receive, accept and route incoming instructions, queries and messages.
 
-use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc, time::Duration};
+use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 
 use eyre::{eyre, Context};
-use futures::{
-    stream::{FuturesUnordered, StreamExt},
-    SinkExt,
-};
+use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics::Status;
-use iroha_version::prelude::*;
 use serde::Serialize;
 use thiserror::Error;
 use utils::*;
@@ -19,17 +15,14 @@ use warp::{
     http::StatusCode,
     reject::Rejection,
     reply::{self, Json, Response},
-    ws::{self, WebSocket, Ws},
+    ws::{WebSocket, Ws},
     Filter, Reply,
 };
 
-#[macro_use]
-mod utils;
-
 use crate::{
     block::stream::{
-        BlockConsumerMessage, BlockProducerMessage, VersionedBlockConsumerMessage,
-        VersionedBlockProducerMessage,
+        BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
+        VersionedBlockSubscriberMessage,
     },
     event::{Consumer, EventsSender},
     prelude::*,
@@ -38,9 +31,13 @@ use crate::{
         isi::query::{self, VerifiedQueryRequest},
         permissions::IsQueryAllowedBoxed,
     },
+    stream::{Sink, Stream},
     wsv::WorldTrait,
     Addr, Configuration, IrohaNetwork,
 };
+
+#[macro_use]
+mod utils;
 
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii<W: WorldTrait> {
@@ -458,49 +455,27 @@ async fn handle_post_configuration(
     Ok(reply::json(&true))
 }
 
-#[cfg(test)]
-const TIMEOUT: Duration = Duration::from_millis(10_000);
-#[cfg(not(test))]
-const TIMEOUT: Duration = Duration::from_millis(1000);
-
 #[iroha_futures::telemetry_future]
 async fn handle_blocks_stream<W: WorldTrait>(
     wsv: &WorldStateView<W>,
     mut stream: WebSocket,
 ) -> eyre::Result<()> {
+    let subscription_request: VersionedBlockSubscriberMessage = stream.recv().await?;
+    let mut from_height = subscription_request.into_v1().try_into()?;
+
+    stream
+        .send(VersionedBlockPublisherMessage::from(
+            BlockPublisherMessage::SubscriptionAccepted,
+        ))
+        .await?;
+
     let mut rx = wsv.subscribe_to_new_block_notifications();
-    let subscription_request_message = tokio::time::timeout(TIMEOUT, stream.next())
-        .await
-        .wrap_err("Read message timeout")?
-        .ok_or_else(|| eyre!("Failed to read message: no message"))?
-        .wrap_err("Web Socket failure")?;
-
-    if !subscription_request_message.is_binary() {
-        return Err(eyre!("Unexpected message type"));
-    }
-
-    let mut from_height: u64 =
-        VersionedBlockConsumerMessage::decode_versioned(subscription_request_message.as_bytes())?
-            .into_v1()
-            .try_into()?;
-
-    tokio::time::timeout(
-        TIMEOUT,
-        stream.send(ws::Message::binary(
-            VersionedBlockProducerMessage::from(BlockProducerMessage::SubscriptionAccepted)
-                .encode_versioned()?,
-        )),
-    )
-    .await
-    .wrap_err("Send message timeout")?
-    .wrap_err("Failed to send message")?;
-
     stream_blocks(&mut from_height, wsv, &mut stream).await?;
-    while rx.changed().await.is_ok() {
+
+    loop {
+        rx.changed().await?;
         stream_blocks(&mut from_height, wsv, &mut stream).await?;
     }
-
-    Ok(())
 }
 
 async fn stream_blocks<W: WorldTrait>(
@@ -509,37 +484,23 @@ async fn stream_blocks<W: WorldTrait>(
     stream: &mut WebSocket,
 ) -> eyre::Result<()> {
     #[allow(clippy::expect_used)]
-    for block in
-        wsv.blocks_from_height((*from_height).try_into().expect("Blockchain limit reached"))
-    {
-        let block_message = VersionedBlockProducerMessage::from(BlockProducerMessage::from(block))
-            .encode_versioned()
-            .wrap_err("Failed to serialize block")?;
-        tokio::time::timeout(TIMEOUT, stream.send(ws::Message::binary(block_message)))
-            .await
-            .wrap_err("Send message timeout")?
-            .wrap_err("Failed to send message")?;
+    for block in wsv.blocks_from_height(
+        (*from_height)
+            .try_into()
+            .expect("Blockchain size limit reached"),
+    ) {
+        stream
+            .send(VersionedBlockPublisherMessage::from(
+                BlockPublisherMessage::from(block),
+            ))
+            .await?;
 
-        let block_receiver_message = tokio::time::timeout(TIMEOUT, stream.next())
-            .await
-            .wrap_err("Failed to read receipt")?
-            .ok_or_else(|| eyre!("Failed to read receipt: no receipt"))?
-            .wrap_err("Web Socket failure")?;
-
-        if !block_receiver_message.is_binary() {
-            return Err(eyre!("Unexpected message type"));
-        }
-
-        if let BlockConsumerMessage::BlockReceived =
-            VersionedBlockConsumerMessage::decode_versioned(block_receiver_message.as_bytes())?
-                .into_v1()
-        {
-            stream.flush().await?;
+        let message: VersionedBlockSubscriberMessage = stream.recv().await?;
+        if let BlockSubscriberMessage::BlockReceived = message.into_v1() {
+            *from_height += 1;
         } else {
-            return Err(eyre!("Expected `BlockReceived`."));
+            return Err(eyre!("Expected `BlockReceived` message"));
         }
-
-        *from_height += 1;
     }
 
     Ok(())
@@ -550,16 +511,12 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::R
     let mut events = events.subscribe();
     let mut consumer = Consumer::new(stream).await?;
 
-    while let Ok(change) = events.recv().await {
-        iroha_logger::trace!(event = ?change);
+    loop {
+        let event = events.recv().await?;
 
-        if let Err(error) = consumer.consume(&change).await {
-            iroha_logger::error!(%error, "Failed to notify client. Closed connection.");
-            break;
-        }
+        iroha_logger::trace!(?event);
+        consumer.consume(event).await?;
     }
-
-    Ok(())
 }
 
 async fn handle_metrics<W: WorldTrait>(

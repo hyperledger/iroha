@@ -2133,11 +2133,11 @@ pub mod uri {
     /// Health URI is used to handle incoming Healthcheck requests.
     pub const HEALTH: &str = "health";
     /// The URI used for block synchronization.
-    pub const BLOCK_SYNC: &str = "block";
+    pub const BLOCK_SYNC: &str = "block/sync";
     /// The web socket uri used to subscribe to block and transactions statuses.
     pub const SUBSCRIPTION: &str = "events";
     /// The web socket uri used to subscribe to blocks stream.
-    pub const BLOCKS_STREAM: &str = "blocks";
+    pub const BLOCKS_STREAM: &str = "block/stream";
     /// Get pending transactions.
     pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
     /// The URI for local config changing inspecting
