@@ -1,13 +1,17 @@
 //! This module contains incoming requests handling logic of Iroha.
 //! `Torii` is used to receive, accept and route incoming instructions, queries and messages.
 
-use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
+use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc, time::Duration};
 
-use eyre::Context;
-use futures::stream::{FuturesUnordered, StreamExt};
+use eyre::{eyre, Context};
+use futures::{
+    stream::{FuturesUnordered, StreamExt},
+    SinkExt,
+};
 use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics::Status;
+use iroha_version::prelude::*;
 use serde::Serialize;
 use thiserror::Error;
 use utils::*;
@@ -15,7 +19,7 @@ use warp::{
     http::StatusCode,
     reject::Rejection,
     reply::{self, Json, Response},
-    ws::{WebSocket, Ws},
+    ws::{self, WebSocket, Ws},
     Filter, Reply,
 };
 
@@ -23,6 +27,10 @@ use warp::{
 mod utils;
 
 use crate::{
+    block::stream::{
+        BlockConsumerMessage, BlockProducerMessage, VersionedBlockConsumerMessage,
+        VersionedBlockProducerMessage,
+    },
     event::{Consumer, EventsSender},
     prelude::*,
     queue::{self, Queue},
@@ -226,7 +234,7 @@ impl<W: WorldTrait> Torii<W> {
                 .and(warp::body::json()),
         ));
 
-        let ws_router = warp::path(uri::SUBSCRIPTION)
+        let events_ws_router = warp::path(uri::SUBSCRIPTION)
             .and(add_state!(self.events))
             .and(warp::ws())
             .map(|events, ws: Ws| {
@@ -236,6 +244,19 @@ impl<W: WorldTrait> Torii<W> {
                     }
                 })
             });
+
+        let blocks_ws_router = warp::path(uri::BLOCKS_STREAM)
+            .and(add_state!(self.wsv))
+            .and(warp::ws())
+            .map(|wsv: Arc<_>, ws: Ws| {
+                ws.on_upgrade(|this_ws| async move {
+                    if let Err(error) = handle_blocks_stream(&wsv, this_ws).await {
+                        iroha_logger::error!(%error, "Failed to subscribe to blocks stream");
+                    }
+                })
+            });
+
+        let ws_router = events_ws_router.or(blocks_ws_router);
 
         ws_router
             .or(warp::post().and(post_router))
@@ -435,6 +456,79 @@ async fn handle_post_configuration(
     };
 
     Ok(reply::json(&true))
+}
+
+#[cfg(test)]
+const TIMEOUT: Duration = Duration::from_millis(10_000);
+#[cfg(not(test))]
+const TIMEOUT: Duration = Duration::from_millis(1000);
+
+#[iroha_futures::telemetry_future]
+async fn handle_blocks_stream<W: WorldTrait>(
+    wsv: &WorldStateView<W>,
+    mut stream: WebSocket,
+) -> eyre::Result<()> {
+    let mut rx = wsv.subscribe_to_new_block_notifications();
+    let subscription_request_message = tokio::time::timeout(TIMEOUT, stream.next())
+        .await
+        .wrap_err("Read message timeout")?
+        .ok_or_else(|| eyre!("Failed to read message: no message"))?
+        .wrap_err("Web Socket failure")?;
+
+    if !subscription_request_message.is_binary() {
+        return Err(eyre!("Unexpected message type"));
+    }
+
+    let from_height: u64 =
+        VersionedBlockConsumerMessage::decode_versioned(subscription_request_message.as_bytes())?
+            .into_v1()
+            .try_into()?;
+
+    tokio::time::timeout(
+        TIMEOUT,
+        stream.send(ws::Message::binary(
+            VersionedBlockProducerMessage::from(BlockProducerMessage::SubscriptionAccepted)
+                .encode_versioned()?,
+        )),
+    )
+    .await
+    .wrap_err("Send message timeout")?
+    .wrap_err("Failed to send message")?;
+
+    while rx.changed().await.is_ok() {
+        #[allow(clippy::expect_used)]
+        for block in
+            wsv.blocks_from_height(from_height.try_into().expect("Blockchain limit reached"))
+        {
+            let block = VersionedBlockProducerMessage::from(BlockProducerMessage::from(block))
+                .encode_versioned()
+                .wrap_err("Failed to serialize block")?;
+            tokio::time::timeout(TIMEOUT, stream.send(ws::Message::binary(block)))
+                .await
+                .wrap_err("Send message timeout")?
+                .wrap_err("Failed to send message")?;
+
+            let block_receiver_message = tokio::time::timeout(TIMEOUT, stream.next())
+                .await
+                .wrap_err("Failed to read receipt")?
+                .ok_or_else(|| eyre!("Failed to read receipt: no receipt"))?
+                .wrap_err("Web Socket failure")?;
+
+            if !block_receiver_message.is_binary() {
+                return Err(eyre!("Unexpected message type"));
+            }
+
+            if let BlockConsumerMessage::BlockReceived =
+                VersionedBlockConsumerMessage::decode_versioned(block_receiver_message.as_bytes())?
+                    .into_v1()
+            {
+                stream.flush().await?;
+            } else {
+                return Err(eyre!("Expected `BlockReceived`."));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[iroha_futures::telemetry_future]

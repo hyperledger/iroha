@@ -25,6 +25,11 @@ use crate::{
     smartcontracts::{Execute, FindError},
 };
 
+/// Sender type of the new block notification channel
+pub type NewBlockNotificationSender = tokio::sync::watch::Sender<()>;
+/// Receiver type of the new block notification channel
+pub type NewBlockNotificationReceiver = tokio::sync::watch::Receiver<()>;
+
 /// World trait for mocking
 pub trait WorldTrait:
     Deref<Target = World> + DerefMut + Send + Sync + 'static + Debug + Default + Sized + Clone
@@ -67,6 +72,8 @@ pub struct WorldStateView<W: WorldTrait> {
     pub transactions: DashSet<HashOf<VersionedTransaction>>,
     /// Metrics for prometheus endpoint.
     pub metrics: Arc<Metrics>,
+    /// Notifies subscribers when new block is applied
+    new_block_notifier: Arc<NewBlockNotificationSender>,
 }
 
 impl<W: WorldTrait + Default> Default for WorldStateView<W> {
@@ -103,17 +110,20 @@ impl WorldTrait for World {
 impl<W: WorldTrait> WorldStateView<W> {
     /// Default `WorldStateView` constructor.
     pub fn new(world: W) -> Self {
+        let (new_block_notifier, _) = tokio::sync::watch::channel(());
+
         WorldStateView {
             world,
             config: Configuration::default(),
             transactions: DashSet::new(),
             blocks: Arc::new(Chain::new()),
             metrics: Arc::new(Metrics::default()),
+            new_block_notifier: Arc::new(new_block_notifier),
         }
     }
 
     /// [`WorldStateView`] constructor.
-    pub fn from_config(config: Configuration, world: W) -> Self {
+    pub fn from_configuration(config: Configuration, world: W) -> Self {
         WorldStateView {
             config,
             ..WorldStateView::new(world)
@@ -178,7 +188,14 @@ impl<W: WorldTrait> WorldStateView<W> {
         }
         self.block_commit_metrics_update_callback();
         self.blocks.push(block);
+        self.new_block_notifier.send_replace(());
         Ok(())
+    }
+
+    /// Returns receiving end of the spmc channel through which subscribers are notified when
+    /// new block is added to the blockchain(after block validation)
+    pub fn subscribe_to_new_block_notifications(&self) -> NewBlockNotificationReceiver {
+        self.new_block_notifier.subscribe()
     }
 
     /// Hash of latest block
@@ -242,18 +259,40 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.metrics.block_height.inc();
     }
 
-    /// Returns blocks after hash
-    pub fn blocks_after(
+    // TODO: There could be just this one method `blocks` instead of `blocks_from_height` and
+    // `blocks_after_height`. Also, this method would return references instead of cloning
+    // blockchain but comes with the risk of deadlock if consumer of the iterator stores
+    // references to blocks
+    ///// Returns iterator over blockchain blocks
+    /////
+    ///// **Locking behaviour**: Holding references to blocks stored in the blockchain can induce
+    ///// deadlock. This limitation is imposed by the fact that blockchain is backed by [`Dashmap`]
+    //pub fn blocks(
+    //    &self,
+    //) -> impl Iterator<Item = impl Deref<Target = VersionedCommittedBlock> + '_> + '_ {
+    //    self.blocks.iter()
+    //}
+
+    /// Returns iterator over blockchain blocks starting with the block of the given `height`
+    pub fn blocks_from_height(
         &self,
-        hash: HashOf<VersionedCommittedBlock>,
-        max_blocks: u32,
-    ) -> Vec<VersionedCommittedBlock> {
+        height: usize,
+    ) -> impl Iterator<Item = VersionedCommittedBlock> + '_ {
         self.blocks
             .iter()
-            .skip_while(|block_entry| block_entry.value().header().previous_block_hash != hash)
-            .take(max_blocks as usize)
+            .skip(height.saturating_sub(1))
             .map(|block_entry| block_entry.value().clone())
-            .collect()
+    }
+
+    /// Returns iterator over blockchain blocks after the block with the given `hash`
+    pub fn blocks_after_hash(
+        &self,
+        hash: HashOf<VersionedCommittedBlock>,
+    ) -> impl Iterator<Item = VersionedCommittedBlock> + '_ {
+        self.blocks
+            .iter()
+            .skip_while(move |block_entry| block_entry.value().header().previous_block_hash != hash)
+            .map(|block_entry| block_entry.value().clone())
     }
 
     /// Get an immutable view of the `World`.
@@ -606,7 +645,6 @@ mod tests {
     #[tokio::test]
     async fn get_blocks_after_hash() {
         const BLOCK_CNT: usize = 10;
-        const BATCH_SIZE: u32 = 3;
 
         let mut block = ValidBlock::new_dummy().commit();
         let wsv = WorldStateView::<World>::default();
@@ -623,15 +661,31 @@ mod tests {
         }
 
         assert_eq!(
-            wsv.blocks_after(block_hashes[2], BATCH_SIZE)
-                .iter()
-                .map(VersionedCommittedBlock::hash)
+            wsv.blocks_after_hash(block_hashes[6])
+                .map(|block| block.hash())
                 .collect::<Vec<_>>(),
-            block_hashes
-                .into_iter()
-                .skip(3)
-                .take(BATCH_SIZE as usize)
+            block_hashes.into_iter().skip(7).collect::<Vec<_>>(),
+        );
+    }
+
+    #[tokio::test]
+    async fn get_blocks_from_height() {
+        const BLOCK_CNT: usize = 10;
+
+        let mut block = ValidBlock::new_dummy().commit();
+        let wsv = WorldStateView::<World>::default();
+
+        for i in 1..=BLOCK_CNT {
+            block.header.height = i as u64;
+            let block: VersionedCommittedBlock = block.clone().into();
+            wsv.apply(block).await.unwrap();
+        }
+
+        assert_eq!(
+            &wsv.blocks_from_height(8)
+                .map(|block| block.header().height)
                 .collect::<Vec<_>>(),
+            &[8, 9, 10]
         );
     }
 }

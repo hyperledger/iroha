@@ -779,6 +779,91 @@ impl From<&CommittedBlock> for Vec<Event> {
     }
 }
 
+// TODO: Move to data_model after release
+pub mod stream {
+    //! Blocks for streaming API.
+
+    use iroha_macro::FromVariant;
+    use iroha_schema::prelude::*;
+    use iroha_version::prelude::*;
+    use parity_scale_codec::{Decode, Encode};
+
+    use crate::block::VersionedCommittedBlock;
+
+    declare_versioned_with_scale!(VersionedBlockProducerMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
+
+    impl VersionedBlockProducerMessage {
+        /// Converts from `&VersionedBlockProducerMessage` to V1 reference
+        pub const fn as_v1(&self) -> &BlockProducerMessage {
+            match self {
+                Self::V1(v1) => v1,
+            }
+        }
+
+        /// Converts from `&mut VersionedBlockProducerMessage` to V1 mutable reference
+        pub fn as_mut_v1(&mut self) -> &mut BlockProducerMessage {
+            match self {
+                Self::V1(v1) => v1,
+            }
+        }
+
+        /// Performs the conversion from `VersionedBlockProducerMessage` to V1
+        pub fn into_v1(self) -> BlockProducerMessage {
+            match self {
+                Self::V1(v1) => v1,
+            }
+        }
+    }
+
+    /// Message sent by the stream producer
+    #[version_with_scale(n = 1, versioned = "VersionedBlockProducerMessage")]
+    #[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
+    #[allow(clippy::large_enum_variant)]
+    pub enum BlockProducerMessage {
+        /// Answer sent by the peer.
+        /// The message means that block stream connection is initialized and will be supplying
+        /// events starting with the next message.
+        SubscriptionAccepted,
+        /// Block sent by the peer.
+        Block(VersionedCommittedBlock),
+    }
+
+    declare_versioned_with_scale!(VersionedBlockConsumerMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
+
+    impl VersionedBlockConsumerMessage {
+        /// Converts from `&VersionedBlockConsumerMessage` to V1 reference
+        pub const fn as_v1(&self) -> &BlockConsumerMessage {
+            match self {
+                Self::V1(v1) => v1,
+            }
+        }
+
+        /// Converts from `&mut VersionedBlockConsumerMessage` to V1 mutable reference
+        pub fn as_mut_v1(&mut self) -> &mut BlockConsumerMessage {
+            match self {
+                Self::V1(v1) => v1,
+            }
+        }
+
+        /// Performs the conversion from `VersionedBlockConsumerMessage` to V1
+        pub fn into_v1(self) -> BlockConsumerMessage {
+            match self {
+                Self::V1(v1) => v1,
+            }
+        }
+    }
+
+    /// Message sent by the stream consumer
+    #[version_with_scale(n = 1, versioned = "VersionedBlockConsumerMessage")]
+    #[derive(Debug, Clone, Copy, Decode, Encode, FromVariant, IntoSchema)]
+    pub enum BlockConsumerMessage {
+        /// Request sent to subscribe to blocks stream starting from the given height.
+        SubscriptionRequest(u64),
+        /// Acknowledgment of receiving block sent from the peer.
+        BlockReceived,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]

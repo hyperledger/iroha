@@ -2136,6 +2136,8 @@ pub mod uri {
     pub const BLOCK_SYNC: &str = "block";
     /// The web socket uri used to subscribe to block and transactions statuses.
     pub const SUBSCRIPTION: &str = "events";
+    /// The web socket uri used to subscribe to blocks stream.
+    pub const BLOCKS_STREAM: &str = "blocks";
     /// Get pending transactions.
     pub const PENDING_TRANSACTIONS: &str = "pending_transactions";
     /// The URI for local config changing inspecting
