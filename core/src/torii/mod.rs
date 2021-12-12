@@ -479,7 +479,7 @@ async fn handle_blocks_stream<W: WorldTrait>(
         return Err(eyre!("Unexpected message type"));
     }
 
-    let from_height: u64 =
+    let mut from_height: u64 =
         VersionedBlockConsumerMessage::decode_versioned(subscription_request_message.as_bytes())?
             .into_v1()
             .try_into()?;
@@ -495,39 +495,53 @@ async fn handle_blocks_stream<W: WorldTrait>(
     .wrap_err("Send message timeout")?
     .wrap_err("Failed to send message")?;
 
+    stream_blocks(&mut from_height, wsv, &mut stream).await?;
     while rx.changed().await.is_ok() {
-        #[allow(clippy::expect_used)]
-        for block in
-            wsv.blocks_from_height(from_height.try_into().expect("Blockchain limit reached"))
-        {
-            let block = VersionedBlockProducerMessage::from(BlockProducerMessage::from(block))
-                .encode_versioned()
-                .wrap_err("Failed to serialize block")?;
-            tokio::time::timeout(TIMEOUT, stream.send(ws::Message::binary(block)))
-                .await
-                .wrap_err("Send message timeout")?
-                .wrap_err("Failed to send message")?;
-
-            let block_receiver_message = tokio::time::timeout(TIMEOUT, stream.next())
-                .await
-                .wrap_err("Failed to read receipt")?
-                .ok_or_else(|| eyre!("Failed to read receipt: no receipt"))?
-                .wrap_err("Web Socket failure")?;
-
-            if !block_receiver_message.is_binary() {
-                return Err(eyre!("Unexpected message type"));
-            }
-
-            if let BlockConsumerMessage::BlockReceived =
-                VersionedBlockConsumerMessage::decode_versioned(block_receiver_message.as_bytes())?
-                    .into_v1()
-            {
-                stream.flush().await?;
-            } else {
-                return Err(eyre!("Expected `BlockReceived`."));
-            }
-        }
+        stream_blocks(&mut from_height, wsv, &mut stream).await?;
     }
+
+    Ok(())
+}
+
+async fn stream_blocks<W: WorldTrait>(
+    from_height: &mut u64,
+    wsv: &WorldStateView<W>,
+    stream: &mut WebSocket,
+) -> eyre::Result<()> {
+    #[allow(clippy::expect_used)]
+    for block in
+        wsv.blocks_from_height((*from_height).try_into().expect("Blockchain limit reached"))
+    {
+        let block_message = VersionedBlockProducerMessage::from(BlockProducerMessage::from(block))
+            .encode_versioned()
+            .wrap_err("Failed to serialize block")?;
+        tokio::time::timeout(TIMEOUT, stream.send(ws::Message::binary(block_message)))
+            .await
+            .wrap_err("Send message timeout")?
+            .wrap_err("Failed to send message")?;
+
+        let block_receiver_message = tokio::time::timeout(TIMEOUT, stream.next())
+            .await
+            .wrap_err("Failed to read receipt")?
+            .ok_or_else(|| eyre!("Failed to read receipt: no receipt"))?
+            .wrap_err("Web Socket failure")?;
+
+        if !block_receiver_message.is_binary() {
+            return Err(eyre!("Unexpected message type"));
+        }
+
+        if let BlockConsumerMessage::BlockReceived =
+            VersionedBlockConsumerMessage::decode_versioned(block_receiver_message.as_bytes())?
+                .into_v1()
+        {
+            stream.flush().await?;
+        } else {
+            return Err(eyre!("Expected `BlockReceived`."));
+        }
+
+        *from_height += 1;
+    }
+
     Ok(())
 }
 

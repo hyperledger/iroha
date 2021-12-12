@@ -480,3 +480,70 @@ async fn query_with_no_find() {
         .assert()
         .await
 }
+#[tokio::test]
+async fn blocks_stream() {
+    const BLOCK_COUNT: usize = 4;
+    let (torii, _) = create_torii().await;
+    let router = torii.create_api_router();
+
+    // Initialize blockchain
+    let mut block = ValidBlock::new_dummy().commit();
+    for i in 1..=BLOCK_COUNT {
+        block.header.height = i as u64;
+        let block: VersionedCommittedBlock = block.clone().into();
+        torii.wsv.apply(block).await.unwrap();
+    }
+
+    let mut client = warp::test::ws()
+        .path("/blocks")
+        .handshake(router)
+        .await
+        .unwrap();
+
+    client
+        .send(ws::Message::binary(
+            VersionedBlockConsumerMessage::from(BlockConsumerMessage::SubscriptionRequest(2))
+                .encode_versioned()
+                .unwrap(),
+        ))
+        .await;
+
+    let _msg =
+        VersionedBlockProducerMessage::decode_versioned(client.recv().await.unwrap().as_bytes())
+            .unwrap()
+            .into_v1();
+    assert!(matches!(BlockProducerMessage::SubscriptionAccepted, _msg));
+
+    for i in 2..=BLOCK_COUNT {
+        let block: VersionedCommittedBlock = VersionedBlockProducerMessage::decode_versioned(
+            client.recv().await.unwrap().as_bytes(),
+        )
+        .unwrap()
+        .into_v1()
+        .try_into()
+        .unwrap();
+
+        assert_eq!(block.header().height, i as u64);
+
+        client
+            .send(ws::Message::binary(
+                VersionedBlockConsumerMessage::from(BlockConsumerMessage::BlockReceived)
+                    .encode_versioned()
+                    .unwrap(),
+            ))
+            .await;
+    }
+
+    block.header.height = BLOCK_COUNT as u64 + 1;
+    let block: VersionedCommittedBlock = block.clone().into();
+    torii.wsv.apply(block).await.unwrap();
+
+    let block: VersionedCommittedBlock =
+        VersionedBlockProducerMessage::decode_versioned(client.recv().await.unwrap().as_bytes())
+            .unwrap()
+            .into_v1()
+            .try_into()
+            .unwrap();
+
+    assert_eq!(block.header().height, BLOCK_COUNT as u64 + 1);
+}
