@@ -1,3 +1,6 @@
+//! Attribute-like macro for instrumenting `isi` for `prometheus`
+//! metrics. See [`metrics`] for more details.
+
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_error::{abort, proc_macro_error};
@@ -14,12 +17,9 @@ fn type_has_metrics_field(ty: &Type) -> bool {
         // `CONTRIBUTING.md` you'll likely have `use
         // iroha_data_model::WorldStateView` somewhere.
         Type::Path(pth) => {
-            let Path {
-                leading_colon: _,
-                segments,
-            } = pth.path.clone();
+            let Path { segments, .. } = pth.path.clone();
             let type_name = &segments[0].ident;
-            type_name.to_string() == "WorldStateView"
+            *type_name == "WorldStateView"
         }
         _ => false,
     }
@@ -29,7 +29,7 @@ fn type_has_metrics_field(ty: &Type) -> bool {
 /// metrics.
 ///
 /// # Errors
-/// If no argument has type which has a metrics field.
+/// If no argument is of type `WorldStateView`.
 fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn::Ident, &Punctuated<FnArg, Comma>> {
     input
         .iter()
@@ -40,7 +40,7 @@ fn arg_metrics(input: &Punctuated<FnArg, Comma>) -> Result<syn::Ident, &Punctuat
             },
             _ => false,
         })
-        .map_or(None, |arg| match arg {
+        .and_then(|arg| match arg {
             FnArg::Typed(typ) => match *typ.pat.clone() {
                 syn::Pat::Ident(ident) => Some(ident.ident),
                 _ => None,
@@ -67,7 +67,7 @@ struct MetricSpec {
 impl Parse for MetricSpec {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let timing = <syn::Token![+]>::parse(input).is_ok();
-        let metric_name_lit = syn::Lit::parse(input.clone())?;
+        let metric_name_lit = syn::Lit::parse(input)?;
         let metric_name = match metric_name_lit {
             syn::Lit::Str(lit_str) => lit_str,
             _ => {
@@ -90,8 +90,24 @@ impl ToTokens for MetricSpec {
     }
 }
 
+/// Macro for instrumenting an `isi`'s `impl execute` to track a given
+/// metric.  To specify a metric, put it as an attribute parameter
+/// inside quotes. If you also want to track the execution time of the
+/// `isi`, you should prefix the quoted metric with the `+` symbol.
+///
+/// # Examples
+/// ```rust
+/// use iroha_core::wsv::{World, WorldStateView};
+/// use iroha_telemetry_derive::metrics;
+///
+/// #[metrics(+"test_query", "another_test_query_without_timing")]
+/// fn execute(wsv: &WorldStateView<World>) -> Result<(), ()> {
+///		Ok(())
+/// }
+/// ```
 #[proc_macro_error]
 #[proc_macro_attribute]
+#[allow(clippy::str_to_string)]
 pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
     let ItemFn {
         attrs,
@@ -101,7 +117,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
     }: ItemFn = parse_macro_input!(item as ItemFn);
 
     // This is a good sanity check. Possibly redundant.
-    if sig.ident.to_string() != "execute" {
+    if sig.ident != "execute" {
         abort!(sig.ident, "Function should be an `impl execute`");
     }
     match sig.output.clone() {
@@ -109,14 +125,12 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
             sig.output,
             "`Fn` must return `Result`. Returns nothing instead. "
         ),
+        #[allow(clippy::string_to_string)]
         syn::ReturnType::Type(_, typ) => match *typ {
             Type::Path(pth) => {
-                let Path {
-                    leading_colon: _,
-                    segments,
-                } = pth.path;
+                let Path { segments, .. } = pth.path;
                 let type_name = &segments[0].ident;
-                if type_name.to_string() != "Result" {
+                if *type_name != "Result" {
                     abort!(
                         type_name,
                         format!("Should return `Result`. Found {}", type_name)
@@ -137,7 +151,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
     let specs = parse_macro_input!(attr as MetricSpecs);
     let metric_arg_ident = arg_metrics(&sig.inputs)
-        .unwrap_or_else(|args| abort!(args, "At least one argument must contain a metrics field"));
+		.unwrap_or_else(|args| abort!(args, "At least one argument must be a `WorldStateView`. Path specifications currently aren't parsed."));
     // Again this may seem fragile, but if we move the metrics from
     // the `WorldStateView`, we'd need to refactor many things anyway.
     let inc_metric = |spec: &MetricSpec, kind: &str| {
@@ -151,9 +165,9 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
     // I agree that casting this to `f64` is not the best
     // idea. However, 1) Prometheus doesn't record more precise data
     // anyway, 2) if the time to handle requests is a sufficiently
-    // large `u128` that it **cannot** be a represented as `f64` then
-    // we have bigger problems than imprecise metrics. 3) This is way
-    // shorter.
+    // large `u128` that it **cannot** be a represented as `f64`
+    // without overflow then we have bigger problems than imprecise
+    // metrics. 3) This is way shorter.
     let track_time = |spec: &MetricSpec| {
         quote!(
             #metric_arg_ident

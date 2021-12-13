@@ -14,6 +14,7 @@ use iroha_config::{GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
+use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
 use rand::Rng;
 use serde::de::DeserializeOwned;

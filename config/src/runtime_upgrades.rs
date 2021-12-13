@@ -43,7 +43,7 @@ impl<T> From<PoisonErr<'_, T>> for ReloadError {
 
 /// The field needs to be mutably borrowed to be reloaded.
 pub trait ReloadMut<T>: Debug {
-    // TODO: When negative traits/specialisation stabilises, Debug ought not to be a requirement.
+    // TODO: When negative traits/specialisation, remove Debug
 
     /// Reload `self` using provided `item`.
     ///
@@ -218,13 +218,14 @@ pub mod handle {
         }
     }
 
-    // -----------------------------------------------------------------
+    // ---------------------------------------------------------------
 
-    /// A run-time reloadable configuration option with value-semantics.  This
-    /// means that reloading a [`Value`] only affects the [`Value`] itself. It's
-    /// useful when you want to keep a configuration immutable, but retain
-    /// thread-safe interior mutability, which is preferable to making the
-    /// entire configuration `mut`.
+    /// A run-time reloadable configuration option with
+    /// value-semantics.  This means that reloading a [`Value`] only
+    /// affects the [`Value`] itself. It's useful when you want to
+    /// keep a configuration immutable, but retain thread-safe
+    /// interior mutability, which is preferable to making the entire
+    /// configuration `mut`.
     ///
     /// # Examples
     /// ```
@@ -233,7 +234,7 @@ pub mod handle {
     ///
     /// #[derive(iroha_config::derive::Configurable, Serialize, Deserialize)]
     /// pub struct Config { option: Value<bool> };
-
+    ///
     /// fn main() {
     ///    let c = Config { option: true.into() };
     ///
@@ -241,8 +242,8 @@ pub mod handle {
     /// }
     /// ```
     ///
-    /// If you wish to perform validation on the value, consider using a thin
-    /// wrapper `tuple` struct.
+    /// If you wish to perform validation on the value, consider using
+    /// a thin wrapper `tuple` struct.
     ///
     #[derive(Debug)]
     pub struct Value<T: Clone + Copy>(pub AtomicCell<T>);
@@ -292,9 +293,9 @@ pub mod handle {
 
     // -----------------------------------------------------------------------
 
-    /// Structure that encapsulates a configuration value as well as a handle
-    /// for reloading other parts of the program.  This is the `struct` that you
-    /// want to use 99% of the time.
+    /// Structure that encapsulates a configuration value as well as a
+    /// handle for reloading other parts of the program.  This is the
+    /// `struct` that you want to use 99% of the time.
     ///
     /// It handles automatic synchronisation of the current value from
     /// the reload, as well as proper (de)serialization: namely the

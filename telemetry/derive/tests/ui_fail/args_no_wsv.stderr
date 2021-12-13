@@ -1,0 +1,5 @@
+error: At least one argument must be a `WorldStateView`. Path specifications currently aren't parsed.
+ --> tests/ui_fail/args_no_wsv.rs:5:12
+  |
+5 | fn execute(wsv: &iroha_core::wsv::WorldStateView<World>) -> Result<(), ()> {
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

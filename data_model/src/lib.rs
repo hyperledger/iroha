@@ -26,7 +26,6 @@ pub mod expression;
 pub mod fixed;
 pub mod isi;
 pub mod merkle;
-pub mod metrics;
 pub mod query;
 pub mod transaction;
 
@@ -2150,22 +2149,13 @@ pub mod uri {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    pub use iroha_data_model_derive::metrics;
 
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
     pub use super::{
-        account::prelude::*,
-        asset::prelude::*,
-        current_time,
-        domain::prelude::*,
-        fixed::prelude::*,
-        metrics::{Metrics, Status},
-        pagination::prelude::*,
-        peer::prelude::*,
-        transaction::prelude::*,
-        uri, Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef,
-        Value,
+        account::prelude::*, asset::prelude::*, current_time, domain::prelude::*,
+        fixed::prelude::*, pagination::prelude::*, peer::prelude::*, transaction::prelude::*, uri,
+        Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

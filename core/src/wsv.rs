@@ -16,6 +16,7 @@ use eyre::Result;
 use iroha_crypto::HashOf;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use iroha_logger::prelude::*;
+use iroha_telemetry::metrics::Metrics;
 use tokio::task;
 
 use crate::{

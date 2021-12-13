@@ -3,6 +3,7 @@ use std::collections::btree_map::Entry;
 
 use eyre::{eyre, Result};
 use iroha_data_model::prelude::*;
+use iroha_telemetry::metrics;
 
 use super::super::isi::prelude::*;
 use crate::prelude::*;

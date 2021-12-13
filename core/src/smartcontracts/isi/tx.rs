@@ -3,6 +3,7 @@
 use eyre::{Result, WrapErr};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
+use iroha_telemetry::metrics;
 
 use super::*;
 

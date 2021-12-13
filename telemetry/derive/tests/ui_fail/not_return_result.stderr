@@ -1,0 +1,25 @@
+error: Should return `Result`. Found iroha_core
+ --> tests/ui_fail/not_return_result.rs:5:44
+  |
+5 | fn execute(wsv: &WorldStateView<World>) -> iroha_core::Result {
+  |                                            ^^^^^^^^^^
+
+warning: unused imports: `WorldStateView`, `World`
+ --> tests/ui_fail/not_return_result.rs:1:23
+  |
+1 | use iroha_core::wsv::{World, WorldStateView};
+  |                       ^^^^^  ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0601]: `main` function not found in crate `$CRATE`
+ --> tests/ui_fail/not_return_result.rs:1:1
+  |
+1 | / use iroha_core::wsv::{World, WorldStateView};
+2 | | use iroha_telemetry_derive::metrics;
+3 | |
+4 | | #[metrics(+"test_query", "another_test_query_without_timing")]
+5 | | fn execute(wsv: &WorldStateView<World>) -> iroha_core::Result {
+6 | |
+7 | | }
+  | |_^ consider adding a `main` function to `$DIR/tests/ui_fail/not_return_result.rs`

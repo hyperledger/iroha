@@ -161,6 +161,11 @@ impl Metrics {
         Ok(String::from_utf8(buffer)?)
     }
 
+    /// Get time elapsed since Unix epoch.
+    ///
+    /// # Panics
+    /// Never
+    #[allow(clippy::unused_self, clippy::expect_used)]
     pub fn current_time(&self) -> Duration {
         SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)

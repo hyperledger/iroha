@@ -2,6 +2,7 @@
 //! and implementations of [`Query`]'s to [`WorldStateView<W>`] about [`Account`].
 
 use iroha_data_model::prelude::*;
+use iroha_telemetry::metrics;
 
 use crate::prelude::*;
 

@@ -1,0 +1,30 @@
+error[E0308]: mismatched types
+ --> tests/ui_fail/non_snake_case_name.rs:4:1
+  |
+4 | #[metrics(+"test query", "another_test_query_without_timing")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | |
+  | expected `()`, found enum `Result`
+  | this expression has type `()`
+  |
+  = note: expected unit type `()`
+                  found enum `Result<_, _>`
+  = note: this error originates in the attribute macro `metrics` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+ --> tests/ui_fail/non_snake_case_name.rs:4:1
+  |
+4 | #[metrics(+"test query", "another_test_query_without_timing")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected enum `Result`, found `()`
+5 | fn execute(wsv: &WorldStateView<World>) -> Result<(), ()> {
+  |                                            -------------- expected `Result<(), ()>` because of return type
+  |
+  = note:   expected enum `Result<(), ()>`
+          found unit type `()`
+  = note: this error originates in the attribute macro `metrics` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: try using a variant of the expected enum
+  |
+4 | Ok(#[metrics(+"test query", "another_test_query_without_timing")])
+  |
+4 | Err(#[metrics(+"test query", "another_test_query_without_timing")])
+  |

@@ -7,6 +7,7 @@ use eyre::Context;
 use futures::stream::{FuturesUnordered, StreamExt};
 use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
 use iroha_data_model::prelude::*;
+use iroha_telemetry::metrics::Status;
 use serde::Serialize;
 use thiserror::Error;
 use utils::*;

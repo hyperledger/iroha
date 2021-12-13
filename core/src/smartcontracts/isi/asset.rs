@@ -2,6 +2,7 @@
 //! instructions implementations.
 
 use iroha_data_model::prelude::*;
+use iroha_telemetry::metrics;
 
 use super::prelude::*;
 use crate::prelude::*;
@@ -67,7 +68,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(MathError::OverflowError)?;
-                wsv.metrics.tx_amounts.observe(*quantity as f64);
+                wsv.metrics.tx_amounts.observe(f64::from(*quantity));
                 Ok(())
             })
             .map_err(Into::into)
@@ -94,6 +95,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(MathError::OverflowError)?;
+                #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
                 Ok(())
             })
@@ -170,7 +172,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
-                wsv.metrics.tx_amounts.observe(*quantity as f64);
+                wsv.metrics.tx_amounts.observe(f64::from(*quantity));
                 Ok(())
             })
             .map_err(Into::into)
@@ -196,6 +198,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
+                #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
                 Ok(())
             })
@@ -281,7 +284,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(MathError::OverflowError)?;
-                wsv.metrics.tx_amounts.observe(*quantity as f64);
+                wsv.metrics.tx_amounts.observe(f64::from(*quantity));
                 Ok(())
             })
             .map_err(Into::into)

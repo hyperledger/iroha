@@ -1,0 +1,5 @@
+error: Function must have at least one argument of type `WorldStateView`.
+ --> tests/ui_fail/no_args.rs:5:1
+  |
+5 | fn execute() -> Result<(), ()> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

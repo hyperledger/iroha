@@ -7,6 +7,7 @@ use crate::prelude::*;
 pub mod isi {
     use eyre::{eyre, Result};
     use iroha_data_model::prelude::*;
+    use iroha_telemetry::metrics;
 
     use super::*;
 
