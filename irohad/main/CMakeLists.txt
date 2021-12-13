@@ -96,6 +96,7 @@ target_link_libraries(application
     rdb_connection_init
     generator
     async_subscription
+    evpp
     )
 
 add_executable(irohad irohad.cpp)

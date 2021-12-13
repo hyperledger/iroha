@@ -7,7 +7,7 @@
 
 #include <boost/filesystem.hpp>
 #include <optional>
-#include <evpp/http/service.h>
+#include <evpp/evpphttp/service.h>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
@@ -162,6 +162,12 @@ Irohad::~Irohad() {
     common.printStatus(*log_);
   }
 
+  if (http_server_) {
+    http_server_->Stop();
+    while (!http_server_->IsStopped())
+      std::this_thread::sleep_for(std::chrono::microseconds(1ull));
+  }
+
   if (consensus_gate) {
     consensus_gate->stop();
   }
@@ -264,7 +270,22 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
 Irohad::RunResult Irohad::initHttpServer() {
   int thread_num = 2;
   int gport = 50585;
-  evpp::http::Service server(std::string("0.0.0.0:") + std::to_string(gport), "test", thread_num);
+  http_server_ = std::make_unique<evpp::evpphttp::Service>(std::string("0.0.0.0:") + std::to_string(gport), "test", thread_num);
+  http_server_->RegisterHandler("/healthcheck", [](evpp::EventLoop* loop,
+                                            evpp::evpphttp::HttpRequest& ctx,
+                                            const evpp::evpphttp::HTTPSendResponseCallback& cb){
+    std::stringstream oss;
+    oss << "func=" << __FUNCTION__ << " OK"
+        << " ip=" << ctx.remote_ip << "\n"
+        << " uri=" << ctx.url_path() << "\n"
+        << " body=" << ctx.body.ToString() << "\n";
+    std::map<std::string, std::string> feild_value = {
+        {"Content-Type", "application/octet-stream"},
+        {"Server", "evpp"}
+    };
+    cb(200, feild_value, oss.str());
+  });
+  return {};
 }
 
 /**

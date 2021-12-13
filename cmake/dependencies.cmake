@@ -132,3 +132,8 @@ find_package(civetweb CONFIG REQUIRED)
 #            rocksdb              #
 ###################################
 find_package(RocksDB CONFIG REQUIRED)
+
+###################################
+#            evpp                 #
+###################################
+# find_package(evpp CONFIG REQUIRED)
