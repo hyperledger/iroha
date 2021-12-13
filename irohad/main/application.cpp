@@ -7,6 +7,7 @@
 
 #include <boost/filesystem.hpp>
 #include <optional>
+#include <evpp/http/service.h>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
@@ -202,6 +203,8 @@ Irohad::RunResult Irohad::init() {
   // Torii
   IROHA_EXPECTED_ERROR_CHECK(initTransactionCommandService());
   IROHA_EXPECTED_ERROR_CHECK(initQueryService());
+  // HTTP
+  IROHA_EXPECTED_ERROR_CHECK(initHttpServer());
   return {};
 }
 
@@ -253,6 +256,15 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
           config_.max_proposal_size, false, true);
   log_->info("[Init] => validators configs");
   return {};
+}
+
+/**
+ * Initializing Http server.
+ */
+Irohad::RunResult Irohad::initHttpServer() {
+  int thread_num = 2;
+  int gport = 50585;
+  evpp::http::Service server(std::string("0.0.0.0:") + std::to_string(gport), "test", thread_num);
 }
 
 /**

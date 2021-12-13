@@ -232,6 +232,8 @@ class Irohad {
 
   virtual RunResult initValidatorsConfigs();
 
+  virtual RunResult initHttpServer();
+
   /**
    * Initialize WSV restorer
    */

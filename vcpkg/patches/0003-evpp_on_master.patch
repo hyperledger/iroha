@@ -1,0 +1,173 @@
+From a17202a1631500b0e503fbb53a8bc3d540b3b440 Mon Sep 17 00:00:00 2001
+From: iceseer <iceseer@gmail.com>
+Date: Mon, 13 Dec 2021 12:43:18 +0300
+Subject: [PATCH] evpp_on_master
+
+---
+ ports/evpp/0001-linux_build.patch | 132 ++++++++++++++++++++++++++++++
+ ports/evpp/portfile.cmake         |   7 +-
+ 2 files changed, 135 insertions(+), 4 deletions(-)
+ create mode 100644 ports/evpp/0001-linux_build.patch
+
+diff --git a/ports/evpp/0001-linux_build.patch b/ports/evpp/0001-linux_build.patch
+new file mode 100644
+index 000000000..88360fb7a
+--- /dev/null
++++ b/ports/evpp/0001-linux_build.patch
+@@ -0,0 +1,132 @@
++From c556156431cfd3e66aa73b13d82607df083b716f Mon Sep 17 00:00:00 2001
++From: iceseer <iceseer@gmail.com>
++Date: Mon, 13 Dec 2021 12:13:40 +0300
++Subject: [PATCH] 1
++
++---
++ CMakeLists.txt                                              | 6 +++++-
++ apps/CMakeLists.txt                                         | 2 +-
++ benchmark/http/libevent/CMakeLists.txt                      | 2 +-
++ benchmark/ioevent/libevent/CMakeLists.txt                   | 2 +-
++ benchmark/throughput/libevent/CMakeLists.txt                | 4 ++--
++ examples/recipes/self_control_timer/basic_01/CMakeLists.txt | 2 +-
++ examples/recipes/self_control_timer/basic_02/CMakeLists.txt | 2 +-
++ .../recipes/self_control_timer/cancel_03/CMakeLists.txt     | 2 +-
++ .../recipes/self_control_timer/periodic_04/CMakeLists.txt   | 2 +-
++ 9 files changed, 14 insertions(+), 10 deletions(-)
++
++diff --git a/CMakeLists.txt b/CMakeLists.txt
++index 97bab88..302cd24 100644
++--- a/CMakeLists.txt
+++++ b/CMakeLists.txt
++@@ -48,7 +48,11 @@ string (REPLACE ";" " " CMAKE_CXX_FLAGS "${CXX_FLAGS}")
++ if (UNIX)
++     SET(CMAKE_CXX_FLAGS_DEBUG   "-O0 -g -ggdb -D_DEBUG -DGOOGLE_STRIP_LOG=0")
++     SET(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -ggdb -DNDEBUG -DGOOGLE_STRIP_LOG=1")
++-    SET(DEPENDENT_LIBRARIES event glog pthread)
+++    find_package(glog CONFIG REQUIRED)
+++    find_path(GLOG_INCLUDE_DIRS logging.h PATH_SUFFIXES glog)
+++    find_package(Libevent CONFIG REQUIRED)
+++    list(APPEND DEPENDENT_INCLUDE_DIRS "${GLOG_INCLUDE_DIRS}/../")
+++    SET(DEPENDENT_LIBRARIES libevent::core libevent::extra libevent::openssl glog::glog pthread)
++ else (UNIX)
++     SET(DEPENDENT_LIBRARIES event glog)
++ endif (UNIX)
++diff --git a/apps/CMakeLists.txt b/apps/CMakeLists.txt
++index 17b8400..99d494e 100644
++--- a/apps/CMakeLists.txt
+++++ b/apps/CMakeLists.txt
++@@ -2,7 +2,7 @@
++ include_directories(${PROJECT_SOURCE_DIR}/apps ${PROJECT_SOURCE_DIR}/3rdparty)
++ 
++ if (UNIX)
++-set(LIBRARIES evpp_concurrentqueue event glog pthread)
+++set(LIBRARIES evpp_concurrentqueue libevent::core libevent::extra libevent::openssl glog::glog pthread)
++ link_directories("/home/s/safe/lib" ${PROJECT_BUILD_DIR}/lib)
++ else(UNIX)
++ set(LIBRARIES evpp_static event glog)
++diff --git a/benchmark/http/libevent/CMakeLists.txt b/benchmark/http/libevent/CMakeLists.txt
++index 1148616..79a9f80 100644
++--- a/benchmark/http/libevent/CMakeLists.txt
+++++ b/benchmark/http/libevent/CMakeLists.txt
++@@ -1,3 +1,3 @@
++ 
++ add_executable(benchmark_http_libevent libevent_http_bench.c)
++-target_link_libraries(benchmark_http_libevent event)
+++target_link_libraries(benchmark_http_libevent libevent::core libevent::extra libevent::openssl)
++diff --git a/benchmark/ioevent/libevent/CMakeLists.txt b/benchmark/ioevent/libevent/CMakeLists.txt
++index dfa51a3..a9bd96d 100644
++--- a/benchmark/ioevent/libevent/CMakeLists.txt
+++++ b/benchmark/ioevent/libevent/CMakeLists.txt
++@@ -1,3 +1,3 @@
++ 
++ add_executable(benchmark_ioevent_libevent libevent_ioevent_bench.c)
++-target_link_libraries(benchmark_ioevent_libevent event)
+++target_link_libraries(benchmark_ioevent_libevent libevent::core libevent::extra libevent::openssl)
++diff --git a/benchmark/throughput/libevent/CMakeLists.txt b/benchmark/throughput/libevent/CMakeLists.txt
++index 21dab84..530d835 100644
++--- a/benchmark/throughput/libevent/CMakeLists.txt
+++++ b/benchmark/throughput/libevent/CMakeLists.txt
++@@ -1,5 +1,5 @@
++ add_executable(benchmark_tcp_libevent_client client.c)
++-target_link_libraries(benchmark_tcp_libevent_client event)
+++target_link_libraries(benchmark_tcp_libevent_client libevent::core libevent::extra libevent::openssl)
++ 
++ add_executable(benchmark_tcp_libevent_server server.c)
++-target_link_libraries(benchmark_tcp_libevent_server event)
+++target_link_libraries(benchmark_tcp_libevent_server libevent::core libevent::extra libevent::openssl)
++diff --git a/examples/recipes/self_control_timer/basic_01/CMakeLists.txt b/examples/recipes/self_control_timer/basic_01/CMakeLists.txt
++index 7834db4..66daa46 100644
++--- a/examples/recipes/self_control_timer/basic_01/CMakeLists.txt
+++++ b/examples/recipes/self_control_timer/basic_01/CMakeLists.txt
++@@ -1,7 +1,7 @@
++ file(GLOB SRCS *.cc *.h)
++ 
++ add_executable(example_recipes_self_control_timer_basic_01 ${SRCS})
++-target_link_libraries(example_recipes_self_control_timer_basic_01 event)
+++target_link_libraries(example_recipes_self_control_timer_basic_01 libevent::core libevent::extra libevent::openssl)
++ 
++ 
++ 
++diff --git a/examples/recipes/self_control_timer/basic_02/CMakeLists.txt b/examples/recipes/self_control_timer/basic_02/CMakeLists.txt
++index a8be419..e3a9296 100644
++--- a/examples/recipes/self_control_timer/basic_02/CMakeLists.txt
+++++ b/examples/recipes/self_control_timer/basic_02/CMakeLists.txt
++@@ -1,7 +1,7 @@
++ file(GLOB SRCS *.cc *.h)
++ 
++ add_executable(example_recipes_self_control_timer_basic_02 ${SRCS})
++-target_link_libraries(example_recipes_self_control_timer_basic_02 event)
+++target_link_libraries(example_recipes_self_control_timer_basic_02 libevent::core libevent::extra libevent::openssl)
++ 
++ 
++ 
++diff --git a/examples/recipes/self_control_timer/cancel_03/CMakeLists.txt b/examples/recipes/self_control_timer/cancel_03/CMakeLists.txt
++index 1cae9bb..a060838 100644
++--- a/examples/recipes/self_control_timer/cancel_03/CMakeLists.txt
+++++ b/examples/recipes/self_control_timer/cancel_03/CMakeLists.txt
++@@ -1,7 +1,7 @@
++ file(GLOB SRCS *.cc *.h)
++ 
++ add_executable(example_recipes_self_control_timer_cancel_03 ${SRCS})
++-target_link_libraries(example_recipes_self_control_timer_cancel_03 event)
+++target_link_libraries(example_recipes_self_control_timer_cancel_03 libevent::core libevent::extra libevent::openssl)
++ 
++ 
++ 
++diff --git a/examples/recipes/self_control_timer/periodic_04/CMakeLists.txt b/examples/recipes/self_control_timer/periodic_04/CMakeLists.txt
++index 749c584..1104b57 100644
++--- a/examples/recipes/self_control_timer/periodic_04/CMakeLists.txt
+++++ b/examples/recipes/self_control_timer/periodic_04/CMakeLists.txt
++@@ -1,7 +1,7 @@
++ file(GLOB SRCS *.cc *.h)
++ 
++ add_executable(example_recipes_self_control_timer_periodic_04 ${SRCS})
++-target_link_libraries(example_recipes_self_control_timer_periodic_04 event)
+++target_link_libraries(example_recipes_self_control_timer_periodic_04 libevent::core libevent::extra libevent::openssl)
++ 
++ 
++ 
++-- 
++2.33.1
++
+diff --git a/ports/evpp/portfile.cmake b/ports/evpp/portfile.cmake
+index b3edaf3aa..de7c40ae6 100644
+--- a/ports/evpp/portfile.cmake
++++ b/ports/evpp/portfile.cmake
+@@ -3,13 +3,12 @@ set(EVPP_VERSION 0.7.0)
+ vcpkg_from_github(
+     OUT_SOURCE_PATH SOURCE_PATH
+     REPO Qihoo360/evpp
+-    REF v${EVPP_VERSION}
+-    SHA512 ddcef8d2af6b3c46473d755c0f0994d63d56240ea85d6b44ceb6b77724c3c56bbf1156f7188e270fb5f9f36f25bfc2f96669d7249a34c921922671e3fe267e88
++    REF 8984ca6b4fa410985ecc4a659fa0c9168dd95489
++    SHA512 66fbba1a7753f5a4947d6071f8c89d0dbcf2d82b8df91a448a826226a08668ea24225e0d0a25b1e7553190f134ef99e3dc8cbefa4e62efc95a01968b2786b244
+     HEAD_REF master
+     PATCHES
+         fix-rapidjson-1-1.patch
+-        fix-linux-build.patch
+-        fix-osx-build.patch
++        0001-linux_build.patch
+ )
+ 
+ file(REMOVE_RECURSE ${SOURCE_PATH}/3rdparty/rapidjson ${SOURCE_PATH}/3rdparty/concurrentqueue)
+-- 
+2.33.1
+
