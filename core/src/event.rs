@@ -45,14 +45,14 @@ impl Consumer {
         if !message.is_binary() {
             return Err(eyre!("Unexpected message type"));
         }
-        let filter = VersionedEventConsumerMessage::decode_versioned(message.as_bytes())?
+        let filter = VersionedEventSubscriberMessage::decode_versioned(message.as_bytes())?
             .into_v1()
             .try_into()?;
 
         time::timeout(
             TIMEOUT,
             stream.send(ws::Message::binary(
-                VersionedEventProducerMessage::from(EventProducerMessage::SubscriptionAccepted)
+                VersionedEventPublisherMessage::from(EventPublisherMessage::SubscriptionAccepted)
                     .encode_versioned()?,
             )),
         )
@@ -73,9 +73,10 @@ impl Consumer {
             return Ok(());
         }
 
-        let event = VersionedEventProducerMessage::from(EventProducerMessage::from(event.clone()))
-            .encode_versioned()
-            .wrap_err("Failed to serialize event")?;
+        let event =
+            VersionedEventPublisherMessage::from(EventPublisherMessage::from(event.clone()))
+                .encode_versioned()
+                .wrap_err("Failed to serialize event")?;
         time::timeout(TIMEOUT, self.stream.send(ws::Message::binary(event)))
             .await
             .wrap_err("Send message timeout")?
@@ -91,8 +92,8 @@ impl Consumer {
             return Err(eyre!("Unexpected message type"));
         }
 
-        if let EventConsumerMessage::EventReceived =
-            VersionedEventConsumerMessage::decode_versioned(message.as_bytes())?.into_v1()
+        if let EventSubscriberMessage::EventReceived =
+            VersionedEventSubscriberMessage::decode_versioned(message.as_bytes())?.into_v1()
         {
             self.stream.flush().await?;
             Ok(())

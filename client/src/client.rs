@@ -534,16 +534,14 @@ impl EventIterator {
     ) -> Result<EventIterator> {
         let mut stream = http_client::web_socket_connect(url, headers)?;
         stream.write_message(WebSocketMessage::Binary(
-            VersionedEventConsumerMessage::from(EventConsumerMessage::from(
-                event_filter,
-            ))
-            .encode_versioned()?,
+            VersionedEventSubscriberMessage::from(EventSubscriberMessage::from(event_filter))
+                .encode_versioned()?,
         ))?;
         loop {
             match stream.read_message() {
                 Ok(WebSocketMessage::Binary(message)) => {
-                    if let EventProducerMessage::SubscriptionAccepted =
-                        VersionedEventProducerMessage::decode_versioned(&message)?.into_v1()
+                    if let EventPublisherMessage::SubscriptionAccepted =
+                        VersionedEventPublisherMessage::decode_versioned(&message)?.into_v1()
                     {
                         break;
                     }
@@ -568,16 +566,16 @@ impl Iterator for EventIterator {
             match self.stream.read_message() {
                 Ok(WebSocketMessage::Binary(message)) => {
                     let event_socket_message =
-                        match VersionedEventProducerMessage::decode_versioned(&message) {
+                        match VersionedEventPublisherMessage::decode_versioned(&message) {
                             Ok(event_socket_message) => event_socket_message.into_v1(),
                             Err(err) => return Some(Err(err.into())),
                         };
                     let event = match event_socket_message {
-                        EventProducerMessage::Event(event) => event,
+                        EventPublisherMessage::Event(event) => event,
                         msg => return Some(Err(eyre!("Expected Event but got {:?}", msg))),
                     };
-                    let versioned_message = match VersionedEventConsumerMessage::from(
-                        EventConsumerMessage::EventReceived,
+                    let versioned_message = match VersionedEventSubscriberMessage::from(
+                        EventSubscriberMessage::EventReceived,
                     )
                     .encode_versioned()
                     .wrap_err("Failed to serialize receipt.")

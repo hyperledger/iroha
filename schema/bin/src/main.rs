@@ -35,8 +35,8 @@ fn main() {
         Equal,
         Event,
         EventFilter,
-        EventProducerMessage,
-        EventConsumerMessage,
+        EventPublisherMessage,
+        EventSubscriberMessage,
         Expression,
         FailBox,
         GrantBox,
@@ -74,8 +74,8 @@ fn main() {
         VersionedTransaction,
         VersionedSignedQueryRequest,
         VersionedQueryResult,
-        VersionedEventProducerMessage,
-        VersionedEventConsumerMessage,
+        VersionedEventPublisherMessage,
+        VersionedEventSubscriberMessage,
 
         RawGenesisBlock
     };
