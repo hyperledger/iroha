@@ -18,12 +18,12 @@ boost-format
 boost-circular-buffer
 boost-assign
 boost-uuid
+boost-asio
 boost-accumulators
 boost-property-tree
 boost-process
 iroha-ed25519
 rocksdb
 rxcpp
-evpp
 prometheus-cpp
 nlohmann-json

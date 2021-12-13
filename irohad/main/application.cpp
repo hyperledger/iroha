@@ -7,7 +7,8 @@
 
 #include <boost/filesystem.hpp>
 #include <optional>
-#include <evpp/evpphttp/service.h>
+//#include <evpp/evpphttp/service.h>
+#include "civetweb.h"
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
@@ -162,11 +163,11 @@ Irohad::~Irohad() {
     common.printStatus(*log_);
   }
 
-  if (http_server_) {
+  /*if (http_server_) {
     http_server_->Stop();
     while (!http_server_->IsStopped())
       std::this_thread::sleep_for(std::chrono::microseconds(1ull));
-  }
+  }*/
 
   if (consensus_gate) {
     consensus_gate->stop();
@@ -264,11 +265,181 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
   return {};
 }
 
+#define PORT "8089"
+#define HOST_INFO "http://localhost:8089"
+
+#define EXAMPLE_URI "/healthcheck"
+#define EXIT_URI "/exit"
+
+static int
+ExampleGET(struct mg_connection *conn, const char *p1, const char *p2)
+{
+  return 200;
+}
+
+
+static int
+ExampleDELETE(struct mg_connection *conn, const char *p1, const char *p2)
+{
+  printf("DELETE %s/%s\n", p1, p2);
+  mg_send_http_error(conn,
+                     204,
+                     "%s",
+                     ""); /* Return "deleted" = "204 No Content" */
+
+  return 204;
+}
+
+
+static int
+ExamplePUT(struct mg_connection *conn, const char *p1, const char *p2)
+{
+  mg_send_http_error(conn, 201, "%s", ""); /* Return "201 Created" */
+  return 201;
+}
+
+
+static int
+mg_vsplit(const char *url, const char *pattern, va_list va)
+{
+  int ret = 0;
+  while (*url && *pattern) {
+    if (*url == *pattern) {
+      url++;
+      pattern++;
+    } else if (*pattern == '*') {
+      char *p = va_arg(va, char *);
+      size_t l = va_arg(va, size_t);
+      if (p == NULL || l == 0) {
+        return 0;
+      }
+      while ((*url != '/') && (*url != 0)) {
+        if (l == 0) {
+          return 0;
+        }
+        l--;
+        *p = *url;
+        p++;
+        url++;
+      }
+      *p = 0;
+      pattern++;
+      ret++;
+    } else {
+      return 0;
+    }
+  }
+  return ret;
+}
+
+
+static int
+mg_split(const char *url, const char *pattern, ...)
+{
+  int ret;
+  va_list va;
+  va_start(va, pattern);
+  ret = mg_vsplit(url, pattern, va);
+  va_end(va);
+  return ret;
+}
+
+static int
+ExampleHandler(struct mg_connection *conn, void *cbdata) {
+  char path1[1024], path2[1024];
+  const struct mg_request_info *ri = mg_get_request_info(conn);
+  const char *url = ri->local_uri;
+  (void)cbdata; /* currently unused */
+
+  /* Pattern matching */
+  if (2
+      != mg_split(
+          url, EXAMPLE_URI, path1, sizeof(path1), path2, sizeof(path2))) {
+    mg_send_http_error(conn, 404, "Invalid path: %s\n", url);
+    return 404;
+  }
+
+  /* According to method */
+  if (0 == strcmp(ri->request_method, "GET")) {
+    return ExampleGET(conn, path1, path2);
+  }
+  if ((0 == strcmp(ri->request_method, "PUT"))
+      || (0 == strcmp(ri->request_method, "POST"))
+      || (0 == strcmp(ri->request_method, "PATCH"))) {
+    /* In this example, do the same for PUT, POST and PATCH */
+    return ExamplePUT(conn, path1, path2);
+  }
+  if (0 == strcmp(ri->request_method, "DELETE")) {
+    return ExampleDELETE(conn, path1, path2);
+  }
+
+  /* this is not a GET request */
+  mg_send_http_error(
+      conn, 405, "Only GET, PUT, POST, DELETE and PATCH method supported");
+  return 405;
+}
+
+
+static int
+ExitHandler(struct mg_connection *conn, void *cbdata)
+{
+  mg_printf(conn,
+            "HTTP/1.1 200 OK\r\nContent-Type: "
+            "text/plain\r\nConnection: close\r\n\r\n");
+  mg_printf(conn, "Server will shut down.\n");
+  mg_printf(conn, "Bye!\n");
+  return 1;
+}
+
+static int
+log_message(const struct mg_connection *conn, const char *message)
+{
+  puts(message);
+  return 1;
+}
+
+
+
 /**
  * Initializing Http server.
  */
 Irohad::RunResult Irohad::initHttpServer() {
-  int thread_num = 2;
+  const char *options[] = {"listening_ports",
+                           PORT,
+                           "request_timeout_ms",
+                           "10000",
+                           "error_log_file",
+                           "error.log",
+                           0};
+
+  struct mg_callbacks callbacks;
+  struct mg_context *ctx;
+  int err = 0;
+
+  auto res = mg_init_library(0);
+
+  /* Callback will print error messages to console */
+  memset(&callbacks, 0, sizeof(callbacks));
+  callbacks.log_message = log_message;
+
+  /* Start CivetWeb web server */
+  ctx = mg_start(&callbacks, 0, options);
+
+  /* Check return value: */
+  if (ctx == NULL) {
+    fprintf(stderr, "Cannot start CivetWeb - mg_start failed.\n");
+    return {};
+  }
+
+  /* Add handler EXAMPLE_URI, to explain the example */
+  mg_set_request_handler(ctx, EXAMPLE_URI, ExampleHandler, 0);
+  mg_set_request_handler(ctx, EXIT_URI, ExitHandler, 0);
+
+  /* Show some info */
+  printf("Start example: %s%s\n", HOST_INFO, EXAMPLE_URI);
+  printf("Exit example:  %s%s\n", HOST_INFO, EXIT_URI);
+
+  /*int thread_num = 2;
   int gport = 50585;
   http_server_ = std::make_unique<evpp::evpphttp::Service>(std::string("0.0.0.0:") + std::to_string(gport), "test", thread_num);
   http_server_->RegisterHandler("/healthcheck", [](evpp::EventLoop* loop,
@@ -284,7 +455,7 @@ Irohad::RunResult Irohad::initHttpServer() {
         {"Server", "evpp"}
     };
     cb(200, feild_value, oss.str());
-  });
+  });*/
   return {};
 }
 
