@@ -7,5 +7,6 @@ fn exequte(wsv: &WorldStateView<World>) -> Result<(), ()> {
 }
 
 fn main() {
-	
+	let _something: World = World::default();
+	let _something_else = WorldStateView::<World>::default();
 }

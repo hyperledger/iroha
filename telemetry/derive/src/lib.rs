@@ -2,6 +2,7 @@
 //! metrics. See [`metrics`] for more details.
 
 use proc_macro::TokenStream;
+#[cfg(feature = "metric-instrumentation")]
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::{quote, ToTokens};
@@ -10,16 +11,30 @@ use syn::{
     Path, Type,
 };
 
+// TODO: export these as soon as proc-macro crates are able to export
+// anything other than proc-macros.
+#[cfg(feature = "metric-instrumentation")]
+const TOTAL_STR: &str = "total";
+#[cfg(feature = "metric-instrumentation")]
+const SUCCESS_STR: &str = "success";
+const WSV_STRING: &str = "WorldStateView";
+
 fn type_has_metrics_field(ty: &Type) -> bool {
     match ty {
-        // This may seem fragile, but it isn't. We use the same
-        // convention everywhere in the code base, and if you follow
-        // `CONTRIBUTING.md` you'll likely have `use
-        // iroha_data_model::WorldStateView` somewhere.
+        // This may seem fragile, but it isn't. We use the same convention
+        // everywhere in the code base, and if you follow `CONTRIBUTING.md`
+        // you'll likely have `use iroha_core::WorldStateView`
+        // somewhere. If you don't, you're violating the `CONTRIBUTING.md` in
+        // more than one way.
         Type::Path(pth) => {
             let Path { segments, .. } = pth.path.clone();
-            let type_name = &segments[0].ident;
-            *type_name == "WorldStateView"
+            #[allow(clippy::expect_used)]
+            let type_name = &segments
+                .iter()
+                .last()
+                .expect("Should have at least one segment")
+                .ident;
+            *type_name == WSV_STRING
         }
         _ => false,
     }
@@ -60,16 +75,26 @@ impl Parse for MetricSpecs {
 }
 
 struct MetricSpec {
+    #[cfg(feature = "metric-instrumentation")]
     timing: bool,
     metric_name: LitStr,
 }
 
 impl Parse for MetricSpec {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let timing = <syn::Token![+]>::parse(input).is_ok();
+        let _timing = <syn::Token![+]>::parse(input).is_ok();
         let metric_name_lit = syn::Lit::parse(input)?;
+
         let metric_name = match metric_name_lit {
-            syn::Lit::Str(lit_str) => lit_str,
+            syn::Lit::Str(lit_str) => {
+                if lit_str.value().contains(' ') {
+                    return Err(syn::Error::new(
+                        proc_macro2::Span::call_site(),
+                        "Spaces are not allowed. Use underscores '_'",
+                    ));
+                };
+                lit_str
+            }
             _ => {
                 return Err(syn::Error::new(
                     proc_macro2::Span::call_site(),
@@ -79,7 +104,8 @@ impl Parse for MetricSpec {
         };
         Ok(Self {
             metric_name,
-            timing,
+            #[cfg(feature = "metric-instrumentation")]
+            timing: _timing,
         })
     }
 }
@@ -92,8 +118,22 @@ impl ToTokens for MetricSpec {
 
 /// Macro for instrumenting an `isi`'s `impl execute` to track a given
 /// metric.  To specify a metric, put it as an attribute parameter
-/// inside quotes. If you also want to track the execution time of the
-/// `isi`, you should prefix the quoted metric with the `+` symbol.
+/// inside quotes.
+
+/// This will increment the [`prometheus::IntVec`] metric
+/// corresponding to the literal provided in quotes, with the second
+/// argument being `TOTAL_STR == "total"`. If the execution of the
+/// `Fn`'s body doesn't result in an [`Err`] variant, another metric
+/// with the same first argument and `SUCCESS_STR = "success"` is also
+/// incremented. Thus one can infer the number of rejected
+/// transactions based on this parameter. If necessary, this macro
+/// should be edited to record different [`Err`] variants as different
+/// rejections, so we could (in theory), record the number of
+/// transactions that got rejected because of
+/// e.g. `SignatureCondition` failure.
+///
+/// If you also want to track the execution time of the `isi`, you
+/// should prefix the quoted metric with the `+` symbol.
 ///
 /// # Examples
 /// ```rust
@@ -129,7 +169,8 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
         syn::ReturnType::Type(_, typ) => match *typ {
             Type::Path(pth) => {
                 let Path { segments, .. } = pth.path;
-                let type_name = &segments[0].ident;
+                #[allow(clippy::expect_used)]
+                let type_name = &segments.iter().last().expect("non-empty path").ident;
                 if *type_name != "Result" {
                     abort!(
                         type_name,
@@ -149,11 +190,47 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
             "Function must have at least one argument of type `WorldStateView`."
         );
     }
-    let specs = parse_macro_input!(attr as MetricSpecs);
-    let metric_arg_ident = arg_metrics(&sig.inputs)
-		.unwrap_or_else(|args| abort!(args, "At least one argument must be a `WorldStateView`. Path specifications currently aren't parsed."));
+    let _specs = parse_macro_input!(attr as MetricSpecs);
     // Again this may seem fragile, but if we move the metrics from
-    // the `WorldStateView`, we'd need to refactor many things anyway.
+    // the `WorldStateView`, we'd need to refactor many things anyway
+    let _metric_arg_ident = arg_metrics(&sig.inputs)
+        .unwrap_or_else(|args| abort!(args, "At least one argument must be a `WorldStateView`."));
+
+    #[cfg(feature = "metric-instrumentation")]
+    let res = {
+        let (totals, successes, times) = write_metrics(_metric_arg_ident, _specs);
+        quote!(
+            #(#attrs)* #vis #sig {
+                let _closure = || #block;
+
+                let start_time = #_metric_arg_ident.metrics.current_time();
+                #totals
+                let res = _closure();
+                let end_time = #_metric_arg_ident.metrics.current_time();
+                #times
+                if let Ok(_) = res {
+                    #successes
+                };
+                res
+        })
+        .into();
+    };
+
+    #[cfg(not(feature = "metric-instrumentation"))]
+    let res = quote!(
+        #(#attrs)* #vis #sig {
+            #block
+        }
+    )
+    .into();
+    res
+}
+
+#[cfg(feature = "metric-instrumentation")]
+fn write_metrics(
+    metric_arg_ident: proc_macro2::Ident,
+    specs: MetricSpecs,
+) -> (TokenStream2, TokenStream2, TokenStream2) {
     let inc_metric = |spec: &MetricSpec, kind: &str| {
         quote!(
             #metric_arg_ident
@@ -162,12 +239,6 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .with_label_values( &[#spec, #kind ]).inc();
         )
     };
-    // I agree that casting this to `f64` is not the best
-    // idea. However, 1) Prometheus doesn't record more precise data
-    // anyway, 2) if the time to handle requests is a sufficiently
-    // large `u128` that it **cannot** be a represented as `f64`
-    // without overflow then we have bigger problems than imprecise
-    // metrics. 3) This is way shorter.
     let track_time = |spec: &MetricSpec| {
         quote!(
             #metric_arg_ident
@@ -193,21 +264,5 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
         .filter(|spec| spec.timing)
         .map(track_time)
         .collect();
-
-    quote!(
-        #(#attrs)* #vis #sig {
-            let _closure = || #block;
-
-            let start_time = #metric_arg_ident.metrics.current_time();
-            #totals
-            let res = _closure();
-            let end_time = #metric_arg_ident.metrics.current_time();
-            #times
-            if let Ok(_) = res {
-                #successes
-            };
-            res
-        }
-    )
-    .into()
+    (totals, successes, times)
 }

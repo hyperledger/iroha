@@ -1,6 +1,6 @@
 //! [`Metrics`] and [`Status`]-related logic and functions.
 use std::{
-    sync::Arc,
+    ops::Deref,
     time::{Duration, SystemTime},
 };
 
@@ -33,8 +33,9 @@ pub struct Status {
     pub uptime: Uptime,
 }
 
-impl From<&Arc<Metrics>> for Status {
-    fn from(val: &Arc<Metrics>) -> Self {
+impl<T: Deref<Target = Metrics>> From<&T> for Status {
+    fn from(value: &T) -> Self {
+        let val: &Metrics = &*value;
         Self {
             peers: val.connected_peers.get(),
             blocks: val.block_height.get(),

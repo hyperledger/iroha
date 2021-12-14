@@ -18,6 +18,7 @@ roles = ["iroha_data_model/roles"]
 telemetry = []
 cli = ["structopt"]
 dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry"]
+expensive-telemetry = ["iroha_telemetry/metric-instrumentation"]
 default = ["bridge", "cli"]
 
 [badges]

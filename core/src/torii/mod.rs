@@ -19,6 +19,7 @@ use warp::{
     Filter, Reply,
 };
 
+#[macro_use]
 mod utils;
 
 use crate::{
@@ -489,13 +490,15 @@ async fn update_metrics<W: WorldTrait>(
     };
     let domains = wsv.domains();
     wsv.metrics.domains.set(domains.len() as u64);
-    wsv.metrics.users.set(
-        domains
-            .iter()
-            .map(|d| d.accounts.values().len() as u64)
-            .sum(),
-    );
     wsv.metrics.connected_peers.set(peers);
+    for d in domains {
+        wsv.metrics
+            .accounts
+            .get_metric_with_label_values(&[&d.name])
+            .wrap_err("Failed to compose domains")
+            .map_err(Error::Prometheus)?
+            .set(d.accounts.values().len() as u64);
+    }
     Ok(())
 }
 

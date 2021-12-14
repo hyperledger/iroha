@@ -14,17 +14,18 @@ RUN set -eux; \
         ca-certificates \
         gcc \
         curl \
-        clang \
-        llvm-dev \
-        libc6-dev \
-        wget \
-        git \
-        cmake \
-        libstdc++-10-dev \
-        libssl-dev \
-        zlib1g-dev \
-        libxxhash-dev \
-        build-essential \
+		clang \
+		llvm-dev \
+		libc6-dev \
+		wget \
+		git \
+		cmake \
+		libstdc++-10-dev \
+		libssl-dev \
+		zlib1g-dev \
+		libxxhash-dev \
+		build-essential \
+		pkg-config \
         ; \
     dpkgArch="$(dpkg --print-architecture)"; \
     case "${dpkgArch##*-}" in \
