@@ -1,7 +1,7 @@
 version: "3.3"
 services:
   iroha0:
-    image: hyperledger/iroha2:2.0.0-pre.1.rc1
+    image: hyperledger/iroha2:2.0.0-pre.1.rc.1
     environment:
       TORII_P2P_ADDR: iroha0:1337
       TORII_API_URL: iroha0:8080
@@ -16,7 +16,7 @@ services:
     command: ./iroha --submit-genesis
 
   iroha1:
-    image: hyperledger/iroha2:2.0.0-pre.1.rc1
+    image: hyperledger/iroha2:2.0.0-pre.1.rc.1
     environment:
       TORII_P2P_ADDR: iroha1:1338
       TORII_API_URL: iroha1:8081
@@ -30,7 +30,7 @@ services:
       - "8181:8181"
 
   iroha2:
-    image: hyperledger/iroha2:2.0.0-pre.1.rc1
+    image: hyperledger/iroha2:2.0.0-pre.1.rc.1
     environment:
       TORII_P2P_ADDR: iroha2:1339
       TORII_API_URL: iroha2:8082
@@ -44,7 +44,7 @@ services:
       - "8182:8182"
 
   iroha3:
-    image: hyperledger/iroha2:2.0.0-pre.1.rc1
+    image: hyperledger/iroha2:2.0.0-pre.1.rc.1
     environment:
       TORII_P2P_ADDR: iroha3:1340
       TORII_API_URL: iroha3:8083
