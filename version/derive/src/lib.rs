@@ -75,7 +75,7 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// declare_versioned!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant);
 ///
-/// #[version(n = 1, versioned = "VersionedMessage", derive = "Debug, Clone")]
+/// #[version(n = 1, versioned = "VersionedMessage")]
 /// #[derive(Debug, Clone, Decode, Encode, Serialize, Deserialize)]
 /// pub struct Message1;
 ///
@@ -136,6 +136,11 @@ fn impl_version(args: Vec<NestedMeta>, item: TokenStream) -> TokenStream2 {
         })
         .collect();
 
+    for name in args_map.keys() {
+        if ![VERSION_NUMBER_ARG_NAME, VERSIONED_STRUCT_ARG_NAME].contains(&name.as_str()) {
+            abort!(name.span(), "Unknown field");
+        }
+    }
     let version_number = args_map
         .get(VERSION_NUMBER_ARG_NAME)
         .expect_or_abort(&format!(
