@@ -4,6 +4,7 @@
 use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 
 use eyre::Context;
+use futures::stream::{FuturesUnordered, StreamExt};
 use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
 use iroha_data_model::prelude::*;
 use serde::Serialize;
@@ -166,14 +167,26 @@ impl<W: WorldTrait> Torii<W> {
         Err(rejection)
     }
 
-    /// To handle incoming requests `Torii` should be started first.
-    ///
-    /// # Errors
-    /// Can fail due to listening to network or if http server fails
-    #[iroha_futures::telemetry_future]
-    pub async fn start(self) -> eyre::Result<()> {
-        let api_url = self.iroha_cfg.torii.api_url.clone();
+    /// Helper function to create router. This router can tested without starting up an HTTP server
+    fn create_telemetry_router(&self) -> impl Filter<Extract = impl warp::Reply> + Clone + Send {
+        let get_router_status = endpoint2(
+            handle_status,
+            warp::path(uri::STATUS).and(add_state!(self.wsv, self.network)),
+        );
+        let get_router_metrics = endpoint2(
+            handle_metrics,
+            warp::path(uri::METRICS).and(add_state!(self.wsv, self.network)),
+        );
 
+        warp::get()
+            .and(get_router_status)
+            .or(get_router_metrics)
+            .with(warp::trace::request())
+            .recover(Torii::<W>::recover_arg_parse)
+    }
+
+    /// Helper function to create router. This router can tested without starting up an HTTP server
+    fn create_api_router(&self) -> impl Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router = warp::path(uri::HEALTH)
             .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
             .or(endpoint3(
@@ -223,27 +236,61 @@ impl<W: WorldTrait> Torii<W> {
                 })
             });
 
-        let router = ws_router
+        ws_router
             .or(warp::post().and(post_router))
             .or(warp::get().and(get_router))
             .with(warp::trace::request())
-            .recover(Torii::<W>::recover_arg_parse);
+            .recover(Torii::<W>::recover_arg_parse)
+    }
 
-        tokio::spawn(async move {
-            self.start_status()
-                .await
-                .wrap_err("Failed to start status service")
-                .unwrap_or_else(|error| {
-                    iroha_logger::error!(%error);
-                })
-        });
+    /// Start status and metrics endpoints.
+    ///
+    /// # Errors
+    /// Can fail due to listening to network or if http server fails
+    fn start_telemetry(self: Arc<Self>) -> eyre::Result<Vec<tokio::task::JoinHandle<()>>> {
+        let telemetry_url = &self.iroha_cfg.torii.telemetry_url;
 
+        let mut handles = vec![];
+        match telemetry_url.to_socket_addrs() {
+            Ok(addrs) => {
+                for addr in addrs {
+                    let torii = Arc::clone(&self);
+
+                    handles.push(tokio::spawn(async move {
+                        let telemetry_router = torii.create_telemetry_router();
+                        warp::serve(telemetry_router).run(addr).await;
+                    }));
+                }
+
+                Ok(handles)
+            }
+            Err(error) => {
+                iroha_logger::error!(%telemetry_url, %error, "Status address configuration parse error");
+                Err(eyre::Error::new(error))
+            }
+        }
+    }
+
+    /// Start main api endpoints.
+    ///
+    /// # Errors
+    /// Can fail due to listening to network or if http server fails
+    fn start_api(self: Arc<Self>) -> eyre::Result<Vec<tokio::task::JoinHandle<()>>> {
+        let api_url = &self.iroha_cfg.torii.api_url;
+
+        let mut handles = vec![];
         match api_url.to_socket_addrs() {
-            Ok(mut i) => {
-                #[allow(clippy::expect_used)]
-                let addr = i.next().expect("ToSocketAddrs iteration failed");
-                warp::serve(router).run(addr).await;
-                Ok(())
+            Ok(addrs) => {
+                for addr in addrs {
+                    let torii = Arc::clone(&self);
+
+                    handles.push(tokio::spawn(async move {
+                        let api_router = torii.create_api_router();
+                        warp::serve(api_router).run(addr).await;
+                    }));
+                }
+
+                Ok(handles)
             }
             Err(error) => {
                 iroha_logger::error!(%api_url, %error, "API address configuration parse error");
@@ -252,33 +299,31 @@ impl<W: WorldTrait> Torii<W> {
         }
     }
 
-    /// Start status endpoint.
+    /// To handle incoming requests `Torii` should be started first.
     ///
     /// # Errors
     /// Can fail due to listening to network or if http server fails
-    async fn start_status(self) -> eyre::Result<()> {
-        let get_router_status = endpoint2(
-            handle_status,
-            warp::path(uri::STATUS).and(add_state!(self.wsv, self.network)),
-        );
-        let get_router_metrics = endpoint2(
-            handle_metrics,
-            warp::path(uri::METRICS).and(add_state!(self.wsv, self.network)),
-        );
-        let router = warp::get().and(get_router_status).or(get_router_metrics);
+    #[iroha_futures::telemetry_future]
+    pub async fn start(self) -> eyre::Result<()> {
+        let mut handles = vec![];
 
-        match self.iroha_cfg.torii.status_url.to_socket_addrs() {
-            Ok(mut i) => {
-                #[allow(clippy::expect_used)]
-                let addr = i.next().expect("ToSocketAddrs iteration failed");
-                warp::serve(router).run(addr).await;
-                Ok(())
-            }
-            Err(e) => {
-                iroha_logger::error!("Status address configuration parse error");
-                Err(eyre::Error::new(e))
-            }
-        }
+        let torii = Arc::new(self);
+        handles.extend(Arc::clone(&torii).start_telemetry()?);
+        handles.extend(Arc::clone(&torii).start_api()?);
+
+        handles
+            .into_iter()
+            .collect::<FuturesUnordered<_>>()
+            .for_each(|handle| {
+                if let Err(error) = handle {
+                    iroha_logger::error!(%error, "Join handle error");
+                }
+
+                futures::future::ready(())
+            })
+            .await;
+
+        Ok(())
     }
 }
 
@@ -454,8 +499,8 @@ pub mod config {
 
     /// Default socket for p2p communication
     pub const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
-    /// Default socket for reporting internal status
-    pub const DEFAULT_TORII_STATUS_URL: &str = "127.0.0.1:8180";
+    /// Default socket for reporting internal status and metrics
+    pub const DEFAULT_TORII_TELEMETRY_URL: &str = "127.0.0.1:8180";
     /// Default maximum size of single transaction
     pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
     /// Default maximum instruction number
@@ -464,7 +509,7 @@ pub mod config {
     pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: usize = 2_usize.pow(12) * 4000;
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
-    #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
     #[serde(rename_all = "UPPERCASE")]
     #[serde(default)]
     #[config(env_prefix = "TORII_")]
@@ -473,8 +518,8 @@ pub mod config {
         pub p2p_addr: String,
         /// Torii URL for client API.
         pub api_url: String,
-        /// Torii URL for reporting internal status for administration.
-        pub status_url: String,
+        /// Torii URL for reporting internal status and metrics for administration.
+        pub telemetry_url: String,
         /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
         pub max_transaction_size: usize,
         /// Maximum number of bytes in raw message. Used to prevent from DOS attacks.
@@ -488,7 +533,7 @@ pub mod config {
             Self {
                 p2p_addr: DEFAULT_TORII_P2P_ADDR.to_owned(),
                 api_url: DEFAULT_API_URL.to_owned(),
-                status_url: DEFAULT_TORII_STATUS_URL.to_owned(),
+                telemetry_url: DEFAULT_TORII_TELEMETRY_URL.to_owned(),
                 max_transaction_size: DEFAULT_TORII_MAX_TRANSACTION_SIZE,
                 max_content_len: DEFAULT_TORII_MAX_CONTENT_LENGTH,
                 max_instruction_number: DEFAULT_TORII_MAX_INSTRUCTION_NUMBER,
