@@ -425,7 +425,7 @@ where
             torii: ToriiConfiguration {
                 p2p_addr: self.p2p_address.clone(),
                 api_url: self.api_address.clone(),
-                status_url: self.status_address.clone(),
+                telemetry_url: self.status_address.clone(),
                 ..configuration.torii
             },
             logger: LoggerConfiguration {

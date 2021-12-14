@@ -19,7 +19,8 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
     let mut config = get_config(get_trusted_peers(None), None);
     config.torii.p2p_addr = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     config.torii.api_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
-    config.torii.status_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
+    config.torii.telemetry_url =
+        format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     let (events, _) = tokio::sync::broadcast::channel(100);
     let wsv = Arc::new(WorldStateView::new(World::with(
         ('a'..'z')
@@ -75,7 +76,6 @@ async fn create_and_start_torii() {
 #[tokio::test(flavor = "multi_thread")]
 async fn torii_pagination() {
     let (torii, keys) = create_torii().await;
-    let state = torii.create_state();
 
     let get_domains = |start, limit| {
         let query: VerifiedQueryRequest = QueryRequest::new(
@@ -88,7 +88,13 @@ async fn torii_pagination() {
         .expect("Failed to verify");
 
         let pagination = Pagination { start, limit };
-        handle_queries(state.clone(), pagination, query).map(|result| {
+        handle_queries(
+            Arc::clone(&torii.wsv),
+            Arc::clone(&torii.query_validator),
+            pagination,
+            query,
+        )
+        .map(|result| {
             let Scale(query_result) = result.unwrap();
             if let VersionedQueryResult::V1(QueryResult(Value::Vec(domain))) = query_result {
                 domain
@@ -178,19 +184,18 @@ impl AssertReady {
         if self.deny_all {
             torii.query_validator = Arc::new(DenyAll.into());
         }
-        let state = torii.create_state();
 
         let authority = AccountId::new("alice", "wonderland");
         for instruction in self.instructions {
             instruction
-                .execute(authority.clone(), &state.wsv)
+                .execute(authority.clone(), &torii.wsv)
                 .expect("Given instructions disorder");
         }
 
-        let post_router = endpoint3(
+        let post_router = endpoint4(
             handle_queries,
             warp::path(uri::QUERY)
-                .and(add_state(Arc::clone(&state)))
+                .and(add_state!(torii.wsv, torii.query_validator))
                 .and(paginate())
                 .and(body::query()),
         );

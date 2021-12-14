@@ -25,13 +25,13 @@ impl<T: Encode + Send> Reply for Scale<T> {
 }
 
 /// Adds state to filter
-pub fn add_state<State: Send + Clone>(
-    state: State,
-) -> impl Filter<Extract = (State,), Error = Rejection> + Clone + Send {
-    warp::any().and_then(move || {
-        let state = state.clone();
-        async move { Ok::<_, Rejection>(state) }
-    })
+macro_rules! add_state {
+    ( $( $state : expr ),* $(,)? ) => {
+        warp::any().map({
+            let state = ($( $state.clone(), )*);
+            move || state.clone()
+        }).untuple_one()
+    }
 }
 
 pub mod body {
@@ -84,7 +84,7 @@ macro_rules! impl_custom_and_then {
     }
 }
 
-impl_custom_and_then!(endpoint1(a: A));
+//impl_custom_and_then!(endpoint1(a: A));
 impl_custom_and_then!(endpoint2(a: A, b: B));
 impl_custom_and_then!(endpoint3(a: A, b: B, c: C));
-//impl_custom_and_then!(endpoint4 (a: A, b: B, c: C, d: D));
+impl_custom_and_then!(endpoint4(a: A, b: B, c: C, d: D));
