@@ -7,7 +7,6 @@
 
 #include <boost/filesystem.hpp>
 #include <optional>
-//#include <evpp/evpphttp/service.h>
 #include "civetweb.h"
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
@@ -420,7 +419,10 @@ Irohad::RunResult Irohad::initHttpServer() {
 
   /* Callback will print error messages to console */
   memset(&callbacks, 0, sizeof(callbacks));
-  callbacks.log_message = log_message;
+  callbacks.log_message = [](const struct mg_connection *conn, const char *message){
+    puts(message);
+    return 1;
+  };
 
   /* Start CivetWeb web server */
   ctx = mg_start(&callbacks, 0, options);
@@ -433,11 +435,18 @@ Irohad::RunResult Irohad::initHttpServer() {
 
   /* Add handler EXAMPLE_URI, to explain the example */
   mg_set_request_handler(ctx, EXAMPLE_URI, ExampleHandler, 0);
-  mg_set_request_handler(ctx, EXIT_URI, ExitHandler, 0);
+  mg_set_request_handler(ctx, EXIT_URI, [](struct mg_connection *conn, void *cbdata) {
+    mg_printf(conn,
+              "HTTP/1.1 200 OK\r\nContent-Type: "
+              "text/plain\r\nConnection: close\r\n\r\n");
+    mg_printf(conn, "Server will shut down.\n");
+    mg_printf(conn, "Bye!\n");
+    return 1;
+  }, 0);
 
   /* Show some info */
-  printf("Start example: %s%s\n", HOST_INFO, EXAMPLE_URI);
-  printf("Exit example:  %s%s\n", HOST_INFO, EXIT_URI);
+/*  printf("Start example: %s%s\n", HOST_INFO, EXAMPLE_URI);
+  printf("Exit example:  %s%s\n", HOST_INFO, EXIT_URI);*/
 
   /*int thread_num = 2;
   int gport = 50585;
