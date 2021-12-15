@@ -15,8 +15,8 @@ use iroha_core::{
     kura::KuraTrait,
     prelude::*,
     sumeragi::{
-        network_topology::Topology, Gossip, IsLeader, Sumeragi, SumeragiTrait, SumeragiWithFault,
-        Voting,
+        network_topology::Topology, Gossip, IsLeader, RetrieveTransactions, Sumeragi,
+        SumeragiTrait, SumeragiWithFault,
     },
     wsv::WorldTrait,
 };
@@ -314,7 +314,12 @@ where
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     for peer in network.peers() {
-        peer.iroha.as_ref().unwrap().sumeragi.do_send(Voting).await;
+        peer.iroha
+            .as_ref()
+            .unwrap()
+            .sumeragi
+            .do_send(RetrieveTransactions)
+            .await;
     }
 }
 
@@ -392,6 +397,7 @@ async fn change_view_on_tx_receipt_timeout() {
             _,
             _,
             _,
+            // FIXME: Leader gets gossip
             sumeragi::Skip<sumeragi::TransactionForwarded, sumeragi::Leader>,
         >,
         BlockSynchronizer<_, _>,
@@ -411,7 +417,12 @@ async fn change_view_on_tx_receipt_timeout() {
 
     // Let peers retrieve the gossiped tx and send to leader, so they can all understand the leader is unresponsive.
     for peer in network.peers() {
-        peer.iroha.as_ref().unwrap().sumeragi.do_send(Voting).await;
+        peer.iroha
+            .as_ref()
+            .unwrap()
+            .sumeragi
+            .do_send(RetrieveTransactions)
+            .await;
     }
 
     time::sleep(Duration::from_secs(3)).await;

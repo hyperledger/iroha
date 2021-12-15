@@ -30,7 +30,9 @@ The following is the default configuration used by Iroha.
     "TX_RECEIPT_TIME_MS": 500,
     "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
     "MAX_INSTRUCTION_NUMBER": 4096,
-    "MAILBOX": 100
+    "MAILBOX": 100,
+    "GOSSIP_BATCH_SIZE": 500,
+    "GOSSIP_PERIOD_MS": 1000
   },
   "TORII": {
     "P2P_ADDR": "127.0.0.1:1337",
@@ -429,6 +431,8 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
 {
   "BLOCK_TIME_MS": 1000,
   "COMMIT_TIME_MS": 2000,
+  "GOSSIP_BATCH_SIZE": 500,
+  "GOSSIP_PERIOD_MS": 1000,
   "MAILBOX": 100,
   "MAX_INSTRUCTION_NUMBER": 4096,
   "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
@@ -459,6 +463,26 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_COMMIT_TIME
 
 ```json
 2000
+```
+
+### `sumeragi.gossip_batch_size`
+
+Maximum number of transactions in tx gossip batch message.
+
+Has type `usize`. Can be configured via environment variable `SUMERAGI_GOSSIP_BATCH_SIZE`
+
+```json
+500
+```
+
+### `sumeragi.gossip_period_ms`
+
+Maximum number of transactions in tx gossip batch message.
+
+Has type `u64`. Can be configured via environment variable `SUMERAGI_GOSSIP_PERIOD_MS`
+
+```json
+1000
 ```
 
 ### `sumeragi.key_pair`

@@ -32,6 +32,7 @@ use crate::{
     Error, Message, MessageResult,
 };
 
+/// Max message length in bytes.
 const MAX_MESSAGE_LENGTH: usize = 16 * 1024 * 1024;
 const MAX_HANDSHAKE_LENGTH: usize = 255;
 /// Default associated data for AEAD

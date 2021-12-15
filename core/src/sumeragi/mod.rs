@@ -11,7 +11,6 @@ use std::{
 };
 
 use eyre::{eyre, Result};
-use futures::{prelude::*, stream::FuturesUnordered};
 use iroha_actor::{broker::*, prelude::*, Context};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::prelude::*;
@@ -90,11 +89,11 @@ impl FaultInjection for NoFault {
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
 pub struct UpdateNetworkTopology;
 
-/// Message reminder for voting
+/// Message reminder for retrieving transactions.
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
-pub struct Voting;
+pub struct RetrieveTransactions;
 
-/// Message reminder for gossip
+/// Message reminder for gossip.
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
 pub struct Gossip;
 
@@ -134,21 +133,21 @@ pub struct CommitBlock(pub VersionedValidBlock);
 #[message(result = "Vec<HashOf<VersionedValidBlock>>")]
 pub struct InvalidatedBlockHashes;
 
-/// Commit block
+/// Reminder to check if commit timeout happened.
 #[derive(Debug, Clone, iroha_actor::Message)]
 pub struct CheckCommitTimeout {
     block_hash: HashOf<VersionedValidBlock>,
     proof: Proof,
 }
 
-/// Commit block
+/// Reminder to check if block creation timeout happened.
 #[derive(Debug, Clone, iroha_actor::Message)]
 pub struct CheckCreationTimeout {
     tx_hash: HashOf<VersionedTransaction>,
     proof: Proof,
 }
 
-/// Commit block
+/// Reminder to check if transaction receipt timeout happened.
 #[derive(Debug, Clone, iroha_actor::Message)]
 pub struct CheckReceiptTimeout {
     tx_hash: HashOf<VersionedTransaction>,
@@ -210,6 +209,8 @@ where
     /// Mailbox size
     pub mailbox: usize,
     fault_injection: PhantomData<F>,
+    gossip_batch_size: usize,
+    gossip_period: Duration,
 }
 
 /// Generic sumeragi trait
@@ -223,7 +224,7 @@ pub trait SumeragiTrait:
     + ContextHandler<IsLeader, Result = bool>
     + ContextHandler<GetLeader, Result = PeerId>
     + ContextHandler<NetworkMessage, Result = ()>
-    + ContextHandler<Voting, Result = ()>
+    + ContextHandler<RetrieveTransactions, Result = ()>
     + Handler<Gossip, Result = ()>
     + Debug
 {
@@ -312,15 +313,15 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
             network,
             mailbox: configuration.mailbox,
             fault_injection: PhantomData,
+            gossip_batch_size: configuration.gossip_batch_size,
+            gossip_period: Duration::from_millis(configuration.gossip_period_ms),
         })
     }
 }
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 /// And will create a block if is leader and the voting is not already in progress.
-pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(500);
-/// The interval at which sumeragi forwards txs from `queue` to other peers.
-pub const TX_GOSSIP_INTERVAL: Duration = Duration::from_millis(1000);
+pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(200);
 /// The interval of peers (re/dis)connection.
 pub const PEERS_CONNECT_INTERVAL: Duration = Duration::from_secs(1);
 /// The interval of telemetry updates.
@@ -377,11 +378,15 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Con
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> ContextHandler<Voting>
-    for SumeragiWithFault<G, K, W, F>
+impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
+    ContextHandler<RetrieveTransactions> for SumeragiWithFault<G, K, W, F>
 {
     type Result = ();
-    async fn handle(&mut self, ctx: &mut Context<Self>, Voting: Voting) {
+    async fn handle(
+        &mut self,
+        ctx: &mut Context<Self>,
+        RetrieveTransactions: RetrieveTransactions,
+    ) {
         if self.voting_in_progress().await {
             return;
         }
@@ -398,8 +403,12 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Han
 {
     type Result = ();
     async fn handle(&mut self, Gossip: Gossip) {
-        let txs = self.queue.all_transactions(&*self.wsv);
-        self.gossip_transactions(&txs[..]).await;
+        // Select N random transactions and gossip them.
+        // This is done for peer not to DOS themselves under high tx load.
+        let txs = self
+            .queue
+            .n_random_transactions(&*self.wsv, self.gossip_batch_size);
+        self.gossip_transactions(txs).await;
     }
 }
 
@@ -461,9 +470,9 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Con
         self.update_network_topology().await;
         ctx.notify_every::<ConnectPeers>(PEERS_CONNECT_INTERVAL);
         if !F::manual_rounds() {
-            ctx.notify_every::<Voting>(TX_RETRIEVAL_INTERVAL);
+            ctx.notify_every::<RetrieveTransactions>(TX_RETRIEVAL_INTERVAL);
         }
-        ctx.notify_every::<Gossip>(TX_GOSSIP_INTERVAL);
+        ctx.notify_every::<Gossip>(self.gossip_period);
         if self.telemetry_started {
             ctx.notify_every::<UpdateTelemetry>(TELEMETRY_INTERVAL);
         }
@@ -727,53 +736,54 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
     }
 
     /// Forwards transactions to the leader and waits for receipts.
+    /// In consensus it is used to check the liveness of a leader.
     #[iroha_futures::telemetry_future]
     pub async fn forward_txs_to_leader(
         &mut self,
         txs: &[VersionedAcceptedTransaction],
         ctx: &mut Context<Self>,
     ) {
-        let send_futures = FuturesUnordered::new();
-        for tx in txs {
-            let tx_hash = tx.hash();
-            if self.txs_awaiting_receipts.contains_key(&tx_hash) {
-                // This peer has already sent this tx to leader and is waiting for a receipt.
-                // Without this `if` depending on the round time, the peers might DOS themselves.
-                continue;
-            }
-            info!(
-                peer_addr = %self.peer_id.address,
-                peer_role = ?self.topology.role(&self.peer_id),
-                leader_addr = %self.topology.leader().address,
-                %tx_hash,
-                "Forwarding tx to leader"
-            );
-            send_futures.push(
-                VersionedMessage::from(Message::from(TransactionForwarded::new(tx, &self.peer_id)))
-                    .send_to(&self.broker, self.topology.leader()),
-            );
-            // Don't require leader to submit receipts and therefore create blocks if the tx is still waiting for more signatures.
-            #[allow(clippy::expect_used)]
-            if let Ok(true) = tx.check_signature_condition(&self.wsv) {
-                self.txs_awaiting_receipts.insert(tx.hash(), Instant::now());
-            }
-            #[allow(clippy::expect_used)]
-            let no_tx_receipt = view_change::Proof::no_transaction_receipt_received(
-                self.latest_view_change_hash(),
-                *self.latest_block_hash(),
-                self.key_pair.clone(),
-            )
-            .expect("Failed to put first signature.");
-
-            ctx.notify(
-                CheckReceiptTimeout {
-                    tx_hash,
-                    proof: no_tx_receipt,
-                },
-                self.tx_receipt_time,
-            );
+        // If already sent tx and awaiting receipt or created block, then quit.
+        if !self.txs_awaiting_receipts.is_empty() || !self.txs_awaiting_created_block.is_empty() {
+            return;
         }
-        send_futures.collect::<()>().await;
+
+        // It is assumed that we only need to send 1 tx to check liveness.
+        let tx = txs
+            .choose(&mut rand::thread_rng())
+            .expect("It was checked earlier that transactions are not empty.");
+        let tx_hash = tx.hash();
+        info!(
+            peer_addr = %self.peer_id.address,
+            peer_role = ?self.topology.role(&self.peer_id),
+            leader_addr = %self.topology.leader().address,
+            %tx_hash,
+            "Forwarding tx to leader"
+        );
+        // Don't require leader to submit receipts and therefore create blocks if the tx is still waiting for more signatures.
+        #[allow(clippy::expect_used)]
+        if let Ok(true) = tx.check_signature_condition(&self.wsv) {
+            self.txs_awaiting_receipts.insert(tx.hash(), Instant::now());
+        }
+        #[allow(clippy::expect_used)]
+        let no_tx_receipt = view_change::Proof::no_transaction_receipt_received(
+            self.latest_view_change_hash(),
+            *self.latest_block_hash(),
+            self.key_pair.clone(),
+        )
+        .expect("Failed to put first signature.");
+
+        ctx.notify(
+            CheckReceiptTimeout {
+                tx_hash,
+                proof: no_tx_receipt,
+            },
+            self.tx_receipt_time,
+        );
+
+        VersionedMessage::from(Message::from(TransactionForwarded::new(tx, &self.peer_id)))
+            .send_to(&self.broker, self.topology.leader())
+            .await;
     }
 
     /// Returns:
@@ -829,22 +839,9 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             .await;
     }
 
-    async fn broadcast_msgs(&self, msgs: impl IntoIterator<Item = impl Into<Message>> + Send) {
-        let msgs = msgs
-            .into_iter()
-            .map(Into::into)
-            .map(VersionedMessage::from)
-            .collect::<Vec<_>>();
-
-        let peers = self.topology.sorted_peers();
-        for msg in msgs {
-            msg.send_to_multiple(&self.broker, peers).await;
-        }
-    }
-
     /// Gossip transactions to other peers.
     #[iroha_futures::telemetry_future]
-    pub async fn gossip_transactions(&mut self, txs: &[VersionedAcceptedTransaction]) {
+    pub async fn gossip_transactions(&mut self, txs: Vec<VersionedAcceptedTransaction>) {
         if txs.is_empty() {
             return;
         }
@@ -855,11 +852,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             "Gossiping transactions"
         );
 
-        self.broadcast_msgs(
-            txs.iter()
-                .map(|tx| TransactionForwarded::new(tx, &self.peer_id)),
-        )
-        .await;
+        self.broadcast_msg(TransactionGossip::new(txs.to_owned()))
+            .await;
     }
 
     /// Should be called by a leader to start the consensus round with `BlockCreated` message.
@@ -1232,6 +1226,8 @@ pub mod message {
         TransactionForwarded(TransactionForwarded),
         /// View change is suggested due to some faulty peer or general fault in consensus.
         ViewChangeSuggested(ViewChangeSuggested),
+        /// Is sent by all peers during gossiping.
+        TransactionGossip(TransactionGossip),
     }
 
     impl Message {
@@ -1267,6 +1263,9 @@ pub mod message {
                 }
                 Message::ViewChangeSuggested(view_change_suggested) => {
                     view_change_suggested.handle(sumeragi).await
+                }
+                Message::TransactionGossip(transaction_gossip) => {
+                    transaction_gossip.handle(sumeragi).await
                 }
             }
         }
@@ -1640,6 +1639,43 @@ pub mod message {
         }
     }
 
+    /// Message for gossiping batches of transactions.
+    #[derive(Io, Decode, Encode, Debug, Clone)]
+    pub struct TransactionGossip {
+        txs: Vec<VersionedAcceptedTransaction>,
+    }
+
+    impl TransactionGossip {
+        /// Constructor.
+        pub fn new(txs: Vec<VersionedAcceptedTransaction>) -> Self {
+            Self { txs }
+        }
+
+        /// Handles this message as part of `Sumeragi` consensus.
+        ///
+        /// # Errors
+        /// Can fail during signing.
+        pub async fn handle<
+            G: GenesisNetworkTrait,
+            K: KuraTrait,
+            W: WorldTrait,
+            F: FaultInjection,
+        >(
+            self,
+            sumeragi: &mut SumeragiWithFault<G, K, W, F>,
+        ) -> Result<()> {
+            for tx in self.txs {
+                match sumeragi.queue.push(tx, &*sumeragi.wsv) {
+                    Err((_, queue::Error::InBlockchain)) | Ok(()) => {}
+                    Err((_, err)) => {
+                        iroha_logger::warn!(?err, "Failed to push into queue gossiped transaction.")
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
     /// `Message` structure describing a receipt sent by the leader to the peer it got this transaction from.
     #[derive(Io, Decode, Encode, Debug, Clone, IntoSchema)]
     #[non_exhaustive]
@@ -1748,6 +1784,8 @@ pub mod config {
     const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
     const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
     const DEFAULT_MAILBOX_SIZE: usize = 100;
+    const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
+    const DEFAULT_GOSSIP_BATCH_SIZE: usize = 500;
 
     /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
     /// and list of `TRUSTED_PEERS`.
@@ -1775,6 +1813,10 @@ pub mod config {
         pub max_instruction_number: u64,
         /// Mailbox size
         pub mailbox: usize,
+        /// Maximum number of transactions in tx gossip batch message. While configuring this, attention should be payed to `p2p` max message size.
+        pub gossip_batch_size: usize,
+        /// Period in milliseconds for pending transaction gossiping between peers.
+        pub gossip_period_ms: u64,
     }
 
     impl Default for SumeragiConfiguration {
@@ -1789,6 +1831,8 @@ pub mod config {
                 n_topology_shifts_before_reshuffle: DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE,
                 max_instruction_number: DEFAULT_MAX_INSTRUCTION_NUMBER,
                 mailbox: DEFAULT_MAILBOX_SIZE,
+                gossip_batch_size: DEFAULT_GOSSIP_BATCH_SIZE,
+                gossip_period_ms: DEFAULT_GOSSIP_PERIOD_MS,
             }
         }
     }
