@@ -20,6 +20,7 @@ pub struct Proof {
 }
 
 impl Proof {
+    /// Hash of this proof.
     pub fn hash(&self) -> HashOf<Self> {
         HashOf::new(&self.payload).transmute()
     }
@@ -95,7 +96,7 @@ impl Proof {
     }
 
     /// Adds verified signatures of `other` to self.
-    pub fn merge_signatures(&mut self, mut other: Proof) {
+    pub fn merge_signatures(&mut self, other: &Proof) {
         self.signatures.merge(SignaturesOf::from_iter_unchecked(
             other.signatures.verified_by_hash(self.hash()).cloned(),
         ));
@@ -184,7 +185,7 @@ pub struct CommitTimeout {
 pub struct NoTransactionReceiptReceived;
 
 /// `BlockCreationTimeout` reason for a view change.
-#[derive(Clone, Debug, Io, Encode, Decode, IntoSchema)]
+#[derive(Copy, Clone, Debug, Io, Encode, Decode, IntoSchema)]
 pub struct BlockCreationTimeout;
 
 /// A chain of view change proofs. Stored in block for roles to be known at that point in history.

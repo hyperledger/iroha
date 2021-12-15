@@ -719,7 +719,7 @@ async fn read_message(stream: &mut OwnedReadHalf) -> Result<Message, Error> {
 /// message length is more than `MAX_MESSAGE_LENGTH`.
 pub async fn send_message(stream: &mut OwnedWriteHalf, data: &[u8]) -> Result<(), Error> {
     if data.len() > MAX_MESSAGE_LENGTH {
-        warn!(
+        error!(
             max_msg_len = MAX_MESSAGE_LENGTH,
             "Message length exceeds maximum length!",
         );

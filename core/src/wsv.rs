@@ -176,8 +176,8 @@ impl<W: WorldTrait> WorldStateView<W> {
         for tx in &block.as_inner_v1().rejected_transactions {
             self.transactions.insert(tx.hash());
         }
-        self.tx_metric_update();
         self.blocks.push(block);
+        self.tx_metric_update();
         Ok(())
     }
 
