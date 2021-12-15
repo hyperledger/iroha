@@ -62,6 +62,7 @@ pub trait GenesisNetworkTrait:
         &self,
         sumeragi: &mut Sumeragi<Self, K, W>,
         network: Addr<IrohaNetwork>,
+        ctx: &mut iroha_actor::Context<Sumeragi<Self, K, W>>,
     ) -> Result<()> {
         let genesis_topology = self
             .wait_for_peers(sumeragi.peer_id.clone(), sumeragi.topology.clone(), network)
@@ -69,7 +70,7 @@ pub trait GenesisNetworkTrait:
         time::sleep(Duration::from_millis(self.genesis_submission_delay_ms())).await;
         iroha_logger::info!("Initializing iroha using the genesis block.");
         sumeragi
-            .start_genesis_round(self.deref().clone(), genesis_topology)
+            .start_genesis_round(self.deref().clone(), genesis_topology, ctx)
             .await
     }
 
