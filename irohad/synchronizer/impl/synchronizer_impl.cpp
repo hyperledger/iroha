@@ -7,6 +7,8 @@
 
 #include <utility>
 
+#include "main/iroha_status.hpp"
+#include "main/subscription.hpp"
 #include "ametsuchi/block_query_factory.hpp"
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/mutable_storage.hpp"
@@ -90,6 +92,19 @@ iroha::ametsuchi::CommitResult SynchronizerImpl::downloadAndCommitMissingBlocks(
   }
   auto storage = std::move(storage_result).assumeValue();
   shared_model::interface::types::HeightType my_height = start_height;
+
+  iroha::IrohaStatus status;
+  status.is_syncing = true;
+  iroha::getSubscription()->notify(iroha::EventTypes::kOnIrohaStatus,
+                                   status);
+
+  /// To reset iroha is_syncing status on break loop
+  std::unique_ptr<bool, void(*)(bool*)> iroha_status_reseter((bool*)0x1, [](bool*) {
+    iroha::IrohaStatus status;
+    status.is_syncing = false;
+    iroha::getSubscription()->notify(iroha::EventTypes::kOnIrohaStatus,
+                                     status);
+  });
 
   // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
   using namespace iroha::expected;

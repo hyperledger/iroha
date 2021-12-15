@@ -8,8 +8,12 @@
 #include <boost/filesystem.hpp>
 #include <optional>
 #include "civetweb.h"
+#include <rapidjson/document.h>
+#include <rapidjson/writer.h>
+#include <rapidjson/stringbuffer.h>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
+#include "main/iroha_status.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "ametsuchi/impl/rocksdb_storage_impl.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
@@ -157,15 +161,15 @@ Irohad::Irohad(
 }
 
 Irohad::~Irohad() {
+  iroha_status_subscription_->unsubscribe();
+
   if (db_context_ && log_) {
     RocksDbCommon common(db_context_);
     common.printStatus(*log_);
   }
-
   if (http_server_) {
     http_server_->stop();
   }
-
   if (consensus_gate) {
     consensus_gate->stop();
   }
@@ -179,6 +183,7 @@ Irohad::~Irohad() {
  * Initializing iroha daemon
  */
 Irohad::RunResult Irohad::init() {
+  IROHA_EXPECTED_ERROR_CHECK(initNodeStatus());
   IROHA_EXPECTED_ERROR_CHECK(initSettings());
   IROHA_EXPECTED_ERROR_CHECK(initValidatorsConfigs());
   IROHA_EXPECTED_ERROR_CHECK(initBatchParser());
@@ -228,6 +233,34 @@ Irohad::RunResult Irohad::resetWsv() {
       config_.database_config && config_.database_config->type == kDbTypeRocksdb
           ? StorageType::kRocksDb
           : StorageType::kPostgres);
+}
+
+/**
+ * Initialize Iroha status.
+ */
+Irohad::RunResult Irohad::initNodeStatus() {
+  iroha_status_subscription_ =
+      SubscriberCreator<utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
+                        iroha::IrohaStatus>::
+          template create<EventTypes::kOnIrohaStatus>(
+              iroha::SubscriptionEngineHandlers::kMetrics,
+              [](utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>
+                     &stored_status,
+                 iroha::IrohaStatus new_status) {
+                stored_status.exclusiveAccess([&](IrohaStoredStatus &status) {
+                  if (new_status.is_healthy)
+                    status.status.is_healthy = new_status.is_healthy;
+                  if (new_status.is_syncing)
+                    status.status.is_syncing = new_status.is_syncing;
+                  if (new_status.memory_consumption)
+                    status.status.memory_consumption =
+                        new_status.memory_consumption;
+
+                  status.serialized_status.clear();
+                });
+              });
+
+  return {};
 }
 
 /**
@@ -404,49 +437,80 @@ Irohad::RunResult Irohad::initHttpServer() {
   iroha::network::HttpServer::Options options;
   options.ports = "50508";
 
-  http_server_ = std::make_unique<iroha::network::HttpServer>(std::move(options), log_manager_->getChild("HTTP server")->getLogger());
+  http_server_ = std::make_unique<iroha::network::HttpServer>(
+      std::move(options), log_manager_->getChild("HTTP server")->getLogger());
   http_server_->start();
 
-  http_server_->registerHandler("/healthcheck", [](iroha::network::HttpRequestResponse &req_res) {
-    req_res.setJsonResponse("{\"status\":true}");
-  });
-/*  const char *options[] = {"listening_ports",
-                           PORT,
-                           "request_timeout_ms",
-                           "10000",
-                           "error_log_file",
-                           "error.log",
-                           0};
+  http_server_->registerHandler(
+      "/healthcheck",
+      [status_sub(iroha_status_subscription_)](
+          iroha::network::HttpRequestResponse &req_res) {
+        status_sub->get().exclusiveAccess(
+            [&](iroha::IrohaStoredStatus &status) {
+              if (!status.serialized_status.empty()) {
+                req_res.setJsonResponse(status.serialized_status);
+              } else {
+                using namespace rapidjson;
+                using namespace std;
 
-  struct mg_callbacks callbacks;
-  struct mg_context *ctx;
-  int err = 0;
+                StringBuffer s;
+                Writer<StringBuffer> writer(s);
 
-  auto res = mg_init_library(0);
+                writer.StartObject();
+                if (status.status.memory_consumption) {
+                  writer.Key("memory_consumption");
+                  writer.Int64((int64_t)*status.status.memory_consumption);
+                }
+                if (status.status.is_syncing) {
+                  writer.Key("is_syncing");
+                  writer.Bool(*status.status.is_syncing);
+                }
+                if (status.status.is_healthy) {
+                  writer.Key("status");
+                  writer.Bool(*status.status.is_healthy);
+                }
+                writer.EndObject();
 
-  memset(&callbacks, 0, sizeof(callbacks));
-  callbacks.log_message = [](const struct mg_connection *conn, const char *message){
-    puts(message);
-    return 1;
-  };
+                status.serialized_status = s.GetString();
+                req_res.setJsonResponse(status.serialized_status);
+              }
+            });
+      });
+  /*  const char *options[] = {"listening_ports",
+                             PORT,
+                             "request_timeout_ms",
+                             "10000",
+                             "error_log_file",
+                             "error.log",
+                             0};
 
-  ctx = mg_start(&callbacks, 0, options);
+    struct mg_callbacks callbacks;
+    struct mg_context *ctx;
+    int err = 0;
 
-  if (ctx == NULL) {
-    fprintf(stderr, "Cannot start CivetWeb - mg_start failed.\n");
-    return {};
-  }
+    auto res = mg_init_library(0);
 
-  mg_set_request_handler(ctx, EXAMPLE_URI, ExampleHandler, 0);
-  mg_set_request_handler(ctx, EXIT_URI, [](struct mg_connection *conn, void *cbdata) {
-    mg_printf(conn,
-              "HTTP/1.1 200 OK\r\nContent-Type: "
-              "text/plain\r\nConnection: close\r\n\r\n");
-    mg_printf(conn, "Server will shut down.\n");
-    mg_printf(conn, "Bye!\n");
-    return 1;
-  }, 0);
-  */
+    memset(&callbacks, 0, sizeof(callbacks));
+    callbacks.log_message = [](const struct mg_connection *conn, const char
+    *message){ puts(message); return 1;
+    };
+
+    ctx = mg_start(&callbacks, 0, options);
+
+    if (ctx == NULL) {
+      fprintf(stderr, "Cannot start CivetWeb - mg_start failed.\n");
+      return {};
+    }
+
+    mg_set_request_handler(ctx, EXAMPLE_URI, ExampleHandler, 0);
+    mg_set_request_handler(ctx, EXIT_URI, [](struct mg_connection *conn, void
+    *cbdata) { mg_printf(conn, "HTTP/1.1 200 OK\r\nContent-Type: "
+                "text/plain\r\nConnection: close\r\n\r\n");
+      mg_printf(conn, "Server will shut down.\n");
+      mg_printf(conn, "Bye!\n");
+      return 1;
+    }, 0);
+    */
   return {};
 }
 

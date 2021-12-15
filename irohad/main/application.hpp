@@ -8,6 +8,7 @@
 
 #include <optional>
 
+#include "main/iroha_status.hpp"
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
@@ -235,6 +236,8 @@ class Irohad {
 
   virtual RunResult initSettings();
 
+  virtual RunResult initNodeStatus();
+
   virtual RunResult initValidatorsConfigs();
 
   virtual RunResult initHttpServer();
@@ -384,6 +387,12 @@ class Irohad {
   std::shared_ptr<iroha::torii::CommandService> command_service;
   std::shared_ptr<iroha::torii::CommandServiceTransportGrpc>
       command_service_transport;
+
+  // subscriptions
+  std::shared_ptr<
+      iroha::BaseSubscriber<iroha::utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
+  iroha::IrohaStatus>>
+  iroha_status_subscription_;
 
   // query service
   std::shared_ptr<iroha::torii::QueryService> query_service;
