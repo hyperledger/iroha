@@ -1,4 +1,4 @@
-//! This module contains query related Iroha functionality.
+//! Query related Iroha functionality.
 
 use std::{error::Error as StdError, fmt};
 
@@ -29,10 +29,12 @@ pub struct VerifiedQueryRequest {
 
 impl VerifiedQueryRequest {
     /// Statefully validate query.
-    /// Checks whether account exists and has the corresponding public key, also check permissions based on this account.
     ///
     /// # Errors
-    /// Returns and error if one of the previously mentioned checks did not pass.
+    /// if:
+    /// - Account doesn't exist.
+    /// - Account doesn't have the correct public key.
+    /// - Account has the correct permissions.
     pub fn validate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
@@ -45,7 +47,7 @@ impl VerifiedQueryRequest {
             .map_err(Error::Find)?;
         if !account_has_public_key {
             return Err(Error::Signature(eyre!(
-                "Public key used for the signature does not correspond to the account."
+                "Signature public key doesn't correspond to the account."
             )));
         }
         query_validator
@@ -82,7 +84,8 @@ impl ValidQueryRequest {
     /// Execute contained query on the [`WorldStateView`].
     ///
     /// # Errors
-    /// Returns an error if the query execution fails.
+    /// Forwards `self.query.execute` error.
+    #[inline]
     pub fn execute<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<Value> {
         self.query.execute(wsv)
     }
@@ -148,6 +151,7 @@ impl Error {
 }
 
 impl Reply for Error {
+    #[inline]
     fn into_response(self) -> Response {
         reply::with_status(self.to_string(), self.status_code()).into_response()
     }

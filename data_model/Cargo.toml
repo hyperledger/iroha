@@ -22,7 +22,7 @@ roles = []
 test = []
 
 [dependencies]
-iroha_crypto = { version = "=2.0.0-pre.1",path = "../crypto" }
+iroha_crypto = { version = "=2.0.0-pre.1", path = "../crypto" }
 iroha_macro = { version = "=2.0.0-pre.1", path = "../macro" }
 iroha_schema = { version = "=2.0.0-pre.1", path = "../schema"}
 iroha_version = { version = "=2.0.0-pre.1", path = "../version", features = ["warp", "derive"] }
@@ -34,7 +34,6 @@ parity-scale-codec = { version = "2", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0.28"
-prometheus = { version = "0.13.0", default-features = false }
 
 warp = { version = "0.3", default-features = false, optional = true }
 

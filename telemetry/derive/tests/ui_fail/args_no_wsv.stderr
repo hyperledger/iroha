@@ -1,0 +1,5 @@
+error: At least one argument must be a `WorldStateView`.
+ --> tests/ui_fail/args_no_wsv.rs:5:12
+  |
+5 | fn execute(_wsv: &World) -> Result<(), ()> {
+  |            ^^^^^^^^^^^^

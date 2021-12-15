@@ -7,6 +7,7 @@ use eyre::Context;
 use futures::stream::{FuturesUnordered, StreamExt};
 use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
 use iroha_data_model::prelude::*;
+use iroha_telemetry::metrics::Status;
 use serde::Serialize;
 use thiserror::Error;
 use utils::*;
@@ -486,8 +487,18 @@ async fn update_metrics<W: WorldTrait>(
         wsv.metrics
             .uptime_since_genesis_ms
             .set((current_time().as_millis() - timestamp) as u64)
-    }
+    };
+    let domains = wsv.domains();
+    wsv.metrics.domains.set(domains.len() as u64);
     wsv.metrics.connected_peers.set(peers);
+    for d in domains {
+        wsv.metrics
+            .accounts
+            .get_metric_with_label_values(&[&d.name])
+            .wrap_err("Failed to compose domains")
+            .map_err(Error::Prometheus)?
+            .set(d.accounts.values().len() as u64);
+    }
     Ok(())
 }
 

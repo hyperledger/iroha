@@ -122,6 +122,14 @@ impl TryFrom<f64> for Fixed {
     }
 }
 
+impl From<Fixed> for f64 {
+    #[inline]
+    fn from(val: Fixed) -> Self {
+        let Fixed(fix_num) = val;
+        fix_num.into()
+    }
+}
+
 impl Encode for Fixed {
     #[inline]
     fn size_hint(&self) -> usize {

@@ -1430,6 +1430,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_logger",
  "iroha_permissions_validators",
+ "iroha_telemetry",
  "iroha_version",
  "rand 0.8.4",
  "serde",
@@ -1556,7 +1557,6 @@ dependencies = [
  "iroha_schema",
  "iroha_version",
  "parity-scale-codec",
- "prometheus",
  "serde",
  "serde_json",
  "test_network",
@@ -1713,6 +1713,8 @@ dependencies = [
  "iroha_config",
  "iroha_futures",
  "iroha_logger",
+ "iroha_telemetry_derive",
+ "prometheus",
  "serde",
  "serde_json",
  "streaming-stats",
@@ -1721,6 +1723,18 @@ dependencies = [
  "tokio-tungstenite 0.16.0",
  "url",
  "vergen",
+]
+
+[[package]]
+name = "iroha_telemetry_derive"
+version = "2.0.0-pre.1"
+dependencies = [
+ "iroha_core",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "trybuild",
 ]
 
 [[package]]

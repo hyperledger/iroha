@@ -1,4 +1,4 @@
-//! This module contains `World` related ISI implementations.
+//! `World`-related ISI implementations.
 
 use super::prelude::*;
 use crate::prelude::*;
@@ -7,12 +7,14 @@ use crate::prelude::*;
 pub mod isi {
     use eyre::{eyre, Result};
     use iroha_data_model::prelude::*;
+    use iroha_telemetry::metrics;
 
     use super::*;
 
     impl<W: WorldTrait> Execute<W> for Register<Peer> {
         type Error = Error;
 
+        #[metrics(+"register_peer")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -29,6 +31,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Unregister<Peer> {
         type Error = Error;
 
+        #[metrics(+"unregister_peer")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -45,6 +48,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Register<Domain> {
         type Error = Error;
 
+        #[metrics("register_domain")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -53,6 +57,7 @@ pub mod isi {
             let domain = self.object;
             domain.validate_len(wsv.config.ident_length_limits)?;
             wsv.domains().insert(domain.name.clone(), domain);
+            wsv.metrics.domains.inc();
             Ok(())
         }
     }
@@ -60,6 +65,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Unregister<Domain> {
         type Error = Error;
 
+        #[metrics("unregister_domain")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -67,6 +73,7 @@ pub mod isi {
         ) -> Result<(), Error> {
             // TODO: Should we fail if no domain found?
             wsv.domains().remove(&self.object_id);
+            wsv.metrics.domains.dec();
             Ok(())
         }
     }
@@ -75,6 +82,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Register<Role> {
         type Error = Error;
 
+        #[metrics(+"register_role")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -90,6 +98,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Unregister<Role> {
         type Error = Error;
 
+        #[metrics("unregister_peer")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,

@@ -1,0 +1,7 @@
+error: Spaces are not allowed. Use underscores '_'
+ --> tests/ui_fail/non_snake_case_name.rs:5:1
+  |
+5 | #[metrics(+"test query", "another_test_query_without_timing")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `metrics` (in Nightly builds, run with -Z macro-backtrace for more info)

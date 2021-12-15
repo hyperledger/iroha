@@ -7,11 +7,14 @@ build = "build.rs"
 
 [features]
 dev-telemetry = []
+metric-instrumentation = []
 
 [dependencies]
 iroha_config = { version = "=2.0.0-pre.1", path = "../config" }
 iroha_logger = { version = "=2.0.0-pre.1", path = "../logger" }
 iroha_futures = { version = "=2.0.0-pre.1", path = "../futures", features = ["telemetry"] }
+iroha_telemetry_derive = { version = "=2.0.0-pre.1", path = "derive" }
+
 
 async-trait = "0.1"
 chrono = "0.4"
@@ -24,6 +27,8 @@ tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
 tokio-stream = { version = "0.1.6", features = ["fs"]}
 tokio-tungstenite = { version = "0.16" }
 url = { version = "2.2.2", features = ["serde"] }
+prometheus = { version = "0.13.0", default-features = false }
+
 
 [build-dependencies]
 anyhow = "1.0"

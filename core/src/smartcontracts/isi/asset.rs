@@ -2,6 +2,7 @@
 //! instructions implementations.
 
 use iroha_data_model::prelude::*;
+use iroha_telemetry::metrics;
 
 use super::prelude::*;
 use crate::prelude::*;
@@ -34,6 +35,7 @@ pub mod isi {
         }
     }
 
+    /// Assert that this asset is `mintable`.
     fn assert_can_mint<W: WorldTrait>(
         definition_id: &AssetDefinitionId,
         wsv: &WorldStateView<W>,
@@ -49,6 +51,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Mint<Asset, u32> {
         type Error = Error;
 
+        #[metrics(+"mint_qty")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -65,6 +68,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(MathError::OverflowError)?;
+                wsv.metrics.tx_amounts.observe(f64::from(*quantity));
                 Ok(())
             })
             .map_err(Into::into)
@@ -74,6 +78,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Mint<Asset, u128> {
         type Error = Error;
 
+        #[metrics(+"mint_big_qty")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -90,6 +95,8 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(MathError::OverflowError)?;
+                #[allow(clippy::cast_precision_loss)]
+                wsv.metrics.tx_amounts.observe(*quantity as f64);
                 Ok(())
             })
             .map_err(Into::into)
@@ -99,6 +106,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Mint<Asset, Fixed> {
         type Error = Error;
 
+        #[metrics(+"mint_fixed")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -113,6 +121,7 @@ pub mod isi {
             wsv.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut Fixed = asset.try_as_mut()?;
                 *quantity = quantity.checked_add(self.object)?;
+                wsv.metrics.tx_amounts.observe((*quantity).into());
                 Ok(())
             })
             .map_err(Into::into)
@@ -122,6 +131,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for SetKeyValue<Asset, String, Value> {
         type Error = Error;
 
+        #[metrics(+"asset_set_key_value")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -146,6 +156,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Burn<Asset, u32> {
         type Error = Error;
 
+        #[metrics(+"burn_qty")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -161,6 +172,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
+                wsv.metrics.tx_amounts.observe(f64::from(*quantity));
                 Ok(())
             })
             .map_err(Into::into)
@@ -170,6 +182,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Burn<Asset, u128> {
         type Error = Error;
 
+        #[metrics(+"burn_big_qty")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -185,6 +198,8 @@ pub mod isi {
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
+                #[allow(clippy::cast_precision_loss)]
+                wsv.metrics.tx_amounts.observe(*quantity as f64);
                 Ok(())
             })
             .map_err(Into::into)
@@ -194,6 +209,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Burn<Asset, Fixed> {
         type Error = Error;
 
+        #[metrics(+"burn_fixed")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -207,6 +223,8 @@ pub mod isi {
             wsv.modify_asset(&self.destination_id, |asset| {
                 let quantity: &mut Fixed = asset.try_as_mut()?;
                 *quantity = quantity.checked_sub(self.object)?;
+                // Careful if `Fixed` stops being `Copy`.
+                wsv.metrics.tx_amounts.observe((*quantity).into());
                 Ok(())
             })
             .map_err(Into::into)
@@ -216,6 +234,7 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Asset, String> {
         type Error = Error;
 
+        #[metrics(+"asset_remove_key_value")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -237,6 +256,7 @@ pub mod isi {
         type Error = Error;
 
         #[log(skip(_authority))]
+        #[metrics(+"transfer_qty_asset")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -264,6 +284,7 @@ pub mod isi {
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(MathError::OverflowError)?;
+                wsv.metrics.tx_amounts.observe(f64::from(*quantity));
                 Ok(())
             })
             .map_err(Into::into)
@@ -271,7 +292,7 @@ pub mod isi {
     }
 }
 
-/// Query module provides [`Query`] Asset related implementations.
+/// Asset-related query implementations.
 pub mod query {
     use eyre::{eyre, Result, WrapErr};
     use iroha_logger::prelude::*;
@@ -280,6 +301,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllAssets {
         #[log]
+        #[metrics(+"find_all_assets")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
@@ -295,6 +317,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllAssetsDefinitions {
         #[log]
+        #[metrics(+"find_all_asset_definitions")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
@@ -308,6 +331,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetById {
         #[log]
+        #[metrics(+"find_asset_by_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .id
@@ -323,6 +347,8 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByName {
+        #[log]
+        #[metrics(+"find_assets_by_name")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .name
@@ -344,6 +370,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByAccountId {
         #[log]
+        #[metrics(+"find_assets_by_account_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .account_id
@@ -355,6 +382,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByAssetDefinitionId {
         #[log]
+        #[metrics(+"find_assets_by_asset_definition_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let id = self
                 .asset_definition_id
@@ -376,6 +404,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByDomainName {
         #[log]
+        #[metrics(+"find_assets_by_domain_name")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .domain_name
@@ -393,6 +422,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByDomainNameAndAssetDefinitionId {
         #[log]
+        #[metrics(+"find_assets_by_domain_name_and_asset_definition_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
             let name = self
                 .domain_name
@@ -423,6 +453,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetQuantityById {
         #[log]
+        #[metrics(+"find_asset_quantity_by_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<u32> {
             let id = self
                 .id
@@ -443,6 +474,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetKeyValueByIdAndKey {
         #[log]
+        #[metrics(+"find_asset_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Value> {
             let id = self
                 .id
