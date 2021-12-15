@@ -162,11 +162,9 @@ Irohad::~Irohad() {
     common.printStatus(*log_);
   }
 
-  /*if (http_server_) {
-    http_server_->Stop();
-    while (!http_server_->IsStopped())
-      std::this_thread::sleep_for(std::chrono::microseconds(1ull));
-  }*/
+  if (http_server_) {
+    http_server_->stop();
+  }
 
   if (consensus_gate) {
     consensus_gate->stop();
@@ -403,7 +401,16 @@ log_message(const struct mg_connection *conn, const char *message)
  * Initializing Http server.
  */
 Irohad::RunResult Irohad::initHttpServer() {
-  const char *options[] = {"listening_ports",
+  iroha::network::HttpServer::Options options;
+  options.ports = "50508";
+
+  http_server_ = std::make_unique<iroha::network::HttpServer>(std::move(options), log_manager_->getChild("HTTP server")->getLogger());
+  http_server_->start();
+
+  http_server_->registerHandler("/healthcheck", [](iroha::network::HttpRequestResponse &req_res) {
+    req_res.setJsonResponse("{\"status\":true}");
+  });
+/*  const char *options[] = {"listening_ports",
                            PORT,
                            "request_timeout_ms",
                            "10000",
@@ -417,23 +424,19 @@ Irohad::RunResult Irohad::initHttpServer() {
 
   auto res = mg_init_library(0);
 
-  /* Callback will print error messages to console */
   memset(&callbacks, 0, sizeof(callbacks));
   callbacks.log_message = [](const struct mg_connection *conn, const char *message){
     puts(message);
     return 1;
   };
 
-  /* Start CivetWeb web server */
   ctx = mg_start(&callbacks, 0, options);
 
-  /* Check return value: */
   if (ctx == NULL) {
     fprintf(stderr, "Cannot start CivetWeb - mg_start failed.\n");
     return {};
   }
 
-  /* Add handler EXAMPLE_URI, to explain the example */
   mg_set_request_handler(ctx, EXAMPLE_URI, ExampleHandler, 0);
   mg_set_request_handler(ctx, EXIT_URI, [](struct mg_connection *conn, void *cbdata) {
     mg_printf(conn,
@@ -443,28 +446,7 @@ Irohad::RunResult Irohad::initHttpServer() {
     mg_printf(conn, "Bye!\n");
     return 1;
   }, 0);
-
-  /* Show some info */
-/*  printf("Start example: %s%s\n", HOST_INFO, EXAMPLE_URI);
-  printf("Exit example:  %s%s\n", HOST_INFO, EXIT_URI);*/
-
-  /*int thread_num = 2;
-  int gport = 50585;
-  http_server_ = std::make_unique<evpp::evpphttp::Service>(std::string("0.0.0.0:") + std::to_string(gport), "test", thread_num);
-  http_server_->RegisterHandler("/healthcheck", [](evpp::EventLoop* loop,
-                                            evpp::evpphttp::HttpRequest& ctx,
-                                            const evpp::evpphttp::HTTPSendResponseCallback& cb){
-    std::stringstream oss;
-    oss << "func=" << __FUNCTION__ << " OK"
-        << " ip=" << ctx.remote_ip << "\n"
-        << " uri=" << ctx.url_path() << "\n"
-        << " body=" << ctx.body.ToString() << "\n";
-    std::map<std::string, std::string> feild_value = {
-        {"Content-Type", "application/octet-stream"},
-        {"Server", "evpp"}
-    };
-    cb(200, feild_value, oss.str());
-  });*/
+  */
   return {};
 }
 

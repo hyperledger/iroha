@@ -5,8 +5,9 @@
 
 #include "http/http_server.hpp"
 
-#include "civetweb.h"
+#include "CivetServer.h"
 #include <fmt/core.h>
+#include <cassert>
 
 #include "logger/logger.hpp"
 #include "common/mem_operations.hpp"
@@ -18,9 +19,45 @@ namespace iroha::network {
                        request_timeout_ms);
   }
 
-  HttpServer::HttpServer(Options const &options,
-                         logger::LoggerPtr const &logger)
-      : context_(nullptr), options_(options), logger_(logger) {}
+  HttpRequestResponse::HttpRequestResponse(mg_connection *connection, mg_request_info const *request_info)
+  : connection_(connection), request_info_(request_info) {
+
+  }
+
+  std::optional<int> HttpRequestResponse::init() {
+    if (0 == strcmp(request_info_->request_method, "GET")) {
+      method_ = eMethodType::kGet;
+    } /* else if (0 == strcmp(request_info_->request_method, "PUT")) {
+       method_ = eMethodType::kPut;
+     } else if (0 == strcmp(request_info_->request_method, "POST")) {
+       method_ = eMethodType::kPost;
+     } else if (0 == strcmp(request_info_->request_method, "DELETE")) {
+       method_ = eMethodType::kDelete;
+     } */
+    else {
+      mg_send_http_error(connection_, 405, "Only GET method supported");
+      return 405;
+    }
+    return std::nullopt;
+  }
+
+  bool HttpRequestResponse::setJsonResponse(std::string_view data) {
+    if (!method_)
+      return false;
+
+    mg_send_http_ok(connection_, "application/json; charset=utf-8", (long long)data.size());
+    mg_write(connection_, data.data(), data.size());
+    return true;
+  }
+
+  eMethodType HttpRequestResponse::getMethodType() const {
+    assert(method_);
+    return *method_;
+  }
+
+  HttpServer::HttpServer(Options options,
+                         logger::LoggerPtr logger)
+      : context_(nullptr), options_(std::move(options)), logger_(std::move(logger)) {}
 
   HttpServer::~HttpServer() {
     stop();
@@ -40,12 +77,10 @@ namespace iroha::network {
     logger_->info("Try to start Http server with options: {}", options_);
     mg_init_library(0);
 
-    struct mg_callbacks callbacks;
+    mg_callbacks callbacks{};
     memzero(callbacks);
 
-    callbacks.log_message = [](const struct mg_connection *conn,
-                               const char *message) {
-      puts(message);
+    callbacks.log_message = [](const struct mg_connection *conn, const char *message) {
       return 1;
     };
 
@@ -57,7 +92,7 @@ namespace iroha::network {
                                  : options_.request_timeout_ms.data(),
                              nullptr};
 
-    context_ = mg_start(&callbacks, 0, options);
+    context_ = mg_start(&callbacks, nullptr, options);
     if (nullptr == context_) {
       logger_->error("Cannot start Http server. Check options.");
       return false;
@@ -74,50 +109,41 @@ namespace iroha::network {
   }
 
   void HttpServer::registerHandler(std::string_view uri,
-                                   HandlerCallback const &handler) {
+                                   HandlerCallback &&handler) {
     if (uri.empty()) {
       logger_->error("URI cannot be empty.");
-      return false;
+      return;
     }
 
     if (nullptr == context_) {
       logger_->error("Server is not started.");
-      return false;
+      return;
     }
 
+    handlers_.emplace_back(std::move(handler), logger_);
     mg_set_request_handler(
         context_,
         uri.data(),
-        [handler](struct mg_connection *conn, void * /*cbdata*/) {
-          const struct mg_request_info *ri = mg_get_request_info(conn);
+        [](struct mg_connection *conn, void *cbdata) {
+          assert(nullptr != cbdata);
+          HandlerData &handler = *(HandlerData*)cbdata;
 
-          if (0 == strcmp(ri->request_method, "GET")) {
-            return ExampleGET(conn, path1, path2);
-          }
-          if ((0 == strcmp(ri->request_method, "PUT"))
-              || (0 == strcmp(ri->request_method, "POST"))
-              || (0 == strcmp(ri->request_method, "PATCH"))) {
-            /* In this example, do the same for PUT, POST and PATCH */
-            return ExamplePUT(conn, path1, path2);
+          HttpRequestResponse req_res(conn, mg_get_request_info(conn));
+          if (auto code = req_res.init(); code) {
+            handler.logger->error("Init HttpRequestResponse failed with code: {}", *code);
+            return *code;
           }
 
-          mg_send_http_error(
-              conn, 405, "Only GET, PUT, POST and PATCH method supported");
-          return 405;
+          if (!handler.callback) {
+            handler.logger->error("No registered callback");
+            mg_send_http_error(conn, 500, "Server error");
+            return 500;
+          }
 
-
-          Headers headers;
-          ResponseData response;
-          auto const response_code = handler(headers, response);
-
-          mg_printf(conn,
-                    "HTTP/1.1 200 OK\r\nContent-Type: "
-                    "text/plain\r\nConnection: close\r\n\r\n");
-          mg_printf(conn, "Server will shut down.\n");
-          mg_printf(conn, "Bye!\n");
-          return 1;
+          handler.callback(req_res);
+          return 200;
         },
-        0);
+        &handlers_.back());
   }
 
 }

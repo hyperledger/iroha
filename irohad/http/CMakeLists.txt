@@ -5,5 +5,5 @@
 
 add_library(iroha_http_server http_server.cpp)
 target_link_libraries(iroha_http_server
-        utility_endpoint
+        civetweb::civetweb
         )

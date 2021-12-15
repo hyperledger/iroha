@@ -23,6 +23,7 @@
 #include "main/subscription_fwd.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
+#include "http/http_server.hpp"
 
 namespace google::protobuf {
   class Empty;
@@ -389,6 +390,7 @@ class Irohad {
 
   // Http server
   //std::unique_ptr<evpp::evpphttp::Service> http_server_;
+  std::unique_ptr<iroha::network::HttpServer> http_server_;
 
   // consensus gate
   std::shared_ptr<iroha::network::ConsensusGate> consensus_gate;
