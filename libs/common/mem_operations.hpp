@@ -7,10 +7,9 @@
 #define IROHA_COMMON_MEM_OPERATIONS_HPP
 
 #include <cstring>
-#ifdef __linux__
-#include "sys/types.h"
-#include "sys/sysinfo.h"
-#endif//__linux__
+#include "stdlib.h"
+#include "stdio.h"
+#include "string.h"
 
 namespace iroha {
 
@@ -28,10 +27,23 @@ namespace iroha {
 
 #ifdef __linux__
   inline uint64_t  getMemoryUsage() {
-    struct sysinfo memInfo;
-    sysinfo (&memInfo);
+    auto parseLine = [](char *line) {
+      while (*line >= '0' && *line <= '9') ++line;
+      return (uint64_t)atoll(line);
+    };
 
-    return (memInfo.totalram - memInfo.freeram) * memInfo.mem_unit;
+    uint64_t result = 0ull;
+    char line[128];
+
+    FILE *file = fopen("/proc/self/status", "r");
+    while (fgets(line, 128, file) != NULL)
+      if (strncmp(line, "VmSize:", 7) == 0) {
+        result = parseLine(line + 7);
+        break;
+      }
+    fclose(file);
+
+    return result * 1024ull;
   }
 #else//__linux__
   inline uint64_t  getMemoryUsage() {
