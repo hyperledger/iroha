@@ -258,7 +258,7 @@ Irohad::RunResult Irohad::initNodeStatus() {
               if (new_status.last_round)
                 status.status.last_round = new_status.last_round;
 
-              status.serialized_status.clear();
+              status.serialized_status.Clear();
             });
           });
 
@@ -297,140 +297,66 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
   return {};
 }
 
-#define PORT "8089"
-#define HOST_INFO "http://localhost:8089"
+/*template<typename CharT = char>
+class StringWrapper : utils::NoCopy, utils::NoMove {
+  std::basic_string<CharT> &data_;
 
-#define EXAMPLE_URI "/healthcheck"
-#define EXIT_URI "/exit"
+ public:
+  using Ch = CharT;
+  StringWrapper(std::basic_string<CharT> &s) : data_(s) {}
 
-static int
-ExampleGET(struct mg_connection *conn, const char *p1, const char *p2)
-{
-  return 200;
-}
-
-
-static int
-ExampleDELETE(struct mg_connection *conn, const char *p1, const char *p2)
-{
-  printf("DELETE %s/%s\n", p1, p2);
-  mg_send_http_error(conn,
-                     204,
-                     "%s",
-                     ""); /* Return "deleted" = "204 No Content" */
-
-  return 204;
-}
-
-
-static int
-ExamplePUT(struct mg_connection *conn, const char *p1, const char *p2)
-{
-  mg_send_http_error(conn, 201, "%s", ""); /* Return "201 Created" */
-  return 201;
-}
-
-
-static int
-mg_vsplit(const char *url, const char *pattern, va_list va)
-{
-  int ret = 0;
-  while (*url && *pattern) {
-    if (*url == *pattern) {
-      url++;
-      pattern++;
-    } else if (*pattern == '*') {
-      char *p = va_arg(va, char *);
-      size_t l = va_arg(va, size_t);
-      if (p == NULL || l == 0) {
-        return 0;
-      }
-      while ((*url != '/') && (*url != 0)) {
-        if (l == 0) {
-          return 0;
-        }
-        l--;
-        *p = *url;
-        p++;
-        url++;
-      }
-      *p = 0;
-      pattern++;
-      ret++;
-    } else {
-      return 0;
-    }
-  }
-  return ret;
-}
-
-
-static int
-mg_split(const char *url, const char *pattern, ...)
-{
-  int ret;
-  va_list va;
-  va_start(va, pattern);
-  ret = mg_vsplit(url, pattern, va);
-  va_end(va);
-  return ret;
-}
-
-static int
-ExampleHandler(struct mg_connection *conn, void *cbdata) {
-  char path1[1024], path2[1024];
-  const struct mg_request_info *ri = mg_get_request_info(conn);
-  const char *url = ri->local_uri;
-  (void)cbdata; /* currently unused */
-
-  /* Pattern matching */
-  if (2
-      != mg_split(
-          url, EXAMPLE_URI, path1, sizeof(path1), path2, sizeof(path2))) {
-    mg_send_http_error(conn, 404, "Invalid path: %s\n", url);
-    return 404;
+  void Put(Ch c) {
+    data_ += c;
   }
 
-  /* According to method */
-  if (0 == strcmp(ri->request_method, "GET")) {
-    return ExampleGET(conn, path1, path2);
-  }
-  if ((0 == strcmp(ri->request_method, "PUT"))
-      || (0 == strcmp(ri->request_method, "POST"))
-      || (0 == strcmp(ri->request_method, "PATCH"))) {
-    /* In this example, do the same for PUT, POST and PATCH */
-    return ExamplePUT(conn, path1, path2);
-  }
-  if (0 == strcmp(ri->request_method, "DELETE")) {
-    return ExampleDELETE(conn, path1, path2);
+  void PutUnsafe(Ch c) {
+    data_ += c;
   }
 
-  /* this is not a GET request */
-  mg_send_http_error(
-      conn, 405, "Only GET, PUT, POST, DELETE and PATCH method supported");
-  return 405;
-}
+  void Flush() {}
 
+  void Clear() {
+    data_.clear();
+  }
 
-static int
-ExitHandler(struct mg_connection *conn, void *cbdata)
-{
-  mg_printf(conn,
-            "HTTP/1.1 200 OK\r\nContent-Type: "
-            "text/plain\r\nConnection: close\r\n\r\n");
-  mg_printf(conn, "Server will shut down.\n");
-  mg_printf(conn, "Bye!\n");
-  return 1;
-}
+  void ShrinkToFit() {
+    data_.shrink_to_fit();
+  }
 
-static int
-log_message(const struct mg_connection *conn, const char *message)
-{
-  puts(message);
-  return 1;
-}
+  void Reserve(size_t count) {
+    data_.reserve(count);
+  }
 
+  Ch *Push(size_t count) {
+    auto const sz = data_.size();
+    data_.resize(count);
+    return &data_.at(sz);
+  }
 
+  Ch *PushUnsafe(size_t count) {
+    return &data_.at(data_.size());
+  }
+
+  void Pop(size_t count) {
+    data_.resize(data_.size() >= count ? data_.size() - count : 0ull);
+  }
+
+  const Ch *GetString() const {
+    return data_.data();
+  }
+
+  //! Get the size of string in bytes in the string buffer.
+  size_t GetSize() const {
+    return data_.size() * sizeof(Ch);
+  }
+
+  //! Get the length of string in Ch in the string buffer.
+  size_t GetLength() const {
+    return data_.size();
+  }
+
+  static const size_t kDefaultCapacity = 256;
+};*/
 
 /**
  * Initializing Http server.
@@ -449,63 +375,56 @@ Irohad::RunResult Irohad::initHttpServer() {
           iroha::network::HttpRequestResponse &req_res) {
         status_sub->get().exclusiveAccess(
             [&](iroha::IrohaStoredStatus &status) {
-              if (!status.serialized_status.empty()) {
-                req_res.setJsonResponse(status.serialized_status);
-                return;
+              if (0ull == status.serialized_status.GetSize()) {
+                using namespace rapidjson;
+                using namespace std;
+                Writer<decltype(status.serialized_status)> writer(status.serialized_status);
+
+                auto setOptBool = [](auto &writer, bool pred, bool value) {
+                  if (pred)
+                    writer.Bool(value);
+                  else
+                    writer.Null();
+                };
+
+                auto setOptUInt64 =
+                    [](auto &writer, bool pred, uint64_t value) {
+                      if (pred)
+                        writer.Int64((int64_t)value);
+                      else
+                        writer.Null();
+                    };
+
+                writer.StartObject();
+
+                writer.Key("memory_consumption");
+                setOptUInt64(writer,
+                             status.status.memory_consumption.has_value(),
+                             *status.status.memory_consumption);
+
+                writer.Key("last_block_round");
+                setOptUInt64(writer,
+                             status.status.last_round.has_value(),
+                             status.status.last_round->block_round);
+
+                writer.Key("last_reject_round");
+                setOptUInt64(writer,
+                             status.status.last_round.has_value(),
+                             status.status.last_round->reject_round);
+
+                writer.Key("is_syncing");
+                setOptBool(writer,
+                           status.status.is_syncing.has_value(),
+                           *status.status.is_syncing);
+
+                writer.Key("status");
+                setOptBool(writer,
+                           status.status.is_healthy.has_value(),
+                           *status.status.is_healthy);
+
+                writer.EndObject();
               }
-              
-              using namespace rapidjson;
-              using namespace std;
-              StringBuffer s;
-              Writer<StringBuffer> writer(s);
-
-              auto setOptBool =
-                  [](Writer<StringBuffer> &writer, bool pred, bool value) {
-                    if (pred)
-                      writer.Bool(value);
-                    else
-                      writer.Null();
-                  };
-
-              auto setOptUInt64 =
-                  [](Writer<StringBuffer> &writer, bool pred, uint64_t value) {
-                    if (pred)
-                      writer.Int64((int64_t)value);
-                    else
-                      writer.Null();
-                  };
-
-              writer.StartObject();
-
-              writer.Key("memory_consumption");
-              setOptUInt64(writer,
-                           status.status.memory_consumption.has_value(),
-                           *status.status.memory_consumption);
-
-              writer.Key("last_block_round");
-              setOptUInt64(writer,
-                           status.status.last_round.has_value(),
-                           status.status.last_round->block_round);
-
-              writer.Key("last_reject_round");
-              setOptUInt64(writer,
-                           status.status.last_round.has_value(),
-                           status.status.last_round->reject_round);
-
-              writer.Key("is_syncing");
-              setOptBool(writer,
-                         status.status.is_syncing.has_value(),
-                         *status.status.is_syncing);
-
-              writer.Key("status");
-              setOptBool(writer,
-                         status.status.is_healthy.has_value(),
-                         *status.status.is_healthy);
-
-              writer.EndObject();
-
-              status.serialized_status = s.GetString();
-              req_res.setJsonResponse(status.serialized_status);
+              req_res.setJsonResponse(std::string_view (status.serialized_status.GetString(), status.serialized_status.GetLength()));
             });
       });
   /*  const char *options[] = {"listening_ports",

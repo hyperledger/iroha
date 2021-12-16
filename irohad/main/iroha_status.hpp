@@ -9,6 +9,7 @@
 #include <optional>
 #include <cstdint>
 #include <string>
+#include <rapidjson/stringbuffer.h>
 
 #include "consensus/round.hpp"
 
@@ -23,7 +24,7 @@ namespace iroha {
 
   struct IrohaStoredStatus {
     IrohaStatus status;
-    std::string serialized_status;
+    rapidjson::StringBuffer serialized_status;
   };
 
 }
