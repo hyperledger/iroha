@@ -57,6 +57,10 @@ namespace iroha {
 
       void stop() override;
 
+      consensus::Round getRound() const {
+        return current_round_;
+      }
+
      private:
       void sendCachedTransactions();
 

@@ -5,6 +5,7 @@
 
 #include "main/impl/on_demand_ordering_init.hpp"
 
+#include "main/iroha_status.hpp"
 #include "common/permutation_generator.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
@@ -145,6 +146,23 @@ OnDemandOrderingInit::initOrderingGate(
                  std::move(tx_cache),
                  max_number_of_transactions,
                  ordering_log_manager);
+
+  getSubscription()->dispatcher()->repeat(
+      iroha::SubscriptionEngineHandlers::kMetrics,
+      std::max(delay * 4, std::chrono::milliseconds(1000ull)),
+      [round(consensus::Round(0ull, 0ull)),
+       wgate(utils::make_weak(ordering_gate_))]() mutable {
+        if (auto gate = wgate.lock()) {
+          auto const new_round = gate->getRound();
+          iroha::IrohaStatus status;
+          status.is_healthy = (new_round != round);
+          status.last_round = new_round;
+          iroha::getSubscription()->notify(iroha::EventTypes::kOnIrohaStatus,
+                                           status);
+          round = new_round;
+        }
+      },
+      [wgate(utils::make_weak(ordering_gate_))]() { return !wgate.expired(); });
   return ordering_gate_;
 }
 

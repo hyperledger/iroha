@@ -239,26 +239,28 @@ Irohad::RunResult Irohad::resetWsv() {
  * Initialize Iroha status.
  */
 Irohad::RunResult Irohad::initNodeStatus() {
-  iroha_status_subscription_ =
-      SubscriberCreator<utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
-                        iroha::IrohaStatus>::
-          template create<EventTypes::kOnIrohaStatus>(
-              iroha::SubscriptionEngineHandlers::kMetrics,
-              [](utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>
-                     &stored_status,
-                 iroha::IrohaStatus new_status) {
-                stored_status.exclusiveAccess([&](IrohaStoredStatus &status) {
-                  if (new_status.is_healthy)
-                    status.status.is_healthy = new_status.is_healthy;
-                  if (new_status.is_syncing)
-                    status.status.is_syncing = new_status.is_syncing;
-                  if (new_status.memory_consumption)
-                    status.status.memory_consumption =
-                        new_status.memory_consumption;
+  iroha_status_subscription_ = SubscriberCreator<
+      utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
+      iroha::IrohaStatus>::
+      template create<EventTypes::kOnIrohaStatus>(
+          iroha::SubscriptionEngineHandlers::kMetrics,
+          [](utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>
+                 &stored_status,
+             iroha::IrohaStatus new_status) {
+            stored_status.exclusiveAccess([&](IrohaStoredStatus &status) {
+              if (new_status.is_healthy)
+                status.status.is_healthy = new_status.is_healthy;
+              if (new_status.is_syncing)
+                status.status.is_syncing = new_status.is_syncing;
+              if (new_status.memory_consumption)
+                status.status.memory_consumption =
+                    new_status.memory_consumption;
+              if (new_status.last_round)
+                status.status.last_round = new_status.last_round;
 
-                  status.serialized_status.clear();
-                });
-              });
+              status.serialized_status.clear();
+            });
+          });
 
   return {};
 }
@@ -460,6 +462,12 @@ Irohad::RunResult Irohad::initHttpServer() {
                 if (status.status.memory_consumption) {
                   writer.Key("memory_consumption");
                   writer.Int64((int64_t)*status.status.memory_consumption);
+                }
+                if (status.status.last_round) {
+                  writer.Key("last_block_round");
+                  writer.Int64((int64_t)status.status.last_round->block_round);
+                  writer.Key("last_reject_round");
+                  writer.Int64((int64_t)status.status.last_round->reject_round);
                 }
                 if (status.status.is_syncing) {
                   writer.Key("is_syncing");

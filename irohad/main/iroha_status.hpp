@@ -10,10 +10,13 @@
 #include <cstdint>
 #include <string>
 
+#include "consensus/round.hpp"
+
 namespace iroha {
 
   struct IrohaStatus {
     std::optional<uint64_t> memory_consumption;
+    std::optional<consensus::Round> last_round;
     std::optional<bool> is_syncing;
     std::optional<bool> is_healthy;
   };
