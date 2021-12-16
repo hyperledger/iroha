@@ -458,25 +458,37 @@ Irohad::RunResult Irohad::initHttpServer() {
                 StringBuffer s;
                 Writer<StringBuffer> writer(s);
 
+                auto setOptBool = [](Writer<StringBuffer> &writer, bool pred, bool value) {
+                  if (pred)
+                    writer.Bool(value);
+                  else
+                    writer.Null();
+                };
+
+                auto setOptUInt64 = [](Writer<StringBuffer> &writer, bool pred, uint64_t value) {
+                  if (pred)
+                    writer.Int64((int64_t)value);
+                  else
+                    writer.Null();
+                };
+
                 writer.StartObject();
-                if (status.status.memory_consumption) {
-                  writer.Key("memory_consumption");
-                  writer.Int64((int64_t)*status.status.memory_consumption);
-                }
-                if (status.status.last_round) {
-                  writer.Key("last_block_round");
-                  writer.Int64((int64_t)status.status.last_round->block_round);
-                  writer.Key("last_reject_round");
-                  writer.Int64((int64_t)status.status.last_round->reject_round);
-                }
-                if (status.status.is_syncing) {
-                  writer.Key("is_syncing");
-                  writer.Bool(*status.status.is_syncing);
-                }
-                if (status.status.is_healthy) {
-                  writer.Key("status");
-                  writer.Bool(*status.status.is_healthy);
-                }
+
+                writer.Key("memory_consumption");
+                setOptUInt64(writer, !!status.status.memory_consumption, *status.status.memory_consumption);
+
+                writer.Key("last_block_round");
+                setOptUInt64(writer, !!status.status.last_round, status.status.last_round->block_round);
+
+                writer.Key("last_reject_round");
+                setOptUInt64(writer, !!status.status.last_round, status.status.last_round->reject_round);
+
+                writer.Key("is_syncing");
+                setOptBool(writer, !!status.status.is_syncing, *status.status.is_syncing);
+
+                writer.Key("status");
+                setOptBool(writer, !!status.status.is_healthy, *status.status.is_healthy);
+
                 writer.EndObject();
 
                 status.serialized_status = s.GetString();
