@@ -5,6 +5,7 @@
 
 #include "main/impl/on_demand_ordering_init.hpp"
 
+#include "common/mem_operations.hpp"
 #include "main/iroha_status.hpp"
 #include "common/permutation_generator.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -163,6 +164,18 @@ OnDemandOrderingInit::initOrderingGate(
         }
       },
       [wgate(utils::make_weak(ordering_gate_))]() { return !wgate.expired(); });
+
+  getSubscription()->dispatcher()->repeat(
+      iroha::SubscriptionEngineHandlers::kMetrics,
+      std::chrono::minutes(1ull),
+      []() {
+        iroha::IrohaStatus status;
+        status.memory_consumption = getMemoryUsage();
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnIrohaStatus,
+                                         status);
+      },
+      []() { return true; });
+
   return ordering_gate_;
 }
 
