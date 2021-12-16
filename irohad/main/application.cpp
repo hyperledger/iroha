@@ -451,49 +451,61 @@ Irohad::RunResult Irohad::initHttpServer() {
             [&](iroha::IrohaStoredStatus &status) {
               if (!status.serialized_status.empty()) {
                 req_res.setJsonResponse(status.serialized_status);
-              } else {
-                using namespace rapidjson;
-                using namespace std;
-
-                StringBuffer s;
-                Writer<StringBuffer> writer(s);
-
-                auto setOptBool = [](Writer<StringBuffer> &writer, bool pred, bool value) {
-                  if (pred)
-                    writer.Bool(value);
-                  else
-                    writer.Null();
-                };
-
-                auto setOptUInt64 = [](Writer<StringBuffer> &writer, bool pred, uint64_t value) {
-                  if (pred)
-                    writer.Int64((int64_t)value);
-                  else
-                    writer.Null();
-                };
-
-                writer.StartObject();
-
-                writer.Key("memory_consumption");
-                setOptUInt64(writer, !!status.status.memory_consumption, *status.status.memory_consumption);
-
-                writer.Key("last_block_round");
-                setOptUInt64(writer, !!status.status.last_round, status.status.last_round->block_round);
-
-                writer.Key("last_reject_round");
-                setOptUInt64(writer, !!status.status.last_round, status.status.last_round->reject_round);
-
-                writer.Key("is_syncing");
-                setOptBool(writer, !!status.status.is_syncing, *status.status.is_syncing);
-
-                writer.Key("status");
-                setOptBool(writer, !!status.status.is_healthy, *status.status.is_healthy);
-
-                writer.EndObject();
-
-                status.serialized_status = s.GetString();
-                req_res.setJsonResponse(status.serialized_status);
+                return;
               }
+              
+              using namespace rapidjson;
+              using namespace std;
+              StringBuffer s;
+              Writer<StringBuffer> writer(s);
+
+              auto setOptBool =
+                  [](Writer<StringBuffer> &writer, bool pred, bool value) {
+                    if (pred)
+                      writer.Bool(value);
+                    else
+                      writer.Null();
+                  };
+
+              auto setOptUInt64 =
+                  [](Writer<StringBuffer> &writer, bool pred, uint64_t value) {
+                    if (pred)
+                      writer.Int64((int64_t)value);
+                    else
+                      writer.Null();
+                  };
+
+              writer.StartObject();
+
+              writer.Key("memory_consumption");
+              setOptUInt64(writer,
+                           status.status.memory_consumption.has_value(),
+                           *status.status.memory_consumption);
+
+              writer.Key("last_block_round");
+              setOptUInt64(writer,
+                           status.status.last_round.has_value(),
+                           status.status.last_round->block_round);
+
+              writer.Key("last_reject_round");
+              setOptUInt64(writer,
+                           status.status.last_round.has_value(),
+                           status.status.last_round->reject_round);
+
+              writer.Key("is_syncing");
+              setOptBool(writer,
+                         status.status.is_syncing.has_value(),
+                         *status.status.is_syncing);
+
+              writer.Key("status");
+              setOptBool(writer,
+                         status.status.is_healthy.has_value(),
+                         *status.status.is_healthy);
+
+              writer.EndObject();
+
+              status.serialized_status = s.GetString();
+              req_res.setJsonResponse(status.serialized_status);
             });
       });
   /*  const char *options[] = {"listening_ports",
