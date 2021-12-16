@@ -1,33 +1,30 @@
 use eyre::{eyre, Error, Result};
 
 /// Variable length unsigned int. [ref](https://github.com/multiformats/unsigned-varint)
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VarUint {
     /// Contains validated varuint number
     payload: Vec<u8>,
 }
 
-//XXX: impl<T: AsRef<[u8]>> TryFrom<T> for VarUint
-// does not compile
-
-macro_rules! try_into_uint(
+macro_rules! try_from_var_uint(
     { $( $ty:ty ),* } => {
         $(
             #[allow(trivial_numeric_casts)]
-            impl TryInto<$ty> for VarUint {
+            impl TryFrom<VarUint> for $ty {
                 type Error = Error;
-                fn try_into(self) -> Result<$ty> {
-                    let VarUint { payload } = self;
-                    if std::mem::size_of::<$ty>() * 8 < payload.len() * 7 {
+                fn try_from(source: VarUint) -> Result<Self> {
+                    let VarUint { payload } = source;
+                    if std::mem::size_of::<Self>() * 8 < payload.len() * 7 {
                         return Err(eyre!(
-                            concat!("Number is too large for type ", stringify!($ty))
+                            concat!("Number is too large for type ", stringify!(Self))
                         ));
                     }
                     let offsets = (0..payload.len()).map(|i| i * 7);
                     let bytes = payload.into_iter().map(|byte| byte & 0b0111_1111);
                     let number = bytes
                         .zip(offsets)
-                        .map(|(byte, offset)| (byte as $ty) << offset)
+                        .map(|(byte, offset)| (byte as Self) << offset)
                         .fold(0, |number, part| number + part);
                     Ok(number)
                 }
@@ -36,15 +33,15 @@ macro_rules! try_into_uint(
     }
 );
 
-try_into_uint!(u8, u16, u32, u64, u128);
+try_from_var_uint!(u8, u16, u32, u64, u128);
 
-impl std::convert::From<VarUint> for Vec<u8> {
+impl From<VarUint> for Vec<u8> {
     fn from(int: VarUint) -> Self {
         int.payload
     }
 }
 
-impl std::convert::AsRef<[u8]> for VarUint {
+impl AsRef<[u8]> for VarUint {
     fn as_ref(&self) -> &[u8] {
         self.payload.as_ref()
     }
@@ -54,8 +51,8 @@ macro_rules! from_uint(
     { $( $ty:ty ),* } => {
         $(
             #[allow(trivial_numeric_casts)]
-            impl std::convert::From<$ty> for VarUint {
-                fn from(n: $ty) -> VarUint {
+            impl From<$ty> for VarUint {
+                fn from(n: $ty) -> Self {
                     let zeros = n.leading_zeros();
                     let end = std::mem::size_of::<$ty>() * 8 - zeros as usize;
 
@@ -112,7 +109,7 @@ mod tests {
 
     #[test]
     fn test_basic_from() {
-        let n_should: u64 = VarUint::new([0b1000_0000, 0b1000_0000, 0b0000_0001])
+        let n_should: u64 = VarUint::new(&[0b1000_0000, 0b1000_0000, 0b0000_0001])
             .unwrap()
             .try_into()
             .unwrap();
