@@ -262,6 +262,9 @@ Irohad::RunResult Irohad::initNodeStatus() {
             });
           });
 
+  iroha_status_subscription_->get().exclusiveAccess(
+      [](IrohaStoredStatus &status) { status.status.is_syncing = false; });
+
   return {};
 }
 
@@ -297,67 +300,6 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
   return {};
 }
 
-/*template<typename CharT = char>
-class StringWrapper : utils::NoCopy, utils::NoMove {
-  std::basic_string<CharT> &data_;
-
- public:
-  using Ch = CharT;
-  StringWrapper(std::basic_string<CharT> &s) : data_(s) {}
-
-  void Put(Ch c) {
-    data_ += c;
-  }
-
-  void PutUnsafe(Ch c) {
-    data_ += c;
-  }
-
-  void Flush() {}
-
-  void Clear() {
-    data_.clear();
-  }
-
-  void ShrinkToFit() {
-    data_.shrink_to_fit();
-  }
-
-  void Reserve(size_t count) {
-    data_.reserve(count);
-  }
-
-  Ch *Push(size_t count) {
-    auto const sz = data_.size();
-    data_.resize(count);
-    return &data_.at(sz);
-  }
-
-  Ch *PushUnsafe(size_t count) {
-    return &data_.at(data_.size());
-  }
-
-  void Pop(size_t count) {
-    data_.resize(data_.size() >= count ? data_.size() - count : 0ull);
-  }
-
-  const Ch *GetString() const {
-    return data_.data();
-  }
-
-  //! Get the size of string in bytes in the string buffer.
-  size_t GetSize() const {
-    return data_.size() * sizeof(Ch);
-  }
-
-  //! Get the length of string in Ch in the string buffer.
-  size_t GetLength() const {
-    return data_.size();
-  }
-
-  static const size_t kDefaultCapacity = 256;
-};*/
-
 /**
  * Initializing Http server.
  */
@@ -378,7 +320,8 @@ Irohad::RunResult Irohad::initHttpServer() {
               if (0ull == status.serialized_status.GetSize()) {
                 using namespace rapidjson;
                 using namespace std;
-                Writer<decltype(status.serialized_status)> writer(status.serialized_status);
+                Writer<decltype(status.serialized_status)> writer(
+                    status.serialized_status);
 
                 auto setOptBool = [](auto &writer, bool pred, bool value) {
                   if (pred)
@@ -424,44 +367,11 @@ Irohad::RunResult Irohad::initHttpServer() {
 
                 writer.EndObject();
               }
-              req_res.setJsonResponse(std::string_view (status.serialized_status.GetString(), status.serialized_status.GetLength()));
+              req_res.setJsonResponse(
+                  std::string_view(status.serialized_status.GetString(),
+                                   status.serialized_status.GetLength()));
             });
       });
-  /*  const char *options[] = {"listening_ports",
-                             PORT,
-                             "request_timeout_ms",
-                             "10000",
-                             "error_log_file",
-                             "error.log",
-                             0};
-
-    struct mg_callbacks callbacks;
-    struct mg_context *ctx;
-    int err = 0;
-
-    auto res = mg_init_library(0);
-
-    memset(&callbacks, 0, sizeof(callbacks));
-    callbacks.log_message = [](const struct mg_connection *conn, const char
-    *message){ puts(message); return 1;
-    };
-
-    ctx = mg_start(&callbacks, 0, options);
-
-    if (ctx == NULL) {
-      fprintf(stderr, "Cannot start CivetWeb - mg_start failed.\n");
-      return {};
-    }
-
-    mg_set_request_handler(ctx, EXAMPLE_URI, ExampleHandler, 0);
-    mg_set_request_handler(ctx, EXIT_URI, [](struct mg_connection *conn, void
-    *cbdata) { mg_printf(conn, "HTTP/1.1 200 OK\r\nContent-Type: "
-                "text/plain\r\nConnection: close\r\n\r\n");
-      mg_printf(conn, "Server will shut down.\n");
-      mg_printf(conn, "Bye!\n");
-      return 1;
-    }, 0);
-    */
   return {};
 }
 
