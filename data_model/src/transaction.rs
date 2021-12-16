@@ -1,19 +1,26 @@
 //! This module contains [`Transaction`] structures and related implementations
 
-use std::{cmp::Ordering, collections::BTreeSet, vec::IntoIter as VecIter};
+use std::{
+    cmp::Ordering,
+    collections::BTreeSet,
+    error::Error as StdError,
+    fmt::{Display, Formatter, Result as FmtResult},
+    vec::IntoIter as VecIter,
+};
 
 use eyre::{eyre, Result};
-use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
+use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignatureVerificationFail, SignaturesOf};
+use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 #[cfg(feature = "warp")]
 use warp::{reply::Response, Reply};
 
 use crate::{
-    account::Account, current_time, isi::Instruction, metadata::UnlimitedMetadata,
-    prelude::TransactionRejectionReason, Identifiable,
+    account::Account, current_time, isi::Instruction, metadata::UnlimitedMetadata, Identifiable,
 };
 
 /// Default maximum number of instructions and expressions per transaction
@@ -96,7 +103,7 @@ declare_versioned!(
     Clone,
     PartialEq,
     Eq,
-    iroha_macro::FromVariant,
+    FromVariant,
     IntoSchema,
 );
 
@@ -123,24 +130,6 @@ impl VersionedTransaction {
             Self::V1(v1) => v1,
         }
     }
-
-    /// Default [`Transaction`] constructor.
-    #[inline]
-    pub fn new(
-        instructions: Vec<Instruction>,
-        account_id: <Account as Identifiable>::Id,
-        proposed_ttl_ms: u64,
-    ) -> VersionedTransaction {
-        Transaction::new(instructions, account_id, proposed_ttl_ms).into()
-    }
-
-    /// Sign transaction with the provided key pair.
-    ///
-    /// # Errors
-    /// Fails if signature creation fails
-    pub fn sign(self, key_pair: &KeyPair) -> Result<VersionedTransaction> {
-        self.into_v1().sign(key_pair).map(Into::into)
-    }
 }
 
 impl Txn for VersionedTransaction {
@@ -164,11 +153,12 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
                     .iter()
                     .cloned()
                     .collect::<BTreeSet<_>>();
-                let transaction = Transaction {
+
+                Transaction {
                     payload: transaction.payload,
                     signatures,
-                };
-                transaction.into()
+                }
+                .into()
             }
         }
     }
@@ -268,7 +258,7 @@ impl Txn for Transaction {
     }
 }
 
-declare_versioned_with_scale!(VersionedPendingTransactions 1..2, iroha_macro::FromVariant, Clone, Debug);
+declare_versioned_with_scale!(VersionedPendingTransactions 1..2, FromVariant, Debug, Clone);
 
 impl VersionedPendingTransactions {
     /// Converts from `&VersionedPendingTransactions` to V1 reference
@@ -372,7 +362,7 @@ impl PartialOrd for TransactionValue {
     }
 }
 
-declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, FromVariant, IntoSchema);
 
 impl VersionedValidTransaction {
     /// Converts from `&VersionedValidTransaction` to V1 reference
@@ -426,7 +416,7 @@ impl Txn for ValidTransaction {
     }
 }
 
-declare_versioned!(VersionedRejectedTransaction 1..2, Clone, Debug, PartialEq, Eq, iroha_macro::FromVariant, IntoSchema);
+declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema);
 
 impl VersionedRejectedTransaction {
     /// Converts from `&VersionedRejectedTransaction` to V1 reference
@@ -483,10 +473,158 @@ impl Txn for RejectedTransaction {
     }
 }
 
+/// Transaction was reject because it doesn't satisfy signature condition
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct UnsatisfiedSignatureConditionFail {
+    /// Reason why signature condition failed
+    pub reason: String,
+}
+
+impl Display for UnsatisfiedSignatureConditionFail {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(
+            f,
+            "Failed to verify signature condition specified in the account: {}",
+            self.reason,
+        )
+    }
+}
+
+impl StdError for UnsatisfiedSignatureConditionFail {}
+
+/// Transaction was rejected because of one of its instructions failing.
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct InstructionExecutionFail {
+    /// Instruction which execution failed
+    pub instruction: Instruction,
+    /// Error which happened during execution
+    pub reason: String,
+}
+
+impl Display for InstructionExecutionFail {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        use Instruction::*;
+        let type_ = match self.instruction {
+            Burn(_) => "burn",
+            Fail(_) => "fail",
+            If(_) => "if",
+            Mint(_) => "mint",
+            Pair(_) => "pair",
+            Register(_) => "register",
+            Sequence(_) => "sequence",
+            Transfer(_) => "transfer",
+            Unregister(_) => "unregister",
+            SetKeyValue(_) => "set key-value pair",
+            RemoveKeyValue(_) => "remove key-value pair",
+            Grant(_) => "grant",
+        };
+        write!(
+            f,
+            "Failed to execute instruction of type {}: {}",
+            type_, self.reason
+        )
+    }
+}
+impl StdError for InstructionExecutionFail {}
+
+/// Transaction was reject because of low authority
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct NotPermittedFail {
+    /// Reason of failure
+    pub reason: String,
+}
+
+impl Display for NotPermittedFail {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "Action not permitted: {}", self.reason)
+    }
+}
+
+impl StdError for NotPermittedFail {}
+
+/// The reason for rejecting transaction which happened because of new blocks.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Error,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+)]
+pub enum BlockRejectionReason {
+    /// Block was rejected during consensus.
+    //TODO: store rejection reasons for blocks?
+    #[error("Block was rejected during consensus.")]
+    ConsensusBlockRejection,
+}
+
+/// The reason for rejecting transaction which happened because of transaction.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Error,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+)]
+pub enum TransactionRejectionReason {
+    /// Insufficient authorisation.
+    #[error("Transaction rejected due to insufficient authorisation")]
+    NotPermitted(#[source] NotPermittedFail),
+    /// Failed to verify signature condition specified in the account.
+    #[error("Transaction rejected due to an unsatisfied signature condition")]
+    UnsatisfiedSignatureCondition(#[source] UnsatisfiedSignatureConditionFail),
+    /// Failed to execute instruction.
+    #[error("Transaction rejected due to failure in instruction execution")]
+    InstructionExecution(#[source] InstructionExecutionFail),
+    /// Failed to verify signatures.
+    #[error("Transaction rejected due to failed signature verification")]
+    SignatureVerification(#[source] SignatureVerificationFail<Payload>),
+    /// Genesis account can sign only transactions in the genesis block.
+    #[error("The genesis account can only sign transactions in the genesis block.")]
+    UnexpectedGenesisAccountSignature,
+}
+
+/// The reason for rejecting pipeline entity such as transaction or block.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Error,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+)]
+pub enum RejectionReason {
+    /// The reason for rejecting the block.
+    #[error("Block was rejected")]
+    Block(#[source] BlockRejectionReason),
+    /// The reason for rejecting transaction.
+    #[error("Transaction was rejected")]
+    Transaction(#[source] TransactionRejectionReason),
+}
+
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
     pub use super::{
-        Payload, PendingTransactions, RejectedTransaction, Transaction, TransactionValue, Txn,
+        BlockRejectionReason, InstructionExecutionFail, NotPermittedFail, Payload,
+        PendingTransactions, RejectedTransaction, RejectionReason, Transaction,
+        TransactionRejectionReason, TransactionValue, Txn, UnsatisfiedSignatureConditionFail,
         ValidTransaction, VersionedPendingTransactions, VersionedRejectedTransaction,
         VersionedTransaction, VersionedValidTransaction,
     };

@@ -35,7 +35,8 @@ fn main() {
         Equal,
         Event,
         EventFilter,
-        EventSocketMessage,
+        EventPublisherMessage,
+        EventSubscriberMessage,
         Expression,
         FailBox,
         GrantBox,
@@ -63,7 +64,6 @@ fn main() {
         SetBox,
         SetKeyValueBox,
         SignedQueryRequest,
-        SubscriptionRequest,
         Subtract,
         TransferBox,
         UnregisterBox,
@@ -74,7 +74,8 @@ fn main() {
         VersionedTransaction,
         VersionedSignedQueryRequest,
         VersionedQueryResult,
-        VersionedEventSocketMessage,
+        VersionedEventPublisherMessage,
+        VersionedEventSubscriberMessage,
 
         RawGenesisBlock
     };

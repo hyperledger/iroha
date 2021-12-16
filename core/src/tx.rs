@@ -90,14 +90,6 @@ impl VersionedAcceptedTransaction {
     ) -> Result<bool> {
         self.as_v1().check_signature_condition(wsv)
     }
-
-    /// Rejects transaction with the `rejection_reason`.
-    pub fn reject(
-        self,
-        rejection_reason: TransactionRejectionReason,
-    ) -> VersionedRejectedTransaction {
-        self.into_v1().reject(rejection_reason).into()
-    }
 }
 
 impl Txn for VersionedAcceptedTransaction {
