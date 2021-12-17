@@ -71,35 +71,59 @@ Hint and whether each object exists:
 
 **Protocol Upgrade**: `WebSocket`
 
-**Encoding**: JSON
+**Encoding**: [Parity Scale Codec](#parity-scale-codec)
 
 **Endpoint**: `/events`
 
-**Expects**: 
+**Expects**:
 
-First message after handshake from client: `SubscriptionRequest` [*](#iroha-structures)
+First message after handshake from client: `EventStreamSubscriptionRequest` [*](#iroha-structures)
 
-When server is ready to transmit events it sends: `SubscriptionAccepted` [*](#iroha-structures)
+When server is ready to transmit events it sends: `EventStreamSubscriptionAccepted` [*](#iroha-structures)
 
 Server sends `Event` and expects `EventReceived`  [*](#iroha-structures) after each, before sending the next event.
 
 **Notes**:
 
-Usually, the client  waits for Transaction events. 
+Usually, the client  waits for Transaction events.
 
 Transaction event statuses can be either `Validating`, `Committed` or `Rejected`.
 
-Transaction statuses proceed from `Validating` to either  `Committed` or `Rejected`. 
+Transaction statuses proceed from `Validating` to either  `Committed` or `Rejected`.
 However, due to the distributed nature of the network, some peers might receive events out of order (e.g. `Committed` before `Validating`).
 
 It's possible that some peers in the network are offline for the validation round. If the client connects to them while they are offline, the peers might not respond with the `Validating` status.
 But when the offline peers come back online they will synchronize the blocks. They are then guaranteed to respond with the `Committed` (or `Rejected`) status depending on the information found in the block.
 
+### Blocks stream
+
+**Protocol**: HTTP
+
+**Protocol Upgrade**: `WebSocket`
+
+**Encoding**: [Parity Scale Codec](#parity-scale-codec)
+
+**Endpoint**: `/block/stream`
+
+**Expects**:
+
+First message after handshake to initiate communication from client: `BlockStreamSubscriptionRequest` [*](#iroha-structures)
+
+When server is ready to transmit blocks it sends: `BlockStreamSubscriptionAccepted` [*](#iroha-structures)
+
+Server sends `Block` and expects `BlockReceived`  [*](#iroha-structures) after each, before sending the next block.
+
+**Notes**:
+
+Via this endpoint client first provides the starting block number(i.e. height) in the subscription request. After sending
+the confirmation message, server starts streaming all the blocks from the given block number up to the current block and
+continues to stream blocks as they are added to the blockchain.
+
 ### Configuration
 
 **Protocol**: HTTP
 
-**Encoding**: Json
+**Encoding**: JSON
 
 **Endpoint**: `/configuration`
 
@@ -115,7 +139,7 @@ There are 2 variants:
 }
 ```
 
-**Examples**: 
+**Examples**:
 To get the top-level configuration docs for [`Torii`]
 ```bash
 curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["torii"]} ' -i
@@ -129,7 +153,7 @@ curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configurat
 
 **Protocol**: HTTP
 
-**Encoding**: Json
+**Encoding**: JSON
 
 **Endpoint**: `/health`
 
@@ -150,7 +174,7 @@ Also returns current status of peer in json string:
 
 **Protocol**: HTTP
 
-**Encoding**: Json
+**Encoding**: JSON
 
 **Endpoint**: `/status`
 
@@ -221,7 +245,13 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 - `VersionedTransaction` - `iroha_data_model::transaction::VersionedTransaction`
 - `VersionedSignedQueryRequest` - `iroha_data_model::query::VersionedSignedQueryRequest`
 - `VersionedQueryResult` - `iroha_data_model::query::VersionedQueryResult`
-- `SubscriptionRequest` - `iroha_data_model::events::EventSocketMessage::SubscriptionRequest`
-- `SubscriptionAccepted` - `iroha_data_model::events::EventSocketMessage::SubscriptionAccepted`
-- `Event` - `iroha_data_model::events::EventSocketMessage::Event`
-- `EventReceived` - `iroha_data_model::events::EventSocketMessage::EventReceived`
+
+- `EventStreamSubscriptionRequest` - `iroha_data_model::events::EventSubscriberMessage::SubscriptionRequest`
+- `EventStreamSubscriptionAccepted` - `iroha_data_model::events::EventPublisherMessage::SubscriptionAccepted`
+- `Event` - `iroha_data_model::events::EventPublisherMessage::Event`
+- `EventReceived` - `iroha_data_model::events::EventSubscriberMessage::EventReceived`
+
+- `BlockStreamSubscriptionAccepted` - `iroha_core::block::stream::BlockPublisherMessage::SubscriptionAccepted`
+- `BlockStreamSubscriptionRequest` - `iroha_core::block::stream::BlockSubscriberMessage::SubscriptionRequest`
+- `Block` - `iroha_core::block::stream::BlockPublisherMessage::Block`
+- `BlockReceived` - `iroha_core::block::stream::BlockSubscriberMessage::BlockReceived`

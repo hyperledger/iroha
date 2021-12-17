@@ -793,21 +793,21 @@ pub mod stream {
     declare_versioned_with_scale!(VersionedBlockPublisherMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
     impl VersionedBlockPublisherMessage {
-        /// Converts from `&VersionedBlockProducerMessage` to V1 reference
+        /// Converts from `&VersionedBlockPublisherMessage` to V1 reference
         pub const fn as_v1(&self) -> &BlockPublisherMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Converts from `&mut VersionedBlockProducerMessage` to V1 mutable reference
+        /// Converts from `&mut VersionedBlockPublisherMessage` to V1 mutable reference
         pub fn as_mut_v1(&mut self) -> &mut BlockPublisherMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Performs the conversion from `VersionedBlockProducerMessage` to V1
+        /// Performs the conversion from `VersionedBlockPublisherMessage` to V1
         pub fn into_v1(self) -> BlockPublisherMessage {
             match self {
                 Self::V1(v1) => v1,
@@ -831,21 +831,21 @@ pub mod stream {
     declare_versioned_with_scale!(VersionedBlockSubscriberMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
     impl VersionedBlockSubscriberMessage {
-        /// Converts from `&VersionedBlockConsumerMessage` to V1 reference
+        /// Converts from `&VersionedBlockSubscriberMessage` to V1 reference
         pub const fn as_v1(&self) -> &BlockSubscriberMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Converts from `&mut VersionedBlockConsumerMessage` to V1 mutable reference
+        /// Converts from `&mut VersionedBlockSubscriberMessage` to V1 mutable reference
         pub fn as_mut_v1(&mut self) -> &mut BlockSubscriberMessage {
             match self {
                 Self::V1(v1) => v1,
             }
         }
 
-        /// Performs the conversion from `VersionedBlockConsumerMessage` to V1
+        /// Performs the conversion from `VersionedBlockSubscriberMessage` to V1
         pub fn into_v1(self) -> BlockSubscriberMessage {
             match self {
                 Self::V1(v1) => v1,

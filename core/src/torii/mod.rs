@@ -242,7 +242,16 @@ impl<W: WorldTrait> Torii<W> {
                 })
             });
 
-        let blocks_ws_router = warp::path(uri::BLOCKS_STREAM)
+        // `warp` panics if there is `/` in the string given to the `warp::path` filter
+        // Path filter has to be boxed to have a single uniform type during iteration
+        let block_ws_router_path = uri::BLOCKS_STREAM
+            .split('/')
+            .skip_while(|p| p.is_empty())
+            .fold(warp::any().boxed(), |path_filter, path| {
+                path_filter.and(warp::path(path)).boxed()
+            });
+
+        let blocks_ws_router = block_ws_router_path
             .and(add_state!(self.wsv))
             .and(warp::ws())
             .map(|wsv: Arc<_>, ws: Ws| {
