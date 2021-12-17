@@ -1053,11 +1053,12 @@ Irohad::RunResult Irohad::initQueryService() {
       query_response_factory_,
       query_service_log_manager->getChild("Processor")->getLogger());
 
+  assert(iroha_status_subscription_);
   query_service = std::make_shared<::torii::QueryService>(
       query_processor,
       query_factory,
       blocks_query_factory,
-      query_service_log_manager->getLogger());
+      query_service_log_manager->getLogger(), iroha_status_subscription_);
 
   log_->info("[Init] => query service");
   return {};
