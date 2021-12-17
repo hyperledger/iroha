@@ -74,7 +74,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           file: Dockerfile.ci
-          tags: hyperledger/ci-iroha2:latest
+          tags: hyperledger/iroha2-ci:latest
           push: true
 
   archive-and-publish-schema:
