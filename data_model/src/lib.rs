@@ -14,6 +14,7 @@ use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::{Hash, PublicKey};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_schema::IntoSchema;
+use metadata::UnlimitedMetadata;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +38,7 @@ pub type Name = String;
 pub type Bytes = Vec<u8>;
 
 #[allow(clippy::missing_errors_doc)]
-/// Similar to [`AsMut`] but indicating that this reference conversion can fail.
+/// [`AsMut`] but reference conversion can fail.
 pub trait TryAsMut<T> {
     /// The type returned in the event of a conversion error.
     type Error;
@@ -171,27 +172,31 @@ pub type ValueBox = Box<Value>;
 )]
 #[allow(clippy::enum_variant_names)]
 pub enum Value {
-    /// `u32` integer.
+    /// [`u32`] integer.
     U32(u32),
-    /// `u128` integer.
+    /// [`u128`] integer.
     U128(u128),
-    /// `bool` value.
+    /// [`bool`] value.
     Bool(bool),
-    /// `String` value.
+    /// [`String`] value.
     String(String),
-    /// `Fixed` value
+    /// [`Fixed`] value
     Fixed(fixed::Fixed),
-    /// `Vec` of `Value`.
+    /// [`Vec`] of `Value`.
     Vec(
         #[skip_from]
         #[skip_try_from]
         Vec<Value>,
     ),
-    /// `Id` of `Asset`, `Account`, etc.
+    /// Recursive inclusion of LimitedMetadata,
+    LimitedMetadata(metadata::Metadata),
+    /// Recursive inclusion of UnlimitedMetadata
+    UnlimitedMetadata(UnlimitedMetadata),
+    /// [`Id`] of [`Asset`], [`Account`], etc.
     Id(IdBox),
-    /// `Identifiable` as `Asset`, `Account` etc.
+    /// [`Identifiable`] as [`Asset`], [`Account`] etc.
     Identifiable(IdentifiableBox),
-    /// `PublicKey`.
+    /// [`PublicKey`].
     PublicKey(PublicKey),
     /// Iroha `Parameter` variant.
     Parameter(Parameter),
@@ -213,35 +218,40 @@ impl Value {
 
         match self {
             U32(_) | U128(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
-            | String(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_) | Hash(_) => 1,
-            Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1,
+            | String(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_) | Hash(_) => 1_usize,
+            Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
+            LimitedMetadata(data) => data.nested_len() + 1_usize,
+            // TODO: this is recursive. Rust doesn't do tail-call optimisation.
+            UnlimitedMetadata(data) => {
+                data.iter().map(|(_, v)| 1 + v.len()).sum::<usize>() + 1_usize
+            }
             SignatureCheckCondition(s) => s.0.len(),
         }
     }
 }
 
 macro_rules! from_and_try_from_value_idbox {
-    ( $($variant:ident( $ty:ty ),)* ) => {
-        $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+	( $($variant:ident( $ty:ty ),)* ) => {
+		$(
+			impl TryFrom<Value> for $ty {
+				type Error = ErrorTryFromEnum<Self, Value>;
 
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
-                    if let Value::Id(IdBox::$variant(id)) = value {
-                        Ok(id)
-                    } else {
-                        Err(Self::Error::default())
-                    }
-                }
-            }
+				fn try_from(value: Value) -> Result<Self, Self::Error> {
+					if let Value::Id(IdBox::$variant(id)) = value {
+						Ok(id)
+					} else {
+						Err(Self::Error::default())
+					}
+				}
+			}
 
-            impl From<$ty> for Value {
-                fn from(id: $ty) -> Self {
-                    Value::Id(IdBox::$variant(id))
-                }
-            }
-        )*
-    };
+			impl From<$ty> for Value {
+				fn from(id: $ty) -> Self {
+					Value::Id(IdBox::$variant(id))
+				}
+			}
+		)*
+	};
 }
 
 from_and_try_from_value_idbox!(
@@ -254,50 +264,50 @@ from_and_try_from_value_idbox!(
 //from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
 
 macro_rules! from_and_try_from_value_identifiablebox {
-    ( $( $variant:ident( Box< $ty:ty > ),)* ) => {
-        $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+	( $( $variant:ident( Box< $ty:ty > ),)* ) => {
+		$(
+			impl TryFrom<Value> for $ty {
+				type Error = ErrorTryFromEnum<Self, Value>;
 
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
-                    if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
-                        Ok(*id)
-                    } else {
-                        Err(Self::Error::default())
-                    }
-                }
-            }
+				fn try_from(value: Value) -> Result<Self, Self::Error> {
+					if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
+						Ok(*id)
+					} else {
+						Err(Self::Error::default())
+					}
+				}
+			}
 
-            impl From<$ty> for Value {
-                fn from(id: $ty) -> Self {
-                    Value::Identifiable(IdentifiableBox::$variant(Box::new(id)))
-                }
-            }
-        )*
-    };
+			impl From<$ty> for Value {
+				fn from(id: $ty) -> Self {
+					Value::Identifiable(IdentifiableBox::$variant(Box::new(id)))
+				}
+			}
+		)*
+	};
 }
 macro_rules! from_and_try_from_value_identifiable {
-    ( $( $variant:ident( $ty:ty ), )* ) => {
-        $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+	( $( $variant:ident( $ty:ty ), )* ) => {
+		$(
+			impl TryFrom<Value> for $ty {
+				type Error = ErrorTryFromEnum<Self, Value>;
 
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
-                    if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
-                        Ok(id)
-                    } else {
-                        Err(Self::Error::default())
-                    }
-                }
-            }
+				fn try_from(value: Value) -> Result<Self, Self::Error> {
+					if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
+						Ok(id)
+					} else {
+						Err(Self::Error::default())
+					}
+				}
+			}
 
-            impl From<$ty> for Value {
-                fn from(id: $ty) -> Self {
-                    Value::Identifiable(IdentifiableBox::$variant(id))
-                }
-            }
-        )*
-    };
+			impl From<$ty> for Value {
+				fn from(id: $ty) -> Self {
+					Value::Identifiable(IdentifiableBox::$variant(id))
+				}
+			}
+		)*
+	};
 }
 
 from_and_try_from_value_identifiablebox!(
@@ -1139,46 +1149,46 @@ pub mod asset {
     }
 
     macro_rules! impl_try_as_for_asset_value {
-        ( $($variant:ident( $ty:ty ),)* ) => {$(
-            impl TryAsMut<$ty> for AssetValue {
-                type Error = Error;
+		( $($variant:ident( $ty:ty ),)* ) => {$(
+			impl TryAsMut<$ty> for AssetValue {
+				type Error = Error;
 
-                fn try_as_mut(&mut self) -> Result<&mut $ty> {
-                    if let AssetValue:: $variant (value) = self {
-                        Ok(value)
-                    } else {
-                        Err(eyre!(
-                            concat!(
-                                "Expected source asset with value type:",
-                                stringify!($variant),
-                                ". Got: {:?}",
-                            ),
-                            self.value_type()
-                        ))
-                    }
-                }
-            }
+				fn try_as_mut(&mut self) -> Result<&mut $ty> {
+					if let AssetValue:: $variant (value) = self {
+						Ok(value)
+					} else {
+						Err(eyre!(
+							concat!(
+								"Expected source asset with value type:",
+								stringify!($variant),
+								". Got: {:?}",
+							),
+							self.value_type()
+						))
+					}
+				}
+			}
 
-            impl TryAsRef<$ty> for AssetValue {
-                type Error = Error;
+			impl TryAsRef<$ty> for AssetValue {
+				type Error = Error;
 
-                fn try_as_ref(&self) -> Result<& $ty > {
-                    if let AssetValue:: $variant (value) = self {
-                        Ok(value)
-                    } else {
-                        Err(eyre!(
-                            concat!(
-                                "Expected source asset with value type:",
-                                stringify!($variant),
-                                ". Got: {:?}",
-                            ),
-                            self.value_type()
-                        ))
-                    }
-                }
-            }
-        )*}
-    }
+				fn try_as_ref(&self) -> Result<& $ty > {
+					if let AssetValue:: $variant (value) = self {
+						Ok(value)
+					} else {
+						Err(eyre!(
+							concat!(
+								"Expected source asset with value type:",
+								stringify!($variant),
+								". Got: {:?}",
+							),
+							self.value_type()
+						))
+					}
+				}
+			}
+		)*}
+	}
 
     impl_try_as_for_asset_value! {
         Quantity(u32),
@@ -1891,8 +1901,8 @@ pub mod pagination {
         }
     }
 
-    /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
+        //! Prelude: re-export most commonly used traits, structs and macros from this module.
         pub use super::*;
     }
 
@@ -1975,7 +1985,8 @@ pub mod pagination {
 }
 
 pub mod metadata {
-    //! Module with metadata for accounts
+    //! Metadata: key-value pairs that can be attached to accounts,
+    //! transactions and assets.
 
     use std::{borrow::Borrow, collections::BTreeMap};
 
@@ -2030,10 +2041,31 @@ pub mod metadata {
 
     impl Metadata {
         /// Constructor.
+        #[inline]
         pub fn new() -> Self {
             Self {
                 map: BTreeMap::new(),
             }
+        }
+
+        pub fn nested_len(&self) -> usize {
+            // TODO: this is recursive. Rust doesn't do tail-call optimisation.
+            self.map.iter().map(|(_, v)| 1 + v.len()).sum()
+        }
+
+        pub fn nested_get<K: Ord + ?Sized>(&self, path: Vec<&K>) -> Option<&Value>
+        where
+            Name: Borrow<K>,
+        {
+            let mut map = &self.map;
+            for k in path.iter().advance_back_by(1).ok() {
+                map = match map.get(k)? {
+                    Value::LimitedMetadata(data) => &data.map,
+                    Value::UnlimitedMetadata(data) => data,
+                    _ => return None,
+                };
+            }
+            todo!()
         }
 
         /// Inserts `key` and `value`.
@@ -2056,12 +2088,13 @@ pub mod metadata {
             let entry_bytes: Vec<u8> = (key.clone(), value.clone()).encode();
             let byte_size = entry_bytes.len();
             if byte_size > limits.max_entry_byte_size as usize {
-                return Err(eyre!("Metadata entry is bigger than allowed. Expected less or equal to {} bytes. Got: {} bytes", limits.max_entry_byte_size, byte_size));
+                return Err(eyre!("Metadata entry exceeds maximum size. Expected less than or equal to {} bytes. Actual: {} bytes", limits.max_entry_byte_size, byte_size));
             }
             Ok(self.map.insert(key, value))
         }
 
-        /// Returns a reference to the value corresponding to the key.
+        /// Returns a `Some(reference)` to the value corresponding to
+        /// the key, and `None` if not found.
         pub fn get<K: Ord + ?Sized>(&self, key: &K) -> Option<&Value>
         where
             Name: Borrow<K>,
@@ -2069,7 +2102,9 @@ pub mod metadata {
             self.map.get(key)
         }
 
-        /// Removes a key from the map, returning the value at the key if the key was previously in the map.
+        /// Removes a key from the map, returning the owned
+        /// `Some(value)` at the key if the key was previously in the
+        /// map, else `None`
         pub fn remove<K: Ord + ?Sized>(&mut self, key: &K) -> Option<Value>
         where
             Name: Borrow<K>,
@@ -2078,8 +2113,8 @@ pub mod metadata {
         }
     }
 
-    /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
+        //! Prelude: re-export most commonly used traits, structs and macros from this module.
         pub use super::{Limits as MetadataLimits, Metadata, UnlimitedMetadata};
     }
 
@@ -2149,9 +2184,8 @@ pub mod uri {
     pub const METRICS: &str = "metrics";
 }
 
-/// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-
+    //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
     pub use super::{
