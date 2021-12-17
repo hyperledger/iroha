@@ -45,7 +45,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/rui314/mold.git; \
-    git -C "./mold" checkout v0.9.6; \
+    git -C "./mold" checkout v1.0.0; \
     make --directory="./mold"; \
     make --directory="./mold" install; \
     rm -rf "./mold"
