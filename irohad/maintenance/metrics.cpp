@@ -139,6 +139,29 @@ Metrics::Metrics(std::string const &listen_addr,
           });
 
   /////////////////////////////
+  auto &is_syncing_state =
+      BuildGauge()
+          .Name("is_syncing_state")
+          .Help("Iroha is syncing state")
+          .Register(*registry_)
+          .Add({});
+
+  auto &is_healthy =
+      BuildGauge()
+          .Name("is_healthy")
+          .Help("Iroha is healthy status")
+          .Register(*registry_)
+          .Add({});
+
+  iroha_status_subscription_ = SubscriberCreator<
+      bool,
+      iroha::IrohaStatus>::
+  template create<EventTypes::kOnIrohaStatus>(
+      iroha::SubscriptionEngineHandlers::kMetrics,
+      [&](bool, iroha::IrohaStatus new_status) {
+        is_syncing_state.Set(new_status.is_syncing && *new_status.is_syncing ? 1 : 0);
+        is_healthy.Set(new_status.is_healthy && *new_status.is_healthy ? 1 : 0);
+      });
 
   auto &number_of_pending_mst_batches =
       BuildGauge()

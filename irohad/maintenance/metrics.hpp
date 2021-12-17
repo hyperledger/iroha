@@ -15,6 +15,7 @@
 #include <string>
 #include <thread>
 
+#include "main/iroha_status.hpp"
 #include "ametsuchi/storage.hpp"
 #include "ametsuchi/wsv_query.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -42,6 +43,10 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
   std::chrono::steady_clock::time_point uptime_start_timepoint_;
   std::thread uptime_thread_;
   std::atomic_bool uptime_thread_cancelation_flag_{false};
+  std::shared_ptr<
+      iroha::BaseSubscriber<bool,
+          iroha::IrohaStatus>>
+      iroha_status_subscription_;
 
   Metrics(std::string const &listen_addr,
           std::shared_ptr<iroha::ametsuchi::Storage> storage,
