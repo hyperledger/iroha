@@ -13,11 +13,13 @@
 #include <boost/range/empty.hpp>
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "ametsuchi/tx_presence_cache_utils.hpp"
+#include "datetime/time.hpp"
 #include "common/visitor.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "validators/field_validator.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -132,16 +134,29 @@ OnDemandOrderingGate::processProposalRequest(
 void OnDemandOrderingGate::sendCachedTransactions() {
   assert(not stop_mutex_.try_lock());  // lock must be taken before
   // TODO iceseer 14.01.21 IR-958 Check that OS is remote
-  ordering_service_->forCachedBatches([this](auto const &batches) {
+  ordering_service_->forCachedBatches([this](auto &batches) {
     auto end_iterator = batches.begin();
     auto current_number_of_transactions = 0u;
-    for (; end_iterator != batches.end(); ++end_iterator) {
+    auto now = iroha::time::now();
+
+    for (; end_iterator != batches.end();) {
+      if (std::any_of(end_iterator->get()->transactions().begin(),
+                      end_iterator->get()->transactions().end(),
+                      [&](const auto &tx) {
+                        return now > shared_model::validation::FieldValidator::kMaxDelay + tx->createdTime();
+                      })) {
+        end_iterator = batches.erase(end_iterator);
+        continue;
+      }
+
       auto batch_size = (*end_iterator)->transactions().size();
       if (current_number_of_transactions + batch_size <= transaction_limit_) {
         current_number_of_transactions += batch_size;
       } else {
         break;
       }
+
+      ++end_iterator;
     }
 
     if (not batches.empty()) {

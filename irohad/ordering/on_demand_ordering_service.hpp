@@ -37,7 +37,7 @@ namespace iroha {
        * @param f - callback function
        */
       virtual void forCachedBatches(
-          std::function<void(const transport::OdOsNotification::BatchesSetType
+          std::function<void(transport::OdOsNotification::BatchesSetType
                                  &)> const &f) = 0;
     };
 

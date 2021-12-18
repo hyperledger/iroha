@@ -12,6 +12,7 @@
 #include "module/irohad/ordering/ordering_mocks.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "datetime/time.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;

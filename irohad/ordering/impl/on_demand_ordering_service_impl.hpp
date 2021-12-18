@@ -121,7 +121,7 @@ namespace iroha {
       bool isEmptyBatchesCache() const;
 
       void forCachedBatches(
-          std::function<void(const transport::OdOsNotification::BatchesSetType
+          std::function<void(transport::OdOsNotification::BatchesSetType
                                  &)> const &f) override;
 
       std::vector<std::shared_ptr<shared_model::interface::Transaction>>

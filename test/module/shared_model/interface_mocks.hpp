@@ -17,6 +17,7 @@
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
 #include "interfaces/query_responses/engine_receipt.hpp"
 #include "interfaces/transaction.hpp"
+#include "datetime/time.hpp"
 
 // TODO: 2019-01-18 @muratovv Separate file by classes IR-229
 struct MockBlock : public shared_model::interface::Block {
@@ -86,7 +87,9 @@ auto createMockTransactionWithHash(
 
   auto res = std::make_shared<NiceMock<MockTransaction>>();
 
+  auto now = iroha::time::now();
   ON_CALL(*res, hash()).WillByDefault(ReturnRefOfCopy(hash));
+  ON_CALL(*res, createdTime()).WillByDefault(testing::Return(now));
 
   return res;
 }

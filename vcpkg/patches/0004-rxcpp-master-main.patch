@@ -1,0 +1,25 @@
+From 2e7a0cb449ac4524d4749d7e35ea20e874eb4344 Mon Sep 17 00:00:00 2001
+From: iceseer <iceseer@gmail.com>
+Date: Sat, 18 Dec 2021 11:42:46 +0300
+Subject: [PATCH] rxcpp master->main
+
+---
+ ports/rxcpp/portfile.cmake | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ports/rxcpp/portfile.cmake b/ports/rxcpp/portfile.cmake
+index b98701132..ce96d46de 100644
+--- a/ports/rxcpp/portfile.cmake
++++ b/ports/rxcpp/portfile.cmake
+@@ -3,7 +3,7 @@ vcpkg_from_github(
+     REPO ReactiveX/RxCpp
+     REF v4.1.0
+     SHA512 a92e817ecbdf6f235cae724ada2615af9fa0c243249625d0f2c2f09ff5dd7f53fdabd03a0278fe2995fe27528c5511d71f87b7a6b3d54f73b49b65aef56e32fd
+-    HEAD_REF master
++    HEAD_REF main
+     PATCHES support_find_package.patch
+ )
+ 
+-- 
+2.33.1
+

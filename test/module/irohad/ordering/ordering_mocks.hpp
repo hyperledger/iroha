@@ -48,7 +48,7 @@ namespace iroha {
       MOCK_METHOD1(
           forCachedBatches,
           void(std::function<
-               void(const transport::OdOsNotification::BatchesSetType &)> const
+               void(transport::OdOsNotification::BatchesSetType &)> const
                    &));
     };
 
