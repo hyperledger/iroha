@@ -86,7 +86,9 @@ auto createMockTransactionWithHash(
 
   auto res = std::make_shared<NiceMock<MockTransaction>>();
 
+  auto now = iroha::time::now();
   ON_CALL(*res, hash()).WillByDefault(ReturnRefOfCopy(hash));
+  ON_CALL(*res, createdTime()).WillByDefault(testing::Return(now));
 
   return res;
 }
