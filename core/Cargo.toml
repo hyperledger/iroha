@@ -16,7 +16,7 @@ bridge = []
 dex = []
 roles = ["iroha_data_model/roles"]
 telemetry = []
-cli = ["structopt"]
+cli = []
 dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry"]
 expensive-telemetry = ["iroha_telemetry/metric-instrumentation"]
 default = ["bridge", "cli"]
@@ -52,7 +52,6 @@ tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-mu
 tokio-stream = { version = "0.1.6", features = ["fs"]}
 crossbeam-queue = "0.3"
 warp = "0.3"
-structopt = { version = "0.3", optional = true }
 thiserror = "1.0.28"
 pin-project = "1"
 
