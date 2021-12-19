@@ -305,7 +305,7 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
  */
 Irohad::RunResult Irohad::initHttpServer() {
   iroha::network::HttpServer::Options options;
-  options.ports = "50508";
+  options.ports = config_.healthcheck_port ? std::to_string(*config_.healthcheck_port) : "50508";
 
   http_server_ = std::make_unique<iroha::network::HttpServer>(
       std::move(options), log_manager_->getChild("HTTP server")->getLogger());
