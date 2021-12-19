@@ -85,8 +85,10 @@ impl Default for NetworkConfiguration {
 impl Configuration {
     /// This method will build `Configuration` from a json *pretty* formatted file (without `:` in
     /// key names).
+    ///
     /// # Panics
     /// This method will panic if configuration file presented, but has incorrect scheme or format.
+    ///
     /// # Errors
     /// This method will return error if system will fail to find a file or read it's content.
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration> {

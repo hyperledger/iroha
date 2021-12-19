@@ -112,7 +112,8 @@ where
         Self::with_broker(args, instruction_validator, query_validator, broker).await
     }
 
-    /// Creates Iroha with specified broker
+    /// Create Iroha with specified broker.
+    ///
     /// # Errors
     /// Can fail if fails:
     /// - Reading genesis from disk
@@ -125,13 +126,14 @@ where
         broker: Broker,
     ) -> Result<Self> {
         let mut config = Configuration::from_path(&args.config_path)?;
-        config.load_trusted_peers_from_path(&args.trusted_peers_path)?;
+        // config.load_trusted_peers_from_path(&args.trusted_peers_path)?;
         config.load_environment()?;
         Self::with_broker_and_config(args, config, instruction_validator, query_validator, broker)
             .await
     }
 
     /// Creates Iroha with specified broker and custom config that overrides `args`
+    ///
     /// # Errors
     /// Can fail if fails:
     /// - Reading genesis from disk
@@ -162,7 +164,8 @@ where
         .await
     }
 
-    /// Creates Iroha with specified broker, config, and genesis
+    /// Create Iroha with specified broker, config, and genesis.
+    ///
     /// # Errors
     /// Can fail if fails:
     /// - Reading telemetry configs and setuping telemetry
@@ -256,8 +259,8 @@ where
         })
     }
 
-    /// To make `Iroha` peer work it should be started first. After that moment it will listen for
-    /// incoming requests and messages.
+    /// To make `Iroha` peer work it should be started first. After
+    /// that moment it will listen for incoming requests and messages.
     ///
     /// # Errors
     /// Can fail if initing kura fails
@@ -322,7 +325,6 @@ pub trait IsInBlockchain {
 }
 
 const CONFIGURATION_PATH: &str = "config.json";
-const TRUSTED_PEERS_PATH: &str = "trusted_peers.json";
 const GENESIS_PATH: &str = "genesis.json";
 
 /// Arguments for Iroha2 - usually parsed from cli.
@@ -339,9 +341,6 @@ pub struct Arguments {
     /// Set custom config file path.
     #[cfg_attr(feature = "cli", structopt(parse(from_os_str), long, default_value = CONFIGURATION_PATH))]
     pub config_path: PathBuf,
-    /// Set custom trusted peers file path.
-    #[cfg_attr(feature = "cli", structopt(parse(from_os_str), long, default_value = TRUSTED_PEERS_PATH))]
-    pub trusted_peers_path: PathBuf,
 }
 
 impl Default for Arguments {
@@ -350,7 +349,6 @@ impl Default for Arguments {
             submit_genesis: false,
             genesis_path: GENESIS_PATH.into(),
             config_path: CONFIGURATION_PATH.into(),
-            trusted_peers_path: TRUSTED_PEERS_PATH.into(),
         }
     }
 }
