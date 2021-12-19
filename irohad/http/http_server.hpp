@@ -6,11 +6,11 @@
 #ifndef IROHA_HTTP_SERVER_HPP
 #define IROHA_HTTP_SERVER_HPP
 
-#include <vector>
-#include <utility>
 #include <functional>
-#include <string_view>
 #include <list>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #include "common/common.hpp"
 #include "logger/logger_fwd.hpp"
@@ -74,6 +74,6 @@ namespace iroha::network {
     void registerHandler(std::string_view uri, HandlerCallback &&handler);
   };
 
-}  // namespace iroha
+}  // namespace iroha::network
 
 #endif  // IROHA_HTTP_SERVER_HPP

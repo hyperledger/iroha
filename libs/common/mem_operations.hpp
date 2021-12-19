@@ -7,8 +7,8 @@
 #define IROHA_COMMON_MEM_OPERATIONS_HPP
 
 #include <cstring>
-#include "stdlib.h"
 #include "stdio.h"
+#include "stdlib.h"
 #include "string.h"
 
 namespace iroha {
@@ -26,7 +26,7 @@ namespace iroha {
   }
 
 #ifdef __linux__
-  inline uint64_t  getMemoryUsage() {
+  inline uint64_t getMemoryUsage() {
     auto parseLine = [](char *line) {
       while (*line >= '0' && *line <= '9') ++line;
       return (uint64_t)atoll(line);
@@ -45,11 +45,11 @@ namespace iroha {
 
     return result * 1024ull;
   }
-#else//__linux__
-  inline uint64_t  getMemoryUsage() {
+#else   //__linux__
+  inline uint64_t getMemoryUsage() {
     return 0ull;
   }
-#endif//__linux__
+#endif  //__linux__
 
 }  // namespace iroha
 

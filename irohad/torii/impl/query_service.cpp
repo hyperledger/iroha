@@ -22,14 +22,15 @@ QueryService::QueryService(
     std::shared_ptr<iroha::torii::QueryProcessor> query_processor,
     std::shared_ptr<QueryFactoryType> query_factory,
     std::shared_ptr<BlocksQueryFactoryType> blocks_query_factory,
-    logger::LoggerPtr log, std::shared_ptr<
-    iroha::BaseSubscriber<iroha::utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
-        iroha::IrohaStatus>>
-    iroha_status_subscription)
+    logger::LoggerPtr log,
+    std::shared_ptr<iroha::BaseSubscriber<
+        iroha::utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
+        iroha::IrohaStatus>> iroha_status_subscription)
     : query_processor_{std::move(query_processor)},
       query_factory_{std::move(query_factory)},
       blocks_query_factory_{std::move(blocks_query_factory)},
-      log_{std::move(log)}, iroha_status_subscription_(std::move(iroha_status_subscription)) {}
+      log_{std::move(log)},
+      iroha_status_subscription_(std::move(iroha_status_subscription)) {}
 
 void QueryService::Find(iroha::protocol::Query const &request,
                         iroha::protocol::QueryResponse &response) {
@@ -75,9 +76,9 @@ grpc::Status QueryService::Find(grpc::ServerContext *context,
 }
 
 grpc::Status QueryService::Healthcheck(
-    grpc::ServerContext* context,
-    const google::protobuf::Empty* request,
-    iroha::protocol::HealthcheckData* response) {
+    grpc::ServerContext *context,
+    const google::protobuf::Empty *request,
+    iroha::protocol::HealthcheckData *response) {
   if (iroha_status_subscription_)
     iroha_status_subscription_->get().exclusiveAccess(
         [&](iroha::IrohaStoredStatus &status) {

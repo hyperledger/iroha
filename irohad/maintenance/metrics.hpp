@@ -15,12 +15,12 @@
 #include <string>
 #include <thread>
 
-#include "main/iroha_status.hpp"
 #include "ametsuchi/storage.hpp"
 #include "ametsuchi/wsv_query.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/iroha_status.hpp"
 #include "main/subscription.hpp"
 #include "network/ordering_gate_common.hpp"
 
@@ -30,7 +30,7 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
       iroha::network::OrderingEvent>;  // FixMe subscribtion ≠ subscriber
   using BlockPtr = std::shared_ptr<const shared_model::interface::Block>;
   using BlockSubscriber = iroha::BaseSubscriber<bool, BlockPtr>;
-  using MstMetrics = std::tuple<size_t,size_t>;
+  using MstMetrics = std::tuple<size_t, size_t>;
   using MstSubscriber = iroha::BaseSubscriber<bool, MstMetrics>;
 
   std::string listen_addr_port_;
@@ -43,9 +43,7 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
   std::chrono::steady_clock::time_point uptime_start_timepoint_;
   std::thread uptime_thread_;
   std::atomic_bool uptime_thread_cancelation_flag_{false};
-  std::shared_ptr<
-      iroha::BaseSubscriber<bool,
-          iroha::IrohaStatus>>
+  std::shared_ptr<iroha::BaseSubscriber<bool, iroha::IrohaStatus>>
       iroha_status_subscription_;
 
   Metrics(std::string const &listen_addr,
@@ -60,9 +58,9 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
   }
 
   template <class... Ts>
-  static std::shared_ptr<Metrics> create(Ts &&...args) {
+  static std::shared_ptr<Metrics> create(Ts &&... args) {
     struct Resolver : Metrics {
-      Resolver(Ts &&...args) : Metrics(std::forward<Ts>(args)...) {}
+      Resolver(Ts &&... args) : Metrics(std::forward<Ts>(args)...) {}
     };
     return std::make_shared<Resolver>(std::forward<Ts>(args)...);
   }

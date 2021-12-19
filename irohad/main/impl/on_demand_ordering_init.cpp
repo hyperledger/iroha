@@ -6,11 +6,11 @@
 #include "main/impl/on_demand_ordering_init.hpp"
 
 #include "common/mem_operations.hpp"
-#include "main/iroha_status.hpp"
 #include "common/permutation_generator.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/iroha_status.hpp"
 #include "main/subscription.hpp"
 #include "network/impl/client_factory_impl.hpp"
 #include "ordering/impl/on_demand_common.hpp"

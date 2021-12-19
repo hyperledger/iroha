@@ -6,10 +6,10 @@
 #ifndef IROHA_STATUS_HPP
 #define IROHA_STATUS_HPP
 
-#include <optional>
-#include <cstdint>
-#include <string>
 #include <rapidjson/stringbuffer.h>
+#include <cstdint>
+#include <optional>
+#include <string>
 
 #include "consensus/round.hpp"
 
@@ -27,6 +27,6 @@ namespace iroha {
     rapidjson::StringBuffer serialized_status;
   };
 
-}
+}  // namespace iroha
 
 #endif  // IROHA_STATUS_HPP

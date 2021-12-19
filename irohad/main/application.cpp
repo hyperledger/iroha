@@ -5,15 +5,14 @@
 
 #include "main/application.hpp"
 
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include <boost/filesystem.hpp>
 #include <optional>
 #include "civetweb.h"
-#include <rapidjson/document.h>
-#include <rapidjson/writer.h>
-#include <rapidjson/stringbuffer.h>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
-#include "main/iroha_status.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "ametsuchi/impl/rocksdb_storage_impl.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
@@ -45,6 +44,7 @@
 #include "main/impl/pg_connection_init.hpp"
 #include "main/impl/rocksdb_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
+#include "main/iroha_status.hpp"
 #include "main/server_runner.hpp"
 #include "main/subscription.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
@@ -305,7 +305,9 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
  */
 Irohad::RunResult Irohad::initHttpServer() {
   iroha::network::HttpServer::Options options;
-  options.ports = config_.healthcheck_port ? std::to_string(*config_.healthcheck_port) : "50508";
+  options.ports = config_.healthcheck_port
+      ? std::to_string(*config_.healthcheck_port)
+      : "50508";
 
   http_server_ = std::make_unique<iroha::network::HttpServer>(
       std::move(options), log_manager_->getChild("HTTP server")->getLogger());
@@ -1058,7 +1060,8 @@ Irohad::RunResult Irohad::initQueryService() {
       query_processor,
       query_factory,
       blocks_query_factory,
-      query_service_log_manager->getLogger(), iroha_status_subscription_);
+      query_service_log_manager->getLogger(),
+      iroha_status_subscription_);
 
   log_->info("[Init] => query service");
   return {};

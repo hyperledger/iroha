@@ -8,23 +8,23 @@
 
 #include <optional>
 
-#include "main/iroha_status.hpp"
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
 #include "cryptography/keypair.hpp"
+#include "http/http_server.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "main/impl/block_loader_init.hpp"
 #include "main/iroha_conf_loader.hpp"
+#include "main/iroha_status.hpp"
 #include "main/server_runner.hpp"
 #include "main/startup_params.hpp"
 #include "main/subscription_fwd.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
-#include "http/http_server.hpp"
 
 namespace google::protobuf {
   class Empty;
@@ -389,16 +389,16 @@ class Irohad {
       command_service_transport;
 
   // subscriptions
-  std::shared_ptr<
-      iroha::BaseSubscriber<iroha::utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
-  iroha::IrohaStatus>>
-  iroha_status_subscription_;
+  std::shared_ptr<iroha::BaseSubscriber<
+      iroha::utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
+      iroha::IrohaStatus>>
+      iroha_status_subscription_;
 
   // query service
   std::shared_ptr<iroha::torii::QueryService> query_service;
 
   // Http server
-  //std::unique_ptr<evpp::evpphttp::Service> http_server_;
+  // std::unique_ptr<evpp::evpphttp::Service> http_server_;
   std::unique_ptr<iroha::network::HttpServer> http_server_;
 
   // consensus gate

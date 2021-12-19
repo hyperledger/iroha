@@ -5,12 +5,12 @@
 
 #include "http/http_server.hpp"
 
-#include "CivetServer.h"
 #include <fmt/core.h>
 #include <cassert>
+#include "CivetServer.h"
 
-#include "logger/logger.hpp"
 #include "common/mem_operations.hpp"
+#include "logger/logger.hpp"
 
 namespace iroha::network {
   std::string HttpServer::Options::toString() const {
@@ -19,10 +19,9 @@ namespace iroha::network {
                        request_timeout_ms);
   }
 
-  HttpRequestResponse::HttpRequestResponse(mg_connection *connection, mg_request_info const *request_info)
-  : connection_(connection), request_info_(request_info) {
-
-  }
+  HttpRequestResponse::HttpRequestResponse(mg_connection *connection,
+                                           mg_request_info const *request_info)
+      : connection_(connection), request_info_(request_info) {}
 
   std::optional<int> HttpRequestResponse::init() {
     if (0 == strcmp(request_info_->request_method, "GET")) {
@@ -45,7 +44,8 @@ namespace iroha::network {
     if (!method_)
       return false;
 
-    mg_send_http_ok(connection_, "application/json; charset=utf-8", (long long)data.size());
+    mg_send_http_ok(
+        connection_, "application/json; charset=utf-8", (long long)data.size());
     mg_write(connection_, data.data(), data.size());
     return true;
   }
@@ -55,9 +55,10 @@ namespace iroha::network {
     return *method_;
   }
 
-  HttpServer::HttpServer(Options options,
-                         logger::LoggerPtr logger)
-      : context_(nullptr), options_(std::move(options)), logger_(std::move(logger)) {}
+  HttpServer::HttpServer(Options options, logger::LoggerPtr logger)
+      : context_(nullptr),
+        options_(std::move(options)),
+        logger_(std::move(logger)) {}
 
   HttpServer::~HttpServer() {
     stop();
@@ -80,9 +81,8 @@ namespace iroha::network {
     mg_callbacks callbacks{};
     memzero(callbacks);
 
-    callbacks.log_message = [](const struct mg_connection *conn, const char *message) {
-      return 1;
-    };
+    callbacks.log_message = [](const struct mg_connection *conn,
+                               const char *message) { return 1; };
 
     const char *options[] = {"listening_ports",
                              options_.ports.data(),
@@ -126,11 +126,12 @@ namespace iroha::network {
         uri.data(),
         [](struct mg_connection *conn, void *cbdata) {
           assert(nullptr != cbdata);
-          HandlerData &handler = *(HandlerData*)cbdata;
+          HandlerData &handler = *(HandlerData *)cbdata;
 
           HttpRequestResponse req_res(conn, mg_get_request_info(conn));
           if (auto code = req_res.init(); code) {
-            handler.logger->error("Init HttpRequestResponse failed with code: {}", *code);
+            handler.logger->error(
+                "Init HttpRequestResponse failed with code: {}", *code);
             return *code;
           }
 
@@ -146,4 +147,4 @@ namespace iroha::network {
         &handlers_.back());
   }
 
-}
+}  // namespace iroha::network
