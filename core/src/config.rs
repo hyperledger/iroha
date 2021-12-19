@@ -142,7 +142,6 @@ mod tests {
     use super::*;
 
     const CONFIGURATION_PATH: &str = "../configs/peer/config.json";
-    const TRUSTED_PEERS_PATH: &str = "../configs/peer/trusted_peers.json";
 
     #[test]
     fn parse_example_json() -> Result<()> {
@@ -155,16 +154,8 @@ mod tests {
 
     #[test]
     fn parse_example_trusted_peers_json() -> Result<(), String> {
-        let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
+        let configuration = Configuration::from_path(CONFIGURATION_PATH)
             .map_err(|e| format!("Failed to read configuration from example config: {}", e))?;
-        configuration
-            .load_trusted_peers_from_path(TRUSTED_PEERS_PATH)
-            .map_err(|e| {
-                format!(
-                    "Failed to read trusted peers parameters from example config: {}",
-                    e
-                )
-            })?;
         let public_key1 = PublicKey {
             digest_function: iroha_crypto::ED_25519.to_string(),
             payload: hex::decode(

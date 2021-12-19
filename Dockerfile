@@ -47,6 +47,7 @@ ARG BIN=iroha
 ARG TARGET_DIR=debug
 COPY --from=builder /iroha/target/$TARGET_DIR/$BIN .
 RUN apt-get update -yq; \
-    apt-get install -y --no-install-recommends libssl-dev
+	apt-get install -y --no-install-recommends libssl-dev; \
+    rm -rf /var/lib/apt/lists/*
 ENV IROHA_TARGET_BIN=$BIN
 CMD ./$IROHA_TARGET_BIN

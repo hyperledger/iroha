@@ -127,7 +127,6 @@ where
         broker: Broker,
     ) -> Result<Self> {
         let mut config = Configuration::from_path(&args.config_path)?;
-        // config.load_trusted_peers_from_path(&args.trusted_peers_path)?;
         config.load_environment()?;
         Self::with_broker_and_config(args, config, instruction_validator, query_validator, broker)
             .await
