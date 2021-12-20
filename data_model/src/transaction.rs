@@ -513,7 +513,7 @@ impl Display for InstructionExecutionFail {
             Register(_) => "register",
             Sequence(_) => "sequence",
             Transfer(_) => "transfer",
-            Unregister(_) => "unregister",
+            Unregister(_) => "un-register",
             SetKeyValue(_) => "set key-value pair",
             RemoveKeyValue(_) => "remove key-value pair",
             Grant(_) => "grant",
@@ -530,7 +530,7 @@ impl StdError for InstructionExecutionFail {}
 /// Transaction was reject because of low authority
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct NotPermittedFail {
-    /// Reason of failure
+    /// The cause of failure.
     pub reason: String,
 }
 

@@ -387,7 +387,7 @@ async fn handle_queries<W: WorldTrait>(
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedQueryResult>, query::Error> {
     let valid_request = request.validate(&wsv, &query_validator)?;
-    let result = valid_request.execute(&wsv).map_err(query::Error::Find)?;
+    let result = valid_request.execute(&wsv)?;
     let result = QueryResult(if let Value::Vec(value) = result {
         Value::Vec(value.into_iter().paginate(pagination).collect())
     } else {

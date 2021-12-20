@@ -98,15 +98,29 @@ pub enum FixedPointOperationError {
     /// Conversion failed.
     #[error("Failed to produce fixed point number")]
     Conversion(#[source] ConvertError),
-    /// The arithmetic operation failed.
-    #[error("Arithmetic error")]
-    Arithmetic(#[source] ArithmeticError),
+    /// Overflow
+    #[error("Overflow")]
+    Overflow,
+    /// Division by zero
+    #[error("Division by zero")]
+    DivideByZero,
+    /// Domain violation. E.g. computing `sqrt(-1)`
+    #[error("Domain violation")]
+    DomainViolation,
+    /// Arithmetic
+    #[error("Unknown Arithmetic error")]
+    Arithmetic,
 }
 
 impl From<ArithmeticError> for FixedPointOperationError {
     #[inline]
     fn from(err: ArithmeticError) -> Self {
-        Self::Arithmetic(err)
+        match err {
+            ArithmeticError::Overflow => Self::Overflow,
+            ArithmeticError::DivisionByZero => Self::DivideByZero,
+            ArithmeticError::DomainViolation => Self::DomainViolation,
+            _ => Self::Arithmetic,
+        }
     }
 }
 

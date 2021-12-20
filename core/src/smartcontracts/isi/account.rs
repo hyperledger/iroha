@@ -164,18 +164,22 @@ pub mod isi {
 /// Account-related [`Query`] instructions.
 pub mod query {
 
-    use eyre::{eyre, Result, WrapErr};
+    use eyre::{Result, WrapErr};
     use iroha_logger::prelude::*;
 
     use super::{super::Evaluate, *};
-    use crate::smartcontracts::isi::prelude::WorldTrait;
+    use crate::smartcontracts::{isi::prelude::WorldTrait, query::Error, FindError};
 
     #[cfg(feature = "roles")]
     impl<W: WorldTrait> ValidQuery<W> for FindRolesByAccountId {
         #[log]
         #[metrics(+"find_roles_by_account_id")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
-            let account_id = self.id.evaluate(wsv, &Context::new())?;
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+            let account_id = self
+                .id
+                .evaluate(wsv, &Context::new())
+                .wrap_err("Failed to evaluate account id")
+                .map_err(Error::Evaluate)?;
             let roles = wsv.map_account(&account_id, |account| {
                 account.roles.iter().cloned().collect::<Vec<_>>()
             })?;
@@ -186,8 +190,12 @@ pub mod query {
     impl<W: WorldTrait> ValidQuery<W> for FindPermissionTokensByAccountId {
         #[log]
         #[metrics(+"find_permission_tokens_by_account_id")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
-            let account_id = self.id.evaluate(wsv, &Context::new())?;
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+            let account_id = self
+                .id
+                .evaluate(wsv, &Context::new())
+                .wrap_err("Failed to evaluate account id")
+                .map_err(Error::Evaluate)?;
             let tokens = wsv.map_account(&account_id, |account| {
                 wsv.account_permission_tokens(account)
                     .iter()
@@ -201,7 +209,7 @@ pub mod query {
     impl<W: WorldTrait> ValidQuery<W> for FindAllAccounts {
         #[log]
         #[metrics(+"find_all_accounts")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
                 for account in domain.accounts.values() {
@@ -215,23 +223,25 @@ pub mod query {
     impl<W: WorldTrait> ValidQuery<W> for FindAccountById {
         #[log]
         #[metrics(+"find_account_by_id")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get id")?;
-            wsv.map_account(&id, Clone::clone)
+                .wrap_err("Failed to get id")
+                .map_err(Error::Evaluate)?;
+            wsv.map_account(&id, Clone::clone).map_err(Into::into)
         }
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAccountsByName {
         #[log]
         #[metrics(+"find_account_by_name")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let name = self
                 .name
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get account name")?;
+                .wrap_err("Failed to get account name")
+                .map_err(Error::Evaluate)?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
                 for (id, account) in &domain.accounts {
@@ -247,11 +257,12 @@ pub mod query {
     impl<W: WorldTrait> ValidQuery<W> for FindAccountsByDomainId {
         #[log]
         #[metrics(+"find_accounts_by_domain_id")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
                 .domain_id
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get domain id")?;
+                .wrap_err("Failed to get domain id")
+                .map_err(Error::Evaluate)?;
             Ok(wsv
                 .domain(&id)?
                 .accounts
@@ -264,17 +275,19 @@ pub mod query {
     impl<W: WorldTrait> ValidQuery<W> for FindAccountKeyValueByIdAndKey {
         #[log]
         #[metrics(+"find_account_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get account id")?;
+                .wrap_err("Failed to get account id")
+                .map_err(Error::Evaluate)?;
             let key = self
                 .key
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get key")?;
+                .wrap_err("Failed to get key")
+                .map_err(Error::Evaluate)?;
             wsv.map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
-                .ok_or_else(|| eyre!("No metadata entry with this key."))
+                .ok_or_else(|| query::Error::Find(Box::new(FindError::MetadataKey(key))))
         }
     }
 }

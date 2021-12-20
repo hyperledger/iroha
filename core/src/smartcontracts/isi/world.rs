@@ -5,7 +5,7 @@ use crate::prelude::*;
 
 /// Iroha Special Instructions that have `World` as their target.
 pub mod isi {
-    use eyre::{eyre, Result};
+    use eyre::Result;
     use iroha_data_model::prelude::*;
     use iroha_telemetry::metrics;
 
@@ -20,10 +20,13 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
-            if wsv.trusted_peers_ids().insert(self.object.id) {
+            if wsv.trusted_peers_ids().insert(self.object.id.clone()) {
                 Ok(())
             } else {
-                Err(eyre!("Peer already trusted.",).into())
+                Err(Error::Repetition(
+                    InstructionType::Register,
+                    IdBox::PeerId(self.object.id),
+                ))
             }
         }
     }
@@ -40,7 +43,7 @@ pub mod isi {
             if wsv.trusted_peers_ids().remove(&self.object_id).is_some() {
                 Ok(())
             } else {
-                Err(eyre!("Peer wasn't trusted.").into())
+                Err(FindError::Peer(self.object_id).into())
             }
         }
     }
@@ -58,7 +61,8 @@ pub mod isi {
             domain
                 .id
                 .name
-                .validate_len(wsv.config.ident_length_limits)?;
+                .validate_len(wsv.config.ident_length_limits)
+                .map_err(Error::Validate)?;
             wsv.domains().insert(domain.id.clone(), domain);
             wsv.metrics.domains.inc();
             Ok(())
@@ -125,11 +129,12 @@ pub mod query {
     use iroha_logger::log;
 
     use super::*;
+    use crate::smartcontracts::query::Error;
 
     #[cfg(feature = "roles")]
     impl<W: WorldTrait> ValidQuery<W> for FindAllRoles {
         #[log]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             Ok(wsv
                 .world
                 .roles
@@ -141,7 +146,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllPeers {
         #[log]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             Ok(wsv.peers())
         }
     }
