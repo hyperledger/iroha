@@ -176,18 +176,18 @@ impl<W: WorldTrait> ValidQuery<W> for QueryBox {
             FindAllAccounts(query) => query.execute_into_value(wsv),
             FindAccountById(query) => query.execute_into_value(wsv),
             FindAccountsByName(query) => query.execute_into_value(wsv),
-            FindAccountsByDomainName(query) => query.execute_into_value(wsv),
+            FindAccountsByDomainId(query) => query.execute_into_value(wsv),
             FindAllAssets(query) => query.execute_into_value(wsv),
             FindAllAssetsDefinitions(query) => query.execute_into_value(wsv),
             FindAssetById(query) => query.execute_into_value(wsv),
             FindAssetsByName(query) => query.execute_into_value(wsv),
             FindAssetsByAccountId(query) => query.execute_into_value(wsv),
             FindAssetsByAssetDefinitionId(query) => query.execute_into_value(wsv),
-            FindAssetsByDomainName(query) => query.execute_into_value(wsv),
-            FindAssetsByDomainNameAndAssetDefinitionId(query) => query.execute_into_value(wsv),
+            FindAssetsByDomainId(query) => query.execute_into_value(wsv),
+            FindAssetsByDomainIdAndAssetDefinitionId(query) => query.execute_into_value(wsv),
             FindAssetQuantityById(query) => query.execute_into_value(wsv),
             FindAllDomains(query) => query.execute_into_value(wsv),
-            FindDomainByName(query) => query.execute_into_value(wsv),
+            FindDomainById(query) => query.execute_into_value(wsv),
             FindDomainKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindAllPeers(query) => query.execute_into_value(wsv),
             FindAssetKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
@@ -221,7 +221,7 @@ mod tests {
 
     fn world_with_test_domains() -> World {
         let domains = DomainsMap::new();
-        let mut domain = Domain::new("wonderland");
+        let mut domain = Domain::test("wonderland");
         let mut account = Account::new(ALICE_ID.clone());
         account.signatories.push(ALICE_KEYS.public_key.clone());
         domain.accounts.insert(ALICE_ID.clone(), account);
@@ -233,7 +233,7 @@ mod tests {
                 ALICE_ID.clone(),
             ),
         );
-        domains.insert("wonderland".to_string(), domain);
+        domains.insert(DomainId::new("wonderland"), domain);
         World::with(domains, PeersIds::new())
     }
 
@@ -315,9 +315,9 @@ mod tests {
     #[test]
     fn domain_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains());
-        let domain_name = "wonderland".to_owned();
+        let domain_id = DomainId::new("wonderland");
         let key = "Bytes".to_owned();
-        wsv.modify_domain(&domain_name, |domain| {
+        wsv.modify_domain(&domain_id, |domain| {
             domain.metadata.insert_with_limits(
                 key.clone(),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
@@ -325,7 +325,7 @@ mod tests {
             )?;
             Ok(())
         })?;
-        let bytes = FindDomainKeyValueByIdAndKey::new(domain_name, key).execute(&wsv)?;
+        let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&wsv)?;
         assert_eq!(
             bytes,
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])

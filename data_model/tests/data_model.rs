@@ -131,9 +131,9 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let mut iroha_client = Client::new(&client_configuration);
     iroha_client
         .submit_all(vec![
-            RegisterBox::new(IdentifiableBox::Domain(Domain::new("exchange").into())).into(),
-            RegisterBox::new(IdentifiableBox::Domain(Domain::new("company").into())).into(),
-            RegisterBox::new(IdentifiableBox::Domain(Domain::new("crypto").into())).into(),
+            RegisterBox::new(IdentifiableBox::Domain(Domain::test("exchange").into())).into(),
+            RegisterBox::new(IdentifiableBox::Domain(Domain::test("company").into())).into(),
+            RegisterBox::new(IdentifiableBox::Domain(Domain::test("crypto").into())).into(),
             RegisterBox::new(IdentifiableBox::NewAccount(
                 NewAccount::new(AccountId::new("seller", "company")).into(),
             ))

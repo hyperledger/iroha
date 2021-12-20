@@ -212,7 +212,7 @@ pub mod private_blockchain {
                             .id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if account_id.domain_name == authority.domain_name {
+                        if account_id.domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
@@ -226,7 +226,7 @@ pub mod private_blockchain {
                             .id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if account_id.domain_name == authority.domain_name {
+                        if account_id.domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
@@ -235,17 +235,17 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    FindAccountsByDomainName(query) => {
-                        let domain_name = query
-                            .domain_name
+                    FindAccountsByDomainId(query) => {
+                        let domain_id = query
+                            .domain_id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if domain_name == authority.domain_name {
+                        if domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
                                 "Cannot access accounts from a different domain with name {}.",
-                                domain_name
+                                domain_id
                             ))
                         }
                     }
@@ -254,7 +254,7 @@ pub mod private_blockchain {
                             .id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if asset_id.account_id.domain_name == authority.domain_name {
+                        if asset_id.account_id.domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
@@ -268,7 +268,7 @@ pub mod private_blockchain {
                             .account_id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if account_id.domain_name == authority.domain_name {
+                        if account_id.domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
@@ -277,31 +277,31 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    FindAssetsByDomainName(query) => {
-                        let domain_name = query
-                            .domain_name
+                    FindAssetsByDomainId(query) => {
+                        let domain_id = query
+                            .domain_id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if domain_name == authority.domain_name {
+                        if domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
                                 "Cannot access assets from a different domain with name {}.",
-                                domain_name
+                                domain_id
                             ))
                         }
                     }
-                    FindAssetsByDomainNameAndAssetDefinitionId(query) => {
-                        let domain_name = query
-                            .domain_name
+                    FindAssetsByDomainIdAndAssetDefinitionId(query) => {
+                        let domain_id = query
+                            .domain_id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if domain_name == authority.domain_name {
+                        if domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
                                 "Cannot access assets from a different domain with name {}.",
-                                domain_name
+                                domain_id
                             ))
                         }
                     }
@@ -310,13 +310,13 @@ pub mod private_blockchain {
                             .id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if asset_definition_id.domain_name == authority.domain_name {
+                        if asset_definition_id.domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
                                 "Cannot access asset definition from a different domain. Asset definition domain: {}. Signers account domain {}.",
-                                asset_definition_id.domain_name,
-                                authority.domain_name
+                                asset_definition_id.domain_id,
+                                authority.domain_id
                             ))
                         }
                     }
@@ -325,7 +325,7 @@ pub mod private_blockchain {
                             .id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if asset_id.account_id.domain_name == authority.domain_name {
+                        if asset_id.account_id.domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
@@ -339,7 +339,7 @@ pub mod private_blockchain {
                             .id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if asset_id.account_id.domain_name == authority.domain_name {
+                        if asset_id.account_id.domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
@@ -348,21 +348,17 @@ pub mod private_blockchain {
                             ))
                         }
                     }
-                    FindDomainByName(query::FindDomainByName { name })
+                    FindDomainById(query::FindDomainById { id })
                     | FindDomainKeyValueByIdAndKey(query::FindDomainKeyValueByIdAndKey {
-                        name,
+                        id,
                         ..
                     }) => {
-                        let domain_name = name
-                            .evaluate(wsv, &context)
-                            .map_err(|err| err.to_string())?;
-                        if domain_name == authority.domain_name {
+                        let domain_id =
+                            id.evaluate(wsv, &context).map_err(|err| err.to_string())?;
+                        if domain_id == authority.domain_id {
                             Ok(())
                         } else {
-                            Err(format!(
-                                "Cannot access a different domain: {}.",
-                                domain_name
-                            ))
+                            Err(format!("Cannot access a different domain: {}.", domain_id))
                         }
                     }
                     FindTransactionsByAccountId(query) => {
@@ -370,7 +366,7 @@ pub mod private_blockchain {
                             .account_id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if account_id.domain_name == authority.domain_name {
+                        if account_id.domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
@@ -400,7 +396,7 @@ pub mod private_blockchain {
                             .id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if account_id.domain_name == authority.domain_name {
+                        if account_id.domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(
@@ -432,16 +428,16 @@ pub mod private_blockchain {
                 let context = Context::new();
                 match query {
                     FindAccountsByName(_)
-                    | FindAccountsByDomainName(_)
+                    | FindAccountsByDomainId(_)
                     | FindAllAccounts(_)
                     | FindAllAssetsDefinitions(_)
                     | FindAssetsByAssetDefinitionId(_)
-                    | FindAssetsByDomainName(_)
+                    | FindAssetsByDomainId(_)
                     | FindAssetsByName(_)
                     | FindAllDomains(_)
-                    | FindDomainByName(_)
+                    | FindDomainById(_)
                     | FindDomainKeyValueByIdAndKey(_)
-                    | FindAssetsByDomainNameAndAssetDefinitionId(_)
+                    | FindAssetsByDomainIdAndAssetDefinitionId(_)
                     | FindAssetDefinitionKeyValueByIdAndKey(_)
                     | FindAllAssets(_) => {
                         Err("Only access to the assets of the same domain is permitted.".to_owned())
@@ -1932,7 +1928,7 @@ pub mod public_blockchain {
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let bob_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "bob", "test");
-            let mut domain = Domain::new("test");
+            let mut domain = Domain::test("test");
             let mut bob_account = Account::new(bob_id.clone());
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
@@ -1942,7 +1938,7 @@ pub mod public_blockchain {
                 )],
             ));
             domain.accounts.insert(bob_id.clone(), bob_account);
-            let domains = vec![("test".to_string(), domain)];
+            let domains = vec![(DomainId::new("test"), domain)];
             let wsv = WorldStateView::<World>::new(World::with(domains, BTreeSet::new()));
             let transfer = Instruction::Transfer(TransferBox {
                 source_id: IdBox::AssetId(alice_xor_id).into(),
@@ -1984,10 +1980,10 @@ pub mod public_blockchain {
             let xor_definition = new_xor_definition(&xor_id);
             let wsv = WorldStateView::<World>::new(World::with(
                 [(
-                    "test".to_owned(),
+                    DomainId::new("test"),
                     Domain {
                         accounts: BTreeMap::new(),
-                        name: "test".to_owned(),
+                        id: DomainId::new("test"),
                         asset_definitions: [(
                             xor_id.clone(),
                             AssetDefinitionEntry {
@@ -2017,7 +2013,7 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = new_xor_definition(&xor_id);
-            let mut domain = Domain::new("test");
+            let mut domain = Domain::test("test");
             let mut bob_account = Account::new(bob_id.clone());
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION,
@@ -2031,7 +2027,7 @@ pub mod public_blockchain {
                 xor_id.clone(),
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
-            let domains = [("test".to_owned(), domain)];
+            let domains = [(DomainId::new("test"), domain)];
             let wsv = WorldStateView::<World>::new(World::with(domains, []));
             let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
             let validator: IsInstructionAllowedBoxed<World> =
@@ -2055,12 +2051,12 @@ pub mod public_blockchain {
                     xor_id.clone().into(),
                 )],
             );
-            let mut domain = Domain::new("test");
+            let mut domain = Domain::test("test");
             domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
-            let domains = [("test".to_owned(), domain)];
+            let domains = [(DomainId::new("test"), domain)];
 
             let wsv = WorldStateView::<World>::new(World::with(domains, []));
             let grant = Instruction::Grant(GrantBox {
@@ -2083,10 +2079,10 @@ pub mod public_blockchain {
             let xor_definition = new_xor_definition(&xor_id);
             let wsv = WorldStateView::<World>::new(World::with(
                 [(
-                    "test".to_string(),
+                    DomainId::new("test"),
                     Domain {
                         accounts: BTreeMap::new(),
-                        name: "test".to_string(),
+                        id: DomainId::new("test"),
                         asset_definitions: [(
                             xor_id,
                             AssetDefinitionEntry {
@@ -2120,7 +2116,7 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = new_xor_definition(&xor_id);
-            let mut domain = Domain::new("test");
+            let mut domain = Domain::test("test");
             let mut bob_account = Account::new(bob_id.clone());
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
@@ -2134,7 +2130,7 @@ pub mod public_blockchain {
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
-            let domains = [("test".to_owned(), domain)];
+            let domains = [(DomainId::new("test"), domain)];
             let wsv = WorldStateView::<World>::new(World::with(domains, []));
             let instruction = Instruction::Mint(MintBox {
                 object: Value::U32(100).into(),
@@ -2160,12 +2156,12 @@ pub mod public_blockchain {
                     xor_id.clone().into(),
                 )],
             );
-            let mut domain = Domain::new("test");
+            let mut domain = Domain::test("test");
             domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
-            let domains = [("test".to_owned(), domain)];
+            let domains = [(DomainId::new("test"), domain)];
             let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
             let grant = Instruction::Grant(GrantBox {
                 object: permission_token_to_alice.into(),
@@ -2187,10 +2183,10 @@ pub mod public_blockchain {
             let xor_definition = new_xor_definition(&xor_id);
             let wsv = WorldStateView::<World>::new(World::with(
                 [(
-                    "test".to_string(),
+                    DomainId::new("test"),
                     Domain {
                         accounts: [].into(),
-                        name: "test".to_string(),
+                        id: DomainId::new("test"),
                         asset_definitions: [(
                             xor_id,
                             AssetDefinitionEntry {
@@ -2224,7 +2220,7 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = new_xor_definition(&xor_id);
-            let mut domain = Domain::new("test");
+            let mut domain = Domain::test("test");
             let mut bob_account = Account::new(bob_id.clone());
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 burn::CAN_BURN_ASSET_WITH_DEFINITION,
@@ -2238,7 +2234,7 @@ pub mod public_blockchain {
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
-            let domains = [("test".to_owned(), domain)];
+            let domains = [(DomainId::new("test"), domain)];
             let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
             let instruction = Instruction::Burn(BurnBox {
                 object: Value::U32(100).into(),
@@ -2264,12 +2260,12 @@ pub mod public_blockchain {
                     xor_id.clone().into(),
                 )],
             );
-            let mut domain = Domain::new("test");
+            let mut domain = Domain::test("test");
             domain.asset_definitions.insert(
                 xor_id,
                 AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
             );
-            let domains = [("test".to_owned(), domain)];
+            let domains = [(DomainId::new("test"), domain)];
             let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
             let grant = Instruction::Grant(GrantBox {
                 object: permission_token_to_alice.into(),
@@ -2302,7 +2298,7 @@ pub mod public_blockchain {
             let bob_id = <Account as Identifiable>::Id::new("bob", "test");
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
-            let mut domain = Domain::new("test");
+            let mut domain = Domain::test("test");
             let mut bob_account = Account::new(bob_id.clone());
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
                 burn::CAN_BURN_USER_ASSETS_TOKEN,
@@ -2312,7 +2308,7 @@ pub mod public_blockchain {
                 )],
             ));
             domain.accounts.insert(bob_id.clone(), bob_account);
-            let domains = vec![("test".to_string(), domain)];
+            let domains = vec![(DomainId::new("test"), domain)];
             let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
             let transfer = Instruction::Burn(BurnBox {
                 object: Value::U32(10).into(),
@@ -2427,10 +2423,10 @@ pub mod public_blockchain {
             let xor_definition = new_xor_definition(&xor_id);
             let wsv = WorldStateView::<World>::new(World::with(
                 [(
-                    "test".to_string(),
+                    DomainId::new("test"),
                     Domain {
                         accounts: BTreeMap::new(),
-                        name: "test".to_string(),
+                        id: DomainId::new("test"),
                         asset_definitions: [(
                             xor_id.clone(),
                             AssetDefinitionEntry {
@@ -2465,10 +2461,10 @@ pub mod public_blockchain {
             let xor_definition = new_xor_definition(&xor_id);
             let wsv = WorldStateView::<World>::new(World::with(
                 [(
-                    "test".to_string(),
+                    DomainId::new("test"),
                     Domain {
                         accounts: BTreeMap::new(),
-                        name: "test".to_string(),
+                        id: DomainId::new("test"),
                         asset_definitions: [(
                             xor_id.clone(),
                             AssetDefinitionEntry {

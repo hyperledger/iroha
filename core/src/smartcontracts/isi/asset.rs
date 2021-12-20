@@ -402,16 +402,16 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> ValidQuery<W> for FindAssetsByDomainName {
+    impl<W: WorldTrait> ValidQuery<W> for FindAssetsByDomainId {
         #[log]
-        #[metrics(+"find_assets_by_domain_name")]
+        #[metrics(+"find_assets_by_domain_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
-            let name = self
-                .domain_name
+            let id = self
+                .domain_id
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get domain name")?;
+                .wrap_err("Failed to get domain id")?;
             let mut vec = Vec::new();
-            for account in wsv.domain(&name)?.accounts.values() {
+            for account in wsv.domain(&id)?.accounts.values() {
                 for asset in account.assets.values() {
                     vec.push(asset.clone())
                 }
@@ -420,19 +420,19 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> ValidQuery<W> for FindAssetsByDomainNameAndAssetDefinitionId {
+    impl<W: WorldTrait> ValidQuery<W> for FindAssetsByDomainIdAndAssetDefinitionId {
         #[log]
-        #[metrics(+"find_assets_by_domain_name_and_asset_definition_id")]
+        #[metrics(+"find_assets_by_domain_id_and_asset_definition_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
-            let name = self
-                .domain_name
+            let domain_id = self
+                .domain_id
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get domain name")?;
+                .wrap_err("Failed to get domain id")?;
             let asset_definition_id = self
                 .asset_definition_id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset definition id")?;
-            let domain = wsv.domain(&name)?;
+            let domain = wsv.domain(&domain_id)?;
             let _definition = domain
                 .asset_definitions
                 .get(&asset_definition_id)
@@ -440,7 +440,7 @@ pub mod query {
             let mut assets = Vec::new();
             for account in domain.accounts.values() {
                 for asset in account.assets.values() {
-                    if asset.id.account_id.domain_name == name
+                    if asset.id.account_id.domain_id == domain_id
                         && asset.id.definition_id == asset_definition_id
                     {
                         assets.push(asset.clone())

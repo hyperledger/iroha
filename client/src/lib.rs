@@ -21,7 +21,7 @@ pub mod samples {
             private_key,
             account_id: iroha_data_model::prelude::AccountId {
                 name: "alice".to_owned(),
-                domain_name: "wonderland".to_owned(),
+                domain_id: iroha_data_model::prelude::DomainId::new("wonderland"),
             },
             torii_api_url: uri::DEFAULT_API_URL.to_owned(),
             ..Configuration::default()

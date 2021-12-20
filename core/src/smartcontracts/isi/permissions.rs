@@ -779,13 +779,13 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::new("bob", "test");
         let alice_xor_id = <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
-        let mut domain = Domain::new("test");
+        let mut domain = Domain::test("test");
         let mut bob_account = Account::new(bob_id.clone());
         let _ = bob_account
             .permission_tokens
             .insert(PermissionToken::new("token", BTreeMap::default()));
         domain.accounts.insert(bob_id.clone(), bob_account);
-        let domains = vec![("test".to_string(), domain)];
+        let domains = vec![(DomainId::new("test"), domain)];
         let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
         let validator: HasTokenBoxed<_> = Box::new(GrantedToken);
         assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());

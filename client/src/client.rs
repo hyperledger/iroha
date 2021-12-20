@@ -662,9 +662,9 @@ pub mod domain {
         FindAllDomains::new()
     }
 
-    /// Get query to get all domain by name
-    pub fn by_name(domain_name: impl Into<EvaluatesTo<Name>>) -> FindDomainByName {
-        FindDomainByName::new(domain_name)
+    /// Get query to get all domain by id
+    pub fn by_id(domain_id: impl Into<EvaluatesTo<DomainId>>) -> FindDomainById {
+        FindDomainById::new(domain_id)
     }
 }
 

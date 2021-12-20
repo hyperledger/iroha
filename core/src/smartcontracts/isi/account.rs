@@ -244,16 +244,16 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> ValidQuery<W> for FindAccountsByDomainName {
+    impl<W: WorldTrait> ValidQuery<W> for FindAccountsByDomainId {
         #[log]
-        #[metrics(+"find_accounts_by_domain_name")]
+        #[metrics(+"find_accounts_by_domain_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
-            let name = self
-                .domain_name
+            let id = self
+                .domain_id
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get domain name")?;
+                .wrap_err("Failed to get domain id")?;
             Ok(wsv
-                .domain(&name)?
+                .domain(&id)?
                 .accounts
                 .values()
                 .cloned()

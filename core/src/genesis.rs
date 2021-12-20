@@ -266,7 +266,7 @@ impl GenesisTransaction {
     ) -> Result<VersionedAcceptedTransaction> {
         let transaction = Transaction::new(
             self.isi.clone(),
-            <Account as Identifiable>::Id::genesis_account(),
+            <Account as Identifiable>::Id::genesis(),
             GENESIS_TRANSACTIONS_TTL_MS,
         )
         .sign(genesis_key_pair)?;
@@ -274,14 +274,17 @@ impl GenesisTransaction {
     }
 
     /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`NewAccount`].
-    pub fn new(name: &str, domain: &str, pubkey: &PublicKey) -> Self {
+    pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Self {
         Self {
             isi: vec![
-                RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain).into())).into(),
+                RegisterBox::new(IdentifiableBox::from(Domain::new(DomainId::new(
+                    domain_name,
+                ))))
+                .into(),
                 RegisterBox::new(IdentifiableBox::NewAccount(
                     NewAccount::with_signatory(
-                        iroha_data_model::account::Id::new(name, domain),
-                        pubkey.clone(),
+                        iroha_data_model::account::Id::new(account_name, domain_name),
+                        public_key.clone(),
                     )
                     .into(),
                 ))

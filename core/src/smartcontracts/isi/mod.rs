@@ -58,7 +58,7 @@ pub enum FindError {
     Account(AccountId),
     /// Failed to find domain
     #[error("Failed to find domain: `{0}`")]
-    Domain(Name),
+    Domain(DomainId),
     /// Failed to find metadata key
     #[error("Failed to find metadata key")]
     MetadataKey(Name),
@@ -205,8 +205,8 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
             IdBox::AssetDefinitionId(asset_definition_id) => {
                 Unregister::<AssetDefinition>::new(asset_definition_id).execute(authority, wsv)
             }
-            IdBox::DomainName(domain_name) => {
-                Unregister::<Domain>::new(domain_name).execute(authority, wsv)
+            IdBox::DomainId(domain_id) => {
+                Unregister::<Domain>::new(domain_id).execute(authority, wsv)
             }
             IdBox::PeerId(peer_id) => Unregister::<Peer>::new(peer_id).execute(authority, wsv),
             _ => Err(eyre!("Unsupported unregister instruction.").into()),
@@ -321,8 +321,7 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
         let value = self.value.evaluate(wsv, &context)?;
         match self.object_id.evaluate(wsv, &context)? {
             IdBox::AssetId(asset_id) => {
-                SetKeyValue::<Asset, Name, Value>::new(asset_id, key, value)
-                    .execute(authority, wsv)
+                SetKeyValue::<Asset, Name, Value>::new(asset_id, key, value).execute(authority, wsv)
             }
             IdBox::AssetDefinitionId(definition_id) => {
                 SetKeyValue::<AssetDefinition, Name, Value>::new(definition_id, key, value)
@@ -332,8 +331,8 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
                 SetKeyValue::<Account, Name, Value>::new(account_id, key, value)
                     .execute(authority, wsv)
             }
-            IdBox::DomainName(name) => {
-                SetKeyValue::<Domain, Name, Value>::new(name, key, value).execute(authority, wsv)
+            IdBox::DomainId(id) => {
+                SetKeyValue::<Domain, Name, Value>::new(id, key, value).execute(authority, wsv)
             }
             _ => Err(eyre!("Unsupported set key-value instruction.").into()),
         }
@@ -474,7 +473,7 @@ mod tests {
 
     fn world_with_test_domains() -> Result<World> {
         let domains = DomainsMap::new();
-        let mut domain = Domain::new("wonderland");
+        let mut domain = Domain::test("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
         let mut account = Account::new(account_id.clone());
         let key_pair = KeyPair::generate()?;
@@ -485,7 +484,7 @@ mod tests {
             asset_definition_id.clone(),
             AssetDefinitionEntry::new(AssetDefinition::new_store(asset_definition_id), account_id),
         );
-        domains.insert("wonderland".to_string(), domain);
+        domains.insert(DomainId::new("wonderland"), domain);
         Ok(World::with(domains, PeersIds::new()))
     }
 
@@ -570,15 +569,15 @@ mod tests {
     #[test]
     fn domain_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
-        let domain_name = "wonderland".to_owned();
+        let domain_id = DomainId::new("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
         SetKeyValueBox::new(
-            IdBox::from(domain_name.clone()),
+            IdBox::from(domain_id.clone()),
             "Bytes".to_owned(),
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
-        let bytes = wsv.domain(&domain_name)?.metadata.get("Bytes").cloned();
+        let bytes = wsv.domain(&domain_id)?.metadata.get("Bytes").cloned();
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![

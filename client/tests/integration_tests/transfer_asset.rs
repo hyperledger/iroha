@@ -13,7 +13,7 @@ fn client_can_transfer_asset_to_another_account() {
     wait_for_genesis_committed(vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
     let account1_id = AccountId::new("account1", "domain");
     let account2_id = AccountId::new("account2", "domain");
     let create_account1 = RegisterBox::new(IdentifiableBox::NewAccount(

@@ -163,7 +163,7 @@ fn account_can_query_only_its_own_domain() {
 
     let domain_name = "wonderland";
     let new_domain_name = "wonderland2";
-    let register_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(new_domain_name)));
+    let register_domain = RegisterBox::new(IdentifiableBox::from(Domain::test(new_domain_name)));
 
     iroha_client
         .submit(register_domain)
@@ -173,11 +173,11 @@ fn account_can_query_only_its_own_domain() {
 
     // Alice can query the domain in which her account exists.
     assert!(iroha_client
-        .request(client::domain::by_name(domain_name.to_owned()))
+        .request(client::domain::by_id(DomainId::new(domain_name)))
         .is_ok());
 
     // Alice can not query other domains.
     assert!(iroha_client
-        .request(client::domain::by_name(new_domain_name.to_owned()))
+        .request(client::domain::by_id(DomainId::new(new_domain_name)))
         .is_err());
 }

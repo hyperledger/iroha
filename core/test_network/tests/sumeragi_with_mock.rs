@@ -555,7 +555,7 @@ pub mod utils {
             account
         });
         pub static GLOBAL: Lazy<Domain> = Lazy::new(|| {
-            let mut domain = Domain::new("global");
+            let mut domain = Domain::new(DomainId::new("global"));
             domain.accounts.insert(ROOT_ID.clone(), ROOT.clone());
             domain
         });
@@ -563,11 +563,11 @@ pub mod utils {
         impl WorldTrait for WithRoot {
             /// Creates `World` with these `domains` and `trusted_peers_ids`
             fn with(
-                domains: impl IntoIterator<Item = (Name, Domain)>,
+                domains: impl IntoIterator<Item = (DomainId, Domain)>,
                 trusted_peers_ids: impl IntoIterator<Item = PeerId>,
             ) -> Self {
                 Self(World::with(
-                    vec![(GLOBAL.name.clone(), GLOBAL.clone())]
+                    vec![(GLOBAL.id.clone(), GLOBAL.clone())]
                         .into_iter()
                         .chain(domains),
                     trusted_peers_ids,

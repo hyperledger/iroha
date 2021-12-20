@@ -27,12 +27,12 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
     let wsv = Arc::new(WorldStateView::new(World::with(
         ('a'..'z')
             .map(|name| name.to_string())
-            .map(|name| (name.clone(), Domain::new(&name))),
+            .map(|name| (DomainId::new(&name), Domain::test(&name))),
         vec![],
     )));
     let keys = KeyPair::generate().expect("Failed to generate keys");
     wsv.world.domains.insert(
-        "wonderland".to_owned(),
+        DomainId::new("wonderland"),
         Domain::with_accounts(
             "wonderland",
             std::iter::once(Account::with_signatory(
@@ -242,7 +242,7 @@ impl AssertReady {
 const DOMAIN: &str = "desert";
 
 fn register_domain() -> Instruction {
-    Instruction::Register(RegisterBox::new(Domain::new(DOMAIN)))
+    Instruction::Register(RegisterBox::new(Domain::test(DOMAIN)))
 }
 fn register_account(name: &str) -> Instruction {
     Instruction::Register(RegisterBox::new(NewAccount::with_signatory(
@@ -389,8 +389,8 @@ async fn find_account_with_no_domain() {
 async fn find_domain() {
     AssertSet::new()
         .given(register_domain())
-        .query(QueryBox::FindDomainByName(FindDomainByName::new(
-            DOMAIN.to_string(),
+        .query(QueryBox::FindDomainById(FindDomainById::new(
+            DomainId::new(DOMAIN),
         )))
         .status(StatusCode::OK)
         .assert()
@@ -400,7 +400,7 @@ async fn find_domain() {
 async fn find_domain_with_no_domain() {
     AssertSet::new()
     // .given(register_domain())
-        .query(QueryBox::FindDomainByName(FindDomainByName::new(
+        .query(QueryBox::FindDomainById(FindDomainById::new(
             DOMAIN.to_string(),
         )))
         .status(StatusCode::NOT_FOUND)

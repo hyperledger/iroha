@@ -17,7 +17,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     wait_for_genesis_committed(network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
     let account_id = AccountId::new("account", "domain");
     let key_pair_1 = KeyPair::generate().expect("Failed to generate KeyPair.");
     let key_pair_2 = KeyPair::generate().expect("Failed to generate KeyPair.");

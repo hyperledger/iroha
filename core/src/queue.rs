@@ -300,12 +300,12 @@ mod tests {
 
     pub fn world_with_test_domains(public_key: PublicKey) -> World {
         let domains = DomainsMap::new();
-        let mut domain = Domain::new("wonderland");
+        let mut domain = Domain::test("wonderland");
         let account_id = AccountId::new("alice", "wonderland");
         let mut account = Account::new(account_id.clone());
         account.signatories.push(public_key);
         domain.accounts.insert(account_id, account);
-        domains.insert("wonderland".to_string(), domain);
+        domains.insert(DomainId::new("wonderland"), domain);
         World::with(domains, PeersIds::new())
     }
 
@@ -364,7 +364,7 @@ mod tests {
         let wsv = WorldStateView::new(world_with_test_domains(
             KeyPair::generate().unwrap().public_key,
         ));
-        let mut domain = wsv.domain_mut("wonderland").unwrap();
+        let mut domain = wsv.domain_mut(&DomainId::new("wonderland")).unwrap();
         domain
             .accounts
             .get_mut(&<Account as Identifiable>::Id::new("alice", "wonderland"))

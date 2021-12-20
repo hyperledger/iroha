@@ -36,7 +36,7 @@ fn query_requests(criterion: &mut Criterion) {
 
     let mut group = criterion.benchmark_group("query-reqeuests");
     let domain_name = "domain";
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
@@ -117,7 +117,7 @@ fn instruction_submits(criterion: &mut Criterion) {
 
     let mut group = criterion.benchmark_group("instruction-requests");
     let domain_name = "domain";
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain_name).into()));
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(

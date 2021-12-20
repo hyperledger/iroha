@@ -161,7 +161,7 @@ impl AcceptedTransaction {
     ) -> Result<(), TransactionRejectionReason> {
         let wsv_temp = wsv.clone();
         let account_id = self.payload.account_id.clone();
-        if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
+        if !is_genesis && account_id == <Account as Identifiable>::Id::genesis() {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
         }
 
