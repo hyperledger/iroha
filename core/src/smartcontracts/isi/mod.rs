@@ -321,19 +321,19 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
         let value = self.value.evaluate(wsv, &context)?;
         match self.object_id.evaluate(wsv, &context)? {
             IdBox::AssetId(asset_id) => {
-                SetKeyValue::<Asset, String, Value>::new(asset_id, key, value)
+                SetKeyValue::<Asset, Name, Value>::new(asset_id, key, value)
                     .execute(authority, wsv)
             }
             IdBox::AssetDefinitionId(definition_id) => {
-                SetKeyValue::<AssetDefinition, String, Value>::new(definition_id, key, value)
+                SetKeyValue::<AssetDefinition, Name, Value>::new(definition_id, key, value)
                     .execute(authority, wsv)
             }
             IdBox::AccountId(account_id) => {
-                SetKeyValue::<Account, String, Value>::new(account_id, key, value)
+                SetKeyValue::<Account, Name, Value>::new(account_id, key, value)
                     .execute(authority, wsv)
             }
             IdBox::DomainName(name) => {
-                SetKeyValue::<Domain, String, Value>::new(name, key, value).execute(authority, wsv)
+                SetKeyValue::<Domain, Name, Value>::new(name, key, value).execute(authority, wsv)
             }
             _ => Err(eyre!("Unsupported set key-value instruction.").into()),
         }
@@ -353,14 +353,14 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
         let key = self.key.evaluate(wsv, &context)?;
         match self.object_id.evaluate(wsv, &context)? {
             IdBox::AssetId(asset_id) => {
-                RemoveKeyValue::<Asset, String>::new(asset_id, key).execute(authority, wsv)
+                RemoveKeyValue::<Asset, Name>::new(asset_id, key).execute(authority, wsv)
             }
             IdBox::AssetDefinitionId(definition_id) => {
-                RemoveKeyValue::<AssetDefinition, String>::new(definition_id, key)
+                RemoveKeyValue::<AssetDefinition, Name>::new(definition_id, key)
                     .execute(authority, wsv)
             }
             IdBox::AccountId(account_id) => {
-                RemoveKeyValue::<Account, String>::new(account_id, key).execute(authority, wsv)
+                RemoveKeyValue::<Account, Name>::new(account_id, key).execute(authority, wsv)
             }
             _ => Err(eyre!("Unsupported remove key-value instruction.").into()),
         }

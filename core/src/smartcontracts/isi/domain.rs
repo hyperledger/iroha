@@ -123,7 +123,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for SetKeyValue<AssetDefinition, String, Value> {
+    impl<W: WorldTrait> Execute<W> for SetKeyValue<AssetDefinition, Name, Value> {
         type Error = Error;
 
         #[metrics(+"set_key_value_asset_def")]
@@ -144,7 +144,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for RemoveKeyValue<AssetDefinition, String> {
+    impl<W: WorldTrait> Execute<W> for RemoveKeyValue<AssetDefinition, Name> {
         type Error = Error;
 
         #[metrics(+"remove_key_value_asset_def")]
@@ -165,7 +165,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for SetKeyValue<Domain, String, Value> {
+    impl<W: WorldTrait> Execute<W> for SetKeyValue<Domain, Name, Value> {
         type Error = Error;
 
         #[metrics(+"set_key_value_domain")]
@@ -188,7 +188,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Domain, String> {
+    impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Domain, Name> {
         type Error = Error;
 
         #[metrics(+"remove_key_value_domain")]

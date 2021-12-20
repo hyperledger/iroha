@@ -75,7 +75,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for SetKeyValue<Account, String, Value> {
+    impl<W: WorldTrait> Execute<W> for SetKeyValue<Account, Name, Value> {
         type Error = Error;
 
         #[metrics(+"set_key_value_account_string_value")]
@@ -98,7 +98,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Account, String> {
+    impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Account, Name> {
         type Error = Error;
 
         #[metrics(+"remove_account_key_value")]
