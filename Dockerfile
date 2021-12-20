@@ -12,9 +12,11 @@ RUN set -ex; \
     apt-get install -y --no-install-recommends \
        build-essential \
        ca-certificates \
+       libssl-dev \
        clang \
+       pkg-config \
        llvm-dev; \
-    rm -rf /var/lib/apt/lists/*
+	rm -rf /var/lib/apt/lists/*
 
 ARG TOOLCHAIN=stable
 RUN set -ex; \
@@ -40,10 +42,12 @@ RUN cargo build $PROFILE --workspace
 
 FROM $BASE_IMAGE
 COPY configs/peer/config.json .
-COPY configs/peer/trusted_peers.json .
 COPY configs/peer/genesis.json .
 ARG BIN=iroha
 ARG TARGET_DIR=debug
 COPY --from=builder /iroha/target/$TARGET_DIR/$BIN .
+RUN apt-get update -yq; \
+	apt-get install -y --no-install-recommends libssl-dev; \
+    rm -rf /var/lib/apt/lists/*
 ENV IROHA_TARGET_BIN=$BIN
 CMD ./$IROHA_TARGET_BIN

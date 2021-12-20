@@ -1383,7 +1383,6 @@ dependencies = [
  "iroha_core",
  "iroha_logger",
  "iroha_permissions_validators",
- "structopt",
  "tokio",
 ]
 
@@ -1506,7 +1505,6 @@ dependencies = [
  "rand 0.8.4",
  "serde",
  "serde_json",
- "structopt",
  "tempfile",
  "thiserror",
  "tokio",

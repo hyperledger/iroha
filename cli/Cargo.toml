@@ -30,5 +30,4 @@ iroha_permissions_validators = { version = "=2.0.0-pre.1", path = "../permission
 iroha_logger = { version = "=2.0.0-pre.1", path = "../logger"}
 
 color-eyre = "0.5.11"
-structopt = "0.3"
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
