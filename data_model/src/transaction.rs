@@ -258,7 +258,7 @@ impl Txn for Transaction {
     }
 }
 
-declare_versioned_with_scale!(VersionedPendingTransactions 1..2, FromVariant, Debug, Clone);
+declare_versioned_with_scale!(VersionedPendingTransactions 1..2, Debug, Clone, FromVariant);
 
 impl VersionedPendingTransactions {
     /// Converts from `&VersionedPendingTransactions` to V1 reference
@@ -504,7 +504,7 @@ pub struct InstructionExecutionFail {
 impl Display for InstructionExecutionFail {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         use Instruction::*;
-        let type_ = match self.instruction {
+        let kind = match self.instruction {
             Burn(_) => "burn",
             Fail(_) => "fail",
             If(_) => "if",
@@ -521,7 +521,7 @@ impl Display for InstructionExecutionFail {
         write!(
             f,
             "Failed to execute instruction of type {}: {}",
-            type_, self.reason
+            kind, self.reason
         )
     }
 }

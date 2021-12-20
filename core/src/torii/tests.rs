@@ -6,12 +6,14 @@ use futures::future::FutureExt;
 use iroha_actor::{broker::Broker, Actor};
 use iroha_version::prelude::*;
 use tokio::time;
+use warp::test::WsClient;
 
 use super::*;
 use crate::{
     queue::Queue,
     samples::{get_config, get_trusted_peers},
     smartcontracts::permissions::DenyAll,
+    stream::{Sink, Stream},
     wsv::World,
 };
 
@@ -479,4 +481,62 @@ async fn query_with_no_find() {
         .status(StatusCode::NOT_FOUND)
         .assert()
         .await
+}
+#[tokio::test]
+async fn blocks_stream() {
+    const BLOCK_COUNT: usize = 4;
+
+    let (torii, _) = create_torii().await;
+    let router = torii.create_api_router();
+
+    // Initialize blockchain
+    let mut block = ValidBlock::new_dummy().commit();
+    for i in 1..=BLOCK_COUNT {
+        block.header.height = i as u64;
+        let block: VersionedCommittedBlock = block.clone().into();
+        torii.wsv.apply(block).await.unwrap();
+    }
+
+    let mut client = warp::test::ws()
+        .path("/block/stream")
+        .handshake(router)
+        .await
+        .unwrap();
+
+    <WsClient as Sink<_>>::send(
+        &mut client,
+        VersionedBlockSubscriberMessage::from(BlockSubscriberMessage::SubscriptionRequest(2)),
+    )
+    .await
+    .unwrap();
+
+    let subscription_accepted_message: VersionedBlockPublisherMessage =
+        <WsClient as Stream<_>>::recv(&mut client).await.unwrap();
+    assert!(matches!(
+        subscription_accepted_message.into_v1(),
+        BlockPublisherMessage::SubscriptionAccepted
+    ));
+
+    for i in 2..=BLOCK_COUNT {
+        let block_message: VersionedBlockPublisherMessage =
+            <WsClient as Stream<_>>::recv(&mut client).await.unwrap();
+        let block: VersionedCommittedBlock = block_message.into_v1().try_into().unwrap();
+        assert_eq!(block.header().height, i as u64);
+
+        <WsClient as Sink<_>>::send(
+            &mut client,
+            VersionedBlockSubscriberMessage::from(BlockSubscriberMessage::BlockReceived),
+        )
+        .await
+        .unwrap();
+    }
+
+    block.header.height = BLOCK_COUNT as u64 + 1;
+    let block: VersionedCommittedBlock = block.clone().into();
+    torii.wsv.apply(block).await.unwrap();
+
+    let block_message: VersionedBlockPublisherMessage =
+        <WsClient as Stream<_>>::recv(&mut client).await.unwrap();
+    let block: VersionedCommittedBlock = block_message.into_v1().try_into().unwrap();
+    assert_eq!(block.header().height, BLOCK_COUNT as u64 + 1);
 }

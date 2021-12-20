@@ -11,6 +11,7 @@ pub mod modules;
 pub mod queue;
 pub mod samples;
 pub mod smartcontracts;
+pub mod stream;
 pub mod sumeragi;
 pub mod torii;
 pub mod tx;
@@ -194,7 +195,7 @@ where
         let network_addr = network.start().await;
 
         let (events_sender, _) = broadcast::channel(100);
-        let wsv = Arc::new(WorldStateView::from_config(
+        let wsv = Arc::new(WorldStateView::from_configuration(
             config.wsv,
             W::with(
                 init::domains(&config).wrap_err("Failed to get initial domains")?,

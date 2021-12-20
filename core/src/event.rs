@@ -2,24 +2,17 @@
 //! This module contains descriptions of such an events and
 //! utilitary Iroha Special Instructions to work with them.
 
-use std::{fmt::Debug, time::Duration};
-
-use eyre::{eyre, Result, WrapErr};
-use futures::{SinkExt, StreamExt};
+use eyre::{eyre, Result};
 use iroha_data_model::events::prelude::*;
-use iroha_version::prelude::*;
-use tokio::{sync::broadcast, time};
-use warp::ws::{self, WebSocket};
+use tokio::sync::broadcast;
+use warp::ws::WebSocket;
+
+use crate::stream::{Sink, Stream};
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = broadcast::Sender<Event>;
 /// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
 pub type EventsReceiver = broadcast::Receiver<Event>;
-
-#[cfg(test)]
-const TIMEOUT: Duration = Duration::from_millis(10_000);
-#[cfg(not(test))]
-const TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// Consumer for Iroha `Event`(s).
 /// Passes the events over the corresponding connection `stream` if they match the `filter`.
@@ -36,29 +29,14 @@ impl Consumer {
     /// Can fail due to timeout or without message at websocket or during decoding request
     #[iroha_futures::telemetry_future]
     pub async fn new(mut stream: WebSocket) -> Result<Self> {
-        let message = time::timeout(TIMEOUT, stream.next())
-            .await
-            .wrap_err("Read message timeout")?
-            .ok_or_else(|| eyre!("Failed to read message: no message"))?
-            .wrap_err("Web Socket failure")?;
+        let subscription_request: VersionedEventSubscriberMessage = stream.recv().await?;
+        let filter = subscription_request.into_v1().try_into()?;
 
-        if !message.is_binary() {
-            return Err(eyre!("Unexpected message type"));
-        }
-        let filter = VersionedEventSubscriberMessage::decode_versioned(message.as_bytes())?
-            .into_v1()
-            .try_into()?;
-
-        time::timeout(
-            TIMEOUT,
-            stream.send(ws::Message::binary(
-                VersionedEventPublisherMessage::from(EventPublisherMessage::SubscriptionAccepted)
-                    .encode_versioned()?,
-            )),
-        )
-        .await
-        .wrap_err("Send message timeout")?
-        .wrap_err("Failed to send message")?;
+        stream
+            .send(VersionedEventPublisherMessage::from(
+                EventPublisherMessage::SubscriptionAccepted,
+            ))
+            .await?;
 
         Ok(Consumer { stream, filter })
     }
@@ -68,34 +46,19 @@ impl Consumer {
     /// # Errors
     /// Can fail due to timeout or sending event. Also receiving might fail
     #[iroha_futures::telemetry_future]
-    pub async fn consume(&mut self, event: &Event) -> Result<()> {
-        if !self.filter.apply(event) {
+    pub async fn consume(&mut self, event: Event) -> Result<()> {
+        if !self.filter.apply(&event) {
             return Ok(());
         }
 
-        let event =
-            VersionedEventPublisherMessage::from(EventPublisherMessage::from(event.clone()))
-                .encode_versioned()
-                .wrap_err("Failed to serialize event")?;
-        time::timeout(TIMEOUT, self.stream.send(ws::Message::binary(event)))
-            .await
-            .wrap_err("Send message timeout")?
-            .wrap_err("Failed to send message")?;
+        self.stream
+            .send(VersionedEventPublisherMessage::from(
+                EventPublisherMessage::from(event),
+            ))
+            .await?;
 
-        let message = time::timeout(TIMEOUT, self.stream.next())
-            .await
-            .wrap_err("Failed to read receipt")?
-            .ok_or_else(|| eyre!("Failed to read receipt: no receipt"))?
-            .wrap_err("Web Socket failure")?;
-
-        if !message.is_binary() {
-            return Err(eyre!("Unexpected message type"));
-        }
-
-        if let EventSubscriberMessage::EventReceived =
-            VersionedEventSubscriberMessage::decode_versioned(message.as_bytes())?.into_v1()
-        {
-            self.stream.flush().await?;
+        let message: VersionedEventSubscriberMessage = self.stream.recv().await?;
+        if let EventSubscriberMessage::EventReceived = message.into_v1() {
             Ok(())
         } else {
             Err(eyre!("Expected `EventReceived`."))

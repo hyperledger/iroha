@@ -3,8 +3,8 @@
 
 use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 
-use eyre::Context;
-use futures::stream::{FuturesUnordered, StreamExt};
+use eyre::{eyre, Context};
+use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics::Status;
@@ -19,10 +19,11 @@ use warp::{
     Filter, Reply,
 };
 
-#[macro_use]
-mod utils;
-
 use crate::{
+    block::stream::{
+        BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
+        VersionedBlockSubscriberMessage,
+    },
     event::{Consumer, EventsSender},
     prelude::*,
     queue::{self, Queue},
@@ -30,9 +31,13 @@ use crate::{
         isi::query::{self, VerifiedQueryRequest},
         permissions::IsQueryAllowedBoxed,
     },
+    stream::{Sink, Stream},
     wsv::WorldTrait,
     Addr, Configuration, IrohaNetwork,
 };
+
+#[macro_use]
+mod utils;
 
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii<W: WorldTrait> {
@@ -226,7 +231,7 @@ impl<W: WorldTrait> Torii<W> {
                 .and(warp::body::json()),
         ));
 
-        let ws_router = warp::path(uri::SUBSCRIPTION)
+        let events_ws_router = warp::path(uri::SUBSCRIPTION)
             .and(add_state!(self.events))
             .and(warp::ws())
             .map(|events, ws: Ws| {
@@ -236,6 +241,28 @@ impl<W: WorldTrait> Torii<W> {
                     }
                 })
             });
+
+        // `warp` panics if there is `/` in the string given to the `warp::path` filter
+        // Path filter has to be boxed to have a single uniform type during iteration
+        let block_ws_router_path = uri::BLOCKS_STREAM
+            .split('/')
+            .skip_while(|p| p.is_empty())
+            .fold(warp::any().boxed(), |path_filter, path| {
+                path_filter.and(warp::path(path)).boxed()
+            });
+
+        let blocks_ws_router = block_ws_router_path
+            .and(add_state!(self.wsv))
+            .and(warp::ws())
+            .map(|wsv: Arc<_>, ws: Ws| {
+                ws.on_upgrade(|this_ws| async move {
+                    if let Err(error) = handle_blocks_stream(&wsv, this_ws).await {
+                        iroha_logger::error!(%error, "Failed to subscribe to blocks stream");
+                    }
+                })
+            });
+
+        let ws_router = events_ws_router.or(blocks_ws_router);
 
         ws_router
             .or(warp::post().and(post_router))
@@ -438,20 +465,67 @@ async fn handle_post_configuration(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
-    let mut events = events.subscribe();
-    let mut consumer = Consumer::new(stream).await?;
+async fn handle_blocks_stream<W: WorldTrait>(
+    wsv: &WorldStateView<W>,
+    mut stream: WebSocket,
+) -> eyre::Result<()> {
+    let subscription_request: VersionedBlockSubscriberMessage = stream.recv().await?;
+    let mut from_height = subscription_request.into_v1().try_into()?;
 
-    while let Ok(change) = events.recv().await {
-        iroha_logger::trace!(event = ?change);
+    stream
+        .send(VersionedBlockPublisherMessage::from(
+            BlockPublisherMessage::SubscriptionAccepted,
+        ))
+        .await?;
 
-        if let Err(error) = consumer.consume(&change).await {
-            iroha_logger::error!(%error, "Failed to notify client. Closed connection.");
-            break;
+    let mut rx = wsv.subscribe_to_new_block_notifications();
+    stream_blocks(&mut from_height, wsv, &mut stream).await?;
+
+    loop {
+        rx.changed().await?;
+        stream_blocks(&mut from_height, wsv, &mut stream).await?;
+    }
+}
+
+async fn stream_blocks<W: WorldTrait>(
+    from_height: &mut u64,
+    wsv: &WorldStateView<W>,
+    stream: &mut WebSocket,
+) -> eyre::Result<()> {
+    #[allow(clippy::expect_used)]
+    for block in wsv.blocks_from_height(
+        (*from_height)
+            .try_into()
+            .expect("Blockchain size limit reached"),
+    ) {
+        stream
+            .send(VersionedBlockPublisherMessage::from(
+                BlockPublisherMessage::from(block),
+            ))
+            .await?;
+
+        let message: VersionedBlockSubscriberMessage = stream.recv().await?;
+        if let BlockSubscriberMessage::BlockReceived = message.into_v1() {
+            *from_height += 1;
+        } else {
+            return Err(eyre!("Expected `BlockReceived` message"));
         }
     }
 
     Ok(())
+}
+
+#[iroha_futures::telemetry_future]
+async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
+    let mut events = events.subscribe();
+    let mut consumer = Consumer::new(stream).await?;
+
+    loop {
+        let event = events.recv().await?;
+
+        iroha_logger::trace!(?event);
+        consumer.consume(event).await?;
+    }
 }
 
 async fn handle_metrics<W: WorldTrait>(
