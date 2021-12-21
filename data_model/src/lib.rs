@@ -1021,8 +1021,8 @@ pub mod account {
                 return Err(eyre!("Id should have format `name@domain_name`"));
             }
             Ok(Id {
-                name: Name::test(vector[0]),
-                domain_id: DomainId::test(vector[1]),
+                name: Name::new(vector[0])?,
+                domain_id: DomainId::new(vector[1])?,
             })
         }
     }
@@ -1506,24 +1506,13 @@ pub mod asset {
     }
 
     impl Id {
-        /// Construct [`Id`] from names which constitute [`DefinitionId`] and [`AccountId`] if these names are valid.
-        ///
-        /// # Errors
-        /// Fails if any sub-construction fails
+        /// Construct [`Id`] from [`DefinitionId`] and [`AccountId`].
         #[inline]
-        pub fn from_names(
-            asset_definition_name: &str,
-            asset_definition_domain_name: &str,
-            account_name: &str,
-            account_domain_name: &str,
-        ) -> Result<Self> {
-            Ok(Id {
-                definition_id: DefinitionId::new(
-                    asset_definition_name,
-                    asset_definition_domain_name,
-                )?,
-                account_id: AccountId::new(account_name, account_domain_name)?,
-            })
+        pub const fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
+            Id {
+                definition_id,
+                account_id,
+            }
         }
 
         /// Instantly construct [`Id`] from names which constitute [`DefinitionId`] and [`AccountId`] assuming these names are valid.
@@ -1540,15 +1529,6 @@ pub mod asset {
                     asset_definition_domain_name,
                 ),
                 account_id: AccountId::test(account_name, account_domain_name),
-            }
-        }
-
-        /// Construct [`Id`] from [`DefinitionId`] and [`AccountId`].
-        #[inline]
-        pub const fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
-            Id {
-                definition_id,
-                account_id,
             }
         }
     }
@@ -1591,8 +1571,8 @@ pub mod asset {
                 ));
             }
             Ok(DefinitionId {
-                name: Name::test(vector[0]),
-                domain_id: DomainId::test(vector[1]),
+                name: Name::new(vector[0])?,
+                domain_id: DomainId::new(vector[1])?,
             })
         }
     }
@@ -1621,13 +1601,10 @@ pub mod asset {
 pub mod domain {
     //! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
 
-    use std::{
-        cmp::Ordering, collections::BTreeMap, convert::Infallible, fmt, iter, ops::RangeInclusive,
-        str::FromStr,
-    };
+    use std::{cmp::Ordering, collections::BTreeMap, fmt, iter, ops::RangeInclusive, str::FromStr};
 
     use dashmap::DashMap;
-    use eyre::{eyre, Result};
+    use eyre::{eyre, Error, Result};
     use iroha_crypto::PublicKey;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
@@ -1704,20 +1681,20 @@ pub mod domain {
     }
 
     impl Domain {
-        /// Test `Domain` constructor.
-        pub fn test(name: &str) -> Self {
+        /// Construct [`Domain`] from [`Id`].
+        pub fn new(id: Id) -> Self {
             Domain {
-                id: Id::test(name),
+                id,
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
                 metadata: Metadata::new(),
             }
         }
 
-        /// Default `Domain` constructor.
-        pub fn new(id: Id) -> Self {
+        /// Instantly construct [`Domain`] assuming `name` is valid.
+        pub fn test(name: &str) -> Self {
             Domain {
-                id,
+                id: Id::test(name),
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
                 metadata: Metadata::new(),
@@ -1811,9 +1788,10 @@ pub mod domain {
     }
 
     impl FromStr for Id {
-        type Err = Infallible;
+        type Err = Error;
+
         fn from_str(name: &str) -> Result<Self, Self::Err> {
-            Ok(Self::test(name))
+            Self::new(name)
         }
     }
 

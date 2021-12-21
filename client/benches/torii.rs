@@ -25,7 +25,8 @@ fn query_requests(criterion: &mut Criterion) {
     let rt = Runtime::test();
     let genesis = GenesisNetwork::from_configuration(
         true,
-        RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key),
+        RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key)
+            .expect("Valid names never fail to parse"),
         &configuration.genesis,
         configuration.sumeragi.max_instruction_number,
     )
@@ -107,7 +108,8 @@ fn instruction_submits(criterion: &mut Criterion) {
     );
     let genesis = GenesisNetwork::from_configuration(
         true,
-        RawGenesisBlock::new("alice", "wonderland", &configuration.public_key),
+        RawGenesisBlock::new("alice", "wonderland", &configuration.public_key)
+            .expect("Valid names never fail to parse"),
         &configuration.genesis,
         configuration.sumeragi.max_instruction_number,
     )

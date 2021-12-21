@@ -116,7 +116,8 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     // Given
     let genesis = GenesisNetwork::from_configuration(
         true,
-        RawGenesisBlock::new("alice", "wonderland", &kp.public_key),
+        RawGenesisBlock::new("alice", "wonderland", &kp.public_key)
+            .expect("Valid names never fail to parse"),
         &configuration.genesis,
         configuration.sumeragi.max_instruction_number,
     )

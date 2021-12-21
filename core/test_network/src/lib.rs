@@ -128,7 +128,8 @@ pub trait TestGenesis: Sized {
 impl<G: GenesisNetworkTrait> TestGenesis for G {
     fn test(submit_genesis: bool) -> Option<Self> {
         let cfg = Configuration::test();
-        let mut genesis = RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key);
+        let mut genesis = RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key)
+            .expect("Valid names never fail to parse");
         genesis.transactions[0].isi.push(
             RegisterBox::new(IdentifiableBox::AssetDefinition(
                 AssetDefinition::new_quantity(AssetDefinitionId::test("rose", "wonderland")).into(),

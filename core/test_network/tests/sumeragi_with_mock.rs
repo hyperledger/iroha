@@ -555,7 +555,7 @@ pub mod utils {
             account
         });
         pub static GLOBAL: Lazy<Domain> = Lazy::new(|| {
-            let mut domain = Domain::new(DomainId::test("global"));
+            let mut domain = Domain::test("global");
             domain.accounts.insert(ROOT_ID.clone(), ROOT.clone());
             domain
         });
