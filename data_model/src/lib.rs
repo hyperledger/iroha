@@ -56,18 +56,13 @@ impl Name {
             .expect("Valid names never fail to parse")
     }
 
-    /// Provide an access to the inner `String` of this [`Name`].
-    pub fn inner(&self) -> &String {
-        &self.0
-    }
-
     /// Check if `range` contains the number of chars in the inner `String` of this [`Name`].
     ///
     /// # Errors
     /// Fails if `range` does not
     pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
         let range = range.into();
-        if range.contains(&self.inner().chars().count()) {
+        if range.contains(&self.as_ref().chars().count()) {
             Ok(())
         } else {
             Err(eyre!(
@@ -76,6 +71,12 @@ impl Name {
                 &range.end()
             ))
         }
+    }
+}
+
+impl AsRef<str> for Name {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
     }
 }
 
@@ -503,26 +504,26 @@ pub mod role {
         /// Constructor.
         #[inline]
         pub fn new(name: impl Into<Name>) -> Self {
-            Id { name: name.into() }
+            Self { name: name.into() }
         }
     }
 
     impl From<Name> for Id {
         #[inline]
         fn from(name: Name) -> Self {
-            Id::new(name)
+            Self::new(name)
         }
     }
 
     impl From<Id> for Value {
         #[inline]
         fn from(id: Id) -> Self {
-            Value::Id(IdBox::RoleId(id))
+            Self::Id(IdBox::RoleId(id))
         }
     }
 
     impl TryFrom<Value> for Id {
-        type Error = iroha_macro::error::ErrorTryFromEnum<Value, Id>;
+        type Error = iroha_macro::error::ErrorTryFromEnum<Value, Self>;
 
         #[inline]
         fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -548,7 +549,7 @@ pub mod role {
     }
 
     impl TryFrom<Value> for Role {
-        type Error = iroha_macro::error::ErrorTryFromEnum<Value, Role>;
+        type Error = iroha_macro::error::ErrorTryFromEnum<Value, Self>;
 
         #[inline]
         fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -584,8 +585,8 @@ pub mod role {
     impl Role {
         /// Constructor.
         #[inline]
-        pub fn new(id: impl Into<Id>, permissions: impl Into<BTreeSet<PermissionToken>>) -> Role {
-            Role {
+        pub fn new(id: impl Into<Id>, permissions: impl Into<BTreeSet<PermissionToken>>) -> Self {
+            Self {
                 id: id.into(),
                 permissions: permissions.into(),
             }
@@ -897,7 +898,7 @@ pub mod account {
         /// Default [`Account`] constructor.
         #[inline]
         pub fn new(id: Id) -> Self {
-            Account {
+            Self {
                 id,
                 assets: AssetsMap::new(),
                 signatories: Vec::new(),
@@ -913,7 +914,7 @@ pub mod account {
         #[inline]
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
             let signatories = vec![signatory];
-            Account {
+            Self {
                 id,
                 assets: AssetsMap::new(),
                 signatories,
@@ -963,7 +964,7 @@ pub mod account {
         /// Fails if any sub-construction fails
         #[inline]
         pub fn new(name: &str, domain_name: &str) -> Result<Self> {
-            Ok(Id {
+            Ok(Self {
                 name: Name::new(name)?,
                 domain_id: DomainId::new(domain_name)?,
             })
@@ -972,7 +973,7 @@ pub mod account {
         /// Instantly construct [`Id`] from an account `name` and a `domain_name` assuming these names are valid.
         #[inline]
         pub fn test(name: &str, domain_name: &str) -> Self {
-            Id {
+            Self {
                 name: Name::test(name),
                 domain_id: DomainId::test(domain_name),
             }
@@ -981,7 +982,7 @@ pub mod account {
         /// Construct [`Id`] of the genesis account.
         #[inline]
         pub fn genesis() -> Self {
-            Id {
+            Self {
                 name: Name::test(GENESIS_ACCOUNT_NAME),
                 domain_id: DomainId::test(GENESIS_DOMAIN_NAME),
             }
@@ -1000,7 +1001,7 @@ pub mod account {
         fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Self>>()
                 .into()
         }
     }
@@ -1014,7 +1015,7 @@ pub mod account {
             if vector.len() != 2 {
                 return Err(eyre!("Id should have format `name@domain_name`"));
             }
-            Ok(Id {
+            Ok(Self {
                 name: Name::new(vector[0])?,
                 domain_id: DomainId::new(vector[1])?,
             })
@@ -1091,11 +1092,8 @@ pub mod asset {
 
     impl AssetDefinitionEntry {
         /// Constructor.
-        pub const fn new(
-            definition: AssetDefinition,
-            registered_by: AccountId,
-        ) -> AssetDefinitionEntry {
-            AssetDefinitionEntry {
+        pub const fn new(definition: AssetDefinition, registered_by: AccountId) -> Self {
+            Self {
                 definition,
                 registered_by,
             }
@@ -1165,7 +1163,7 @@ pub mod asset {
 
     impl FromStr for AssetValueType {
         type Err = Error;
-        fn from_str(value_type: &str) -> Result<AssetValueType> {
+        fn from_str(value_type: &str) -> Result<Self> {
             serde_json::from_value(serde_json::json!(value_type))
                 .wrap_err("Failed to deserialize value type")
         }
@@ -1190,19 +1188,19 @@ pub mod asset {
         /// Returns the asset type as a string.
         pub const fn value_type(&self) -> AssetValueType {
             match *self {
-                AssetValue::Quantity(_) => AssetValueType::Quantity,
-                AssetValue::BigQuantity(_) => AssetValueType::BigQuantity,
-                AssetValue::Fixed(_) => AssetValueType::Fixed,
-                AssetValue::Store(_) => AssetValueType::Store,
+                Self::Quantity(_) => AssetValueType::Quantity,
+                Self::BigQuantity(_) => AssetValueType::BigQuantity,
+                Self::Fixed(_) => AssetValueType::Fixed,
+                Self::Store(_) => AssetValueType::Store,
             }
         }
         /// Returns true if this value is zero, false if it contains [`Metadata`] or positive value
         pub const fn is_zero_value(&self) -> bool {
             match *self {
-                AssetValue::Quantity(q) => q == 0_u32,
-                AssetValue::BigQuantity(q) => q == 0_u128,
-                AssetValue::Fixed(ref q) => q.is_zero(),
-                AssetValue::Store(_) => false,
+                Self::Quantity(q) => q == 0_u32,
+                Self::BigQuantity(q) => q == 0_u128,
+                Self::Fixed(ref q) => q.is_zero(),
+                Self::Store(_) => false,
             }
         }
     }
@@ -1326,7 +1324,7 @@ pub mod asset {
         /// Default [`AssetDefinition`] constructor.
         #[inline]
         pub fn new(id: DefinitionId, value_type: AssetValueType, mintable: bool) -> Self {
-            AssetDefinition {
+            Self {
                 value_type,
                 id,
                 metadata: Metadata::new(),
@@ -1386,7 +1384,7 @@ pub mod asset {
     impl Asset {
         /// Constructor
         pub fn new<V: Into<AssetValue>>(id: Id, value: V) -> Self {
-            Asset {
+            Self {
                 id,
                 value: value.into(),
             }
@@ -1395,7 +1393,7 @@ pub mod asset {
         /// `Asset` with `quantity` value constructor.
         #[inline]
         pub fn with_quantity(id: Id, quantity: u32) -> Self {
-            Asset {
+            Self {
                 id,
                 value: quantity.into(),
             }
@@ -1404,7 +1402,7 @@ pub mod asset {
         /// `Asset` with `big_quantity` value constructor.
         #[inline]
         pub fn with_big_quantity(id: Id, big_quantity: u128) -> Self {
-            Asset {
+            Self {
                 id,
                 value: big_quantity.into(),
             }
@@ -1422,7 +1420,7 @@ pub mod asset {
         ) -> Result<Self> {
             let mut store = Metadata::new();
             store.insert_with_limits(key, value, limits)?;
-            Ok(Asset {
+            Ok(Self {
                 id,
                 value: store.into(),
             })
@@ -1465,7 +1463,7 @@ pub mod asset {
         /// Fails if any sub-construction fails
         #[inline]
         pub fn new(name: &str, domain_name: &str) -> Result<Self> {
-            Ok(DefinitionId {
+            Ok(Self {
                 name: Name::new(name)?,
                 domain_id: DomainId::new(domain_name)?,
             })
@@ -1474,7 +1472,7 @@ pub mod asset {
         /// Instantly construct [`Id`] from an asset definition `name` and a `domain_name` assuming these names are valid.
         #[inline]
         pub fn test(name: &str, domain_name: &str) -> Self {
-            DefinitionId {
+            Self {
                 name: Name::test(name),
                 domain_id: DomainId::test(domain_name),
             }
@@ -1485,7 +1483,7 @@ pub mod asset {
         /// Construct [`Id`] from [`DefinitionId`] and [`AccountId`].
         #[inline]
         pub const fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
-            Id {
+            Self {
                 definition_id,
                 account_id,
             }
@@ -1499,7 +1497,7 @@ pub mod asset {
             account_name: &str,
             account_domain_name: &str,
         ) -> Self {
-            Id {
+            Self {
                 definition_id: DefinitionId::test(
                     asset_definition_name,
                     asset_definition_domain_name,
@@ -1521,7 +1519,7 @@ pub mod asset {
         fn from_iter<T: IntoIterator<Item = Asset>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Self>>()
                 .into()
         }
     }
@@ -1530,7 +1528,7 @@ pub mod asset {
         fn from_iter<T: IntoIterator<Item = AssetDefinition>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Self>>()
                 .into()
         }
     }
@@ -1546,7 +1544,7 @@ pub mod asset {
                     "Asset definition ID should have format `name#domain_name`.",
                 ));
             }
-            Ok(DefinitionId {
+            Ok(Self {
                 name: Name::new(vector[0])?,
                 domain_id: DomainId::new(vector[1])?,
             })
@@ -1659,7 +1657,7 @@ pub mod domain {
     impl Domain {
         /// Construct [`Domain`] from [`Id`].
         pub fn new(id: Id) -> Self {
-            Domain {
+            Self {
                 id,
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
@@ -1669,7 +1667,7 @@ pub mod domain {
 
         /// Instantly construct [`Domain`] assuming `name` is valid.
         pub fn test(name: &str) -> Self {
-            Domain {
+            Self {
                 id: Id::test(name),
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
@@ -1683,7 +1681,7 @@ pub mod domain {
                 .into_iter()
                 .map(|account| (account.id.clone(), account))
                 .collect();
-            Domain {
+            Self {
                 id: Id::test(name),
                 accounts: accounts_map,
                 asset_definitions: AssetDefinitionsMap::new(),
@@ -1700,7 +1698,7 @@ pub mod domain {
         fn from_iter<T: IntoIterator<Item = Domain>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Self>>()
                 .into()
         }
     }
@@ -1732,7 +1730,7 @@ pub mod domain {
         /// Fails if any sub-construction fails
         #[inline]
         pub fn new(name: &str) -> Result<Self> {
-            Ok(Id {
+            Ok(Self {
                 name: Name::new(name)?,
             })
         }
@@ -1740,7 +1738,7 @@ pub mod domain {
         /// Instantly construct [`Id`] assuming the given domain `name` is valid.
         #[inline]
         pub fn test(name: &str) -> Self {
-            Id {
+            Self {
                 name: Name::test(name),
             }
         }
@@ -1826,7 +1824,7 @@ pub mod peer {
         /// Construct `Peer` given `id`.
         #[inline]
         pub const fn new(id: Id) -> Self {
-            Peer { id }
+            Self { id }
         }
     }
 
@@ -1838,7 +1836,7 @@ pub mod peer {
         /// Construct `Id` given `public_key` and `address`.
         #[inline]
         pub fn new(address: &str, public_key: &PublicKey) -> Self {
-            Id {
+            Self {
                 address: address.to_owned(),
                 public_key: public_key.clone(),
             }
@@ -1849,7 +1847,7 @@ pub mod peer {
         fn from_iter<T: IntoIterator<Item = Id>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Self>>()
                 .into()
         }
     }
@@ -1928,8 +1926,8 @@ pub mod pagination {
 
     impl Pagination {
         /// Constructs [`Pagination`].
-        pub const fn new(start: Option<usize>, limit: Option<usize>) -> Pagination {
-            Pagination { start, limit }
+        pub const fn new(start: Option<usize>, limit: Option<usize>) -> Self {
+            Self { start, limit }
         }
     }
 

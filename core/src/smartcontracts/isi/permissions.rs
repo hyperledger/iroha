@@ -693,7 +693,7 @@ mod tests {
             _instruction: &Instruction,
             _wsv: &WorldStateView<W>,
         ) -> Result<(), super::DenialReason> {
-            if authority.name.inner() == "alice" {
+            if authority.name.as_ref() == "alice" {
                 Err("Alice account is denied.".to_owned())
             } else {
                 Ok(())
