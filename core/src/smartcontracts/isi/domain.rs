@@ -26,7 +26,10 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let account = self.object;
-            account.validate_len(wsv.config.ident_length_limits)?;
+            account
+                .id
+                .name
+                .validate_len(wsv.config.ident_length_limits)?;
             let domain_id = account.id.domain_id.clone();
             match wsv
                 .domain_mut(&domain_id)?
@@ -75,7 +78,10 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Error> {
             let asset_definition = self.object;
-            asset_definition.validate_len(wsv.config.ident_length_limits)?;
+            asset_definition
+                .id
+                .name
+                .validate_len(wsv.config.ident_length_limits)?;
             let domain_id = asset_definition.id.domain_id.clone();
             let mut domain = wsv.domain_mut(&domain_id)?;
             match domain.asset_definitions.entry(asset_definition.id.clone()) {

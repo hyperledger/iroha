@@ -384,7 +384,7 @@ pub mod private_blockchain {
                             .id
                             .evaluate(wsv, &context)
                             .map_err(|err| err.to_string())?;
-                        if account_id.domain_name == authority.domain_name {
+                        if account_id.domain_id == authority.domain_id {
                             Ok(())
                         } else {
                             Err(format!(

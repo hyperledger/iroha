@@ -71,6 +71,23 @@ impl Name {
     pub fn inner(&self) -> &String {
         &self.0
     }
+
+    /// Check if `range` contains the number of chars in the inner `String` of this [`Name`].
+    ///
+    /// # Errors
+    /// Fails if `range` does not
+    pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
+        let range = range.into();
+        if range.contains(&self.inner().chars().count()) {
+            Ok(())
+        } else {
+            Err(eyre!(
+                "The number of chars in the name must be {} to {}",
+                &range.start(),
+                &range.end()
+            ))
+        }
+    }
 }
 
 impl str::FromStr for Name {
@@ -644,7 +661,6 @@ pub mod account {
     use std::{
         collections::{BTreeMap, BTreeSet},
         fmt,
-        ops::RangeInclusive,
     };
 
     use eyre::{eyre, Error, Result};
@@ -813,23 +829,6 @@ pub mod account {
                 id,
                 signatories,
                 metadata: Metadata::default(),
-            }
-        }
-
-        /// Checks the length of the id in bytes is in a valid range
-        ///
-        /// # Errors
-        /// Fails if limit check fails
-        pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
-            let range = range.into();
-            if range.contains(&self.id.name.inner().chars().count()) {
-                Ok(())
-            } else {
-                Err(eyre!(
-                    "Length of the account name must be in range {}-{}",
-                    &range.start(),
-                    &range.end()
-                ))
             }
         }
     }
@@ -1047,7 +1046,6 @@ pub mod asset {
         cmp::Ordering,
         collections::BTreeMap,
         fmt::{self, Display, Formatter},
-        ops::RangeInclusive,
         str::FromStr,
     };
 
@@ -1388,23 +1386,6 @@ pub mod asset {
         pub fn new_store_token(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Store, false)
         }
-
-        /// Checks the length of the id in bytes is in a valid range
-        ///
-        /// # Errors
-        /// Fails if limit check fails
-        pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
-            let range = range.into();
-            if range.contains(&self.id.name.inner().len()) {
-                Ok(())
-            } else {
-                Err(eyre!(
-                    "Length of the asset defenition name must be in range {}-{}",
-                    &range.start(),
-                    &range.end()
-                ))
-            }
-        }
     }
 
     impl Asset {
@@ -1601,10 +1582,10 @@ pub mod asset {
 pub mod domain {
     //! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
 
-    use std::{cmp::Ordering, collections::BTreeMap, fmt, iter, ops::RangeInclusive, str::FromStr};
+    use std::{cmp::Ordering, collections::BTreeMap, fmt, iter, str::FromStr};
 
     use dashmap::DashMap;
-    use eyre::{eyre, Error, Result};
+    use eyre::{Error, Result};
     use iroha_crypto::PublicKey;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
@@ -1698,23 +1679,6 @@ pub mod domain {
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
                 metadata: Metadata::new(),
-            }
-        }
-
-        /// Checks the length of the id in bytes is in a valid range
-        ///
-        /// # Errors
-        /// Fails if limit check fails
-        pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
-            let range = range.into();
-            if range.contains(&self.id.name.inner().len()) {
-                Ok(())
-            } else {
-                Err(eyre!(
-                    "Length of the domain name must be in range {}-{}",
-                    &range.start(),
-                    &range.end()
-                ))
             }
         }
 
