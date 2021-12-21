@@ -48,7 +48,7 @@ impl Default for Configuration {
         Self {
             public_key: PublicKey::default(),
             private_key: PrivateKey::default(),
-            account_id: AccountId::new("", ""),
+            account_id: AccountId::test("", ""),
             torii_api_url: uri::DEFAULT_API_URL.to_owned(),
             torii_status_url: DEFAULT_TORII_STATUS_URL.to_owned(),
             transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,

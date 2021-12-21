@@ -18,14 +18,14 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     let pipeline_time = Configuration::pipeline_time();
 
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
-    let account_id = AccountId::new("account", "domain");
+    let account_id = AccountId::test("account", "domain");
     let key_pair_1 = KeyPair::generate().expect("Failed to generate KeyPair.");
     let key_pair_2 = KeyPair::generate().expect("Failed to generate KeyPair.");
     let create_account = RegisterBox::new(IdentifiableBox::from(NewAccount::with_signatory(
         account_id.clone(),
         key_pair_1.public_key.clone(),
     )));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain");
+    let asset_definition_id = AssetDefinitionId::test("xor", "domain");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
     )));

@@ -36,9 +36,9 @@ fn permissions_disallow_asset_transfer() {
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let alice_id = AccountId::new("alice", "wonderland");
-    let bob_id = AccountId::new("bob", "wonderland");
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
+    let alice_id = AccountId::test("alice", "wonderland");
+    let bob_id = AccountId::test("bob", "wonderland");
+    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
     )));
@@ -98,9 +98,9 @@ fn permissions_disallow_asset_burn() {
     thread::sleep(pipeline_time * 5);
 
     let domain_name = "wonderland";
-    let alice_id = AccountId::new("alice", domain_name);
-    let bob_id = AccountId::new("bob", domain_name);
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
+    let alice_id = AccountId::test("alice", domain_name);
+    let bob_id = AccountId::test("bob", domain_name);
+    let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
     )));
@@ -173,11 +173,11 @@ fn account_can_query_only_its_own_domain() {
 
     // Alice can query the domain in which her account exists.
     assert!(iroha_client
-        .request(client::domain::by_id(DomainId::new(domain_name)))
+        .request(client::domain::by_id(DomainId::test(domain_name)))
         .is_ok());
 
     // Alice can not query other domains.
     assert!(iroha_client
-        .request(client::domain::by_id(DomainId::new(new_domain_name)))
+        .request(client::domain::by_id(DomainId::test(new_domain_name)))
         .is_err());
 }

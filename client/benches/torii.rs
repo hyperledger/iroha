@@ -38,7 +38,7 @@ fn query_requests(criterion: &mut Criterion) {
     let domain_name = "domain";
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
     let account_name = "account";
-    let account_id = AccountId::new(account_name, domain_name);
+    let account_id = AccountId::test(account_name, domain_name);
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(
             account_id.clone(),
@@ -48,7 +48,7 @@ fn query_requests(criterion: &mut Criterion) {
         )
         .into(),
     ));
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
+    let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
@@ -119,7 +119,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let domain_name = "domain";
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
     let account_name = "account";
-    let account_id = AccountId::new(account_name, domain_name);
+    let account_id = AccountId::test(account_name, domain_name);
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(
             account_id.clone(),
@@ -129,7 +129,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         )
         .into(),
     ));
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
+    let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
     client_config.torii_api_url = peer.api_address.clone();
     let mut iroha_client = Client::new(&client_config);

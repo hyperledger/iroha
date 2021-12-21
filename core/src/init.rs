@@ -13,7 +13,7 @@ pub fn domains(configuration: &Configuration) -> Result<BTreeMap<DomainId, Domai
         .clone()
         .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
     Ok(std::iter::once((
-        DomainId::new(GENESIS_DOMAIN_NAME),
+        DomainId::test(GENESIS_DOMAIN_NAME),
         Domain::from(GenesisDomain::new(key)),
     ))
     .collect())

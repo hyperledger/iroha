@@ -548,14 +548,14 @@ pub mod utils {
         }
 
         pub static ROOT_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
-        pub static ROOT_ID: Lazy<AccountId> = Lazy::new(|| AccountId::new("root", "global"));
+        pub static ROOT_ID: Lazy<AccountId> = Lazy::new(|| AccountId::test("root", "global"));
         pub static ROOT: Lazy<Account> = Lazy::new(|| {
             let mut account = Account::new(ROOT_ID.clone());
             account.signatories.push(ROOT_KEYS.public_key.clone());
             account
         });
         pub static GLOBAL: Lazy<Domain> = Lazy::new(|| {
-            let mut domain = Domain::new(DomainId::new("global"));
+            let mut domain = Domain::new(DomainId::test("global"));
             domain.accounts.insert(ROOT_ID.clone(), ROOT.clone());
             domain
         });

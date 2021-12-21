@@ -217,7 +217,7 @@ mod tests {
     use crate::wsv::World;
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
-    static ALICE_ID: Lazy<AccountId> = Lazy::new(|| AccountId::new("alice", "wonderland"));
+    static ALICE_ID: Lazy<AccountId> = Lazy::new(|| AccountId::test("alice", "wonderland"));
 
     fn world_with_test_domains() -> World {
         let domains = DomainsMap::new();
@@ -225,7 +225,7 @@ mod tests {
         let mut account = Account::new(ALICE_ID.clone());
         account.signatories.push(ALICE_KEYS.public_key.clone());
         domain.accounts.insert(ALICE_ID.clone(), account);
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
+        let asset_definition_id = AssetDefinitionId::test("rose", "wonderland");
         domain.asset_definitions.insert(
             asset_definition_id.clone(),
             AssetDefinitionEntry::new(
@@ -233,26 +233,27 @@ mod tests {
                 ALICE_ID.clone(),
             ),
         );
-        domains.insert(DomainId::new("wonderland"), domain);
+        domains.insert(DomainId::test("wonderland"), domain);
         World::with(domains, PeersIds::new())
     }
 
     #[test]
     fn asset_store() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains());
-        let account_id = AccountId::new("alice", "wonderland");
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland");
+        let account_id = AccountId::test("alice", "wonderland");
+        let asset_definition_id = AssetDefinitionId::test("rose", "wonderland");
         let asset_id = AssetId::new(asset_definition_id, account_id);
         let mut store = Metadata::new();
         store
             .insert_with_limits(
-                Name::new("Bytes"),
+                Name::test("Bytes"),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             )
             .unwrap();
         wsv.add_asset(Asset::new(asset_id.clone(), AssetValue::Store(store)))?;
-        let bytes = FindAssetKeyValueByIdAndKey::new(asset_id, Name::new("Bytes")).execute(&wsv)?;
+        let bytes =
+            FindAssetKeyValueByIdAndKey::new(asset_id, Name::test("Bytes")).execute(&wsv)?;
         assert_eq!(
             bytes,
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
@@ -265,7 +266,7 @@ mod tests {
         let wsv = WorldStateView::new(world_with_test_domains());
         wsv.modify_account(&ALICE_ID, |account| {
             account.metadata.insert_with_limits(
-                Name::new("Bytes"),
+                Name::test("Bytes"),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             )?;
@@ -315,8 +316,8 @@ mod tests {
     #[test]
     fn domain_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains());
-        let domain_id = DomainId::new("wonderland");
-        let key = Name::new("Bytes");
+        let domain_id = DomainId::test("wonderland");
+        let key = Name::test("Bytes");
         wsv.modify_domain(&domain_id, |domain| {
             domain.metadata.insert_with_limits(
                 key.clone(),

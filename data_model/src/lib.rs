@@ -53,7 +53,7 @@ impl Name {
     /// Constructor.
     #[inline]
     #[allow(clippy::expect_used)]
-    pub fn new(valid_str: &str) -> Self {
+    pub fn test(valid_str: &str) -> Self {
         valid_str
             .parse::<Self>()
             .expect("Valid names never fail to parse")
@@ -956,10 +956,10 @@ pub mod account {
         /// `Id` constructor used to easily create an `Id` from two string slices - one for the
         /// account's name, another one for the container's name.
         #[inline]
-        pub fn new(name: &str, domain_name: &str) -> Self {
+        pub fn test(name: &str, domain_name: &str) -> Self {
             Id {
-                name: Name::new(name),
-                domain_id: DomainId::new(domain_name),
+                name: Name::test(name),
+                domain_id: DomainId::test(domain_name),
             }
         }
 
@@ -967,8 +967,8 @@ pub mod account {
         #[inline]
         pub fn genesis() -> Self {
             Id {
-                name: Name::new(GENESIS_ACCOUNT_NAME),
-                domain_id: DomainId::new(GENESIS_DOMAIN_NAME),
+                name: Name::test(GENESIS_ACCOUNT_NAME),
+                domain_id: DomainId::test(GENESIS_DOMAIN_NAME),
             }
         }
     }
@@ -1000,8 +1000,8 @@ pub mod account {
                 return Err(eyre!("Id should have format `name@domain_name`"));
             }
             Ok(Id {
-                name: Name::new(vector[0]),
-                domain_id: DomainId::new(vector[1]),
+                name: Name::test(vector[0]),
+                domain_id: DomainId::test(vector[1]),
             })
         }
     }
@@ -1465,10 +1465,10 @@ pub mod asset {
         /// [`Id`] constructor used to easily create an [`Id`] from three string slices - one for the
         /// asset definition's name, another one for the domain's name.
         #[inline]
-        pub fn new(name: &str, domain_name: &str) -> Self {
+        pub fn test(name: &str, domain_name: &str) -> Self {
             DefinitionId {
-                name: Name::new(name),
-                domain_id: DomainId::new(domain_name),
+                name: Name::test(name),
+                domain_id: DomainId::test(domain_name),
             }
         }
     }
@@ -1477,18 +1477,20 @@ pub mod asset {
         /// [`Id`] constructor used to easily create an [`Id`] from an names of asset definition and
         /// account.
         #[inline]
-        pub fn from_names(
+        // SATO
+        // pub fn from_names(
+        pub fn test(
             asset_definition_name: &str,
             asset_definition_domain_name: &str,
             account_name: &str,
             account_domain_name: &str,
         ) -> Self {
             Id {
-                definition_id: DefinitionId::new(
+                definition_id: DefinitionId::test(
                     asset_definition_name,
                     asset_definition_domain_name,
                 ),
-                account_id: AccountId::new(account_name, account_domain_name),
+                account_id: AccountId::test(account_name, account_domain_name),
             }
         }
 
@@ -1541,8 +1543,8 @@ pub mod asset {
                 ));
             }
             Ok(DefinitionId {
-                name: Name::new(vector[0]),
-                domain_id: DomainId::new(vector[1]),
+                name: Name::test(vector[0]),
+                domain_id: DomainId::test(vector[1]),
             })
         }
     }
@@ -1614,7 +1616,7 @@ pub mod domain {
     impl From<GenesisDomain> for Domain {
         fn from(domain: GenesisDomain) -> Self {
             Self {
-                id: Id::new(GENESIS_DOMAIN_NAME),
+                id: Id::test(GENESIS_DOMAIN_NAME),
                 accounts: iter::once((
                     <Account as Identifiable>::Id::genesis(),
                     GenesisAccount::new(domain.genesis_key).into(),
@@ -1655,9 +1657,9 @@ pub mod domain {
 
     impl Domain {
         /// Test `Domain` constructor.
-        pub fn test(valid_name: &str) -> Self {
+        pub fn test(name: &str) -> Self {
             Domain {
-                id: Id::new(valid_name),
+                id: Id::test(name),
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
                 metadata: Metadata::new(),
@@ -1698,7 +1700,7 @@ pub mod domain {
                 .map(|account| (account.id.clone(), account))
                 .collect();
             Domain {
-                id: Id::new(name),
+                id: Id::test(name),
                 accounts: accounts_map,
                 asset_definitions: AssetDefinitionsMap::new(),
                 metadata: Metadata::new(),
@@ -1742,9 +1744,9 @@ pub mod domain {
     impl Id {
         /// Constructor.
         #[inline]
-        pub fn new(name: &str) -> Self {
+        pub fn test(name: &str) -> Self {
             Id {
-                name: Name::new(name),
+                name: Name::test(name),
             }
         }
     }
@@ -1752,7 +1754,7 @@ pub mod domain {
     impl FromStr for Id {
         type Err = Infallible;
         fn from_str(name: &str) -> Result<Self, Self::Err> {
-            Ok(Self::new(name))
+            Ok(Self::test(name))
         }
     }
 

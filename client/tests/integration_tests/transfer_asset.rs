@@ -14,8 +14,8 @@ fn client_can_transfer_asset_to_another_account() {
     let pipeline_time = Configuration::pipeline_time();
 
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
-    let account1_id = AccountId::new("account1", "domain");
-    let account2_id = AccountId::new("account2", "domain");
+    let account1_id = AccountId::test("account1", "domain");
+    let account2_id = AccountId::test("account2", "domain");
     let create_account1 = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(
             account1_id.clone(),
@@ -34,7 +34,7 @@ fn client_can_transfer_asset_to_another_account() {
         )
         .into(),
     ));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain");
+    let asset_definition_id = AssetDefinitionId::test("xor", "domain");
     let quantity: u32 = 200;
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),

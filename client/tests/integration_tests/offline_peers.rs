@@ -13,7 +13,7 @@ fn genesis_block_is_commited_with_some_offline_peers() {
     wait_for_genesis_committed(network.clients(), 1);
 
     //When
-    let alice_id = AccountId::new("alice", "wonderland");
+    let alice_id = AccountId::test("alice", "wonderland");
     let alice_has_roses = 13;
 
     //Then
@@ -22,7 +22,7 @@ fn genesis_block_is_commited_with_some_offline_peers() {
         .expect("Failed to execute request.");
     let asset = assets
         .iter()
-        .find(|asset| asset.id.definition_id == AssetDefinitionId::new("rose", "wonderland"))
+        .find(|asset| asset.id.definition_id == AssetDefinitionId::test("rose", "wonderland"))
         .unwrap();
     assert_eq!(AssetValue::Quantity(alice_has_roses), asset.value);
 }

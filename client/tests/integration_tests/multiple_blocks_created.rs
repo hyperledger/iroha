@@ -18,7 +18,7 @@ fn long_multiple_blocks_created() {
     let pipeline_time = Configuration::pipeline_time();
 
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
-    let account_id = AccountId::new("account", "domain");
+    let account_id = AccountId::test("account", "domain");
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(
             account_id.clone(),
@@ -28,7 +28,7 @@ fn long_multiple_blocks_created() {
         )
         .into(),
     ));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain");
+    let asset_definition_id = AssetDefinitionId::test("xor", "domain");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));

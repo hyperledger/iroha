@@ -277,13 +277,13 @@ impl GenesisTransaction {
     pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Self {
         Self {
             isi: vec![
-                RegisterBox::new(IdentifiableBox::from(Domain::new(DomainId::new(
+                RegisterBox::new(IdentifiableBox::from(Domain::new(DomainId::test(
                     domain_name,
                 ))))
                 .into(),
                 RegisterBox::new(IdentifiableBox::NewAccount(
                     NewAccount::with_signatory(
-                        iroha_data_model::account::Id::new(account_name, domain_name),
+                        iroha_data_model::account::Id::test(account_name, domain_name),
                         public_key.clone(),
                     )
                     .into(),
