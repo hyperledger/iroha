@@ -502,7 +502,7 @@ mod tests {
         .execute(account_id, &wsv)?;
         let asset = wsv.asset(&asset_id)?;
         let metadata: &Metadata = asset.try_as_ref()?;
-        let bytes = metadata.get("Bytes").cloned();
+        let bytes = metadata.get(&Name::new("Bytes")).cloned();
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
@@ -525,7 +525,7 @@ mod tests {
         )
         .execute(account_id.clone(), &wsv)?;
         let bytes = wsv.map_account(&account_id, |account| {
-            account.metadata.get("Bytes").cloned()
+            account.metadata.get(&Name::new("Bytes")).cloned()
         })?;
         assert_eq!(
             bytes,
@@ -553,7 +553,7 @@ mod tests {
             .asset_definition_entry(&definition_id)?
             .definition
             .metadata
-            .get("Bytes")
+            .get(&Name::new("Bytes"))
             .cloned();
         assert_eq!(
             bytes,
@@ -577,7 +577,11 @@ mod tests {
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
-        let bytes = wsv.domain(&domain_id)?.metadata.get("Bytes").cloned();
+        let bytes = wsv
+            .domain(&domain_id)?
+            .metadata
+            .get(&Name::new("Bytes"))
+            .cloned();
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![

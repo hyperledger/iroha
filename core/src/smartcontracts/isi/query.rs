@@ -246,13 +246,13 @@ mod tests {
         let mut store = Metadata::new();
         store
             .insert_with_limits(
-                "Bytes".to_owned(),
+                Name::new("Bytes"),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             )
             .unwrap();
         wsv.add_asset(Asset::new(asset_id.clone(), AssetValue::Store(store)))?;
-        let bytes = FindAssetKeyValueByIdAndKey::new(asset_id, "Bytes".to_owned()).execute(&wsv)?;
+        let bytes = FindAssetKeyValueByIdAndKey::new(asset_id, Name::new("Bytes")).execute(&wsv)?;
         assert_eq!(
             bytes,
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
@@ -265,7 +265,7 @@ mod tests {
         let wsv = WorldStateView::new(world_with_test_domains());
         wsv.modify_account(&ALICE_ID, |account| {
             account.metadata.insert_with_limits(
-                "Bytes".to_string(),
+                Name::new("Bytes"),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             )?;
@@ -316,7 +316,7 @@ mod tests {
     fn domain_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains());
         let domain_id = DomainId::new("wonderland");
-        let key = "Bytes".to_owned();
+        let key = Name::new("Bytes");
         wsv.modify_domain(&domain_id, |domain| {
             domain.metadata.insert_with_limits(
                 key.clone(),

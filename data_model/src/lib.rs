@@ -5,12 +5,13 @@
 
 use std::{
     error,
-    fmt::Debug,
+    fmt::{self, Debug},
     ops::RangeInclusive,
+    str,
     time::{Duration, SystemTime},
 };
 
-use eyre::{eyre, Result, WrapErr};
+use eyre::{eyre, Error, Result, WrapErr};
 use iroha_crypto::{Hash, PublicKey};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_schema::IntoSchema;
@@ -32,7 +33,51 @@ pub mod transaction;
 
 /// `Name` struct represents type for Iroha Entities names, like [`Domain`](`domain::Domain`)'s name or [`Account`](`account::Account`)'s
 /// name.
-pub type Name = String;
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+)]
+pub struct Name(String);
+
+impl Name {
+    /// Constructor.
+    #[inline]
+    #[allow(clippy::expect_used)]
+    pub fn new(valid_str: &str) -> Self {
+        valid_str
+            .parse::<Self>()
+            .expect("Valid names never fail to parse")
+    }
+
+    /// Provide an access to the inner `String`.
+    pub fn inner(&self) -> &String {
+        &self.0
+    }
+}
+
+impl str::FromStr for Name {
+    type Err = Error;
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
+        // SATO whitespace validation
+        Ok(Self(str.to_owned()))
+    }
+}
+
+impl fmt::Display for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// Represents a sequence of bytes. Used for storing encoded data.
 pub type Bytes = Vec<u8>;
@@ -181,6 +226,8 @@ pub enum Value {
     Bool(bool),
     /// [`String`] value.
     String(String),
+    /// [`Name`] value.
+    Name(Name),
     /// [`Fixed`] value
     Fixed(fixed::Fixed),
     /// [`Vec`] of `Value`.
@@ -217,7 +264,8 @@ impl Value {
 
         match self {
             U32(_) | U128(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
-            | String(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_) | Hash(_) => 1_usize,
+            | String(_) | Name(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_)
+            | Hash(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
@@ -764,7 +812,7 @@ pub mod account {
         /// Fails if limit check fails
         pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
             let range = range.into();
-            if range.contains(&self.id.name.chars().count()) {
+            if range.contains(&self.id.name.inner().chars().count()) {
                 Ok(())
             } else {
                 Err(eyre!(
@@ -910,7 +958,7 @@ pub mod account {
         #[inline]
         pub fn new(name: &str, domain_name: &str) -> Self {
             Id {
-                name: name.to_owned(),
+                name: Name::new(name),
                 domain_id: DomainId::new(domain_name),
             }
         }
@@ -919,7 +967,7 @@ pub mod account {
         #[inline]
         pub fn genesis() -> Self {
             Id {
-                name: GENESIS_ACCOUNT_NAME.to_owned(),
+                name: Name::new(GENESIS_ACCOUNT_NAME),
                 domain_id: DomainId::new(GENESIS_DOMAIN_NAME),
             }
         }
@@ -952,7 +1000,7 @@ pub mod account {
                 return Err(eyre!("Id should have format `name@domain_name`"));
             }
             Ok(Id {
-                name: String::from(vector[0]),
+                name: Name::new(vector[0]),
                 domain_id: DomainId::new(vector[1]),
             })
         }
@@ -1326,7 +1374,7 @@ pub mod asset {
         /// Fails if limit check fails
         pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
             let range = range.into();
-            if range.contains(&self.id.name.len()) {
+            if range.contains(&self.id.name.inner().len()) {
                 Ok(())
             } else {
                 Err(eyre!(
@@ -1371,7 +1419,7 @@ pub mod asset {
         /// Fails if limit check fails
         pub fn with_parameter(
             id: Id,
-            key: String,
+            key: Name,
             value: Value,
             limits: MetadataLimits,
         ) -> Result<Self> {
@@ -1419,7 +1467,7 @@ pub mod asset {
         #[inline]
         pub fn new(name: &str, domain_name: &str) -> Self {
             DefinitionId {
-                name: name.to_owned(),
+                name: Name::new(name),
                 domain_id: DomainId::new(domain_name),
             }
         }
@@ -1493,7 +1541,7 @@ pub mod asset {
                 ));
             }
             Ok(DefinitionId {
-                name: String::from(vector[0]),
+                name: Name::new(vector[0]),
                 domain_id: DomainId::new(vector[1]),
             })
         }
@@ -1632,7 +1680,7 @@ pub mod domain {
         /// Fails if limit check fails
         pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
             let range = range.into();
-            if range.contains(&self.id.name.len()) {
+            if range.contains(&self.id.name.inner().len()) {
                 Ok(())
             } else {
                 Err(eyre!(
@@ -1696,7 +1744,7 @@ pub mod domain {
         #[inline]
         pub fn new(name: &str) -> Self {
             Id {
-                name: name.to_owned(),
+                name: Name::new(name),
             }
         }
     }

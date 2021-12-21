@@ -1660,6 +1660,7 @@ dependencies = [
  "iroha_core",
  "iroha_data_model",
  "iroha_macro",
+ "once_cell",
 ]
 
 [[package]]

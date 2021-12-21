@@ -693,7 +693,7 @@ mod tests {
             _instruction: &Instruction,
             _wsv: &WorldStateView<W>,
         ) -> Result<(), super::DenialReason> {
-            if authority.name == "alice" {
+            if authority.name.inner() == "alice" {
                 Err("Alice account is denied.".to_owned())
             } else {
                 Ok(())
@@ -710,7 +710,7 @@ mod tests {
             _instruction: &Instruction,
             _wsv: &WorldStateView<W>,
         ) -> Result<PermissionToken, String> {
-            Ok(PermissionToken::new("token", BTreeMap::new()))
+            Ok(PermissionToken::new(Name::new("token"), BTreeMap::new()))
         }
     }
 
@@ -781,9 +781,10 @@ mod tests {
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
         let mut domain = Domain::test("test");
         let mut bob_account = Account::new(bob_id.clone());
-        let _ = bob_account
-            .permission_tokens
-            .insert(PermissionToken::new("token", BTreeMap::default()));
+        let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+            Name::new("token"),
+            BTreeMap::default(),
+        ));
         domain.accounts.insert(bob_id.clone(), bob_account);
         let domains = vec![(DomainId::new("test"), domain)];
         let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));

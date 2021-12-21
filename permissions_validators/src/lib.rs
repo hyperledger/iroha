@@ -17,6 +17,7 @@ use iroha_core::{
 };
 use iroha_data_model::{isi::*, prelude::*};
 use iroha_macro::error::ErrorTryFromEnum;
+use once_cell::sync::Lazy;
 
 macro_rules! impl_from_item_for_instruction_validator_box {
     ( $ty:ty ) => {
@@ -127,7 +128,8 @@ pub mod private_blockchain {
         use super::*;
 
         /// Can register domains permission token name.
-        pub const CAN_REGISTER_DOMAINS_TOKEN: &str = "can_register_domains";
+        pub static CAN_REGISTER_DOMAINS_TOKEN: Lazy<Name> =
+            Lazy::new(|| Name::new("can_register_domains"));
 
         /// Prohibits registering domains.
         #[derive(Debug, Copy, Clone)]
@@ -165,7 +167,7 @@ pub mod private_blockchain {
                 _wsv: &WorldStateView<W>,
             ) -> Result<PermissionToken, String> {
                 Ok(PermissionToken::new(
-                    CAN_REGISTER_DOMAINS_TOKEN,
+                    CAN_REGISTER_DOMAINS_TOKEN.clone(),
                     BTreeMap::new(),
                 ))
             }
@@ -579,11 +581,12 @@ pub mod public_blockchain {
     use super::*;
 
     /// Origin asset id param used in permission tokens.
-    pub const ASSET_ID_TOKEN_PARAM_NAME: &str = "asset_id";
+    pub static ASSET_ID_TOKEN_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::new("asset_id"));
     /// Origin account id param used in permission tokens.
-    pub const ACCOUNT_ID_TOKEN_PARAM_NAME: &str = "account_id";
+    pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::new("account_id"));
     /// Origin asset definition param used in permission tokens.
-    pub const ASSET_DEFINITION_ID_TOKEN_PARAM_NAME: &str = "asset_definition_id";
+    pub static ASSET_DEFINITION_ID_TOKEN_PARAM_NAME: Lazy<Name> =
+        Lazy::new(|| Name::new("asset_definition_id"));
 
     /// A preconfigured set of permissions for simple use cases.
     pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
@@ -649,16 +652,16 @@ pub mod public_blockchain {
     ) -> Result<(), String> {
         let account_id = if let Value::Id(IdBox::AccountId(account_id)) = permission_token
             .params
-            .get(ACCOUNT_ID_TOKEN_PARAM_NAME)
+            .get(&ACCOUNT_ID_TOKEN_PARAM_NAME.clone())
             .ok_or(format!(
                 "Failed to find permission param {}.",
-                ACCOUNT_ID_TOKEN_PARAM_NAME
+                ACCOUNT_ID_TOKEN_PARAM_NAME.clone()
             ))? {
             account_id
         } else {
             return Err(format!(
                 "Permission param {} is not an AccountId.",
-                ACCOUNT_ID_TOKEN_PARAM_NAME
+                ACCOUNT_ID_TOKEN_PARAM_NAME.clone()
             ));
         };
         if account_id != authority {
@@ -678,16 +681,16 @@ pub mod public_blockchain {
     ) -> Result<(), String> {
         let asset_id = if let Value::Id(IdBox::AssetId(asset_id)) = permission_token
             .params
-            .get(ASSET_ID_TOKEN_PARAM_NAME)
+            .get(&ASSET_ID_TOKEN_PARAM_NAME.clone())
             .ok_or(format!(
                 "Failed to find permission param {}.",
-                ASSET_ID_TOKEN_PARAM_NAME
+                ASSET_ID_TOKEN_PARAM_NAME.clone()
             ))? {
             asset_id
         } else {
             return Err(format!(
                 "Permission param {} is not an AssetId.",
-                ASSET_ID_TOKEN_PARAM_NAME
+                ASSET_ID_TOKEN_PARAM_NAME.clone()
             ));
         };
         if &asset_id.account_id != authority {
@@ -709,16 +712,16 @@ pub mod public_blockchain {
         let definition_id = if let Value::Id(IdBox::AssetDefinitionId(definition_id)) =
             permission_token
                 .params
-                .get(ASSET_DEFINITION_ID_TOKEN_PARAM_NAME)
+                .get(&ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone())
                 .ok_or(format!(
                     "Failed to find permission param {}.",
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone()
                 ))? {
             definition_id
         } else {
             return Err(format!(
                 "Permission param {} is not an AssetDefinitionId.",
-                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME
+                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone()
             ));
         };
         let registered_by_signer_account = wsv
@@ -739,7 +742,8 @@ pub mod public_blockchain {
         use super::*;
 
         /// Can transfer user's assets permission token name.
-        pub const CAN_TRANSFER_USER_ASSETS_TOKEN: &str = "can_transfer_user_assets";
+        pub static CAN_TRANSFER_USER_ASSETS_TOKEN: Lazy<Name> =
+            Lazy::new(|| Name::new("can_transfer_user_assets"));
 
         /// Checks that account transfers only the assets that he owns.
         #[derive(Debug, Copy, Clone)]
@@ -801,7 +805,10 @@ pub mod public_blockchain {
                 };
                 let mut params = BTreeMap::new();
                 params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), source_id.into());
-                Ok(PermissionToken::new(CAN_TRANSFER_USER_ASSETS_TOKEN, params))
+                Ok(PermissionToken::new(
+                    CAN_TRANSFER_USER_ASSETS_TOKEN.clone(),
+                    params,
+                ))
             }
         }
 
@@ -825,7 +832,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_TRANSFER_USER_ASSETS_TOKEN {
+                if permission_token.name != CAN_TRANSFER_USER_ASSETS_TOKEN.clone() {
                     return Err("Grant instruction is not for transfer permission.".to_owned());
                 }
                 check_asset_owner_for_token(&permission_token, authority)
@@ -839,8 +846,8 @@ pub mod public_blockchain {
         use super::*;
 
         /// Can unregister asset with the corresponding asset definition.
-        pub const CAN_UNREGISTER_ASSET_WITH_DEFINITION: &str =
-            "can_unregister_asset_with_definition";
+        pub static CAN_UNREGISTER_ASSET_WITH_DEFINITION: Lazy<Name> =
+            Lazy::new(|| Name::new("can_unregister_asset_with_definition"));
 
         /// Checks that account can unregister only the assets which were registered by this account in the first place.
         #[derive(Debug, Copy, Clone)]
@@ -908,11 +915,11 @@ pub mod public_blockchain {
                 };
                 let mut params = BTreeMap::new();
                 params.insert(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
                     object_id.into(),
                 );
                 Ok(PermissionToken::new(
-                    CAN_UNREGISTER_ASSET_WITH_DEFINITION,
+                    CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone(),
                     params,
                 ))
             }
@@ -938,7 +945,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_UNREGISTER_ASSET_WITH_DEFINITION {
+                if permission_token.name != CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone() {
                     return Err("Grant instruction is not for unregister permission.".to_owned());
                 }
                 check_asset_creator_for_token(&permission_token, authority, wsv)
@@ -952,7 +959,8 @@ pub mod public_blockchain {
         use super::*;
 
         /// Can mint asset with the corresponding asset definition.
-        pub const CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN: &str = "can_mint_user_asset_definitions";
+        pub static CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN: Lazy<Name> =
+            Lazy::new(|| Name::new("can_mint_user_asset_definitions"));
 
         /// Checks that account can mint only the assets which were registered by this account.
         #[derive(Debug, Copy, Clone)]
@@ -1024,7 +1032,7 @@ pub mod public_blockchain {
                     asset_id.definition_id.into(),
                 );
                 Ok(PermissionToken::new(
-                    CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
+                    CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone(),
                     params,
                 ))
             }
@@ -1050,7 +1058,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN {
+                if permission_token.name != CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone() {
                     return Err("Grant instruction is not for mint permission.".to_owned());
                 }
                 check_asset_creator_for_token(&permission_token, authority, wsv)
@@ -1064,9 +1072,11 @@ pub mod public_blockchain {
         use super::*;
 
         /// Can burn asset with the corresponding asset definition.
-        pub const CAN_BURN_ASSET_WITH_DEFINITION: &str = "can_burn_asset_with_definition";
+        pub static CAN_BURN_ASSET_WITH_DEFINITION: Lazy<Name> =
+            Lazy::new(|| Name::new("can_burn_asset_with_definition"));
         /// Can burn user's assets permission token name.
-        pub const CAN_BURN_USER_ASSETS_TOKEN: &str = "can_burn_user_assets";
+        pub static CAN_BURN_USER_ASSETS_TOKEN: Lazy<Name> =
+            Lazy::new(|| Name::new("can_burn_user_assets"));
 
         /// Checks that account can burn only the assets which were registered by this account.
         #[derive(Debug, Copy, Clone)]
@@ -1137,7 +1147,10 @@ pub mod public_blockchain {
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     asset_id.definition_id.into(),
                 );
-                Ok(PermissionToken::new(CAN_BURN_ASSET_WITH_DEFINITION, params))
+                Ok(PermissionToken::new(
+                    CAN_BURN_ASSET_WITH_DEFINITION.clone(),
+                    params,
+                ))
             }
         }
 
@@ -1161,7 +1174,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_BURN_ASSET_WITH_DEFINITION {
+                if permission_token.name != CAN_BURN_ASSET_WITH_DEFINITION.clone() {
                     return Err("Grant instruction is not for burn permission.".to_owned());
                 }
                 check_asset_creator_for_token(&permission_token, authority, wsv)
@@ -1227,7 +1240,10 @@ pub mod public_blockchain {
                 };
                 let mut params = BTreeMap::new();
                 params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), destination_id.into());
-                Ok(PermissionToken::new(CAN_BURN_USER_ASSETS_TOKEN, params))
+                Ok(PermissionToken::new(
+                    CAN_BURN_USER_ASSETS_TOKEN.clone(),
+                    params,
+                ))
             }
         }
 
@@ -1251,7 +1267,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_BURN_USER_ASSETS_TOKEN {
+                if permission_token.name != CAN_BURN_USER_ASSETS_TOKEN.clone() {
                     return Err("Grant instruction is not for burn permission.".to_owned());
                 }
                 check_asset_owner_for_token(&permission_token, authority)?;
@@ -1266,22 +1282,25 @@ pub mod public_blockchain {
         use super::*;
 
         /// Can set key value in user's assets permission token name.
-        pub const CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN: &str = "can_set_key_value_in_user_assets";
+        pub static CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN: Lazy<Name> =
+            Lazy::new(|| Name::new("can_set_key_value_in_user_assets"));
         /// Can remove key value in user's assets permission token name.
-        pub const CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS: &str = "can_remove_key_value_in_user_assets";
+        pub static CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS: Lazy<Name> =
+            Lazy::new(|| Name::new("can_remove_key_value_in_user_assets"));
         /// Can burn user's assets permission token name.
-        pub const CAN_SET_KEY_VALUE_IN_USER_METADATA: &str = "can_set_key_value_in_user_metadata";
+        pub static CAN_SET_KEY_VALUE_IN_USER_METADATA: Lazy<Name> =
+            Lazy::new(|| Name::new("can_set_key_value_in_user_metadata"));
         /// Can burn user's assets permission token name.
-        pub const CAN_REMOVE_KEY_VALUE_IN_USER_METADATA: &str =
-            "can_remove_key_value_in_user_metadata";
+        pub static CAN_REMOVE_KEY_VALUE_IN_USER_METADATA: Lazy<Name> =
+            Lazy::new(|| Name::new("can_remove_key_value_in_user_metadata"));
         /// Can set key value in the corresponding asset definition.
-        pub const CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION: &str =
-            "can_set_key_value_in_asset_definition";
+        pub static CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION: Lazy<Name> =
+            Lazy::new(|| Name::new("can_set_key_value_in_asset_definition"));
         /// Can remove key value in the corresponding asset definition.
-        pub const CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION: &str =
-            "can_remove_key_value_in_asset_definition";
+        pub static CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION: Lazy<Name> =
+            Lazy::new(|| Name::new("can_remove_key_value_in_asset_definition"));
         /// Target account id for setting and removing key value permission tokens.
-        pub const ACCOUNT_ID_TOKEN_PARAM_NAME: &str = "account_id";
+        pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::new("account_id"));
 
         /// Checks that account can set keys for assets only for the signer account.
         #[derive(Debug, Copy, Clone)]
@@ -1346,7 +1365,7 @@ pub mod public_blockchain {
                 let mut params = BTreeMap::new();
                 params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
-                    CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN,
+                    CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN.clone(),
                     params,
                 ))
             }
@@ -1372,7 +1391,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN {
+                if permission_token.name != CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN.clone() {
                     return Err("Grant instruction is not for set permission.".to_owned());
                 }
                 check_asset_owner_for_token(&permission_token, authority)?;
@@ -1442,7 +1461,7 @@ pub mod public_blockchain {
                 let mut params = BTreeMap::new();
                 params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
-                    CAN_SET_KEY_VALUE_IN_USER_METADATA,
+                    CAN_SET_KEY_VALUE_IN_USER_METADATA.clone(),
                     params,
                 ))
             }
@@ -1468,7 +1487,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_SET_KEY_VALUE_IN_USER_METADATA {
+                if permission_token.name != CAN_SET_KEY_VALUE_IN_USER_METADATA.clone() {
                     return Err("Grant instruction is not for set permission.".to_owned());
                 }
                 check_account_owner_for_token(&permission_token, authority)?;
@@ -1537,7 +1556,7 @@ pub mod public_blockchain {
                 let mut params = BTreeMap::new();
                 params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
-                    CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS,
+                    CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS.clone(),
                     params,
                 ))
             }
@@ -1563,7 +1582,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS {
+                if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS.clone() {
                     return Err("Grant instruction is not for set permission.".to_owned());
                 }
                 check_asset_owner_for_token(&permission_token, authority)?;
@@ -1633,7 +1652,7 @@ pub mod public_blockchain {
                 let mut params = BTreeMap::new();
                 params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
                 Ok(PermissionToken::new(
-                    CAN_REMOVE_KEY_VALUE_IN_USER_METADATA,
+                    CAN_REMOVE_KEY_VALUE_IN_USER_METADATA.clone(),
                     params,
                 ))
             }
@@ -1659,7 +1678,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_METADATA {
+                if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_METADATA.clone() {
                     return Err("Grant instruction is not for remove permission.".to_owned());
                 }
                 check_account_owner_for_token(&permission_token, authority)?;
@@ -1687,7 +1706,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION {
+                if permission_token.name != CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION.clone() {
                     return Err(
                         "Grant instruction is not for set key value in asset definition permission."
                             .to_owned(),
@@ -1717,7 +1736,7 @@ pub mod public_blockchain {
                     .map_err(|e| e.to_string())?
                     .try_into()
                     .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-                if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION {
+                if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION.clone() {
                     return Err(
                         "Grant instruction is not for remove key value in asset definition permission."
                             .to_owned(),
@@ -1840,7 +1859,7 @@ pub mod public_blockchain {
                     object_id.into(),
                 );
                 Ok(PermissionToken::new(
-                    CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION,
+                    CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION.clone(),
                     params,
                 ))
             }
@@ -1879,7 +1898,7 @@ pub mod public_blockchain {
                     object_id.into(),
                 );
                 Ok(PermissionToken::new(
-                    CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION,
+                    CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION.clone(),
                     params,
                 ))
             }
@@ -1931,9 +1950,9 @@ pub mod public_blockchain {
             let mut domain = Domain::test("test");
             let mut bob_account = Account::new(bob_id.clone());
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
-                transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
+                transfer::CAN_TRANSFER_USER_ASSETS_TOKEN.clone(),
                 [(
-                    ASSET_ID_TOKEN_PARAM_NAME.to_string(),
+                    ASSET_ID_TOKEN_PARAM_NAME.clone(),
                     alice_xor_id.clone().into(),
                 )],
             ));
@@ -1959,7 +1978,7 @@ pub mod public_blockchain {
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let permission_token_to_alice = PermissionToken::new(
-                transfer::CAN_TRANSFER_USER_ASSETS_TOKEN,
+                transfer::CAN_TRANSFER_USER_ASSETS_TOKEN.clone(),
                 [(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), alice_xor_id.into())],
             );
             let wsv = WorldStateView::<World>::new(World::new());
@@ -2016,9 +2035,9 @@ pub mod public_blockchain {
             let mut domain = Domain::test("test");
             let mut bob_account = Account::new(bob_id.clone());
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
-                unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION,
+                unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone(),
                 [(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
                     xor_id.clone().into(),
                 )],
             ));
@@ -2045,7 +2064,7 @@ pub mod public_blockchain {
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = new_xor_definition(&xor_id);
             let permission_token_to_alice = PermissionToken::new(
-                unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION,
+                unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone(),
                 [(
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     xor_id.clone().into(),
@@ -2119,9 +2138,9 @@ pub mod public_blockchain {
             let mut domain = Domain::test("test");
             let mut bob_account = Account::new(bob_id.clone());
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
-                mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
+                mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone(),
                 [(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
                     xor_id.clone().into(),
                 )],
             ));
@@ -2150,7 +2169,7 @@ pub mod public_blockchain {
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = new_xor_definition(&xor_id);
             let permission_token_to_alice = PermissionToken::new(
-                mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN,
+                mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone(),
                 [(
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     xor_id.clone().into(),
@@ -2223,9 +2242,9 @@ pub mod public_blockchain {
             let mut domain = Domain::test("test");
             let mut bob_account = Account::new(bob_id.clone());
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
-                burn::CAN_BURN_ASSET_WITH_DEFINITION,
+                burn::CAN_BURN_ASSET_WITH_DEFINITION.clone(),
                 [(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_string(),
+                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
                     xor_id.clone().into(),
                 )],
             ));
@@ -2254,7 +2273,7 @@ pub mod public_blockchain {
             let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test");
             let xor_definition = new_xor_definition(&xor_id);
             let permission_token_to_alice = PermissionToken::new(
-                burn::CAN_BURN_ASSET_WITH_DEFINITION,
+                burn::CAN_BURN_ASSET_WITH_DEFINITION.clone(),
                 [(
                     ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
                     xor_id.clone().into(),
@@ -2301,9 +2320,9 @@ pub mod public_blockchain {
             let mut domain = Domain::test("test");
             let mut bob_account = Account::new(bob_id.clone());
             let _ = bob_account.permission_tokens.insert(PermissionToken::new(
-                burn::CAN_BURN_USER_ASSETS_TOKEN,
+                burn::CAN_BURN_USER_ASSETS_TOKEN.clone(),
                 [(
-                    ASSET_ID_TOKEN_PARAM_NAME.to_string(),
+                    ASSET_ID_TOKEN_PARAM_NAME.clone(),
                     alice_xor_id.clone().into(),
                 )],
             ));
@@ -2328,7 +2347,7 @@ pub mod public_blockchain {
             let alice_xor_id =
                 <Asset as Identifiable>::Id::from_names("xor", "test", "alice", "test");
             let permission_token_to_alice = PermissionToken::new(
-                burn::CAN_BURN_USER_ASSETS_TOKEN,
+                burn::CAN_BURN_USER_ASSETS_TOKEN.clone(),
                 [(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), alice_xor_id.into())],
             );
             let wsv = WorldStateView::<World>::new(World::new());
