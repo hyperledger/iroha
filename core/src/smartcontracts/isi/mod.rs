@@ -496,7 +496,7 @@ mod tests {
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
         SetKeyValueBox::new(
             IdBox::from(asset_id.clone()),
-            "Bytes".to_owned(),
+            Name::test("Bytes"),
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
@@ -520,7 +520,7 @@ mod tests {
         let account_id = AccountId::test("alice", "wonderland");
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
-            "Bytes".to_owned(),
+            Name::test("Bytes"),
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id.clone(), &wsv)?;
@@ -545,7 +545,7 @@ mod tests {
         let account_id = AccountId::test("alice", "wonderland");
         SetKeyValueBox::new(
             IdBox::from(definition_id.clone()),
-            "Bytes".to_owned(),
+            Name::test("Bytes"),
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
@@ -573,7 +573,7 @@ mod tests {
         let account_id = AccountId::test("alice", "wonderland");
         SetKeyValueBox::new(
             IdBox::from(domain_id.clone()),
-            "Bytes".to_owned(),
+            Name::test("Bytes"),
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;

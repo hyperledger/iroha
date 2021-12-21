@@ -272,7 +272,7 @@ mod tests {
             )?;
             Ok(())
         })?;
-        let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), "Bytes".to_owned())
+        let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::test("Bytes"))
             .execute(&wsv)?;
         assert_eq!(
             bytes,

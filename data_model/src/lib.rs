@@ -34,18 +34,7 @@ pub mod transaction;
 /// `Name` struct represents type for Iroha Entities names, like [`Domain`](`domain::Domain`)'s name or [`Account`](`account::Account`)'s
 /// name.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 pub struct Name(String);
 
@@ -97,6 +86,12 @@ impl str::FromStr for Name {
             return Err(eyre!("Name must have no whitespaces"));
         }
         Ok(Self(str.to_owned()))
+    }
+}
+
+impl Debug for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.0)
     }
 }
 
