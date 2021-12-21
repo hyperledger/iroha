@@ -50,16 +50,24 @@ pub mod transaction;
 pub struct Name(String);
 
 impl Name {
-    /// Constructor.
+    /// Construct [`Name`] if `name` is valid.
+    ///
+    /// # Errors
+    /// Fails if parsing fails
+    #[inline]
+    pub fn new(name: &str) -> Result<Self> {
+        name.parse::<Self>()
+    }
+
+    /// Instantly construct [`Name`] assuming `name` is valid.
     #[inline]
     #[allow(clippy::expect_used)]
-    pub fn test(valid_str: &str) -> Self {
-        valid_str
-            .parse::<Self>()
+    pub fn test(name: &str) -> Self {
+        name.parse::<Self>()
             .expect("Valid names never fail to parse")
     }
 
-    /// Provide an access to the inner `String`.
+    /// Provide an access to the inner `String` of this [`Name`].
     pub fn inner(&self) -> &String {
         &self.0
     }
@@ -68,7 +76,9 @@ impl Name {
 impl str::FromStr for Name {
     type Err = Error;
     fn from_str(str: &str) -> Result<Self, Self::Err> {
-        // SATO whitespace validation
+        if str.chars().any(char::is_whitespace) {
+            return Err(eyre!("Name must have no whitespaces"));
+        }
         Ok(Self(str.to_owned()))
     }
 }
@@ -953,8 +963,19 @@ pub mod account {
     }
 
     impl Id {
-        /// `Id` constructor used to easily create an `Id` from two string slices - one for the
-        /// account's name, another one for the container's name.
+        /// Construct [`Id`] from an account `name` and a `domain_name` if these names are valid.
+        ///
+        /// # Errors
+        /// Fails if any sub-construction fails
+        #[inline]
+        pub fn new(name: &str, domain_name: &str) -> Result<Self> {
+            Ok(Id {
+                name: Name::new(name)?,
+                domain_id: DomainId::new(domain_name)?,
+            })
+        }
+
+        /// Instantly construct [`Id`] from an account `name` and a `domain_name` assuming these names are valid.
         #[inline]
         pub fn test(name: &str, domain_name: &str) -> Self {
             Id {
@@ -963,7 +984,7 @@ pub mod account {
             }
         }
 
-        /// `Id` of the genesis account.
+        /// Construct [`Id`] of the genesis account.
         #[inline]
         pub fn genesis() -> Self {
             Id {
@@ -1462,8 +1483,19 @@ pub mod asset {
     }
 
     impl DefinitionId {
-        /// [`Id`] constructor used to easily create an [`Id`] from three string slices - one for the
-        /// asset definition's name, another one for the domain's name.
+        /// Construct [`Id`] from an asset definition `name` and a `domain_name` if these names are valid.
+        ///
+        /// # Errors
+        /// Fails if any sub-construction fails
+        #[inline]
+        pub fn new(name: &str, domain_name: &str) -> Result<Self> {
+            Ok(DefinitionId {
+                name: Name::new(name)?,
+                domain_id: DomainId::new(domain_name)?,
+            })
+        }
+
+        /// Instantly construct [`Id`] from an asset definition `name` and a `domain_name` assuming these names are valid.
         #[inline]
         pub fn test(name: &str, domain_name: &str) -> Self {
             DefinitionId {
@@ -1474,11 +1506,28 @@ pub mod asset {
     }
 
     impl Id {
-        /// [`Id`] constructor used to easily create an [`Id`] from an names of asset definition and
-        /// account.
+        /// Construct [`Id`] from names which constitute [`DefinitionId`] and [`AccountId`] if these names are valid.
+        ///
+        /// # Errors
+        /// Fails if any sub-construction fails
         #[inline]
-        // SATO
-        // pub fn from_names(
+        pub fn from_names(
+            asset_definition_name: &str,
+            asset_definition_domain_name: &str,
+            account_name: &str,
+            account_domain_name: &str,
+        ) -> Result<Self> {
+            Ok(Id {
+                definition_id: DefinitionId::new(
+                    asset_definition_name,
+                    asset_definition_domain_name,
+                )?,
+                account_id: AccountId::new(account_name, account_domain_name)?,
+            })
+        }
+
+        /// Instantly construct [`Id`] from names which constitute [`DefinitionId`] and [`AccountId`] assuming these names are valid.
+        #[inline]
         pub fn test(
             asset_definition_name: &str,
             asset_definition_domain_name: &str,
@@ -1494,8 +1543,7 @@ pub mod asset {
             }
         }
 
-        /// [`Id`] constructor used to easily create an [`Id`] from an [`DefinitionId`](`crate::asset::DefinitionId`) and
-        /// an [`AccountId`].
+        /// Construct [`Id`] from [`DefinitionId`] and [`AccountId`].
         #[inline]
         pub const fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
             Id {
@@ -1737,12 +1785,23 @@ pub mod domain {
         IntoSchema,
     )]
     pub struct Id {
-        /// Domain name, for example company name
+        /// [`Name`] unique to a [`Domain`] e.g. company name
         pub name: Name,
     }
 
     impl Id {
-        /// Constructor.
+        /// Construct [`Id`] if the given domain `name` is valid.
+        ///
+        /// # Errors
+        /// Fails if any sub-construction fails
+        #[inline]
+        pub fn new(name: &str) -> Result<Self> {
+            Ok(Id {
+                name: Name::new(name)?,
+            })
+        }
+
+        /// Instantly construct [`Id`] assuming the given domain `name` is valid.
         #[inline]
         pub fn test(name: &str) -> Self {
             Id {
