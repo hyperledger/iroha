@@ -57,7 +57,9 @@ where
     pub new_peers: HashMap<ConnectionId, Addr<Peer<T, K, E>>>,
     /// Current [`Peer`]s in [`Peer::Ready`] state.
     pub peers: HashMap<PublicKey, RefPeer<T, K, E>>,
-    /// a [`HashSet`] of [`String`]s representing the hostnames and/or [`std::net::IpAddr`]s of untrusted remote [`Peer`]s: inserted by [`DisconnectPeer`] and removed by [`ConnectPeer`] from Sumeragi
+    /// [`HashSet`] of [`String`] which should represent the [`std::net::IpAddr`] of the untrusted remote [`Peer`]:
+    /// inserted by [`DisconnectPeer`] and removed by [`ConnectPeer`] from Sumeragi.
+    /// In case the [`String`] represents an unresolved hostname, the first reconnection is not refused
     untrusted_peers: HashSet<String>,
     /// [`TcpListener`] that is accepting [`Peer`]s' connections
     pub listener: Option<TcpListener>,
