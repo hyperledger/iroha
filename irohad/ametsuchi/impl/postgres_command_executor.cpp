@@ -1223,20 +1223,12 @@ namespace iroha {
             inserted AS (
               INSERT INTO engine_calls
               (
-<<<<<<< HEAD
                 tx_hash, cmd_index, engine_response, error_response,
-=======
-                tx_hash, cmd_index, engine_response,
->>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
                 callee, created_address
               )
               VALUES
               (
-<<<<<<< HEAD
                 :tx_hash, :cmd_index, :engine_response, :error_response,
-=======
-                :tx_hash, :cmd_index, :engine_response,
->>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
                 :callee, :created_address
               )
               ON CONFLICT (tx_hash, cmd_index)
@@ -1606,7 +1598,6 @@ namespace iroha {
                         perm_converter_);
                     executor.use("tx_hash", tx_hash);
                     executor.use("cmd_index", cmd_index);
-<<<<<<< HEAD
                     executor.use("error_response", std::nullopt);
                     if (command.callee()) {
                       // calling a deployed contract
@@ -1615,14 +1606,6 @@ namespace iroha {
                       executor.use("engine_response", value.value);
                       executor.use("created_address", std::nullopt);
 
-=======
-
-                    if (command.callee()) {
-                      // calling a deployed contract
-                      executor.use("callee", command.callee()->get());
-                      executor.use("engine_response", value.value);
-                      executor.use("created_address", std::nullopt);
->>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
                     } else {
                       // deploying a new contract
                       executor.use("callee", std::nullopt);
@@ -1632,7 +1615,6 @@ namespace iroha {
 
                     return executor.execute();
                   },
-<<<<<<< HEAD
                   [&](auto &&error) -> CommandResult {
                     StatementExecutor executor(
                         store_engine_response_statements_,
@@ -1650,9 +1632,6 @@ namespace iroha {
                     }
                     executor.execute();
                     std::cout <<"error is "<< error.error << std::endl;
-=======
-                  [](auto &&error) -> CommandResult {
->>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
                     return makeCommandError(
                         "CallEngine", 3, std::move(error.error));
                   });

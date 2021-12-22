@@ -1534,10 +1534,7 @@ namespace iroha {
               engine_calls.callee,
               engine_calls.created_address,
               engine_calls.engine_response,
-<<<<<<< HEAD
               engine_calls.error_response,
-=======
->>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
               burrow_tx_logs.log_idx,
               burrow_tx_logs.address,
               burrow_tx_logs.data,
@@ -1616,10 +1613,7 @@ namespace iroha {
                                  auto &payload_callee,
                                  auto &payload_cantract_address,
                                  auto &engine_response,
-<<<<<<< HEAD
                                  auto &error_response,
-=======
->>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
                                  auto &logs_ix,
                                  auto &log_address,
                                  auto &log_data,
