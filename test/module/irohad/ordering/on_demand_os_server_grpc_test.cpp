@@ -134,7 +134,11 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
       std::make_shared<const shared_model::proto::Proposal>(proposal));
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(iproposal))));
+<<<<<<< HEAD
   EXPECT_CALL(*notification, isEmptyBatchesCache()).WillOnce(Return(false));
+=======
+  EXPECT_CALL(*notification, hasEnoughBatchesInCache()).WillOnce(Return(true));
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
 
   grpc::ServerContext context;
   server->RequestProposal(&context, &request, &response);
@@ -162,7 +166,11 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposalNone) {
   proto::ProposalResponse response;
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(std::nullopt))));
+<<<<<<< HEAD
   EXPECT_CALL(*notification, isEmptyBatchesCache()).WillOnce(Return(true));
+=======
+  EXPECT_CALL(*notification, hasEnoughBatchesInCache()).WillOnce(Return(false));
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
 
   grpc::ServerContext context;
   server->RequestProposal(&context, &request, &response);

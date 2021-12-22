@@ -17,5 +17,10 @@ add_subdirectory(multi_sig_transactions)
 add_subdirectory(pending_txs_storage)
 add_subdirectory(util)
 add_subdirectory(maintenance)
+<<<<<<< HEAD
 add_subdirectory(migration-tool)
 add_subdirectory(wsv_checker)
+=======
+add_subdirectory(iroha_migrate)
+add_subdirectory(iroha_wsv_diff)
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d

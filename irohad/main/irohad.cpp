@@ -117,6 +117,13 @@ DEFINE_string(metrics_port,
               "",
               "Prometeus HTTP server listens port, disabled by default");
 
+<<<<<<< HEAD
+=======
+DEFINE_bool(exit_after_init,
+              false,
+              "Use this flag to reindex WSV and exit");
+
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
 std::sig_atomic_t caught_signal = 0;
 std::promise<void> exit_requested;
 
@@ -459,6 +466,13 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
+<<<<<<< HEAD
+=======
+    if(FLAGS_exit_after_init){
+      return EXIT_SUCCESS;
+    }
+
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
     auto handler = [](int s) { caught_signal = s; };
     std::signal(SIGINT, handler);
     std::signal(SIGTERM, handler);

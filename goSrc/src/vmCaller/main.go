@@ -104,7 +104,10 @@ func VmCall(input, caller, callee, nonce *C.const_char, commandExecutor, queryEx
 	output, err := engine.Execute(evmCaller, evmCallee, inputBytes)
 	if err != nil {
 		return makeError(err.Error())
+<<<<<<< HEAD
 	
+=======
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
 	}
 	if output == nil {
 		return nil, nil
@@ -176,9 +179,16 @@ func (w *EngineWrapper) Execute(caller, callee crypto.Address, input []byte) ([]
 		Gas:    &gas,
 	}
 	output, err := w.engine.Execute(w.state, blockchain.New(), w.eventSink, params, calleeAccount.EVMCode)
+<<<<<<< HEAD
 	if err != nil {
 		return nil, fmt.Errorf("Error calling smart contract at address %s: %s %s",
 			callee.String(), err.Error(),iroha.IrohaErrorExtra)
+=======
+
+	if err != nil {
+		return nil, fmt.Errorf("Error calling smart contract at address %s: %s",
+			callee.String(), err.Error())
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
 	}
 
 	return output, nil

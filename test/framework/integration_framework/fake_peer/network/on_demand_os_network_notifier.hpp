@@ -38,6 +38,11 @@ namespace integration_framework::fake_peer {
 
     bool isEmptyBatchesCache() const override;
 
+<<<<<<< HEAD
+=======
+    bool hasEnoughBatchesInCache() const override;
+
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
     bool hasProposal(iroha::consensus::Round round) const override;
 
     void processReceivedProposal(CollectionType batches) override;

@@ -493,7 +493,11 @@ namespace iroha::ametsuchi {
 
       if (!status.ok())
         return makeError<void>(DbErrorCode::kInitializeFailed,
+<<<<<<< HEAD
                                "Db {} initialization failed with status: {}.",
+=======
+                               "Db '{}' initialization failed with status: {}.",
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
                                *db_name_,
                                status.ToString());
 

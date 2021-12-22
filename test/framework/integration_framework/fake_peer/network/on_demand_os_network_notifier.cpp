@@ -56,6 +56,13 @@ namespace integration_framework::fake_peer {
     return true;
   }
 
+<<<<<<< HEAD
+=======
+  bool OnDemandOsNetworkNotifier::hasEnoughBatchesInCache() const {
+    return false;
+  }
+
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
   void OnDemandOsNetworkNotifier::processReceivedProposal(
       CollectionType batches) {}
 

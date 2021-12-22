@@ -252,6 +252,11 @@ namespace iroha::ametsuchi {
           break;
       } while (1);
 
+<<<<<<< HEAD
+=======
+      /// Periodically poll if there new blocks in block_storage
+      /// (on filesystem). When more blocks found, reindex them.
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
       while (wait_for_new_blocks) {
         std::this_thread::sleep_for(kWaitForBlockTime);
         block_query->reloadBlockstore();
@@ -262,7 +267,11 @@ namespace iroha::ametsuchi {
         while (hasError(block_result)
                && (new_last_block > last_block_in_storage)) {
           --new_last_block;
+<<<<<<< HEAD
           auto block_result = block_query->getBlock(new_last_block);
+=======
+          block_result = block_query->getBlock(new_last_block);
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
         };
 
         if (new_last_block > last_block_in_storage) {

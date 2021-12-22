@@ -355,7 +355,10 @@ CREATE TABLE IF NOT EXISTS engine_calls (
     tx_hash text,
     cmd_index bigint,
     engine_response text,
+<<<<<<< HEAD
     error_response text,
+=======
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
     callee varchar(40),
     created_address varchar(40),
     PRIMARY KEY (tx_hash, cmd_index)

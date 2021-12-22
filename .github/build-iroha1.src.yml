@@ -98,6 +98,10 @@ jobs:
           set -x
           [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
 
+<<<<<<< HEAD
+=======
+  ## Just to react to valid comment with rocket
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
   pr_comment_reaction_rocket:
     ## Just to react to valid comment with rocket
     runs-on: ubuntu-20.04 #ubuntu-latest
@@ -141,7 +145,10 @@ jobs:
     if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') ) }}
+<<<<<<< HEAD
     # needs: check_workflow_yaml_coressponds_to_src_yaml
+=======
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
     steps:
       - *step_show_context
       - *step_detect_commented_pr
@@ -156,7 +163,11 @@ jobs:
         if: ${{ steps.comment_body.outcome == 'skipped' }}  ## i.e. not github.event.issue.pull_request
         run: |
           set -x
+<<<<<<< HEAD
           git fetch origin ${{github.event.after}} --depth=2  ## depth=2 to detect if fetched commit is merge commit
+=======
+          git fetch origin ${{github.event.pull_request.head.sha}} --depth=2  ## depth=2 to detect if fetched commit is merge commit
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
           git log -1 FETCH_HEAD
           commit_message_body_build_spec(){
             git log -n1 $1 --format=%B | grep '^/build '
@@ -177,7 +188,12 @@ jobs:
                                 elif commit_was_merged_build_spec   FETCH_HEAD >/tmp/comment_body ;then
                                   true
                                 else
+<<<<<<< HEAD
                                   echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
+=======
+                                  #echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
+                                  echo  >/tmp/comment_body "/build all"
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
                                 fi ;;
             push)               commit_message_body_build_spec >/tmp/comment_body || {
                                   echo "/build ubuntu debug release"
@@ -194,6 +210,7 @@ jobs:
         run: |
           set -x
           cat /tmp/comment_body | .github/chatops-gen-matrix.sh
+<<<<<<< HEAD
 
           echo "::set-output name=buildspec_ubuntu::$(cat buildspec_ubuntu)"
           echo "::set-output name=buildspec_ubuntu_release::$(cat buildspec_ubuntu_release)"
@@ -203,6 +220,8 @@ jobs:
           echo "::set-output name=buildspec_dockerimage_release::$(cat buildspec_dockerimage_release)"
           echo "::set-output name=buildspec_dockerimage_debug::$(cat buildspec_dockerimage_debug)"
 
+=======
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
           echo "::set-output name=matrix_ubuntu::$(cat matrix_ubuntu)"
           echo "::set-output name=matrix_ubuntu_release::$(cat matrix_ubuntu_release)"
           echo "::set-output name=matrix_ubuntu_debug::$(cat matrix_ubuntu_debug)"
@@ -443,7 +462,11 @@ jobs:
   ## Build iroha in a container made of the image earlier prepared
   ## Result artifacts are
   ## - stand-alone irohad (linked statically)
+<<<<<<< HEAD
   ## - iroha.deb (with irohad inside)
+=======
+  ## - iroha.deb (with irohad, migration-tool, wsv_checker inside)
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
   build-UD: &job_ubuntu
     needs:
       - Docker-iroha-builder
@@ -544,7 +567,11 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ${{ env._CCACHE_DIR }}
+<<<<<<< HEAD
           key:          ${{runner.os}}-ccache-${{ github.event.after }}
+=======
+          key:          ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
           restore-keys: ${{runner.os}}-ccache-
       - &step_store_ccache_stats
         run: ccache --show-stats | tee /tmp/ccache-stats
@@ -713,13 +740,23 @@ jobs:
             )
           ) || true
           CTEST_DEFAULT_timeout=80
+<<<<<<< HEAD
           CTEST_module_timeout=100 CTEST_module_parallel=4
           CTEST_tool_timeout=200
+=======
+          CTEST_module_timeout=120 CTEST_module_parallel=4
+          CTEST_tool_timeout=200
+          CTEST_integration_timeout=120
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
           CTEST_integration_args='--repeat until-pass:10'  ## FIXME remove this hack
           CTEST_system_args='--repeat until-pass:10'       ## FIXME remove this hack
 
           for cathegory in ${CTEST_CATHEGORIES[@]} ;do
+<<<<<<< HEAD
             echo ::group::"$cathegory tests"
+=======
+            echo >&2 ::group::"$cathegory tests"
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
             set -x
             timeout_name=CTEST_${cathegory}_timeout;   timeout=${!timeout_name:-$CTEST_DEFAULT_timeout}
             parallel_name=CTEST_${cathegory}_parallel; parallel=${!parallel_name:-}
@@ -728,7 +765,11 @@ jobs:
               | tee ctest_$cathegory.out \
               || true
             set +x
+<<<<<<< HEAD
             echo ::endgroup::
+=======
+            echo >&2 ::endgroup::
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
           done
 
           tests_passed=true
@@ -778,7 +819,11 @@ jobs:
       - *step_env_from_buildspec
       -
         name: Homebrew
+<<<<<<< HEAD
         run: brew install cmake ninja coreutils ccache
+=======
+        run: brew install cmake ninja coreutils ccache bash
+>>>>>>> 52e0d9c8276e896ca5d878fb349bbdfb9257f58d
         ## Takes 22 seconds with default github runner
       -
         if: ${{ contains(env.CC_NAME, 'gcc-10') }}
