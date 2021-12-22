@@ -234,16 +234,23 @@ impl RawGenesisBlock {
         let file = File::open(&path).wrap_err(format!("Failed to open {:?}", &path))?;
         let reader = BufReader::new(file);
         serde_json::from_reader(reader).wrap_err(format!(
-            "Failed to deserialise raw genesis block from {:?}",
+            "Failed to deserialize raw genesis block from {:?}",
             &path
         ))
     }
 
     /// Create a [`RawGenesisBlock`] with specified [`Domain`] and [`NewAccount`].
-    pub fn new(name: &str, domain_name: &str, public_key: &PublicKey) -> Self {
-        RawGenesisBlock {
-            transactions: vec![GenesisTransaction::new(name, domain_name, public_key)],
-        }
+    ///
+    /// # Errors
+    /// Fails if `account_name` or `domain_name` is invalid
+    pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Result<Self> {
+        Ok(RawGenesisBlock {
+            transactions: vec![GenesisTransaction::new(
+                account_name,
+                domain_name,
+                public_key,
+            )?],
+        })
     }
 }
 
@@ -266,7 +273,7 @@ impl GenesisTransaction {
     ) -> Result<VersionedAcceptedTransaction> {
         let transaction = Transaction::new(
             self.isi.clone(),
-            <Account as Identifiable>::Id::genesis_account(),
+            <Account as Identifiable>::Id::genesis(),
             GENESIS_TRANSACTIONS_TTL_MS,
         )
         .sign(genesis_key_pair)?;
@@ -274,20 +281,26 @@ impl GenesisTransaction {
     }
 
     /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`NewAccount`].
-    pub fn new(name: &str, domain: &str, pubkey: &PublicKey) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// Fails if `account_name` or `domain_name` is invalid
+    pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Result<Self> {
+        Ok(Self {
             isi: vec![
-                RegisterBox::new(IdentifiableBox::Domain(Domain::new(domain).into())).into(),
+                RegisterBox::new(IdentifiableBox::from(Domain::new(DomainId::new(
+                    domain_name,
+                )?)))
+                .into(),
                 RegisterBox::new(IdentifiableBox::NewAccount(
                     NewAccount::with_signatory(
-                        iroha_data_model::account::Id::new(name, domain),
-                        pubkey.clone(),
+                        iroha_data_model::account::Id::new(account_name, domain_name)?,
+                        public_key.clone(),
                     )
                     .into(),
                 ))
                 .into(),
             ],
-        }
+        })
     }
 }
 

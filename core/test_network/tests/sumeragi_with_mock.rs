@@ -548,14 +548,14 @@ pub mod utils {
         }
 
         pub static ROOT_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
-        pub static ROOT_ID: Lazy<AccountId> = Lazy::new(|| AccountId::new("root", "global"));
+        pub static ROOT_ID: Lazy<AccountId> = Lazy::new(|| AccountId::test("root", "global"));
         pub static ROOT: Lazy<Account> = Lazy::new(|| {
             let mut account = Account::new(ROOT_ID.clone());
             account.signatories.push(ROOT_KEYS.public_key.clone());
             account
         });
         pub static GLOBAL: Lazy<Domain> = Lazy::new(|| {
-            let mut domain = Domain::new("global");
+            let mut domain = Domain::test("global");
             domain.accounts.insert(ROOT_ID.clone(), ROOT.clone());
             domain
         });
@@ -563,11 +563,11 @@ pub mod utils {
         impl WorldTrait for WithRoot {
             /// Creates `World` with these `domains` and `trusted_peers_ids`
             fn with(
-                domains: impl IntoIterator<Item = (Name, Domain)>,
+                domains: impl IntoIterator<Item = (DomainId, Domain)>,
                 trusted_peers_ids: impl IntoIterator<Item = PeerId>,
             ) -> Self {
                 Self(World::with(
-                    vec![(GLOBAL.name.clone(), GLOBAL.clone())]
+                    vec![(GLOBAL.id.clone(), GLOBAL.clone())]
                         .into_iter()
                         .chain(domains),
                     trusted_peers_ids,

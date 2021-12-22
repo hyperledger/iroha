@@ -161,7 +161,7 @@ impl AcceptedTransaction {
     ) -> Result<(), TransactionRejectionReason> {
         let wsv_temp = wsv.clone();
         let account_id = self.payload.account_id.clone();
-        if !is_genesis && account_id == <Account as Identifiable>::Id::genesis_account() {
+        if !is_genesis && account_id == <Account as Identifiable>::Id::genesis() {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
         }
 
@@ -388,7 +388,7 @@ mod tests {
 
         let tx = Transaction::new(
             vec![],
-            AccountId::new(GENESIS_ACCOUNT_NAME, GENESIS_DOMAIN_NAME),
+            AccountId::test(GENESIS_ACCOUNT_NAME, GENESIS_DOMAIN_NAME),
             1000,
         );
         let tx_hash = tx.hash();
@@ -422,7 +422,7 @@ mod tests {
         };
         let tx = Transaction::new(
             vec![inst.into(); DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
-            AccountId::new("root", "global"),
+            AccountId::test("root", "global"),
             1000,
         );
         let result: Result<AcceptedTransaction> = AcceptedTransaction::from_transaction(tx, 4096);

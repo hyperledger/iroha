@@ -135,7 +135,7 @@ impl Metadata {
             };
         }
         check_size_limits(key, value.clone(), limits)?;
-        layer.insert_with_limits(key.to_string(), value, limits)
+        layer.insert_with_limits(key.clone(), value, limits)
     }
 
     /// Insert [`Value`] under the given key.  Returns `Some(value)`
@@ -181,7 +181,7 @@ impl Metadata {
     }
 }
 
-fn check_size_limits(key: &str, value: Value, limits: Limits) -> Result<()> {
+fn check_size_limits(key: &Name, value: Value, limits: Limits) -> Result<()> {
     let entry_bytes: Vec<u8> = (key, value).encode();
     let byte_size = entry_bytes.len();
     if byte_size > limits.max_entry_byte_size as usize {
@@ -197,7 +197,7 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    use super::{Limits, Metadata, Value};
+    use super::{Limits, Metadata, Name, Value};
 
     #[test]
     fn nested_fns_ignore_empty_path() {
@@ -217,16 +217,16 @@ mod tests {
         let limits = Limits::new(1024, 1024);
         // TODO: If we allow a `unsafe`, we could create the path.
         metadata
-            .insert_with_limits("0".to_owned(), Metadata::new().into(), limits)
+            .insert_with_limits(Name::test("0"), Metadata::new().into(), limits)
             .unwrap();
         metadata
             .nested_insert_with_limits(
-                &["0".to_owned(), "1".to_owned()],
+                &[Name::test("0"), Name::test("1")],
                 Metadata::new().into(),
                 limits,
             )
             .unwrap();
-        let path = ["0".to_owned(), "1".to_owned(), "2".to_owned()];
+        let path = [Name::test("0"), Name::test("1"), Name::test("2")];
         metadata
             .nested_insert_with_limits(&path, "Hello World".to_owned().into(), limits)
             .unwrap();
@@ -245,20 +245,20 @@ mod tests {
         let mut metadata = Metadata::new();
         let limits = Limits::new(10, 15);
         metadata
-            .insert_with_limits("0".to_owned(), Metadata::new().into(), limits)
+            .insert_with_limits(Name::test("0"), Metadata::new().into(), limits)
             .unwrap();
         metadata
             .nested_insert_with_limits(
-                &["0".to_owned(), "1".to_owned()],
+                &[Name::test("0"), Name::test("1")],
                 Metadata::new().into(),
                 limits,
             )
             .unwrap();
-        let path = vec!["0".to_owned(), "1".to_owned(), "2".to_owned()];
+        let path = vec![Name::test("0"), Name::test("1"), Name::test("2")];
         metadata
             .nested_insert_with_limits(&path, "Hello World".to_owned().into(), limits)
             .unwrap();
-        let bad_path = vec!["0".to_owned(), "3".to_owned(), "2".to_owned()];
+        let bad_path = vec![Name::test("0"), Name::test("3"), Name::test("2")];
         assert!(metadata
             .nested_insert_with_limits(&bad_path, "Hello World".to_owned().into(), limits)
             .is_err());
@@ -271,13 +271,13 @@ mod tests {
         let mut metadata = Metadata::new();
         let limits = Limits::new(10, 14);
         // TODO: If we allow a `unsafe`, we could create the path.
-        metadata.insert_with_limits("0".to_owned(), Metadata::new().into(), limits)?;
+        metadata.insert_with_limits(Name::test("0"), Metadata::new().into(), limits)?;
         metadata.nested_insert_with_limits(
-            &["0".to_owned(), "1".to_owned()],
+            &[Name::test("0"), Name::test("1")],
             Metadata::new().into(),
             limits,
         )?;
-        let path = vec!["0".to_owned(), "1".to_owned(), "2".to_owned()];
+        let path = vec![Name::test("0"), Name::test("1"), Name::test("2")];
         let failing_insert =
             metadata.nested_insert_with_limits(&path, "Hello World".to_owned().into(), limits);
         match failing_insert {
@@ -291,10 +291,10 @@ mod tests {
         let mut metadata = Metadata::new();
         let limits = Limits::new(10, 5);
         assert!(metadata
-            .insert_with_limits("1".to_owned(), "2".to_owned().into(), limits)
+            .insert_with_limits(Name::test("1"), "2".to_owned().into(), limits)
             .is_ok());
         assert!(metadata
-            .insert_with_limits("1".to_owned(), "23456".to_owned().into(), limits)
+            .insert_with_limits(Name::test("1"), "23456".to_owned().into(), limits)
             .is_err());
     }
 
@@ -303,16 +303,16 @@ mod tests {
         let mut metadata = Metadata::new();
         let limits = Limits::new(2, 5);
         assert!(metadata
-            .insert_with_limits("1".to_owned(), "0".to_owned().into(), limits)
+            .insert_with_limits(Name::test("1"), "0".to_owned().into(), limits)
             .is_ok());
         assert!(metadata
-            .insert_with_limits("2".to_owned(), "0".to_owned().into(), limits)
+            .insert_with_limits(Name::test("2"), "0".to_owned().into(), limits)
             .is_ok());
         assert!(metadata
-            .insert_with_limits("2".to_owned(), "1".to_owned().into(), limits)
+            .insert_with_limits(Name::test("2"), "1".to_owned().into(), limits)
             .is_ok());
         assert!(metadata
-            .insert_with_limits("3".to_owned(), "0".to_owned().into(), limits)
+            .insert_with_limits(Name::test("3"), "0".to_owned().into(), limits)
             .is_err());
     }
 }

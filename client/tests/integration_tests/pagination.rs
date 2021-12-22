@@ -15,7 +15,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
 
     let register = ('a'..'z')
         .map(|c| c.to_string())
-        .map(|name| AssetDefinitionId::new(&name, "wonderland"))
+        .map(|name| AssetDefinitionId::test(&name, "wonderland"))
         .map(AssetDefinition::new_quantity)
         .map(IdentifiableBox::from)
         .map(RegisterBox::new)

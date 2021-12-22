@@ -128,16 +128,18 @@ pub trait TestGenesis: Sized {
 impl<G: GenesisNetworkTrait> TestGenesis for G {
     fn test(submit_genesis: bool) -> Option<Self> {
         let cfg = Configuration::test();
-        let mut genesis = RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key);
+        let mut genesis = RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key)
+            .expect("Valid names never fail to parse");
         genesis.transactions[0].isi.push(
             RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(AssetDefinitionId::new("rose", "wonderland")).into(),
+                AssetDefinition::new_quantity(AssetDefinitionId::test("rose", "wonderland")).into(),
             ))
             .into(),
         );
         genesis.transactions[0].isi.push(
             RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(AssetDefinitionId::new("tulip", "wonderland")).into(),
+                AssetDefinition::new_quantity(AssetDefinitionId::test("tulip", "wonderland"))
+                    .into(),
             ))
             .into(),
         );
@@ -145,8 +147,8 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
             MintBox::new(
                 Value::U32(13),
                 IdBox::AssetId(AssetId::new(
-                    AssetDefinitionId::new("rose", "wonderland"),
-                    AccountId::new("alice", "wonderland"),
+                    AssetDefinitionId::test("rose", "wonderland"),
+                    AccountId::test("alice", "wonderland"),
                 )),
             )
             .into(),

@@ -15,8 +15,8 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let account_id = AccountId::new("alice", "wonderland");
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
+    let account_id = AccountId::test("alice", "wonderland");
+    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));

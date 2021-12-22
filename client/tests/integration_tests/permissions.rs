@@ -12,12 +12,12 @@ use tokio::runtime::Runtime;
 const BURN_REJECTION_REASON: &str = "Failed to pass first check with Can\'t burn assets from another account. \
     and second check with Account does not have the needed permission token: \
     PermissionToken { name: \"can_burn_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: \
-    DefinitionId { name: \"xor\", domain_name: \"wonderland\" }, account_id: Id { name: \"bob\", domain_name: \"wonderland\" } }))} }..";
+    DefinitionId { name: \"xor\", domain_id: Id { name: \"wonderland\" } }, account_id: Id { name: \"bob\", domain_id: Id { name: \"wonderland\" } } }))} }..";
 
 const MINT_REJECTION_REASON: &str = "Failed to pass first check with Can\'t transfer assets of the other account. \
     and second check with Account does not have the needed permission token: \
     PermissionToken { name: \"can_transfer_user_assets\", params: {\"asset_id\": Id(AssetId(Id { definition_id: \
-    DefinitionId { name: \"xor\", domain_name: \"wonderland\" }, account_id: Id { name: \"bob\", domain_name: \"wonderland\" } }))} }..";
+    DefinitionId { name: \"xor\", domain_id: Id { name: \"wonderland\" } }, account_id: Id { name: \"bob\", domain_id: Id { name: \"wonderland\" } } }))} }..";
 
 fn get_assets(iroha_client: &mut Client, id: &AccountId) -> Vec<Asset> {
     iroha_client
@@ -36,9 +36,9 @@ fn permissions_disallow_asset_transfer() {
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let alice_id = AccountId::new("alice", "wonderland");
-    let bob_id = AccountId::new("bob", "wonderland");
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
+    let alice_id = AccountId::test("alice", "wonderland");
+    let bob_id = AccountId::test("bob", "wonderland");
+    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
     )));
@@ -98,9 +98,9 @@ fn permissions_disallow_asset_burn() {
     thread::sleep(pipeline_time * 5);
 
     let domain_name = "wonderland";
-    let alice_id = AccountId::new("alice", domain_name);
-    let bob_id = AccountId::new("bob", domain_name);
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
+    let alice_id = AccountId::test("alice", domain_name);
+    let bob_id = AccountId::test("bob", domain_name);
+    let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
     )));
@@ -163,7 +163,7 @@ fn account_can_query_only_its_own_domain() {
 
     let domain_name = "wonderland";
     let new_domain_name = "wonderland2";
-    let register_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(new_domain_name)));
+    let register_domain = RegisterBox::new(IdentifiableBox::from(Domain::test(new_domain_name)));
 
     iroha_client
         .submit(register_domain)
@@ -173,11 +173,11 @@ fn account_can_query_only_its_own_domain() {
 
     // Alice can query the domain in which her account exists.
     assert!(iroha_client
-        .request(client::domain::by_name(domain_name.to_owned()))
+        .request(client::domain::by_id(DomainId::test(domain_name)))
         .is_ok());
 
     // Alice can not query other domains.
     assert!(iroha_client
-        .request(client::domain::by_name(new_domain_name.to_owned()))
+        .request(client::domain::by_id(DomainId::test(new_domain_name)))
         .is_err());
 }

@@ -94,12 +94,12 @@ fn init() -> Result<(
     let pipeline_time = Configuration::pipeline_time();
     thread::sleep(pipeline_time * 2);
     iroha_logger::info!("Started");
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::new("domain").into()));
-    let account_id = AccountId::new("account", "domain");
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
+    let account_id = AccountId::test("account", "domain");
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(account_id.clone(), KeyPair::generate()?.public_key).into(),
     ));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain");
+    let asset_definition_id = AssetDefinitionId::test("xor", "domain");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));

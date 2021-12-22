@@ -43,7 +43,7 @@ impl FromStr for Metadata {
     }
 }
 
-/// Client configuration wrapper. Allows getting itself from arguments from cli (from user suplied file).
+/// Client configuration wrapper. Allows getting itself from arguments from cli (from user supplied file).
 #[derive(Debug, Clone)]
 pub struct Configuration(pub ClientConfiguration);
 
@@ -125,12 +125,12 @@ fn main() -> Result<()> {
     println!("Iroha Client CLI: build v0.0.1 [release]");
     println!(
         "User: {}@{}",
-        config.account_id.name, config.account_id.domain_name
+        config.account_id.name, config.account_id.domain_id
     );
     #[cfg(debug_assertions)]
     eprintln!(
         "{}",
-        &serde_json::to_string(&config).wrap_err("Failed to serialize configuraiton.")?
+        &serde_json::to_string(&config).wrap_err("Failed to serialize configuration.")?
     );
     #[cfg(not(debug_assertions))]
     eprintln!("This is a release build, debug information omitted from messages");
@@ -248,7 +248,7 @@ mod domain {
     pub struct Register {
         /// Domain's name as double-quoted string
         #[structopt(short, long)]
-        pub id: Domain,
+        pub id: DomainId,
         /// The filename with key-value metadata pairs in JSON
         #[structopt(short, long, default_value = "")]
         pub metadata: super::Metadata,
@@ -260,7 +260,7 @@ mod domain {
                 id,
                 metadata: Metadata(metadata),
             } = self;
-            let create_domain = RegisterBox::new(IdentifiableBox::from(id));
+            let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(id)));
             submit(create_domain, cfg, metadata).wrap_err("Failed to create domain")
         }
     }

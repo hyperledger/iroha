@@ -15,8 +15,8 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let account_id = AccountId::new("alice", "wonderland");
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland");
+    let account_id = AccountId::test("alice", "wonderland");
+    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
@@ -33,7 +33,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let mint_not_existed_asset = MintBox::new(
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(
-            AssetDefinitionId::new("foo", "wonderland"),
+            AssetDefinitionId::test("foo", "wonderland"),
             account_id.clone(),
         )),
     );

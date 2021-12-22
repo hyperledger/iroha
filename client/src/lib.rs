@@ -19,10 +19,7 @@ pub mod samples {
         Configuration {
             public_key,
             private_key,
-            account_id: iroha_data_model::prelude::AccountId {
-                name: "alice".to_owned(),
-                domain_name: "wonderland".to_owned(),
-            },
+            account_id: iroha_data_model::prelude::AccountId::test("alice", "wonderland"),
             torii_api_url: uri::DEFAULT_API_URL.to_owned(),
             ..Configuration::default()
         }

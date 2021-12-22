@@ -565,13 +565,13 @@ async fn update_metrics<W: WorldTrait>(
     let domains = wsv.domains();
     wsv.metrics.domains.set(domains.len() as u64);
     wsv.metrics.connected_peers.set(peers);
-    for d in domains {
+    for domain in domains {
         wsv.metrics
             .accounts
-            .get_metric_with_label_values(&[&d.name])
+            .get_metric_with_label_values(&[domain.id.name.as_ref()])
             .wrap_err("Failed to compose domains")
             .map_err(Error::Prometheus)?
-            .set(d.accounts.values().len() as u64);
+            .set(domain.accounts.values().len() as u64);
     }
     Ok(())
 }

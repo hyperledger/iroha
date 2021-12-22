@@ -5,12 +5,13 @@
 
 use std::{
     error,
-    fmt::Debug,
+    fmt::{self, Debug},
     ops::RangeInclusive,
+    str,
     time::{Duration, SystemTime},
 };
 
-use eyre::{eyre, Result, WrapErr};
+use eyre::{eyre, Error, Result, WrapErr};
 use iroha_crypto::{Hash, PublicKey};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_schema::IntoSchema;
@@ -32,7 +33,74 @@ pub mod transaction;
 
 /// `Name` struct represents type for Iroha Entities names, like [`Domain`](`domain::Domain`)'s name or [`Account`](`account::Account`)'s
 /// name.
-pub type Name = String;
+#[derive(
+    Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+pub struct Name(String);
+
+impl Name {
+    /// Construct [`Name`] if `name` is valid.
+    ///
+    /// # Errors
+    /// Fails if parsing fails
+    #[inline]
+    pub fn new(name: &str) -> Result<Self> {
+        name.parse::<Self>()
+    }
+
+    /// Instantly construct [`Name`] assuming `name` is valid.
+    #[inline]
+    #[allow(clippy::expect_used)]
+    pub fn test(name: &str) -> Self {
+        name.parse::<Self>()
+            .expect("Valid names never fail to parse")
+    }
+
+    /// Check if `range` contains the number of chars in the inner `String` of this [`Name`].
+    ///
+    /// # Errors
+    /// Fails if `range` does not
+    pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
+        let range = range.into();
+        if range.contains(&self.as_ref().chars().count()) {
+            Ok(())
+        } else {
+            Err(eyre!(
+                "The number of chars in the name must be {} to {}",
+                &range.start(),
+                &range.end()
+            ))
+        }
+    }
+}
+
+impl AsRef<str> for Name {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl str::FromStr for Name {
+    type Err = Error;
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
+        if str.chars().any(char::is_whitespace) {
+            return Err(eyre!("Name must have no whitespaces"));
+        }
+        Ok(Self(str.to_owned()))
+    }
+}
+
+impl Debug for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+impl fmt::Display for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// Represents a sequence of bytes. Used for storing encoded data.
 pub type Bytes = Vec<u8>;
@@ -99,6 +167,7 @@ pub enum Parameter {
     FromVariant,
     IntoSchema,
 )]
+#[allow(clippy::enum_variant_names)]
 pub enum IdBox {
     /// [`AccountId`](`account::Id`) variant.
     AccountId(account::Id),
@@ -106,8 +175,8 @@ pub enum IdBox {
     AssetId(asset::Id),
     /// [`AssetDefinitionId`](`asset::DefinitionId`) variant.
     AssetDefinitionId(asset::DefinitionId),
-    /// [`DomainName`](`Name`) variant.
-    DomainName(Name),
+    /// [`DomainId`](`Id`) variant.
+    DomainId(domain::Id),
     /// [`PeerId`](`peer::Id`) variant.
     PeerId(peer::Id),
     /// [`RoleId`](`role::Id`) variant.
@@ -180,6 +249,8 @@ pub enum Value {
     Bool(bool),
     /// [`String`] value.
     String(String),
+    /// [`Name`] value.
+    Name(Name),
     /// [`Fixed`] value
     Fixed(fixed::Fixed),
     /// [`Vec`] of `Value`.
@@ -216,7 +287,8 @@ impl Value {
 
         match self {
             U32(_) | U128(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
-            | String(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_) | Hash(_) => 1_usize,
+            | String(_) | Name(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_)
+            | Hash(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
@@ -252,6 +324,7 @@ from_and_try_from_value_idbox!(
     AccountId(account::Id),
     AssetId(asset::Id),
     AssetDefinitionId(asset::DefinitionId),
+    DomainId(domain::Id),
     PeerId(peer::Id),
 );
 // TODO: Should we wrap String with new type in order to convert like here?
@@ -431,26 +504,26 @@ pub mod role {
         /// Constructor.
         #[inline]
         pub fn new(name: impl Into<Name>) -> Self {
-            Id { name: name.into() }
+            Self { name: name.into() }
         }
     }
 
     impl From<Name> for Id {
         #[inline]
         fn from(name: Name) -> Self {
-            Id::new(name)
+            Self::new(name)
         }
     }
 
     impl From<Id> for Value {
         #[inline]
         fn from(id: Id) -> Self {
-            Value::Id(IdBox::RoleId(id))
+            Self::Id(IdBox::RoleId(id))
         }
     }
 
     impl TryFrom<Value> for Id {
-        type Error = iroha_macro::error::ErrorTryFromEnum<Value, Id>;
+        type Error = iroha_macro::error::ErrorTryFromEnum<Value, Self>;
 
         #[inline]
         fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -476,7 +549,7 @@ pub mod role {
     }
 
     impl TryFrom<Value> for Role {
-        type Error = iroha_macro::error::ErrorTryFromEnum<Value, Role>;
+        type Error = iroha_macro::error::ErrorTryFromEnum<Value, Self>;
 
         #[inline]
         fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -512,8 +585,8 @@ pub mod role {
     impl Role {
         /// Constructor.
         #[inline]
-        pub fn new(id: impl Into<Id>, permissions: impl Into<BTreeSet<PermissionToken>>) -> Role {
-            Role {
+        pub fn new(id: impl Into<Id>, permissions: impl Into<BTreeSet<PermissionToken>>) -> Self {
+            Self {
                 id: id.into(),
                 permissions: permissions.into(),
             }
@@ -584,7 +657,6 @@ pub mod account {
     use std::{
         collections::{BTreeMap, BTreeSet},
         fmt,
-        ops::RangeInclusive,
     };
 
     use eyre::{eyre, Error, Result};
@@ -598,7 +670,7 @@ pub mod account {
     use crate::role::Id as RoleId;
     use crate::{
         asset::AssetsMap,
-        domain::GENESIS_DOMAIN_NAME,
+        domain::prelude::*,
         expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
         metadata::Metadata,
         permissions::PermissionToken,
@@ -640,7 +712,7 @@ pub mod account {
     impl From<GenesisAccount> for Account {
         #[inline]
         fn from(account: GenesisAccount) -> Self {
-            Account::with_signatory(Id::genesis_account(), account.public_key)
+            Account::with_signatory(Id::genesis(), account.public_key)
         }
     }
 
@@ -755,23 +827,6 @@ pub mod account {
                 metadata: Metadata::default(),
             }
         }
-
-        /// Checks the length of the id in bytes is in a valid range
-        ///
-        /// # Errors
-        /// Fails if limit check fails
-        pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
-            let range = range.into();
-            if range.contains(&self.id.name.chars().count()) {
-                Ok(())
-            } else {
-                Err(eyre!(
-                    "Length of the account name must be in range {}-{}",
-                    &range.start(),
-                    &range.end()
-                ))
-            }
-        }
     }
 
     /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
@@ -835,15 +890,15 @@ pub mod account {
     pub struct Id {
         /// [`Account`]'s name.
         pub name: Name,
-        /// [`Account`]'s [`Domain`](`crate::domain::Domain`)'s name.
-        pub domain_name: Name,
+        /// [`Account`]'s [`Domain`](`crate::domain::Domain`)'s id.
+        pub domain_id: DomainId,
     }
 
     impl Account {
         /// Default [`Account`] constructor.
         #[inline]
         pub fn new(id: Id) -> Self {
-            Account {
+            Self {
                 id,
                 assets: AssetsMap::new(),
                 signatories: Vec::new(),
@@ -859,7 +914,7 @@ pub mod account {
         #[inline]
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
             let signatories = vec![signatory];
-            Account {
+            Self {
                 id,
                 assets: AssetsMap::new(),
                 signatories,
@@ -903,22 +958,33 @@ pub mod account {
     }
 
     impl Id {
-        /// `Id` constructor used to easily create an `Id` from two string slices - one for the
-        /// account's name, another one for the container's name.
+        /// Construct [`Id`] from an account `name` and a `domain_name` if these names are valid.
+        ///
+        /// # Errors
+        /// Fails if any sub-construction fails
         #[inline]
-        pub fn new(name: &str, domain_name: &str) -> Self {
-            Id {
-                name: name.to_owned(),
-                domain_name: domain_name.to_owned(),
+        pub fn new(name: &str, domain_name: &str) -> Result<Self> {
+            Ok(Self {
+                name: Name::new(name)?,
+                domain_id: DomainId::new(domain_name)?,
+            })
+        }
+
+        /// Instantly construct [`Id`] from an account `name` and a `domain_name` assuming these names are valid.
+        #[inline]
+        pub fn test(name: &str, domain_name: &str) -> Self {
+            Self {
+                name: Name::test(name),
+                domain_id: DomainId::test(domain_name),
             }
         }
 
-        /// `Id` of the genesis account.
+        /// Construct [`Id`] of the genesis account.
         #[inline]
-        pub fn genesis_account() -> Self {
-            Id {
-                name: GENESIS_ACCOUNT_NAME.to_owned(),
-                domain_name: GENESIS_DOMAIN_NAME.to_owned(),
+        pub fn genesis() -> Self {
+            Self {
+                name: Name::test(GENESIS_ACCOUNT_NAME),
+                domain_id: DomainId::test(GENESIS_DOMAIN_NAME),
             }
         }
     }
@@ -935,7 +1001,7 @@ pub mod account {
         fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Self>>()
                 .into()
         }
     }
@@ -949,16 +1015,16 @@ pub mod account {
             if vector.len() != 2 {
                 return Err(eyre!("Id should have format `name@domain_name`"));
             }
-            Ok(Id {
-                name: String::from(vector[0]),
-                domain_name: String::from(vector[1]),
+            Ok(Self {
+                name: Name::new(vector[0])?,
+                domain_id: DomainId::new(vector[1])?,
             })
         }
     }
 
     impl fmt::Display for Id {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "{}@{}", self.name, self.domain_name)
+            write!(f, "{}@{}", self.name, self.domain_id)
         }
     }
 
@@ -976,7 +1042,6 @@ pub mod asset {
         cmp::Ordering,
         collections::BTreeMap,
         fmt::{self, Display, Formatter},
-        ops::RangeInclusive,
         str::FromStr,
     };
 
@@ -988,6 +1053,7 @@ pub mod asset {
 
     use crate::{
         account::prelude::*,
+        domain::prelude::*,
         fixed,
         fixed::Fixed,
         metadata::{Limits as MetadataLimits, Metadata},
@@ -1026,11 +1092,8 @@ pub mod asset {
 
     impl AssetDefinitionEntry {
         /// Constructor.
-        pub const fn new(
-            definition: AssetDefinition,
-            registered_by: AccountId,
-        ) -> AssetDefinitionEntry {
-            AssetDefinitionEntry {
+        pub const fn new(definition: AssetDefinition, registered_by: AccountId) -> Self {
+            Self {
                 definition,
                 registered_by,
             }
@@ -1100,7 +1163,7 @@ pub mod asset {
 
     impl FromStr for AssetValueType {
         type Err = Error;
-        fn from_str(value_type: &str) -> Result<AssetValueType> {
+        fn from_str(value_type: &str) -> Result<Self> {
             serde_json::from_value(serde_json::json!(value_type))
                 .wrap_err("Failed to deserialize value type")
         }
@@ -1125,19 +1188,19 @@ pub mod asset {
         /// Returns the asset type as a string.
         pub const fn value_type(&self) -> AssetValueType {
             match *self {
-                AssetValue::Quantity(_) => AssetValueType::Quantity,
-                AssetValue::BigQuantity(_) => AssetValueType::BigQuantity,
-                AssetValue::Fixed(_) => AssetValueType::Fixed,
-                AssetValue::Store(_) => AssetValueType::Store,
+                Self::Quantity(_) => AssetValueType::Quantity,
+                Self::BigQuantity(_) => AssetValueType::BigQuantity,
+                Self::Fixed(_) => AssetValueType::Fixed,
+                Self::Store(_) => AssetValueType::Store,
             }
         }
         /// Returns true if this value is zero, false if it contains [`Metadata`] or positive value
         pub const fn is_zero_value(&self) -> bool {
             match *self {
-                AssetValue::Quantity(q) => q == 0_u32,
-                AssetValue::BigQuantity(q) => q == 0_u128,
-                AssetValue::Fixed(ref q) => q.is_zero(),
-                AssetValue::Store(_) => false,
+                Self::Quantity(q) => q == 0_u32,
+                Self::BigQuantity(q) => q == 0_u128,
+                Self::Fixed(ref q) => q.is_zero(),
+                Self::Store(_) => false,
             }
         }
     }
@@ -1231,8 +1294,8 @@ pub mod asset {
     pub struct DefinitionId {
         /// Asset's name.
         pub name: Name,
-        /// Domain's name.
-        pub domain_name: Name,
+        /// Domain's id.
+        pub domain_id: DomainId,
     }
 
     /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
@@ -1261,7 +1324,7 @@ pub mod asset {
         /// Default [`AssetDefinition`] constructor.
         #[inline]
         pub fn new(id: DefinitionId, value_type: AssetValueType, mintable: bool) -> Self {
-            AssetDefinition {
+            Self {
                 value_type,
                 id,
                 metadata: Metadata::new(),
@@ -1316,29 +1379,12 @@ pub mod asset {
         pub fn new_store_token(id: DefinitionId) -> Self {
             AssetDefinition::new(id, AssetValueType::Store, false)
         }
-
-        /// Checks the length of the id in bytes is in a valid range
-        ///
-        /// # Errors
-        /// Fails if limit check fails
-        pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
-            let range = range.into();
-            if range.contains(&self.id.name.len()) {
-                Ok(())
-            } else {
-                Err(eyre!(
-                    "Length of the asset defenition name must be in range {}-{}",
-                    &range.start(),
-                    &range.end()
-                ))
-            }
-        }
     }
 
     impl Asset {
         /// Constructor
         pub fn new<V: Into<AssetValue>>(id: Id, value: V) -> Self {
-            Asset {
+            Self {
                 id,
                 value: value.into(),
             }
@@ -1347,7 +1393,7 @@ pub mod asset {
         /// `Asset` with `quantity` value constructor.
         #[inline]
         pub fn with_quantity(id: Id, quantity: u32) -> Self {
-            Asset {
+            Self {
                 id,
                 value: quantity.into(),
             }
@@ -1356,7 +1402,7 @@ pub mod asset {
         /// `Asset` with `big_quantity` value constructor.
         #[inline]
         pub fn with_big_quantity(id: Id, big_quantity: u128) -> Self {
-            Asset {
+            Self {
                 id,
                 value: big_quantity.into(),
             }
@@ -1368,13 +1414,13 @@ pub mod asset {
         /// Fails if limit check fails
         pub fn with_parameter(
             id: Id,
-            key: String,
+            key: Name,
             value: Value,
             limits: MetadataLimits,
         ) -> Result<Self> {
             let mut store = Metadata::new();
             store.insert_with_limits(key, value, limits)?;
-            Ok(Asset {
+            Ok(Self {
                 id,
                 value: store.into(),
             })
@@ -1411,43 +1457,52 @@ pub mod asset {
     }
 
     impl DefinitionId {
-        /// [`Id`] constructor used to easily create an [`Id`] from three string slices - one for the
-        /// asset definition's name, another one for the domain's name.
+        /// Construct [`Id`] from an asset definition `name` and a `domain_name` if these names are valid.
+        ///
+        /// # Errors
+        /// Fails if any sub-construction fails
         #[inline]
-        pub fn new(name: &str, domain_name: &str) -> Self {
-            DefinitionId {
-                name: name.to_owned(),
-                domain_name: domain_name.to_owned(),
+        pub fn new(name: &str, domain_name: &str) -> Result<Self> {
+            Ok(Self {
+                name: Name::new(name)?,
+                domain_id: DomainId::new(domain_name)?,
+            })
+        }
+
+        /// Instantly construct [`Id`] from an asset definition `name` and a `domain_name` assuming these names are valid.
+        #[inline]
+        pub fn test(name: &str, domain_name: &str) -> Self {
+            Self {
+                name: Name::test(name),
+                domain_id: DomainId::test(domain_name),
             }
         }
     }
 
     impl Id {
-        /// [`Id`] constructor used to easily create an [`Id`] from an names of asset definition and
-        /// account.
+        /// Construct [`Id`] from [`DefinitionId`] and [`AccountId`].
         #[inline]
-        pub fn from_names(
+        pub const fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
+            Self {
+                definition_id,
+                account_id,
+            }
+        }
+
+        /// Instantly construct [`Id`] from names which constitute [`DefinitionId`] and [`AccountId`] assuming these names are valid.
+        #[inline]
+        pub fn test(
             asset_definition_name: &str,
             asset_definition_domain_name: &str,
             account_name: &str,
             account_domain_name: &str,
         ) -> Self {
-            Id {
-                definition_id: DefinitionId::new(
+            Self {
+                definition_id: DefinitionId::test(
                     asset_definition_name,
                     asset_definition_domain_name,
                 ),
-                account_id: AccountId::new(account_name, account_domain_name),
-            }
-        }
-
-        /// [`Id`] constructor used to easily create an [`Id`] from an [`DefinitionId`](`crate::asset::DefinitionId`) and
-        /// an [`AccountId`].
-        #[inline]
-        pub const fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
-            Id {
-                definition_id,
-                account_id,
+                account_id: AccountId::test(account_name, account_domain_name),
             }
         }
     }
@@ -1464,7 +1519,7 @@ pub mod asset {
         fn from_iter<T: IntoIterator<Item = Asset>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Self>>()
                 .into()
         }
     }
@@ -1473,7 +1528,7 @@ pub mod asset {
         fn from_iter<T: IntoIterator<Item = AssetDefinition>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Self>>()
                 .into()
         }
     }
@@ -1489,16 +1544,16 @@ pub mod asset {
                     "Asset definition ID should have format `name#domain_name`.",
                 ));
             }
-            Ok(DefinitionId {
-                name: String::from(vector[0]),
-                domain_name: String::from(vector[1]),
+            Ok(Self {
+                name: Name::new(vector[0])?,
+                domain_id: DomainId::new(vector[1])?,
             })
         }
     }
 
     impl Display for DefinitionId {
         fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-            write!(f, "{}#{}", self.name, self.domain_name)
+            write!(f, "{}#{}", self.name, self.domain_id)
         }
     }
 
@@ -1520,13 +1575,10 @@ pub mod asset {
 pub mod domain {
     //! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
 
-    use std::{
-        cmp::Ordering, collections::BTreeMap, convert::Infallible, iter, ops::RangeInclusive,
-        str::FromStr,
-    };
+    use std::{cmp::Ordering, collections::BTreeMap, fmt, iter, str::FromStr};
 
     use dashmap::DashMap;
-    use eyre::{eyre, Result};
+    use eyre::{Error, Result};
     use iroha_crypto::PublicKey;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
@@ -1542,9 +1594,9 @@ pub mod domain {
     /// Genesis domain name. Genesis domain should contain only genesis account.
     pub const GENESIS_DOMAIN_NAME: &str = "genesis";
 
-    /// `DomainsMap` provides an API to work with collection of key (`Name`) - value
-    /// (`Domain`) pairs.
-    pub type DomainsMap = DashMap<Name, Domain>;
+    /// [`DomainsMap`] provides an API to work with collection of
+    /// key ([`Id`]) - value ([`Domain`]) pairs.
+    pub type DomainsMap = DashMap<Id, Domain>;
 
     /// Genesis domain. It will contain only one `genesis` account.
     #[derive(Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -1563,9 +1615,9 @@ pub mod domain {
     impl From<GenesisDomain> for Domain {
         fn from(domain: GenesisDomain) -> Self {
             Self {
-                name: GENESIS_DOMAIN_NAME.to_owned(),
+                id: Id::test(GENESIS_DOMAIN_NAME),
                 accounts: iter::once((
-                    <Account as Identifiable>::Id::genesis_account(),
+                    <Account as Identifiable>::Id::genesis(),
                     GenesisAccount::new(domain.genesis_key).into(),
                 ))
                 .collect(),
@@ -1578,8 +1630,8 @@ pub mod domain {
     /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct Domain {
-        /// Domain name, for example company name.
-        pub name: Name,
+        /// Identification of this [`Domain`].
+        pub id: Id,
         /// Accounts of the domain.
         pub accounts: AccountsMap,
         /// Assets of the domain.
@@ -1588,63 +1640,49 @@ pub mod domain {
         pub metadata: Metadata,
     }
 
-    impl FromStr for Domain {
-        type Err = Infallible;
-        fn from_str(name: &str) -> Result<Self, Self::Err> {
-            Ok(Self::new(name))
-        }
-    }
-
     impl PartialOrd for Domain {
         #[inline]
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.name.cmp(&other.name))
+            Some(self.id.cmp(&other.id))
         }
     }
 
     impl Ord for Domain {
         #[inline]
         fn cmp(&self, other: &Self) -> Ordering {
-            self.name.cmp(&other.name)
+            self.id.cmp(&other.id)
         }
     }
 
     impl Domain {
-        /// Default `Domain` constructor.
-        pub fn new(name: &str) -> Self {
-            Domain {
-                name: name.to_owned(),
+        /// Construct [`Domain`] from [`Id`].
+        pub fn new(id: Id) -> Self {
+            Self {
+                id,
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
                 metadata: Metadata::new(),
             }
         }
 
-        /// Checks the length of the id in bytes is in a valid range
-        ///
-        /// # Errors
-        /// Fails if limit check fails
-        pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
-            let range = range.into();
-            if range.contains(&self.name.len()) {
-                Ok(())
-            } else {
-                Err(eyre!(
-                    "Length of the domain name must be in range {}-{}",
-                    &range.start(),
-                    &range.end()
-                ))
+        /// Instantly construct [`Domain`] assuming `name` is valid.
+        pub fn test(name: &str) -> Self {
+            Self {
+                id: Id::test(name),
+                accounts: AccountsMap::new(),
+                asset_definitions: AssetDefinitionsMap::new(),
+                metadata: Metadata::new(),
             }
         }
 
-        /// Domain constructor with presetup accounts. Useful for testing purposes.
+        /// Domain constructor with pre-setup accounts. Useful for testing purposes.
         pub fn with_accounts(name: &str, accounts: impl IntoIterator<Item = Account>) -> Self {
             let accounts_map = accounts
                 .into_iter()
                 .map(|account| (account.id.clone(), account))
                 .collect();
-            Domain {
-                name: name.to_owned(),
+            Self {
+                id: Id::test(name),
                 accounts: accounts_map,
                 asset_definitions: AssetDefinitionsMap::new(),
                 metadata: Metadata::new(),
@@ -1653,21 +1691,76 @@ pub mod domain {
     }
 
     impl Identifiable for Domain {
-        type Id = Name;
+        type Id = Id;
     }
 
     impl FromIterator<Domain> for Value {
         fn from_iter<T: IntoIterator<Item = Domain>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Self>>()
                 .into()
+        }
+    }
+
+    /// Identification of a [`Domain`].
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct Id {
+        /// [`Name`] unique to a [`Domain`] e.g. company name
+        pub name: Name,
+    }
+
+    impl Id {
+        /// Construct [`Id`] if the given domain `name` is valid.
+        ///
+        /// # Errors
+        /// Fails if any sub-construction fails
+        #[inline]
+        pub fn new(name: &str) -> Result<Self> {
+            Ok(Self {
+                name: Name::new(name)?,
+            })
+        }
+
+        /// Instantly construct [`Id`] assuming the given domain `name` is valid.
+        #[inline]
+        pub fn test(name: &str) -> Self {
+            Self {
+                name: Name::test(name),
+            }
+        }
+    }
+
+    impl FromStr for Id {
+        type Err = Error;
+
+        fn from_str(name: &str) -> Result<Self, Self::Err> {
+            Self::new(name)
+        }
+    }
+
+    impl fmt::Display for Id {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", self.name)
         }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{Domain, GenesisDomain, GENESIS_DOMAIN_NAME};
+        pub use super::{Domain, GenesisDomain, Id as DomainId, GENESIS_DOMAIN_NAME};
     }
 }
 
@@ -1731,7 +1824,7 @@ pub mod peer {
         /// Construct `Peer` given `id`.
         #[inline]
         pub const fn new(id: Id) -> Self {
-            Peer { id }
+            Self { id }
         }
     }
 
@@ -1743,7 +1836,7 @@ pub mod peer {
         /// Construct `Id` given `public_key` and `address`.
         #[inline]
         pub fn new(address: &str, public_key: &PublicKey) -> Self {
-            Id {
+            Self {
                 address: address.to_owned(),
                 public_key: public_key.clone(),
             }
@@ -1754,7 +1847,7 @@ pub mod peer {
         fn from_iter<T: IntoIterator<Item = Id>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Value>>()
+                .collect::<Vec<Self>>()
                 .into()
         }
     }
@@ -1833,8 +1926,8 @@ pub mod pagination {
 
     impl Pagination {
         /// Constructs [`Pagination`].
-        pub const fn new(start: Option<usize>, limit: Option<usize>) -> Pagination {
-            Pagination { start, limit }
+        pub const fn new(start: Option<usize>, limit: Option<usize>) -> Self {
+            Self { start, limit }
         }
     }
 

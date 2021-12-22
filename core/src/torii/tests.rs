@@ -27,16 +27,16 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
     let wsv = Arc::new(WorldStateView::new(World::with(
         ('a'..'z')
             .map(|name| name.to_string())
-            .map(|name| (name.clone(), Domain::new(&name))),
+            .map(|name| (DomainId::test(&name), Domain::test(&name))),
         vec![],
     )));
     let keys = KeyPair::generate().expect("Failed to generate keys");
     wsv.world.domains.insert(
-        "wonderland".to_owned(),
+        DomainId::test("wonderland"),
         Domain::with_accounts(
             "wonderland",
             std::iter::once(Account::with_signatory(
-                AccountId::new("alice", "wonderland"),
+                AccountId::test("alice", "wonderland"),
                 keys.public_key.clone(),
             )),
         ),
@@ -82,7 +82,7 @@ async fn torii_pagination() {
     let get_domains = |start, limit| {
         let query: VerifiedQueryRequest = QueryRequest::new(
             QueryBox::FindAllDomains(Default::default()),
-            AccountId::new("alice", "wonderland"),
+            AccountId::test("alice", "wonderland"),
         )
         .sign(keys.clone())
         .expect("Failed to sign query with keys")
@@ -187,7 +187,7 @@ impl AssertReady {
             torii.query_validator = Arc::new(DenyAll.into());
         }
 
-        let authority = AccountId::new("alice", "wonderland");
+        let authority = AccountId::test("alice", "wonderland");
         for instruction in self.instructions {
             instruction
                 .execute(authority.clone(), &torii.wsv)
@@ -242,23 +242,23 @@ impl AssertReady {
 const DOMAIN: &str = "desert";
 
 fn register_domain() -> Instruction {
-    Instruction::Register(RegisterBox::new(Domain::new(DOMAIN)))
+    Instruction::Register(RegisterBox::new(Domain::test(DOMAIN)))
 }
 fn register_account(name: &str) -> Instruction {
     Instruction::Register(RegisterBox::new(NewAccount::with_signatory(
-        AccountId::new(name, DOMAIN),
+        AccountId::test(name, DOMAIN),
         KeyPair::generate().unwrap().public_key,
     )))
 }
 fn register_asset_definition(name: &str) -> Instruction {
     Instruction::Register(RegisterBox::new(AssetDefinition::new_quantity(
-        AssetDefinitionId::new(name, DOMAIN),
+        AssetDefinitionId::test(name, DOMAIN),
     )))
 }
 fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
     Instruction::Mint(MintBox::new(
         Value::U32(quantity),
-        AssetId::from_names(asset, DOMAIN, account, DOMAIN),
+        AssetId::test(asset, DOMAIN, account, DOMAIN),
     ))
 }
 #[tokio::test]
@@ -268,9 +268,9 @@ async fn find_asset() {
         .given(register_account("alice"))
         .given(register_asset_definition("rose"))
         .given(mint_asset(99, "rose", "alice"))
-        .query(QueryBox::FindAssetById(FindAssetById::new(
-            AssetId::from_names("rose", DOMAIN, "alice", DOMAIN),
-        )))
+        .query(QueryBox::FindAssetById(FindAssetById::new(AssetId::test(
+            "rose", DOMAIN, "alice", DOMAIN,
+        ))))
         .status(StatusCode::OK)
         .hint("Quantity")
         .hint("99")
@@ -285,7 +285,7 @@ async fn find_asset_with_no_mint() {
         .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            AssetId::from_names("rose", DOMAIN, "alice", DOMAIN),
+            AssetId::test("rose", DOMAIN, "alice", DOMAIN),
         )))
         .status(StatusCode::NOT_FOUND)
         .assert()
@@ -299,7 +299,7 @@ async fn find_asset_with_no_asset_definition() {
     // .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            AssetId::from_names("rose", DOMAIN, "alice", DOMAIN),
+            AssetId::test("rose", DOMAIN, "alice", DOMAIN),
         )))
         .status(StatusCode::NOT_FOUND)
         .hint("definition")
@@ -314,7 +314,7 @@ async fn find_asset_with_no_account() {
         .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            AssetId::from_names("rose", DOMAIN, "alice", DOMAIN),
+            AssetId::test("rose", DOMAIN, "alice", DOMAIN),
         )))
         .status(StatusCode::NOT_FOUND)
         .hint("account")
@@ -329,7 +329,7 @@ async fn find_asset_with_no_domain() {
     // .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            AssetId::from_names("rose", DOMAIN, "alice", DOMAIN),
+            AssetId::test("rose", DOMAIN, "alice", DOMAIN),
         )))
         .status(StatusCode::NOT_FOUND)
         .hint("domain")
@@ -354,7 +354,7 @@ async fn find_account() {
         .given(register_domain())
         .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
-            AccountId::new("alice", DOMAIN),
+            AccountId::test("alice", DOMAIN),
         )))
         .status(StatusCode::OK)
         .assert()
@@ -366,7 +366,7 @@ async fn find_account_with_no_account() {
         .given(register_domain())
     // .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
-            AccountId::new("alice", DOMAIN),
+            AccountId::test("alice", DOMAIN),
         )))
         .status(StatusCode::NOT_FOUND)
         .assert()
@@ -378,7 +378,7 @@ async fn find_account_with_no_domain() {
     // .given(register_domain())
     // .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
-            AccountId::new("alice", DOMAIN),
+            AccountId::test("alice", DOMAIN),
         )))
         .status(StatusCode::NOT_FOUND)
         .hint("domain")
@@ -389,8 +389,8 @@ async fn find_account_with_no_domain() {
 async fn find_domain() {
     AssertSet::new()
         .given(register_domain())
-        .query(QueryBox::FindDomainByName(FindDomainByName::new(
-            DOMAIN.to_string(),
+        .query(QueryBox::FindDomainById(FindDomainById::new(
+            DomainId::test(DOMAIN),
         )))
         .status(StatusCode::OK)
         .assert()
@@ -400,7 +400,7 @@ async fn find_domain() {
 async fn find_domain_with_no_domain() {
     AssertSet::new()
     // .given(register_domain())
-        .query(QueryBox::FindDomainByName(FindDomainByName::new(
+        .query(QueryBox::FindDomainById(FindDomainById::new(
             DOMAIN.to_string(),
         )))
         .status(StatusCode::NOT_FOUND)
@@ -408,14 +408,14 @@ async fn find_domain_with_no_domain() {
         .await
 }
 fn query() -> QueryBox {
-    QueryBox::FindAccountById(FindAccountById::new(AccountId::new("alice", DOMAIN)))
+    QueryBox::FindAccountById(FindAccountById::new(AccountId::test("alice", DOMAIN)))
 }
 #[tokio::test]
 async fn query_with_wrong_signatory() {
     AssertSet::new()
         .given(register_domain())
         .given(register_account("alice"))
-        .account(AccountId::new("alice", DOMAIN))
+        .account(AccountId::test("alice", DOMAIN))
     // .deny_all()
         .query(query())
         .status(StatusCode::UNAUTHORIZED)
