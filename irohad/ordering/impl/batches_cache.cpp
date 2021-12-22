@@ -73,9 +73,13 @@ namespace iroha::ordering {
       std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
     std::unique_lock lock(batches_cache_cs_);
 
-    if (used_batches_cache_.getBatchesSet().find(batch)
-        == used_batches_cache_.getBatchesSet().end())
-      batches_cache_.insert(batch);
+    if (batch->hasAllSignatures()) {
+      if (used_batches_cache_.getBatchesSet().find(batch)
+          == used_batches_cache_.getBatchesSet().end())
+        batches_cache_.insert(batch);
+      removeMSTCache(batch);
+    } else
+      insertMSTCache(batch);
 
     return batches_cache_.getTxsCount();
   }

@@ -63,15 +63,7 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::TransactionBatch>
             transaction_batch) const {
       log_->info("handle batch");
-      if (transaction_batch->hasAllSignatures()
-          and not mst_processor_->batchInStorage(transaction_batch)) {
-        log_->info("propagating batch to PCS");
-        publishEnoughSignaturesStatus(transaction_batch->transactions());
-        pcs_->propagate_batch(transaction_batch);
-      } else {
-        log_->info("propagating batch to MST");
-        mst_processor_->propagateBatch(transaction_batch);
-      }
+      pcs_->propagate_batch(transaction_batch);
     }
 
     void TransactionProcessorImpl::processVerifiedProposalCreatorEvent(
