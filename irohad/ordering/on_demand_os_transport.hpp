@@ -49,6 +49,12 @@ namespace iroha {
         virtual void onBatches(CollectionType batches) = 0;
 
         /**
+         * Callback on receiving transactions, propagated to whole network.
+         * @param batches - vector of passed transaction batches
+         */
+        virtual void onBatchesToWholeNetwork(CollectionType batches) = 0;
+
+        /**
          * Callback on request about proposal
          * @param round - number of collaboration round.
          * Calculated as block_height + 1

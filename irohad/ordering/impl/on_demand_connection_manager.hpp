@@ -50,19 +50,20 @@ namespace iroha {
       OnDemandConnectionManager(
           std::shared_ptr<transport::OdOsNotificationFactory> factory,
           CurrentPeers initial_peers,
+          shared_model::interface::types::PeerList const &all_peers,
           logger::LoggerPtr log);
 
       ~OnDemandConnectionManager() override;
 
       void onBatches(CollectionType batches) override;
-
+      void onBatchesToWholeNetwork(CollectionType batches) override;
       void onRequestProposal(consensus::Round round) override;
 
       /**
        * Initialize corresponding peers in connections_ using factory_
        * @param peers to initialize connections with
        */
-      void initializeConnections(const CurrentPeers &peers);
+      void initializeConnections(const CurrentPeers &peers, shared_model::interface::types::PeerList const &all_peers);
 
      private:
       /**
@@ -73,6 +74,9 @@ namespace iroha {
         PeerCollectionType<
             std::optional<std::unique_ptr<transport::OdOsNotification>>>
             peers;
+
+        std::vector<std::optional<std::unique_ptr<transport::OdOsNotification>>>
+            all_connections;
       };
 
       logger::LoggerPtr log_;

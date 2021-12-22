@@ -48,10 +48,7 @@ void OnDemandOrderingGate::propagateBatch(
     return;
   }
 
-  // TODO iceseer 14.01.21 IR-959 Refactor to avoid copying.
-  ordering_service_->onBatches(
-      transport::OdOsNotification::CollectionType{batch});
-  network_client_->onBatches(
+  network_client_->onBatchesToWholeNetwork(
       transport::OdOsNotification::CollectionType{batch});
 }
 

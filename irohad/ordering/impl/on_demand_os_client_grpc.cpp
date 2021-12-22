@@ -89,6 +89,11 @@ OnDemandOsClientGrpc::~OnDemandOsClientGrpc() {
     sh_ctx->TryCancel();
 }
 
+void OnDemandOsClientGrpc::onBatchesToWholeNetwork(CollectionType batches) {
+  // This code should not be called.
+  assert(false);
+}
+
 void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   std::shared_ptr<proto::BatchesRequest> request;
   for (auto &batch : batches) {

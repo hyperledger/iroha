@@ -21,9 +21,10 @@ OnDemandConnectionManager::OnDemandConnectionManager(
 OnDemandConnectionManager::OnDemandConnectionManager(
     std::shared_ptr<transport::OdOsNotificationFactory> factory,
     CurrentPeers initial_peers,
+    shared_model::interface::types::PeerList const &all_peers,
     logger::LoggerPtr log)
     : OnDemandConnectionManager(std::move(factory), std::move(log)) {
-  initializeConnections(initial_peers);
+  initializeConnections(initial_peers, all_peers);
 }
 
 OnDemandConnectionManager::~OnDemandConnectionManager() {
@@ -57,6 +58,13 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
   propagate(kCommitConsumer);
 }
 
+void OnDemandConnectionManager::onBatchesToWholeNetwork(CollectionType batches) {
+  std::shared_lock<std::shared_timed_mutex> lock(mutex_);
+  if (not stop_requested_.load(std::memory_order_relaxed))
+    for (auto &connection : connections_.all_connections)
+      (*connection)->onBatches(batches);
+}
+
 void OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed)) {
@@ -71,7 +79,7 @@ void OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
 }
 
 void OnDemandConnectionManager::initializeConnections(
-    const CurrentPeers &peers) {
+    const CurrentPeers &peers, shared_model::interface::types::PeerList const &all_peers) {
   std::lock_guard<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed)) {
     // Object was destroyed and `this' is no longer valid.
@@ -89,4 +97,11 @@ void OnDemandConnectionManager::initializeConnections(
   create_assign(kIssuer);
   create_assign(kRejectConsumer);
   create_assign(kCommitConsumer);
+
+  connections_.all_connections.clear();
+  for (auto &p : all_peers)
+    if (auto maybe_connection = factory_->create(*p);
+        expected::hasValue(maybe_connection))
+      connections_.all_connections.emplace_back(
+          std::move(maybe_connection).assumeValue());
 }
