@@ -837,11 +837,11 @@ impl TestClient for Client {
     {
         let mut query_result = None;
         for _ in 0..max_attempts {
-            thread::sleep(period);
             query_result = match self.request(request.clone()) {
                 Ok(result) if f(&result) => return result,
                 result => Some(result),
-            }
+            };
+            thread::sleep(period);
         }
         panic!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", &query_result)
     }
@@ -852,7 +852,7 @@ impl TestClient for Client {
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
-        self.poll_request_with_period(request, Configuration::pipeline_time(), 10, f)
+        self.poll_request_with_period(request, Configuration::pipeline_time() / 2, 10, f)
     }
 }
 

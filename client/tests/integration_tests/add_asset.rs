@@ -12,7 +12,6 @@ use test_network::{Peer as TestPeer, *};
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(vec![test_client.clone()], 0);
-    let pipeline_time = Configuration::pipeline_time();
 
     // Given
     let account_id = AccountId::test("alice", "wonderland");
@@ -20,10 +19,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
     )));
-
-    test_client.submit(create_asset)?;
-    thread::sleep(pipeline_time * 2);
-
+    let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity: u32 = 200;
     let mint = MintBox::new(
@@ -33,7 +29,9 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
             account_id.clone(),
         )),
     );
-    test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
+    let tx = test_client.build_transaction(vec![create_asset.into(), mint.into()], metadata)?;
+    test_client.submit_transaction(tx)?;
+    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
             asset.id.definition_id == asset_definition_id
                 && asset.value == AssetValue::Quantity(quantity)
@@ -45,22 +43,17 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
 #[test]
 fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
-    let pipeline_time = Configuration::pipeline_time();
+    wait_for_genesis_committed(vec![test_client.clone()], 0);
 
     // Given
-    thread::sleep(pipeline_time);
-
     let account_id = AccountId::test("alice", "wonderland");
     let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_big_quantity(
         asset_definition_id.clone(),
     )));
-
-    test_client.submit(create_asset)?;
-    thread::sleep(pipeline_time * 2);
-
+    let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
     //When
-    let quantity: u128 = 0x0001_0000_0000_0000_0000; // 2^64
+    let quantity: u128 = 2_u128.pow(65);
     let mint = MintBox::new(
         Value::U128(quantity),
         IdBox::AssetId(AssetId::new(
@@ -68,7 +61,9 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
             account_id.clone(),
         )),
     );
-    test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
+    let tx = test_client.build_transaction(vec![create_asset.into(), mint.into()], metadata)?;
+    test_client.submit_transaction(tx)?;
+    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
             asset.id.definition_id == asset_definition_id
                 && asset.value == AssetValue::BigQuantity(quantity)
@@ -80,22 +75,17 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
 #[test]
 fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
-    let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    thread::sleep(pipeline_time);
-
     let account_id = AccountId::test("alice", "wonderland");
     let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
     let identifiable_box =
         IdentifiableBox::from(AssetDefinition::with_precision(asset_definition_id.clone()));
     let create_asset = RegisterBox::new(identifiable_box);
-
-    test_client.submit(create_asset)?;
-    thread::sleep(pipeline_time * 2);
+    let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
 
     //When
-    let quantity: Fixed = Fixed::try_from(123.45_f64).unwrap();
+    let quantity: Fixed = Fixed::try_from(123.456_f64).unwrap();
     let mint = MintBox::new(
         Value::Fixed(quantity),
         IdBox::AssetId(AssetId::new(
@@ -103,16 +93,14 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
             account_id.clone(),
         )),
     );
-    test_client.submit_till(
-        mint,
-        client::asset::by_account_id(account_id.clone()),
-        |result| {
-            result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Fixed(quantity)
-            })
-        },
-    );
+    let tx = test_client.build_transaction(vec![create_asset.into(), mint.into()], metadata)?;
+    test_client.submit_transaction(tx)?;
+    test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
+        result.iter().any(|asset| {
+            asset.id.definition_id == asset_definition_id
+                && asset.value == AssetValue::Fixed(quantity)
+        })
+    });
 
     // Add some fractional part
     let quantity2: Fixed = Fixed::try_from(0.55_f64).unwrap();
@@ -124,7 +112,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
         )),
     );
     // and check that it is added without errors
-    let sum = Fixed::try_from(124.00_f64).unwrap();
+    let sum = quantity.checked_add(quantity2)?;
     test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
             asset.id.definition_id == asset_definition_id && asset.value == AssetValue::Fixed(sum)
@@ -139,8 +127,6 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    thread::sleep(pipeline_time);
-
     let normal_asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         normal_asset_definition_id.clone(),
