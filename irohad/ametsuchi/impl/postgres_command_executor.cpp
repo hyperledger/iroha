@@ -1223,12 +1223,12 @@ namespace iroha {
             inserted AS (
               INSERT INTO engine_calls
               (
-                tx_hash, cmd_index, engine_response,
+                tx_hash, cmd_index, engine_response, error_response,
                 callee, created_address
               )
               VALUES
               (
-                :tx_hash, :cmd_index, :engine_response,
+                :tx_hash, :cmd_index, :engine_response, :error_response,
                 :callee, :created_address
               )
               ON CONFLICT (tx_hash, cmd_index)
@@ -1598,12 +1598,14 @@ namespace iroha {
                         perm_converter_);
                     executor.use("tx_hash", tx_hash);
                     executor.use("cmd_index", cmd_index);
-
+                    executor.use("error_response", std::nullopt);
                     if (command.callee()) {
                       // calling a deployed contract
+
                       executor.use("callee", command.callee()->get());
                       executor.use("engine_response", value.value);
                       executor.use("created_address", std::nullopt);
+
                     } else {
                       // deploying a new contract
                       executor.use("callee", std::nullopt);
@@ -1613,7 +1615,23 @@ namespace iroha {
 
                     return executor.execute();
                   },
-                  [](auto &&error) -> CommandResult {
+                  [&](auto &&error) -> CommandResult {
+                    StatementExecutor executor(
+                        store_engine_response_statements_,
+                        false,
+                        "StoreEngineReceiptsResponse",
+                        perm_converter_);
+                    executor.use("tx_hash", tx_hash);
+                    executor.use("cmd_index", cmd_index);
+                    if (command.callee()) {
+                      // calling a deployed contract
+                      executor.use("callee", command.callee()->get());
+                      executor.use("engine_response", std::nullopt);
+                      executor.use("error_response", error.error);
+                      executor.use("created_address", std::nullopt);
+                    }
+                    executor.execute();
+                    std::cout <<"error is "<< error.error << std::endl;
                     return makeCommandError(
                         "CallEngine", 3, std::move(error.error));
                   });
