@@ -85,7 +85,7 @@ pub mod utils {
         };
 
         pub trait ConstRoleTrait: Debug + Send + 'static {
-            /// Returns true if we indead is that role
+            /// Returns true if this peer has this `role`
             fn role(role: Role) -> bool;
         }
 
@@ -185,6 +185,32 @@ pub mod utils {
             TransactionForwarded,
             ViewChangeSuggested
         );
+
+        #[derive(Debug, Clone, Copy, Default)]
+        pub struct SkipTxForwardedAndGossipOnLeader;
+
+        impl FaultInjection for SkipTxForwardedAndGossipOnLeader {
+            fn faulty_message<G, K, W>(
+                sumeragi: &SumeragiWithFault<G, K, W, Self>,
+                msg: SumeragiMessage,
+            ) -> Option<SumeragiMessage>
+            where
+                G: GenesisNetworkTrait,
+                K: KuraTrait,
+                W: WorldTrait,
+            {
+                match (sumeragi.role(), msg) {
+                    (Role::Leader, SumeragiMessage::TransactionForwarded(_))
+                    | (Role::Leader, SumeragiMessage::TransactionGossip(_)) => {
+                        iroha_logger::error!(
+                            "Fault behaviour: Skipping TransactionForwarded and TransactionGossip"
+                        );
+                        None
+                    }
+                    (_, msg) => Some(msg),
+                }
+            }
+        }
     }
 
     pub mod world {
@@ -393,13 +419,7 @@ async fn change_view_on_tx_receipt_timeout() {
         world::WithAlice,
         genesis::NoGenesis,
         iroha_core::kura::Kura<_>,
-        SumeragiWithFault<
-            _,
-            _,
-            _,
-            // FIXME: Leader gets gossip
-            sumeragi::Skip<sumeragi::TransactionForwarded, sumeragi::Leader>,
-        >,
+        SumeragiWithFault<_, _, _, sumeragi::SkipTxForwardedAndGossipOnLeader>,
         BlockSynchronizer<_, _>,
     >>::start_test(10, 1)
     .await;

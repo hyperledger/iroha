@@ -154,10 +154,10 @@ pub struct CheckReceiptTimeout {
     proof: Proof,
 }
 
-///
+/// `Sumeragi` is the implementation of the consensus.
 pub type Sumeragi<G, K, W> = SumeragiWithFault<G, K, W, NoFault>;
 
-/// `Sumeragi` is the implementation of the consensus.
+/// `Sumeragi` is the implementation of the consensus. This struct allows also to add fault injection for tests.
 pub struct SumeragiWithFault<G, K, W, F>
 where
     G: GenesisNetworkTrait,
@@ -738,6 +738,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
     /// Forwards transactions to the leader and waits for receipts.
     /// In consensus it is used to check the liveness of a leader.
     #[iroha_futures::telemetry_future]
+    #[allow(clippy::expect_used)]
     pub async fn forward_txs_to_leader(
         &mut self,
         txs: &[VersionedAcceptedTransaction],
@@ -761,11 +762,9 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             "Forwarding tx to leader"
         );
         // Don't require leader to submit receipts and therefore create blocks if the tx is still waiting for more signatures.
-        #[allow(clippy::expect_used)]
         if let Ok(true) = tx.check_signature_condition(&self.wsv) {
             self.txs_awaiting_receipts.insert(tx.hash(), Instant::now());
         }
-        #[allow(clippy::expect_used)]
         let no_tx_receipt = view_change::Proof::no_transaction_receipt_received(
             self.latest_view_change_hash(),
             *self.latest_block_hash(),
@@ -852,8 +851,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             "Gossiping transactions"
         );
 
-        self.broadcast_msg(TransactionGossip::new(txs.to_owned()))
-            .await;
+        self.broadcast_msg(TransactionGossip::new(txs)).await;
     }
 
     /// Should be called by a leader to start the consensus round with `BlockCreated` message.
@@ -1546,6 +1544,7 @@ pub mod message {
         ) -> Result<()> {
             let network_topology =
                 sumeragi.network_topology_current_or_genesis(self.block.header());
+            #[allow(clippy::expect_used)]
             let network_topology = network_topology
                 .into_builder()
                 .with_view_changes(self.block.header().view_change_proofs.clone())

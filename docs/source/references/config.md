@@ -467,7 +467,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_COMMIT_TIME
 
 ### `sumeragi.gossip_batch_size`
 
-Maximum number of transactions in tx gossip batch message.
+Maximum number of transactions in tx gossip batch message. While configuring this, attention should be payed to `p2p` max message size.
 
 Has type `usize`. Can be configured via environment variable `SUMERAGI_GOSSIP_BATCH_SIZE`
 
@@ -477,7 +477,7 @@ Has type `usize`. Can be configured via environment variable `SUMERAGI_GOSSIP_BA
 
 ### `sumeragi.gossip_period_ms`
 
-Maximum number of transactions in tx gossip batch message.
+Period in milliseconds for pending transaction gossiping between peers.
 
 Has type `u64`. Can be configured via environment variable `SUMERAGI_GOSSIP_PERIOD_MS`
 
