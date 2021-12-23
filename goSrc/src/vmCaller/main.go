@@ -177,8 +177,8 @@ func (w *EngineWrapper) Execute(caller, callee crypto.Address, input []byte) ([]
 	output, err := w.engine.Execute(w.state, blockchain.New(), w.eventSink, params, calleeAccount.EVMCode)
 
 	if err != nil {
-		return nil, fmt.Errorf("Error calling smart contract at address %s: %s",
-			callee.String(), err.Error())
+		return nil, fmt.Errorf("Error calling smart contract at address %s: %s %s",
+			callee.String(), err.Error(), iroha.IrohaErrorDetails)
 	}
 
 	return output, nil
