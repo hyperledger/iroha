@@ -30,7 +30,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
         create_account.into(),
         create_asset.into(),
     ])?;
-    thread::sleep(pipeline_time * 4);
+    thread::sleep(pipeline_time * 3);
     //When
     let quantity: u32 = 200;
     iroha_client.submit(MintBox::new(
