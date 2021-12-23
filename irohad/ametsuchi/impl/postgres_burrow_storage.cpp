@@ -6,7 +6,7 @@
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 
 #include <optional>
-
+#include <iostream>
 #include <soci/soci.h>
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_string_view.hpp"
@@ -112,7 +112,12 @@ Result<void, std::string> PostgresBurrowStorage::storeLog(
     std::vector<std::string_view> topics) {
   try {
     std::optional<size_t> log_idx;
-
+    std::cout << "##############" << std::endl;
+    std::cout << data << std::endl;
+    for(auto &tmp: topics){
+      std::cout << tmp << std::endl;
+    }
+    // std::cout << topics << std::endl;
     if (call_id_cache_) {
       sql_ << "insert into burrow_tx_logs (call_id, address, data) "
               "values (:call_id, lower(:address), :data) "

@@ -315,6 +315,8 @@ type createAccountRets struct {
 
 func createAccount(ctx native.Context, args createAccountArgs) (createAccountRets, error) {
 	err := iroha.CreateAccount(args.Name, args.Domain, args.Key)
+	fmt.Println("in native contract")
+	fmt.Println(err)
 	if err != nil {
 		return createAccountRets{Result: false}, err
 	}
@@ -322,7 +324,9 @@ func createAccount(ctx native.Context, args createAccountArgs) (createAccountRet
 	ctx.Logger.Trace.Log("function", "createAccount",
 		"name", args.Name,
 		"domain", args.Domain,
-		"key", args.Key)
+		"key", args.Key,
+		"result", err,
+		"dupa", "dupa")
 
 	return createAccountRets{Result: true}, nil
 }
