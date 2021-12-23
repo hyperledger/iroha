@@ -3,11 +3,7 @@
     "P2P_ADDR": "127.0.0.1:1337",
     "API_URL": "http://127.0.0.1:8080"
   },
-  "SUMERAGI": {
-    "BLOCK_TIME_MS": 1000,
-    "COMMIT_TIME_MS": 1000,
-    "TX_RECEIPT_TIME_MS": 100
-  },
+  "SUMERAGI": {},
   "KURA": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./blocks"
