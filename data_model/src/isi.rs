@@ -270,7 +270,7 @@ where
 {
     /// Source object `Id`.
     pub source_id: S::Id,
-    /// Object which should be transfered.
+    /// Object which should be transferred.
     pub object: O,
     /// Destination object `Id`.
     pub destination_id: D::Id,

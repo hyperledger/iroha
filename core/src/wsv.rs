@@ -12,7 +12,7 @@ use dashmap::{
     mapref::one::{Ref as DashMapRef, RefMut as DashMapRefMut},
     DashSet,
 };
-use eyre::Result;
+use eyre::{Report, Result};
 use iroha_crypto::HashOf;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use iroha_logger::prelude::*;
@@ -186,7 +186,11 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .instructions
                 .iter()
                 .cloned()
-                .try_for_each(|instruction| instruction.execute(account_id.clone(), self))?;
+                .try_for_each(|instruction| {
+                    let events = instruction.execute(account_id.clone(), self)?;
+                    self.produce_events(events);
+                    Ok::<_, Report>(())
+                })?;
 
             self.transactions.insert(tx.hash());
             // Yield control cooperatively to the task scheduler.
@@ -206,6 +210,18 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// new block is added to the blockchain(after block validation)
     pub fn subscribe_to_new_block_notifications(&self) -> NewBlockNotificationReceiver {
         self.new_block_notifier.subscribe()
+    }
+
+    fn produce_events(&self, events: impl IntoIterator<Item = DataEvent>) {
+        let events = events.into_iter().map(Event::from);
+        let events_sender = if let Some(sender) = &self.events_sender {
+            sender
+        } else {
+            return warn!("wsv does not equip an events sender");
+        };
+        for event in events {
+            drop(events_sender.send(event))
+        }
     }
 
     /// Hash of latest block

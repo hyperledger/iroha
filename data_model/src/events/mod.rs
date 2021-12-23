@@ -72,7 +72,7 @@ impl VersionedEventSubscriberMessage {
 
 /// Message sent by the stream consumer
 #[version_with_scale(n = 1, versioned = "VersionedEventSubscriberMessage")]
-#[derive(Debug, Clone, Copy, Decode, Encode, FromVariant, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
 pub enum EventSubscriberMessage {
     /// Request sent by the client to subscribe to events.
     //TODO: Sign request?
@@ -91,7 +91,8 @@ pub enum Event {
 }
 
 /// Event filter.
-#[derive(Debug, Clone, Copy, Decode, Encode, FromVariant, IntoSchema)]
+#[allow(variant_size_differences)]
+#[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
 pub enum EventFilter {
     /// Listen to pipeline events with filter.
     Pipeline(pipeline::EventFilter),
@@ -104,7 +105,7 @@ impl EventFilter {
     pub fn apply(&self, event: &Event) -> bool {
         match (event, self) {
             (Event::Pipeline(event), EventFilter::Pipeline(filter)) => filter.apply(event),
-            (Event::Data(event), EventFilter::Data(filter)) => filter.apply(*event),
+            (Event::Data(event), EventFilter::Data(filter)) => filter.apply(event),
             _ => false,
         }
     }
