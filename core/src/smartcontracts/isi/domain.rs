@@ -1,7 +1,7 @@
 //! This module contains [`Domain`] structure and related implementations and trait implementations.
 use std::collections::btree_map::Entry;
 
-use eyre::{eyre, Result};
+use eyre::Result;
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics;
 
@@ -14,6 +14,7 @@ use crate::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
+
     use super::*;
 
     impl<W: WorldTrait> Execute<W> for Register<NewAccount> {
@@ -29,7 +30,8 @@ pub mod isi {
             account
                 .id
                 .name
-                .validate_len(wsv.config.ident_length_limits)?;
+                .validate_len(wsv.config.ident_length_limits)
+                .map_err(Error::Validate)?;
             let domain_id = account.id.domain_id.clone();
             match wsv
                 .domain_mut(&domain_id)?
@@ -37,11 +39,10 @@ pub mod isi {
                 .entry(account.id.clone())
             {
                 Entry::Occupied(_) => {
-                    return Err(eyre!(
-                        "Domain already contains an account with this Id: {:?}",
-                        &account.id
-                    )
-                    .into())
+                    return Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::AccountId(account.id),
+                    ))
                 }
                 Entry::Vacant(entry) => {
                     let _ = entry.insert(account.into());
@@ -81,7 +82,8 @@ pub mod isi {
             asset_definition
                 .id
                 .name
-                .validate_len(wsv.config.ident_length_limits)?;
+                .validate_len(wsv.config.ident_length_limits)
+                .map_err(Error::Validate)?;
             let domain_id = asset_definition.id.domain_id.clone();
             let mut domain = wsv.domain_mut(&domain_id)?;
             match domain.asset_definitions.entry(asset_definition.id.clone()) {
@@ -92,11 +94,10 @@ pub mod isi {
                     });
                 }
                 Entry::Occupied(entry) => {
-                    return Err(eyre!(
-                        "Asset definition already exists and was registered by {}",
-                        entry.get().registered_by
-                    )
-                    .into())
+                    return Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::AccountId(entry.get().registered_by.clone()),
+                    ))
                 }
             }
             Ok(())
@@ -226,11 +227,12 @@ pub mod query {
     use iroha_logger::prelude::*;
 
     use super::*;
+    use crate::smartcontracts::query::Error;
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllDomains {
         #[log]
         #[metrics(+"find_all_domains")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             Ok(wsv
                 .domains()
                 .iter()
@@ -241,11 +243,12 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindDomainById {
         #[metrics(+"find_domain_by_id")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get domain id")?;
+                .wrap_err("Failed to get domain id")
+                .map_err(Error::Evaluate)?;
             Ok(wsv.domain(&id)?.clone())
         }
     }
@@ -253,37 +256,41 @@ pub mod query {
     impl<W: WorldTrait> ValidQuery<W> for FindDomainKeyValueByIdAndKey {
         #[log]
         #[metrics(+"find_domain_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get domain id")?;
+                .wrap_err("Failed to get domain id")
+                .map_err(Error::Evaluate)?;
             let key = self
                 .key
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get key")?;
+                .wrap_err("Failed to get key")
+                .map_err(Error::Evaluate)?;
             wsv.map_domain(&id, |domain| domain.metadata.get(&key).map(Clone::clone))?
-                .ok_or_else(|| eyre!("No metadata entry with this key."))
+                .ok_or_else(|| FindError::MetadataKey(key).into())
         }
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetDefinitionKeyValueByIdAndKey {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get asset definition id")?;
+                .wrap_err("Failed to get asset definition id")
+                .map_err(Error::Evaluate)?;
             let key = self
                 .key
                 .evaluate(wsv, &Context::default())
-                .wrap_err("Failed to get key")?;
+                .wrap_err("Failed to get key")
+                .map_err(Error::Evaluate)?;
             Ok(wsv
                 .asset_definition_entry(&id)?
                 .definition
                 .metadata
                 .get(&key)
-                .ok_or_else(|| eyre!("Key {} not found in asset {}", key, id))?
+                .ok_or(FindError::MetadataKey(key))?
                 .clone())
         }
     }

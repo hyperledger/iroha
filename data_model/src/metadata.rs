@@ -1,9 +1,9 @@
 //! Metadata: key-value pairs that can be attached to accounts,
 //! transactions and assets.
 
-use std::{borrow::Borrow, collections::BTreeMap};
+use std::{borrow::Borrow, collections::BTreeMap, fmt};
 
-use eyre::{eyre, Result};
+use eyre::Result;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,42 @@ pub struct Limits {
     pub max_len: u32,
     /// Maximum length of entry
     pub max_entry_byte_size: u32,
+}
+
+impl fmt::Display for Limits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, f)
+    }
+}
+
+/// Metadata related errors.
+#[derive(Debug, thiserror::Error, Clone)]
+pub enum Error {
+    /// Metadata entry too big.
+    #[error("Metadata entry too big. {limits} - {actual}")]
+    EntrySize {
+        /// The limits that were set for this entry.
+        limits: Limits,
+        /// The actual *entry* size in bytes.
+        actual: usize,
+    },
+    /// Metadata exceeds overall length limit.
+    #[error("Metadata exceeds overall length limit. {limits} - {actual}")]
+    OverallSize {
+        /// The limits that were set for this entry.
+        limits: Limits,
+        /// The actual *overall* size of metadata.
+        actual: usize,
+    },
+    /// Empty path.
+    #[error("Path specification empty")]
+    EmptyPath(),
+    /// Middle path segment is missing. I.e. nothing was found at that key.
+    #[error("Path segment {0} not found")]
+    MissingSegment(Name),
+    /// Middle path segment is not nested metadata. I.e. something was found, but isn't an instance of [`Metadata`].
+    #[error("Path segment {0} is not an instance of metadata.")]
+    InvalidSegment(Name),
 }
 
 impl Limits {
@@ -115,23 +151,23 @@ impl Metadata {
         path: &Path,
         value: Value,
         limits: Limits,
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<Value>, Error> {
         if self.map.len() >= limits.max_len as usize {
-            return Err(eyre!(
-                "Metadata length limit is reached: {}",
-                limits.max_len
-            ));
+            return Err(Error::OverallSize {
+                limits,
+                actual: self.map.len(),
+            });
         }
-        let key = path.last().ok_or_else(|| eyre!("Empty path"))?;
+        let key = path.last().ok_or_else(Error::EmptyPath)?;
         let mut layer = self;
         for k in path.iter().take(path.len() - 1) {
             layer = match layer
                 .map
                 .get_mut(k)
-                .ok_or_else(|| eyre!("No metadata for key {} in path. Path is malformed.", k))?
+                .ok_or_else(|| Error::MissingSegment(k.clone()))?
             {
                 Value::LimitedMetadata(data) => data,
-                _ => return Err(eyre!("Path contains non-metadata segments at key {}.", k)),
+                _ => return Err(Error::InvalidSegment(k.clone())),
             };
         }
         check_size_limits(key, value.clone(), limits)?;
@@ -148,12 +184,12 @@ impl Metadata {
         key: Name,
         value: Value,
         limits: Limits,
-    ) -> Result<Option<Value>> {
+    ) -> Result<Option<Value>, Error> {
         if self.map.len() >= limits.max_len as usize && !self.map.contains_key(&key) {
-            return Err(eyre!(
-                "Metadata length limit is reached: {}",
-                limits.max_len
-            ));
+            return Err(Error::OverallSize {
+                limits,
+                actual: self.map.len(),
+            });
         }
         check_size_limits(&key, value.clone(), limits)?;
         Ok(self.map.insert(key, value))
@@ -181,11 +217,14 @@ impl Metadata {
     }
 }
 
-fn check_size_limits(key: &Name, value: Value, limits: Limits) -> Result<()> {
+fn check_size_limits(key: &Name, value: Value, limits: Limits) -> Result<(), Error> {
     let entry_bytes: Vec<u8> = (key, value).encode();
     let byte_size = entry_bytes.len();
     if byte_size > limits.max_entry_byte_size as usize {
-        return Err(eyre!("Metadata entry exceeds maximum size. Expected less than or equal to {} bytes. Actual: {} bytes", limits.max_entry_byte_size, byte_size));
+        return Err(Error::EntrySize {
+            limits,
+            actual: byte_size,
+        });
     }
     Ok(())
 }

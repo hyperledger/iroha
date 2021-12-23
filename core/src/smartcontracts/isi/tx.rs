@@ -10,11 +10,12 @@ use super::*;
 impl<W: WorldTrait> ValidQuery<W> for FindTransactionsByAccountId {
     #[log]
     #[metrics(+"find_transactions_by_account_id")]
-    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, query::Error> {
         let id = self
             .account_id
             .evaluate(wsv, &Context::default())
-            .wrap_err("Failed to get id")?;
+            .wrap_err("Failed to get account id")
+            .map_err(query::Error::Evaluate)?;
         Ok(wsv.transactions_values_by_account_id(&id))
     }
 }
@@ -22,16 +23,17 @@ impl<W: WorldTrait> ValidQuery<W> for FindTransactionsByAccountId {
 impl<W: WorldTrait> ValidQuery<W> for FindTransactionByHash {
     #[log]
     #[metrics(+"find_transaction_by_hash")]
-    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output> {
+    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, query::Error> {
         let hash = self
             .hash
             .evaluate(wsv, &Context::default())
-            .wrap_err("Failed to get hash")?;
+            .wrap_err("Failed to get hash")
+            .map_err(query::Error::Evaluate)?;
         let hash = HashOf::from_hash(hash);
         if !wsv.has_transaction(&hash) {
-            return Err(eyre!("Transaction not found"));
+            return Err(FindError::Transaction(hash).into());
         };
         wsv.transaction_value_by_hash(&hash)
-            .ok_or_else(|| eyre!("Failed to fetch transaction"))
+            .ok_or_else(|| FindError::Transaction(hash).into())
     }
 }

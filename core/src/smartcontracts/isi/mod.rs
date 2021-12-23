@@ -9,132 +9,261 @@ pub mod query;
 pub mod tx;
 pub mod world;
 
-use std::{
-    error::Error as StdError,
-    fmt::{self, Display, Formatter},
-};
-
-use eyre::{eyre, Result};
+pub use error::*;
+use eyre::Result;
 use iroha_crypto::HashOf;
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_logger::prelude::*;
-use iroha_macro::FromVariant;
-use thiserror::Error;
 
 use super::{Evaluate, Execute};
 use crate::{prelude::*, wsv::WorldTrait};
 
-/// Instruction execution error type
-#[derive(Debug, FromVariant, Error)]
-pub enum Error {
-    /// Failed to find some entity
-    #[error("Failed to find")]
-    Find(#[source] Box<FindError>),
-    /// Failed to assert type
-    #[error("Failed to assert type")]
-    Type(#[source] TypeError),
-    /// Failed to assert mintability
-    #[error("Failed to assert mintability")]
-    Mintability(#[source] MintabilityError),
-    /// Failed due to math exception
-    #[error("Math error occurred")]
-    Math(#[source] MathError),
-    /// Some other error happened
-    #[error("Some other error happened")]
-    Other(#[skip_try_from] eyre::Error),
-}
+pub mod error {
+    //! Errors used in Iroha special instructions and
+    //! queries. Instruction execution should fail with a specific
+    //! error variant, as opposed to a generic (printable-only)
+    //! [`eyre::Report`]. If it is impossible to predict what kind of
+    //! error shall be raised, there are types that wrap
+    //! [`eyre::Report`].
+    use std::{
+        error::Error as StdError,
+        fmt::{Display, Formatter},
+    };
 
-/// Type assertion error
-#[derive(Debug, Clone, Error)]
-pub enum FindError {
-    /// Failed to find asset
-    #[error("Failed to find asset: `{0}`")]
-    Asset(AssetId),
-    /// Failed to find asset definition
-    #[error("Failed to find asset definition: `{0}`")]
-    AssetDefinition(AssetDefinitionId),
-    /// Failed to find account
-    #[error("Failed to find account: `{0}`")]
-    Account(AccountId),
-    /// Failed to find domain
-    #[error("Failed to find domain: `{0}`")]
-    Domain(DomainId),
-    /// Failed to find metadata key
-    #[error("Failed to find metadata key")]
-    MetadataKey(Name),
-    /// Failed to find Role by id.
-    #[cfg(feature = "roles")]
-    #[error("Failed to find role by id: `{0}`")]
-    Role(RoleId),
-    /// Block with supplied parent hash not found. More description in a string.
-    #[error("Block not found")]
-    Block(#[source] ParentHashNotFound),
-}
+    use iroha_crypto::HashOf;
+    use iroha_data_model::{fixed::FixedPointOperationError, metadata, prelude::*};
+    use thiserror::Error;
 
-/// Mintability logic error
-#[derive(Debug, Clone, FromVariant, Error, Copy)]
-pub enum MintabilityError {
-    /// Tried to mint an Un-mintable asset.
-    #[error("Minting of this asset is forbidden")]
-    MintUnmintableError,
-}
+    use super::{query, VersionedCommittedBlock};
 
-/// Type assertion error
-#[derive(Debug, Clone, FromVariant, Error, Copy)]
-pub enum TypeError {
+    /// Instruction execution error type
+    #[derive(Debug, Error)]
+    pub enum Error {
+        /// Failed to find some entity
+        #[error("Failed to find")]
+        Find(#[source] Box<FindError>),
+        /// Failed to assert type
+        #[error("Failed to assert type")]
+        Type(#[source] TypeError),
+        /// Failed to assert mintability
+        #[error("Mintability violation. {0}")]
+        Mintability(#[source] MintabilityError),
+        /// Failed due to math exception
+        #[error("Math error. {0}")]
+        Math(#[source] MathError),
+        /// Query Error
+        #[error("Query failed. {0}")]
+        Query(#[source] query::Error),
+        /// Metadata Error.
+        #[error("Metadata error: {0}")]
+        Metadata(#[source] metadata::Error),
+        /// Unsupported instruction.
+        #[error("Unsupported {0} instruction")]
+        Unsupported(InstructionType),
+        /// [`FailBox`] error
+        #[error("Execution failed {0}")]
+        FailBox(std::string::String),
+        /// Conversion Error
+        #[error("Conversion Error: {0}")]
+        Conversion(#[source] eyre::Error),
+        /// Repeated instruction
+        #[error("Repetition")]
+        Repetition(InstructionType, IdBox),
+        /// Failed to validate.
+        #[error("Failed to validate.")]
+        Validate(#[source] eyre::Report),
+    }
+
+    // The main reason these are needed is because `FromVariant` can
+    // create conflicting implementations if two nodes of the tree of
+    // error types have the same type. For example, if query::Error
+    // and Error::Validate both have `eyre::Report` the
+    // implementations for both will clash.
+    impl From<metadata::Error> for Error {
+        fn from(err: metadata::Error) -> Self {
+            Self::Metadata(err)
+        }
+    }
+
+    impl From<FindError> for Error {
+        fn from(err: FindError) -> Self {
+            Self::Find(Box::new(err))
+        }
+    }
+
+    impl From<query::Error> for Error {
+        fn from(err: query::Error) -> Self {
+            Self::Query(err)
+        }
+    }
+
+    /// Enumeration of instructions which can have unsupported variants.
+    #[derive(Debug, Clone, Copy)]
+    pub enum InstructionType {
+        /// Mint
+        Mint,
+        /// Register.
+        Register,
+        /// Set key-value pair.
+        SetKV,
+        /// Remove key-value pair.
+        RemKV,
+        /// Grant
+        Grant,
+        /// Transfer
+        Transfer,
+        /// Burn
+        Burn,
+        /// Un-register.
+        Unregister,
+    }
+
+    impl std::fmt::Display for InstructionType {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            std::fmt::Debug::fmt(self, f)
+        }
+    }
+
+    /// Type assertion error
+    #[derive(Debug, Clone, Error)]
+    pub enum FindError {
+        /// Failed to find asset
+        #[error("Failed to find asset: `{0}`")]
+        Asset(AssetId),
+        /// Failed to find asset definition
+        #[error("Failed to find asset definition: `{0}`")]
+        AssetDefinition(AssetDefinitionId),
+        /// Failed to find account
+        #[error("Failed to find account: `{0}`")]
+        Account(AccountId),
+        /// Failed to find domain
+        #[error("Failed to find domain: `{0}`")]
+        Domain(DomainId),
+        /// Failed to find metadata key
+        #[error("Failed to find metadata key")]
+        MetadataKey(Name),
+        /// Failed to find Role by id.
+        #[cfg(feature = "roles")]
+        #[error("Failed to find role by id: `{0}`")]
+        Role(RoleId),
+        /// Block with supplied parent hash not found. More description in a string.
+        #[error("Block not found")]
+        Block(#[source] ParentHashNotFound),
+        /// Transaction with given hash not found.
+        #[error("Transaction not found")]
+        Transaction(HashOf<VersionedTransaction>),
+        /// Value not found in context.
+        #[error("Value named {0} not found in context. ")]
+        Context(String),
+        /// Peer not found.
+        #[error("Peer {0} not found")]
+        Peer(PeerId),
+    }
+
+    /// Mintability logic error
+    #[derive(Debug, Clone, Error, Copy, PartialEq, Eq)]
+    pub enum MintabilityError {
+        /// Tried to mint an Un-mintable asset.
+        #[error("Minting of this asset is forbidden")]
+        MintUnmintableError,
+    }
+
+    /// Type assertion error
+    #[derive(Debug, Clone, Error, Copy, PartialEq, Eq)]
+    pub enum TypeError {
+        /// Asset type assertion error
+        #[error("Failed to assert type of asset")]
+        Asset(#[source] AssetTypeError),
+    }
+
+    impl From<AssetTypeError> for TypeError {
+        fn from(err: AssetTypeError) -> Self {
+            Self::Asset(err)
+        }
+    }
+
     /// Asset type assertion error
-    #[error("Failed to assert type of asset")]
-    Asset(#[source] AssetTypeError),
-}
-
-/// Asset type assertion error
-#[derive(Debug, Clone, Copy)]
-pub struct AssetTypeError {
-    /// Expected type
-    pub expected: AssetValueType,
-    /// Type which was discovered
-    pub got: AssetValueType,
-}
-
-impl Display for AssetTypeError {
-    #[allow(clippy::use_debug)]
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Asset type error: expected asset of type {:?}, but got {:?}",
-            self.expected, self.got
-        )
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct AssetTypeError {
+        /// Expected type
+        pub expected: AssetValueType,
+        /// Type which was discovered
+        pub got: AssetValueType,
     }
-}
 
-impl StdError for AssetTypeError {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        None
+    impl Display for AssetTypeError {
+        #[allow(clippy::use_debug)]
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "Asset type error: expected asset of type {:?}, but got {:?}",
+                self.expected, self.got
+            )
+        }
     }
-}
 
-/// Math error type inside instruction
-#[derive(Debug, Clone, FromVariant, Error, Copy)]
-pub enum MathError {
-    /// Overflow error inside instruction
-    #[error("Overflow occurred.")]
-    OverflowError,
-    /// Not enough quantity
-    #[error("Not enough quantity to burn.")]
-    NotEnoughQuantity,
-}
-
-/// Block with parent hash not found struct
-#[derive(Debug, Clone, Copy)]
-pub struct ParentHashNotFound(pub HashOf<VersionedCommittedBlock>);
-
-impl Display for ParentHashNotFound {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Block with parent hash {} not found", self.0)
+    impl StdError for AssetTypeError {
+        fn source(&self) -> Option<&(dyn StdError + 'static)> {
+            None
+        }
     }
-}
 
-impl StdError for ParentHashNotFound {}
+    /// Math error type inside instruction
+    #[derive(Debug, Clone, Error, Copy, PartialEq, Eq)]
+    pub enum MathError {
+        /// Overflow error inside instruction
+        #[error("Overflow occurred.")]
+        Overflow,
+        /// Not enough quantity
+        #[error("Not enough quantity to transfer/burn.")]
+        NotEnoughQuantity,
+        /// Divide by zero
+        #[error("Divide by zero")]
+        DivideByZero,
+        /// Negative Value encountered
+        #[error("Negative value encountered")]
+        NegativeValue,
+        /// Domain violation
+        #[error("Domain violation")]
+        DomainViolation,
+        /// Unknown error. No actual function should ever return this if possible.
+        #[error("Unknown error")]
+        Unknown,
+    }
+
+    impl From<FixedPointOperationError> for Error {
+        fn from(err: FixedPointOperationError) -> Self {
+            match err {
+                FixedPointOperationError::NegativeValue(_) => Self::Math(MathError::NegativeValue),
+                FixedPointOperationError::Conversion(e) => {
+                    Self::Conversion(eyre::eyre!("Mathematical conversion failed. {}", e))
+                }
+                FixedPointOperationError::Overflow => Self::Math(MathError::Overflow),
+                FixedPointOperationError::DivideByZero => Self::Math(MathError::DivideByZero),
+                FixedPointOperationError::DomainViolation => Self::Math(MathError::DomainViolation),
+                FixedPointOperationError::Arithmetic => Self::Math(MathError::Unknown),
+            }
+        }
+    }
+
+    impl From<MathError> for Error {
+        fn from(err: MathError) -> Self {
+            Self::Math(err)
+        }
+    }
+
+    /// Block with parent hash not found struct
+    #[derive(Debug, Clone, Copy)]
+    pub struct ParentHashNotFound(pub HashOf<VersionedCommittedBlock>);
+
+    impl Display for ParentHashNotFound {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "Block with parent hash {} not found", self.0)
+        }
+    }
+
+    impl StdError for ParentHashNotFound {}
+}
 
 impl<W: WorldTrait> Execute<W> for Instruction {
     type Error = Error;
@@ -183,7 +312,7 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
                 Register::<Domain>::new(*domain).execute(authority, wsv)
             }
             IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
-            _ => Err(eyre!("Unsupported register instruction.").into()),
+            _ => Err(Error::Unsupported(InstructionType::Unregister)),
         }
     }
 }
@@ -209,7 +338,7 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
                 Unregister::<Domain>::new(domain_id).execute(authority, wsv)
             }
             IdBox::PeerId(peer_id) => Unregister::<Peer>::new(peer_id).execute(authority, wsv),
-            _ => Err(eyre!("Unsupported unregister instruction.").into()),
+            _ => Err(Error::Unsupported(InstructionType::Unregister)),
         }
     }
 }
@@ -244,7 +373,7 @@ impl<W: WorldTrait> Execute<W> for MintBox {
                 Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
                     .execute(authority, wsv)
             }
-            _ => Err(eyre!("Unsupported mint instruction.").into()),
+            _ => Err(Error::Unsupported(InstructionType::Mint)),
         }
     }
 }
@@ -272,7 +401,7 @@ impl<W: WorldTrait> Execute<W> for BurnBox {
             (IdBox::AccountId(account_id), Value::PublicKey(public_key)) => {
                 Burn::<Account, PublicKey>::new(public_key, account_id).execute(authority, wsv)
             }
-            _ => Err(eyre!("Unsupported burn instruction.").into()),
+            _ => Err(Error::Unsupported(InstructionType::Burn)),
         }
     }
 }
@@ -289,12 +418,12 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
         let context = Context::new();
         let source_asset_id = match self.source_id.evaluate(wsv, &context)? {
             IdBox::AssetId(source_asset_id) => source_asset_id,
-            _ => return Err(eyre!("Unsupported transfer instruction.").into()),
+            _ => return Err(Error::Unsupported(InstructionType::Transfer)),
         };
 
         let quantity = match self.object.evaluate(wsv, &context)? {
             Value::U32(quantity) => quantity,
-            _ => return Err(eyre!("Unsupported transfer instruction.").into()),
+            _ => return Err(Error::Unsupported(InstructionType::Transfer)),
         };
 
         match self.destination_id.evaluate(wsv, &context)? {
@@ -302,7 +431,7 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
                 Transfer::<Asset, u32, Asset>::new(source_asset_id, quantity, destination_asset_id)
                     .execute(authority, wsv)
             }
-            _ => Err(eyre!("Unsupported transfer instruction.").into()),
+            _ => Err(Error::Unsupported(InstructionType::Transfer)),
         }
     }
 }
@@ -334,7 +463,7 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
             IdBox::DomainId(id) => {
                 SetKeyValue::<Domain, Name, Value>::new(id, key, value).execute(authority, wsv)
             }
-            _ => Err(eyre!("Unsupported set key-value instruction.").into()),
+            _ => Err(Error::Unsupported(InstructionType::SetKV)),
         }
     }
 }
@@ -361,7 +490,7 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
             IdBox::AccountId(account_id) => {
                 RemoveKeyValue::<Account, Name>::new(account_id, key).execute(authority, wsv)
             }
-            _ => Err(eyre!("Unsupported remove key-value instruction.").into()),
+            _ => Err(Error::Unsupported(InstructionType::RemKV)),
         }
     }
 }
@@ -425,7 +554,7 @@ impl<W: WorldTrait> Execute<W> for FailBox {
         _authority: <Account as Identifiable>::Id,
         _wsv: &WorldStateView<W>,
     ) -> Result<(), Error> {
-        Err(eyre!("Execution failed: {}.", self.message).into())
+        Err(Error::FailBox(self.message))
     }
 }
 
@@ -451,7 +580,7 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
             (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
                 Grant::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
             }
-            _ => Err(eyre!("Unsupported grant instruction.").into()),
+            _ => Err(Error::Unsupported(InstructionType::Grant)),
         }
     }
 }

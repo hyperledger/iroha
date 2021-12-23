@@ -22,7 +22,7 @@ use tokio::task;
 use crate::{
     block::Chain,
     prelude::*,
-    smartcontracts::{Execute, FindError},
+    smartcontracts::{isi::Error, Execute, FindError},
 };
 
 /// Sender type of the new block notification channel
@@ -322,7 +322,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn domain(
         &self,
         id: &<Domain as Identifiable>::Id,
-    ) -> Result<DashMapRef<DomainId, Domain>> {
+    ) -> Result<DashMapRef<DomainId, Domain>, FindError> {
         let domain = self
             .world
             .domains
@@ -338,7 +338,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn domain_mut(
         &self,
         id: &<Domain as Identifiable>::Id,
-    ) -> Result<DashMapRefMut<DomainId, Domain>> {
+    ) -> Result<DashMapRefMut<DomainId, Domain>, FindError> {
         let domain = self
             .world
             .domains
@@ -355,7 +355,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         id: &<Domain as Identifiable>::Id,
         f: impl FnOnce(&Domain) -> T,
-    ) -> Result<T> {
+    ) -> Result<T, FindError> {
         let domain = self.domain(id)?;
         Ok(f(domain.value()))
     }
@@ -367,8 +367,8 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_domain(
         &self,
         id: &<Domain as Identifiable>::Id,
-        f: impl FnOnce(&mut Domain) -> Result<()>,
-    ) -> Result<()> {
+        f: impl FnOnce(&mut Domain) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         let mut domain = self.domain_mut(id)?;
         f(domain.value_mut())
     }
@@ -381,7 +381,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         id: &<Account as Identifiable>::Id,
         f: impl FnOnce(&Account) -> T,
-    ) -> Result<T> {
+    ) -> Result<T, FindError> {
         let domain = self.domain(&id.domain_id)?;
         let account = domain
             .accounts
@@ -397,8 +397,8 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_account(
         &self,
         id: &<Account as Identifiable>::Id,
-        f: impl FnOnce(&mut Account) -> Result<()>,
-    ) -> Result<()> {
+        f: impl FnOnce(&mut Account) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         let mut domain = self.domain_mut(&id.domain_id)?;
         let account = domain
             .accounts
@@ -411,7 +411,10 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if account finding fails
-    pub fn account_assets(&self, id: &<Account as Identifiable>::Id) -> Result<Vec<Asset>> {
+    pub fn account_assets(
+        &self,
+        id: &<Account as Identifiable>::Id,
+    ) -> Result<Vec<Asset>, FindError> {
         self.map_account(id, |account| account.assets.values().cloned().collect())
     }
 
@@ -431,12 +434,12 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if there are no such asset or account
-    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset> {
-        self.map_account(&id.account_id, |account| -> Result<Asset> {
+    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, FindError> {
+        self.map_account(&id.account_id, |account| -> Result<Asset, FindError> {
             account
                 .assets
                 .get(id)
-                .ok_or_else(|| FindError::Asset(id.clone()).into())
+                .ok_or_else(|| FindError::Asset(id.clone()))
                 .map(Clone::clone)
         })?
     }
@@ -448,8 +451,8 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_asset(
         &self,
         id: &<Asset as Identifiable>::Id,
-        f: impl FnOnce(&mut Asset) -> Result<()>,
-    ) -> Result<()> {
+        f: impl FnOnce(&mut Asset) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         self.modify_account(&id.account_id, |account| {
             let asset = account
                 .assets
@@ -471,21 +474,27 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         id: &<Asset as Identifiable>::Id,
         default_asset_value: impl Into<AssetValue>,
-    ) -> Result<Asset> {
+    ) -> Result<Asset, Error> {
+        // This function is strictly infallible.
         self.modify_account(&id.account_id, |account| {
             let _ = account
                 .assets
                 .entry(id.clone())
                 .or_insert_with(|| Asset::new(id.clone(), default_asset_value.into()));
             Ok(())
+        })
+        .map_err(|err| {
+            iroha_logger::warn!(?err);
+            err
         })?;
-        self.asset(id)
+        self.asset(id).map_err(Into::into)
     }
 
     /// Add new `Asset` entity.
+    ///
     /// # Errors
     /// Fails if there is no account for asset
-    pub fn add_asset(&self, asset: Asset) -> Result<()> {
+    pub fn add_asset(&self, asset: Asset) -> Result<(), Error> {
         let id = asset.id.account_id.clone();
         self.modify_account(&id, move |account| {
             account.assets.insert(asset.id.clone(), asset);
@@ -500,11 +509,11 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn asset_definition_entry(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Result<AssetDefinitionEntry> {
+    ) -> Result<AssetDefinitionEntry, FindError> {
         self.domain(&id.domain_id)?
             .asset_definitions
             .get(id)
-            .ok_or_else(|| FindError::AssetDefinition(id.clone()).into())
+            .ok_or_else(|| FindError::AssetDefinition(id.clone()))
             .map(Clone::clone)
     }
 
@@ -515,8 +524,8 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_asset_definition_entry(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
-        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<()>,
-    ) -> Result<()> {
+        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         let mut domain = self.domain_mut(&id.domain_id)?;
         let asset_definition_entry = domain
             .asset_definitions

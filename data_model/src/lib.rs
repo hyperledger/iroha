@@ -31,8 +31,9 @@ pub mod metadata;
 pub mod query;
 pub mod transaction;
 
-/// `Name` struct represents type for Iroha Entities names, like [`Domain`](`domain::Domain`)'s name or [`Account`](`account::Account`)'s
-/// name.
+/// `Name` struct represents type for Iroha Entities names, like
+/// [`Domain`](`domain::Domain`)'s name or
+/// [`Account`](`account::Account`)'s name.
 #[derive(
     Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
@@ -111,7 +112,7 @@ pub trait TryAsMut<T> {
     /// The type returned in the event of a conversion error.
     type Error;
 
-    /// Performs the conversion.
+    /// Perform the conversion.
     fn try_as_mut(&mut self) -> Result<&mut T, Self::Error>;
 }
 
@@ -121,7 +122,7 @@ pub trait TryAsRef<T> {
     /// The type returned in the event of a conversion error.
     type Error;
 
-    /// Performs the conversion.
+    /// Perform the conversion.
     fn try_as_ref(&self) -> Result<&T, Self::Error>;
 }
 
@@ -413,7 +414,7 @@ where
                 .collect::<Result<Vec<_>, _>>()
                 .wrap_err("Failed to convert to vector")
         } else {
-            Err(eyre!("Expected vector, but found something else"))
+            Err(eyre::eyre!("Expected vector, but found something else"))
         }
     }
 }
@@ -1767,7 +1768,7 @@ pub mod domain {
 pub mod peer {
     //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
-    use std::hash::Hash;
+    use std::{fmt, hash::Hash};
 
     use dashmap::DashSet;
     use iroha_schema::IntoSchema;
@@ -1820,6 +1821,12 @@ pub mod peer {
         pub public_key: PublicKey,
     }
 
+    impl fmt::Display for Id {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            fmt::Debug::fmt(self, f)
+        }
+    }
+
     impl Peer {
         /// Construct `Peer` given `id`.
         #[inline]
@@ -1847,7 +1854,7 @@ pub mod peer {
         fn from_iter<T: IntoIterator<Item = Id>>(iter: T) -> Self {
             iter.into_iter()
                 .map(Into::into)
-                .collect::<Vec<Self>>()
+                .collect::<Vec<Value>>()
                 .into()
         }
     }
@@ -2111,7 +2118,11 @@ pub mod prelude {
         Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, Value,
     };
     pub use crate::{
-        events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
-        permissions::prelude::*, query::prelude::*,
+        events::prelude::*,
+        expression::prelude::*,
+        isi::prelude::*,
+        metadata::{self, prelude::*},
+        permissions::prelude::*,
+        query::prelude::*,
     };
 }

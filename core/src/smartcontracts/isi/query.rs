@@ -15,7 +15,7 @@ use warp::{
     Reply,
 };
 
-use super::permissions::IsQueryAllowedBoxed;
+use super::{permissions::IsQueryAllowedBoxed, FindError};
 use crate::{prelude::*, WorldTrait};
 
 /// Query Request verified on the Iroha node side.
@@ -40,11 +40,9 @@ impl VerifiedQueryRequest {
         wsv: &WorldStateView<W>,
         query_validator: &IsQueryAllowedBoxed<W>,
     ) -> Result<ValidQueryRequest, Error> {
-        let account_has_public_key = wsv
-            .map_account(&self.payload.account_id, |account| {
-                account.signatories.contains(&self.signature.public_key)
-            })
-            .map_err(Error::Find)?;
+        let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
+            account.signatories.contains(&self.signature.public_key)
+        })?;
         if !account_has_public_key {
             return Err(Error::Signature(eyre!(
                 "Signature public key doesn't correspond to the account."
@@ -86,7 +84,7 @@ impl ValidQueryRequest {
     /// # Errors
     /// Forwards `self.query.execute` error.
     #[inline]
-    pub fn execute<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<Value> {
+    pub fn execute<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<Value, Error> {
         self.query.execute(wsv)
     }
 }
@@ -135,7 +133,19 @@ pub enum Error {
     Permission(String),
     /// Query found nothing.
     #[error("Query found nothing: {0}")]
-    Find(eyre::Error),
+    Find(#[source] Box<FindError>),
+    /// Evaluate
+    #[error("Evaluation failed. {0}")]
+    Evaluate(#[source] eyre::Report),
+    /// Conversion failures
+    #[error("Conversion failed")]
+    Conversion(#[source] eyre::Report),
+}
+
+impl From<FindError> for Error {
+    fn from(err: FindError) -> Self {
+        Error::Find(Box::new(err))
+    }
 }
 
 impl Error {
@@ -143,9 +153,9 @@ impl Error {
     pub const fn status_code(&self) -> StatusCode {
         use Error::*;
         match *self {
-            Decode(_) | Version(_) => StatusCode::BAD_REQUEST,
+            Conversion(_) | Decode(_) | Version(_) => StatusCode::BAD_REQUEST,
             Signature(_) => StatusCode::UNAUTHORIZED,
-            Permission(_) | Find(_) => StatusCode::NOT_FOUND,
+            Evaluate(_) | Permission(_) | Find(_) => StatusCode::NOT_FOUND,
         }
     }
 }
@@ -169,7 +179,7 @@ impl TryFrom<&Bytes> for VerifiedQueryRequest {
 }
 
 impl<W: WorldTrait> ValidQuery<W> for QueryBox {
-    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Value> {
+    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Value, Error> {
         use QueryBox::*;
 
         match self {
