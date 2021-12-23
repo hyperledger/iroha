@@ -40,6 +40,8 @@ pub enum Instruction {
     RemoveKeyValue(RemoveKeyValueBox),
     /// `Grant` variant.
     Grant(GrantBox),
+    /// `Revoke` variant.
+    Revoke(RevokeBox),
 }
 
 impl Instruction {
@@ -60,6 +62,7 @@ impl Instruction {
             SetKeyValue(set_key_value) => set_key_value.len(),
             RemoveKeyValue(remove_key_value) => remove_key_value.len(),
             Grant(grant_box) => grant_box.len(),
+            Revoke(revoke_box) => revoke_box.len(),
         }
     }
 }
@@ -164,6 +167,15 @@ pub struct FailBox {
 /// Sized structure for all possible Grants.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct GrantBox {
+    /// Object to grant.
+    pub object: EvaluatesTo<Value>,
+    /// Entity to which to grant this token.
+    pub destination_id: EvaluatesTo<IdBox>,
+}
+
+/// Sized structure for all possible Grants.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+pub struct RevokeBox {
     /// Object to grant.
     pub object: EvaluatesTo<Value>,
     /// Entity to which to grant this token.
@@ -282,6 +294,19 @@ where
     pub destination_id: D::Id,
 }
 
+/// Generic instruction for revoking permission from an entity.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct Revoke<D, O>
+where
+    D: Identifiable,
+    O: ValueMarker,
+{
+    /// Object to revoke.
+    pub object: O,
+    /// Entity which is being revoked this token from.
+    pub destination_id: D::Id,
+}
+
 impl<O, K, V> SetKeyValue<O, K, V>
 where
     O: Identifiable,
@@ -389,16 +414,51 @@ where
     O: ValueMarker,
 {
     /// Constructor.
+    #[inline]
     pub fn new(object: O, destination_id: D::Id) -> Self {
-        Grant {
+        Self {
             object,
             destination_id,
         }
     }
 }
 
+impl<D, O> Revoke<D, O>
+where
+    D: Identifiable,
+    O: ValueMarker,
+{
+    /// Constructor
+    #[inline]
+    pub fn new(object: O, destination_id: D::Id) -> Self {
+        Self {
+            object,
+            destination_id,
+        }
+    }
+}
+
+impl RevokeBox {
+    /// Compute the number of contained instructions and expressions.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.object.len() + self.destination_id.len() + 1
+    }
+
+    /// Generic constructor.
+    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<IdBox>>>(
+        object: P,
+        destination_id: I,
+    ) -> Self {
+        Self {
+            destination_id: destination_id.into(),
+            object: object.into(),
+        }
+    }
+}
+
 impl GrantBox {
-    /// Calculates number of contained instructions and expressions.
+    /// Compute the number of contained instructions and expressions.
     pub fn len(&self) -> usize {
         self.object.len() + self.destination_id.len() + 1
     }
@@ -416,7 +476,8 @@ impl GrantBox {
 }
 
 impl SetKeyValueBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Calculate number of underneath instructions and expressions
+    #[inline]
     pub fn len(&self) -> usize {
         self.object_id.len() + self.key.len() + self.value.len() + 1
     }
@@ -697,7 +758,7 @@ mod tests {
 pub mod prelude {
     pub use super::{
         Burn, BurnBox, FailBox, Grant, GrantBox, If as IfInstruction, Instruction, Mint, MintBox,
-        Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, SequenceBox, SetKeyValue,
-        SetKeyValueBox, Transfer, TransferBox, Unregister, UnregisterBox,
+        Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox,
+        SequenceBox, SetKeyValue, SetKeyValueBox, Transfer, TransferBox, Unregister, UnregisterBox,
     };
 }

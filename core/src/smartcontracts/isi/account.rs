@@ -11,7 +11,7 @@ use crate::prelude::*;
 /// - minting/burning signature condition check
 /// - update metadata
 /// - grant permissions and roles
-/// - TODO Revoke permissions or roles
+/// - Revoke permissions or roles
 pub mod isi {
     use super::{super::prelude::*, *};
 
@@ -142,6 +142,25 @@ pub mod isi {
         }
     }
 
+    impl<W: WorldTrait> Execute<W> for Revoke<Account, PermissionToken> {
+        type Error = Error;
+        type Diff = DataEvent;
+
+        #[metrics(+"revoke_account_permission_token")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<Self::Diff, Self::Error> {
+            let id = self.destination_id.clone();
+            wsv.modify_account(&id, |account| {
+                let _ = account.permission_tokens.remove(&self.object);
+                Ok(())
+            })?;
+            Ok(self.into())
+        }
+    }
+
     #[cfg(feature = "roles")]
     impl<W: WorldTrait> Execute<W> for Grant<Account, RoleId> {
         type Error = Error;
@@ -161,6 +180,31 @@ pub mod isi {
             let id = self.destination_id.clone();
             wsv.modify_account(&id, |account| {
                 let _ = account.roles.insert(self.object.clone());
+                Ok(())
+            })?;
+            Ok(self.into())
+        }
+    }
+
+    #[cfg(feature = "roles")]
+    impl<W: WorldTrait> Execute<W> for Revoke<Account, RoleId> {
+        type Error = Error;
+        type Diff = DataEvent;
+
+        #[metrics(+"revoke_account_role")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<Self::Diff, Self::Error> {
+            wsv.world()
+                .roles
+                .get(&self.object)
+                .ok_or_else(|| FindError::Role(self.object.clone()))?;
+
+            let id = self.destination_id.clone();
+            wsv.modify_account(&id, |account| {
+                let _ = account.roles.remove(&self.object);
                 Ok(())
             })?;
             Ok(self.into())

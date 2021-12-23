@@ -419,6 +419,19 @@ mod account {
         }
     }
 
+    impl From<Revoke<Account, PermissionToken>> for DataEvent {
+        fn from(src: Revoke<Account, PermissionToken>) -> Self {
+            Self::new(src.destination_id, Updated::Permission)
+        }
+    }
+
+    #[cfg(feature = "roles")]
+    impl From<Revoke<Account, RoleId>> for DataEvent {
+        fn from(src: Revoke<Account, RoleId>) -> Self {
+            Self::new(src.destination_id, Updated::Permission)
+        }
+    }
+
     #[cfg(feature = "roles")]
     impl From<Grant<Account, RoleId>> for DataEvent {
         fn from(src: Grant<Account, RoleId>) -> Self {

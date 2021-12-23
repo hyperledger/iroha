@@ -105,9 +105,9 @@ pub mod error {
         /// Register.
         Register,
         /// Set key-value pair.
-        SetKV,
+        SetKeyValue,
         /// Remove key-value pair.
-        RemKV,
+        RemoveKeyValue,
         /// Grant
         Grant,
         /// Transfer
@@ -116,6 +116,8 @@ pub mod error {
         Burn,
         /// Un-register.
         Unregister,
+        /// Revoke
+        Revoke,
     }
 
     impl std::fmt::Display for InstructionType {
@@ -290,6 +292,7 @@ impl<W: WorldTrait> Execute<W> for Instruction {
                 Ok(remove_key_value.execute(authority, wsv)?.into())
             }
             Grant(grant_box) => Ok(grant_box.execute(authority, wsv)?.into()),
+            Revoke(revoke_box) => Ok(revoke_box.execute(authority, wsv)?.into()),
         }
     }
 }
@@ -472,7 +475,7 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
             IdBox::DomainId(id) => {
                 SetKeyValue::<Domain, Name, Value>::new(id, key, value).execute(authority, wsv)
             }
-            _ => Err(Error::Unsupported(InstructionType::SetKV)),
+            _ => Err(Error::Unsupported(InstructionType::SetKeyValue)),
         }
     }
 }
@@ -500,7 +503,7 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
             IdBox::AccountId(account_id) => {
                 RemoveKeyValue::<Account, Name>::new(account_id, key).execute(authority, wsv)
             }
-            _ => Err(Error::Unsupported(InstructionType::RemKV)),
+            _ => Err(Error::Unsupported(InstructionType::RemoveKeyValue)),
         }
     }
 }
@@ -598,6 +601,34 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
                 Grant::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
             }
             _ => Err(Error::Unsupported(InstructionType::Grant)),
+        }
+    }
+}
+
+impl<W: WorldTrait> Execute<W> for RevokeBox {
+    type Error = Error;
+    type Diff = DataEvent;
+
+    #[log]
+    fn execute(
+        self,
+        authority: <Account as Identifiable>::Id,
+        wsv: &WorldStateView<W>,
+    ) -> Result<Self::Diff, Self::Error> {
+        let context = Context::new();
+        match (
+            self.destination_id.evaluate(wsv, &context)?,
+            self.object.evaluate(wsv, &context)?,
+        ) {
+            (IdBox::AccountId(account_id), Value::PermissionToken(permission_token)) => {
+                Revoke::<Account, PermissionToken>::new(permission_token, account_id)
+                    .execute(authority, wsv)
+            }
+            #[cfg(feature = "roles")]
+            (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
+                Revoke::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
+            }
+            _ => Err(Error::Unsupported(InstructionType::Revoke)),
         }
     }
 }
