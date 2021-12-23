@@ -108,8 +108,11 @@ namespace iroha::network {
   }
 
   void HttpServer::stop() {
-    if (context_)
+    if (context_) {
       mg_stop(context_);
+      context_ = nullptr;
+    }
+    mg_exit_library();
     logger_->info("Http server stopped");
   }
 
