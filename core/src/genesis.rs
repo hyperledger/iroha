@@ -16,7 +16,7 @@ use crate::{
     kura::KuraTrait,
     sumeragi::{
         network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
-        Sumeragi,
+        FaultInjection, SumeragiWithFault,
     },
     tx::VersionedAcceptedTransaction,
     wsv::WorldTrait,
@@ -54,14 +54,19 @@ pub trait GenesisNetworkTrait:
         network: Addr<IrohaNetwork>,
     ) -> Result<Topology>;
 
+    // FIXME: Having `ctx` reference and `sumaregi` reference here is not ideal.
+    // The way it is currently designed, this function is called from sumeragi and then calls sumeragi, while being in an unrelated module.
+    // This needs to be restructured.
+
     /// Submits genesis transactions.
     ///
     /// # Errors
     /// Returns error if waiting for peers or genesis round itself fails
-    async fn submit_transactions<K: KuraTrait, W: WorldTrait>(
+    async fn submit_transactions<K: KuraTrait, W: WorldTrait, F: FaultInjection>(
         &self,
-        sumeragi: &mut Sumeragi<Self, K, W>,
+        sumeragi: &mut SumeragiWithFault<Self, K, W, F>,
         network: Addr<IrohaNetwork>,
+        ctx: &mut iroha_actor::Context<SumeragiWithFault<Self, K, W, F>>,
     ) -> Result<()> {
         let genesis_topology = self
             .wait_for_peers(sumeragi.peer_id.clone(), sumeragi.topology.clone(), network)
@@ -69,7 +74,7 @@ pub trait GenesisNetworkTrait:
         time::sleep(Duration::from_millis(self.genesis_submission_delay_ms())).await;
         iroha_logger::info!("Initializing iroha using the genesis block.");
         sumeragi
-            .start_genesis_round(self.deref().clone(), genesis_topology)
+            .start_genesis_round(self.deref().clone(), genesis_topology, ctx)
             .await
     }
 

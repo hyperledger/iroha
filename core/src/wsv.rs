@@ -186,8 +186,8 @@ impl<W: WorldTrait> WorldStateView<W> {
         for tx in &block.as_v1().rejected_transactions {
             self.transactions.insert(tx.hash());
         }
-        self.block_commit_metrics_update_callback();
         self.blocks.push(block);
+        self.block_commit_metrics_update_callback();
         self.new_block_notifier.send_replace(());
         Ok(())
     }

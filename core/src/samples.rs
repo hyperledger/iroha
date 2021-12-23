@@ -81,6 +81,7 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
             trusted_peers: TrustedPeers {
                 peers: trusted_peers,
             },
+            gossip_period_ms: 500,
             ..SumeragiConfiguration::default()
         },
         torii: ToriiConfiguration {
