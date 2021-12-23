@@ -10,7 +10,7 @@
 #include <rapidjson/writer.h>
 #include <boost/filesystem.hpp>
 #include <optional>
-#include "civetweb.h"
+#include <civetweb.h>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"

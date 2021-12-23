@@ -398,7 +398,6 @@ class Irohad {
   std::shared_ptr<iroha::torii::QueryService> query_service;
 
   // Http server
-  // std::unique_ptr<evpp::evpphttp::Service> http_server_;
   std::unique_ptr<iroha::network::HttpServer> http_server_;
 
   // consensus gate

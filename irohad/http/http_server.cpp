@@ -26,7 +26,12 @@ namespace iroha::network {
   std::optional<int> HttpRequestResponse::init() {
     if (0 == strcmp(request_info_->request_method, "GET")) {
       method_ = eMethodType::kGet;
-    } /* else if (0 == strcmp(request_info_->request_method, "PUT")) {
+    } 
+
+    /**
+     * Uncomment for PUT, POST and DELETE processing.
+     */
+    /* else if (0 == strcmp(request_info_->request_method, "PUT")) {
        method_ = eMethodType::kPut;
      } else if (0 == strcmp(request_info_->request_method, "POST")) {
        method_ = eMethodType::kPost;
