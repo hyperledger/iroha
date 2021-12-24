@@ -43,6 +43,9 @@ namespace iroha {
     kOnConsensusGateEvent,
     kSendBatchComplete,
 
+    // Node status
+    kOnIrohaStatus,
+
     // MST
     kOnMstStateUpdate,
     kOnMstPreparedBatches,
