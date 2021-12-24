@@ -85,10 +85,6 @@ impl FaultInjection for NoFault {
     }
 }
 
-/// Message to send to sumeragi. It will call `update_network_topology` method on it.
-#[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
-pub struct UpdateNetworkTopology;
-
 /// Message reminder for retrieving transactions.
 #[derive(Debug, Clone, Copy, Default, iroha_actor::Message)]
 pub struct RetrieveTransactions;
@@ -216,7 +212,6 @@ where
 /// Generic sumeragi trait
 pub trait SumeragiTrait:
     Actor
-    + ContextHandler<UpdateNetworkTopology, Result = ()>
     + ContextHandler<Message, Result = ()>
     + ContextHandler<Init, Result = ()>
     + ContextHandler<CommitBlock, Result = ()>
@@ -337,7 +332,6 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Act
 
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
         self.broker.subscribe::<Init, _>(ctx);
-        self.broker.subscribe::<UpdateNetworkTopology, _>(ctx);
         self.broker.subscribe::<Message, _>(ctx);
         self.broker.subscribe::<CommitBlock, _>(ctx);
         self.broker.subscribe::<NetworkMessage, _>(ctx);
@@ -351,16 +345,6 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
     type Result = Vec<HashOf<VersionedValidBlock>>;
     async fn handle(&mut self, InvalidatedBlockHashes: InvalidatedBlockHashes) -> Self::Result {
         self.invalidated_blocks_hashes.clone()
-    }
-}
-
-#[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
-    Handler<UpdateNetworkTopology> for SumeragiWithFault<G, K, W, F>
-{
-    type Result = ();
-    async fn handle(&mut self, UpdateNetworkTopology: UpdateNetworkTopology) {
-        self.update_network_topology().await;
     }
 }
 
@@ -944,8 +928,9 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             drop(self.events_sender.send(event));
         }
 
-        self.broker.issue_send(StoreBlock(block)).await;
-
+        if let Err(error) = self.wsv.apply(block.clone()).await {
+            warn!(%error, %block_hash, "Failed to apply block on WSV");
+        }
         let previous_role = self.topology.role(&self.peer_id);
         self.topology.apply_block(block_hash);
         info!(
@@ -957,6 +942,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         );
         self.voting_block = None;
         self.votes_for_blocks.clear();
+        self.broker.issue_send(StoreBlock(block)).await;
+        self.update_network_topology().await;
     }
 
     #[iroha_futures::telemetry_future]
