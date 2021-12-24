@@ -692,6 +692,7 @@ inline bool JsonDeserializerImpl::loadInto(IrohadConfig &dest) {
       and getDictChild(ProposalDelay).loadInto(dest.proposal_delay)
       and getDictChild(ProposalCreationTimeout)
               .loadInto(dest.proposal_creation_timeout)
+      and getDictChild(HealthcheckPort).loadInto(dest.healthcheck_port)
       and getDictChild(VoteDelay).loadInto(dest.vote_delay)
       and getDictChild(MstSupport).loadInto(dest.mst_support)
       and getDictChild(MstExpirationTime).loadInto(dest.mst_expiration_time)

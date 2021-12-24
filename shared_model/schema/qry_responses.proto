@@ -154,3 +154,21 @@ message BlockQueryResponse {
     BlockErrorResponse block_error_response = 2;
   }
 }
+
+message HealthcheckData {
+  oneof opt_memory_consumption {
+    uint64 memory_consumption = 1;
+  }
+  oneof opt_is_healthy {
+    bool is_healthy = 2;
+  }
+  oneof opt_is_syncing {
+    bool is_syncing = 3;
+  }
+  oneof opt_last_block_height {
+    uint64 last_block_height = 4;
+  }
+  oneof opt_last_block_reject {
+    uint64 last_block_reject = 5;
+  }
+}

@@ -16,6 +16,8 @@
 #include "builders/protobuf/transport_builder.hpp"
 #include "cache/cache.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/iroha_status.hpp"
+#include "main/subscription.hpp"
 #include "torii/processor/query_processor.hpp"
 
 namespace shared_model::interface {
@@ -39,10 +41,14 @@ namespace iroha::torii {
             shared_model::interface::BlocksQuery,
             iroha::protocol::BlocksQuery>;
 
-    QueryService(std::shared_ptr<iroha::torii::QueryProcessor> query_processor,
-                 std::shared_ptr<QueryFactoryType> query_factory,
-                 std::shared_ptr<BlocksQueryFactoryType> blocks_query_factory,
-                 logger::LoggerPtr log);
+    QueryService(
+        std::shared_ptr<iroha::torii::QueryProcessor> query_processor,
+        std::shared_ptr<QueryFactoryType> query_factory,
+        std::shared_ptr<BlocksQueryFactoryType> blocks_query_factory,
+        logger::LoggerPtr log,
+        std::shared_ptr<iroha::BaseSubscriber<
+            iroha::utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
+            iroha::IrohaStatus>> iroha_status_subscription);
 
     QueryService(const QueryService &) = delete;
     QueryService &operator=(const QueryService &) = delete;
@@ -65,6 +71,11 @@ namespace iroha::torii {
         grpc::ServerWriter<::iroha::protocol::BlockQueryResponse> *writer)
         override;
 
+    grpc::Status Healthcheck(
+        grpc::ServerContext *context,
+        const google::protobuf::Empty *request,
+        iroha::protocol::HealthcheckData *response) override;
+
    private:
     std::shared_ptr<iroha::torii::QueryProcessor> query_processor_;
     std::shared_ptr<QueryFactoryType> query_factory_;
@@ -77,6 +88,10 @@ namespace iroha::torii {
         cache_;
 
     logger::LoggerPtr log_;
+    std::shared_ptr<iroha::BaseSubscriber<
+        iroha::utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
+        iroha::IrohaStatus>>
+        iroha_status_subscription_;
   };
 }  // namespace iroha::torii
 
