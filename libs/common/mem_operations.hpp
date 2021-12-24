@@ -6,10 +6,9 @@
 #ifndef IROHA_COMMON_MEM_OPERATIONS_HPP
 #define IROHA_COMMON_MEM_OPERATIONS_HPP
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
 
 namespace iroha {
 
@@ -27,21 +26,24 @@ namespace iroha {
 
 #ifdef __linux__
   inline uint64_t getMemoryUsage() {
-    auto parseLine = [](char *line) {
-      while (*line >= '0' && *line <= '9') ++line;
+    auto parseLine = [](char const *line) {
+      while (!std::isdigit(*line)) ++line;
       return (uint64_t)atoll(line);
     };
 
-    uint64_t result = 0ull;
+    uint64_t result {};
     char line[128];
 
-    FILE *file = fopen("/proc/self/status", "r");
-    while (fgets(line, 128, file) != NULL)
-      if (strncmp(line, "VmSize:", 7) == 0) {
-        result = parseLine(line + 7);
+    std::unique_ptr<FILE, int (*)(FILE *)> file(fopen("/proc/self/status", "r"),
+                                                &fclose);
+
+    constexpr char VM_SZ_FIELD[] = "VmSize:";
+    auto const vm_size_len = strlen(VM_SZ_FIELD);
+    while (fgets(line, sizeof(line), file.get()) != NULL)
+      if (strncmp(line, VM_SZ_FIELD, vm_size_len) == 0) {
+        result = parseLine(line + vm_size_len);
         break;
       }
-    fclose(file);
 
     return result * 1024ull;
   }

@@ -26,7 +26,7 @@ namespace iroha::network {
   std::optional<int> HttpRequestResponse::init() {
     if (0 == strcmp(request_info_->request_method, "GET")) {
       method_ = eMethodType::kGet;
-    } 
+    }
 
     /**
      * Uncomment for PUT, POST and DELETE processing.
@@ -84,8 +84,6 @@ namespace iroha::network {
     mg_init_library(0);
 
     mg_callbacks callbacks{};
-    memzero(callbacks);
-
     callbacks.log_message = [](const struct mg_connection *conn,
                                const char *message) { return 1; };
 

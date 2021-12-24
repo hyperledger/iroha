@@ -23,6 +23,7 @@ struct mg_connection;
 namespace iroha::network {
 
   enum eMethodType { kGet, kPut, kPost, kDelete };
+  constexpr std::string_view kHealthcheckDefaultPort = "50508";
 
   class HttpRequestResponse {
     mg_connection *connection_;

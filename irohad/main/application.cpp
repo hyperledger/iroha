@@ -5,12 +5,12 @@
 
 #include "main/application.hpp"
 
+#include <civetweb.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <boost/filesystem.hpp>
 #include <optional>
-#include <civetweb.h>
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
@@ -307,7 +307,7 @@ Irohad::RunResult Irohad::initHttpServer() {
   iroha::network::HttpServer::Options options;
   options.ports = config_.healthcheck_port
       ? std::to_string(*config_.healthcheck_port)
-      : "50508";
+      : iroha::network::kHealthcheckDefaultPort;
 
   http_server_ = std::make_unique<iroha::network::HttpServer>(
       std::move(options), log_manager_->getChild("HTTP server")->getLogger());
@@ -1121,8 +1121,10 @@ namespace {
  * Run iroha daemon
  */
 Irohad::RunResult Irohad::run() {
-  if (config_.proposal_delay <= *config_.proposal_creation_timeout) {
-    return expected::makeError("proposal_delay must be more than proposal_creation_timeout");
+  if (config_.proposal_delay
+      <= config_.proposal_creation_timeout.value_or(kMaxRoundsDelayDefault)) {
+    return expected::makeError(
+        "proposal_delay must be more than proposal_creation_timeout");
   }
   ordering_init->subscribe([simulator(utils::make_weak(simulator)),
                             consensus_gate(utils::make_weak(consensus_gate)),
