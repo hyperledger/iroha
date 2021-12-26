@@ -21,6 +21,7 @@
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger_fwd.hpp"
 #include "main/rdb_status.hpp"
+#include "main/iroha_status.hpp"
 #include "main/subscription.hpp"
 #include "network/ordering_gate_common.hpp"
 
@@ -45,6 +46,8 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
   std::chrono::steady_clock::time_point uptime_start_timepoint_;
   std::thread uptime_thread_;
   std::atomic_bool uptime_thread_cancelation_flag_{false};
+  std::shared_ptr<iroha::BaseSubscriber<bool, iroha::IrohaStatus>>
+      iroha_status_subscription_;
 
   Metrics(std::string const &listen_addr,
           std::shared_ptr<iroha::ametsuchi::Storage> storage,

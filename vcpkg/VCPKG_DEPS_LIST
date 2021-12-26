@@ -18,6 +18,7 @@ boost-format
 boost-circular-buffer
 boost-assign
 boost-uuid
+boost-asio
 boost-accumulators
 boost-property-tree
 boost-process

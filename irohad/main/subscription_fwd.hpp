@@ -46,6 +46,9 @@ namespace iroha {
     // RDB
     kOnRdbStats,
 
+    // Node status
+    kOnIrohaStatus,
+
     // MST
     kOnMstStateUpdate,
     kOnMstPreparedBatches,

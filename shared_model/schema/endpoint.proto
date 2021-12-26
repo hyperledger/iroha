@@ -53,4 +53,5 @@ service CommandService_v1 {
 service QueryService_v1 {
   rpc Find (Query) returns (QueryResponse);
   rpc FetchCommits (BlocksQuery) returns (stream BlockQueryResponse);
+  rpc Healthcheck(google.protobuf.Empty) returns (HealthcheckData);
 }
