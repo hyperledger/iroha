@@ -34,6 +34,8 @@
 #include "interfaces/commands/set_setting_value.hpp"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
+#include "main/rdb_status.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::ametsuchi;
@@ -53,6 +55,23 @@ RocksDbCommandExecutor::RocksDbCommandExecutor(
       vm_caller_{vm_caller},
       db_transaction_(db_context_) {
   assert(db_context_);
+
+  getSubscription()->dispatcher()->repeat(
+      SubscriptionEngineHandlers::kMetrics,
+      std::chrono::seconds(5ull), /// repeat task execution period
+      [wdb_context_(utils::make_weak(db_context_))]() {
+        if (auto db_context = wdb_context_.lock()) {
+          RocksDbCommon common(db_context);
+          getSubscription()->notify(
+              EventTypes::kOnRdbStats,
+              RocksDbStatus{common.propGetBlockCacheCapacity(),
+                            common.propGetBlockCacheUsage(),
+                            common.propGetCurSzAllMemTables(),
+                            common.propGetNumSnapshots(),
+                            common.propGetTotalSSTFilesSize()});
+        }
+      },
+      []() { return true; });
 }
 
 RocksDbCommandExecutor::~RocksDbCommandExecutor() = default;

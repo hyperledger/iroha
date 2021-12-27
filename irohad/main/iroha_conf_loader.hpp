@@ -68,6 +68,7 @@ struct IrohadConfig {
   boost::optional<uint32_t> mst_expiration_time;
   boost::optional<uint32_t> max_round_delay_ms;
   boost::optional<uint32_t> proposal_creation_timeout;
+  boost::optional<uint32_t> healthcheck_port;
   boost::optional<uint32_t> stale_stream_max_rounds;
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;
   std::optional<shared_model::interface::types::PeerList> initial_peers;

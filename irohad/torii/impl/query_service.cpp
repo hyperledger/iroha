@@ -22,11 +22,15 @@ QueryService::QueryService(
     std::shared_ptr<iroha::torii::QueryProcessor> query_processor,
     std::shared_ptr<QueryFactoryType> query_factory,
     std::shared_ptr<BlocksQueryFactoryType> blocks_query_factory,
-    logger::LoggerPtr log)
+    logger::LoggerPtr log,
+    std::shared_ptr<iroha::BaseSubscriber<
+        iroha::utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
+        iroha::IrohaStatus>> iroha_status_subscription)
     : query_processor_{std::move(query_processor)},
       query_factory_{std::move(query_factory)},
       blocks_query_factory_{std::move(blocks_query_factory)},
-      log_{std::move(log)} {}
+      log_{std::move(log)},
+      iroha_status_subscription_(std::move(iroha_status_subscription)) {}
 
 void QueryService::Find(iroha::protocol::Query const &request,
                         iroha::protocol::QueryResponse &response) {
@@ -68,6 +72,29 @@ grpc::Status QueryService::Find(grpc::ServerContext *context,
                                 const iroha::protocol::Query *request,
                                 iroha::protocol::QueryResponse *response) {
   Find(*request, *response);
+  return grpc::Status::OK;
+}
+
+grpc::Status QueryService::Healthcheck(
+    grpc::ServerContext *context,
+    const google::protobuf::Empty *request,
+    iroha::protocol::HealthcheckData *response) {
+  if (iroha_status_subscription_)
+    iroha_status_subscription_->get().exclusiveAccess(
+        [&](iroha::IrohaStoredStatus &status) {
+          if (status.status.is_syncing)
+            response->set_is_syncing(*status.status.is_syncing);
+          if (status.status.is_healthy)
+            response->set_is_healthy(*status.status.is_healthy);
+          if (status.status.memory_consumption)
+            response->set_memory_consumption(*status.status.memory_consumption);
+          if (status.status.last_round) {
+            response->set_last_block_height(
+                status.status.last_round->block_round);
+            response->set_last_block_reject(
+                status.status.last_round->reject_round);
+          }
+        });
   return grpc::Status::OK;
 }
 

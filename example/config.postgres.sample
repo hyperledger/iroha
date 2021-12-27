@@ -18,5 +18,6 @@
   "mst_expiration_time" : 1440,
   "max_rounds_delay": 3000,
   "stale_stream_max_rounds": 2,
-  "metrics": "127.0.0.1:8080"
+  "metrics": "127.0.0.1:8080",
+  "healthcheck_port": 50508
 }
