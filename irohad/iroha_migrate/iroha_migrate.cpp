@@ -45,6 +45,7 @@
 #include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_block_validator.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
+#include "main/subscription.hpp"
 
 #define STR(y) STRH(y)
 #define STRH(x) #x
@@ -280,7 +281,13 @@ expected::Result<void, std::string> restoreWsv() {
   return {};
 }
 
+std::shared_ptr<iroha::Subscription> subscription_manager;
 int main(int argc, char *argv[]) try {
+  subscription_manager = iroha::getSubscription();
+  std::unique_ptr<int, void(*)(int*)> keeper((int*)0x01, [](auto *){
+      subscription_manager->dispose();
+  });
+
   gflags::SetVersionString("1.2");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   gflags::SetUsageMessage(
