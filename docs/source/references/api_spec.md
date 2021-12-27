@@ -168,7 +168,7 @@ Also returns current status of peer in json string:
 "Healthy"
 ```
 
-## Endpoints for [status/metrics](./config.md#toriistatus_url)
+## Endpoints for [status/metrics](./config.md#toriitelemetry_url)
 
 ### Status
 

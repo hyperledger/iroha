@@ -293,7 +293,7 @@ impl<W: WorldTrait> Torii<W> {
                 Ok(handles)
             }
             Err(error) => {
-                iroha_logger::error!(%telemetry_url, %error, "Status address configuration parse error");
+                iroha_logger::error!(%telemetry_url, %error, "Telemetry address configuration parse error");
                 Err(eyre::Error::new(error))
             }
         }

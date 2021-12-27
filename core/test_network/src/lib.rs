@@ -633,20 +633,20 @@ pub trait TestConfiguration {
 
 pub trait TestClientConfiguration {
     /// Creates test client configuration
-    fn test(api_url: &str, status_url: &str) -> Self;
+    fn test(api_url: &str, telemetry_url: &str) -> Self;
 }
 
 pub trait TestClient: Sized {
     /// Creates test client from api url
-    fn test(api_url: &str, status_url: &str) -> Self;
+    fn test(api_url: &str, telemetry_url: &str) -> Self;
 
     /// Creates test client from api url and keypair
-    fn test_with_key(api_url: &str, status_url: &str, keys: KeyPair) -> Self;
+    fn test_with_key(api_url: &str, telemetry_url: &str, keys: KeyPair) -> Self;
 
     /// Creates test client from api url, keypair, and account id
     fn test_with_account(
         api_url: &str,
-        status_url: &str,
+        telemetry_url: &str,
         keys: KeyPair,
         account_id: &AccountId,
     ) -> Self;
@@ -741,29 +741,29 @@ impl TestConfiguration for Configuration {
 use std::str::FromStr;
 
 impl TestClientConfiguration for ClientConfiguration {
-    fn test(api_url: &str, status_url: &str) -> Self {
+    fn test(api_url: &str, telemetry_url: &str) -> Self {
         let mut configuration = iroha_client::samples::get_client_config(&get_key_pair());
         if !api_url.starts_with("http") {
             configuration.torii_api_url = "http://".to_owned() + api_url;
         } else {
             configuration.torii_api_url = api_url.to_owned();
         }
-        if !status_url.starts_with("http") {
-            configuration.torii_status_url = "http://".to_owned() + status_url;
+        if !telemetry_url.starts_with("http") {
+            configuration.torii_telemetry_url = "http://".to_owned() + telemetry_url;
         } else {
-            configuration.torii_status_url = status_url.to_owned();
+            configuration.torii_telemetry_url = telemetry_url.to_owned();
         }
         configuration
     }
 }
 
 impl TestClient for Client {
-    fn test(api_url: &str, status_url: &str) -> Self {
-        Client::new(&ClientConfiguration::test(api_url, status_url))
+    fn test(api_url: &str, telemetry_url: &str) -> Self {
+        Client::new(&ClientConfiguration::test(api_url, telemetry_url))
     }
 
-    fn test_with_key(api_url: &str, status_url: &str, keys: KeyPair) -> Self {
-        let mut configuration = ClientConfiguration::test(api_url, status_url);
+    fn test_with_key(api_url: &str, telemetry_url: &str, keys: KeyPair) -> Self {
+        let mut configuration = ClientConfiguration::test(api_url, telemetry_url);
         configuration.public_key = keys.public_key;
         configuration.private_key = keys.private_key;
         Client::new(&configuration)
@@ -771,11 +771,11 @@ impl TestClient for Client {
 
     fn test_with_account(
         api_url: &str,
-        status_url: &str,
+        telemetry_url: &str,
         keys: KeyPair,
         account_id: &AccountId,
     ) -> Self {
-        let mut configuration = ClientConfiguration::test(api_url, status_url);
+        let mut configuration = ClientConfiguration::test(api_url, telemetry_url);
         configuration.account_id = account_id.clone();
         configuration.public_key = keys.public_key;
         configuration.private_key = keys.private_key;
