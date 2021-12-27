@@ -58,7 +58,7 @@ RocksDbCommandExecutor::RocksDbCommandExecutor(
 
   getSubscription()->dispatcher()->repeat(
       SubscriptionEngineHandlers::kMetrics,
-      std::chrono::seconds(5ull),
+      std::chrono::seconds(5ull), /// repeat task execution period
       [wdb_context_(utils::make_weak(db_context_))]() {
         if (auto db_context = wdb_context_.lock()) {
           RocksDbCommon common(db_context);
