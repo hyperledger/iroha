@@ -20,6 +20,7 @@
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/rdb_status.hpp"
 #include "main/iroha_status.hpp"
 #include "main/subscription.hpp"
 #include "network/ordering_gate_common.hpp"
@@ -32,6 +33,7 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
   using BlockSubscriber = iroha::BaseSubscriber<bool, BlockPtr>;
   using MstMetrics = std::tuple<size_t, size_t>;
   using MstSubscriber = iroha::BaseSubscriber<bool, MstMetrics>;
+  using RdbSubscriber = iroha::BaseSubscriber<bool, iroha::RocksDbStatus>;
 
   std::string listen_addr_port_;
   std::shared_ptr<prometheus::Exposer> exposer_;
@@ -39,6 +41,7 @@ class Metrics : public std::enable_shared_from_this<Metrics> {
   std::shared_ptr<iroha::ametsuchi::Storage> storage_;
   std::shared_ptr<BlockSubscriber> block_subscriber_;
   std::shared_ptr<MstSubscriber> mst_subscriber_;
+  std::shared_ptr<RdbSubscriber> rdb_subscriber_;
   logger::LoggerPtr logger_;
   std::chrono::steady_clock::time_point uptime_start_timepoint_;
   std::thread uptime_thread_;

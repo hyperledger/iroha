@@ -534,6 +534,24 @@ namespace iroha::ametsuchi {
       }
     }
 
+    std::optional<uint64_t> getPropUInt64(const rocksdb::Slice &property) {
+      if (transaction_db_) {
+        uint64_t value;
+        transaction_db_->GetIntProperty(property, &value);
+        return value;
+      }
+      return std::nullopt;
+    }
+
+    std::optional<std::string> getPropStr(const rocksdb::Slice &property) {
+      if (transaction_db_) {
+        std::string value;
+        transaction_db_->GetProperty(property, &value);
+        return value;
+      }
+      return std::nullopt;
+    }
+
    private:
     std::unique_ptr<rocksdb::OptimisticTransactionDB> transaction_db_;
     std::optional<std::string> db_name_;
@@ -653,6 +671,29 @@ namespace iroha::ametsuchi {
     template <typename LoggerT>
     void printStatus(LoggerT &log) {
       tx_context_->db_port->printStatus(log);
+    }
+
+    auto propGetBlockCacheUsage() {
+      return tx_context_->db_port->getPropUInt64("rocksdb.block-cache-usage");
+    }
+
+    auto propGetCurSzAllMemTables() {
+      return tx_context_->db_port->getPropUInt64(
+          "rocksdb.cur-size-all-mem-tables");
+    }
+
+    auto propGetNumSnapshots() {
+      return tx_context_->db_port->getPropUInt64("rocksdb.num-snapshots");
+    }
+
+    auto propGetTotalSSTFilesSize() {
+      return tx_context_->db_port->getPropUInt64(
+          "rocksdb.total-sst-files-size");
+    }
+
+    auto propGetBlockCacheCapacity() {
+      return tx_context_->db_port->getPropUInt64(
+          "rocksdb.block-cache-capacity");
     }
 
     /// Makes commit to DB
