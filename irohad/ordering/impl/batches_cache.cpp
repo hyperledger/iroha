@@ -7,6 +7,7 @@
 
 #include <fmt/core.h>
 #include <iostream>
+#include <mutex>
 
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"

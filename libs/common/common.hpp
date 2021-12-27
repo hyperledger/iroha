@@ -9,6 +9,7 @@
 #include <chrono>
 #include <mutex>
 #include <shared_mutex>
+#include <condition_variable>
 
 namespace iroha::utils {
 
