@@ -90,25 +90,28 @@ impl Client {
         }
     }
 
-    /// Builds transaction out of supplied instructions.
+    /// Builds transaction out of supplied instructions or wasm.
     ///
     /// # Errors
     /// Fails if signing transaction fails
     pub fn build_transaction(
         &self,
-        instructions: Vec<Instruction>,
+        instructions: Executable,
         metadata: UnlimitedMetadata,
     ) -> Result<Transaction> {
-        let nonce = self
-            .add_transaction_nonce
-            .then(|| rand::thread_rng().gen::<u32>());
-        Transaction::with_metadata(
-            instructions,
+        let transaction = Transaction::new(
             self.account_id.clone(),
+            instructions,
             self.proposed_transaction_ttl_ms,
-            metadata,
-            nonce,
-        )
+        );
+
+        if self.add_transaction_nonce {
+            let nonce = rand::thread_rng().gen::<u32>();
+            transaction.with_nonce(nonce)
+        } else {
+            transaction
+        }
+        .with_metadata(metadata)
         .sign(&self.key_pair)
     }
 
@@ -171,7 +174,7 @@ impl Client {
         instructions: Vec<Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
-        self.submit_transaction(self.build_transaction(instructions, metadata)?)
+        self.submit_transaction(self.build_transaction(instructions.into(), metadata)?)
     }
 
     /// Submit a prebuilt transaction.
@@ -264,7 +267,7 @@ impl Client {
         let mut client = self.clone();
         let (event_sender, event_receiver) = mpsc::channel();
         let (init_sender, init_receiver) = mpsc::channel();
-        let transaction = self.build_transaction(instructions, metadata)?;
+        let transaction = self.build_transaction(instructions.into(), metadata)?;
         let hash = transaction.hash();
         let _handle = thread::spawn(move || -> eyre::Result<()> {
             let event_iterator = client
@@ -705,7 +708,7 @@ mod tests {
 
         let build_transaction = || {
             client
-                .build_transaction(vec![], UnlimitedMetadata::new())
+                .build_transaction(Vec::<Instruction>::new().into(), UnlimitedMetadata::new())
                 .unwrap()
         };
         let tx1 = build_transaction();

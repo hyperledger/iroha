@@ -21,7 +21,7 @@ pub trait Execute<W: WorldTrait> {
     /// Apply actions to `wsv` on behalf of `authority`.
     fn execute(
         self,
-        authority: <Account as Identifiable>::Id,
+        authority: AccountId,
         wsv: &WorldStateView<W>,
     ) -> Result<Self::Diff, Self::Error>;
 }

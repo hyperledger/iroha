@@ -301,7 +301,7 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
     #[log]
     fn execute(
         self,
-        authority: <Account as Identifiable>::Id,
+        authority: AccountId,
         wsv: &WorldStateView<W>,
     ) -> Result<Self::Diff, Self::Error> {
         let context = Context::new();
@@ -328,7 +328,7 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
     #[log]
     fn execute(
         self,
-        authority: <Account as Identifiable>::Id,
+        authority: AccountId,
         wsv: &WorldStateView<W>,
     ) -> Result<Self::Diff, Self::Error> {
         let context = Context::new();

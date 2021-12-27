@@ -19,9 +19,7 @@ use thiserror::Error;
 #[cfg(feature = "warp")]
 use warp::{reply::Response, Reply};
 
-use crate::{
-    account::Account, current_time, isi::Instruction, metadata::UnlimitedMetadata, Identifiable,
-};
+use crate::{account::prelude::*, current_time, isi::Instruction, metadata::UnlimitedMetadata};
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
@@ -53,13 +51,24 @@ pub trait Txn {
     }
 }
 
+/// Either ISI or Wasm binary
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+)]
+pub enum Executable {
+    /// Ordered set of instructions.
+    Instructions(Vec<Instruction>),
+    /// WebAssembly smartcontract
+    Wasm(Vec<u8>),
+}
+
 /// Iroha [`Transaction`] payload.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Payload {
     /// Account ID of transaction creator.
-    pub account_id: <Account as Identifiable>::Id,
-    /// An ordered set of instructions.
-    pub instructions: Vec<Instruction>,
+    pub account_id: AccountId,
+    /// Instructions or WebAssembly smartcontract
+    pub instructions: Executable,
     /// Time of creation (unix time, in milliseconds).
     pub creation_time: u64,
     /// The transaction will be dropped after this time if it is still in a `Queue`.
@@ -84,14 +93,12 @@ impl Payload {
     /// # Errors
     /// Fails if instruction length exceeds maximum instruction number
     pub fn check_instruction_len(&self, max_instruction_number: u64) -> Result<()> {
-        if self
-            .instructions
-            .iter()
-            .map(Instruction::len)
-            .sum::<usize>() as u64
-            > max_instruction_number
-        {
-            return Err(eyre!("Too many instructions in payload"));
+        if let Executable::Instructions(instructions) = &self.instructions {
+            if instructions.iter().map(Instruction::len).sum::<usize>() as u64
+                > max_instruction_number
+            {
+                return Err(eyre!("Too many instructions in payload"));
+            }
         }
         Ok(())
     }
@@ -179,67 +186,42 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    /// Construct [`Transaction`].
+    /// Constructs `Transaction`.
     #[inline]
-    pub fn new(
-        instructions: Vec<Instruction>,
-        account_id: <Account as Identifiable>::Id,
-        proposed_ttl_ms: u64,
-    ) -> Transaction {
-        Transaction::with_metadata(
-            instructions,
-            account_id,
-            proposed_ttl_ms,
-            UnlimitedMetadata::new(),
-            None,
-        )
-    }
+    pub fn new(account_id: AccountId, instructions: Executable, proposed_ttl_ms: u64) -> Self {
+        #[allow(clippy::cast_possible_truncation)]
+        let creation_time = current_time().as_millis() as u64;
 
-    /// [`Transaction`] constructor with nonce.
-    #[inline]
-    pub fn with_nonce(
-        instructions: Vec<Instruction>,
-        account_id: <Account as Identifiable>::Id,
-        proposed_ttl_ms: u64,
-        nonce: u32,
-    ) -> Transaction {
-        Transaction::with_metadata(
-            instructions,
-            account_id,
-            proposed_ttl_ms,
-            UnlimitedMetadata::new(),
-            Some(nonce),
-        )
-    }
-
-    /// [`Transaction`] constructor with metadata.
-    #[inline]
-    pub fn with_metadata(
-        instructions: Vec<Instruction>,
-        account_id: <Account as Identifiable>::Id,
-        proposed_ttl_ms: u64,
-        metadata: UnlimitedMetadata,
-        nonce: Option<u32>,
-    ) -> Transaction {
-        #[allow(clippy::cast_possible_truncation, clippy::expect_used)]
-        Transaction {
+        Self {
             payload: Payload {
-                instructions,
                 account_id,
-                creation_time: current_time().as_millis() as u64,
+                instructions,
+                creation_time,
                 time_to_live_ms: proposed_ttl_ms,
-                nonce,
-                metadata,
+                nonce: None,
+                metadata: UnlimitedMetadata::new(),
             },
             signatures: BTreeSet::new(),
         }
+    }
+
+    /// Adds metadata to the `Transaction`
+    pub fn with_metadata(mut self, metadata: UnlimitedMetadata) -> Self {
+        self.payload.metadata = metadata;
+        self
+    }
+
+    /// Adds nonce to the `Transaction`
+    pub fn with_nonce(mut self, nonce: u32) -> Self {
+        self.payload.nonce = Some(nonce);
+        self
     }
 
     /// Sign transaction with the provided key pair.
     ///
     /// # Errors
     /// Fails if signature creation fails
-    pub fn sign(self, key_pair: &KeyPair) -> Result<Transaction> {
+    pub fn sign(self, key_pair: &KeyPair) -> Result<Self> {
         let mut signatures = self.signatures.clone();
         signatures.insert(SignatureOf::new(key_pair.clone(), &self.payload)?);
         Ok(Transaction {
@@ -527,6 +509,20 @@ impl Display for InstructionExecutionFail {
 }
 impl StdError for InstructionExecutionFail {}
 
+/// Transaction was rejected because execution of `WebAssembly` binary failed
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct WasmExecutionFail {
+    /// Error which happened during execution
+    pub reason: String,
+}
+
+impl Display for WasmExecutionFail {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "Failed to execute wasm binary: {}", self.reason)
+    }
+}
+impl StdError for WasmExecutionFail {}
+
 /// Transaction was reject because of low authority
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct NotPermittedFail {
@@ -588,6 +584,9 @@ pub enum TransactionRejectionReason {
     /// Failed to execute instruction.
     #[error("Transaction rejected due to failure in instruction execution")]
     InstructionExecution(#[source] InstructionExecutionFail),
+    /// Failed to execute WebAssembly binary.
+    #[error("Transaction rejected due to failure in WebAssembly execution")]
+    WasmExecution(#[source] WasmExecutionFail),
     /// Failed to verify signatures.
     #[error("Transaction rejected due to failed signature verification")]
     SignatureVerification(#[source] SignatureVerificationFail<Payload>),
@@ -622,10 +621,10 @@ pub enum RejectionReason {
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
     pub use super::{
-        BlockRejectionReason, InstructionExecutionFail, NotPermittedFail, Payload,
+        BlockRejectionReason, Executable, InstructionExecutionFail, NotPermittedFail, Payload,
         PendingTransactions, RejectedTransaction, RejectionReason, Transaction,
         TransactionRejectionReason, TransactionValue, Txn, UnsatisfiedSignatureConditionFail,
         ValidTransaction, VersionedPendingTransactions, VersionedRejectedTransaction,
-        VersionedTransaction, VersionedValidTransaction,
+        VersionedTransaction, VersionedValidTransaction, WasmExecutionFail,
     };
 }

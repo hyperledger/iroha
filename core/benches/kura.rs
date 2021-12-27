@@ -24,8 +24,8 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     });
     let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let tx = Transaction::new(
-        vec![transfer],
-        <Account as Identifiable>::Id::test("alice", "wonderland"),
+        AccountId::test("alice", "wonderland"),
+        vec![transfer].into(),
         1000,
     )
     .sign(&keypair)

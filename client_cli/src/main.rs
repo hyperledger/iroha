@@ -158,7 +158,7 @@ pub fn submit(
     #[cfg(not(debug_assertions))]
     let err_msg = "Failed to build transaction.";
     let tx = iroha_client
-        .build_transaction(vec![instruction], metadata)
+        .build_transaction(vec![instruction].into(), metadata)
         .wrap_err(err_msg)?;
     let tx = match iroha_client.get_original_transaction(
         &tx,

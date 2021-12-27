@@ -6,7 +6,7 @@ use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref,
 use eyre::{eyre, Result, WrapErr};
 use iroha_actor::Addr;
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{account::Account, isi::Instruction, prelude::*};
+use iroha_data_model::prelude::*;
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::{time, time::Duration};
@@ -20,7 +20,7 @@ use crate::{
     },
     tx::VersionedAcceptedTransaction,
     wsv::WorldTrait,
-    Identifiable, IrohaNetwork,
+    IrohaNetwork,
 };
 
 type Online = Vec<PeerId>;
@@ -277,8 +277,8 @@ impl GenesisTransaction {
         max_instruction_number: u64,
     ) -> Result<VersionedAcceptedTransaction> {
         let transaction = Transaction::new(
-            self.isi.clone(),
-            <Account as Identifiable>::Id::genesis(),
+            AccountId::genesis(),
+            self.isi.clone().into(),
             GENESIS_TRANSACTIONS_TTL_MS,
         )
         .sign(genesis_key_pair)?;

@@ -12,7 +12,7 @@ use dashmap::{
     mapref::one::{Ref as DashMapRef, RefMut as DashMapRefMut},
     DashSet,
 };
-use eyre::{Report, Result};
+use eyre::Result;
 use iroha_crypto::HashOf;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use iroha_logger::prelude::*;
@@ -181,16 +181,21 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
         for tx in &block.as_v1().transactions {
             let account_id = &tx.payload().account_id;
-            tx.as_v1()
-                .payload
-                .instructions
-                .iter()
-                .cloned()
-                .try_for_each(|instruction| {
-                    let events = instruction.execute(account_id.clone(), self)?;
-                    self.produce_events(events);
-                    Ok::<_, Report>(())
-                })?;
+
+            match &tx.as_v1().payload.instructions {
+                Executable::Instructions(instructions) => {
+                    instructions.iter().cloned().try_for_each(|instruction| {
+                        let events = instruction.execute(account_id.clone(), self)?;
+
+                        self.produce_events(events);
+                        Ok::<_, eyre::Report>(())
+                    })?;
+                }
+                Executable::Wasm(bytes) => {
+                    let mut wasm_runtime = crate::wasm::Runtime::new()?;
+                    wasm_runtime.execute(self, account_id.clone(), bytes)?;
+                }
+            }
 
             self.transactions.insert(tx.hash());
             // Yield control cooperatively to the task scheduler.

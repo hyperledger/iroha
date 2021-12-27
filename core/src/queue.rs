@@ -301,9 +301,10 @@ mod tests {
         let message = std::iter::repeat_with(rand::random::<char>)
             .take(16)
             .collect();
+        let instructions: Vec<Instruction> = vec![FailBox { message }.into()];
         let tx = Transaction::new(
-            vec![FailBox { message }.into()],
-            <Account as Identifiable>::Id::test(account, domain),
+            AccountId::test(account, domain),
+            instructions.into(),
             proposed_ttl_ms,
         )
         .sign(&key)
@@ -401,8 +402,8 @@ mod tests {
             ..Configuration::default()
         });
         let tx = Transaction::new(
-            Vec::new(),
-            <Account as Identifiable>::Id::test("alice", "wonderland"),
+            AccountId::test("alice", "wonderland"),
+            Vec::<Instruction>::new().into(),
             100_000,
         );
         let get_tx = || {

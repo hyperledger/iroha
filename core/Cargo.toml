@@ -54,6 +54,10 @@ crossbeam-queue = "0.3"
 warp = "0.3"
 thiserror = "1.0.28"
 pin-project = "1"
+wasmtime = "0.29.0"
+
+# transitive dependencies
+anyhow = ">= 1.0"
 
 [dev-dependencies]
 tempfile = "3"

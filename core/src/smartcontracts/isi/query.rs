@@ -295,7 +295,7 @@ mod tests {
     async fn find_transaction() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains());
 
-        let tx = Transaction::new(vec![], ALICE_ID.clone(), 4000);
+        let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
         let signed_tx = tx.sign(&ALICE_KEYS)?;
         let va_tx = VersionedAcceptedTransaction::from_transaction(signed_tx.clone(), 4096)?;
 

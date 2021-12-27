@@ -65,8 +65,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     client_configuration.public_key = key_pair_1.public_key;
     client_configuration.private_key = key_pair_1.private_key;
     let mut iroha_client = Client::new(&client_configuration);
+    let instructions: Vec<Instruction> = vec![mint_asset.clone().into()];
     let transaction = iroha_client
-        .build_transaction(vec![mint_asset.clone().into()], UnlimitedMetadata::new())
+        .build_transaction(instructions.into(), UnlimitedMetadata::new())
         .expect("Failed to create transaction.");
     iroha_client
         .submit_transaction(
@@ -89,8 +90,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     client_configuration.public_key = key_pair_2.public_key;
     client_configuration.private_key = key_pair_2.private_key;
     let mut iroha_client_2 = Client::new(&client_configuration);
+    let instructions: Vec<Instruction> = vec![mint_asset.into()];
     let transaction = iroha_client_2
-        .build_transaction(vec![mint_asset.into()], UnlimitedMetadata::new())
+        .build_transaction(instructions.into(), UnlimitedMetadata::new())
         .expect("Failed to create transaction.");
     let transaction = iroha_client_2
         .get_original_transaction(&transaction, 3, Duration::from_millis(100))
