@@ -139,13 +139,16 @@ namespace iroha::ametsuchi {
               opt_addr,
               forPeerAddress<kDbOperation::kGet, kDbEntry::kMustExist>(common,
                                                                        result));
+          auto peer = std::make_shared<shared_model::plain::Peer>(
+              std::move(*opt_addr), std::string(pubkey), std::nullopt);
 
           RDB_TRY_GET_VALUE(opt_tls,
                             forPeerTLS<kDbOperation::kGet, kDbEntry::kCanExist>(
                                 common, result));
+          if (opt_tls)
+            peer->setTlsCertificate(*opt_tls);
 
-          return std::make_shared<shared_model::plain::Peer>(
-              std::move(*opt_addr), std::string(pubkey), opt_tls);
+          return peer;
         },
         [&]() {
           return fmt::format("Get peer by pubkey {}",

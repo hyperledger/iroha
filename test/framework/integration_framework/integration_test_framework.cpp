@@ -10,6 +10,7 @@
 #include <boost/thread/barrier.hpp>
 #include <limits>
 #include <memory>
+#include <unordered_map>
 
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/block.hpp"
@@ -34,14 +35,12 @@
 #include "framework/integration_framework/port_guard.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
 #include "framework/result_fixture.hpp"
-#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "interfaces/permissions.hpp"
 #include "logger/logger.hpp"
-#include "logger/logger_manager.hpp"
 #include "main/subscription.hpp"
 #include "module/irohad/ametsuchi/tx_presence_cache_stub.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -51,13 +50,10 @@
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 #include "network/consensus_gate.hpp"
-#include "network/impl/async_grpc_client.hpp"
 #include "network/impl/channel_factory.hpp"
-#include "network/impl/client_factory.hpp"
 #include "network/peer_communication_service.hpp"
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
 #include "simulator/verified_proposal_creator_common.hpp"
-#include "synchronizer/synchronizer_common.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 #include "torii/status_bus.hpp"
@@ -101,9 +97,7 @@ namespace {
 
   std::string format_address(std::string ip,
                              integration_framework::PortGuard::PortType port) {
-    ip.append(":");
-    ip.append(std::to_string(port));
-    return ip;
+    return ip.append(":").append(std::to_string(port));
   }
 
 }  // namespace
@@ -113,32 +107,33 @@ using integration_framework::IntegrationTestFramework;
 template <typename T>
 class IntegrationTestFramework::CheckerQueue {
  public:
-  CheckerQueue(std::chrono::milliseconds timeout) : timeout_(timeout) {}
+  explicit CheckerQueue(std::chrono::milliseconds timeout)
+      : timeout_(timeout) {}
 
   void push(T obj) {
-    std::lock_guard<std::mutex> lock(queue_mutex_);
+    std::unique_lock<std::mutex> lock(queue_mutex_);
     queue_.push(std::move(obj));
     cv_.notify_one();
   }
 
-  boost::optional<T> try_peek() {
+  std::optional<T> try_peek() {
     std::unique_lock<std::mutex> lock(queue_mutex_);
     if (queue_.empty()) {
       if (not cv_.wait_for(
               lock, timeout_, [this] { return not queue_.empty(); })) {
-        return boost::none;
+        return std::nullopt;
       }
     }
     T obj(queue_.front());
     return obj;
   }
 
-  boost::optional<T> try_pop() {
+  std::optional<T> try_pop() {
     std::unique_lock<std::mutex> lock(queue_mutex_);
     if (queue_.empty()) {
       if (not cv_.wait_for(
               lock, timeout_, [this] { return not queue_.empty(); })) {
-        return boost::none;
+        return std::nullopt;
       }
     }
     T obj(std::move(queue_.front()));
@@ -146,11 +141,82 @@ class IntegrationTestFramework::CheckerQueue {
     return obj;
   }
 
+  auto size() {
+    std::unique_lock<std::mutex> lock(queue_mutex_);
+    return queue_.size();
+  }
+
  private:
   std::chrono::milliseconds timeout_;
   std::queue<T> queue_;
   std::mutex queue_mutex_;
   std::condition_variable cv_;
+};
+
+using TxResponsePtr =
+    std::shared_ptr<shared_model::interface::TransactionResponse>;
+using namespace std::chrono_literals;
+
+struct IntegrationTestFramework::ResponsesQueues {
+ public:
+  using HashType = shared_model::interface::types::HashType;
+
+  struct WaitGetResult {
+    TxResponsePtr txresp;
+    std::chrono::nanoseconds elapsed;
+    operator bool() const {
+      return (bool)txresp;
+    }
+    auto &operator*() const {
+      return *txresp;
+    }
+  };
+
+ private:
+  std::mutex mtx;
+  std::condition_variable cv;
+  std::unordered_map<HashType, std::queue<TxResponsePtr>, HashType::Hasher> map;
+
+  template <bool do_pop = false>
+  auto wait_get(HashType const &txhash, std::chrono::nanoseconds timeout)
+      -> WaitGetResult {
+    std::unique_lock lk(mtx);
+    auto const measure_start = std::chrono::steady_clock::now();
+    auto const deadline = measure_start + timeout;
+    auto &qu = map[txhash];
+    if (qu.empty()) {
+      while (
+          std::chrono::steady_clock::now() < deadline
+          and not cv.wait_until(lk, deadline, [&] { return not qu.empty(); }))
+        ;
+    }
+    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now() - measure_start);
+    if (qu.empty())  // timed out and still empty
+      return {nullptr, elapsed};
+    assert(qu.front() != nullptr);
+    if constexpr (do_pop) {
+      auto txrespptr(std::move(qu.front()));
+      qu.pop();
+      return {std::move(txrespptr), elapsed};
+    } else {
+      return {qu.front(), elapsed};
+    }
+  }
+
+ public:
+  void push(TxResponsePtr p_txresp) {
+    assert(p_txresp);
+    std::unique_lock lk(mtx);
+    map[p_txresp->transactionHash()].push(std::move(p_txresp));
+    cv.notify_all();
+  }
+  auto try_peek(HashType const &txhash, std::chrono::nanoseconds timeout) {
+    return wait_get<false>(txhash, timeout);
+  }
+  auto try_pop(HashType const &txhash, std::chrono::nanoseconds timeout) {
+    return wait_get<true>(txhash, timeout);
+  }
 };
 
 IntegrationTestFramework::IntegrationTestFramework(
@@ -163,7 +229,7 @@ IntegrationTestFramework::IntegrationTestFramework(
     const boost::optional<std::string> block_store_path,
     milliseconds proposal_waiting,
     milliseconds block_waiting,
-    milliseconds tx_response_waiting,
+    milliseconds tx_response_waiting_ms,
     logger::LoggerManagerTreePtr log_manager,
     std::string db_wsv_path,
     std::string db_store_path)
@@ -176,7 +242,9 @@ IntegrationTestFramework::IntegrationTestFramework(
       verified_proposal_queue_(
           std::make_unique<CheckerQueue<VerifiedProposalType>>(
               proposal_waiting)),
-      block_queue_(std::make_unique<CheckerQueue<BlockType>>(block_waiting)),
+      block_queue_(std::make_shared<CheckerQueue<BlockType>>(block_waiting)),
+      responses_queues_(std::make_shared<ResponsesQueues>()),
+      tx_response_waiting_ms_(tx_response_waiting_ms),
       port_guard_(std::make_unique<PortGuard>()),
       torii_port_(port_guard_->getPort(kDefaultToriiPort)),
       command_client_(std::make_unique<torii::CommandSyncClient>(
@@ -190,7 +258,6 @@ IntegrationTestFramework::IntegrationTestFramework(
               kLocalHost, torii_port_, std::nullopt))),
       async_call_(std::make_shared<AsyncCall>(
           log_manager_->getChild("AsyncCall")->getLogger())),
-      tx_response_waiting(tx_response_waiting),
       maximum_proposal_size_(maximum_proposal_size),
       common_objects_factory_(
           std::make_shared<AlwaysValidProtoCommonObjectsFactory>(
@@ -256,8 +323,7 @@ IntegrationTestFramework::IntegrationTestFramework(
     } break;
     case iroha::StorageType::kRocksDb: {
       DISABLE_WARNING_PUSH
-      DISABLE_WARNING_missing_field_initializers
-      config_.database_config =
+      DISABLE_WARNING_missing_field_initializers config_.database_config =
           IrohadConfig::DbConfig{kDbTypeRocksdb, db_wsv_path_};
       DISABLE_WARNING_POP
       config_.block_store_path =
@@ -267,7 +333,6 @@ IntegrationTestFramework::IntegrationTestFramework(
       assert(!"Unexpected database type.");
       break;
   }
-
   config_.torii_port = torii_port_;
   config_.internal_port = port_guard_->getPort(kDefaultInternalPort);
   iroha_instance_ =
@@ -284,8 +349,9 @@ IntegrationTestFramework::~IntegrationTestFramework() {
     iroha_instance_->terminateAndCleanup();
   }
   for (auto &server : fake_peers_servers_) {
-    server->shutdown(std::chrono::system_clock::now());
+    server->shutdown();
   }
+  fake_peers_servers_.clear();
   // the code below should be executed anyway in order to prevent app hang
   if (iroha_instance_ and iroha_instance_->getTestIrohad()) {
     iroha_instance_->getTestIrohad()->terminate();
@@ -296,19 +362,19 @@ std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(
     const boost::optional<Keypair> &key) {
   BOOST_ASSERT_MSG(this_peer_, "Need to set the ITF peer key first!");
   const auto port = port_guard_->getPort(kDefaultInternalPort);
-  auto fake_peer = std::make_shared<FakePeer>(
-      kLocalHost,
-      port,
-      key,
-      this_peer_,
-      common_objects_factory_,
-      transaction_factory_,
-      batch_parser_,
-      transaction_batch_factory_,
-      proposal_factory_,
-      tx_presence_cache_,
-      log_manager_->getChild("FakePeer")
-          ->getChild("at " + format_address(kLocalHost, port)));
+  auto fake_peer =
+      FakePeer::createShared(kLocalHost,
+                             port,
+                             key,
+                             this_peer_,
+                             common_objects_factory_,
+                             transaction_factory_,
+                             batch_parser_,
+                             transaction_batch_factory_,
+                             proposal_factory_,
+                             tx_presence_cache_,
+                             log_manager_->getChild("FakePeer")
+                                 ->getChild(format_address(kLocalHost, port)));
   fake_peer->initialize();
   fake_peers_.emplace_back(fake_peer);
   log_->debug("Added a fake peer at {} with {}.",
@@ -328,9 +394,13 @@ IntegrationTestFramework::addFakePeers(size_t amount) {
   return fake_peers;
 }
 
+void IntegrationTestFramework::printDbStatus() {
+  iroha_instance_->printDbStatus();
+}
+
 shared_model::proto::Block IntegrationTestFramework::defaultBlock(
     const shared_model::crypto::Keypair &key) const {
-  shared_model::interface::RolePermissionSet all_perms{};
+  shared_model::interface::RolePermissionSet all_perms {};
   for (size_t i = 0; i < all_perms.size(); ++i) {
     auto perm = static_cast<shared_model::interface::permissions::Role>(i);
     all_perms.set(perm);
@@ -430,6 +500,10 @@ void IntegrationTestFramework::initPipeline(
   log_->info("created pipeline");
 }
 
+void IntegrationTestFramework::unbind_guarded_port(uint16_t port) {
+  port_guard_->unbind(port);
+}
+
 void IntegrationTestFramework::subscribeQueuesAndRun() {
   // subscribing for components
 
@@ -476,40 +550,54 @@ void IntegrationTestFramework::subscribeQueuesAndRun() {
       template create<iroha::EventTypes::kOnBlock>(
           static_cast<iroha::SubscriptionEngineHandlers>(
               iroha::getSubscription()->dispatcher()->kExecuteInPool),
-          [this](auto, auto block) {
-            block_queue_->push(block);
-            log_->info("block commit");
+          [wlog(iroha::utils::make_weak(log_)),
+           w_block_queue(iroha::utils::make_weak(block_queue_))](auto,
+                                                                 auto block) {
+            auto bq = w_block_queue.lock();
+            auto log = wlog.lock();
+            if (!log or !bq) {
+              std::cout << "kOnBlock: !log or !bq" << std::endl;
+              return;
+            }
+            log->debug("kOnBlock");
+            bq->push(block);
+            log->info("block commit");
           });
 
-  responses_subscription_ = iroha::SubscriberCreator<
-      bool,
-      std::shared_ptr<shared_model::interface::TransactionResponse>>::
-      template create<iroha::EventTypes::kOnTransactionResponse>(
+  responses_subscription_ =
+      iroha::SubscriberCreator<bool, TxResponsePtr>::template create<
+          iroha::EventTypes::kOnTransactionResponse>(
           static_cast<iroha::SubscriptionEngineHandlers>(
               iroha::getSubscription()->dispatcher()->kExecuteInPool),
-          [this](auto, auto response) {
-            const auto hash = response->transactionHash().hex();
-            auto it = responses_queues_.find(hash);
-            if (it == responses_queues_.end()) {
-              it = responses_queues_
-                       .emplace(hash,
-                                std::make_unique<CheckerQueue<TxResponseType>>(
-                                    tx_response_waiting))
-                       .first;
+          [wlog(iroha::utils::make_weak(log_)),
+           w_responses_queues(iroha::utils::make_weak(responses_queues_))](
+              auto, auto response) {
+            auto log = wlog.lock();
+            auto responses_queues = w_responses_queues.lock();
+            if (!log or !responses_queues) {
+              std::cout << "kOnTransactionResponse: !log or !responses_queues"
+                        << std::endl;
+              return;
             }
-            it->second->push(response);
-            log_->info("response added to status queue: {}",
-                       response->toString());
+            log->trace("kOnTransactionResponse");
+            assert(response);
+            responses_queues->push(response);
+            log->info("response added to status queue: {}",
+                      response->toString());
           });
 
   if (fake_peers_.size() > 0) {
     log_->info("starting fake iroha peers");
     for (auto &fake_peer : fake_peers_) {
-      fake_peers_servers_.push_back(fake_peer->run());
+      port_guard_->unbind(fake_peer->getPort());
+      // free port
+      fake_peers_servers_.push_back(fake_peer->run(true));
     }
   }
   // start instance
   log_->info("starting main iroha instance");
+  port_guard_->unbind(config_.torii_port);
+  port_guard_->unbind(config_.internal_port);
   iroha_instance_->run();
 }
 
@@ -571,21 +659,19 @@ IntegrationTestFramework &IntegrationTestFramework::sendTx(
     const shared_model::proto::Transaction &tx,
     std::function<void(const shared_model::proto::TransactionResponse &)>
         validation) {
-  auto it = responses_queues_.find(tx.hash().hex());
-  if (it == responses_queues_.end())
-    it = responses_queues_
-             .emplace(tx.hash().hex(),
-                      std::make_unique<CheckerQueue<TxResponseType>>(
-                          tx_response_waiting))
-             .first;
+  log_->trace("sendTx() {}", tx.hash().hex());
   sendTxWithoutValidation(tx);
-  // fetch first response associated with the tx from related queue
-  boost::optional<TxResponseType> opt_response(it->second->try_peek());
-  if (not opt_response)
-    throw std::runtime_error("missed status");
-
-  validation(static_cast<const shared_model::proto::TransactionResponse &>(
-      *opt_response.value()));
+  auto result = responses_queues_->try_peek(tx.hash(), tx_response_waiting_ms_);
+  if (not result) {
+    log_->error("sendTx(): missed status during {}ns for tx {}",
+                result.elapsed.count(),
+                tx.hash().hex());
+    throw std::runtime_error("sendTx(): missed status for tx "
+                             + tx.hash().hex());
+  }
+  log_->trace("sendTx(): tx delivered {}", tx.hash().hex());
+  validation(
+      static_cast<const shared_model::proto::TransactionResponse &>(*result));
   return *this;
 }
 
@@ -626,13 +712,6 @@ IntegrationTestFramework &IntegrationTestFramework::sendTxSequence(
         std::static_pointer_cast<shared_model::proto::Transaction>(tx)
             ->getTransport();
     *tx_list.add_transactions() = proto_tx;
-    auto it = responses_queues_.find(tx->hash().hex());
-    if (it == responses_queues_.end())
-      it = responses_queues_
-               .emplace(tx->hash().hex(),
-                        std::make_unique<CheckerQueue<TxResponseType>>(
-                            tx_response_waiting))
-               .first;
   }
   command_client_->ListTorii(tx_list);
 
@@ -640,14 +719,17 @@ IntegrationTestFramework &IntegrationTestFramework::sendTxSequence(
   std::vector<shared_model::proto::TransactionResponse> observed_statuses;
   for (const auto &tx : transactions) {
     // fetch first response associated with the tx from related queue
-    boost::optional<TxResponseType> opt_response(
-        responses_queues_.find(tx->hash().hex())->second->try_peek());
-    if (not opt_response)
-      throw std::runtime_error("missed status");
-
+    auto txresp_result =
+        responses_queues_->try_peek(tx->hash(), tx_response_waiting_ms_);
+    if (not txresp_result) {
+      log_->error("sendTxSequence(): missed status during {}ns for tx {}",
+                  txresp_result.elapsed.count(),
+                  tx->hash().hex());
+      throw std::runtime_error("sendTxSequence(): missed status");
+    }
     observed_statuses.push_back(
         static_cast<const shared_model::proto::TransactionResponse &>(
-            *opt_response.value()));
+            *txresp_result));
   }
 
   validation(observed_statuses);
@@ -742,9 +824,10 @@ IntegrationTestFramework &IntegrationTestFramework::skipVerifiedProposal() {
 IntegrationTestFramework &IntegrationTestFramework::checkBlock(
     std::function<void(const BlockType &)> validation) {
   // fetch first from block queue
-  log_->info("check block");
+  log_->info("checkBlock()");
   auto opt_block = block_queue_->try_pop();
   if (not opt_block) {
+    log_->error("checkBlock(): missed block");
     throw std::runtime_error("missed block");
   }
   validation(*opt_block);
@@ -761,16 +844,16 @@ IntegrationTestFramework &IntegrationTestFramework::checkStatus(
     std::function<void(const shared_model::proto::TransactionResponse &)>
         validation) {
   // fetch first response associated with the tx from related queue
-  boost::optional<TxResponseType> opt_response;
-  const auto it = responses_queues_.find(tx_hash.hex());
-  if (it != responses_queues_.end()) {
-    opt_response = it->second->try_pop();
+  log_->debug("checkStatus() for tx {}", tx_hash.hex());
+  auto txresp_result =
+      responses_queues_->try_pop(tx_hash, tx_response_waiting_ms_);
+  if (not txresp_result) {
+    log_->error("checkStatus() NOT IN QUEUE tx {}", tx_hash.hex());
+    throw std::runtime_error("checkStatus(): missed status for hash "
+                             + tx_hash.hex());
   }
-  if (not opt_response) {
-    throw std::runtime_error("missed status");
-  }
-  validation(static_cast<const shared_model::proto::TransactionResponse &>(
-      *opt_response.value()));
+  validation(
+      dynamic_cast<shared_model::proto::TransactionResponse &>(*txresp_result));
   return *this;
 }
 

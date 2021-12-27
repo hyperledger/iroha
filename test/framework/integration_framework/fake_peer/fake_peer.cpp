@@ -6,8 +6,8 @@
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 
 #include <atomic>
-
 #include <boost/assert.hpp>
+
 #include "backend/protobuf/transaction.hpp"
 #include "common/common.hpp"
 #include "consensus/yac/impl/yac_crypto_provider_impl.hpp"
@@ -66,6 +66,7 @@ static std::shared_ptr<shared_model::interface::Peer> createPeer(
 using integration_framework::fake_peer::FakePeer;
 
 FakePeer::FakePeer(
+    HideCtor,
     const std::string &listen_ip,
     size_t internal_port,
     const boost::optional<Keypair> &key,
@@ -209,14 +210,13 @@ FakePeer::getProposalStorage() {
   return proposal_storage_;
 }
 
-std::unique_ptr<iroha::network::ServerRunner> FakePeer::run() {
+std::unique_ptr<iroha::network::ServerRunner> FakePeer::run(bool reuse_port) {
   ensureInitialized();
-  // start instance
   log_->info("starting listening server");
   auto internal_server = std::make_unique<iroha::network::ServerRunner>(
       getAddress(),
       log_manager_->getChild("InternalServer")->getLogger(),
-      false);
+      reuse_port);
   internal_server->append(yac_transport_server_)
       .append(mst_transport_)
       .append(od_os_transport_)
@@ -232,7 +232,10 @@ std::unique_ptr<iroha::network::ServerRunner> FakePeer::run() {
                  + "!")
                     .c_str());
           },
-          [this](const auto &err) { log_->error("could not start server!"); });
+          [this](const auto &err) {
+            log_->error("could not start server on port {}!", getPort());
+            throw std::runtime_error("could not start server!");
+          });
   return internal_server;
 }
 

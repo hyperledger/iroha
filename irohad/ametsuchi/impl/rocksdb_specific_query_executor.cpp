@@ -438,12 +438,9 @@ RocksDbSpecificQueryExecutor::readTxs(
 
   rocksdb::Status status = rocksdb::Status::OK();
   if (query.paginationMeta().firstTxHash()) {
-    std::string target_hash;
     if (auto result =
             forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-                common,
-                toLowerAppend(query.paginationMeta().firstTxHash()->toString(),
-                              target_hash));
+                common, *query.paginationMeta().firstTxHash());
         expected::hasValue(result)) {
       assert(ordering_ptr->field
                  == shared_model::interface::Ordering::Field::kCreatedTime
@@ -563,7 +560,7 @@ operator()(
 
     std::optional<std::string_view> opt;
     if (auto r = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-            common, h_hex);
+            common, hash);
         expected::hasError(r))
       return query_response_factory_->createErrorQueryResponse(
           ErrorQueryType::kStatefulFailed,
