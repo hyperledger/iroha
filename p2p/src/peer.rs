@@ -32,6 +32,7 @@ use crate::{
     Error, Message, MessageResult,
 };
 
+/// Max message length in bytes.
 const MAX_MESSAGE_LENGTH: usize = 16 * 1024 * 1024;
 const MAX_HANDSHAKE_LENGTH: usize = 255;
 /// Default associated data for AEAD
@@ -719,7 +720,7 @@ async fn read_message(stream: &mut OwnedReadHalf) -> Result<Message, Error> {
 /// message length is more than `MAX_MESSAGE_LENGTH`.
 pub async fn send_message(stream: &mut OwnedWriteHalf, data: &[u8]) -> Result<(), Error> {
     if data.len() > MAX_MESSAGE_LENGTH {
-        warn!(
+        error!(
             max_msg_len = MAX_MESSAGE_LENGTH,
             "Message length exceeds maximum length!",
         );

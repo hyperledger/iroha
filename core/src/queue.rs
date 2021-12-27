@@ -7,6 +7,7 @@ use dashmap::{mapref::entry::Entry, DashMap};
 use eyre::{Report, Result};
 use iroha_crypto::HashOf;
 use iroha_data_model::transaction::prelude::*;
+use rand::seq::IteratorRandom;
 use thiserror::Error;
 
 pub use self::config::Configuration;
@@ -84,6 +85,19 @@ impl Queue {
             .filter(|e| self.is_pending(e.value(), wsv))
             .map(|e| e.value().clone())
             .collect()
+    }
+
+    /// Returns `n` randomly selected transaction from the queue.
+    pub fn n_random_transactions<W: WorldTrait>(
+        &self,
+        wsv: &WorldStateView<W>,
+        n: usize,
+    ) -> Vec<VersionedAcceptedTransaction> {
+        self.txs
+            .iter()
+            .filter(|e| self.is_pending(e.value(), wsv))
+            .map(|e| e.value().clone())
+            .choose_multiple(&mut rand::thread_rng(), n)
     }
 
     fn check_tx<W: WorldTrait>(

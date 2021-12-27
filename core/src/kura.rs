@@ -27,11 +27,7 @@ use tokio::{
 use tokio_stream::wrappers::ReadDirStream;
 
 use crate::{
-    block::VersionedCommittedBlock,
-    block_sync::ContinueSync,
-    prelude::*,
-    sumeragi::{self, UpdateNetworkTopology},
-    wsv::WorldTrait,
+    block::VersionedCommittedBlock, block_sync::ContinueSync, prelude::*, sumeragi, wsv::WorldTrait,
 };
 
 /// Message for storing committed block
@@ -246,10 +242,6 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
         match self.block_store.write(&block).await {
             Ok(block_hash) => {
                 self.merkle_tree = self.merkle_tree.add(block_hash);
-                if let Err(error) = self.wsv.apply(block).await {
-                    warn!(%error, %block_hash, "Failed to apply block on WSV");
-                }
-                self.broker.issue_send(UpdateNetworkTopology).await;
                 self.broker.issue_send(ContinueSync).await;
                 Ok(block_hash)
             }
