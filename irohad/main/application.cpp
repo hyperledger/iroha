@@ -766,7 +766,8 @@ Irohad::RunResult Irohad::initOrderingGate() {
       log_manager_->getChild("Ordering"),
       inter_peer_client_factory_,
       std::chrono::milliseconds(
-          config_.proposal_creation_timeout.value_or(kMaxRoundsDelayDefault)));
+          config_.proposal_creation_timeout.value_or(kMaxRoundsDelayDefault)),
+      config_.syncing_mode);
   log_->info("[Init] => init ordering gate - [{}]",
              logger::boolRepr(bool(ordering_gate)));
   return {};
@@ -847,7 +848,8 @@ Irohad::RunResult Irohad::initConsensusGate() {
       std::chrono::milliseconds(config_.vote_delay),
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"),
-      inter_peer_client_factory_);
+      inter_peer_client_factory_,
+      config_.syncing_mode);
   log_->info("[Init] => consensus gate");
   return {};
 }
@@ -1145,6 +1147,7 @@ Irohad::RunResult Irohad::run() {
           verified_proposal);
       auto block = maybe_simulator->processVerifiedProposal(
           std::move(verified_proposal));
+
       maybe_consensus_gate->vote(std::move(block));
     }
   });
@@ -1234,7 +1237,7 @@ Irohad::RunResult Irohad::run() {
   auto block_height = block->height();
 
   auto peers = storage->createPeerQuery() |
-      [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
+      [](auto &&peer_query) { return peer_query->getLedgerPeers(false); };
   if (not peers) {
     return expected::makeError("Failed to fetch ledger peers!");
   }

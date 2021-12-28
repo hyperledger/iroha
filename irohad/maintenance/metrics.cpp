@@ -77,7 +77,7 @@ Metrics::Metrics(std::string const &listen_addr,
           .Help("Total number peers to send transactions and request proposals")
           .Register(*registry_);
   auto &number_of_peers = peers_number_gauge.Add({});
-  number_of_peers.Set(storage_->getWsvQuery()->getPeers()->size());
+  number_of_peers.Set(storage_->getWsvQuery()->getPeers(false)->size());
 
   auto &domains_number_gauge = BuildGauge()
                                    .Name("number_of_domains")

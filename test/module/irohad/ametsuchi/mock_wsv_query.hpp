@@ -37,10 +37,9 @@ namespace iroha {
       MOCK_METHOD1(getSignatories,
                    boost::optional<std::vector<std::string>>(
                        const std::string &account_id));
-      MOCK_METHOD0(
-          getPeers,
-          boost::optional<
-              std::vector<std::shared_ptr<shared_model::interface::Peer>>>());
+      MOCK_METHOD1(getPeers,
+                   boost::optional<std::vector<
+                       std::shared_ptr<shared_model::interface::Peer>>>(bool));
 
       MOCK_METHOD1(
           getPeerByPublicKey,
@@ -51,7 +50,8 @@ namespace iroha {
           getTopBlockInfo,
           iroha::expected::Result<iroha::TopBlockInfo, std::string>());
 
-      MOCK_METHOD0(countPeers, iroha::expected::Result<size_t, std::string>());
+      MOCK_METHOD1(countPeers,
+                   iroha::expected::Result<size_t, std::string>(bool));
       MOCK_METHOD0(countDomains,
                    iroha::expected::Result<size_t, std::string>());
       MOCK_METHOD0(countTransactions,

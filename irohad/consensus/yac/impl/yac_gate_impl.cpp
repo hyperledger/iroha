@@ -110,7 +110,9 @@ std::optional<iroha::consensus::GateObject> YacGateImpl::processRoundSwitch(
   current_block_ = std::nullopt;
   consensus_result_cache_->release();
   if (auto answer = hash_gate_->processRoundSwitch(
-          current_hash_.vote_round, current_ledger_state_->ledger_peers)) {
+          current_hash_.vote_round,
+          current_ledger_state_->ledger_peers,
+          current_ledger_state_->ledger_syncing_peers)) {
     return processOutcome(*answer);
   }
   return std::nullopt;

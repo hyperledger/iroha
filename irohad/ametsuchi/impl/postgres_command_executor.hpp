@@ -255,6 +255,7 @@ namespace iroha {
 
       std::unique_ptr<CommandStatements> add_asset_quantity_statements_;
       std::unique_ptr<CommandStatements> add_peer_statements_;
+      std::unique_ptr<CommandStatements> add_sync_peer_statements_;
       std::unique_ptr<CommandStatements> add_signatory_statements_;
       std::unique_ptr<CommandStatements> append_role_statements_;
       std::unique_ptr<CommandStatements>
@@ -266,6 +267,7 @@ namespace iroha {
       std::unique_ptr<CommandStatements> detach_role_statements_;
       std::unique_ptr<CommandStatements> grant_permission_statements_;
       std::unique_ptr<CommandStatements> remove_peer_statements_;
+      std::unique_ptr<CommandStatements> remove_sync_peer_statements_;
       std::unique_ptr<CommandStatements> remove_signatory_statements_;
       std::unique_ptr<CommandStatements> revoke_permission_statements_;
       std::unique_ptr<CommandStatements> set_account_detail_statements_;
