@@ -24,7 +24,7 @@ namespace iroha {
 
       boost::optional<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
-      getPeers() override;
+      getPeers(bool syncing_peers) override;
 
       boost::optional<std::shared_ptr<shared_model::interface::Peer>>
       getPeerByPublicKey(shared_model::interface::types::PublicKeyHexStringView
@@ -33,7 +33,8 @@ namespace iroha {
       iroha::expected::Result<iroha::TopBlockInfo, std::string>
       getTopBlockInfo() const override;
 
-      iroha::expected::Result<size_t, std::string> countPeers() override;
+      iroha::expected::Result<size_t, std::string> countPeers(
+          bool syncing_peers) override;
       iroha::expected::Result<size_t, std::string> countDomains() override;
       iroha::expected::Result<size_t, std::string> countTransactions() override;
 

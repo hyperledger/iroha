@@ -188,6 +188,7 @@ struct MockPeer : public shared_model::interface::Peer {
       const std::optional<shared_model::interface::types::TLSCertificateType>
           &());
   MOCK_CONST_METHOD0(clone, MockPeer *());
+  MOCK_CONST_METHOD0(isSyncingPeer, bool());
 };
 
 inline auto makePeer(

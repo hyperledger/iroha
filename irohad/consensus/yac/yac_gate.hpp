@@ -48,7 +48,8 @@ namespace iroha::consensus::yac {
      */
     virtual std::optional<Answer> processRoundSwitch(
         consensus::Round const &round,
-        shared_model::interface::types::PeerList const &peers) = 0;
+        shared_model::interface::types::PeerList const &peers,
+        shared_model::interface::types::PeerList const &sync_peers) = 0;
 
     /// Prevent any new outgoing network activity. Be passive.
     virtual void stop() = 0;

@@ -44,7 +44,8 @@ namespace iroha::consensus::yac {
         std::chrono::milliseconds vote_delay_milliseconds,
         ConsistencyModel consistency_model,
         const logger::LoggerManagerTreePtr &consensus_log_manager,
-        std::shared_ptr<iroha::network::GenericClientFactory> client_factory);
+        std::shared_ptr<iroha::network::GenericClientFactory> client_factory,
+        bool syncing_mode);
 
     std::shared_ptr<ServiceImpl> getConsensusNetwork() const;
 

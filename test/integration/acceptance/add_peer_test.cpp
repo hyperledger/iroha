@@ -101,7 +101,7 @@ TEST_P(AddPeerTest, FakePeerIsAdded) {
                        ->getStorage()
                        ->createPeerQuery()
                        .value()
-                       ->getLedgerPeers();
+                       ->getLedgerPeers(false);
 
   // check the two peers are there
   ASSERT_TRUE(opt_peers);
@@ -299,7 +299,7 @@ TEST_P(AddPeerTest, RealPeerIsAdded) {
                        ->getStorage()
                        ->createPeerQuery()
                        .value()
-                       ->getLedgerPeers();
+                       ->getLedgerPeers(false);
   ASSERT_TRUE(opt_peers);
   EXPECT_THAT(*opt_peers,
               ::testing::UnorderedElementsAre(

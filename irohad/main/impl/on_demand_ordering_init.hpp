@@ -94,7 +94,8 @@ namespace iroha::ordering {
             proposal_factory,
         std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
         size_t max_number_of_transactions,
-        const logger::LoggerManagerTreePtr &ordering_log_manager);
+        const logger::LoggerManagerTreePtr &ordering_log_manager,
+        bool syncing_mode);
 
     /**
      * Creates on-demand ordering service. \see initOrderingGate for
@@ -145,7 +146,8 @@ namespace iroha::ordering {
         std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
         logger::LoggerManagerTreePtr ordering_log_manager,
         std::shared_ptr<iroha::network::GenericClientFactory> client_factory,
-        std::chrono::milliseconds proposal_creation_timeout);
+        std::chrono::milliseconds proposal_creation_timeout,
+        bool syncing_mode);
 
     iroha::ordering::RoundSwitch processSynchronizationEvent(
         synchronizer::SynchronizationEvent event);

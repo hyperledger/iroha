@@ -126,7 +126,8 @@ std::shared_ptr<iroha::consensus::yac::YacGate> YacInit::initConsensusGate(
     std::chrono::milliseconds vote_delay_milliseconds,
     ConsistencyModel consistency_model,
     const logger::LoggerManagerTreePtr &consensus_log_manager,
-    std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
+    std::shared_ptr<iroha::network::GenericClientFactory> client_factory,
+    bool /*syncing_mode*/) {
   consensus_network_ = std::make_shared<ServiceImpl>(
       consensus_log_manager->getChild("Service")->getLogger(),
       [](std::vector<VoteMessage> state) {
@@ -143,9 +144,7 @@ std::shared_ptr<iroha::consensus::yac::YacGate> YacInit::initConsensusGate(
       consistency_model,
       consensus_log_manager);
   auto hash_provider = createHashProvider();
-
   initialized_ = true;
-
   yac_gate_ = std::make_shared<YacGateImpl>(
       yac_,
       std::make_shared<PeerOrdererImpl>(),
@@ -155,5 +154,6 @@ std::shared_ptr<iroha::consensus::yac::YacGate> YacInit::initConsensusGate(
       hash_provider,
       std::move(consensus_result_cache),
       consensus_log_manager->getChild("Gate")->getLogger());
+
   return yac_gate_;
 }

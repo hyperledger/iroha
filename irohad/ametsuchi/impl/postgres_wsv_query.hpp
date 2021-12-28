@@ -26,9 +26,10 @@ namespace iroha {
 
       boost::optional<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
-      getPeers() override;
+      getPeers(bool syncing_peers) override;
 
-      iroha::expected::Result<size_t, std::string> countPeers() override;
+      iroha::expected::Result<size_t, std::string> countPeers(
+          bool syncing_peers) override;
       iroha::expected::Result<size_t, std::string> countDomains() override;
       iroha::expected::Result<size_t, std::string> countTransactions() override;
 

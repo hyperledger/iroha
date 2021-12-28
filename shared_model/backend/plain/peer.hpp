@@ -18,7 +18,8 @@ namespace shared_model {
       Peer(const interface::types::AddressTypeView address,
            std::string public_key_hex,
            const std::optional<interface::types::TLSCertificateTypeView>
-               &tls_certificate);
+               &tls_certificate,
+           bool is_syncing_peer);
 
       const interface::types::AddressType &address() const override;
 
@@ -29,9 +30,12 @@ namespace shared_model {
 
       void setTlsCertificate(interface::types::TLSCertificateTypeView cert);
 
+      bool isSyncingPeer() const override;
+
      private:
       const interface::types::AddressType address_;
       const std::string public_key_hex_;
+      bool is_syncing_peer_;
       std::optional<interface::types::TLSCertificateType> tls_certificate_;
     };
 

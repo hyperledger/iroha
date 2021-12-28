@@ -50,9 +50,11 @@ class TransactionProcessorTest : public ::testing::Test {
         std::make_shared<shared_model::proto::ProtoTxStatusFactory>(),
         getTestLogger("TransactionProcessor"));
 
-    auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<LedgerState>(
-        shared_model::interface::types::PeerList{std::move(peer)},
+        shared_model::interface::types::PeerList{
+            makePeer("127.0.0.1", "111"_hex_pubkey)},
+        shared_model::interface::types::PeerList{
+            makePeer("127.0.0.2", "222"_hex_pubkey)},
         round.block_round - 1,
         shared_model::crypto::Hash{std::string("hash")});
   }
