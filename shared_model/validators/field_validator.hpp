@@ -204,8 +204,7 @@ namespace shared_model {
 
      public:
       // max-delay between tx creation and validation
-      static constexpr auto kMaxDelay =
-          std::chrono::hours(24) / std::chrono::milliseconds(1);
+      static std::chrono::milliseconds kMaxDelay;
       // default value for future_gap field of FieldValidator
       static constexpr auto kDefaultFutureGap =
           std::chrono::minutes(5) / std::chrono::milliseconds(1);

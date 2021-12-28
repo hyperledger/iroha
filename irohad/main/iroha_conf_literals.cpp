@@ -48,6 +48,7 @@ namespace config_members {
       {"warning", logger::LogLevel::kWarn},
       {"error", logger::LogLevel::kError},
       {"critical", logger::LogLevel::kCritical}};
+  const char *MaxPastCreatedTime = "max_past_created_time";
   const char *Address = "address";
   const char *PublicKey = "public_key";
   const char *InitialPeers = "initial_peers";

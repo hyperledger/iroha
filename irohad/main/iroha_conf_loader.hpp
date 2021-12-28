@@ -73,6 +73,7 @@ struct IrohadConfig {
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;
   std::optional<shared_model::interface::types::PeerList> initial_peers;
   boost::optional<UtilityService> utility_service;
+  std::optional<uint32_t> max_past_created_time;
 
   // getters
   uint32_t getMaxpProposalPack() const;
