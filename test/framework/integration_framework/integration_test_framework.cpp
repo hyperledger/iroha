@@ -314,6 +314,7 @@ IntegrationTestFramework::IntegrationTestFramework(
   config_.stale_stream_max_rounds = 2;
   config_.max_proposal_size = 10;
   config_.mst_support = mst_support;
+  config_.syncing_mode = false;
 
   switch (db_type) {
     case iroha::StorageType::kPostgres: {
