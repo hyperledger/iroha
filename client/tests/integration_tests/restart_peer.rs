@@ -23,7 +23,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     // Given
     let rt = Runtime::test();
     rt.block_on(peer.start_with_config_permissions_dir(configuration.clone(), AllowAll, &temp_dir));
-    let mut iroha_client = Client::test(&peer.api_address, &peer.status_address);
+    let mut iroha_client = Client::test(&peer.api_address, &peer.telemetry_address);
     wait_for_genesis_committed(vec![iroha_client.clone()], 0);
 
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
