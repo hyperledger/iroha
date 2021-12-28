@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::prelude::*;
 
 /// Event.
-#[derive(Debug, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, Clone, IntoSchema)]
+#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Event {
     entity: Entity,
     status: Status,
@@ -18,7 +18,6 @@ pub struct Event {
 #[derive(
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
-// SATO How detailed should `DataEntity` be?
 pub enum Entity {
     /// [`Account`].
     Account(AccountId),
@@ -36,32 +35,91 @@ pub enum Entity {
 }
 
 /// Entity status.
-#[derive(Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Copy, Clone, IntoSchema)]
-// SATO How detailed should `DataStatus` be?
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+)]
 pub enum Status {
     /// Entity was added, registered, minted or another action was made to make entity appear on
     /// the blockchain for the first time.
     Created,
     /// Entity's state was changed, any parameter updated it's value.
-    // Updated(Updated),
-    Updated,
+    Updated(Updated),
     /// Entity was archived or by any other way was put into state that guarantees absence of
     /// [`Updated`](`Status::Updated`) events for this entity.
     Deleted,
 }
 
-// #[derive(Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Copy, Clone, IntoSchema)]
-// enum Updated {
-//     Authentication,
-//     Metadata(Metadata),
-//     Permission,
-// }
+/// Description for [`Status::Updated`].
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+)]
+#[allow(missing_docs)]
+pub enum Updated {
+    Metadata(MetadataUpdated),
+    Authentication,
+    Permission,
+    Asset(AssetUpdated),
+}
 
-// #[derive(Debug, Decode, Encode, Deserialize, Serialize, Eq, PartialEq, Copy, Clone, IntoSchema)]
-// enum Metadata {
-//     Inserted,
-//     Removed,
-// }
+/// Description for [`Updated::Metadata`].
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+)]
+#[allow(missing_docs)]
+pub enum MetadataUpdated {
+    Inserted,
+    Removed,
+}
+
+/// Description for [`Updated::Asset`].
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+)]
+#[allow(missing_docs)]
+pub enum AssetUpdated {
+    Received,
+    Sent,
+}
 
 /// Filter to select [`Event`]s which match the `entity` and `status` conditions.
 #[derive(Default, Debug, Decode, Encode, Deserialize, Serialize, Clone, IntoSchema)]
@@ -76,25 +134,48 @@ pub struct EventFilter {
 /// or all the entities of the [`Entity`] type.
 #[derive(Debug, Decode, Encode, Deserialize, Serialize, Clone, IntoSchema)]
 pub enum EntityFilter {
-    /// Filter by [`Account`].
+    /// Filter by [`Entity::Account`].
     Account(Option<AccountId>),
-    /// Filter by [`AssetDefinition`].
+    /// Filter by [`Entity::AssetDefinition`].
     AssetDefinition(Option<AssetDefinitionId>),
-    /// Filter by [`Asset`].
+    /// Filter by [`Entity::Asset`].
     Asset(Option<AssetId>),
-    /// Filter by [`Domain`].
+    /// Filter by [`Entity::Domain`].
     Domain(Option<DomainId>),
-    /// Filter by [`Peer`].
+    /// Filter by [`Entity::Peer`].
     Peer(Option<PeerId>),
 }
 
 /// Filter to select a status.
-pub type StatusFilter = Status;
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+)]
+pub enum StatusFilter {
+    /// Select [`Status::Created`].
+    Created,
+    /// Select [`Status::Updated`] or more detailed status in option.
+    Updated(Option<Updated>),
+    /// Select [`Status::Deleted`].
+    Deleted,
+}
 
 impl Event {
     /// Construct [`Event`].
-    pub const fn new(entity: Entity, status: Status) -> Self {
-        Self { entity, status }
+    pub fn new(entity: impl Into<Entity>, status: impl Into<Status>) -> Self {
+        Self {
+            entity: entity.into(),
+            status: status.into(),
+        }
     }
 }
 
@@ -172,7 +253,16 @@ impl EntityFilter {
 
 impl StatusFilter {
     fn apply(self, status: Status) -> bool {
-        self == status
+        match self {
+            Self::Created => Status::Created == status,
+            Self::Updated(opt) => match status {
+                Status::Updated(detail) => {
+                    opt.map_or(true, |filter_detail| detail == filter_detail)
+                }
+                _ => false,
+            },
+            Self::Deleted => Status::Deleted == status,
+        }
     }
 }
 
@@ -182,44 +272,56 @@ impl From<Event> for Vec<Event> {
     }
 }
 
+impl From<MetadataUpdated> for Status {
+    fn from(src: MetadataUpdated) -> Self {
+        Self::Updated(src.into())
+    }
+}
+
+impl From<AssetUpdated> for Status {
+    fn from(src: AssetUpdated) -> Self {
+        Self::Updated(src.into())
+    }
+}
+
 mod world {
     use crate::prelude::*;
 
     impl From<Register<Peer>> for DataEvent {
         fn from(src: Register<Peer>) -> Self {
-            Self::new(DataEntity::Peer(src.object.id), DataStatus::Created)
+            Self::new(src.object.id, DataStatus::Created)
         }
     }
 
     impl From<Unregister<Peer>> for DataEvent {
         fn from(src: Unregister<Peer>) -> Self {
-            Self::new(DataEntity::Peer(src.object_id), DataStatus::Deleted)
+            Self::new(src.object_id, DataStatus::Deleted)
         }
     }
 
     impl From<Register<Domain>> for DataEvent {
         fn from(src: Register<Domain>) -> Self {
-            Self::new(DataEntity::Domain(src.object.id), DataStatus::Created)
+            Self::new(src.object.id, DataStatus::Created)
         }
     }
 
     impl From<Unregister<Domain>> for DataEvent {
         fn from(src: Unregister<Domain>) -> Self {
-            Self::new(DataEntity::Domain(src.object_id), DataStatus::Deleted)
+            Self::new(src.object_id, DataStatus::Deleted)
         }
     }
 
     #[cfg(feature = "roles")]
     impl From<Register<Role>> for DataEvent {
         fn from(src: Register<Role>) -> Self {
-            Self::new(DataEntity::Role(src.object.id), DataStatus::Created)
+            Self::new(src.object.id, DataStatus::Created)
         }
     }
 
     #[cfg(feature = "roles")]
     impl From<Unregister<Role>> for DataEvent {
         fn from(src: Unregister<Role>) -> Self {
-            Self::new(DataEntity::Role(src.object_id), DataStatus::Deleted)
+            Self::new(src.object_id, DataStatus::Deleted)
         }
     }
 }
@@ -229,71 +331,49 @@ mod domain {
 
     impl From<Register<NewAccount>> for DataEvent {
         fn from(src: Register<NewAccount>) -> Self {
-            Self::new(DataEntity::Account(src.object.id), DataStatus::Created)
+            Self::new(src.object.id, DataStatus::Created)
         }
     }
 
     impl From<Unregister<Account>> for DataEvent {
         fn from(src: Unregister<Account>) -> Self {
-            Self::new(DataEntity::Account(src.object_id), DataStatus::Deleted)
+            Self::new(src.object_id, DataStatus::Deleted)
         }
     }
 
     impl From<Register<AssetDefinition>> for DataEvent {
         fn from(src: Register<AssetDefinition>) -> Self {
-            Self::new(
-                DataEntity::AssetDefinition(src.object.id),
-                DataStatus::Created,
-            )
+            Self::new(src.object.id, DataStatus::Created)
         }
     }
 
     impl From<Unregister<AssetDefinition>> for DataEvent {
         fn from(src: Unregister<AssetDefinition>) -> Self {
-            Self::new(
-                DataEntity::AssetDefinition(src.object_id),
-                DataStatus::Deleted,
-            )
+            Self::new(src.object_id, DataStatus::Deleted)
         }
     }
 
     impl From<SetKeyValue<AssetDefinition, Name, Value>> for DataEvent {
         fn from(src: SetKeyValue<AssetDefinition, Name, Value>) -> Self {
-            Self::new(
-                DataEntity::AssetDefinition(src.object_id),
-                // SATO Inserted
-                DataStatus::Updated,
-            )
+            Self::new(src.object_id, MetadataUpdated::Inserted)
         }
     }
 
     impl From<RemoveKeyValue<AssetDefinition, Name>> for DataEvent {
         fn from(src: RemoveKeyValue<AssetDefinition, Name>) -> Self {
-            Self::new(
-                DataEntity::AssetDefinition(src.object_id),
-                // SATO Removed
-                DataStatus::Updated,
-            )
+            Self::new(src.object_id, MetadataUpdated::Removed)
         }
     }
 
     impl From<SetKeyValue<Domain, Name, Value>> for DataEvent {
         fn from(src: SetKeyValue<Domain, Name, Value>) -> Self {
-            Self::new(
-                DataEntity::Domain(src.object_id),
-                // SATO Inserted
-                DataStatus::Updated,
-            )
+            Self::new(src.object_id, MetadataUpdated::Inserted)
         }
     }
 
     impl From<RemoveKeyValue<Domain, Name>> for DataEvent {
         fn from(src: RemoveKeyValue<Domain, Name>) -> Self {
-            Self::new(
-                DataEntity::Domain(src.object_id),
-                // SATO Removed
-                DataStatus::Updated,
-            )
+            Self::new(src.object_id, MetadataUpdated::Removed)
         }
     }
 }
@@ -303,48 +383,46 @@ mod account {
 
     use crate::prelude::*;
 
-    // SATO DataStatus::Updated(...)
-
     impl From<Mint<Account, PublicKey>> for DataEvent {
         fn from(src: Mint<Account, PublicKey>) -> Self {
-            Self::new(DataEntity::Account(src.destination_id), DataStatus::Updated)
+            Self::new(src.destination_id, Updated::Authentication)
         }
     }
 
     impl From<Mint<Account, SignatureCheckCondition>> for DataEvent {
         fn from(src: Mint<Account, SignatureCheckCondition>) -> Self {
-            Self::new(DataEntity::Account(src.destination_id), DataStatus::Updated)
+            Self::new(src.destination_id, Updated::Authentication)
         }
     }
 
     impl From<Burn<Account, PublicKey>> for DataEvent {
         fn from(src: Burn<Account, PublicKey>) -> Self {
-            Self::new(DataEntity::Account(src.destination_id), DataStatus::Updated)
+            Self::new(src.destination_id, Updated::Authentication)
         }
     }
 
     impl From<SetKeyValue<Account, Name, Value>> for DataEvent {
         fn from(src: SetKeyValue<Account, Name, Value>) -> Self {
-            Self::new(DataEntity::Account(src.object_id), DataStatus::Updated)
+            Self::new(src.object_id, MetadataUpdated::Inserted)
         }
     }
 
     impl From<RemoveKeyValue<Account, Name>> for DataEvent {
         fn from(src: RemoveKeyValue<Account, Name>) -> Self {
-            Self::new(DataEntity::Account(src.object_id), DataStatus::Updated)
+            Self::new(src.object_id, MetadataUpdated::Removed)
         }
     }
 
     impl From<Grant<Account, PermissionToken>> for DataEvent {
         fn from(src: Grant<Account, PermissionToken>) -> Self {
-            Self::new(DataEntity::Account(src.destination_id), DataStatus::Updated)
+            Self::new(src.destination_id, Updated::Permission)
         }
     }
 
     #[cfg(feature = "roles")]
     impl From<Grant<Account, RoleId>> for DataEvent {
         fn from(src: Grant<Account, RoleId>) -> Self {
-            Self::new(DataEntity::Account(src.destination_id), DataStatus::Updated)
+            Self::new(src.destination_id, Updated::Permission)
         }
     }
 }
@@ -352,48 +430,38 @@ mod account {
 mod asset {
     use crate::{prelude::*, ValueMarker};
 
-    // SATO DataStatus::Updated(...)
-
     impl<O: ValueMarker> From<Mint<Asset, O>> for DataEvent {
         fn from(src: Mint<Asset, O>) -> Self {
-            Self::new(DataEntity::Asset(src.destination_id), DataStatus::Created)
+            Self::new(src.destination_id, DataStatus::Created)
         }
     }
 
     impl From<SetKeyValue<Asset, Name, Value>> for DataEvent {
         fn from(src: SetKeyValue<Asset, Name, Value>) -> Self {
-            Self::new(DataEntity::Asset(src.object_id), DataStatus::Updated)
+            Self::new(src.object_id, MetadataUpdated::Inserted)
         }
     }
 
     impl<O: ValueMarker> From<Burn<Asset, O>> for DataEvent {
         fn from(src: Burn<Asset, O>) -> Self {
-            Self::new(DataEntity::Asset(src.destination_id), DataStatus::Deleted)
+            Self::new(src.destination_id, DataStatus::Deleted)
         }
     }
 
     impl From<RemoveKeyValue<Asset, Name>> for DataEvent {
         fn from(src: RemoveKeyValue<Asset, Name>) -> Self {
-            Self::new(DataEntity::Asset(src.object_id), DataStatus::Updated)
+            Self::new(src.object_id, MetadataUpdated::Removed)
         }
     }
 
     impl From<Transfer<Asset, u32, Asset>> for Vec<DataEvent> {
         fn from(src: Transfer<Asset, u32, Asset>) -> Self {
             vec![
-                DataEvent::new(DataEntity::Asset(src.source_id), DataStatus::Updated),
-                DataEvent::new(DataEntity::Asset(src.destination_id), DataStatus::Updated),
+                DataEvent::new(src.source_id, AssetUpdated::Sent),
+                DataEvent::new(src.destination_id, AssetUpdated::Received),
             ]
         }
     }
-}
-
-/// Exports common structs and enums from this module.
-pub mod prelude {
-    pub use super::{
-        Entity as DataEntity, Event as DataEvent, EventFilter as DataEventFilter,
-        Status as DataStatus,
-    };
 }
 
 #[cfg(test)]
@@ -401,7 +469,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn entity_filter_scope() {
+    fn entity_scope() {
         const DOMAIN: &str = "wonderland";
         const ACCOUNT: &str = "alice";
         const ASSET: &str = "rose";
@@ -419,4 +487,12 @@ mod tests {
         assert!(account_filter.apply(&account_created));
         assert!(account_filter.apply(&asset_created));
     }
+}
+
+/// Exports common structs and enums from this module.
+pub mod prelude {
+    pub use super::{
+        AssetUpdated, Entity as DataEntity, Event as DataEvent, EventFilter as DataEventFilter,
+        MetadataUpdated, Status as DataStatus, Updated,
+    };
 }
