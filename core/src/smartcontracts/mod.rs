@@ -3,6 +3,7 @@
 //! Currently supported only Iroha instructions
 
 pub mod isi;
+pub mod wasm;
 
 use iroha_data_model::prelude::*;
 pub use isi::*;

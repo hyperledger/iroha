@@ -192,7 +192,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                     })?;
                 }
                 Executable::Wasm(bytes) => {
-                    let mut wasm_runtime = crate::wasm::Runtime::new()?;
+                    let mut wasm_runtime = crate::smartcontracts::wasm::Runtime::new()?;
                     wasm_runtime.execute(self, account_id.clone(), bytes)?;
                 }
             }
@@ -410,7 +410,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Fails if there is no domain or account
     pub fn map_account<T>(
         &self,
-        id: &<Account as Identifiable>::Id,
+        id: &AccountId,
         f: impl FnOnce(&Account) -> T,
     ) -> Result<T, FindError> {
         let domain = self.domain(&id.domain_id)?;
@@ -427,7 +427,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Fails if there is no domain or account
     pub fn modify_account(
         &self,
-        id: &<Account as Identifiable>::Id,
+        id: &AccountId,
         f: impl FnOnce(&mut Account) -> Result<(), Error>,
     ) -> Result<(), Error> {
         let mut domain = self.domain_mut(&id.domain_id)?;
@@ -442,10 +442,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if account finding fails
-    pub fn account_assets(
-        &self,
-        id: &<Account as Identifiable>::Id,
-    ) -> Result<Vec<Asset>, FindError> {
+    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, FindError> {
         self.map_account(id, |account| account.assets.values().cloned().collect())
     }
 

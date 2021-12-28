@@ -382,7 +382,7 @@ mod tests {
         let mut domain = wsv.domain_mut(&DomainId::test("wonderland")).unwrap();
         domain
             .accounts
-            .get_mut(&<Account as Identifiable>::Id::test("alice", "wonderland"))
+            .get_mut(&AccountId::test("alice", "wonderland"))
             .unwrap()
             .signature_check_condition = SignatureCheckCondition(0_u32.into());
         drop(domain);

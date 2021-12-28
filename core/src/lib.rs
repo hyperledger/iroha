@@ -15,7 +15,6 @@ pub mod stream;
 pub mod sumeragi;
 pub mod torii;
 pub mod tx;
-mod wasm;
 pub mod wsv;
 
 use std::{path::PathBuf, sync::Arc, time::Duration};

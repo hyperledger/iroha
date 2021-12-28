@@ -3,7 +3,7 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::{collections::BTreeSet, iter, marker::PhantomData};
+use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{Context, Result};
@@ -279,8 +279,6 @@ impl BlockHeader {
         self.height == 1
     }
 }
-
-use std::error::Error;
 
 impl ChainedBlock {
     /// Validate block transactions against current state of the world.

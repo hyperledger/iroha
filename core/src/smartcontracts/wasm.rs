@@ -21,14 +21,18 @@ const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
 /// `WebAssembly` execution error type
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// Engine or linker could not be created
     #[error("Runtime initialization failure")]
     Initialization(#[source] anyhow::Error),
+    /// Module could not be compiled or instantiated
     #[error("Module instantiation failure")]
     Instantiation(#[source] anyhow::Error),
+    /// Expected named export not found in module
     #[error("Named export not found")]
     ExportNotFound(#[source] anyhow::Error),
-    #[error("Fn call failed")]
-    FnCall(#[source] Trap),
+    /// Call to function exported from module failed
+    #[error("Exported function call failed")]
+    ExportFnCall(#[source] Trap),
     /// Some other error happened
     #[error("Some other error happened")]
     Other(#[source] eyre::Error),
@@ -74,71 +78,83 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         Engine::new(config).map_err(Error::Initialization)
     }
 
+    /// Host defined function which executes query. When calling this function, module
+    /// serializes query to linear memory and provides offset and length as parameters
+    ///
+    /// # Errors
+    ///
+    /// If decoding or execution of the query fails
+    fn execute_query(
+        mut caller: Caller<State<W>>,
+        offset: u32,
+        len: u32,
+    ) -> Result<(u32, u32), Trap> {
+        let alloc_fn = Self::get_alloc_fn(&mut caller)?;
+        let memory = Self::get_memory(&mut caller)?;
+
+        // Accessing memory as a byte slice to avoid the use of unsafe
+        let query_mem_range = offset as usize..(offset + len) as usize;
+        let mut query_bytes = &memory.data(&caller)[query_mem_range];
+        let query =
+            QueryBox::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?;
+
+        let res_bytes = query
+            .execute(caller.data().wsv)
+            .map_err(|e| Trap::new(e.to_string()))?
+            .encode();
+
+        let res_bytes_len: u32 = {
+            let res_bytes_len: Result<u32, _> = res_bytes.len().try_into();
+            res_bytes_len.map_err(|error| Trap::new(error.to_string()))?
+        };
+
+        let res_offset = {
+            let res_offset = alloc_fn
+                .call(&mut caller, res_bytes_len)
+                .map_err(|e| Trap::new(e.to_string()))?;
+
+            let res_mem_range = res_offset as usize..res_offset as usize + res_bytes.len();
+            memory.data_mut(&mut caller)[res_mem_range].copy_from_slice(&res_bytes[..]);
+
+            res_offset
+        };
+
+        Ok((res_offset, res_bytes_len))
+    }
+
+    /// Host defined function which executes ISI. When calling this function, module
+    /// serializes ISI to linear memory and provides offset and length as parameters
+    ///
+    /// # Errors
+    ///
+    /// If decoding or execution of the ISI fails
+    fn execute_isi(mut caller: Caller<State<W>>, offset: u32, len: u32) -> Result<(), Trap> {
+        let memory = Self::get_memory(&mut caller)?;
+
+        // Accessing memory as a byte slice to avoid the use of unsafe
+        let isi_mem_range = offset as usize..(offset + len) as usize;
+        let mut isi_bytes = &memory.data(&caller)[isi_mem_range];
+        let instruction =
+            Instruction::decode(&mut isi_bytes).map_err(|error| Trap::new(error.to_string()))?;
+
+        instruction
+            .execute(caller.data().account_id.clone(), caller.data().wsv)
+            .map_err(|error| Trap::new(error.to_string()))?;
+
+        caller.data_mut().instruction_count += 1;
+
+        Ok(())
+    }
+
     fn create_linker(engine: &Engine) -> Result<Linker<State<'a, W>>, Error> {
         let mut linker = Linker::new(engine);
 
         linker
-            .func_wrap(
-                "iroha",
-                EXECUTE_ISI_FN_NAME,
-                |mut caller: Caller<State<_>>, offset: u32, len: u32| {
-                    let memory = Self::get_memory(&mut caller)?;
-
-                    // Accessing memory as a byte slice to avoid the use of unsafe
-                    let isi_mem_range = offset as usize..(offset + len) as usize;
-                    let mut isi_bytes = &memory.data(&caller)[isi_mem_range];
-                    let instruction = Instruction::decode(&mut isi_bytes)
-                        .map_err(|error| Trap::new(error.to_string()))?;
-
-                    instruction
-                        .execute(caller.data().account_id.clone(), caller.data().wsv)
-                        .map_err(|error| Trap::new(error.to_string()))?;
-
-                    caller.data_mut().instruction_count += 1;
-                    Ok(())
-                },
-            )
+            .func_wrap("iroha", EXECUTE_ISI_FN_NAME, Self::execute_isi)
             .map_err(Error::Initialization)?;
 
         linker
-            .func_wrap(
-                "iroha",
-                EXECUTE_QUERY_FN_NAME,
-                |mut caller: Caller<State<_>>, offset: u32, len: u32| {
-                    let alloc_fn = Self::get_alloc_fn(&mut caller)?;
-                    let memory = Self::get_memory(&mut caller)?;
-
-                    // Accessing memory as a byte slice to avoid the use of unsafe
-                    let query_mem_range = offset as usize..(offset + len) as usize;
-                    let mut query_bytes = &memory.data(&caller)[query_mem_range];
-                    let query = QueryBox::decode(&mut query_bytes)
-                        .map_err(|error| Trap::new(error.to_string()))?;
-
-                    let res_bytes = query
-                        .execute(caller.data().wsv)
-                        .map_err(|e| Trap::new(e.to_string()))?
-                        .encode();
-
-                    let res_bytes_len: u32 = {
-                        let res_bytes_len: Result<u32, _> = res_bytes.len().try_into();
-                        res_bytes_len.map_err(|error| Trap::new(error.to_string()))?
-                    };
-
-                    let res_offset = {
-                        let res_offset = alloc_fn
-                            .call(&mut caller, res_bytes_len)
-                            .map_err(|e| Trap::new(e.to_string()))?;
-
-                        let res_mem_range =
-                            res_offset as usize..res_offset as usize + res_bytes.len();
-                        memory.data_mut(&mut caller)[res_mem_range].copy_from_slice(&res_bytes[..]);
-
-                        res_offset
-                    };
-
-                    Ok((res_offset, res_bytes_len))
-                },
-            )
+            .func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query)
             .map_err(Error::Initialization)?;
 
         Ok(linker)
@@ -222,7 +238,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         let account_offset = {
             let acc_offset = alloc_fn
                 .call(&mut store, account_bytes_len)
-                .map_err(Error::FnCall)?;
+                .map_err(Error::ExportFnCall)?;
 
             let acc_mem_range = acc_offset as usize..acc_offset as usize + account_bytes.len();
             memory.data_mut(&mut store)[acc_mem_range].copy_from_slice(&account_bytes[..]);
@@ -235,7 +251,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
             .map_err(Error::ExportNotFound)?;
 
         main.call(&mut store, (account_offset, account_bytes_len))
-            .map_err(Error::FnCall)?;
+            .map_err(Error::ExportFnCall)?;
 
         Ok(())
     }
