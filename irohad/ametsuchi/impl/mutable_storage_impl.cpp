@@ -83,7 +83,7 @@ namespace iroha::ametsuchi {
           opt_ledger_peers[] = {peer_query_->getLedgerPeers(false),
                                 peer_query_->getLedgerPeers(true)};
 
-      for (auto &peer_list : opt_ledger_peers)
+      for (auto const &peer_list : opt_ledger_peers)
         if (!peer_list) {
           log_->error("Failed to get ledger peers!");
           return false;

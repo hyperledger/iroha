@@ -49,18 +49,14 @@ TEST_F(PeerQueryWSVTest, GetPeers) {
  * @then get a vector with all peers in the ledger
  */
 TEST_F(PeerQueryWSVTest, GetSyncPeers) {
-  std::vector<std::shared_ptr<shared_model::interface::Peer>> peers;
-  std::shared_ptr<shared_model::interface::Peer> peer1 =
+  std::vector<std::shared_ptr<shared_model::interface::Peer>> peers = {
       std::make_shared<shared_model::plain::Peer>(
-          "some-address", "0A", std::nullopt, true);
-  std::shared_ptr<shared_model::interface::Peer> peer2 =
+          "some-address", "0A", std::nullopt, true),
       std::make_shared<shared_model::plain::Peer>(
-          "another-address", "0B", std::nullopt, true);
-  peers.push_back(peer1);
-  peers.push_back(peer2);
+          "another-address", "0B", std::nullopt, true)};
   EXPECT_CALL(*wsv_query_, getPeers(true)).WillOnce(::testing::Return(peers));
 
-  auto result = peer_query_->getLedgerPeers(true);
+  auto const result = peer_query_->getLedgerPeers(true);
   ASSERT_TRUE(result);
   ASSERT_THAT(result.get(),
               testing::ElementsAreArray(peers.cbegin(), peers.cend()));
