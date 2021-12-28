@@ -7,7 +7,7 @@ use iroha_data_model::{prelude::*, transaction};
 use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_TORII_STATUS_URL: &str = "127.0.0.1:8180";
+const DEFAULT_TORII_TELEMETRY_URL: &str = "127.0.0.1:8180";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_ADD_TRANSACTION_NONCE: bool = false;
@@ -29,7 +29,7 @@ pub struct Configuration {
     /// Torii URL.
     pub torii_api_url: String,
     /// Status URL.
-    pub torii_status_url: String,
+    pub torii_telemetry_url: String,
     /// Proposed transaction TTL in milliseconds.
     pub transaction_time_to_live_ms: u64,
     /// Transaction status wait timeout in milliseconds.
@@ -50,7 +50,7 @@ impl Default for Configuration {
             private_key: PrivateKey::default(),
             account_id: AccountId::test("", ""),
             torii_api_url: uri::DEFAULT_API_URL.to_owned(),
-            torii_status_url: DEFAULT_TORII_STATUS_URL.to_owned(),
+            torii_telemetry_url: DEFAULT_TORII_TELEMETRY_URL.to_owned(),
             transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,
             transaction_status_timeout_ms: DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS,
             max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,

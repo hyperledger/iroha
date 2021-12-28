@@ -42,7 +42,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
 
     let mut client_configuration = ClientConfiguration::test(
         &network.genesis.api_address,
-        &network.genesis.status_address,
+        &network.genesis.telemetry_address,
     );
     let mut iroha_client = Client::new(&client_configuration);
     iroha_client

@@ -38,7 +38,7 @@ fn test_with_instruction_and_status(
         let peers: Vec<_> = network.peers().collect();
         let mut submitter_client = Client::test(
             &peers[submitting_peer].api_address,
-            &peers[submitting_peer].status_address,
+            &peers[submitting_peer].telemetry_address,
         );
         let transaction = submitter_client.build_transaction(
             instruction.clone().into_iter().collect(),
@@ -50,7 +50,7 @@ fn test_with_instruction_and_status(
             let rejected_event_received_clone = rejected_event_received.clone();
             let listener_client = Client::test(
                 &peers[receiving_peer].api_address,
-                &peers[receiving_peer].status_address,
+                &peers[receiving_peer].telemetry_address,
             );
             let hash = transaction.hash();
             let _handle = thread::spawn(move || {

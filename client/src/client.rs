@@ -30,7 +30,7 @@ pub struct Client {
     /// Url for accessing iroha node
     pub torii_url: String,
     /// Url to report status for administration
-    pub status_url: String,
+    pub telemetry_url: String,
     /// Maximum number of instructions in blockchain
     pub max_instruction_number: u64,
     /// Accounts keypair
@@ -54,7 +54,7 @@ impl Client {
     pub fn new(configuration: &Configuration) -> Self {
         Self {
             torii_url: configuration.torii_api_url.clone(),
-            status_url: configuration.torii_status_url.clone(),
+            telemetry_url: configuration.torii_telemetry_url.clone(),
             max_instruction_number: configuration.max_instruction_number,
             key_pair: KeyPair {
                 public_key: configuration.public_key.clone(),
@@ -74,7 +74,7 @@ impl Client {
     pub fn with_headers(configuration: &Configuration, headers: HashMap<String, String>) -> Self {
         Self {
             torii_url: configuration.torii_api_url.clone(),
-            status_url: configuration.torii_status_url.clone(),
+            telemetry_url: configuration.torii_telemetry_url.clone(),
             max_instruction_number: configuration.max_instruction_number,
             key_pair: KeyPair {
                 public_key: configuration.public_key.clone(),
@@ -500,7 +500,7 @@ impl Client {
     /// Fails if sending request or decoding fails
     pub fn get_status(&self) -> Result<Status> {
         let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
-            format!("{}/{}", &self.status_url, uri::STATUS),
+            format!("{}/{}", &self.telemetry_url, uri::STATUS),
             Bytes::new(),
             vec![],
             self.headers.clone(),
@@ -606,7 +606,7 @@ impl Debug for Client {
         f.debug_struct("Client")
             .field("public_key", &self.key_pair.public_key)
             .field("torii_url", &self.torii_url)
-            .field("status_url", &self.status_url)
+            .field("telemetry_url", &self.telemetry_url)
             .finish()
     }
 }
