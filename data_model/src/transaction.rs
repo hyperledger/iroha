@@ -179,7 +179,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    /// Default [`Transaction`] constructor.
+    /// Construct [`Transaction`].
     #[inline]
     pub fn new(
         instructions: Vec<Instruction>,

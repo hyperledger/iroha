@@ -95,7 +95,7 @@ pub trait KuraTrait:
     /// World for applying blocks which have been stored on disk
     type World: WorldTrait;
 
-    /// Default [`Kura`] constructor.
+    /// Construct [`Kura`].
     /// Kura will not be ready to work with before `init()` method invocation.
     /// # Errors
     /// Fails if reading from disk while initing fails

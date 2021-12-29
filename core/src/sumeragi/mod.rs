@@ -230,7 +230,7 @@ pub trait SumeragiTrait:
     /// World for updating WSV after block commitment
     type World: WorldTrait;
 
-    /// Default `Sumeragi` constructor.
+    /// Construct [`Sumeragi`].
     ///
     /// # Errors
     /// Can fail during initing network topology

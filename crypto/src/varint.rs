@@ -72,7 +72,7 @@ macro_rules! from_uint(
 from_uint!(u8, u16, u32, u64, u128);
 
 impl VarUint {
-    /// Default constructor for [`VarUint`] number
+    /// Construct [`VarUint`].
     pub fn new(bytes: impl AsRef<[u8]>) -> Result<Self> {
         let idx = bytes
             .as_ref()

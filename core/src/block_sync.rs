@@ -253,7 +253,7 @@ pub mod message {
     }
 
     impl GetBlocksAfter {
-        /// Default constructor
+        /// Construct [`GetBlocksAfter`].
         pub const fn new(hash: HashOf<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
             Self { hash, peer_id }
         }
@@ -269,7 +269,7 @@ pub mod message {
     }
 
     impl ShareBlocks {
-        /// Default constructor
+        /// Construct [`ShareBlocks`].
         pub const fn new(blocks: Vec<VersionedCommittedBlock>, peer_id: PeerId) -> Self {
             Self { blocks, peer_id }
         }

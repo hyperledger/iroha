@@ -397,14 +397,14 @@ pub mod account {
     }
 
     impl FindAllAccounts {
-        /// Default `FindAllAccounts` constructor.
+        /// Construct [`FindAllAccounts`].
         pub const fn new() -> Self {
             FindAllAccounts {}
         }
     }
 
     impl FindAccountById {
-        /// Default `FindAccountById` constructor.
+        /// Construct [`FindAccountById`].
         pub fn new(id: impl Into<EvaluatesTo<AccountId>>) -> Self {
             let id = id.into();
             FindAccountById { id }
@@ -412,7 +412,7 @@ pub mod account {
     }
 
     impl FindAccountKeyValueByIdAndKey {
-        /// Default `FindAccountById` constructor.
+        /// Construct [`FindAccountById`].
         pub fn new(
             id: impl Into<EvaluatesTo<AccountId>>,
             key: impl Into<EvaluatesTo<Name>>,
@@ -424,7 +424,7 @@ pub mod account {
     }
 
     impl FindAccountsByName {
-        /// Default `FindAccountsByName` constructor.
+        /// Construct [`FindAccountsByName`].
         pub fn new(name: impl Into<EvaluatesTo<Name>>) -> Self {
             let name = name.into();
             FindAccountsByName { name }
@@ -432,7 +432,7 @@ pub mod account {
     }
 
     impl FindAccountsByDomainId {
-        /// Default `FindAccountsByDomainId` constructor.
+        /// Construct [`FindAccountsByDomainId`].
         pub fn new(domain_id: impl Into<EvaluatesTo<DomainId>>) -> Self {
             let domain_id = domain_id.into();
             FindAccountsByDomainId { domain_id }
@@ -727,21 +727,21 @@ pub mod asset {
     }
 
     impl FindAllAssets {
-        /// Default `FindAllAssets` constructor.
+        /// Construct [`FindAllAssets`].
         pub const fn new() -> Self {
             FindAllAssets {}
         }
     }
 
     impl FindAllAssetsDefinitions {
-        /// Default `FindAllAssetsDefinitions` constructor.
+        /// Construct [`FindAllAssetsDefinitions`].
         pub const fn new() -> Self {
             FindAllAssetsDefinitions {}
         }
     }
 
     impl FindAssetById {
-        /// Default `FindAssetById` constructor
+        /// Construct [`FindAssetById`].
         pub fn new(id: impl Into<EvaluatesTo<AssetId>>) -> Self {
             let id = id.into();
             Self { id }
@@ -749,7 +749,7 @@ pub mod asset {
     }
 
     impl FindAssetsByName {
-        /// Default `FindAssetsByName` constructor
+        /// Construct [`FindAssetsByName`].
         pub fn new(name: impl Into<EvaluatesTo<Name>>) -> Self {
             let name = name.into();
             Self { name }
@@ -757,7 +757,7 @@ pub mod asset {
     }
 
     impl FindAssetsByAccountId {
-        /// Default `FindAssetsByAccountId` constructor.
+        /// Construct [`FindAssetsByAccountId`].
         pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
             let account_id = account_id.into();
             FindAssetsByAccountId { account_id }
@@ -765,7 +765,7 @@ pub mod asset {
     }
 
     impl FindAssetsByAssetDefinitionId {
-        /// Default `FindAssetsByAssetDefinitionId` constructor.
+        /// Construct [`FindAssetsByAssetDefinitionId`].
         pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
             let asset_definition_id = asset_definition_id.into();
             FindAssetsByAssetDefinitionId {
@@ -775,7 +775,7 @@ pub mod asset {
     }
 
     impl FindAssetsByDomainId {
-        /// Default `FindAssetsByDomainName` constructor
+        /// Construct [`FindAssetsByDomainName`].
         pub fn new(domain_id: impl Into<EvaluatesTo<DomainId>>) -> Self {
             let domain_id = domain_id.into();
             Self { domain_id }
@@ -783,7 +783,7 @@ pub mod asset {
     }
 
     impl FindAssetsByDomainIdAndAssetDefinitionId {
-        /// Default `FindAssetsByDomainNameAndAssetDefinitionId` constructor
+        /// Construct [`FindAssetsByDomainNameAndAssetDefinitionId`].
         pub fn new(
             domain_id: impl Into<EvaluatesTo<DomainId>>,
             asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
@@ -798,7 +798,7 @@ pub mod asset {
     }
 
     impl FindAssetQuantityById {
-        /// Default `FindAssetQuantityById` constructor.
+        /// Construct [`FindAssetQuantityById`].
         pub fn new(id: impl Into<EvaluatesTo<AssetId>>) -> Self {
             let id = id.into();
             FindAssetQuantityById { id }
@@ -806,7 +806,7 @@ pub mod asset {
     }
 
     impl FindAssetKeyValueByIdAndKey {
-        /// Default [`FindAssetKeyValueByIdAndKey`] constructor.
+        /// Construct [`FindAssetKeyValueByIdAndKey`].
         pub fn new(id: impl Into<EvaluatesTo<AssetId>>, key: impl Into<EvaluatesTo<Name>>) -> Self {
             let id = id.into();
             let key = key.into();
@@ -882,14 +882,14 @@ pub mod domain {
     }
 
     impl FindAllDomains {
-        /// Default `FindAllDomains` constructor.
+        /// Construct [`FindAllDomains`].
         pub const fn new() -> Self {
             FindAllDomains {}
         }
     }
 
     impl FindDomainById {
-        /// Default `FindDomainById` constructor.
+        /// Construct [`FindDomainById`].
         pub fn new(id: impl Into<EvaluatesTo<DomainId>>) -> Self {
             let id = id.into();
             FindDomainById { id }
@@ -919,7 +919,7 @@ pub mod domain {
     }
 
     impl FindDomainKeyValueByIdAndKey {
-        /// Default `FindDomainKeyValueByIdAndKey` constructor.
+        /// Construct [`FindDomainKeyValueByIdAndKey`].
         pub fn new(
             id: impl Into<EvaluatesTo<DomainId>>,
             key: impl Into<EvaluatesTo<Name>>,
@@ -995,14 +995,14 @@ pub mod peer {
     }
 
     impl FindAllPeers {
-        ///Default `FindAllPeers` constructor.
+        ///Construct [`FindAllPeers`].
         pub const fn new() -> Self {
             FindAllPeers {}
         }
     }
 
     impl FindAllParameters {
-        /// Default `FindAllParameters` constructor.
+        /// Construct [`FindAllParameters`].
         pub const fn new() -> Self {
             FindAllParameters {}
         }
@@ -1053,7 +1053,7 @@ pub mod transaction {
     }
 
     impl FindTransactionsByAccountId {
-        ///Default [`FindTransactionsByAccountId`] constructor.
+        ///Construct [`FindTransactionsByAccountId`].
         pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
             let account_id = account_id.into();
             FindTransactionsByAccountId { account_id }
@@ -1085,7 +1085,7 @@ pub mod transaction {
     }
 
     impl FindTransactionByHash {
-        ///Default [`FindTransactionByHash`] constructor.
+        ///Construct [`FindTransactionByHash`].
         pub fn new(hash: impl Into<EvaluatesTo<Hash>>) -> Self {
             let hash = hash.into();
             FindTransactionByHash { hash }

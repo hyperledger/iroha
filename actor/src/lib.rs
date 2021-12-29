@@ -469,7 +469,7 @@ pub struct Context<A: Actor> {
 }
 
 impl<A: Actor> Context<A> {
-    /// Default constructor
+    /// Construct [`Context`].
     pub fn new(addr: Addr<A>) -> Self {
         #[cfg(feature = "deadlock_detection")]
         let actor_id = addr.actor_id;

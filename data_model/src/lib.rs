@@ -808,7 +808,7 @@ pub mod account {
     }
 
     impl NewAccount {
-        /// Default `NewAccount` constructor.
+        /// Construct [`NewAccount`].
         #[inline]
         pub fn new(id: Id) -> Self {
             Self {
@@ -896,7 +896,7 @@ pub mod account {
     }
 
     impl Account {
-        /// Default [`Account`] constructor.
+        /// Construct [`Account`].
         #[inline]
         pub fn new(id: Id) -> Self {
             Self {
@@ -1322,7 +1322,7 @@ pub mod asset {
     }
 
     impl AssetDefinition {
-        /// Default [`AssetDefinition`] constructor.
+        /// Construct [`AssetDefinition`].
         #[inline]
         pub fn new(id: DefinitionId, value_type: AssetValueType, mintable: bool) -> Self {
             Self {
