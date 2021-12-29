@@ -15,11 +15,12 @@ Let's take a look
 at ``example/config.sample``
 
 .. note:: Starting with v1.2 ``irohad`` can also be configured via environment variables, not only via config file.
-We will start with looking at config file and then look at how Iroha can be configured with
-`environment parameters <#environment-variables>`_.
+
+We will start with looking at config file and then look at how Iroha can be configured with `environment parameters <#environment-variables>`_.
 
 .. literalinclude:: ../../../example/config.sample
    :language: json
+
 
 As you can see, configuration file is a valid ``json`` structure.
 Let's go line-by-line and understand what every parameter means in configuration file format.
@@ -83,17 +84,20 @@ Environment-specific parameters
   value you define the size of potential block. For a starter you can stick to
   ``10``. However, we recommend to increase this number if you have a lot of
   transactions per second.
+
     **This parameter affects performance.** Increase this parameter, if your network has a big number of transactions going. If you increase ``max_proposal_size`` due to an inreased throughput, you can increase it independently. But if the speed stays approximately the same, you need to also increase ``proposal_delay`` to allow all these transactions to get into this one big proposal. By increasing this parameter you can improve the performance but note that at some point increasing this value can lead to degradation of the performance.
 
 
 - ``proposal_delay`` is a timeout in milliseconds that a peer waits a response
-  from the orderding service with a proposal.
+  from the orderding service with a proposal. **Important: proposal_delay must be bigger than proposal_creation_timeout. Not following this rule will lead to unstable system.**
+
     **This parameter affects performance.** If you want bigger proposal size, you will need to give the system time to collect this increased number of transactions into one proposal.
 
 - ``vote_delay`` \* is a waiting time in milliseconds before sending vote to the
   next peer. Optimal value depends heavily on the amount of Iroha peers in the
   network (higher amount of nodes requires longer ``vote_delay``). ** We strongly recommend
   to set it to at least one second - otherwise when some of the peers are not easily reachable, the chain of blocks will grow very slowly or even stop growing.**
+
     **This parameter only affects consensus mechanism.** If your network is fast - you are good and this parameter does not effect your network much. But if your network is on a slower side, increase it to give more time for the peers to respond.
 
 - ``mst_enable`` enables or disables multisignature transaction network
@@ -117,7 +121,8 @@ Environment-specific parameters
   long idle time.
   This parameter allows users to find an optimal value in a tradeoff between
   resource consumption and the delay of getting back to work after an idle
-  period.
+  period. **Important: proposal_delay must be bigger than proposal_creation_timeout. Not following this rule will lead to unstable system.**
+
     **This parameter affects resource consumption.** When you can expect Iroha to stay idle for longer periods of time and would like to save some resources, increase this value - it will make Iroha check for new transactions more rarely. NB: the first transaction after idle period might be a little delayed due to that. Second and further blocks will be processed quicker.
 
 - ``stale_stream_max_rounds`` is an optional parameter specifying the maximum
@@ -128,6 +133,7 @@ Environment-specific parameters
   track a transaction if for some reason it is not updated with new rounds.
   However large values increase the average number of connected clients during
   each round.
+
     It is recommended to limit this parameter to make sure the node is not overloaded with streams.
 
 - ``initial_peers`` is an optional parameter specifying list of peers a node
@@ -161,7 +167,7 @@ Here is the configuration we used:
   "vote_delay" : 1000,
   "mst_enable" : true,
   "mst_expiration_time": 1440,
-  "max_rounds_delay": 500,
+  "proposal_creation_timeout": 500,
   "stale_stream_max_rounds": 100000
 
 
@@ -188,7 +194,7 @@ Unix
   export IROHA_VOTE_DELAY=5000
   export IROHA_MST_ENABLE=false
   export IROHA_MST_EXPIRATION_TIME=1440
-  export IROHA_MAX_ROUNDS_DELAY=3000
+  export IROHA_PROPOSAL_CREATION_TIMEOUT=3000
   export IROHA_CRYPTO_PROVIDERS_0_KEY=p1
   export IROHA_CRYPTO_PROVIDERS_0_CRYPTO_TYPE=ed25519_sha3_256
   export IROHA_CRYPTO_PROVIDERS_0_PRIVATE_KEY=cc5013e43918bd0e5c4d800416c88bed77892ff077929162bb03ead40a745e88
