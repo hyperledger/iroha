@@ -120,15 +120,21 @@ OnDemandOrderingServiceImpl::getTransactionsFromBatchesCache(
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> collection;
   collection.reserve(requested_tx_amount);
 
-  std::shared_lock<std::shared_timed_mutex> lock(batches_cache_cs_);
+  std::lock_guard<std::shared_timed_mutex> lock(batches_cache_cs_);
   auto it = batches_cache_.begin();
   for (; it != batches_cache_.end()
        and collection.size() + boost::size((*it)->transactions())
            <= requested_tx_amount;
-       ++it) {
+       ) {
+    if (batchAlreadyProcessed(**it)) {
+      it = batches_cache_.erase(it);
+      continue;
+    }
+
     collection.insert(std::end(collection),
                       std::begin((*it)->transactions()),
                       std::end((*it)->transactions()));
+    ++it;
   }
 
   return collection;

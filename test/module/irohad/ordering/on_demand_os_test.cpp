@@ -273,7 +273,7 @@ TEST_F(OnDemandOsTest, PassMissingTransaction) {
   auto &batch = *batches.at(0);
 
   EXPECT_CALL(*mock_cache, check(batchRef(batch)))
-      .WillOnce(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
+      .WillRepeatedly(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
           iroha::ametsuchi::tx_cache_status_responses::Missing()}));
 
   os->onBatches(batches);
@@ -299,13 +299,13 @@ TEST_F(OnDemandOsTest, SeveralTransactionsOneCommited) {
   auto &batch3 = *batches.at(2);
 
   EXPECT_CALL(*mock_cache, check(batchRef(batch1)))
-      .WillOnce(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
+      .WillRepeatedly(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
           iroha::ametsuchi::tx_cache_status_responses::Missing()}));
   EXPECT_CALL(*mock_cache, check(batchRef(batch2)))
       .WillOnce(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
           iroha::ametsuchi::tx_cache_status_responses::Committed()}));
   EXPECT_CALL(*mock_cache, check(batchRef(batch3)))
-      .WillOnce(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
+      .WillRepeatedly(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
           iroha::ametsuchi::tx_cache_status_responses::Missing()}));
 
   os->onBatches(batches);
