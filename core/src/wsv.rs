@@ -111,7 +111,7 @@ impl WorldTrait for World {
 
 /// WARNING!!! INTERNAL USE ONLY!!!
 impl<W: WorldTrait> WorldStateView<W> {
-    /// Default [`WorldStateView`] constructor.
+    /// Construct [`WorldStateView`] with given [`World`].
     pub fn new(world: W) -> Self {
         Self::from_configuration(Configuration::default(), world)
     }

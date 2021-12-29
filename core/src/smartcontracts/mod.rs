@@ -15,7 +15,7 @@ use crate::wsv::WorldTrait;
 pub trait Execute<W: WorldTrait> {
     /// Error type returned by execute function
     type Error: std::error::Error;
-    /// Difference on [`WorldStateView`] made by the execution.
+    /// Difference between [`WorldStateView`] before and after execution of [`Self`].
     type Diff: Into<Vec<DataEvent>>;
 
     /// Apply actions to `wsv` on behalf of `authority`.
