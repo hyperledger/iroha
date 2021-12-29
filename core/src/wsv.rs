@@ -12,7 +12,7 @@ use dashmap::{
     mapref::one::{Ref as DashMapRef, RefMut as DashMapRefMut},
     DashSet,
 };
-use eyre::Result;
+use eyre::{Report, Result};
 use iroha_crypto::HashOf;
 use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
 use iroha_logger::prelude::*;
@@ -21,6 +21,7 @@ use tokio::task;
 
 use crate::{
     block::Chain,
+    event::EventsSender,
     prelude::*,
     smartcontracts::{isi::Error, Execute, FindError},
 };
@@ -74,6 +75,8 @@ pub struct WorldStateView<W: WorldTrait> {
     pub metrics: Arc<Metrics>,
     /// Notifies subscribers when new block is applied
     new_block_notifier: Arc<NewBlockNotificationSender>,
+    // TODO Switch to `watch::Sender`, whose original receiver will be passed into `Broker` and cloned for consumers
+    events_sender: Option<EventsSender>,
 }
 
 impl<W: WorldTrait + Default> Default for WorldStateView<W> {
@@ -108,25 +111,32 @@ impl WorldTrait for World {
 
 /// WARNING!!! INTERNAL USE ONLY!!!
 impl<W: WorldTrait> WorldStateView<W> {
-    /// Default `WorldStateView` constructor.
+    /// Construct [`WorldStateView`] with given [`World`].
     pub fn new(world: W) -> Self {
+        Self::from_configuration(Configuration::default(), world)
+    }
+
+    /// Construct [`WorldStateView`] with specific [`Configuration`].
+    pub fn from_configuration(config: Configuration, world: W) -> Self {
+        Self::with_events(None, config, world)
+    }
+
+    /// Construct [`WorldStateView`] enabling emitting events.
+    pub fn with_events(
+        events_sender: Option<EventsSender>,
+        config: Configuration,
+        world: W,
+    ) -> Self {
         let (new_block_notifier, _) = tokio::sync::watch::channel(());
 
-        WorldStateView {
+        Self {
             world,
-            config: Configuration::default(),
+            config,
             transactions: DashSet::new(),
             blocks: Arc::new(Chain::new()),
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
-        }
-    }
-
-    /// [`WorldStateView`] constructor.
-    pub fn from_configuration(config: Configuration, world: W) -> Self {
-        WorldStateView {
-            config,
-            ..WorldStateView::new(world)
+            events_sender,
         }
     }
 
@@ -176,7 +186,11 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .instructions
                 .iter()
                 .cloned()
-                .try_for_each(|instruction| instruction.execute(account_id.clone(), self))?;
+                .try_for_each(|instruction| {
+                    let events = instruction.execute(account_id.clone(), self)?;
+                    self.produce_events(events);
+                    Ok::<_, Report>(())
+                })?;
 
             self.transactions.insert(tx.hash());
             // Yield control cooperatively to the task scheduler.
@@ -196,6 +210,18 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// new block is added to the blockchain(after block validation)
     pub fn subscribe_to_new_block_notifications(&self) -> NewBlockNotificationReceiver {
         self.new_block_notifier.subscribe()
+    }
+
+    fn produce_events(&self, events: impl IntoIterator<Item = DataEvent>) {
+        let events = events.into_iter().map(Event::from);
+        let events_sender = if let Some(sender) = &self.events_sender {
+            sender
+        } else {
+            return warn!("wsv does not equip an events sender");
+        };
+        for event in events {
+            drop(events_sender.send(event))
+        }
     }
 
     /// Hash of latest block

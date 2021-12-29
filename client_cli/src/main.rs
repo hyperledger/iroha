@@ -167,10 +167,10 @@ pub fn submit(
     ) {
         Ok(Some(original_transaction)) if Confirm::new()
             .with_prompt("There is a similar transaction from your account waiting for more signatures. \
-						  This could be because it wasn't signed with the right key, \
-						  or because it's a multi-signature transaction (MST). \
-						  Do you want to sign this transaction (yes) \
-						  instead of submitting a new transaction (no)?")
+                          This could be because it wasn't signed with the right key, \
+                          or because it's a multi-signature transaction (MST). \
+                          Do you want to sign this transaction (yes) \
+                          instead of submitting a new transaction (no)?")
             .interact()
             .wrap_err("Failed to show interactive prompt.")? => iroha_client.sign_transaction(original_transaction).wrap_err("Failed to sign transaction.")?,
         _ => tx,
@@ -200,8 +200,8 @@ mod events {
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
             let filter = match self {
-                Args::Pipeline => EventFilter::Pipeline(PipelineEventFilter::identity()),
-                Args::Data => EventFilter::Data(DataEventFilter),
+                Args::Pipeline => EventFilter::Pipeline(PipelineEventFilter::default()),
+                Args::Data => EventFilter::Data(DataEventFilter::default()),
             };
             listen(filter, cfg)
         }

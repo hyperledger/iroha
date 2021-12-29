@@ -48,13 +48,14 @@ pub mod isi {
 
     impl<W: WorldTrait> Execute<W> for Mint<Asset, u32> {
         type Error = Error;
+        type Diff = DataEvent;
 
         #[metrics(+"mint_qty")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<(), Error> {
+        ) -> Result<Self::Diff, Self::Error> {
             assert_can_mint(
                 &self.destination_id.definition_id,
                 wsv,
@@ -69,12 +70,14 @@ pub mod isi {
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
                 Ok(())
             })
+            .map(|_| self.into())
             .map_err(Into::into)
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Mint<Asset, u128> {
         type Error = Error;
+        type Diff = DataEvent;
 
         #[metrics(+"mint_big_qty")]
         #[log]
@@ -82,7 +85,7 @@ pub mod isi {
             self,
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<(), Error> {
+        ) -> Result<Self::Diff, Self::Error> {
             assert_can_mint(
                 &self.destination_id.definition_id,
                 wsv,
@@ -98,19 +101,21 @@ pub mod isi {
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
                 Ok(())
             })
+            .map(|_| self.into())
             .map_err(Into::into)
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Mint<Asset, Fixed> {
         type Error = Error;
+        type Diff = DataEvent;
 
         #[metrics(+"mint_fixed")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<(), Error> {
+        ) -> Result<Self::Diff, Self::Error> {
             assert_can_mint(
                 &self.destination_id.definition_id,
                 wsv,
@@ -123,19 +128,21 @@ pub mod isi {
                 wsv.metrics.tx_amounts.observe((*quantity).into());
                 Ok(())
             })
+            .map(|_| self.into())
             .map_err(Into::into)
         }
     }
 
     impl<W: WorldTrait> Execute<W> for SetKeyValue<Asset, Name, Value> {
         type Error = Error;
+        type Diff = DataEvent;
 
         #[metrics(+"asset_set_key_value")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<(), Error> {
+        ) -> Result<Self::Diff, Self::Error> {
             assert_asset_type(&self.object_id.definition_id, wsv, AssetValueType::Store)?;
             let asset_metadata_limits = wsv.config.asset_metadata_limits;
             wsv.asset_or_insert(&self.object_id, Metadata::new())?;
@@ -148,19 +155,21 @@ pub mod isi {
                 )?;
                 Ok(())
             })
+            .map(|_| self.into())
             .map_err(Into::into)
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Burn<Asset, u32> {
         type Error = Error;
+        type Diff = DataEvent;
 
         #[metrics(+"burn_qty")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<(), Error> {
+        ) -> Result<Self::Diff, Self::Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
                 wsv,
@@ -174,19 +183,21 @@ pub mod isi {
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
                 Ok(())
             })
+            .map(|_| self.into())
             .map_err(Into::into)
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Burn<Asset, u128> {
         type Error = Error;
+        type Diff = DataEvent;
 
         #[metrics(+"burn_big_qty")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<(), Error> {
+        ) -> Result<Self::Diff, Self::Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
                 wsv,
@@ -201,19 +212,21 @@ pub mod isi {
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
                 Ok(())
             })
+            .map(|_| self.into())
             .map_err(Into::into)
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Burn<Asset, Fixed> {
         type Error = Error;
+        type Diff = DataEvent;
 
         #[metrics(+"burn_fixed")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<(), Error> {
+        ) -> Result<Self::Diff, Self::Error> {
             assert_asset_type(
                 &self.destination_id.definition_id,
                 wsv,
@@ -226,19 +239,21 @@ pub mod isi {
                 wsv.metrics.tx_amounts.observe((*quantity).into());
                 Ok(())
             })
+            .map(|_| self.into())
             .map_err(Into::into)
         }
     }
 
     impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Asset, Name> {
         type Error = Error;
+        type Diff = DataEvent;
 
         #[metrics(+"asset_remove_key_value")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<(), Error> {
+        ) -> Result<Self::Diff, Self::Error> {
             assert_asset_type(&self.object_id.definition_id, wsv, AssetValueType::Store)?;
             wsv.modify_asset(&self.object_id, |asset| {
                 let store: &mut Metadata = asset.try_as_mut().map_err(Error::Conversion)?;
@@ -247,12 +262,14 @@ pub mod isi {
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
                 Ok(())
             })
+            .map(|_| self.into())
             .map_err(Into::into)
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Transfer<Asset, u32, Asset> {
         type Error = Error;
+        type Diff = Vec<DataEvent>;
 
         #[log(skip(_authority))]
         #[metrics(+"transfer_qty_asset")]
@@ -260,7 +277,7 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<(), Error> {
+        ) -> Result<Self::Diff, Self::Error> {
             if self.destination_id.definition_id != self.source_id.definition_id {
                 let expected = wsv
                     .asset_definition_entry(&self.destination_id.definition_id)?
@@ -296,8 +313,8 @@ pub mod isi {
                     .ok_or(MathError::Overflow)?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
                 Ok(())
-            })
-            .map_err(Into::into)
+            })?;
+            Ok(self.into())
         }
     }
 }

@@ -270,7 +270,7 @@ where
 {
     /// Source object `Id`.
     pub source_id: S::Id,
-    /// Object which should be transfered.
+    /// Object which should be transferred.
     pub object: O,
     /// Destination object `Id`.
     pub destination_id: D::Id,
@@ -295,7 +295,7 @@ where
     K: ValueMarker,
     V: ValueMarker,
 {
-    /// Default [`SetKeyValue`] constructor.
+    /// Construct [`SetKeyValue`].
     pub fn new(object_id: O::Id, key: K, value: V) -> Self {
         Self {
             object_id,
@@ -310,7 +310,7 @@ where
     O: Identifiable,
     K: ValueMarker,
 {
-    /// Default [`RemoveKeyValue`] constructor.
+    /// Construct [`RemoveKeyValue`].
     pub fn new(object_id: O::Id, key: K) -> Self {
         Self { object_id, key }
     }
@@ -320,7 +320,7 @@ impl<O> Set<O>
 where
     O: ValueMarker,
 {
-    /// Default `Set` constructor.
+    /// Construct [`Set`].
     pub fn new(object: O) -> Self {
         Set { object }
     }
@@ -330,7 +330,7 @@ impl<O> Register<O>
 where
     O: Identifiable,
 {
-    /// Default `Register` constructor.
+    /// Construct [`Register`].
     pub fn new(object: O) -> Self {
         Register { object }
     }
@@ -340,7 +340,7 @@ impl<O> Unregister<O>
 where
     O: Identifiable,
 {
-    /// Default `Register` constructor.
+    /// Construct [`Register`].
     pub fn new(object_id: O::Id) -> Self {
         Unregister { object_id }
     }
@@ -351,7 +351,7 @@ where
     D: Identifiable,
     O: ValueMarker,
 {
-    /// Default `Mint` constructor.
+    /// Construct [`Mint`].
     pub fn new(object: O, destination_id: D::Id) -> Self {
         Mint {
             object,
@@ -365,7 +365,7 @@ where
     D: Identifiable,
     O: ValueMarker,
 {
-    /// Default `Burn` constructor.
+    /// Construct [`Burn`].
     pub fn new(object: O, destination_id: D::Id) -> Self {
         Burn {
             object,
@@ -380,7 +380,7 @@ where
     D: Identifiable,
     O: ValueMarker,
 {
-    /// Default `Transfer` constructor.
+    /// Construct [`Transfer`].
     pub fn new(source_id: S::Id, object: O, destination_id: D::Id) -> Self {
         Transfer {
             source_id,
@@ -428,7 +428,7 @@ impl SetKeyValueBox {
         self.object_id.len() + self.key.len() + self.value.len() + 1
     }
 
-    /// Default [`SetKeyValueBox`] constructor.
+    /// Construct [`SetKeyValueBox`].
     pub fn new<
         I: Into<EvaluatesTo<IdBox>>,
         K: Into<EvaluatesTo<Name>>,
@@ -452,7 +452,7 @@ impl RemoveKeyValueBox {
         self.object_id.len() + self.key.len() + 1
     }
 
-    /// Default [`RemoveKeyValueBox`] constructor.
+    /// Construct [`RemoveKeyValueBox`].
     pub fn new<I: Into<EvaluatesTo<IdBox>>, K: Into<EvaluatesTo<Name>>>(
         object_id: I,
         key: K,
@@ -470,7 +470,7 @@ impl RegisterBox {
         self.object.len() + 1
     }
 
-    /// Default `Register` constructor.
+    /// Construct [`Register`].
     pub fn new<O: Into<EvaluatesTo<IdentifiableBox>>>(object: O) -> Self {
         Self {
             object: object.into(),
@@ -484,7 +484,7 @@ impl UnregisterBox {
         self.object_id.len() + 1
     }
 
-    /// Default `Unregister` constructor.
+    /// Construct [`Unregister`].
     pub fn new<O: Into<EvaluatesTo<IdBox>>>(object_id: O) -> Self {
         Self {
             object_id: object_id.into(),
@@ -498,7 +498,7 @@ impl MintBox {
         self.destination_id.len() + self.object.len() + 1
     }
 
-    /// Default `Mint` constructor.
+    /// Construct [`Mint`].
     pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
         object: O,
         destination_id: D,
@@ -516,7 +516,7 @@ impl BurnBox {
         self.destination_id.len() + self.object.len() + 1
     }
 
-    /// Default `Burn` constructor.
+    /// Construct [`Burn`].
     pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
         object: O,
         destination_id: D,
@@ -534,7 +534,7 @@ impl TransferBox {
         self.destination_id.len() + self.object.len() + self.source_id.len() + 1
     }
 
-    /// Default `Transfer` constructor.
+    /// Construct [`Transfer`].
     pub fn new<
         S: Into<EvaluatesTo<IdBox>>,
         O: Into<EvaluatesTo<Value>>,
@@ -558,7 +558,7 @@ impl Pair {
         self.left_instruction.len() + self.right_instruction.len() + 1
     }
 
-    /// Default `Pair` constructor.
+    /// Construct [`Pair`].
     pub fn new<LI: Into<Instruction>, RI: Into<Instruction>>(
         left_instruction: LI,
         right_instruction: RI,
@@ -580,7 +580,7 @@ impl SequenceBox {
             + 1
     }
 
-    /// Default `Sequence` constructor.
+    /// Construct [`Sequence`].
     pub fn new(instructions: Vec<Instruction>) -> Self {
         Self { instructions }
     }
@@ -593,7 +593,7 @@ impl If {
         self.condition.len() + self.then.len() + otherwise + 1
     }
 
-    /// Default `If` constructor.
+    /// Construct [`If`].
     pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<Instruction>>(condition: C, then: T) -> Self {
         If {
             condition: condition.into(),
@@ -625,7 +625,7 @@ impl FailBox {
         1
     }
 
-    /// Default `Fail` constructor.
+    /// Construct [`Fail`].
     pub fn new(message: &str) -> Self {
         Self {
             message: message.to_owned(),

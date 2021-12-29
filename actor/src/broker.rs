@@ -84,7 +84,7 @@ impl Default for Broker {
 }
 
 impl Broker {
-    /// Default constructor for broker
+    /// Construct [`Broker`].
     pub fn new() -> Self {
         Self(Arc::new(MessageMap::new()))
     }
