@@ -14,7 +14,7 @@ use crate::{
     prelude::*,
     smartcontracts::{
         permissions::{self, IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
-        Evaluate, Execute, FindError,
+        wasm, Evaluate, Execute, FindError,
     },
     wsv::WorldTrait,
 };
@@ -164,18 +164,12 @@ impl AcceptedTransaction {
         tx_timestamp.saturating_sub(current_time()) > threshold
     }
 
-    #[allow(clippy::unwrap_in_result)]
-    #[allow(clippy::expect_used)]
-    fn validate_internal<W: WorldTrait>(
+    fn check_signatures<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
-        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
-        is_query_allowed: &IsQueryAllowedBoxed<W>,
         is_genesis: bool,
     ) -> Result<(), TransactionRejectionReason> {
-        let wsv_temp = wsv.clone();
-        let account_id = self.payload.account_id.clone();
-        if !is_genesis && account_id == <Account as Identifiable>::Id::genesis() {
+        if !is_genesis && self.payload().account_id == AccountId::genesis() {
             return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
         }
 
@@ -195,46 +189,87 @@ impl AcceptedTransaction {
             return Err(reason);
         }
 
-        for instruction in &self.payload.instructions {
-            instruction
-                .clone()
-                .execute(account_id.clone(), &wsv_temp)
-                .map_err(|reason| InstructionExecutionFail {
-                    instruction: instruction.clone(),
-                    reason: reason.to_string(),
-                })
-                .map_err(TransactionRejectionReason::InstructionExecution)?;
+        Ok(())
+    }
 
-            // Permission validation is skipped for genesis.
-            if !is_genesis {
-                #[cfg(feature = "roles")]
-                {
-                    let instructions = permissions::unpack_if_role_grant(instruction.clone(), wsv)
-                        .expect(
-                            "Infallible. Evaluations have been checked by instruction execution.",
-                        );
-                    for isi in &instructions {
-                        is_instruction_allowed
-                            .check(&account_id, isi, wsv)
-                            .map_err(|reason| NotPermittedFail { reason })
-                            .map_err(TransactionRejectionReason::NotPermitted)?;
-                    }
-                }
-                #[cfg(not(feature = "roles"))]
-                {
-                    is_instruction_allowed
-                        .check(&account_id, instruction, wsv)
-                        .map_err(|reason| NotPermittedFail { reason })
-                        .map_err(TransactionRejectionReason::NotPermitted)?;
-                }
-                permissions::check_query_in_instruction(
-                    &account_id,
-                    instruction,
-                    wsv,
-                    is_query_allowed,
-                )
+    #[allow(clippy::expect_used)]
+    #[allow(clippy::unwrap_in_result)]
+    fn check_instruction_permissions<W: WorldTrait>(
+        account_id: &AccountId,
+        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
+        is_query_allowed: &IsQueryAllowedBoxed<W>,
+        instruction: &Instruction,
+        wsv: &WorldStateView<W>,
+    ) -> Result<(), TransactionRejectionReason> {
+        #[cfg(feature = "roles")]
+        let granted_instructions = &permissions::unpack_if_role_grant(instruction.clone(), wsv)
+            .expect("Infallible. Evaluations have been checked by instruction execution.");
+        #[cfg(not(feature = "roles"))]
+        let granted_instructions = std::iter::once(instruction);
+
+        for isi in granted_instructions {
+            is_instruction_allowed
+                .check(account_id, isi, wsv)
                 .map_err(|reason| NotPermittedFail { reason })
                 .map_err(TransactionRejectionReason::NotPermitted)?;
+        }
+        permissions::check_query_in_instruction(account_id, instruction, wsv, is_query_allowed)
+            .map_err(|reason| NotPermittedFail { reason })
+            .map_err(TransactionRejectionReason::NotPermitted)?;
+
+        Ok(())
+    }
+
+    fn validate_internal<W: WorldTrait>(
+        &self,
+        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
+        is_query_allowed: &IsQueryAllowedBoxed<W>,
+        is_genesis: bool,
+        wsv: &WorldStateView<W>,
+    ) -> Result<(), TransactionRejectionReason> {
+        let account_id = &self.payload.account_id;
+        self.check_signatures(wsv, is_genesis)?;
+
+        // WSV is cloned here so that instructions don't get applied to the blockchain
+        // Therefore, this instruction execution validates before actually executing
+        let wsv = wsv.clone();
+
+        match &self.payload.instructions {
+            Executable::Instructions(instructions) => {
+                for instruction in instructions {
+                    instruction
+                        .clone()
+                        .execute(account_id.clone(), &wsv)
+                        .map_err(|reason| InstructionExecutionFail {
+                            instruction: instruction.clone(),
+                            reason: reason.to_string(),
+                        })
+                        .map_err(TransactionRejectionReason::InstructionExecution)?;
+
+                    // Permission validation is skipped for genesis.
+                    if !is_genesis {
+                        Self::check_instruction_permissions(
+                            account_id,
+                            is_instruction_allowed,
+                            is_query_allowed,
+                            instruction,
+                            &wsv,
+                        )?
+                    }
+                }
+            }
+            Executable::Wasm(bytes) => {
+                let mut wasm_runtime = wasm::Runtime::new()
+                    .map_err(|reason| WasmExecutionFail {
+                        reason: reason.to_string(),
+                    })
+                    .map_err(TransactionRejectionReason::WasmExecution)?;
+                wasm_runtime
+                    .execute(&wsv, account_id.clone(), bytes)
+                    .map_err(|reason| WasmExecutionFail {
+                        reason: reason.to_string(),
+                    })
+                    .map_err(TransactionRejectionReason::WasmExecution)?;
             }
         }
 
@@ -256,7 +291,7 @@ impl AcceptedTransaction {
         is_query_allowed: &IsQueryAllowedBoxed<W>,
         is_genesis: bool,
     ) -> Result<ValidTransaction, RejectedTransaction> {
-        match self.validate_internal(wsv, is_instruction_allowed, is_query_allowed, is_genesis) {
+        match self.validate_internal(is_instruction_allowed, is_query_allowed, is_genesis, wsv) {
             Ok(()) => Ok(ValidTransaction {
                 payload: self.payload,
                 signatures: self.signatures,
@@ -402,8 +437,8 @@ mod tests {
         config.genesis.account_public_key = Some(key_pair.public_key.clone());
 
         let tx = Transaction::new(
-            vec![],
             AccountId::test(GENESIS_ACCOUNT_NAME, GENESIS_DOMAIN_NAME),
+            Vec::<Instruction>::new().into(),
             1000,
         );
         let tx_hash = tx.hash();
@@ -432,12 +467,13 @@ mod tests {
 
     #[test]
     fn transaction_not_accepted() {
-        let inst = FailBox {
+        let inst: Instruction = FailBox {
             message: "Will fail".to_owned(),
-        };
+        }
+        .into();
         let tx = Transaction::new(
-            vec![inst.into(); DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1],
             AccountId::test("root", "global"),
+            vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
             1000,
         );
         let result: Result<AcceptedTransaction> = AcceptedTransaction::from_transaction(tx, 4096);

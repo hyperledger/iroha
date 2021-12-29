@@ -40,10 +40,9 @@ fn test_with_instruction_and_status(
             &peers[submitting_peer].api_address,
             &peers[submitting_peer].telemetry_address,
         );
-        let transaction = submitter_client.build_transaction(
-            instruction.clone().into_iter().collect(),
-            UnlimitedMetadata::new(),
-        )?;
+        let instructions: Vec<Instruction> = instruction.clone().into_iter().collect();
+        let transaction =
+            submitter_client.build_transaction(instructions.into(), UnlimitedMetadata::new())?;
         for receiving_peer in 0..PEER_COUNT {
             let committed_event_received_clone = committed_event_received.clone();
             let validating_event_received_clone = validating_event_received.clone();

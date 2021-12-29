@@ -29,7 +29,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
             account_id.clone(),
         )),
     );
-    let tx = test_client.build_transaction(vec![create_asset.into(), mint.into()], metadata)?;
+    let instructions: Vec<Instruction> = vec![create_asset.into(), mint.into()];
+    let tx = test_client.build_transaction(instructions.into(), metadata)?;
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
@@ -61,7 +62,8 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
             account_id.clone(),
         )),
     );
-    let tx = test_client.build_transaction(vec![create_asset.into(), mint.into()], metadata)?;
+    let instructions: Vec<Instruction> = vec![create_asset.into(), mint.into()];
+    let tx = test_client.build_transaction(instructions.into(), metadata)?;
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
@@ -93,7 +95,8 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
             account_id.clone(),
         )),
     );
-    let tx = test_client.build_transaction(vec![create_asset.into(), mint.into()], metadata)?;
+    let instructions: Vec<Instruction> = vec![create_asset.into(), mint.into()];
+    let tx = test_client.build_transaction(instructions.into(), metadata)?;
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
         result.iter().any(|asset| {

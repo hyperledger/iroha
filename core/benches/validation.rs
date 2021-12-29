@@ -33,13 +33,14 @@ fn build_test_transaction(keys: &KeyPair) -> Transaction {
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true).into(),
     ));
+    let instructions: Vec<Instruction> = vec![
+        create_domain.into(),
+        create_account.into(),
+        create_asset.into(),
+    ];
     Transaction::new(
-        vec![
-            create_domain.into(),
-            create_account.into(),
-            create_asset.into(),
-        ],
         AccountId::test(START_ACCOUNT, START_DOMAIN),
+        instructions.into(),
         TRANSACTION_TIME_TO_LIVE_MS,
     )
     .sign(keys)
