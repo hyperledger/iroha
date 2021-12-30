@@ -1806,7 +1806,7 @@ pub mod domain {
 pub mod peer {
     //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
-    use std::hash::Hash;
+    use std::hash::{Hash, Hasher};
 
     use dashmap::DashSet;
     use iroha_macro::Io;
@@ -1841,25 +1841,28 @@ pub mod peer {
 
     /// Peer's identification.
     #[derive(
-        Clone,
-        Debug,
-        Eq,
-        PartialEq,
-        PartialOrd,
-        Ord,
-        Serialize,
-        Deserialize,
-        Io,
-        Encode,
-        Decode,
-        IntoSchema,
-        Hash,
+        Clone, Debug, PartialOrd, Ord, Serialize, Deserialize, Io, Encode, Decode, IntoSchema,
     )]
     pub struct Id {
         /// Address of the `Peer`'s entrypoint.
         pub address: String,
         /// Public Key of the `Peer`.
         pub public_key: PublicKey,
+    }
+
+    impl PartialEq for Id {
+        fn eq(&self, other: &Self) -> bool {
+            // Comparison is done by public key only, so that full domain names can be present in trusted peers and local address in this peer config without a conflict.
+            self.public_key == other.public_key
+        }
+    }
+
+    impl Eq for Id {}
+
+    impl Hash for Id {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.public_key.hash(state);
+        }
     }
 
     impl Peer {
