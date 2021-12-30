@@ -75,7 +75,7 @@ pub struct WorldStateView<W: WorldTrait> {
     pub metrics: Arc<Metrics>,
     /// Notifies subscribers when new block is applied
     new_block_notifier: Arc<NewBlockNotificationSender>,
-    // TODO Switch to `watch::Sender`, whose original receiver will be passed into `Broker` and cloned for consumers
+    /// Transmitter to broadcast [`WorldStateView`]-related events.
     events_sender: Option<EventsSender>,
 }
 
@@ -118,15 +118,6 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].
     pub fn from_configuration(config: Configuration, world: W) -> Self {
-        Self::with_events(None, config, world)
-    }
-
-    /// Construct [`WorldStateView`] enabling emitting events.
-    pub fn with_events(
-        events_sender: Option<EventsSender>,
-        config: Configuration,
-        world: W,
-    ) -> Self {
         let (new_block_notifier, _) = tokio::sync::watch::channel(());
 
         Self {
@@ -136,8 +127,14 @@ impl<W: WorldTrait> WorldStateView<W> {
             blocks: Arc::new(Chain::new()),
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
-            events_sender,
+            events_sender: None,
         }
+    }
+
+    /// Add the ability of emitting events to [`WorldStateView`].
+    pub fn with_events(mut self, events_sender: EventsSender) -> Self {
+        self.events_sender = Some(events_sender);
+        self
     }
 
     /// Initializes WSV with the blocks from block storage.
