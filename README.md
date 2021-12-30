@@ -41,7 +41,7 @@ There is also a great [sandbox](https://katacoda.com/hyperledger-iroha/scenarios
 
 ### How to build Iroha?
 
-Use [build guide](https://iroha.readthedocs.io/en/master/build/index.html), which might be helpful if you want to modify the code and contribute.
+Use [build guide](https://iroha.readthedocs.io/en/main/build/index.html), which might be helpful if you want to modify the code and contribute.
 
 ### Is there SDK available?
 
@@ -62,7 +62,7 @@ It is based on JS Wallet but is up-to-date.
 ### Want to help us develop Iroha?
 
 That's great!
-Check out [this document](https://github.com/hyperledger/iroha/blob/master/CONTRIBUTING.rst)
+Check out [this document](https://github.com/hyperledger/iroha/blob/main/CONTRIBUTING.rst)
 
 ## Need help?
 

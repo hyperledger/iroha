@@ -86,7 +86,7 @@ class BlockLoaderTest : public testing::Test {
   }
 
   void setPeerQuery() {
-    EXPECT_CALL(*peer_query, getLedgerPeers())
+    EXPECT_CALL(*peer_query, getLedgerPeers(false))
         .WillRepeatedly(Return(std::vector<wPeer>{peer}));
     EXPECT_CALL(
         *peer_query,

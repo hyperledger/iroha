@@ -37,13 +37,21 @@
  *        |         +-<version>
  *        |         +-<blocks_total_count, value>
  *        |
- *        +-|WSV|-+-|NETWORK|-+-|PEERS|-+-|ADDRESS|-+-<peer_1_pubkey, value:address>
- *                |           |         |           +-<peer_2_pubkey, value:address>
- *                |           |         |
- *                |           |         +-|TLS|-+-<peer_1_pubkey, value:tls>
- *                |           |         |       +-<peer_2_pubkey, value:tls>
- *                |           |         |
- *                |           |         +-<count, value>
+ *        +-|WSV|-+-|NETWORK|-+-|PEERS|---+-|ADDRESS|-+-<peer_1_pubkey, value:address>
+ *                |           |           |           +-<peer_2_pubkey, value:address>
+ *                |           |           |
+ *                |           |           +-|TLS|-+-<peer_1_pubkey, value:tls>
+ *                |           |           |       +-<peer_2_pubkey, value:tls>
+ *                |           |           |
+ *                |           |           +-<count, value>
+ *                |           |
+ *                |           +-|S_PEERS|-+-|ADDRESS|-+-<peer_1_pubkey, value:address>
+ *                |           |           |           +-<peer_2_pubkey, value:address>
+ *                |           |           |
+ *                |           |           +-|TLS|-+-<peer_1_pubkey, value:tls>
+ *                |           |           |       +-<peer_2_pubkey, value:tls>
+ *                |           |           |
+ *                |           |           +-<count, value>
  *                |           |
  *                |           +-|STORE|-+-<top_block, value: store height#top block hash>
  *                |
@@ -125,6 +133,7 @@
  * ### TRANSACTIONS  ##       t       ###
  * ### ACCOUNTS      ##       a       ###
  * ### PEERS         ##       p       ###
+ * ### S_PEERS       ##       l       ###
  * ### STATUSES      ##       u       ###
  * ### DETAILS       ##       d       ###
  * ### GRANTABLE_PER ##       g       ###
@@ -170,6 +179,7 @@
 #define RDB_TRANSACTIONS "t"
 #define RDB_ACCOUNTS "a"
 #define RDB_PEERS "p"
+#define RDB_S_PEERS "l"
 #define RDB_STATUSES "u"
 #define RDB_DETAILS "d"
 #define RDB_GRANTABLE_PER "g"
@@ -218,6 +228,11 @@ namespace iroha::ametsuchi::fmtstrings {
   // no params
   static auto constexpr kPathPeers{FMT_STRING(
       RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/ RDB_ADDRESS)};
+
+  // no params
+  static auto constexpr kPathSPeers{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/
+                     RDB_ADDRESS)};
 
   // domain_id/account_name
   static auto constexpr kPathSignatories{
@@ -310,9 +325,19 @@ namespace iroha::ametsuchi::fmtstrings {
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/
                      RDB_ADDRESS /**/ RDB_XXX)};
 
+  // pubkey ➡️ address
+  static auto constexpr kSPeerAddress{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/
+                     RDB_ADDRESS /**/ RDB_XXX)};
+
   // pubkey ➡️ tls
   static auto constexpr kPeerTLS{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/
+                     RDB_TLS /**/ RDB_XXX)};
+
+  // pubkey ➡️ tls
+  static auto constexpr kSPeerTLS{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/
                      RDB_TLS /**/ RDB_XXX)};
 
   // domain_id/account_name/grantee_domain_id/grantee_account_name
@@ -347,6 +372,10 @@ namespace iroha::ametsuchi::fmtstrings {
 
   static auto constexpr kPeersCount{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_PEERS /**/
+                     RDB_F_PEERS_COUNT)};
+
+  static auto constexpr kSPeersCount{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/
                      RDB_F_PEERS_COUNT)};
 
   // account ➡️ txs total count
@@ -534,6 +563,24 @@ namespace iroha::ametsuchi {
       }
     }
 
+    std::optional<uint64_t> getPropUInt64(const rocksdb::Slice &property) {
+      if (transaction_db_) {
+        uint64_t value;
+        transaction_db_->GetIntProperty(property, &value);
+        return value;
+      }
+      return std::nullopt;
+    }
+
+    std::optional<std::string> getPropStr(const rocksdb::Slice &property) {
+      if (transaction_db_) {
+        std::string value;
+        transaction_db_->GetProperty(property, &value);
+        return value;
+      }
+      return std::nullopt;
+    }
+
    private:
     std::unique_ptr<rocksdb::OptimisticTransactionDB> transaction_db_;
     std::optional<std::string> db_name_;
@@ -653,6 +700,29 @@ namespace iroha::ametsuchi {
     template <typename LoggerT>
     void printStatus(LoggerT &log) {
       tx_context_->db_port->printStatus(log);
+    }
+
+    auto propGetBlockCacheUsage() {
+      return tx_context_->db_port->getPropUInt64("rocksdb.block-cache-usage");
+    }
+
+    auto propGetCurSzAllMemTables() {
+      return tx_context_->db_port->getPropUInt64(
+          "rocksdb.cur-size-all-mem-tables");
+    }
+
+    auto propGetNumSnapshots() {
+      return tx_context_->db_port->getPropUInt64("rocksdb.num-snapshots");
+    }
+
+    auto propGetTotalSSTFilesSize() {
+      return tx_context_->db_port->getPropUInt64(
+          "rocksdb.total-sst-files-size");
+    }
+
+    auto propGetBlockCacheCapacity() {
+      return tx_context_->db_port->getPropUInt64(
+          "rocksdb.block-cache-capacity");
     }
 
     /// Makes commit to DB
@@ -1332,7 +1402,7 @@ namespace iroha::ametsuchi {
   }
 
   /**
-   * Access to peers count file
+   * Access to peers and syncing peers count file
    * @tparam kOp @see kDbOperation
    * @tparam kSc @see kDbEntry
    * @param common @see RocksDbCommon
@@ -1341,7 +1411,10 @@ namespace iroha::ametsuchi {
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError> forPeersCount(
-      RocksDbCommon &common) {
+      RocksDbCommon &common, bool is_syncing_peer) {
+    if (is_syncing_peer)
+      return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kSPeersCount);
+
     return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kPeersCount);
   }
 
@@ -1425,33 +1498,45 @@ namespace iroha::ametsuchi {
   }
 
   /**
-   * Access to peer address file
+   * Access to peer and syncing peer address file
    * @tparam kOp @see kDbOperation
    * @tparam kSc @see kDbEntry
    * @param common @see RocksDbCommon
    * @param pubkey public key of the peer
+   * @param is_sync_peer node mode
    * @return operation result
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
-  forPeerAddress(RocksDbCommon &common, std::string_view pubkey) {
+  forPeerAddress(RocksDbCommon &common,
+                 std::string_view pubkey,
+                 bool is_sync_peer) {
+    if (is_sync_peer)
+      return dbCall<std::string_view, kOp, kSc>(
+          common, fmtstrings::kSPeerAddress, pubkey);
+
     return dbCall<std::string_view, kOp, kSc>(
         common, fmtstrings::kPeerAddress, pubkey);
   }
 
   /**
-   * Access to peer TLS file
+   * Access to peer and syncing peer TLS file
    * @tparam kOp @see kDbOperation
    * @tparam kSc @see kDbEntry
    * @param common @see RocksDbCommon
    * @param pubkey is a public key of the peer
+   * @param is_sync_peer node mode
    * @return operation result
    */
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError> forPeerTLS(
-      RocksDbCommon &common, std::string_view pubkey) {
+      RocksDbCommon &common, std::string_view pubkey, bool is_sync_peer) {
+    if (is_sync_peer)
+      return dbCall<std::string_view, kOp, kSc>(
+          common, fmtstrings::kSPeerTLS, pubkey);
+
     return dbCall<std::string_view, kOp, kSc>(
         common, fmtstrings::kPeerTLS, pubkey);
   }

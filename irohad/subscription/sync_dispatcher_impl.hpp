@@ -40,7 +40,7 @@ namespace iroha::subscription {
                 std::chrono::microseconds timeout,
                 typename Parent::Task &&task,
                 typename Parent::Predicate &&pred) override {
-      while (!pred || pred()) task();
+      if (!pred || pred()) task();
     }
 
     std::optional<Tid> bind(std::shared_ptr<IScheduler> scheduler) override {

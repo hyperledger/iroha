@@ -74,6 +74,8 @@ class SimulatorTest : public ::testing::Test {
   std::shared_ptr<Simulator> simulator;
   shared_model::interface::types::PeerList ledger_peers{
       makePeer("127.0.0.1", "111"_hex_pubkey)};
+  shared_model::interface::types::PeerList ledger_sync_peers{
+      makePeer("127.0.0.1", "222"_hex_pubkey)};
 };
 
 auto makeProposal(int height) {
@@ -139,6 +141,7 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
 
   auto ledger_state = std::make_shared<LedgerState>(
       ledger_peers,
+      ledger_sync_peers,
       proposal->height() - 1,
       shared_model::crypto::Hash{std::string("hash")});
   OrderingEvent ordering_event{proposal, consensus::Round{}, ledger_state};
@@ -215,6 +218,7 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
 
   auto ledger_state = std::make_shared<LedgerState>(
       ledger_peers,
+      ledger_sync_peers,
       proposal->height() - 1,
       shared_model::crypto::Hash{std::string("hash")});
   OrderingEvent ordering_event{

@@ -58,12 +58,33 @@ namespace iroha {
      * @then peer list successfully received
      */
     TEST_F(RdbWsvQueryTest, GetPeers) {
-      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt};
+      shared_model::plain::Peer peer1{
+          "some-address", "0a", std::nullopt, false};
       command->insertPeer(peer1);
-      shared_model::plain::Peer peer2{"another-address", "0b", std::nullopt};
+      shared_model::plain::Peer peer2{
+          "another-address", "0b", std::nullopt, false};
       command->insertPeer(peer2);
 
-      auto result = query->getPeers();
+      auto result = query->getPeers(false);
+      ASSERT_TRUE(result);
+      ASSERT_THAT(*result,
+                  testing::ElementsAre(testing::Pointee(testing::Eq(peer1)),
+                                       testing::Pointee(testing::Eq(peer2))));
+    }
+
+    /**
+     * @given storage with sync peers
+     * @when trying to get existing peers
+     * @then peer list successfully received
+     */
+    TEST_F(RdbWsvQueryTest, GetSyncPeers) {
+      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt, true};
+      command->insertPeer(peer1);
+      shared_model::plain::Peer peer2{
+          "another-address", "0b", std::nullopt, true};
+      command->insertPeer(peer2);
+
+      auto result = query->getPeers(true);
       ASSERT_TRUE(result);
       ASSERT_THAT(*result,
                   testing::ElementsAre(testing::Pointee(testing::Eq(peer1)),
@@ -76,7 +97,26 @@ namespace iroha {
      * @then stored peer is successfully returned
      */
     TEST_F(RdbWsvQueryTest, GetPeerWithoutTls) {
-      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt};
+      shared_model::plain::Peer peer1{
+          "some-address", "0a", std::nullopt, false};
+      command->insertPeer(peer1);
+
+      auto result = query->getPeerByPublicKey(
+          shared_model::interface::types::PublicKeyHexStringView{
+              peer1.pubkey()});
+      ASSERT_TRUE(result);
+      ASSERT_THAT(*result, testing::Pointee(testing::Eq(peer1)))
+          << "Inserted " << peer1.toString() << ", got "
+          << (*result)->toString();
+    }
+
+    /**
+     * @given storage with sync peer without TLS certificate
+     * @when stored peer is queried
+     * @then stored peer is successfully returned
+     */
+    TEST_F(RdbWsvQueryTest, GetSyncPeerWithoutTls) {
+      shared_model::plain::Peer peer1{"some-address", "0c", std::nullopt, true};
       command->insertPeer(peer1);
 
       auto result = query->getPeerByPublicKey(
@@ -94,7 +134,25 @@ namespace iroha {
      * @then stored peer is successfully returned
      */
     TEST_F(RdbWsvQueryTest, GetPeerWithTls) {
-      shared_model::plain::Peer peer1{"some-address", "0a", "tls"};
+      shared_model::plain::Peer peer1{"some-address", "0d", "tls", false};
+      command->insertPeer(peer1);
+
+      auto result = query->getPeerByPublicKey(
+          shared_model::interface::types::PublicKeyHexStringView{
+              peer1.pubkey()});
+      ASSERT_TRUE(result);
+      ASSERT_THAT(*result, testing::Pointee(testing::Eq(peer1)))
+          << "Inserted " << peer1.toString() << ", got "
+          << (*result)->toString();
+    }
+
+    /**
+     * @given storage with sync peer with TLS certificate
+     * @when stored peer is queried
+     * @then stored peer is successfully returned
+     */
+    TEST_F(RdbWsvQueryTest, GetSyncPeerWithTls) {
+      shared_model::plain::Peer peer1{"some-address", "0a", "tls", true};
       command->insertPeer(peer1);
 
       auto result = query->getPeerByPublicKey(

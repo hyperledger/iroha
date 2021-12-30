@@ -12,12 +12,14 @@
 #include "consensus/gate_object.hpp"
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
 #include "cryptography/keypair.hpp"
+#include "http/http_server.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "main/impl/block_loader_init.hpp"
 #include "main/iroha_conf_loader.hpp"
+#include "main/iroha_status.hpp"
 #include "main/server_runner.hpp"
 #include "main/startup_params.hpp"
 #include "main/subscription_fwd.hpp"
@@ -26,6 +28,10 @@
 
 namespace google::protobuf {
   class Empty;
+}
+
+namespace evpp::evpphttp {
+  class Service;
 }
 
 namespace iroha {
@@ -230,7 +236,11 @@ class Irohad {
 
   virtual RunResult initSettings();
 
+  virtual RunResult initNodeStatus();
+
   virtual RunResult initValidatorsConfigs();
+
+  virtual RunResult initHttpServer();
 
   /**
    * Initialize WSV restorer
@@ -238,7 +248,7 @@ class Irohad {
   virtual RunResult initWsvRestorer();
 
   // constructor dependencies
-  IrohadConfig config_;
+  IrohadConfig const config_;
   const std::string listen_ip_;
   boost::optional<shared_model::crypto::Keypair> keypair_;
   iroha::StartupWsvSynchronizationPolicy startup_wsv_sync_policy_;
@@ -378,8 +388,17 @@ class Irohad {
   std::shared_ptr<iroha::torii::CommandServiceTransportGrpc>
       command_service_transport;
 
+  // subscriptions
+  std::shared_ptr<iroha::BaseSubscriber<
+      iroha::utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
+      iroha::IrohaStatus>>
+      iroha_status_subscription_;
+
   // query service
   std::shared_ptr<iroha::torii::QueryService> query_service;
+
+  // Http server
+  std::unique_ptr<iroha::network::HttpServer> http_server_;
 
   // consensus gate
   std::shared_ptr<iroha::network::ConsensusGate> consensus_gate;
