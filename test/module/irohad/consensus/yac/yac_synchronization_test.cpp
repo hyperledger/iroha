@@ -81,14 +81,18 @@ class YacSynchronizationTest : public YacTest {
          i++) {
       top_hash_ = createHash(Round{i, 0});
       setNetworkOrderCheckerSingleVote(order, top_hash_.value(), 2);
-      yac->processRoundSwitch(top_hash_->vote_round, order.getPeers());
+      yac->processRoundSwitch(top_hash_->vote_round,
+                              order.getPeers(),
+                              shared_model::interface::types::PeerList{});
       yac->vote(top_hash_.value(), order);
       yac->onState(network_util.createVotes(voters_, top_hash_.value()));
     }
     const YacHash next_hash = createHash(
         {initial_round.block_round + number_of_committed_rounds_, 0});
     setNetworkOrderCheckerSingleVote(order, next_hash, 2);
-    yac->processRoundSwitch(next_hash.vote_round, order.getPeers());
+    yac->processRoundSwitch(next_hash.vote_round,
+                            order.getPeers(),
+                            shared_model::interface::types::PeerList{});
     yac->vote(next_hash, order);
   }
 

@@ -328,7 +328,7 @@ namespace iroha {
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
 
-      auto peers = wsv_query->getPeers();
+      auto peers = wsv_query->getPeers(false);
       ASSERT_TRUE(peers);
       ASSERT_TRUE(std::find_if(peers->begin(),
                                peers->end(),
@@ -409,7 +409,7 @@ namespace iroha {
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
 
-      auto peers = wsv_query->getPeers();
+      auto peers = wsv_query->getPeers(false);
       ASSERT_TRUE(peers);
       ASSERT_TRUE(std::find_if(peers->begin(),
                                peers->end(),
@@ -428,7 +428,7 @@ namespace iroha {
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
 
-      auto peers = wsv_query->getPeers();
+      auto peers = wsv_query->getPeers(false);
       ASSERT_TRUE(peers);
       ASSERT_TRUE(std::find_if(peers->begin(),
                                peers->end(),

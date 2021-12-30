@@ -91,7 +91,8 @@ class ToriiQueriesTest : public testing::Test {
         ->append(std::make_unique<QueryService>(qpi,
                                                 query_factory,
                                                 blocks_query_factory,
-                                                getTestLogger("QueryService")))
+                                                getTestLogger("QueryService"),
+                                                nullptr))
         .run()
         .match([this](auto port) { this->port = port.value; },
                [](const auto &err) { FAIL() << err.error; });

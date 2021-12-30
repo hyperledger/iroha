@@ -5,6 +5,10 @@
 
 #include "main/application.hpp"
 
+#include <civetweb.h>
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include <boost/filesystem.hpp>
 #include <optional>
 
@@ -40,6 +44,7 @@
 #include "main/impl/pg_connection_init.hpp"
 #include "main/impl/rocksdb_connection_init.hpp"
 #include "main/impl/storage_init.hpp"
+#include "main/iroha_status.hpp"
 #include "main/server_runner.hpp"
 #include "main/subscription.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
@@ -156,11 +161,15 @@ Irohad::Irohad(
 }
 
 Irohad::~Irohad() {
+  iroha_status_subscription_->unsubscribe();
+
   if (db_context_ && log_) {
     RocksDbCommon common(db_context_);
     common.printStatus(*log_);
   }
-
+  if (http_server_) {
+    http_server_->stop();
+  }
   if (consensus_gate) {
     consensus_gate->stop();
   }
@@ -174,6 +183,7 @@ Irohad::~Irohad() {
  * Initializing iroha daemon
  */
 Irohad::RunResult Irohad::init() {
+  IROHA_EXPECTED_ERROR_CHECK(initNodeStatus());
   IROHA_EXPECTED_ERROR_CHECK(initSettings());
   IROHA_EXPECTED_ERROR_CHECK(initValidatorsConfigs());
   IROHA_EXPECTED_ERROR_CHECK(initBatchParser());
@@ -202,6 +212,8 @@ Irohad::RunResult Irohad::init() {
   // Torii
   IROHA_EXPECTED_ERROR_CHECK(initTransactionCommandService());
   IROHA_EXPECTED_ERROR_CHECK(initQueryService());
+  // HTTP
+  IROHA_EXPECTED_ERROR_CHECK(initHttpServer());
   return {};
 }
 
@@ -221,6 +233,39 @@ Irohad::RunResult Irohad::resetWsv() {
       config_.database_config && config_.database_config->type == kDbTypeRocksdb
           ? StorageType::kRocksDb
           : StorageType::kPostgres);
+}
+
+/**
+ * Initialize Iroha status.
+ */
+Irohad::RunResult Irohad::initNodeStatus() {
+  iroha_status_subscription_ = SubscriberCreator<
+      utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>,
+      iroha::IrohaStatus>::
+      template create<EventTypes::kOnIrohaStatus>(
+          iroha::SubscriptionEngineHandlers::kMetrics,
+          [](utils::ReadWriteObject<iroha::IrohaStoredStatus, std::mutex>
+                 &stored_status,
+             iroha::IrohaStatus new_status) {
+            stored_status.exclusiveAccess([&](IrohaStoredStatus &status) {
+              if (new_status.is_healthy)
+                status.status.is_healthy = new_status.is_healthy;
+              if (new_status.is_syncing)
+                status.status.is_syncing = new_status.is_syncing;
+              if (new_status.memory_consumption)
+                status.status.memory_consumption =
+                    new_status.memory_consumption;
+              if (new_status.last_round)
+                status.status.last_round = new_status.last_round;
+
+              status.serialized_status.Clear();
+            });
+          });
+
+  iroha_status_subscription_->get().exclusiveAccess(
+      [](IrohaStoredStatus &status) { status.status.is_syncing = false; });
+
+  return {};
 }
 
 /**
@@ -252,6 +297,83 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
       std::make_shared<shared_model::validation::ValidatorsConfig>(
           config_.max_proposal_size, false, true);
   log_->info("[Init] => validators configs");
+  return {};
+}
+
+/**
+ * Initializing Http server.
+ */
+Irohad::RunResult Irohad::initHttpServer() {
+  iroha::network::HttpServer::Options options;
+  options.ports = config_.healthcheck_port
+      ? std::to_string(*config_.healthcheck_port)
+      : iroha::network::kHealthcheckDefaultPort;
+
+  http_server_ = std::make_unique<iroha::network::HttpServer>(
+      std::move(options), log_manager_->getChild("HTTP server")->getLogger());
+  http_server_->start();
+
+  http_server_->registerHandler(
+      "/healthcheck",
+      [status_sub(iroha_status_subscription_)](
+          iroha::network::HttpRequestResponse &req_res) {
+        status_sub->get().exclusiveAccess(
+            [&](iroha::IrohaStoredStatus &status) {
+              if (0ull == status.serialized_status.GetSize()) {
+                using namespace rapidjson;
+                using namespace std;
+                Writer<decltype(status.serialized_status)> writer(
+                    status.serialized_status);
+
+                auto setOptBool = [](auto &writer, bool pred, bool value) {
+                  if (pred)
+                    writer.Bool(value);
+                  else
+                    writer.Null();
+                };
+
+                auto setOptUInt64 =
+                    [](auto &writer, bool pred, uint64_t value) {
+                      if (pred)
+                        writer.Int64((int64_t)value);
+                      else
+                        writer.Null();
+                    };
+
+                writer.StartObject();
+
+                writer.Key("memory_consumption");
+                setOptUInt64(writer,
+                             status.status.memory_consumption.has_value(),
+                             *status.status.memory_consumption);
+
+                writer.Key("last_block_round");
+                setOptUInt64(writer,
+                             status.status.last_round.has_value(),
+                             status.status.last_round->block_round);
+
+                writer.Key("last_reject_round");
+                setOptUInt64(writer,
+                             status.status.last_round.has_value(),
+                             status.status.last_round->reject_round);
+
+                writer.Key("is_syncing");
+                setOptBool(writer,
+                           status.status.is_syncing.has_value(),
+                           *status.status.is_syncing);
+
+                writer.Key("status");
+                setOptBool(writer,
+                           status.status.is_healthy.has_value(),
+                           *status.status.is_healthy);
+
+                writer.EndObject();
+              }
+              req_res.setJsonResponse(
+                  std::string_view(status.serialized_status.GetString(),
+                                   status.serialized_status.GetLength()));
+            });
+      });
   return {};
 }
 
@@ -644,7 +766,8 @@ Irohad::RunResult Irohad::initOrderingGate() {
       log_manager_->getChild("Ordering"),
       inter_peer_client_factory_,
       std::chrono::milliseconds(
-          config_.proposal_creation_timeout.value_or(kMaxRoundsDelayDefault)));
+          config_.proposal_creation_timeout.value_or(kMaxRoundsDelayDefault)),
+      config_.syncing_mode);
   log_->info("[Init] => init ordering gate - [{}]",
              logger::boolRepr(bool(ordering_gate)));
   return {};
@@ -725,7 +848,8 @@ Irohad::RunResult Irohad::initConsensusGate() {
       std::chrono::milliseconds(config_.vote_delay),
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"),
-      inter_peer_client_factory_);
+      inter_peer_client_factory_,
+      config_.syncing_mode);
   log_->info("[Init] => consensus gate");
   return {};
 }
@@ -933,11 +1057,13 @@ Irohad::RunResult Irohad::initQueryService() {
       query_response_factory_,
       query_service_log_manager->getChild("Processor")->getLogger());
 
+  assert(iroha_status_subscription_);
   query_service = std::make_shared<::torii::QueryService>(
       query_processor,
       query_factory,
       blocks_query_factory,
-      query_service_log_manager->getLogger());
+      query_service_log_manager->getLogger(),
+      iroha_status_subscription_);
 
   log_->info("[Init] => query service");
   return {};
@@ -997,6 +1123,11 @@ namespace {
  * Run iroha daemon
  */
 Irohad::RunResult Irohad::run() {
+  if (config_.proposal_delay
+      <= config_.proposal_creation_timeout.value_or(kMaxRoundsDelayDefault)) {
+    return expected::makeError(
+        "proposal_delay must be more than proposal_creation_timeout");
+  }
   ordering_init->subscribe([simulator(utils::make_weak(simulator)),
                             consensus_gate(utils::make_weak(consensus_gate)),
                             tx_processor(utils::make_weak(tx_processor)),
@@ -1016,6 +1147,7 @@ Irohad::RunResult Irohad::run() {
           verified_proposal);
       auto block = maybe_simulator->processVerifiedProposal(
           std::move(verified_proposal));
+
       maybe_consensus_gate->vote(std::move(block));
     }
   });
@@ -1105,7 +1237,7 @@ Irohad::RunResult Irohad::run() {
   auto block_height = block->height();
 
   auto peers = storage->createPeerQuery() |
-      [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
+      [](auto &&peer_query) { return peer_query->getLedgerPeers(false); };
   if (not peers) {
     return expected::makeError("Failed to fetch ledger peers!");
   }

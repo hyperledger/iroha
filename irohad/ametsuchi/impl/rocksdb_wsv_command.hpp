@@ -17,7 +17,7 @@ namespace iroha {
 
     class RocksDBWsvCommand : public WsvCommand {
      public:
-      enum ErrorCodes { kNotUsed = 1000 };
+      enum ErrorCodes { kNotUsed = 1000, kCommandUnexeptable = 1001 };
 
       explicit RocksDBWsvCommand(std::shared_ptr<RocksDBContext> db_context);
       WsvCommandResult insertRole(

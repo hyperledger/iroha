@@ -34,6 +34,8 @@
 #include "interfaces/commands/set_setting_value.hpp"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
+#include "main/rdb_status.hpp"
+#include "main/subscription.hpp"
 
 using namespace iroha;
 using namespace iroha::ametsuchi;
@@ -53,6 +55,23 @@ RocksDbCommandExecutor::RocksDbCommandExecutor(
       vm_caller_{vm_caller},
       db_transaction_(db_context_) {
   assert(db_context_);
+
+  getSubscription()->dispatcher()->repeat(
+      SubscriptionEngineHandlers::kMetrics,
+      std::chrono::seconds(5ull),  /// repeat task execution period
+      [wdb_context_(utils::make_weak(db_context_))]() {
+        if (auto db_context = wdb_context_.lock()) {
+          RocksDbCommon common(db_context);
+          getSubscription()->notify(
+              EventTypes::kOnRdbStats,
+              RocksDbStatus{common.propGetBlockCacheCapacity(),
+                            common.propGetBlockCacheUsage(),
+                            common.propGetCurSzAllMemTables(),
+                            common.propGetNumSnapshots(),
+                            common.propGetTotalSSTFilesSize()});
+        }
+      },
+      []() { return true; });
 }
 
 RocksDbCommandExecutor::~RocksDbCommandExecutor() = default;
@@ -202,23 +221,28 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   toLowerAppend(peer.pubkey(), pk);
 
   RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
-      common, pk));
+      common, pk, false));
+  RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+      common, pk, true));
 
-  RDB_TRY_GET_VALUE(
-      opt_peers_count,
-      forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(common));
+  RDB_TRY_GET_VALUE(opt_peers_count,
+                    forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(
+                        common, peer.isSyncingPeer()));
 
   common.encode((opt_peers_count ? *opt_peers_count : 0ull) + 1ull);
-  RDB_ERROR_CHECK(forPeersCount<kDbOperation::kPut>(common));
+  RDB_ERROR_CHECK(
+      forPeersCount<kDbOperation::kPut>(common, peer.isSyncingPeer()));
 
   /// Store address
   common.valueBuffer().assign(peer.address());
-  RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kPut>(common, pk));
+  RDB_ERROR_CHECK(
+      forPeerAddress<kDbOperation::kPut>(common, pk, peer.isSyncingPeer()));
 
   /// Store TLS if present
   if (peer.tlsCertificate().has_value()) {
     common.valueBuffer().assign(peer.tlsCertificate().value());
-    RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kPut>(common, pk));
+    RDB_ERROR_CHECK(
+        forPeerTLS<kDbOperation::kPut>(common, pk, peer.isSyncingPeer()));
   }
 
   return {};
@@ -649,23 +673,31 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
   std::string pk;
   toLowerAppend(command.pubkey(), pk);
 
-  RDB_ERROR_CHECK(
-      forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustExist>(common, pk));
+  bool syncing_node = false;
+  auto res = forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustExist>(
+      common, pk, syncing_node);
+  if (expected::hasError(res)) {
+    syncing_node = true;
+    if (res = forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustExist>(
+            common, pk, syncing_node);
+        expected::hasError(res))
+      return res.assumeError();
+  }
 
-  RDB_TRY_GET_VALUE(
-      opt_peers_count,
-      forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common));
+  RDB_TRY_GET_VALUE(opt_peers_count,
+                    forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(
+                        common, syncing_node));
   if (*opt_peers_count == 1ull)
     return makeError<void>(
         ErrorCodes::kPeersCountIsNotEnough, "Can not remove last peer {}.", pk);
 
   common.encode(*opt_peers_count - 1ull);
-  RDB_ERROR_CHECK(forPeersCount<kDbOperation::kPut>(common));
+  RDB_ERROR_CHECK(forPeersCount<kDbOperation::kPut>(common, syncing_node));
 
-  RDB_ERROR_CHECK(
-      forPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(common, pk));
-  RDB_ERROR_CHECK(
-      forPeerTLS<kDbOperation::kDel, kDbEntry::kCanExist>(common, pk));
+  RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(
+      common, pk, syncing_node));
+  RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kDel, kDbEntry::kCanExist>(
+      common, pk, syncing_node));
 
   return {};
 }
