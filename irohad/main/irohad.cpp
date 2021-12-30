@@ -117,6 +117,10 @@ DEFINE_string(metrics_port,
               "",
               "Prometeus HTTP server listens port, disabled by default");
 
+DEFINE_bool(exit_after_init, false, "Use this flag to reindex WSV and exit");
+
+DEFINE_bool(syncing_node, false, "Use this flag to run iroha as syncing node");
+
 std::sig_atomic_t caught_signal = 0;
 std::promise<void> exit_requested;
 
@@ -208,7 +212,14 @@ getCommonObjectsFactory() {
 }
 
 int main(int argc, char *argv[]) {
-  gflags::SetVersionString(iroha::kGitPrettyVersion);
+  auto version = std::string(iroha::kGitPrettyVersion);
+#if defined(USE_BURROW)
+  version += " burrow";
+#endif
+#if defined(USE_LIBURSA)
+  version += " ursa";
+#endif
+  gflags::SetVersionString(version);
 
   // Parsing command line arguments
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -235,6 +246,7 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
     auto config = std::move(config_result).assumeValue();
+    config.syncing_mode = FLAGS_syncing_node;
 
     if (FLAGS_verbosity == kLogSettingsFromConfigFile) {
       log_manager = config.logger_manager.value_or(getDefaultLogManager());
@@ -452,6 +464,10 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
+    if (FLAGS_exit_after_init) {
+      return EXIT_SUCCESS;
+    }
+
     auto handler = [](int s) { caught_signal = s; };
     std::signal(SIGINT, handler);
     std::signal(SIGTERM, handler);
@@ -501,6 +517,7 @@ int main(int argc, char *argv[]) {
         break;
       }
     }
+    irohad->printDbStatus();
     daemon_status_notifier->notify(
         ::iroha::utility_service::Status::kTermination);
 

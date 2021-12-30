@@ -78,14 +78,22 @@ namespace iroha::ametsuchi {
       block_storage_->insert(block);
       block_index_->index(*block);
 
-      auto opt_ledger_peers = peer_query_->getLedgerPeers();
-      if (not opt_ledger_peers) {
-        log_->error("Failed to get ledger peers!");
-        return false;
-      }
+      boost::optional<
+          std::vector<std::shared_ptr<shared_model::interface::Peer>>>
+          opt_ledger_peers[] = {peer_query_->getLedgerPeers(false),
+                                peer_query_->getLedgerPeers(true)};
+
+      for (auto const &peer_list : opt_ledger_peers)
+        if (!peer_list) {
+          log_->error("Failed to get ledger peers!");
+          return false;
+        }
 
       ledger_state_ = std::make_shared<const LedgerState>(
-          std::move(*opt_ledger_peers), block->height(), block->hash());
+          std::move(*(opt_ledger_peers[0])),  // peers
+          std::move(*(opt_ledger_peers[1])),  // syncing peers
+          block->height(),
+          block->hash());
     }
 
     return block_applied;
@@ -135,7 +143,6 @@ namespace iroha::ametsuchi {
       return "Tried to commit mutable storage twice.";
     }
     if (not ledger_state_) {
-      assert(ledger_state_);
       return "Tried to commit mutable storage with no blocks applied.";
     }
     return block_storage_->forEach([&block_storage](auto const &block)
@@ -162,7 +169,8 @@ namespace iroha::ametsuchi {
       try {
         db_tx_.rollback();
       } catch (std::exception &e) {
-        log_->warn("Apply has been failed. Reason: {}", e.what());
+        log_->warn("~MutableStorageImpl(): rollback failed. Reason: {}",
+                   e.what());
       }
     }
   }

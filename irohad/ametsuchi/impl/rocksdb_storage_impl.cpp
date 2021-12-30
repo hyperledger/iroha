@@ -23,7 +23,6 @@
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/tx_executor.hpp"
-#include "common/bind.hpp"
 #include "common/result.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -167,11 +166,14 @@ namespace iroha::ametsuchi {
                                 log_manager->getChild("WsvQuery")->getLogger());
 
       auto maybe_top_block_info = wsv_query.getTopBlockInfo();
-      auto maybe_ledger_peers = wsv_query.getPeers();
+      auto maybe_ledger_peers = wsv_query.getPeers(false);
+      auto maybe_ledger_sync_peers = wsv_query.getPeers(true);
 
-      if (expected::hasValue(maybe_top_block_info) and maybe_ledger_peers)
+      if (expected::hasValue(maybe_top_block_info) && maybe_ledger_peers
+          && maybe_ledger_sync_peers)
         ledger_state = std::make_shared<const iroha::LedgerState>(
             std::move(*maybe_ledger_peers),
+            std::move(*maybe_ledger_sync_peers),
             maybe_top_block_info.assumeValue().height,
             maybe_top_block_info.assumeValue().top_hash);
     }

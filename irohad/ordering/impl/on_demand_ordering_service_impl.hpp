@@ -65,6 +65,10 @@ namespace iroha {
         removeFromBatchesCache(hashes);
       }
 
+      void onDuplicates(const HashesSetType &hashes) override {
+        removeFromBatchesCache(hashes);
+      }
+
       void processReceivedProposal(CollectionType batches) override;
 
      private:
@@ -105,6 +109,8 @@ namespace iroha {
           const OnDemandOrderingService::HashesSetType &hashes);
 
       bool isEmptyBatchesCache() const override;
+
+      bool hasEnoughBatchesInCache() const override;
 
       void forCachedBatches(
           std::function<void(const BatchesSetType &)> const &f) const override;

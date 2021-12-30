@@ -28,13 +28,15 @@ OnDemandOrderingGate::OnDemandOrderingGate(
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory> factory,
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
     size_t transaction_limit,
-    logger::LoggerPtr log)
+    logger::LoggerPtr log,
+    bool syncing_mode)
     : log_(std::move(log)),
       transaction_limit_(transaction_limit),
       ordering_service_(std::move(ordering_service)),
       network_client_(std::move(network_client)),
       proposal_factory_(std::move(factory)),
-      tx_cache_(std::move(tx_cache)) {}
+      tx_cache_(std::move(tx_cache)),
+      syncing_mode_(syncing_mode) {}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {
   stop();
@@ -49,8 +51,8 @@ void OnDemandOrderingGate::propagateBatch(
   }
 
   // TODO iceseer 14.01.21 IR-959 Refactor to avoid copying.
-  ordering_service_->onBatches(
-      transport::OdOsNotification::CollectionType{batch});
+  forLocalOS(&OnDemandOrderingService::onBatches,
+             transport::OdOsNotification::CollectionType{batch});
   network_client_->onBatches(
       transport::OdOsNotification::CollectionType{batch});
 }
@@ -67,12 +69,14 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
   }
 
   // notify our ordering service about new round
-  ordering_service_->onCollaborationOutcome(event.next_round);
+  forLocalOS(&OnDemandOrderingService::onCollaborationOutcome,
+             event.next_round);
 
   this->sendCachedTransactions();
 
   // request proposal for the current round
-  network_client_->onRequestProposal(event.next_round);
+  if (!syncing_mode_)
+    network_client_->onRequestProposal(event.next_round);
 }
 
 void OnDemandOrderingGate::stop() {
@@ -112,7 +116,8 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
         std::make_shared<shared_model::interface::TransactionBatchImpl>(
             std::move(txs)));
   }
-  ordering_service_->processReceivedProposal(std::move(batches));
+  forLocalOS(&OnDemandOrderingService::processReceivedProposal,
+             std::move(batches));
   return network::OrderingEvent{
       std::move(result), event.round, current_ledger_state_};
 }
@@ -120,39 +125,46 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
 void OnDemandOrderingGate::sendCachedTransactions() {
   assert(not stop_mutex_.try_lock());  // lock must be taken before
   // TODO iceseer 14.01.21 IR-958 Check that OS is remote
-  ordering_service_->forCachedBatches([this](auto const &batches) {
-    auto end_iterator = batches.begin();
-    auto current_number_of_transactions = 0u;
-    for (; end_iterator != batches.end(); ++end_iterator) {
-      auto batch_size = (*end_iterator)->transactions().size();
-      if (current_number_of_transactions + batch_size <= transaction_limit_) {
-        current_number_of_transactions += batch_size;
-      } else {
-        break;
-      }
-    }
+  forLocalOS(&OnDemandOrderingService::forCachedBatches,
+             [this](auto const &batches) {
+               auto end_iterator = batches.begin();
+               auto current_number_of_transactions = 0u;
+               for (; end_iterator != batches.end(); ++end_iterator) {
+                 auto batch_size = (*end_iterator)->transactions().size();
+                 if (current_number_of_transactions + batch_size
+                     <= transaction_limit_) {
+                   current_number_of_transactions += batch_size;
+                 } else {
+                   break;
+                 }
+               }
 
-    if (not batches.empty()) {
-      network_client_->onBatches(transport::OdOsNotification::CollectionType{
-          batches.begin(), end_iterator});
-    }
-  });
+               if (not batches.empty()) {
+                 network_client_->onBatches(
+                     transport::OdOsNotification::CollectionType{
+                         batches.begin(), end_iterator});
+               }
+             });
 }
 
 std::shared_ptr<const shared_model::interface::Proposal>
 OnDemandOrderingGate::removeReplaysAndDuplicates(
     std::shared_ptr<const shared_model::interface::Proposal> proposal) const {
   std::vector<bool> proposal_txs_validation_results;
-  auto tx_is_not_processed = [this](const auto &tx) {
+  auto dup_hashes = std::make_shared<OnDemandOrderingService::HashesSetType>();
+
+  auto tx_is_not_processed = [this, &dup_hashes](const auto &tx) {
     auto tx_result = tx_cache_->check(tx.hash());
     if (not tx_result) {
       // TODO andrei 30.11.18 IR-51 Handle database error
       return false;
     }
     auto is_processed = ametsuchi::isAlreadyProcessed(*tx_result);
-    if (is_processed)
+    if (is_processed) {
+      dup_hashes->insert(tx.hash());
       log_->warn("Duplicate transaction: {}",
                  iroha::ametsuchi::getHash(*tx_result).hex());
+    }
     return !is_processed;
   };
 
@@ -185,6 +197,9 @@ OnDemandOrderingGate::removeReplaysAndDuplicates(
   if (not has_invalid_txs) {
     return proposal;
   }
+
+  if (!dup_hashes->empty())
+    forLocalOS(&OnDemandOrderingService::onDuplicates, *dup_hashes);
 
   auto unprocessed_txs =
       proposal->transactions() | boost::adaptors::indexed()

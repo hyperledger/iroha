@@ -62,15 +62,18 @@ struct FakePeerFixture : AcceptanceFixture,
 
  protected:
   void SetUp() override {
-    //ToDo use GetParam() for iroha::StorageType, but requires to change all TEST_F to TEST_P
     itf_ = std::make_unique<integration_framework::IntegrationTestFramework>(
         1,
-        iroha::StorageType::kPostgres,  //kRocksDb,
+        GetParam(),
         boost::none,
         iroha::StartupWsvDataPolicy::kDrop,
         true,
         true);
     itf_->initPipeline(common_constants::kAdminKeypair);
+  }
+
+  void TearDown() override {
+    itf_.reset();
   }
 
   std::vector<std::shared_ptr<FakePeer>> fake_peers_;

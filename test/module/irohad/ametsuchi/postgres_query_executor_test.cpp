@@ -142,7 +142,8 @@ namespace iroha {
           : peer{"127.0.0.1",
                  "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f218000a5"
                  "533",
-                 std::nullopt} {
+                 std::nullopt,
+                 false} {
         role_permissions.set(
             shared_model::interface::permissions::Role::kAddMySignatory);
         grantable_permission =
@@ -1181,7 +1182,7 @@ namespace iroha {
         ::testing::Types<GetAccountTxPaginationImpl,
                          GetAccountAssetTxPaginationImpl>;
     TYPED_TEST_SUITE(GetPagedTransactionsExecutorTest,
-                    QueryTxPaginationTestingTypes, );
+                     QueryTxPaginationTestingTypes, );
 
     /**
      * @given initialized storage, user has 3 transactions committed

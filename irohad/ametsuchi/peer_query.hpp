@@ -36,7 +36,8 @@ namespace iroha {
        * Fetch peers stored in ledger
        * @return list of peers in insertion to ledger order
        */
-      virtual boost::optional<std::vector<wPeer>> getLedgerPeers() = 0;
+      virtual boost::optional<std::vector<wPeer>> getLedgerPeers(
+          bool syncing_peers) = 0;
 
       /**
        * Fetch peer with given public key from ledger

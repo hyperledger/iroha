@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"vmCaller/iroha"
-
+	"vmCaller/iroha_model"
 	"github.com/hyperledger/burrow/execution/native"
 	"github.com/hyperledger/burrow/permission"
 )
@@ -240,6 +240,72 @@ var (
 				`,
 			PermFlag: permission.Call,
 			F:        getRolePermissions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get transactions of the account
+				* @param Account account to be used
+				* @param TxPaginationMeta`,
+			PermFlag: permission.Call,
+			F:        getAccountTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get pending transactions of the account
+				* @param TxPaginationMeta`,
+			PermFlag: permission.Call,
+			F:        getPendingTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get account asset transactions of the account
+				* @param account Id 
+				* @param asset Id
+				* @param TxPaginationMeta`,
+			PermFlag: permission.Call,
+			F:        getAccountAssetTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Grant Permission
+				* @param account  
+				* @param permission`,
+			PermFlag: permission.Call,
+			F:       grantPermission,
+		},
+		native.Function{
+			Comment: `
+				* @notice Revoke Permission
+				* @param account  
+				* @param permission`,
+			PermFlag: permission.Call,
+			F:       revokePermission,
+		},
+		native.Function{
+			Comment: `
+				* @notice Compare And Set Account Detail
+				* @param account  
+				* @param key
+				* @param value
+				* @param old_value
+				* @param check_empty`,
+			PermFlag: permission.Call,
+			F:       compareAndSetAccountDetail,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get Transactions
+				* @param tx hashes`,
+			PermFlag: permission.Call,
+			F:       getTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Create Role
+				* @param role name
+				* @param permissions`,
+			PermFlag: permission.Call,
+			F:       createRole,
 		},
 	)
 )
@@ -674,6 +740,88 @@ func removePeer(ctx native.Context, args removePeerArgs) (removePeerRets, error)
 	return removePeerRets{Result: true}, nil
 }
 
+type GrantPermissionArgs struct {
+	AccountId string
+	Permission string
+}
+
+type GrantPermissionRets struct {
+	Result bool
+}
+
+func grantPermission(ctx native.Context, args GrantPermissionArgs) (GrantPermissionRets, error) {
+	err := iroha.GrantPermission(args.AccountId, args.Permission)
+	if err != nil {
+		return GrantPermissionRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "GrantPermission",
+		"account", args.AccountId, "Permission", args.Permission)
+
+	return GrantPermissionRets{Result: true}, nil
+}
+
+type RevokePermissionArgs = GrantPermissionArgs
+type RevokePermissionRets = GrantPermissionRets 
+
+func revokePermission(ctx native.Context, args RevokePermissionArgs) (RevokePermissionRets, error) {
+	err := iroha.RevokePermission(args.AccountId, args.Permission)
+	if err != nil {
+		return RevokePermissionRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "RevokePermission",
+		"account", args.AccountId, "Permission", args.Permission)
+
+	return RevokePermissionRets{Result: true}, nil
+}
+
+type compareAndSetAccountDetailArgs struct {
+	AccountId string
+	Key string
+	Value string
+	OldValue string
+	CheckEmpty string
+}
+
+type compareAndSetAccountDetailRets struct {
+	Result bool
+}
+
+func compareAndSetAccountDetail(ctx native.Context, args compareAndSetAccountDetailArgs) (compareAndSetAccountDetailRets, error) {
+	err := iroha.CompareAndSetAccountDetail(args.AccountId, args.Key, args.Value, args.OldValue, args.CheckEmpty)
+	if err != nil {
+		return compareAndSetAccountDetailRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "CompareAndSetAccountDetail",
+		"account", args.AccountId, "key", args.Key, "value", args.Value,
+		"old value", args.OldValue, "check empty", args.CheckEmpty)
+
+	return compareAndSetAccountDetailRets{Result: true}, nil
+}
+
+type createRoleArgs struct {
+	RoleName string
+	Permissions string
+}
+
+type createRoleRets struct {
+	Result bool
+}
+
+func createRole(ctx native.Context, args createRoleArgs) (createRoleRets, error) {
+	err := iroha.CreateRole(args.RoleName, args.Permissions)
+	if err != nil {
+		return createRoleRets{Result: false}, err
+	}
+
+	ctx.Logger.Trace.Log("function", "CreateRole",
+		"Role Name", args.RoleName, "Permissions", args.Permissions)
+
+	return createRoleRets{Result: true}, nil
+}
+
 type getPeersArgs struct {
 }
 
@@ -743,6 +891,104 @@ func getRolePermissions(ctx native.Context, args getRolePermissionsArgs) (getRol
 		"role id", args.Role)
 	result, err := json.Marshal(permissions)
 	return getRolePermissionsRets{Result: string(result)}, nil
+}
+
+type GetAccountTransactionsArgs struct {
+	Account string
+	PageSize string
+	FirstTxHash string
+	FirstTxTime string
+	LastTxTime string
+	FirstTxHeight string
+	LastTxHeight string
+	Ordering string 
+}
+
+type getAccountTransactionsRets struct {
+	Result string
+}
+
+func getAccountTransactions(ctx native.Context, args GetAccountTransactionsArgs) (getAccountTransactionsRets, error) {
+	paginationMetaArg := iroha_model.TxPaginationMeta{ PageSize: &args.PageSize, FirstTxHash: &args.PageSize, Ordering: &args.Ordering,
+		FirstTxTime: &args.FirstTxTime, LastTxTime: &args.LastTxTime, FirstTxHeight: &args.FirstTxHeight, LastTxHeight: &args.LastTxHeight}
+	transactions, err := iroha.GetAccountTransactions(args.Account, &paginationMetaArg)
+	if err != nil {
+		return getAccountTransactionsRets{}, err
+	}
+	ctx.Logger.Trace.Log("function", "GetAccountTransactions",
+		"account", args.Account)
+	result, err := json.Marshal(transactions)
+	return getAccountTransactionsRets{Result: string(result)}, nil
+}
+
+type GetPendingTransactionsArgs struct {
+	PageSize string
+	FirstTxHash string
+	FirstTxTime string
+	LastTxTime string
+	Ordering string 
+}
+
+type getPendingTransactionsRets struct {
+	Result string
+}
+
+func getPendingTransactions(ctx native.Context, args GetPendingTransactionsArgs) (getPendingTransactionsRets, error) {
+	paginationMetaArg := iroha_model.TxPaginationMeta{ PageSize: &args.PageSize, FirstTxHash: &args.PageSize, Ordering: &args.Ordering,
+		FirstTxTime: &args.FirstTxTime, LastTxTime: &args.LastTxTime}
+	transactions, err := iroha.GetPendingTransactions(&paginationMetaArg)
+	if err != nil {
+		return getPendingTransactionsRets{}, err
+	}
+	ctx.Logger.Trace.Log("function", "GetPendingTransactions")
+	result, err := json.Marshal(transactions)
+	return getPendingTransactionsRets{Result: string(result)}, nil
+}
+
+type GetAccountAssetTransactionsArgs struct {
+	AccountId string
+	AssetId string
+	PageSize string
+	FirstTxHash string
+	FirstTxTime string
+	LastTxTime string
+	FirstTxHeight string
+	LastTxHeight string
+	Ordering string 
+}
+
+type getAccountAssetTransactionsRets struct {
+	Result string
+}
+
+func getAccountAssetTransactions(ctx native.Context, args GetAccountAssetTransactionsArgs) (getAccountAssetTransactionsRets, error) {
+	paginationMetaArg := iroha_model.TxPaginationMeta{ PageSize: &args.PageSize, FirstTxHash: &args.PageSize, Ordering: &args.Ordering,
+		FirstTxTime: &args.FirstTxTime, LastTxTime: &args.LastTxTime, FirstTxHeight: &args.FirstTxHeight, LastTxHeight: &args.LastTxHeight}
+	transactions, err := iroha.GetAccountAssetTransactions(args.AccountId, args.AssetId, &paginationMetaArg)
+	if err != nil {
+		return getAccountAssetTransactionsRets{}, err
+	}
+	ctx.Logger.Trace.Log("function", "GetAccountAssetTransactions", "account", args.AccountId, "asset", args.AssetId)
+	result, err := json.Marshal(transactions)
+	return getAccountAssetTransactionsRets{Result: string(result)}, nil
+}
+
+type GetTransactionsArgs struct {
+	Hashes string
+}
+
+type getTransactionsRets struct {
+	Result string
+}
+
+func getTransactions(ctx native.Context, args GetTransactionsArgs) (getTransactionsRets, error) {
+	transactions, err := iroha.GetTransactions(args.Hashes)
+	if err != nil {
+		return getTransactionsRets{}, err
+	}
+	ctx.Logger.Trace.Log("function", "GetTransactions", "hashes", args.Hashes)
+	result, err := json.Marshal(transactions)
+	return getTransactionsRets{Result: string(result)}, nil
 }
 
 func MustCreateNatives() *native.Natives {

@@ -258,4 +258,5 @@ target_link_libraries(ametsuchi_rocksdb
     shared_model_interfaces_factories
     rocksdb_indexer
     shared_model_interfaces
+    async_subscription
     )
