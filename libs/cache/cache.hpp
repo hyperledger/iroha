@@ -10,6 +10,7 @@
 
 #include <unordered_map>
 
+#include "ametsuchi/impl/in_memory_storage.hpp"
 #include "common/ring_buffer.hpp"
 
 namespace iroha {
@@ -24,7 +25,7 @@ namespace iroha {
     template <typename KeyType,
               typename ValueType,
               typename KeyHash = std::hash<KeyType>,
-              size_t Count = 20000ull>
+              size_t Count = 2000ull>
     class Cache final
         : public AbstractCache<KeyType,
                                ValueType,
@@ -32,20 +33,9 @@ namespace iroha {
       using HashType =
           decltype(std::declval<KeyHash>()(std::declval<KeyType>()));
 
-      struct KeyAndValue {
-        HashType hash;
-        ValueType value;
-
-        KeyAndValue() = delete;
-        KeyAndValue(KeyAndValue const &) = delete;
-        KeyAndValue(HashType h, ValueType const &v) : hash(h), value(v) {}
-
-        KeyAndValue &operator=(KeyAndValue const &) = delete;
-      };
-
-      using ValuesBuffer = containers::RingBuffer<KeyAndValue, Count>;
-      using ValueHandle = typename ValuesBuffer::Handle;
-      using KeyValuesBuffer = std::unordered_map<HashType, ValueHandle>;
+      using InternalStorage =
+          ametsuchi::InMemoryFrame<HashType, ValueType, Count>;
+      InternalStorage internal_storage_;
 
       inline HashType toHash(KeyType const &key) const {
         return KeyHash()(key);
@@ -59,45 +49,19 @@ namespace iroha {
       }
 
       uint32_t getCacheItemCountImpl() const {
-        return static_cast<uint32_t>(keys_.size());
+        return internal_storage_.size();
       }
 
       void addItemImpl(const KeyType &key, const ValueType &value) {
-        auto const hash = toHash(key);
-        auto it = keys_.find(hash);
-        if (keys_.end() == it) {
-          values_.push(
-              [&](ValueHandle h, KeyAndValue const & /*value*/) {
-                this->keys_[hash] = h;
-              },
-              [&](ValueHandle h, KeyAndValue const &stored_value) {
-                BOOST_ASSERT_MSG(
-                    this->keys_.end() != this->keys_.find(stored_value.hash),
-                    "keys_ must contain item, which we want to remove!");
-                this->keys_.erase(stored_value.hash);
-              },
-              hash,
-              value);
-        } else {
-          auto &stored_value = values_.getItem(it->second);
-          stored_value.value = value;
-        }
+        internal_storage_.template insert(toHash(key), value);
       }
 
       boost::optional<ValueType> findItemImpl(const KeyType &key) const {
-        auto const hash = toHash(key);
-        auto it = keys_.find(hash);
+        if (auto res = internal_storage_.find(toHash(key)))
+          return res.value().get();
 
-        if (keys_.end() == it) {
-          return boost::none;
-        } else {
-          return values_.getItem(it->second).value;
-        }
+        return boost::none;
       }
-
-     private:
-      KeyValuesBuffer keys_;
-      ValuesBuffer values_;
     };
   }  // namespace cache
 }  // namespace iroha

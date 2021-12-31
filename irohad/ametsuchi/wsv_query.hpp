@@ -38,9 +38,9 @@ namespace iroha {
        */
       virtual boost::optional<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
-      getPeers() = 0;
+      getPeers(bool syncing_peers) = 0;
 
-      // ToDo?(kuvaldini,iceseer) #997
+      // ToDo?(iceseer) #997
       // /**
       //  * @brief Fetch domains stored in ledger
       //  * @return list of domains in insertion to ledger order
@@ -54,7 +54,8 @@ namespace iroha {
        * @brief Fetch number of domains in ledger
        * @return number of domains in ledger
        */
-      virtual iroha::expected::Result<size_t, std::string> countPeers() = 0;
+      virtual iroha::expected::Result<size_t, std::string> countPeers(
+          bool syncing_peers) = 0;
 
       /**
        * @brief Fetch number of domains in ledger

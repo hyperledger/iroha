@@ -15,12 +15,14 @@ namespace shared_model {
           .appendNamed("address", address())
           .appendNamed("pubkey", pubkey())
           .appendNamed("tlsCertificate", bool(tlsCertificate()))
+          .appendNamed("IsSyncing", isSyncingPeer())
           .finalize();
     }
 
     bool Peer::operator==(const ModelType &rhs) const {
       return address() == rhs.address() and pubkey() == rhs.pubkey()
-          and tlsCertificate() == rhs.tlsCertificate();
+          and tlsCertificate() == rhs.tlsCertificate()
+          && isSyncingPeer() == rhs.isSyncingPeer();
     }
   }  // namespace interface
 }  // namespace shared_model

@@ -15,6 +15,7 @@ namespace iroha::subscription {
   class IScheduler {
    public:
     using Task = std::function<void()>;
+    using Predicate = std::function<bool()>;
     virtual ~IScheduler() {}
 
     /// Stops sheduler work and tasks execution
@@ -30,6 +31,12 @@ namespace iroha::subscription {
 
     /// Adds delayed task to execution queue
     virtual void addDelayed(std::chrono::microseconds timeout, Task &&t) = 0;
+
+    /// Adds task that will be periodicaly called with timeout period after
+    /// timeout, until predicate return true
+    virtual void repeat(std::chrono::microseconds timeout,
+                        Task &&t,
+                        Predicate &&pred) = 0;
   };
 
 }  // namespace iroha::subscription

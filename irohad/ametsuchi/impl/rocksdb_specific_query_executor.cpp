@@ -438,12 +438,9 @@ RocksDbSpecificQueryExecutor::readTxs(
 
   rocksdb::Status status = rocksdb::Status::OK();
   if (query.paginationMeta().firstTxHash()) {
-    std::string target_hash;
     if (auto result =
             forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-                common,
-                toLowerAppend(query.paginationMeta().firstTxHash()->toString(),
-                              target_hash));
+                common, *query.paginationMeta().firstTxHash());
         expected::hasValue(result)) {
       assert(ordering_ptr->field
                  == shared_model::interface::Ordering::Field::kCreatedTime
@@ -563,7 +560,7 @@ operator()(
 
     std::optional<std::string_view> opt;
     if (auto r = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-            common, h_hex);
+            common, hash);
         expected::hasError(r))
       return query_response_factory_->createErrorQueryResponse(
           ErrorQueryType::kStatefulFailed,
@@ -942,23 +939,32 @@ operator()(
   RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kGetPeers}));
   std::vector<std::shared_ptr<shared_model::plain::Peer>> peers;
 
-  auto status = enumerateKeysAndValues(
-      common,
-      [&](auto pubkey, auto address) {
-        peers.emplace_back(std::make_shared<shared_model::plain::Peer>(
-            address.ToStringView(),
-            std::string{pubkey.ToStringView()},
-            std::nullopt));
-        return true;
-      },
-      fmtstrings::kPathPeers);
+  auto enum_peers = [&](auto const &path, bool syncing_peer) {
+    return enumerateKeysAndValues(
+        common,
+        [&](auto pubkey, auto address) {
+          peers.emplace_back(std::make_shared<shared_model::plain::Peer>(
+              address.ToStringView(),
+              std::string{pubkey.ToStringView()},
+              std::nullopt,
+              syncing_peer));
+          return true;
+        },
+        path);
+  };
+
+  auto status = enum_peers(fmtstrings::kPathPeers, false);
+  RDB_ERROR_CHECK(
+      canExist(status, [&]() { return fmt::format("Enumerate peers"); }));
+
+  status = enum_peers(fmtstrings::kPathSPeers, true);
   RDB_ERROR_CHECK(
       canExist(status, [&]() { return fmt::format("Enumerate peers"); }));
 
   for (auto &peer : peers) {
     RDB_TRY_GET_VALUE(opt_tls,
                       forPeerTLS<kDbOperation::kGet, kDbEntry::kCanExist>(
-                          common, peer->pubkey()));
+                          common, peer->pubkey(), peer->isSyncingPeer()));
 
     if (opt_tls)
       utils::reinterpret_pointer_cast<shared_model::plain::Peer>(peer)

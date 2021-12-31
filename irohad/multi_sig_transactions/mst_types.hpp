@@ -21,24 +21,13 @@ namespace shared_model {
 namespace iroha {
 
   using BatchPtr = std::shared_ptr<shared_model::interface::TransactionBatch>;
-  using ConstPeer = const shared_model::interface::Peer;
   using TimeType = shared_model::interface::types::TimestampType;
   using TxResponse =
       std::shared_ptr<shared_model::interface::TransactionResponse>;
-
-  template <typename T>
-  using ConstRefT = const T &;
-
-  using ConstRefBatch = ConstRefT<BatchPtr>;
-  using ConstRefPeer = ConstRefT<shared_model::interface::Peer>;
-  using ConstRefTime = ConstRefT<TimeType>;
+  using DataType = BatchPtr;
 
   class Completer;
   class MstState;
-
-  using ConstRefState = ConstRefT<MstState>;
-
-  using DataType = BatchPtr;
 
   /**
    * Contains result of updating local state:

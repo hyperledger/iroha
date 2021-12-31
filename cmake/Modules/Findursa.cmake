@@ -27,22 +27,20 @@ endif()
 
 if(NOT TARGET hyperledger_ursa_build)
   find_package(OpenSSL REQUIRED)
+  find_program(CARGO_BIN cargo PATHS /opt/rust/bin DOC "cargo executable for rust" REQUIRED)
 
   get_filename_component(OPENSSL_ROOT_DIR ${OPENSSL_INCLUDE_DIR} DIRECTORY)
-
-  set(URL     "https://github.com/hyperledger/ursa/")
-  set(VERSION "d425dc2f721659f6bdec50a91d3cb9a1d21ec3f3")
 
   file(MAKE_DIRECTORY ${URSA_LIB})
   file(MAKE_DIRECTORY ${URSA_INCL})
 
   externalproject_add(hyperledger_ursa_build
-    GIT_REPOSITORY    ${URL}
-    GIT_TAG           ${VERSION}
+    GIT_REPOSITORY    "https://github.com/hyperledger/ursa/"
+    GIT_TAG           "d425dc2f721659f6bdec50a91d3cb9a1d21ec3f3"
     BUILD_IN_SOURCE   1
     BUILD_COMMAND     ${CMAKE_COMMAND} -E
       env OPENSSL_DIR=${OPENSSL_ROOT_DIR}
-      cargo build --release
+      ${CARGO_BIN} build --release
     CONFIGURE_COMMAND "" # remove configure step
     UPDATE_COMMAND    "" # remove update step
     INSTALL_COMMAND   "" # remove install step

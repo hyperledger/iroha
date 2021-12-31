@@ -29,6 +29,9 @@ using interface::types::PublicKeyHexStringView;
 
 static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
 
+struct RemovePeerTest : FakePeerFixture {};
+INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(RemovePeerTest);
+
 /**
  * @given a network of one real and one fake peers
  * @when fake peer is removed
@@ -36,7 +39,7 @@ static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
  *    @and the ledger state after commit contains one peer,
  *    @and the WSV reports that there is one peer
  */
-TEST_F(FakePeerFixture, FakePeerIsRemoved) {
+TEST_P(RemovePeerTest, FakePeerIsRemoved) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with one fake peer in the genesis block
   createFakePeers(1);
@@ -80,7 +83,7 @@ TEST_F(FakePeerFixture, FakePeerIsRemoved) {
                        ->getStorage()
                        ->createPeerQuery()
                        .value()
-                       ->getLedgerPeers();
+                       ->getLedgerPeers(false);
 
   // check only one peer is there
   ASSERT_TRUE(opt_peers);
@@ -96,7 +99,7 @@ TEST_F(FakePeerFixture, FakePeerIsRemoved) {
  *    @and the ledger state after commit contains one peer,
  *    @and the WSV reports that there is one peer
  */
-TEST_F(FakePeerFixture, RealPeerIsRemoved) {
+TEST_P(RemovePeerTest, RealPeerIsRemoved) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with one fake peer in the genesis block
   createFakePeers(1);
@@ -141,7 +144,7 @@ TEST_F(FakePeerFixture, RealPeerIsRemoved) {
                        ->getStorage()
                        ->createPeerQuery()
                        .value()
-                       ->getLedgerPeers();
+                       ->getLedgerPeers(false);
 
   // check only one peer is there
   ASSERT_TRUE(opt_peers);

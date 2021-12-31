@@ -88,6 +88,10 @@ namespace integration_framework {
     opt_mst_gossip_params_ = gossip_params;
   }
 
+  void IrohaInstance::printDbStatus() {
+    test_irohad_->printDbStatus();
+  }
+
   void IrohaInstance::initPipeline(
       const shared_model::crypto::Keypair &key_pair, size_t max_proposal_size) {
     config_.max_proposal_size = max_proposal_size;
@@ -107,7 +111,8 @@ namespace integration_framework {
   void IrohaInstance::run() {
     test_irohad_->run().match(
         [](const auto &) {},
-        [](const auto &error) {
+        [this](const auto &error) {
+          log_->error("{}",error.error);
           BOOST_THROW_EXCEPTION(std::runtime_error(error.error));
         });
   }

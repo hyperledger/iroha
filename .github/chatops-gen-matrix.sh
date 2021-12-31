@@ -73,7 +73,6 @@ handle_user_line(){
    fi
    shift
    local oses compilers cmake_opts build_types
-   dockerpush=yes
 
    while [[ $# > 0 ]] ;do
       case "$1" in
@@ -91,8 +90,6 @@ handle_user_line(){
          clang|clang-10|clang10)    compilers+=" clang clang-10"  ;;
          llvm)                      compilers+=" $1 " ;;
          msvc)                      compilers+=" $1 " ;;
-         dockerpush)                dockerpush=yes ;;
-         nodockerpush)              dockerpush=no ;;
          all|everything|beforemerge|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge)
             oses=${oses:-"$ALL_oses"}
             build_types=${build_types:-"$ALL_build_types"}
@@ -163,13 +160,13 @@ rm -f $ignored
 
 
 to_json(){
-   echo "{
-         os:\"$1\",
-         cc:\"$2\",
-         BuildType:\"$3\",
-         CMAKE_USE:\"$( [[ "$4" = normal ]] || echo "-DUSE_${4^^}=ON" )\",
-         dockerpush: \"$dockerpush\"
-      }"
+   # echo "{
+   #       os:\"$1\",
+   #       cc:\"$2\",
+   #       BuildType:\"$3\",
+   #       CMAKE_USE:\"$( [[ "$4" = normal ]] || echo "-DUSE_${4^^}=ON" )\"
+   #    }"
+   echo "{buildspec:\"$@\"}"
 }
 to_json_multiline(){
    echo [
@@ -187,9 +184,22 @@ json_include(){
 
 MATRIX="$(echo "$MATRIX" | sed '/^$/d' | sort -uV)"
 echo "$MATRIX"
-echo "$MATRIX"                                               | json_include >matrix
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'              | json_include >matrix_ubuntu
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/' | json_include >matrix_ubuntu_release
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/'   | json_include >matrix_ubuntu_debug
-echo "$MATRIX" | awk -v IGNORECASE=1 '/macos/'               | json_include >matrix_macos
-echo "$MATRIX" | awk -v IGNORECASE=1 '/windows/'             | json_include >matrix_windows
+
+echo "$MATRIX"                                                          >buildspec
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'                         >buildspec_ubuntu
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/'            >buildspec_ubuntu_release
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/'              >buildspec_ubuntu_debug
+echo "$MATRIX" | awk -v IGNORECASE=1 '/macos/'                          >buildspec_macos
+echo "$MATRIX" | awk -v IGNORECASE=1 '/windows/'                        >buildspec_windows
+## Build Docker images only with GCC-9 (mainstream compiler)
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/ && /gcc-9/' >buildspec_dockerimage_release
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/   && /gcc-9/' >buildspec_dockerimage_debug
+
+echo "$MATRIX"                                                          | json_include >matrix
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'                         | json_include >matrix_ubuntu
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/'            | json_include >matrix_ubuntu_release
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/'              | json_include >matrix_ubuntu_debug
+echo "$MATRIX" | awk -v IGNORECASE=1 '/macos/'                          | json_include >matrix_macos
+echo "$MATRIX" | awk -v IGNORECASE=1 '/windows/'                        | json_include >matrix_windows
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/ && /gcc-9/' | json_include >matrix_dockerimage_release
+echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/   && /gcc-9/' | json_include >matrix_dockerimage_debug
