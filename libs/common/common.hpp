@@ -7,9 +7,9 @@
 #define IROHA_LIBS_COMMON_HPP
 
 #include <chrono>
+#include <condition_variable>
 #include <mutex>
 #include <shared_mutex>
-#include <condition_variable>
 
 namespace iroha::utils {
 

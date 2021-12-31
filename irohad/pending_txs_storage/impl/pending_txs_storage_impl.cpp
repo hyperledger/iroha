@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <mutex>
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
+
+#include <mutex>
 
 #include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "interfaces/transaction.hpp"
