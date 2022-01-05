@@ -333,7 +333,45 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys) {
 TEST_F(RocksDBTest, FilterDelete) {
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_TRUE(common.filterDelete("keY").ok());
+    insertDb("ab", "ab");
+    insertDb("k", "121");
+    ASSERT_TRUE(common.filterDelete(2ull, "keY").second.ok());
+    ASSERT_TRUE(common.commit().ok());
+  }
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_TRUE(common.get(key1_).IsNotFound());
+    ASSERT_TRUE(common.get(key2_).IsNotFound());
+  }
+  {
+    ASSERT_TRUE(readDb(key3_) == value3_);
+    ASSERT_TRUE(readDb(key4_) == value4_);
+    ASSERT_TRUE(readDb(key5_) == value5_);
+  }
+}
+
+TEST_F(RocksDBTest, FilterDelete2) {
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_TRUE(common.filterDelete(1ull, "keY").second.ok());
+    ASSERT_TRUE(common.commit().ok());
+  }
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_TRUE(common.get(key1_).IsNotFound());
+  }
+  {
+    ASSERT_TRUE(readDb(key2_) == value2_);
+    ASSERT_TRUE(readDb(key3_) == value3_);
+    ASSERT_TRUE(readDb(key4_) == value4_);
+    ASSERT_TRUE(readDb(key5_) == value5_);
+  }
+}
+
+TEST_F(RocksDBTest, FilterDelete3) {
+  {
+    RocksDbCommon common(tx_context_);
+    ASSERT_TRUE(common.filterDelete(1000ull, "keY").second.ok());
     ASSERT_TRUE(common.commit().ok());
   }
   {
@@ -452,7 +490,7 @@ TEST_F(RocksDBTest, Quorum) {
 
 TEST_F(RocksDBTest, SortingOrder) {
   RocksDbCommon common(tx_context_);
-  common.filterDelete("");
+  common.filterDelete(1ull, "");
 
   common.valueBuffer().clear();
   ASSERT_TRUE(common.put("5").ok());
@@ -486,7 +524,7 @@ TEST_F(RocksDBTest, SortingOrder) {
 
 TEST_F(RocksDBTest, LowerBoundSearch) {
   RocksDbCommon common(tx_context_);
-  common.filterDelete("");
+  common.filterDelete(1ull, "");
 
   char const *target = "wta1234569#1#2";
   char const *target2 = "wta1234367#1#1";

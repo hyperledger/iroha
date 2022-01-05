@@ -9,6 +9,7 @@
 #include <charconv>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <string_view>
 
 #include <fmt/compile.h>
@@ -890,20 +891,24 @@ namespace iroha::ametsuchi {
 
     /// Removes range of items by key-filter
     template <typename S, typename... Args>
-    auto filterDelete(S const &fmtstring, Args &&... args) {
+    auto filterDelete(uint64_t delete_count, S const &fmtstring, Args &&... args) -> std::pair<bool, rocksdb::Status> {
       auto it = seek(fmtstring, std::forward<Args>(args)...);
       if (!it->status().ok())
-        return it->status();
+        return std::make_pair<bool, rocksdb::Status>(false, it->status());
 
       rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
       if (auto c = cache(); c && c->isCacheable(key.ToStringView()))
         c->filterDelete(key.ToStringView());
 
-      for (; it->Valid() && it->key().starts_with(key); it->Next())
+      bool was_deleted = false;
+      for (; delete_count-- && it->Valid() && it->key().starts_with(key); it->Next()) {
         if (auto status = transaction()->Delete(it->key()); !status.ok())
-          return status;
+          return std::pair<bool, rocksdb::Status>(was_deleted, status);
+        else
+          was_deleted = true;
+      }
 
-      return it->status();
+      return std::pair<bool, rocksdb::Status>(was_deleted, it->status());
     }
 
    private:
@@ -1938,11 +1943,25 @@ namespace iroha::ametsuchi {
     return result;
   }
 
-  inline expected::Result<void, DbError> dropWSV(RocksDbCommon &common) {
-    if (auto status = common.filterDelete(fmtstrings::kPathWsv); !status.ok())
-      return makeError<void>(DbErrorCode::kOperationFailed,
-                             "Clear WSV failed.");
+  template <typename S>
+  inline expected::Result<void, DbError> dropBranch(RocksDbCommon &common, S const &fmtstring) {
+    std::pair<bool, rocksdb::Status> status;
+    do {
+      status = common.filterDelete(10000ull, fmtstring);
+      if (!status.second.ok())
+        return makeError<void>(DbErrorCode::kOperationFailed,
+                               "Clear {} failed.", fmtstring);
+      common.commit();
+    } while (status.first);
     return {};
+  }
+
+  inline expected::Result<void, DbError> dropStore(RocksDbCommon &common) {
+    return dropBranch(common, fmtstrings::kPathStore);
+  }
+
+  inline expected::Result<void, DbError> dropWSV(RocksDbCommon &common) {
+    return dropBranch(common, fmtstrings::kPathWsv);
   }
 
 }  // namespace iroha::ametsuchi
