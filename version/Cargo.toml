@@ -7,19 +7,18 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["scale", "json", "derive"]
-scale = ["parity-scale-codec"]
-json = ["serde_json"]
+default = ["std", "derive", "scale", "json"]
+std = ["iroha_macro/std", "parity-scale-codec/std", "thiserror"]
 derive = ["iroha_version_derive"]
+scale = ["parity-scale-codec/full"]
+json = ["serde", "serde_json"]
 
 [dependencies]
-iroha_version_derive = { version = "=2.0.0-pre.1", path = "derive", optional = true }
-iroha_macro = { version = "=2.0.0-pre.1", path = "../macro" }
+iroha_version_derive = { version = "=2.0.0-pre.1", path = "derive", default-features = false, optional = true }
+iroha_macro = { version = "=2.0.0-pre.1", path = "../macro", default-features = false }
 
-eyre = "0.6.5"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = {version = "1.0", optional = true }
-thiserror = "1.0.28"
-
-parity-scale-codec = { version = "2", features = ["derive"], optional = true }
-warp = { version = "0.3", default-features = false, optional = true }
+parity-scale-codec = { version = "2.3.1",  default-features = false, optional = true, features = ["derive"] }
+serde_json = { version = "1.0", default-features = false, optional = true, features = ["alloc"] }
+serde = { version = "1.0", default-features = false, optional = true, features = ["derive"] }
+thiserror = { version = "1.0.28", default-features = false, optional = true }
+warp = { version = "0.3.2",  default-features = false, optional = true }

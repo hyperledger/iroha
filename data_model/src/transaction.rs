@@ -275,11 +275,7 @@ impl FromIterator<Transaction> for VersionedPendingTransactions {
 impl Reply for VersionedPendingTransactions {
     fn into_response(self) -> Response {
         use iroha_version::scale::EncodeVersioned;
-
-        match self.encode_versioned() {
-            Ok(bytes) => Response::new(bytes.into()),
-            Err(e) => e.into_response(),
-        }
+        Response::new(self.encode_versioned().into())
     }
 }
 

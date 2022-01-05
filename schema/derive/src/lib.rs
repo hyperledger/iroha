@@ -106,7 +106,7 @@ fn metadata(data: &Data) -> TokenStream2 {
         }) => {
             let expr = syn::parse2(quote! {iroha_schema::Metadata::TupleStruct(
                 iroha_schema::UnnamedFieldsMeta {
-                    types: vec![],
+                    types: vec![]
                 }
             )})
             .unwrap();
@@ -131,13 +131,13 @@ fn metadata(data: &Data) -> TokenStream2 {
 fn metadata_for_tuplestructs(fields: &FieldsUnnamed) -> (Vec<Type>, Expr) {
     let fields = fields.unnamed.iter().filter_map(filter_map_fields_types);
     let fields_ty = fields.clone().map(|field| field.ty).collect();
-    let declarations = fields
+    let types = fields
         .map(|field| field.ty)
         .map(|ty| quote! { <#ty as iroha_schema::IntoSchema>::type_name()});
     let expr = syn::parse2(quote! {
         iroha_schema::Metadata::TupleStruct(
             iroha_schema::UnnamedFieldsMeta {
-                types: vec![#(#declarations),*],
+                types: vec![#(#types),*],
             }
         )
     })
@@ -192,7 +192,7 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
             );
             quote! {
                 iroha_schema::EnumVariant {
-                    name: stringify!(#name).to_owned(),
+                    name: String::from(stringify!(#name)),
                     discriminant: #discriminant,
                     ty: #ty,
                 }
@@ -221,7 +221,7 @@ fn field_to_declaration(field: &Field) -> TokenStream2 {
 
     quote! {
         iroha_schema::Declaration {
-            name: stringify!(#ident).to_owned(),
+            name: String::from(stringify!(#ident)),
             ty: <#ty as iroha_schema::IntoSchema>::type_name(),
         }
     }

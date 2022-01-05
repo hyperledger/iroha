@@ -69,7 +69,7 @@ fn from_container_variant_internal(
     container_ty: &syn::TypePath,
 ) -> proc_macro2::TokenStream {
     quote! {
-        impl std::convert::From<#from_ty> for #into_ty {
+        impl From<#from_ty> for #into_ty {
             fn from(origin: #from_ty) -> Self {
                 #into_ty :: #into_variant (#container_ty :: new(origin))
             }
@@ -83,7 +83,7 @@ fn from_variant_internal(
     from_ty: &syn::Type,
 ) -> proc_macro2::TokenStream {
     quote! {
-        impl std::convert::From<#from_ty> for #into_ty {
+        impl From<#from_ty> for #into_ty {
             fn from(origin: #from_ty) -> Self {
                 #into_ty :: #into_variant (origin)
             }
@@ -143,7 +143,7 @@ fn try_into_variant(
         impl TryFrom<#enum_ty> for #variant_ty {
             type Error = iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>;
 
-            fn try_from(origin: #enum_ty) -> std::result::Result<Self, iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>> {
+            fn try_from(origin: #enum_ty) -> core::result::Result<Self, iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>> {
                 if let #enum_ty :: #variant(variant) = origin {
                     Ok(variant)
                 } else {

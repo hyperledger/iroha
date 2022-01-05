@@ -189,7 +189,7 @@ impl Client {
         transaction.check_instruction_len(self.max_instruction_number)?;
         let transaction: VersionedTransaction = transaction.into();
         let hash = transaction.hash();
-        let transaction_bytes: Vec<u8> = transaction.encode_versioned()?;
+        let transaction_bytes: Vec<u8> = transaction.encode_versioned();
         let response = http_client::post(
             format!("{}/{}", &self.torii_url, uri::TRANSACTION),
             transaction_bytes,
@@ -322,7 +322,7 @@ impl Client {
         let request: VersionedSignedQueryRequest = request.sign(self.key_pair.clone())?.into();
         let response = http_client::post(
             format!("{}/{}", &self.torii_url, uri::QUERY),
-            request.encode_versioned()?,
+            request.encode_versioned(),
             pagination,
             self.headers.clone(),
         )?;
@@ -538,7 +538,7 @@ impl EventIterator {
         let mut stream = http_client::web_socket_connect(url, headers)?;
         stream.write_message(WebSocketMessage::Binary(
             VersionedEventSubscriberMessage::from(EventSubscriberMessage::from(event_filter))
-                .encode_versioned()?,
+                .encode_versioned(),
         ))?;
         loop {
             match stream.read_message() {
@@ -577,15 +577,10 @@ impl Iterator for EventIterator {
                         EventPublisherMessage::Event(event) => event,
                         msg => return Some(Err(eyre!("Expected Event but got {:?}", msg))),
                     };
-                    let versioned_message = match VersionedEventSubscriberMessage::from(
+                    let versioned_message = VersionedEventSubscriberMessage::from(
                         EventSubscriberMessage::EventReceived,
                     )
-                    .encode_versioned()
-                    .wrap_err("Failed to serialize receipt.")
-                    {
-                        Ok(msg) => msg,
-                        Err(e) => return Some(Err(e)),
-                    };
+                    .encode_versioned();
                     return match self
                         .stream
                         .write_message(WebSocketMessage::Binary(versioned_message))
