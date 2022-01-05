@@ -16,6 +16,7 @@
 #include <fmt/format.h>
 #include <rocksdb/db.h>
 #include <rocksdb/table.h>
+#include <rocksdb/filter_policy.h>
 #include <rocksdb/utilities/optimistic_transaction_db.h>
 #include <rocksdb/utilities/transaction.h>
 #include "ametsuchi/impl/database_cache/cache.hpp"
@@ -510,6 +511,7 @@ namespace iroha::ametsuchi {
       table_options.block_size = 32 * 1024;
       // table_options.pin_l0_filter_and_index_blocks_in_cache = true;
       table_options.cache_index_and_filter_blocks = true;
+      table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
 
       rocksdb::Options options;
       options.create_if_missing = true;
