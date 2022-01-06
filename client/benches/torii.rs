@@ -30,12 +30,11 @@ fn query_requests(criterion: &mut Criterion) {
         &configuration.genesis,
         configuration.sumeragi.max_instruction_number,
     )
-    .unwrap();
+    .expect("genesis creation failed");
 
     rt.block_on(peer.start_with_config(genesis, configuration));
-    thread::sleep(std::time::Duration::from_millis(50));
 
-    let mut group = criterion.benchmark_group("query-reqeuests");
+    let mut group = criterion.benchmark_group("query-requests");
     let domain_name = "domain";
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
     let account_name = "account";
@@ -59,8 +58,18 @@ fn query_requests(criterion: &mut Criterion) {
         IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
+
+    // TODO: We should definitely turn this into type-checked state. `String` is a terrible bodge
     client_config.torii_api_url = peer.api_address.clone();
+    if !client_config.torii_api_url.starts_with("http://") {
+        client_config.torii_api_url = format!("http://{}", client_config.torii_api_url);
+    }
+    if !client_config.torii_status_url.starts_with("http://") {
+        client_config.torii_status_url = format!("http://{}", client_config.torii_status_url);
+    }
     let mut iroha_client = Client::new(&client_config);
+    thread::sleep(std::time::Duration::from_millis(5000));
+
     let _ = iroha_client
         .submit_all(vec![
             create_domain.into(),
@@ -68,7 +77,8 @@ fn query_requests(criterion: &mut Criterion) {
             create_asset.into(),
             mint_asset.into(),
         ])
-        .expect("Failed to prepare state.");
+        .expect("Failed to prepare state");
+
     let request = asset::by_account_id(account_id);
     thread::sleep(std::time::Duration::from_millis(1500));
     let mut success_count = 0;
@@ -100,6 +110,7 @@ fn query_requests(criterion: &mut Criterion) {
 }
 
 fn instruction_submits(criterion: &mut Criterion) {
+    println!("instruction submits");
     let rt = Runtime::test();
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     let configuration = get_config(
@@ -113,7 +124,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         &configuration.genesis,
         configuration.sumeragi.max_instruction_number,
     )
-    .unwrap();
+    .expect("failed to create genesis");
     rt.block_on(peer.start_with_config(genesis, configuration));
     thread::sleep(std::time::Duration::from_millis(50));
 
@@ -126,7 +137,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         NewAccount::with_signatory(
             account_id.clone(),
             KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
+                .expect("Failed to generate Key-pair.")
                 .public_key,
         )
         .into(),
@@ -134,7 +145,14 @@ fn instruction_submits(criterion: &mut Criterion) {
     let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
     client_config.torii_api_url = peer.api_address.clone();
+    if !client_config.torii_api_url.starts_with("http://") {
+        client_config.torii_api_url = format!("http://{}", client_config.torii_api_url);
+    }
+    if !client_config.torii_status_url.starts_with("http://") {
+        client_config.torii_status_url = format!("http://{}", client_config.torii_status_url);
+    }
     let mut iroha_client = Client::new(&client_config);
+    thread::sleep(std::time::Duration::from_millis(5000));
     let _ = iroha_client
         .submit_all(vec![create_domain.into(), create_account.into()])
         .expect("Failed to create role.");
