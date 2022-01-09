@@ -9,14 +9,14 @@
 #include <charconv>
 #include <mutex>
 #include <string>
-#include <utility>
 #include <string_view>
+#include <utility>
 
 #include <fmt/compile.h>
 #include <fmt/format.h>
 #include <rocksdb/db.h>
-#include <rocksdb/table.h>
 #include <rocksdb/filter_policy.h>
+#include <rocksdb/table.h>
 #include <rocksdb/utilities/optimistic_transaction_db.h>
 #include <rocksdb/utilities/transaction.h>
 #include "ametsuchi/impl/database_cache/cache.hpp"
@@ -511,7 +511,8 @@ namespace iroha::ametsuchi {
       table_options.block_size = 32 * 1024;
       // table_options.pin_l0_filter_and_index_blocks_in_cache = true;
       table_options.cache_index_and_filter_blocks = true;
-      table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+      table_options.filter_policy.reset(
+          rocksdb::NewBloomFilterPolicy(10, false));
 
       rocksdb::Options options;
       options.create_if_missing = true;
@@ -893,7 +894,9 @@ namespace iroha::ametsuchi {
 
     /// Removes range of items by key-filter
     template <typename S, typename... Args>
-    auto filterDelete(uint64_t delete_count, S const &fmtstring, Args &&... args) -> std::pair<bool, rocksdb::Status> {
+    auto filterDelete(uint64_t delete_count,
+                      S const &fmtstring,
+                      Args &&... args) -> std::pair<bool, rocksdb::Status> {
       auto it = seek(fmtstring, std::forward<Args>(args)...);
       if (!it->status().ok())
         return std::make_pair<bool, rocksdb::Status>(false, it->status());
@@ -903,7 +906,8 @@ namespace iroha::ametsuchi {
         c->filterDelete(key.ToStringView());
 
       bool was_deleted = false;
-      for (; delete_count-- && it->Valid() && it->key().starts_with(key); it->Next()) {
+      for (; delete_count-- && it->Valid() && it->key().starts_with(key);
+           it->Next()) {
         if (auto status = transaction()->Delete(it->key()); !status.ok())
           return std::pair<bool, rocksdb::Status>(was_deleted, status);
         else
@@ -1946,13 +1950,14 @@ namespace iroha::ametsuchi {
   }
 
   template <typename S>
-  inline expected::Result<void, DbError> dropBranch(RocksDbCommon &common, S const &fmtstring) {
+  inline expected::Result<void, DbError> dropBranch(RocksDbCommon &common,
+                                                    S const &fmtstring) {
     std::pair<bool, rocksdb::Status> status;
     do {
       status = common.filterDelete(10000ull, fmtstring);
       if (!status.second.ok())
-        return makeError<void>(DbErrorCode::kOperationFailed,
-                               "Clear {} failed.", fmtstring);
+        return makeError<void>(
+            DbErrorCode::kOperationFailed, "Clear {} failed.", fmtstring);
       common.commit();
     } while (status.first);
     return {};

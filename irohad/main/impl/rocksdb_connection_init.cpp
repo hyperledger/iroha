@@ -55,7 +55,8 @@ RdbConnectionInit::init(StartupWsvDataPolicy startup_wsv_data_policy,
                         iroha::ametsuchi::RocksDbOptions const &opt,
                         logger::LoggerManagerTreePtr log_manager) {
   log_manager->getLogger()->info(
-      "Working database prepare started(with 'drop_state' flag it can take a long time)...");
+      "Working database prepare started(with 'drop_state' flag it can take a "
+      "long time)...");
   return prepareWorkingDatabase(startup_wsv_data_policy, opt);
 }
 

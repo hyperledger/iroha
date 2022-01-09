@@ -6,11 +6,11 @@
 #include "ametsuchi/impl/rocksdb_query_executor.hpp"
 
 #include "ametsuchi/impl/rocksdb_specific_query_executor.hpp"
+#include "common/to_lower.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"
 #include "logger/logger.hpp"
-#include "common/to_lower.hpp"
 
 using namespace shared_model::interface::permissions;
 

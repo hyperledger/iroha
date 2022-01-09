@@ -8,12 +8,12 @@
 #include "ametsuchi/impl/rocksdb_command_executor.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "ametsuchi/tx_executor.hpp"
+#include "common/to_lower.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
-#include "common/to_lower.hpp"
 
 namespace iroha::ametsuchi {
 

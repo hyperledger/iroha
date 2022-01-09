@@ -111,10 +111,12 @@ void RocksDbBlockStorage::clear() {
   RocksDbCommon common(db_context_);
 
   if (auto res = dropStore(common); expected::hasError(res))
-    log_->error("Unable to delete Store. Description: {}", res.assumeError().description);
+    log_->error("Unable to delete Store. Description: {}",
+                res.assumeError().description);
 
   if (auto res = dropWSV(common); expected::hasError(res))
-    log_->error("Unable to delete WSV. Description: {}", res.assumeError().description);
+    log_->error("Unable to delete WSV. Description: {}",
+                res.assumeError().description);
 }
 
 iroha::expected::Result<void, std::string> RocksDbBlockStorage::forEach(
