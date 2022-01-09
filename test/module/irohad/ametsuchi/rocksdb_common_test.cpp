@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include <boost/filesystem.hpp>
 #include <iostream>
+#include <set>
 
 #include "ametsuchi/impl/database_cache/cache.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
@@ -119,8 +120,58 @@ TEST_F(RocksDBTest, DatabaseCacheTest) {
   ASSERT_EQ(counter, 2ull);
 }
 
+TEST_F(RocksDBTest, RadixTreeFilterEnum) {
+  iroha::RadixTree<QQQ, iroha::Alphabet, char, 2ul> rt;
+  rt.insert("1", 1, "1");
+
+  std::set<std::string> expect = {"1"};
+  auto filter = [&](std::string_view key, QQQ *data) {
+    ASSERT_NE(data, nullptr);
+    ASSERT_FALSE(data->s.empty());
+    ASSERT_TRUE(key == data->s);
+
+    auto it = expect.find(data->s);
+    ASSERT_NE(it, expect.end());
+
+    expect.erase(it);
+  };
+
+  rt.filterEnumerate("1", 1, filter);
+  ASSERT_TRUE(expect.empty());
+
+  rt.insert("12", 2, "12");
+  rt.insert("123", 3, "123");
+  rt.insert("124", 3, "124");
+
+  expect = {"12", "123", "124"};
+  rt.filterEnumerate("12", 2, filter);
+  ASSERT_TRUE(expect.empty());
+
+  rt.insert("1256", 4, "1256");
+  rt.insert("1257", 4, "1257");
+
+  expect = {"1256", "1257"};
+  rt.filterEnumerate("125", 3, filter);
+  ASSERT_TRUE(expect.empty());
+
+  rt.insert("12578", 5, "12578");
+  rt.insert("125789", 6, "125789");
+  rt.insert("1257890000", 10, "1257890000");
+
+  expect = {"1257", "12578", "125789", "1257890000"};
+  rt.filterEnumerate("1257", 4, filter);
+  ASSERT_TRUE(expect.empty());
+}
+
 TEST_F(RocksDBTest, RadixTreeTest) {
   iroha::RadixTree<QQQ, iroha::Alphabet, char, 2ul> rt;
+
+  rt.insert("1234", 4, "9");
+  rt.filterDelete("123", 3);
+  ASSERT_TRUE(rt.find("1", 1) == nullptr);
+  ASSERT_TRUE(rt.find("12", 2) == nullptr);
+  ASSERT_TRUE(rt.find("123", 3) == nullptr);
+  ASSERT_TRUE(rt.find("1234", 4) == nullptr);
 
   rt.insert("123", 3, "d");
   rt.filterDelete("12", 2);
