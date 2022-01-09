@@ -75,9 +75,11 @@ namespace iroha {
                   "Context must be with 0 offset.");
     using Alloc =
         typename std::allocator_traits<AllocT>::template rebind_alloc<Node>;
+    using AllocStr =
+        typename std::allocator_traits<AllocT>::template rebind_alloc<CharT>;
 
     mutable NodeContext root_;
-    std::basic_string<CharT, std::char_traits<CharT>, Alloc> key_name_;
+    std::basic_string<CharT, std::char_traits<CharT>, AllocStr> key_name_;
     Alloc alloc_;
 
     template <typename... Args>
@@ -103,6 +105,16 @@ namespace iroha {
     Node *reinit(Node *const what, Args &&... args) const {
       what->data.template emplace(std::forward<Args>(args)...);
       return what;
+    }
+
+    void createNodeKey(NodeContext const *const from) {
+      key_name_.clear();
+      auto parent = from;
+      while (parent != &root_) {
+        key_name_.insert(
+            key_name_.begin(), parent->key, parent->key + parent->key_sz);
+        parent = parent->parent;
+      }
     }
 
     NodeContext *&getFromKey(NodeContext *const parent,
@@ -440,31 +452,26 @@ namespace iroha {
         NodeContext *const from = (target_remains_len == 0ul)
             ? context.node
             : getFromKey(context.node, context.target_begin);
-
-        key_name_.clear();
-        key_name_.reserve(len);
-        auto parent = from;
-        do {
-          key_name_.insert(
-              key_name_.begin(), parent->key, parent->key + parent->key_sz);
-        } while ((parent = parent->parent) != &root_);
+        createNodeKey(from);
 
         NodeContext *child = nullptr;
         NodeContext *node = from;
+
         do {
-          if ((child = getChildAfter(node, child))) {
+          while ((child = getChildAfter(node, child))) {
             node = child;
             child = nullptr;
             key_name_.append(node->key, node->key_sz);
-          } else {
+          }
+          if (node != &root_) {
             if (Node *const n = nodeContextToNode(node); n->data)
               std::forward<Func>(func)(
                   std::string_view(key_name_.data(), key_name_.size()),
                   &(*n->data));
             key_name_.resize(key_name_.size() - node->key_sz);
-            child = node;
-            node = node->parent;
           }
+          child = node;
+          node = node->parent;
         } while (child != from);
       }
     }

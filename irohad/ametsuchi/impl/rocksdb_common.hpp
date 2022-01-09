@@ -697,7 +697,12 @@ namespace iroha::ametsuchi {
 
     void dropCache() {
       if (auto c = cache())
-        c->drop();
+        c->rollback();
+    }
+
+    void commitCache() {
+      if (auto c = cache())
+        c->commit();
     }
 
    public:
@@ -735,6 +740,7 @@ namespace iroha::ametsuchi {
       if (isTransaction())
         status = transaction()->Commit();
 
+      commitCache();
       transaction().reset();
       return status;
     }

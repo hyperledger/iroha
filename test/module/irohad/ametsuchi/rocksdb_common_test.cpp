@@ -120,6 +120,32 @@ TEST_F(RocksDBTest, DatabaseCacheTest) {
   ASSERT_EQ(counter, 2ull);
 }
 
+TEST_F(RocksDBTest, RadixTreeFilterEnum2) {
+  iroha::RadixTree<QQQ, iroha::Alphabet, char, 2ul> rt;
+  rt.insert("1", 1, "1");
+  rt.insert("12578", 5, "12578");
+  rt.insert("125789", 6, "125789");
+  rt.insert("1257890000", 10, "1257890000");
+  rt.insert("123", 3, "123");
+  rt.insert("124", 3, "124");
+
+  std::set<std::string> expect = {
+      "1", "12578", "125789", "1257890000", "123", "124"};
+  auto filter = [&](std::string_view key, QQQ *data) {
+    ASSERT_NE(data, nullptr);
+    ASSERT_FALSE(data->s.empty());
+    ASSERT_TRUE(key == data->s);
+
+    auto it = expect.find(data->s);
+    ASSERT_NE(it, expect.end());
+
+    expect.erase(it);
+  };
+
+  rt.filterEnumerate(nullptr, 0ul, filter);
+  ASSERT_TRUE(expect.empty());
+}
+
 TEST_F(RocksDBTest, RadixTreeFilterEnum) {
   iroha::RadixTree<QQQ, iroha::Alphabet, char, 2ul> rt;
   rt.insert("1", 1, "1");
@@ -348,6 +374,18 @@ TEST_F(RocksDBTest, SimpleDelete) {
 
   auto status = common.get(key3_);
   ASSERT_TRUE(status.IsNotFound());
+}
+
+TEST_F(RocksDBTest, SimpleInsert) {
+  RocksDbCommon common(tx_context_);
+
+  common.valueBuffer() = "k777";
+  common.put("k777");
+
+  common.valueBuffer().clear();
+  auto status = common.get("k777");
+  ASSERT_TRUE(status.ok());
+  ASSERT_TRUE(common.valueBuffer() == "k777");
 }
 
 TEST_F(RocksDBTest, SimpleSeek) {
