@@ -1,7 +1,5 @@
 #![allow(missing_docs, clippy::pedantic, clippy::restriction)]
 
-use std::thread;
-
 use iroha_core::{
     genesis::{GenesisNetwork, GenesisNetworkTrait, GenesisTransaction, RawGenesisBlock},
     prelude::*,
@@ -30,6 +28,10 @@ fn generate_genesis(num: u32) -> RawGenesisBlock {
     RawGenesisBlock { transactions }
 }
 
+/// Generate genesis with a given number of accounts and try to submit
+/// it. This will not check if the accounts are created, and is only
+/// needed for you to be able to monitor the RAM usage using an
+/// external program like `htop`.
 #[test]
 #[ignore = "Very slow. run with `cargo test --release` to significantly improve performance."]
 fn create_million_accounts() {
@@ -47,7 +49,10 @@ fn create_million_accounts() {
     )
     .expect("genesis creation failed");
 
+    // This only submits the genesis. It doesn't check if the accounts
+    // are created, because that check is 1) not needed for what the
+    // test is actually for, 2) incredibly slow, making this sort of
+    // test impractical, 3) very likely to overflow memory on systems
+    // with less than 16GiB of free memory.
     rt.block_on(peer.start_with_config(genesis, configuration));
-
-    thread::sleep(std::time::Duration::from_millis(50000));
 }

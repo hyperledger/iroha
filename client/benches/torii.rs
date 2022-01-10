@@ -126,8 +126,6 @@ fn instruction_submits(criterion: &mut Criterion) {
     )
     .expect("failed to create genesis");
     rt.block_on(peer.start_with_config(genesis, configuration));
-    thread::sleep(std::time::Duration::from_millis(50));
-
     let mut group = criterion.benchmark_group("instruction-requests");
     let domain_name = "domain";
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
