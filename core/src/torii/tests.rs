@@ -215,7 +215,7 @@ impl AssertReady {
         let response = warp::test::request()
             .method("POST")
             .path("/query")
-            .body(request.encode_versioned().unwrap())
+            .body(request.encode_versioned())
             .reply(&router)
             .await;
 

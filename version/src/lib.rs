@@ -3,12 +3,14 @@
 //! For usage examples see [`iroha_version_derive::declare_versioned`].
 
 #![allow(clippy::module_name_repetitions)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
-use std::{
-    error::Error as StdError,
-    fmt::{Display, Formatter, Result as FmtResult},
-    ops::Range,
-};
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
+use core::{fmt, ops::Range};
 
 #[cfg(feature = "derive")]
 pub use iroha_version_derive::*;
@@ -19,66 +21,81 @@ use serde::{Deserialize, Serialize};
 
 /// Module which contains error and result for versioning
 pub mod error {
+    use core::fmt;
+
     use iroha_macro::FromVariant;
-    use thiserror::Error;
-    #[cfg(feature = "warp")]
-    use warp::{
-        http::StatusCode,
-        reject::Reject,
-        reply::{self, Response},
-        Reply,
-    };
 
     use super::UnsupportedVersion;
 
     /// Versioning errors
-    #[derive(Error, Debug, FromVariant)]
+    #[derive(Debug, FromVariant)]
+    #[cfg_attr(feature = "std", derive(thiserror::Error))]
     pub enum Error {
-        /// This is not a versioned object. No version information found.
-        #[error("This is not a versioned object. No version information found.")]
+        /// This is not a versioned object
         NotVersioned,
-        /// Can not encode unsupported version from json to scale.
-        #[error("Can not encode unsupported version from json to scale.")]
+        /// Cannot encode unsupported version from JSON to Parity SCALE
         UnsupportedJsonEncode,
-        /// Expected json object.
-        #[error("Expected json object.")]
+        /// Expected JSON object
         ExpectedJson,
-        /// Can not encode unsupported version from scale to json
-        #[error("Can not encode unsupported version from scale to json.")]
+        /// Cannot encode unsupported version from Parity SCALE to JSON
         UnsupportedScaleEncode,
-        /// Problem with serialization/deserialization of json
-        #[error("Problem with serialization/deserialization of json.")]
-        Serde(#[source] serde_json::Error),
-        /// Problem with serialization/deserialization of parity scale.
-        #[error("Problem with serialization/deserialization of parity scale.")]
-        ParityScale(#[source] parity_scale_codec::Error),
-        /// Problem with parsing integers.
-        #[error("Problem with parsing integers.")]
-        ParseInt(#[source] std::num::ParseIntError),
-        /// Version of input is unsupported
-        #[error("Version of input is unsupported")]
+        /// JSON (de)serialization issue
+        #[cfg(feature = "json")]
+        Serde(#[cfg_attr(feature = "std", source)] serde_json::Error),
+        /// Parity SCALE (de)serialization issue
+        #[cfg(feature = "scale")]
+        ParityScale(#[cfg_attr(feature = "std", source)] parity_scale_codec::Error),
+        /// Problem with parsing integers
+        ParseInt(#[cfg_attr(feature = "std", source)] core::num::ParseIntError),
+        /// Input version unsupported
         UnsupportedVersion(UnsupportedVersion),
+    }
+
+    impl fmt::Display for Error {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let msg = match *self {
+                Self::NotVersioned => "Not a versioned object",
+                Self::UnsupportedJsonEncode => {
+                    "Cannot encode unsupported version from JSON to SCALE"
+                }
+                Self::ExpectedJson => "Expected JSON object",
+                Self::UnsupportedScaleEncode => {
+                    "Cannot encode unsupported version from SCALE to JSON"
+                }
+                #[cfg(feature = "json")]
+                Self::Serde(_) => "JSON (de)serialization issue",
+                #[cfg(feature = "scale")]
+                Self::ParityScale(_) => "Parity SCALE (de)serialization issue",
+                Self::ParseInt(_) => "Problem with parsing integers",
+                Self::UnsupportedVersion(_) => "Input version unsupported",
+            };
+
+            write!(f, "{}", msg)
+        }
     }
 
     #[cfg(feature = "warp")]
     impl Error {
         /// Returns status code for this error
         #[allow(clippy::unused_self)]
-        pub const fn status_code(&self) -> StatusCode {
-            StatusCode::BAD_REQUEST
+        pub const fn status_code(&self) -> warp::http::StatusCode {
+            warp::http::StatusCode::BAD_REQUEST
         }
     }
     #[cfg(feature = "warp")]
-    impl Reply for Error {
-        fn into_response(self) -> Response {
-            reply::with_status(self.to_string(), self.status_code()).into_response()
+    impl warp::Reply for Error {
+        fn into_response(self) -> warp::reply::Response {
+            #[cfg(not(feature = "std"))]
+            use alloc::string::ToString as _;
+
+            warp::reply::with_status(self.to_string(), self.status_code()).into_response()
         }
     }
     #[cfg(feature = "warp")]
-    impl Reject for Error {}
+    impl warp::reject::Reject for Error {}
 
     /// Result type for versioning
-    pub type Result<T, E = Error> = std::result::Result<T, E>;
+    pub type Result<T, E = Error> = core::result::Result<T, E>;
 }
 
 /// General trait describing if this is a versioned container.
@@ -96,9 +113,9 @@ pub trait Version {
 }
 
 /// Structure describing a container content which version is not supported.
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "scale", derive(Encode, Decode))]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
 pub struct UnsupportedVersion {
     /// Version of the content.
     pub version: u8,
@@ -106,13 +123,14 @@ pub struct UnsupportedVersion {
     pub raw: RawVersioned,
 }
 
-impl Display for UnsupportedVersion {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+impl fmt::Display for UnsupportedVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Unsupported version: {}", self.version)
     }
 }
 
-impl StdError for UnsupportedVersion {}
+#[cfg(feature = "std")]
+impl std::error::Error for UnsupportedVersion {}
 
 impl UnsupportedVersion {
     /// Constructs [`UnsupportedVersion`].
@@ -123,9 +141,9 @@ impl UnsupportedVersion {
 }
 
 /// Raw versioned content, serialized.
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "scale", derive(Encode, Decode))]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
 pub enum RawVersioned {
     /// In JSON format.
     Json(String),
@@ -136,6 +154,9 @@ pub enum RawVersioned {
 /// Scale related versioned (de)serialization traits.
 #[cfg(feature = "scale")]
 pub mod scale {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec::Vec;
+
     use parity_scale_codec::{Decode, Encode};
 
     use super::{error::Result, Version};
@@ -152,15 +173,16 @@ pub mod scale {
     /// [`Encode`] versioned analog.
     pub trait EncodeVersioned: Encode + Version {
         /// Use this function for versioned objects instead of `encode`.
-        /// # Errors
-        /// Fails if serialization with parity scale codec fails
-        fn encode_versioned(&self) -> Result<Vec<u8>>;
+        fn encode_versioned(&self) -> Vec<u8>;
     }
 }
 
 /// JSON related versioned (de)serialization traits.
 #[cfg(feature = "json")]
 pub mod json {
+    #[cfg(not(feature = "std"))]
+    use alloc::string::String;
+
     use serde::{Deserialize, Serialize};
 
     use super::{error::Result, Version};

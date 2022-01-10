@@ -1,11 +1,18 @@
 //! Module for schematizing rust types in other languages for translation.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    time::Duration,
+#![no_std]
+
+extern crate alloc;
+
+use alloc::{
+    borrow::ToOwned as _,
+    collections::{btree_map::BTreeMap, btree_set::BTreeSet},
+    format,
+    string::String,
+    vec,
+    vec::Vec,
 };
 
-use fixnum::{typenum::U9, FixedPoint};
 /// Derive schema. It will make your structure schemaable
 pub use iroha_schema_derive::IntoSchema;
 use serde::Serialize;
@@ -16,12 +23,12 @@ pub type MetaMap = BTreeMap<String, Metadata>;
 /// `IntoSchema` trait
 pub trait IntoSchema {
     /// Returns unique type name.
-    /// WARN: `std::any::type_name` is compiler related, so is not unique.
+    /// WARN: `core::any::type_name` is compiler related, so is not unique.
     /// I guess we should change it somehow later
     fn type_name() -> String {
         let mut name = module_path!().to_owned();
         name.push_str("::");
-        name.push_str(std::any::type_name::<Self>());
+        name.push_str(core::any::type_name::<Self>());
         name
     }
 
@@ -165,7 +172,7 @@ macro_rules! impl_schema_int {
     ($($t:ty,)*) => {$(
         impl IntoSchema for $t {
             fn type_name() -> String {
-                std::any::type_name::<Self>().to_owned()
+                core::any::type_name::<Self>().to_owned()
             }
             fn schema(map: &mut MetaMap) {
                 let _ = map.entry(Self::type_name()).or_insert(
@@ -187,7 +194,7 @@ macro_rules! impl_schema_int {
 
 impl_schema_int!(u128, u64, u32, u16, u8, i128, i64, i32, i16, i8,);
 
-impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for FixedPoint<I, P> {
+impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for fixnum::FixedPoint<I, P> {
     fn type_name() -> String {
         format!("FixedPoint<{}>", I::type_name())
     }
@@ -205,7 +212,7 @@ impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for FixedPoint<I, P> {
     }
 }
 
-impl DecimalPlacesAware for U9 {
+impl DecimalPlacesAware for fixnum::typenum::U9 {
     fn decimal_places() -> usize {
         9
     }
@@ -222,7 +229,7 @@ impl IntoSchema for String {
 
 impl IntoSchema for bool {
     fn type_name() -> String {
-        std::any::type_name::<Self>().to_owned()
+        core::any::type_name::<Self>().to_owned()
     }
     fn schema(map: &mut MetaMap) {
         let _ = map.entry(Self::type_name()).or_insert(Metadata::Bool);
@@ -257,7 +264,7 @@ impl<T: IntoSchema> IntoSchema for Option<T> {
     }
 }
 
-impl<T: IntoSchema> IntoSchema for Box<T> {
+impl<T: IntoSchema> IntoSchema for alloc::boxed::Box<T> {
     fn type_name() -> String {
         T::type_name()
     }
@@ -316,9 +323,9 @@ impl<V: IntoSchema> IntoSchema for BTreeSet<V> {
     }
 }
 
-impl IntoSchema for Duration {
+impl IntoSchema for core::time::Duration {
     fn type_name() -> String {
-        std::any::type_name::<Self>().to_owned()
+        core::any::type_name::<Self>().to_owned()
     }
     // Look at:
     //   https://docs.rs/parity-scale-codec/2.1.1/src/parity_scale_codec/codec.rs.html#1182-1192

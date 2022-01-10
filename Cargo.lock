@@ -1113,9 +1113,9 @@ checksum = "398ea4fabe40b9b0d885340a2a991a44c8a645624075ad966d21f88688e2b69e"
 
 [[package]]
 name = "fixnum"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "079f104d02e422d4d3e1476ce46c3f5ad04ace499d3e999da181f54aef62932f"
+checksum = "d83b4df6079ff2f20dfd4c4a13a5c326d985ae35e289df51ff95e71e76b7ada5"
 dependencies = [
  "derive_more",
  "serde",
@@ -1853,7 +1853,6 @@ dependencies = [
 name = "iroha_macro"
 version = "2.0.0-pre.1"
 dependencies = [
- "eyre",
  "iroha_derive",
 ]
 
@@ -1902,7 +1901,6 @@ dependencies = [
 name = "iroha_schema_bin"
 version = "2.0.0-pre.1"
 dependencies = [
- "eyre",
  "iroha_core",
  "iroha_data_model",
  "iroha_schema",
@@ -1964,7 +1962,6 @@ dependencies = [
 name = "iroha_version"
 version = "2.0.0-pre.1"
 dependencies = [
- "eyre",
  "iroha_macro",
  "iroha_version_derive",
  "parity-scale-codec",
@@ -3024,9 +3021,9 @@ checksum = "568a8e6258aa33c13358f81fd834adb854c6f7c9468520910a9b1e8fac068012"
 
 [[package]]
 name = "serde"
-version = "1.0.130"
+version = "1.0.133"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f12d06de37cf59146fbdecab66aa99f9fe4f78722e3607577a5375d66bd0c913"
+checksum = "97565067517b60e2d1ea8b268e59ce036de907ac523ad83a0475da04e818989a"
 dependencies = [
  "serde_derive",
 ]
@@ -3052,9 +3049,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.130"
+version = "1.0.133"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7bc1a1ab1961464eae040d96713baa5a724a8152c1222492465b54322ec508b"
+checksum = "ed201699328568d8d08208fdd080e3ff594e6c422e438b6705905da01005d537"
 dependencies = [
  "proc-macro2",
  "quote",

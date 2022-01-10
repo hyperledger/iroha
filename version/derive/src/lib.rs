@@ -255,10 +255,10 @@ fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
         }
 
         impl iroha_version::scale::EncodeVersioned for #enum_name {
-            fn encode_versioned(&self) -> iroha_version::error::Result<Vec<u8>> {
+            fn encode_versioned(&self) -> Vec<u8> {
                 use parity_scale_codec::Encode;
 
-                Ok(self.encode())
+                self.encode()
             }
         }
     )
@@ -279,7 +279,7 @@ fn impl_json(enum_name: &Ident, version_field_name: &str) -> proc_macro2::TokenS
                             Ok(serde_json::from_str(input)?)
                         } else {
                             Err(Error::UnsupportedVersion(
-                                UnsupportedVersion::new(version, RawVersioned::Json(input.to_owned()))
+                                UnsupportedVersion::new(version, RawVersioned::Json(String::from(input)))
                             ))
                         }
                     } else {
@@ -381,7 +381,7 @@ fn impl_declare_versioned(
                 }
             }
 
-            fn supported_versions() -> std::ops::Range<u8> {
+            fn supported_versions() -> core::ops::Range<u8> {
                 #range_start .. #range_end
             }
         }

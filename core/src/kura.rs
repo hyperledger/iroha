@@ -386,7 +386,7 @@ impl<IO: DiskIO> BlockStore<IO> {
                 .await?,
         );
         let hash = block.hash();
-        let serialized_block: Vec<u8> = block.encode_versioned()?;
+        let serialized_block: Vec<u8> = block.encode_versioned();
         let block_size = serialized_block.len() as u64;
         file.write_u64_le(block_size).await?;
         file.write_all(&serialized_block).await?;

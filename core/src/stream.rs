@@ -41,7 +41,7 @@ where
             TIMEOUT,
             <Self as SinkExt<Self::Message>>::send(
                 self,
-                Self::Message::binary(message.encode_versioned()?),
+                Self::Message::binary(message.encode_versioned()),
             ),
         )
         .await

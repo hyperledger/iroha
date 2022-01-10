@@ -1,23 +1,24 @@
 //! Crate containing iroha macros
 
 #![allow(clippy::module_name_repetitions)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 pub use iroha_derive::*;
 
 /// Crate with errors
 pub mod error {
-    use std::{any::type_name, error, fmt, marker::PhantomData};
-
-    pub use eyre::*;
+    use core::{any::type_name, fmt, marker::PhantomData};
 
     /// Error which happens if `TryFrom` from enum variant fails
-    #[derive(Clone, Copy, Eq, PartialEq)]
+    #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct ErrorTryFromEnum<F, T> {
         from: PhantomData<F>,
         to: PhantomData<T>,
     }
 
-    impl<F, T> error::Error for ErrorTryFromEnum<F, T> {}
+    #[cfg(feature = "std")]
+    impl<F, T> std::error::Error for ErrorTryFromEnum<F, T> {}
+
     impl<F, T> fmt::Debug for ErrorTryFromEnum<F, T> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(
@@ -28,6 +29,7 @@ pub mod error {
             )
         }
     }
+
     impl<F, T> Default for ErrorTryFromEnum<F, T> {
         fn default() -> Self {
             Self {

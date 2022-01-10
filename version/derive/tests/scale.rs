@@ -56,9 +56,7 @@ mod tests {
         use model_1::*;
 
         let versioned_message: VersionedMessage = Message.into();
-        let bytes = versioned_message
-            .encode_versioned()
-            .map_err(|e| e.to_string())?;
+        let bytes = versioned_message.encode_versioned();
         let decoded_message =
             VersionedMessage::decode_versioned(&bytes).map_err(|e| e.to_string())?;
         match decoded_message {
@@ -79,9 +77,7 @@ mod tests {
             use model_2::*;
 
             let versioned_message: VersionedMessage = Message3("test string".to_string()).into();
-            versioned_message
-                .encode_versioned()
-                .map_err(|e| e.to_string())?
+            versioned_message.encode_versioned()
         };
 
         use model_1::*;
