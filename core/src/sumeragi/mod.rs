@@ -863,15 +863,15 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             info!(?event);
             drop(self.events_sender.send(event));
         }
+        let signed_block = block.sign(self.key_pair.clone())?;
         if !network_topology.is_consensus_required() {
-            self.commit_block(block).await;
+            self.commit_block(signed_block).await;
             return Ok(());
         }
 
-        let voting_block = VotingBlock::new(block.clone());
+        let voting_block = VotingBlock::new(signed_block.clone());
         self.voting_block = Some(voting_block.clone());
-        self.broadcast_msg(BlockCreated::from(block.sign(self.key_pair.clone())?))
-            .await;
+        self.broadcast_msg(BlockCreated::from(signed_block)).await;
         self.start_commit_countdown(
             voting_block.clone(),
             *self.latest_block_hash(),
