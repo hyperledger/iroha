@@ -64,8 +64,8 @@ fn query_requests(criterion: &mut Criterion) {
     if !client_config.torii_api_url.starts_with("http://") {
         client_config.torii_api_url = format!("http://{}", client_config.torii_api_url);
     }
-    if !client_config.torii_status_url.starts_with("http://") {
-        client_config.torii_status_url = format!("http://{}", client_config.torii_status_url);
+    if !client_config.torii_telemetry_url.starts_with("http://") {
+        client_config.torii_telemetry_url = format!("http://{}", client_config.torii_telemetry_url);
     }
     let mut iroha_client = Client::new(&client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
@@ -148,8 +148,8 @@ fn instruction_submits(criterion: &mut Criterion) {
     if !client_config.torii_api_url.starts_with("http://") {
         client_config.torii_api_url = format!("http://{}", client_config.torii_api_url);
     }
-    if !client_config.torii_status_url.starts_with("http://") {
-        client_config.torii_status_url = format!("http://{}", client_config.torii_status_url);
+    if !client_config.torii_telemetry_url.starts_with("http://") {
+        client_config.torii_telemetry_url = format!("http://{}", client_config.torii_telemetry_url);
     }
     let mut iroha_client = Client::new(&client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
