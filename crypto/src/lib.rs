@@ -1,24 +1,29 @@
 //! This module contains structures and implementations related to the cryptographic parts of the Iroha.
 
-pub use ursa;
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
 
 mod hash;
 pub mod multihash;
 mod signature;
 mod varint;
 
-use std::{
-    fmt::{self, Debug, Display, Formatter},
-    str::FromStr,
-};
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec::Vec};
+use core::{fmt, str::FromStr};
 
-use eyre::{eyre, Error, Result};
+use derive_more::Display;
 pub use hash::*;
 use iroha_schema::IntoSchema;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode};
 use serde::{de::Error as SerdeError, Deserialize, Serialize};
 pub use signature::*;
+#[cfg(feature = "std")]
+pub use ursa;
+#[cfg(feature = "std")]
 use ursa::{
     keys::{KeyGenOption as UrsaKeyGenOption, PrivateKey as UrsaPrivateKey},
     signatures::{
@@ -37,6 +42,14 @@ pub const SECP_256_K1: &str = "secp256k1";
 pub const BLS_NORMAL: &str = "bls_normal";
 /// bls small
 pub const BLS_SMALL: &str = "bls_small";
+
+/// Error indicating algorithm could not be found
+#[derive(Debug, Clone, Copy, Display, IntoSchema)]
+#[display(fmt = "Algorithm not supported")]
+pub struct NoSuchAlgorithm;
+
+#[cfg(feature = "std")]
+impl std::error::Error for NoSuchAlgorithm {}
 
 /// Algorithm for hashing
 #[derive(Debug, Clone, Copy)]
@@ -58,20 +71,21 @@ impl Default for Algorithm {
 }
 
 impl FromStr for Algorithm {
-    type Err = Error;
-    fn from_str(algorithm: &str) -> Result<Self> {
+    type Err = NoSuchAlgorithm;
+
+    fn from_str(algorithm: &str) -> Result<Self, Self::Err> {
         match algorithm {
             ED_25519 => Ok(Algorithm::Ed25519),
             SECP_256_K1 => Ok(Algorithm::Secp256k1),
             BLS_NORMAL => Ok(Algorithm::BlsNormal),
             BLS_SMALL => Ok(Algorithm::BlsSmall),
-            _ => Err(eyre!("The {} algorithm is not supported.")),
+            _ => Err(Self::Err {}),
         }
     }
 }
 
-impl Display for Algorithm {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Display for Algorithm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Algorithm::Ed25519 => write!(f, "{}", ED_25519),
             Algorithm::Secp256k1 => write!(f, "{}", SECP_256_K1),
@@ -90,21 +104,19 @@ pub enum KeyGenOption {
     FromPrivateKey(PrivateKey),
 }
 
+#[cfg(feature = "std")]
 impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
-    type Error = Error;
+    type Error = NoSuchAlgorithm;
 
-    fn try_from(key_gen_option: KeyGenOption) -> Result<Self> {
+    fn try_from(key_gen_option: KeyGenOption) -> Result<Self, Self::Error> {
         match key_gen_option {
             KeyGenOption::UseSeed(seed) => Ok(UrsaKeyGenOption::UseSeed(seed)),
             KeyGenOption::FromPrivateKey(key) => {
                 if key.digest_function == ED_25519 || key.digest_function == SECP_256_K1 {
-                    Ok(UrsaKeyGenOption::FromSecretKey(UrsaPrivateKey(key.payload)))
-                } else {
-                    Err(eyre!(
-                        "Ursa does not support {} digest function.",
-                        key.digest_function
-                    ))
+                    return Ok(Self::FromSecretKey(UrsaPrivateKey(key.payload)));
                 }
+
+                Err(Self::Error {})
             }
         }
     }
@@ -132,7 +144,7 @@ impl KeyGenConfiguration {
         self
     }
 
-    /// with algorithm
+    /// With algorithm
     pub fn with_algorithm(mut self, algorithm: Algorithm) -> Self {
         self.algorithm = algorithm;
         self
@@ -148,12 +160,54 @@ pub struct KeyPair {
     pub private_key: PrivateKey,
 }
 
+/// Error when dealing with cryptographic functions
+#[cfg(feature = "std")]
+#[derive(Debug, Display)]
+pub enum Error {
+    /// Returned when trying to create an algorithm which does not exist
+    NoSuchAlgorithm,
+    /// Occurs during deserialization of a private or public key
+    Parse(String),
+    /// Returned when an error occurs during the signing process
+    Signing(String),
+    /// Returned when an error occurs during key generation
+    KeyGen(String),
+    /// Returned when an error occurs during digest generation
+    DigestGen(String),
+    /// A General purpose error message that doesn't fit in any category
+    Other(String),
+}
+
+#[cfg(feature = "std")]
+impl From<ursa::CryptoError> for Error {
+    fn from(source: ursa::CryptoError) -> Self {
+        match source {
+            ursa::CryptoError::NoSuchAlgorithm(_) => Self::NoSuchAlgorithm,
+            ursa::CryptoError::ParseError(source) => Self::Parse(source),
+            ursa::CryptoError::SigningError(source) => Self::Signing(source),
+            ursa::CryptoError::KeyGenError(source) => Self::KeyGen(source),
+            ursa::CryptoError::DigestGenError(source) => Self::DigestGen(source),
+            ursa::CryptoError::GeneralError(source) => Self::Other(source),
+        }
+    }
+}
+#[cfg(feature = "std")]
+impl From<NoSuchAlgorithm> for Error {
+    fn from(_: NoSuchAlgorithm) -> Self {
+        Self::NoSuchAlgorithm
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for Error {}
+
+#[cfg(feature = "std")]
 impl KeyPair {
     /// Generates a pair of Public and Private key with [`Algorithm::default()`] selected as generation algorithm.
     ///
     /// # Errors
     /// Fails if decoding fails
-    pub fn generate() -> Result<Self> {
+    pub fn generate() -> Result<Self, Error> {
         Self::generate_with_configuration(KeyGenConfiguration::default())
     }
 
@@ -161,7 +215,7 @@ impl KeyPair {
     ///
     /// # Errors
     /// Fails if decoding fails
-    pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self> {
+    pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
         let key_gen_option: Option<UrsaKeyGenOption> = configuration
             .key_gen_option
             .map(TryInto::try_into)
@@ -171,11 +225,9 @@ impl KeyPair {
             Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().keypair(key_gen_option),
             Algorithm::BlsNormal => BlsNormal::new().keypair(key_gen_option),
             Algorithm::BlsSmall => BlsSmall::new().keypair(key_gen_option),
-        }
-        // TODO: Create an issue for ursa to impl Error for ursa::CryptoError
-        //.wrap_err("Failed to generate key pair")?;
-        .map_err(|e| eyre!("{}", e.to_string()))?;
-        Ok(KeyPair {
+        }?;
+
+        Ok(Self {
             public_key: PublicKey {
                 digest_function: configuration.algorithm.to_string(),
                 payload: public_key.as_ref().to_vec(),
@@ -194,6 +246,30 @@ impl From<KeyPair> for (PublicKey, PrivateKey) {
     }
 }
 
+/// Error which occurs when parsing [`PublicKey`]
+#[derive(Debug, Clone, Display)]
+pub enum KeyParseError {
+    /// Decoding hex failed
+    Decode(hex::FromHexError),
+    /// Converting bytes to multihash failed
+    Multihash(multihash::ConvertError),
+}
+
+impl From<hex::FromHexError> for KeyParseError {
+    fn from(source: hex::FromHexError) -> Self {
+        Self::Decode(source)
+    }
+}
+
+impl From<multihash::ConvertError> for KeyParseError {
+    fn from(source: multihash::ConvertError) -> Self {
+        Self::Multihash(source)
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for KeyParseError {}
+
 /// Public Key used in signatures.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, IntoSchema)]
 pub struct PublicKey {
@@ -204,12 +280,13 @@ pub struct PublicKey {
 }
 
 impl FromStr for PublicKey {
-    type Err = Error;
+    type Err = KeyParseError;
 
-    fn from_str(key: &str) -> Result<Self> {
+    fn from_str(key: &str) -> Result<Self, Self::Err> {
         let bytes = hex::decode(key)?;
         let multihash = Multihash::try_from(bytes)?;
-        multihash.try_into()
+
+        Ok(multihash.into())
     }
 }
 
@@ -220,8 +297,8 @@ impl Default for PublicKey {
     }
 }
 
-impl Debug for PublicKey {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Debug for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PublicKey")
             .field("digest_function", &self.digest_function)
             .field("payload", &hex::encode_upper(self.payload.as_slice()))
@@ -229,9 +306,9 @@ impl Debug for PublicKey {
     }
 }
 
-impl Display for PublicKey {
+impl fmt::Display for PublicKey {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let multihash: &Multihash = &self
             .clone()
             .try_into()
@@ -243,35 +320,35 @@ impl Display for PublicKey {
     }
 }
 
-impl TryFrom<Multihash> for PublicKey {
-    type Error = Error;
+impl From<Multihash> for PublicKey {
+    fn from(multihash: Multihash) -> Self {
+        let digest_function = match multihash.digest_function {
+            MultihashDigestFunction::Ed25519Pub => ED_25519,
+            MultihashDigestFunction::Secp256k1Pub => SECP_256_K1,
+            MultihashDigestFunction::Bls12381G1Pub => BLS_NORMAL,
+            MultihashDigestFunction::Bls12381G2Pub => BLS_SMALL,
+        };
 
-    fn try_from(multihash: Multihash) -> Result<Self> {
-        match multihash.digest_function {
-            MultihashDigestFunction::Ed25519Pub => Ok(ED_25519),
-            MultihashDigestFunction::Secp256k1Pub => Ok(SECP_256_K1),
-            MultihashDigestFunction::Bls12381G1Pub => Ok(BLS_NORMAL),
-            MultihashDigestFunction::Bls12381G2Pub => Ok(BLS_SMALL),
-        }
-        .map(|digest_function| PublicKey {
-            digest_function: digest_function.to_owned(),
+        Self {
+            digest_function: String::from(digest_function),
             payload: multihash.payload,
-        })
+        }
     }
 }
 
 impl TryFrom<PublicKey> for Multihash {
-    type Error = Error;
+    type Error = NoSuchAlgorithm;
 
-    fn try_from(public_key: PublicKey) -> Result<Self> {
-        match public_key.digest_function.as_str() {
+    fn try_from(public_key: PublicKey) -> Result<Self, Self::Error> {
+        let digest_function = match public_key.digest_function.as_str() {
             ED_25519 => Ok(MultihashDigestFunction::Ed25519Pub),
             SECP_256_K1 => Ok(MultihashDigestFunction::Secp256k1Pub),
             BLS_NORMAL => Ok(MultihashDigestFunction::Bls12381G1Pub),
             BLS_SMALL => Ok(MultihashDigestFunction::Bls12381G2Pub),
-            _ => Err(eyre!("Digest function not implemented.")),
-        }
-        .map(|digest_function| Multihash {
+            _ => Err(Self::Error {}),
+        }?;
+
+        Ok(Self {
             digest_function,
             payload: public_key.payload,
         })
@@ -292,7 +369,12 @@ impl<'de> Deserialize<'de> for PublicKey {
     where
         D: serde::Deserializer<'de>,
     {
-        let public_key_str = <std::borrow::Cow<str>>::deserialize(deserializer)?;
+        #[cfg(not(feature = "std"))]
+        use alloc::borrow::Cow;
+        #[cfg(feature = "std")]
+        use std::borrow::Cow;
+
+        let public_key_str = <Cow<str>>::deserialize(deserializer)?;
         PublicKey::from_str(&public_key_str).map_err(SerdeError::custom)
     }
 }
@@ -303,26 +385,12 @@ pub struct PrivateKey {
     /// Digest function
     pub digest_function: String,
     /// key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
-    #[serde(deserialize_with = "from_hex", serialize_with = "to_hex")]
+    #[serde(with = "hex::serde")]
     pub payload: Vec<u8>,
 }
 
-fn from_hex<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    hex::decode(String::deserialize(deserializer)?).map_err(SerdeError::custom)
-}
-
-fn to_hex<S>(payload: &[u8], serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    serializer.serialize_str(&hex::encode(payload))
-}
-
-impl Debug for PrivateKey {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Debug for PrivateKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PrivateKey")
             .field("digest_function", &self.digest_function)
             .field("payload", &format!("{:X?}", self.payload))
@@ -330,8 +398,8 @@ impl Debug for PrivateKey {
     }
 }
 
-impl Display for PrivateKey {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Display for PrivateKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", hex::encode(&self.payload))
     }
 }
@@ -345,7 +413,8 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use serde::Deserialize;
+    #[cfg(not(feature = "std"))]
+    use alloc::borrow::ToOwned as _;
 
     use super::*;
 

@@ -64,31 +64,34 @@ fn main() -> Result<(), Report> {
         .parse::<Algorithm>()
         .wrap_err("Failed to parse algorithm.")?;
     let key_gen_configuration = KeyGenConfiguration::default().with_algorithm(algorithm);
-    let keypair: KeyPair = seed_option
-        .map_or_else(
-            || -> eyre::Result<_> {
-                private_key_option.map_or_else(
-                    || KeyPair::generate_with_configuration(key_gen_configuration.clone()),
-                    |private_key| {
-                        KeyPair::generate_with_configuration(
-                            key_gen_configuration.clone().use_private_key(PrivateKey {
-                                digest_function: algorithm.to_string(),
-                                payload: hex::decode(private_key)
-                                    .wrap_err("Failed to decode private key.")?,
-                            }),
-                        )
-                    },
-                )
-            },
-            |seed| -> eyre::Result<_> {
-                KeyPair::generate_with_configuration(
-                    key_gen_configuration
-                        .clone()
-                        .use_seed(seed.as_bytes().into()),
-                )
-            },
-        )
-        .wrap_err("Failed to generate keypair.")?;
+    let keypair: KeyPair = seed_option.map_or_else(
+        || -> eyre::Result<_> {
+            private_key_option.map_or_else(
+                || {
+                    KeyPair::generate_with_configuration(key_gen_configuration.clone())
+                        .wrap_err("failed to generate key pair")
+                },
+                |private_key| {
+                    KeyPair::generate_with_configuration(
+                        key_gen_configuration.clone().use_private_key(PrivateKey {
+                            digest_function: algorithm.to_string(),
+                            payload: hex::decode(private_key)
+                                .wrap_err("Failed to decode private key.")?,
+                        }),
+                    )
+                    .wrap_err("Failed to generate key pair")
+                },
+            )
+        },
+        |seed| -> eyre::Result<_> {
+            KeyPair::generate_with_configuration(
+                key_gen_configuration
+                    .clone()
+                    .use_seed(seed.as_bytes().into()),
+            )
+            .wrap_err("Failed to generate key pair")
+        },
+    )?;
 
     #[allow(clippy::print_stdout)]
     if matches.is_present("json") {

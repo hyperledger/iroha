@@ -147,7 +147,7 @@ impl Queue {
                     .get_mut()
                     .as_mut_v1()
                     .signatures
-                    .merge(tx.into_v1().signatures);
+                    .extend(tx.as_v1().signatures.clone());
                 return Ok(());
             }
             Entry::Vacant(entry) => entry,

@@ -156,7 +156,6 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
             VersionedValidTransaction::V1(transaction) => {
                 let signatures = transaction
                     .signatures
-                    .values()
                     .iter()
                     .cloned()
                     .collect::<BTreeSet<_>>();
