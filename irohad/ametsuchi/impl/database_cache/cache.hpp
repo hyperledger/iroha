@@ -73,6 +73,12 @@ namespace iroha::ametsuchi {
       tmp_cache_->template insert(key.data(), key.size(), value);
     }
 
+    void setCommit(std::string_view key, std::string_view const &value) {
+      assert(isCacheable(key));
+      assert(tmp_cache_->find(key.data(), key.size()) == nullptr);
+      cache_->template insert(key.data(), key.size(), value);
+    }
+
     auto erase(std::string_view key) {
       return tmp_cache_->template insert(key.data(), key.size(), std::nullopt);
     }

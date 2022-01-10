@@ -695,6 +695,11 @@ namespace iroha::ametsuchi {
         c->set(key, valueBuffer());
     }
 
+    void storeCommit(std::string_view key) {
+      if (auto c = cache(); c && c->isCacheable(key))
+        c->setCommit(key, valueBuffer());
+    }
+
     void dropCache() {
       if (auto c = cache())
         c->rollback();
@@ -830,7 +835,7 @@ namespace iroha::ametsuchi {
 
       auto status = transaction()->Get(ro, slice, &valueBuffer());
       if (status.ok())
-        storeInCache(slice.ToStringView());
+        storeCommit(slice.ToStringView());
 
       return status;
     }
