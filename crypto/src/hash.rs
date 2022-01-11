@@ -7,7 +7,7 @@ use core::{
 };
 
 use derive_more::{Deref, DerefMut, Display};
-use iroha_schema::IntoSchema;
+use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
@@ -157,8 +157,20 @@ impl<T: Encode> HashOf<T> {
 }
 
 impl<T> IntoSchema for HashOf<T> {
-    fn schema(metamap: &mut iroha_schema::MetaMap) {
-        Hash::schema(metamap)
+    fn schema(map: &mut MetaMap) {
+        let type_name = Self::type_name();
+
+        Hash::schema(map);
+        if !map.contains_key(&type_name) {
+            // Field was just inserted above
+            #[allow(clippy::expect_used)]
+            let wrapped_type_metadata = map
+                .get(&Hash::type_name())
+                .expect("Wrapped type metadata should have been present in the schemas")
+                .clone();
+
+            map.insert(type_name, wrapped_type_metadata);
+        }
     }
 }
 

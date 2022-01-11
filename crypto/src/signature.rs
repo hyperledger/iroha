@@ -11,7 +11,7 @@ use core::{fmt, marker::PhantomData};
 use std::collections::{btree_map, btree_set};
 
 use derive_more::{Deref, DerefMut};
-use iroha_schema::IntoSchema;
+use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
@@ -150,8 +150,20 @@ impl<T> Ord for SignatureOf<T> {
 }
 
 impl<T> IntoSchema for SignatureOf<T> {
-    fn schema(metamap: &mut iroha_schema::MetaMap) {
-        Signature::schema(metamap)
+    fn schema(map: &mut MetaMap) {
+        let type_name = Self::type_name();
+
+        Signature::schema(map);
+        if !map.contains_key(&type_name) {
+            // Field was just inserted above
+            #[allow(clippy::expect_used)]
+            let wrapped_type_metadata = map
+                .get(&Signature::type_name())
+                .expect("Wrapped type metadata should have been present in the schemas")
+                .clone();
+
+            map.insert(type_name, wrapped_type_metadata);
+        }
     }
 }
 

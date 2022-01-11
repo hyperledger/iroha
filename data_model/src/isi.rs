@@ -84,13 +84,6 @@ pub struct RemoveKeyValueBox {
     pub key: EvaluatesTo<Name>,
 }
 
-/// Sized structure for all possible Sets.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
-pub struct SetBox {
-    /// Object to set as a value.
-    pub object: EvaluatesTo<Value>,
-}
-
 /// Sized structure for all possible Registers.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
 pub struct RegisterBox {

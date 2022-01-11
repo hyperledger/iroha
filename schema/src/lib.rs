@@ -51,7 +51,7 @@ pub trait DecimalPlacesAware {
 }
 
 /// Metadata
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub enum Metadata {
     /// Structure with named fields
     Struct(NamedFieldsMeta),
@@ -80,14 +80,16 @@ pub enum Metadata {
 }
 
 /// Array metadata
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct ArrayMeta {
-    ty: String,
-    len: usize,
+    /// Type
+    pub ty: String,
+    /// Length
+    pub len: usize,
 }
 
 /// Named fields
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct NamedFieldsMeta {
     /// Fields
     pub declarations: Vec<Declaration>,
@@ -95,7 +97,7 @@ pub struct NamedFieldsMeta {
 }
 
 /// Field
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct Declaration {
     /// Field name
     pub name: String,
@@ -104,7 +106,7 @@ pub struct Declaration {
 }
 
 /// Unnamed fileds
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct UnnamedFieldsMeta {
     /// Field types
     pub types: Vec<String>,
@@ -112,14 +114,14 @@ pub struct UnnamedFieldsMeta {
 }
 
 /// Enum metadata
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct EnumMeta {
     /// Enum variants
     pub variants: Vec<EnumVariant>,
 }
 
 /// Enum variant
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct EnumVariant {
     /// Enum variant name
     pub name: String,
@@ -131,7 +133,7 @@ pub struct EnumVariant {
 }
 
 /// Result variant
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct ResultMeta {
     /// Ok type
     pub ok: String,
@@ -140,7 +142,7 @@ pub struct ResultMeta {
 }
 
 /// Map variant
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct MapMeta {
     /// Key type
     pub key: String,
@@ -149,7 +151,7 @@ pub struct MapMeta {
 }
 
 /// Integer mode
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub enum IntMode {
     /// Fixed width
     FixedWidth,
@@ -158,11 +160,11 @@ pub enum IntMode {
 }
 
 /// Compact predicate. Just for documentation purposes
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct Compact<T>(T);
 
 /// Fixed metadata
-#[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct FixedMeta {
     base: String,
     decimal_places: usize,
@@ -319,7 +321,11 @@ impl<V: IntoSchema> IntoSchema for BTreeSet<V> {
         format!("BTreeSet<{}>", V::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        Vec::<V>::schema(map)
+        map.entry(Self::type_name())
+            .or_insert_with(|| Metadata::Vec(V::type_name()));
+        if !map.contains_key(&V::type_name()) {
+            Vec::<V>::schema(map)
+        }
     }
 }
 
