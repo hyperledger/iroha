@@ -646,7 +646,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
     /// * peer is not leader
     /// * there are already some blocks in blockchain
     #[iroha_futures::telemetry_future]
-    #[log(skip(self, transactions, genesis_topology))]
+    #[log(skip(self, transactions, genesis_topology, ctx))]
     pub async fn start_genesis_round(
         &mut self,
         transactions: Vec<VersionedAcceptedTransaction>,
@@ -854,7 +854,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             "Created a block",
         );
         for event in Vec::<Event>::from(&block) {
-            info!(?event);
+            trace!(?event);
             drop(self.events_sender.send(event));
         }
         if !network_topology.is_consensus_required() {
@@ -918,7 +918,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         let block_hash = block.hash();
 
         for event in Vec::<Event>::from(&block) {
-            info!(?event);
+            trace!(?event);
             drop(self.events_sender.send(event));
         }
 
@@ -1213,7 +1213,7 @@ pub mod message {
         /// Handles this message as part of `Sumeragi` consensus.
         /// # Errors
         /// Fails if message handling fails
-        #[iroha_logger::log(skip(self, sumeragi))]
+        #[iroha_logger::log(skip(self, sumeragi, ctx))]
         #[iroha_futures::telemetry_future]
         pub async fn handle<
             G: GenesisNetworkTrait,
@@ -1334,7 +1334,7 @@ pub mod message {
             }
 
             for event in Vec::<Event>::from(&self.block) {
-                iroha_logger::info!(?event);
+                iroha_logger::trace!(?event);
                 drop(sumeragi.events_sender.send(event));
             }
             sumeragi.update_view_changes(self.block.header().view_change_proofs.clone());
