@@ -237,7 +237,7 @@ pub struct Unregister<O>
 where
     O: Identifiable,
 {
-    /// Id of the object which should be unregistered.
+    /// [`Identifiable::Id`] of the object which should be unregistered.
     pub object_id: O::Id,
 }
 
@@ -250,7 +250,7 @@ where
 {
     /// Object which should be minted.
     pub object: O,
-    /// Destination object `Id`.
+    /// Destination object [`Identifiable::Id`].
     pub destination_id: D::Id,
 }
 
@@ -263,7 +263,7 @@ where
 {
     /// Object which should be burned.
     pub object: O,
-    /// Destination object `Id`.
+    /// Destination object [`Identifiable::Id`].
     pub destination_id: D::Id,
 }
 
@@ -476,7 +476,7 @@ impl GrantBox {
 }
 
 impl SetKeyValueBox {
-    /// Calculate number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
         self.object_id.len() + self.key.len() + self.value.len() + 1
@@ -501,7 +501,8 @@ impl SetKeyValueBox {
 }
 
 impl RemoveKeyValueBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.object_id.len() + self.key.len() + 1
     }
@@ -519,7 +520,8 @@ impl RemoveKeyValueBox {
 }
 
 impl RegisterBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.object.len() + 1
     }
@@ -533,7 +535,8 @@ impl RegisterBox {
 }
 
 impl UnregisterBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.object_id.len() + 1
     }
@@ -547,7 +550,8 @@ impl UnregisterBox {
 }
 
 impl MintBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.destination_id.len() + self.object.len() + 1
     }
@@ -565,7 +569,8 @@ impl MintBox {
 }
 
 impl BurnBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.destination_id.len() + self.object.len() + 1
     }
@@ -583,7 +588,8 @@ impl BurnBox {
 }
 
 impl TransferBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.destination_id.len() + self.object.len() + self.source_id.len() + 1
     }
@@ -607,7 +613,8 @@ impl TransferBox {
 }
 
 impl Pair {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left_instruction.len() + self.right_instruction.len() + 1
     }
@@ -625,7 +632,7 @@ impl Pair {
 }
 
 impl SequenceBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
     pub fn len(&self) -> usize {
         self.instructions
             .iter()
@@ -634,14 +641,15 @@ impl SequenceBox {
             + 1
     }
 
-    /// Construct [`Sequence`].
+    /// Construct [`SequenceBox`].
     pub fn new(instructions: Vec<Instruction>) -> Self {
         Self { instructions }
     }
 }
 
 impl If {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         let otherwise = self.otherwise.as_ref().map_or(0, Instruction::len);
         self.condition.len() + self.then.len() + otherwise + 1
@@ -655,7 +663,7 @@ impl If {
             otherwise: None,
         }
     }
-    /// `If` constructor with `otherwise` instruction.
+    /// [`If`] constructor with `Otherwise` instruction.
     pub fn with_otherwise<
         C: Into<EvaluatesTo<bool>>,
         T: Into<Instruction>,
@@ -674,12 +682,12 @@ impl If {
 }
 
 impl FailBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
     pub const fn len(&self) -> usize {
         1
     }
 
-    /// Construct [`Fail`].
+    /// Construct [`FailBox`].
     pub fn new(message: &str) -> Self {
         Self {
             message: message.to_owned(),

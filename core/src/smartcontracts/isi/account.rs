@@ -149,7 +149,7 @@ pub mod isi {
         #[metrics(+"revoke_account_permission_token")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            _authority: AccountId,
             wsv: &WorldStateView<W>,
         ) -> Result<Self::Diff, Self::Error> {
             let id = self.destination_id.clone();
@@ -194,7 +194,7 @@ pub mod isi {
         #[metrics(+"revoke_account_role")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            _authority: AccountId,
             wsv: &WorldStateView<W>,
         ) -> Result<Self::Diff, Self::Error> {
             wsv.world()
