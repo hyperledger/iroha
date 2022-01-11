@@ -58,11 +58,14 @@ pub fn init(configuration: &Configuration) -> Result<Option<Telemetries>> {
 fn setup_logger(configuration: &Configuration) -> Result<Telemetries> {
     if configuration.compact_mode {
         let layer = tracing_subscriber::fmt::layer()
+            .with_ansi(configuration.terminal_colors)
             .with_test_writer()
             .compact();
         Ok(add_bunyan(configuration, layer)?)
     } else {
-        let layer = tracing_subscriber::fmt::layer().with_test_writer();
+        let layer = tracing_subscriber::fmt::layer()
+            .with_ansi(configuration.terminal_colors)
+            .with_test_writer();
         Ok(add_bunyan(configuration, layer)?)
     }
 }

@@ -13,6 +13,7 @@ use tracing_subscriber::{filter::LevelFilter, reload::Handle};
 
 const TELEMETRY_CAPACITY: usize = 1000;
 const DEFAULT_COMPACT_MODE: bool = false;
+const DEFAULT_TERMINAL_COLORS: bool = true;
 
 /// Log level for reading from environment and (de)serializing
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -65,6 +66,8 @@ pub struct Configuration {
     /// If provided, logs will be copied to said file in the
     /// format readable by [bunyan](https://lib.rs/crates/bunyan)
     pub log_file_path: Option<std::path::PathBuf>,
+    /// Enable ANSI terminal colors for formatted output.
+    pub terminal_colors: bool,
 }
 
 impl Default for Configuration {
@@ -74,6 +77,7 @@ impl Default for Configuration {
             telemetry_capacity: TELEMETRY_CAPACITY,
             compact_mode: DEFAULT_COMPACT_MODE,
             log_file_path: None,
+            terminal_colors: DEFAULT_TERMINAL_COLORS,
         }
     }
 }

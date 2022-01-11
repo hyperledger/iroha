@@ -57,7 +57,8 @@ The following is the default configuration used by Iroha.
     "MAX_LOG_LEVEL": "INFO",
     "TELEMETRY_CAPACITY": 1000,
     "COMPACT_MODE": false,
-    "LOG_FILE_PATH": null
+    "LOG_FILE_PATH": null,
+    "TERMINAL_COLORS": true
   },
   "GENESIS": {
     "ACCOUNT_PUBLIC_KEY": null,
@@ -277,7 +278,8 @@ Has type `LoggerConfiguration`. Can be configured via environment variable `IROH
   "COMPACT_MODE": false,
   "LOG_FILE_PATH": null,
   "MAX_LOG_LEVEL": "INFO",
-  "TELEMETRY_CAPACITY": 1000
+  "TELEMETRY_CAPACITY": 1000,
+  "TERMINAL_COLORS": true
 }
 ```
 
@@ -319,6 +321,16 @@ Has type `usize`. Can be configured via environment variable `TELEMETRY_CAPACITY
 
 ```json
 1000
+```
+
+### `logger.terminal_colors`
+
+Enable ANSI terminal colors for formatted output.
+
+Has type `bool`. Can be configured via environment variable `TERMINAL_COLORS`
+
+```json
+true
 ```
 
 ## `network`
