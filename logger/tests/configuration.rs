@@ -13,6 +13,7 @@ async fn telemetry_separation_custom() {
         telemetry_capacity: 100,
         compact_mode: true,
         log_file_path: Some("/dev/stdout".into()),
+        terminal_colors: true,
     };
     let (mut receiver, _) = init(&config).unwrap().unwrap();
     info!(target: "telemetry::test", a = 2, c = true, d = "this won't be logged");
