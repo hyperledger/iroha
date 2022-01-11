@@ -134,7 +134,12 @@ impl AcceptedTransaction {
         transaction
             .check_instruction_len(max_instruction_number)
             .wrap_err("Failed to accept transaction")?;
-        let signatures = SignaturesOf::from_iter(&transaction.payload, transaction.signatures)
+        let signatures: SignaturesOf<_> = transaction
+            .signatures
+            .try_into()
+            .map_err(eyre::Error::from)?;
+        signatures
+            .verify(&transaction.payload)
             .wrap_err("Failed to verify transaction signatures")?;
 
         Ok(Self {

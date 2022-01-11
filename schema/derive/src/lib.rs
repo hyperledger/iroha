@@ -106,7 +106,7 @@ fn metadata(data: &Data) -> TokenStream2 {
         }) => {
             let expr = syn::parse2(quote! {iroha_schema::Metadata::TupleStruct(
                 iroha_schema::UnnamedFieldsMeta {
-                    types: vec![]
+                    types: Vec::new()
                 }
             )})
             .unwrap();
@@ -137,7 +137,11 @@ fn metadata_for_tuplestructs(fields: &FieldsUnnamed) -> (Vec<Type>, Expr) {
     let expr = syn::parse2(quote! {
         iroha_schema::Metadata::TupleStruct(
             iroha_schema::UnnamedFieldsMeta {
-                types: vec![#(#types),*],
+                types: {
+                    let mut types = Vec::new();
+                    #( types.push(#types); )*
+                    types
+                }
             }
         )
     })
@@ -153,7 +157,11 @@ fn metadata_for_structs(fields: &FieldsNamed) -> (Vec<Type>, Expr) {
     let expr = syn::parse2(quote! {
         iroha_schema::Metadata::Struct(
             iroha_schema::NamedFieldsMeta {
-                declarations: vec![#(#declarations),*],
+                declarations: {
+                    let mut declarations = Vec::new();
+                    #( declarations.push(#declarations); )*
+                    declarations
+                }
             }
         )
     })
@@ -206,7 +214,11 @@ fn metadata_for_enums(data_enum: &DataEnum) -> (Vec<Type>, Expr) {
         .collect();
     let expr = syn::parse2(quote! {
         iroha_schema::Metadata::Enum(iroha_schema::EnumMeta {
-            variants: vec![#(#variants),*],
+            variants: {
+                let mut variants = Vec::new();
+                #( variants.push(#variants); )*
+                variants
+            }
         })
     })
     .unwrap();

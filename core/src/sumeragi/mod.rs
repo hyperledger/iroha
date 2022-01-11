@@ -773,7 +773,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             Entry::Occupied(mut occupied) => {
                 let proof_votes = occupied.get_mut();
                 let count = proof_votes.signatures().len();
-                proof_votes.merge_signatures(&proof);
+                proof_votes.merge_signatures(proof.signatures().clone());
+
                 if proof_votes.signatures().len() > count {
                     (true, proof_votes.clone())
                 } else {
@@ -794,7 +795,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         let (count_increased, merged_proof) = self.merge_view_change_votes(proof.clone()).await;
         if count_increased {
             self.broadcast_msg(ViewChangeSuggested::new(
-                proof.clone(),
+                proof,
                 self.view_change_proofs().clone(),
             ))
             .await;
@@ -857,17 +858,20 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             trace!(?event);
             drop(self.events_sender.send(event));
         }
+        let signed_block = block.sign(self.key_pair.clone())?;
         if !network_topology.is_consensus_required() {
-            self.commit_block(block).await;
+            self.commit_block(signed_block).await;
             return Ok(());
         }
 
-        let voting_block = VotingBlock::new(block.clone());
-        self.voting_block = Some(voting_block.clone());
-        self.broadcast_msg(BlockCreated::from(block.sign(self.key_pair.clone())?))
+        let voting_block = VotingBlock::new(signed_block.clone());
+        let voting_block_hash = voting_block.block.hash();
+
+        self.voting_block = Some(voting_block);
+        self.broadcast_msg(BlockCreated::from(signed_block.clone()))
             .await;
         self.start_commit_countdown(
-            voting_block.clone(),
+            voting_block_hash,
             *self.latest_block_hash(),
             self.latest_view_change_hash(),
             ctx,
@@ -878,16 +882,15 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
 
     /// Starts countdown for a period in which the `voting_block` should be committed.
     #[iroha_futures::telemetry_future]
-    #[log(skip(self, voting_block))]
+    #[log(skip(self, voting_block_hash))]
     #[allow(clippy::expect_used)]
     pub async fn start_commit_countdown(
         &self,
-        voting_block: VotingBlock,
+        voting_block_hash: HashOf<VersionedValidBlock>,
         latest_block: HashOf<VersionedCommittedBlock>,
         latest_view_change: HashOf<Proof>,
         ctx: &mut Context<Self>,
     ) {
-        let voting_block_hash = voting_block.block.hash();
         let proof = view_change::Proof::commit_timeout(
             voting_block_hash,
             latest_view_change,
@@ -1387,10 +1390,12 @@ pub mod message {
                 //TODO: send to set b so they can observe
             }
             let voting_block = VotingBlock::new(self.block.clone());
-            sumeragi.voting_block = Some(voting_block.clone());
+            let voting_block_hash = voting_block.block.hash();
+            sumeragi.voting_block = Some(voting_block);
+
             sumeragi
                 .start_commit_countdown(
-                    voting_block,
+                    voting_block_hash,
                     *sumeragi.latest_block_hash(),
                     sumeragi.latest_view_change_hash(),
                     ctx,

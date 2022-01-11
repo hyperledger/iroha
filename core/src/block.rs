@@ -378,7 +378,7 @@ impl VersionedValidBlock {
         wsv: &WorldStateView<W>,
         is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
         is_query_allowed: &IsQueryAllowedBoxed<W>,
-    ) -> VersionedValidBlock {
+    ) -> Self {
         self.into_v1()
             .revalidate(wsv, is_instruction_allowed, is_query_allowed)
             .into()
@@ -392,14 +392,12 @@ impl VersionedValidBlock {
     /// Sign this block and get [`VersionedValidBlock`](`Self`).
     /// # Errors
     /// Look at [`ValidBlock`](`ValidBlock`) for more info
-    pub fn sign(self, key_pair: KeyPair) -> Result<VersionedValidBlock> {
+    pub fn sign(self, key_pair: KeyPair) -> Result<Self> {
         self.into_v1().sign(key_pair).map(Into::into)
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
-    pub fn verified_signatures(
-        &'_ self,
-    ) -> impl Iterator<Item = &'_ SignatureOf<VersionedValidBlock>> + '_ {
+    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         self.as_v1()
             .verified_signatures()
             .map(SignatureOf::transmute_ref)
@@ -473,13 +471,17 @@ impl ValidBlock {
     /// Commit block to the store.
     //TODO: pass block store and block sender as parameters?
     pub fn commit(self) -> CommittedBlock {
+        #[allow(clippy::expect_used)]
+        let signatures: SignaturesOf<_> = self
+            .signatures
+            .try_into()
+            .expect("Expected at least one signature");
+
         CommittedBlock {
             header: self.header,
             rejected_transactions: self.rejected_transactions,
             transactions: self.transactions,
-            signatures: SignaturesOf::from_iter_unchecked(
-                self.signatures.into_iter().map(SignatureOf::transmute),
-            ),
+            signatures: signatures.transmute(),
         }
     }
 
@@ -489,8 +491,8 @@ impl ValidBlock {
         wsv: &WorldStateView<W>,
         is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
         is_query_allowed: &IsQueryAllowedBoxed<W>,
-    ) -> ValidBlock {
-        ValidBlock {
+    ) -> Self {
+        Self {
             signatures: self.signatures,
             ..ChainedBlock {
                 header: self.header,
@@ -515,7 +517,7 @@ impl ValidBlock {
     ///
     /// # Errors
     /// Fails if generating signature fails
-    pub fn sign(mut self, key_pair: KeyPair) -> Result<ValidBlock> {
+    pub fn sign(mut self, key_pair: KeyPair) -> Result<Self> {
         self.signatures.insert(
             SignatureOf::from_hash(key_pair, &self.hash()).wrap_err("Failed to sign block")?,
         );
@@ -523,7 +525,7 @@ impl ValidBlock {
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
-    pub fn verified_signatures(&'_ self) -> impl Iterator<Item = &'_ SignatureOf<ValidBlock>> + '_ {
+    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         let hash = self.hash();
         self.signatures
             .iter()
@@ -553,7 +555,7 @@ impl ValidBlock {
     #[cfg(test)]
     #[allow(clippy::restriction)]
     pub fn new_dummy() -> Self {
-        ValidBlock {
+        Self {
             header: BlockHeader {
                 timestamp: 0,
                 height: 1,
@@ -655,7 +657,7 @@ impl VersionedCommittedBlock {
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
-    pub fn verified_signatures(&'_ self) -> impl Iterator<Item = &'_ SignatureOf<Self>> + '_ {
+    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         self.as_v1()
             .verified_signatures()
             .map(SignatureOf::transmute_ref)
@@ -685,7 +687,7 @@ impl CommittedBlock {
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
-    pub fn verified_signatures(&'_ self) -> impl Iterator<Item = &'_ SignatureOf<Self>> + '_ {
+    pub fn verified_signatures(&self) -> impl Iterator<Item = &SignatureOf<Self>> {
         self.signatures.verified_by_hash(self.hash())
     }
 }
@@ -699,12 +701,11 @@ impl From<CommittedBlock> for ValidBlock {
             signatures,
         }: CommittedBlock,
     ) -> Self {
-        let signatures = signatures.into_iter().map(SignatureOf::transmute).collect();
         Self {
             header,
             rejected_transactions,
             transactions,
-            signatures,
+            signatures: signatures.transmute().into(),
         }
     }
 }

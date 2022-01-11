@@ -91,15 +91,14 @@ impl Proof {
     /// Can fail during creation of signature
     pub fn sign(mut self, key_pair: KeyPair) -> Result<Proof> {
         let signature = SignatureOf::new(key_pair, &self.payload)?.transmute();
-        self.signatures.add(signature);
+        self.signatures.insert(signature);
         Ok(self)
     }
 
     /// Adds verified signatures of `other` to self.
-    pub fn merge_signatures(&mut self, other: &Proof) {
-        self.signatures.merge(SignaturesOf::from_iter_unchecked(
-            other.signatures.verified_by_hash(self.hash()).cloned(),
-        ));
+    pub fn merge_signatures(&mut self, other: SignaturesOf<Proof>) {
+        self.signatures
+            .extend(other.into_verified_by_hash(self.hash()))
     }
 
     /// Verify if the proof is valid, given the peers in `topology`.
