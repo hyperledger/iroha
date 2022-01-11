@@ -9,8 +9,9 @@ use iroha_data_model::{
 use super::{Error, Evaluate, FindError, MathError};
 use crate::{prelude::*, wsv::WorldTrait};
 
-impl<E: Into<eyre::Error>, V: TryFrom<Value, Error = E>, W: WorldTrait> Evaluate<W>
-    for EvaluatesTo<V>
+impl<V: TryFrom<Value>, W: WorldTrait> Evaluate<W> for EvaluatesTo<V>
+where
+    <V as TryFrom<Value>>::Error: std::error::Error,
 {
     type Value = V;
     type Error = Error;
@@ -21,7 +22,10 @@ impl<E: Into<eyre::Error>, V: TryFrom<Value, Error = E>, W: WorldTrait> Evaluate
         context: &Context,
     ) -> Result<Self::Value, Self::Error> {
         let expr = self.expression.evaluate(wsv, context)?;
-        V::try_from(expr).map_err(|e| Error::Conversion(e.into()))
+
+        V::try_from(expr)
+            .map_err(eyre::Error::from)
+            .map_err(Error::Conversion)
     }
 }
 
@@ -398,7 +402,8 @@ mod tests {
             Contains::new(ContextValue::new("signatories"), manager_signatory),
         ))
         .else_expression(true)
-        .build()?
+        .build()
+        .unwrap()
         .into();
         // Signed by all tellers
         let expression = WhereBuilder::evaluate(condition.clone())

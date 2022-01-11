@@ -1,28 +1,40 @@
 //! This module contains [`Transaction`] structures and related implementations
 
-use std::{
+#[cfg(not(feature = "std"))]
+use alloc::{collections::btree_set, format, string::String, vec, vec::Vec};
+use core::{
     cmp::Ordering,
-    collections::BTreeSet,
-    error::Error as StdError,
     fmt::{Display, Formatter, Result as FmtResult},
-    vec::IntoIter as VecIter,
 };
+#[cfg(feature = "std")]
+use std::{collections::btree_set, vec};
 
-use eyre::{eyre, Result};
-use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignatureVerificationFail, SignaturesOf};
+use iroha_crypto::{HashOf, SignatureOf, SignatureVerificationFail, SignaturesOf};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 #[cfg(feature = "warp")]
 use warp::{reply::Response, Reply};
 
-use crate::{account::prelude::*, current_time, isi::Instruction, metadata::UnlimitedMetadata};
+use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+
+/// Error which indicates max instruction count was reached
+#[derive(Debug, Clone, Copy)]
+pub struct MaxInstructionCount;
+
+impl Display for MaxInstructionCount {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "Too many instructions in payload")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for MaxInstructionCount {}
 
 /// Trait for basic transaction operations
 pub trait Txn {
@@ -37,12 +49,13 @@ pub trait Txn {
     /// # Errors
     /// Fails if instruction length exceeds maximum instruction number
     #[inline]
-    fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
+    fn check_instruction_len(&self, max_instruction_len: u64) -> Result<(), MaxInstructionCount> {
         self.payload().check_instruction_len(max_instruction_len)
     }
 
     /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
     #[inline]
+    #[cfg(feature = "std")]
     fn hash(&self) -> HashOf<Self::HashOf>
     where
         Self: Sized,
@@ -66,7 +79,7 @@ pub enum Executable {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Payload {
     /// Account ID of transaction creator.
-    pub account_id: AccountId,
+    pub account_id: <Account as Identifiable>::Id,
     /// Instructions or WebAssembly smartcontract
     pub instructions: Executable,
     /// Time of creation (unix time, in milliseconds).
@@ -92,12 +105,15 @@ impl Payload {
     ///
     /// # Errors
     /// Fails if instruction length exceeds maximum instruction number
-    pub fn check_instruction_len(&self, max_instruction_number: u64) -> Result<()> {
+    pub fn check_instruction_len(
+        &self,
+        max_instruction_number: u64,
+    ) -> Result<(), MaxInstructionCount> {
         if let Executable::Instructions(instructions) = &self.instructions {
             if instructions.iter().map(Instruction::len).sum::<usize>() as u64
                 > max_instruction_number
             {
-                return Err(eyre!("Too many instructions in payload"));
+                return Err(MaxInstructionCount);
             }
         }
         Ok(())
@@ -154,11 +170,7 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
     fn from(transaction: VersionedValidTransaction) -> Self {
         match transaction {
             VersionedValidTransaction::V1(transaction) => {
-                let signatures = transaction
-                    .signatures
-                    .iter()
-                    .cloned()
-                    .collect::<BTreeSet<_>>();
+                let signatures = transaction.signatures.into();
 
                 Transaction {
                     payload: transaction.payload,
@@ -181,15 +193,20 @@ pub struct Transaction {
     /// [`Transaction`] payload.
     pub payload: Payload,
     /// [`SignatureOf`] [`Transaction`].
-    pub signatures: BTreeSet<SignatureOf<Payload>>,
+    pub signatures: btree_set::BTreeSet<SignatureOf<Payload>>,
 }
 
 impl Transaction {
     /// Constructs `Transaction`.
     #[inline]
-    pub fn new(account_id: AccountId, instructions: Executable, proposed_ttl_ms: u64) -> Self {
+    #[cfg(feature = "std")]
+    pub fn new(
+        account_id: <Account as Identifiable>::Id,
+        instructions: Executable,
+        proposed_ttl_ms: u64,
+    ) -> Self {
         #[allow(clippy::cast_possible_truncation)]
-        let creation_time = current_time().as_millis() as u64;
+        let creation_time = crate::current_time().as_millis() as u64;
 
         Self {
             payload: Payload {
@@ -200,7 +217,7 @@ impl Transaction {
                 nonce: None,
                 metadata: UnlimitedMetadata::new(),
             },
-            signatures: BTreeSet::new(),
+            signatures: btree_set::BTreeSet::new(),
         }
     }
 
@@ -219,13 +236,19 @@ impl Transaction {
     /// Sign transaction with the provided key pair.
     ///
     /// # Errors
+    ///
     /// Fails if signature creation fails
-    pub fn sign(self, key_pair: &KeyPair) -> Result<Self> {
-        let mut signatures = self.signatures.clone();
-        signatures.insert(SignatureOf::new(key_pair.clone(), &self.payload)?);
-        Ok(Transaction {
+    #[cfg(feature = "std")]
+    pub fn sign(
+        mut self,
+        key_pair: iroha_crypto::KeyPair,
+    ) -> Result<Transaction, iroha_crypto::Error> {
+        let signature = SignatureOf::new(key_pair, &self.payload)?;
+        self.signatures.insert(signature);
+
+        Ok(Self {
             payload: self.payload,
-            signatures,
+            signatures: self.signatures,
         })
     }
 }
@@ -292,7 +315,7 @@ impl FromIterator<Transaction> for PendingTransactions {
 impl IntoIterator for PendingTransactions {
     type Item = Transaction;
 
-    type IntoIter = VecIter<Self::Item>;
+    type IntoIter = vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         let PendingTransactions(transactions) = self;
@@ -467,7 +490,8 @@ impl Display for UnsatisfiedSignatureConditionFail {
     }
 }
 
-impl StdError for UnsatisfiedSignatureConditionFail {}
+#[cfg(feature = "std")]
+impl std::error::Error for UnsatisfiedSignatureConditionFail {}
 
 /// Transaction was rejected because of one of its instructions failing.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -503,7 +527,8 @@ impl Display for InstructionExecutionFail {
         )
     }
 }
-impl StdError for InstructionExecutionFail {}
+#[cfg(feature = "std")]
+impl std::error::Error for InstructionExecutionFail {}
 
 /// Transaction was rejected because execution of `WebAssembly` binary failed
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -517,7 +542,8 @@ impl Display for WasmExecutionFail {
         write!(f, "Failed to execute wasm binary: {}", self.reason)
     }
 }
-impl StdError for WasmExecutionFail {}
+#[cfg(feature = "std")]
+impl std::error::Error for WasmExecutionFail {}
 
 /// Transaction was reject because of low authority
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -532,7 +558,8 @@ impl Display for NotPermittedFail {
     }
 }
 
-impl StdError for NotPermittedFail {}
+#[cfg(feature = "std")]
+impl std::error::Error for NotPermittedFail {}
 
 /// The reason for rejecting transaction which happened because of new blocks.
 #[derive(
@@ -541,7 +568,6 @@ impl StdError for NotPermittedFail {}
     Copy,
     PartialEq,
     Eq,
-    Error,
     Decode,
     Encode,
     Deserialize,
@@ -552,66 +578,83 @@ impl StdError for NotPermittedFail {}
 pub enum BlockRejectionReason {
     /// Block was rejected during consensus.
     //TODO: store rejection reasons for blocks?
-    #[error("Block was rejected during consensus.")]
     ConsensusBlockRejection,
 }
 
+impl Display for BlockRejectionReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "Block was rejected during consensus")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BlockRejectionReason {}
+
 /// The reason for rejecting transaction which happened because of transaction.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Error,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum TransactionRejectionReason {
     /// Insufficient authorisation.
-    #[error("Transaction rejected due to insufficient authorisation")]
-    NotPermitted(#[source] NotPermittedFail),
+    #[cfg_attr(
+        feature = "std",
+        error("Transaction rejected due to insufficient authorisation")
+    )]
+    NotPermitted(#[cfg_attr(feature = "std", source)] NotPermittedFail),
     /// Failed to verify signature condition specified in the account.
-    #[error("Transaction rejected due to an unsatisfied signature condition")]
-    UnsatisfiedSignatureCondition(#[source] UnsatisfiedSignatureConditionFail),
+    #[cfg_attr(
+        feature = "std",
+        error("Transaction rejected due to an unsatisfied signature condition")
+    )]
+    UnsatisfiedSignatureCondition(
+        #[cfg_attr(feature = "std", source)] UnsatisfiedSignatureConditionFail,
+    ),
     /// Failed to execute instruction.
-    #[error("Transaction rejected due to failure in instruction execution")]
-    InstructionExecution(#[source] InstructionExecutionFail),
+    #[cfg_attr(
+        feature = "std",
+        error("Transaction rejected due to failure in instruction execution")
+    )]
+    InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
     /// Failed to execute WebAssembly binary.
-    #[error("Transaction rejected due to failure in WebAssembly execution")]
-    WasmExecution(#[source] WasmExecutionFail),
+    #[cfg_attr(
+        feature = "std",
+        error("Transaction rejected due to failure in WebAssembly execution")
+    )]
+    WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
     /// Failed to verify signatures.
-    #[error("Transaction rejected due to failed signature verification")]
-    SignatureVerification(#[source] SignatureVerificationFail<Payload>),
+    #[cfg_attr(
+        feature = "std",
+        error("Transaction rejected due to failed signature verification")
+    )]
+    SignatureVerification(#[cfg_attr(feature = "std", source)] SignatureVerificationFail<Payload>),
     /// Genesis account can sign only transactions in the genesis block.
-    #[error("The genesis account can only sign transactions in the genesis block.")]
+    #[cfg_attr(
+        feature = "std",
+        error("The genesis account can only sign transactions in the genesis block.")
+    )]
     UnexpectedGenesisAccountSignature,
 }
 
 /// The reason for rejecting pipeline entity such as transaction or block.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Error,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum RejectionReason {
     /// The reason for rejecting the block.
-    #[error("Block was rejected")]
-    Block(#[source] BlockRejectionReason),
+    Block(#[cfg_attr(feature = "std", source)] BlockRejectionReason),
     /// The reason for rejecting transaction.
-    #[error("Transaction was rejected")]
-    Transaction(#[source] TransactionRejectionReason),
+    Transaction(#[cfg_attr(feature = "std", source)] TransactionRejectionReason),
+}
+
+impl Display for RejectionReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            Self::Block(_) => write!(f, "Block was rejected"),
+            Self::Transaction(_) => write!(f, "Transaction was rejected"),
+        }
+    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.

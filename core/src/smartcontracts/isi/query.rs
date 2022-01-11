@@ -179,7 +179,7 @@ impl TryFrom<&Bytes> for VerifiedQueryRequest {
 }
 
 impl<W: WorldTrait> ValidQuery<W> for QueryBox {
-    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Value, Error> {
+    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
         use QueryBox::*;
 
         match self {
@@ -220,11 +220,10 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use iroha_crypto::KeyPair;
-    use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
     use once_cell::sync::Lazy;
 
     use super::*;
-    use crate::wsv::World;
+    use crate::{wsv::World, DomainsMap, PeersIds};
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> = Lazy::new(|| AccountId::test("alice", "wonderland"));
@@ -296,7 +295,7 @@ mod tests {
         let wsv = WorldStateView::new(world_with_test_domains());
 
         let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
-        let signed_tx = tx.sign(&ALICE_KEYS)?;
+        let signed_tx = tx.sign(ALICE_KEYS.clone())?;
         let va_tx = VersionedAcceptedTransaction::from_transaction(signed_tx.clone(), 4096)?;
 
         let mut block = PendingBlock::new(Vec::new());

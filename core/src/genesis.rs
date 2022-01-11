@@ -171,22 +171,23 @@ impl GenesisNetworkTrait for GenesisNetwork {
         if !submit_genesis {
             return Ok(None);
         }
-        let genesis_key_pair = KeyPair {
-            public_key: genesis_config
-                .account_public_key
-                .clone()
-                .ok_or_else(|| eyre!("Genesis account public key is empty."))?,
-            private_key: genesis_config
-                .account_private_key
-                .clone()
-                .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
-        };
         Ok(Some(GenesisNetwork {
             transactions: raw_block
                 .transactions
                 .iter()
                 .map(|raw_transaction| {
-                    raw_transaction.sign_and_accept(&genesis_key_pair, max_instructions_number)
+                    let genesis_key_pair = KeyPair {
+                        public_key: genesis_config
+                            .account_public_key
+                            .clone()
+                            .ok_or_else(|| eyre!("Genesis account public key is empty."))?,
+                        private_key: genesis_config
+                            .account_private_key
+                            .clone()
+                            .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
+                    };
+
+                    raw_transaction.sign_and_accept(genesis_key_pair, max_instructions_number)
                 })
                 .filter_map(Result::ok)
                 .collect(),
@@ -273,7 +274,7 @@ impl GenesisTransaction {
     /// Fails if signing fails
     pub fn sign_and_accept(
         &self,
-        genesis_key_pair: &KeyPair,
+        genesis_key_pair: KeyPair,
         max_instruction_number: u64,
     ) -> Result<VersionedAcceptedTransaction> {
         let transaction = Transaction::new(

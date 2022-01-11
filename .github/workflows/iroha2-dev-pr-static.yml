@@ -25,6 +25,9 @@ jobs:
       - name: Static analysis with all features enabled
         run: cargo lints clippy --workspace --benches --tests --examples --all-features --quiet
         if: always()
+      - name: Verify iroha_data_model supports no_std
+        run: cargo nono check --package iroha_data_model --no-default-features
+        if: always()
       - name: Documentation check
         run: |
           cargo doc --no-deps --quiet

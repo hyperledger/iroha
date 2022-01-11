@@ -1,5 +1,8 @@
 //! Merkle tree implementation
 
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, collections::VecDeque, vec, vec::Vec};
+#[cfg(feature = "std")]
 use std::collections::VecDeque;
 
 use iroha_crypto::{Hash, HashOf};
@@ -93,7 +96,7 @@ impl<T> MerkleTree<T> {
     pub fn add(&self, hash: HashOf<T>) -> Self {
         self.iter()
             .filter_map(Node::leaf_hash)
-            .chain(std::iter::once(hash))
+            .chain(core::iter::once(hash))
             .collect()
     }
 }

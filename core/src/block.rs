@@ -483,12 +483,12 @@ impl ValidBlock {
         self.transactions
             .iter()
             .map(|tx| tx.check_instruction_len(max_instruction_len))
-            .collect::<Result<Vec<()>>>()
+            .collect::<Result<Vec<_>, _>>()
             .map(drop)?;
         self.rejected_transactions
             .iter()
             .map(|tx| tx.check_instruction_len(max_instruction_len))
-            .collect::<Result<Vec<()>>>()
+            .collect::<Result<Vec<_>, _>>()
             .map(drop)?;
         Ok(())
     }

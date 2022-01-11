@@ -83,7 +83,7 @@ impl From<DigestFunction> for u64 {
     }
 }
 
-/// Error which may occur when converting to/from `Multihash`
+/// Error occurs when converting to/from `Multihash`
 #[derive(Debug, Clone, Display)]
 pub struct ConvertError {
     reason: String,

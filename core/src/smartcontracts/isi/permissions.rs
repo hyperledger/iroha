@@ -437,6 +437,7 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<AnyShouldSucceed<W, O>>
 
 /// Builder to combine multiple validation checks into one.
 #[derive(Default)]
+#[must_use = ".build() not used"]
 pub struct ValidatorBuilder<W: WorldTrait, O: NeedsPermission> {
     validators: Vec<IsAllowedBoxed<W, O>>,
 }

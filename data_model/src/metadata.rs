@@ -1,9 +1,12 @@
 //! Metadata: key-value pairs that can be attached to accounts,
 //! transactions and assets.
 
-use std::{borrow::Borrow, collections::BTreeMap, fmt};
+#[cfg(not(feature = "std"))]
+use alloc::{collections::btree_map, fmt, format, string::String, vec::Vec};
+use core::borrow::Borrow;
+#[cfg(feature = "std")]
+use std::{collections::btree_map, fmt};
 
-use eyre::Result;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -11,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Name, Value};
 
 /// Collection of parameters by their names.
-pub type UnlimitedMetadata = BTreeMap<Name, Value>;
+pub type UnlimitedMetadata = btree_map::BTreeMap<Name, Value>;
 
 /// Limits for [`Metadata`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
@@ -29,10 +32,11 @@ impl fmt::Display for Limits {
 }
 
 /// Metadata related errors.
-#[derive(Debug, thiserror::Error, Clone)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum Error {
     /// Metadata entry too big.
-    #[error("Metadata entry too big. {limits} - {actual}")]
+    #[cfg_attr(feature = "std", error("Metadata entry too big. {limits} - {actual}"))]
     EntrySize {
         /// The limits that were set for this entry.
         limits: Limits,
@@ -40,7 +44,10 @@ pub enum Error {
         actual: usize,
     },
     /// Metadata exceeds overall length limit.
-    #[error("Metadata exceeds overall length limit. {limits} - {actual}")]
+    #[cfg_attr(
+        feature = "std",
+        error("Metadata exceeds overall length limit. {limits} - {actual}")
+    )]
     OverallSize {
         /// The limits that were set for this entry.
         limits: Limits,
@@ -48,13 +55,16 @@ pub enum Error {
         actual: usize,
     },
     /// Empty path.
-    #[error("Path specification empty")]
+    #[cfg_attr(feature = "std", error("Path specification empty"))]
     EmptyPath(),
     /// Middle path segment is missing. I.e. nothing was found at that key.
-    #[error("Path segment {0} not found")]
+    #[cfg_attr(feature = "std", error("Path segment {0} not found"))]
     MissingSegment(Name),
     /// Middle path segment is not nested metadata. I.e. something was found, but isn't an instance of [`Metadata`].
-    #[error("Path segment {0} is not an instance of metadata.")]
+    #[cfg_attr(
+        feature = "std",
+        error("Path segment {0} is not an instance of metadata.")
+    )]
     InvalidSegment(Name),
 }
 
@@ -85,7 +95,7 @@ impl Limits {
 )]
 #[serde(transparent)]
 pub struct Metadata {
-    map: BTreeMap<Name, Value>,
+    map: btree_map::BTreeMap<Name, Value>,
 }
 
 /// A path slice, composed of [`Name`]s.
@@ -96,7 +106,7 @@ impl Metadata {
     #[inline]
     pub fn new() -> Self {
         Self {
-            map: BTreeMap::new(),
+            map: btree_map::BTreeMap::new(),
         }
     }
 
@@ -236,12 +246,17 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
-    use super::{Limits, Metadata, Name, Value};
+    #![allow(clippy::restriction)]
+
+    #[cfg(not(feature = "std"))]
+    use alloc::{borrow::ToOwned as _, vec};
+
+    use super::*;
 
     #[test]
     fn nested_fns_ignore_empty_path() {
         let mut metadata = Metadata::new();
-        let empty_path = Vec::new();
+        let empty_path = vec![];
         assert!(metadata.nested_get(&empty_path).is_none());
         assert!(metadata
             .nested_insert_with_limits(&empty_path, "0".to_owned().into(), Limits::new(12, 12))
@@ -306,23 +321,25 @@ mod tests {
     }
 
     #[test]
-    fn nesting_respects_limits() -> eyre::Result<()> {
+    fn nesting_respects_limits() {
         let mut metadata = Metadata::new();
         let limits = Limits::new(10, 14);
         // TODO: If we allow a `unsafe`, we could create the path.
-        metadata.insert_with_limits(Name::test("0"), Metadata::new().into(), limits)?;
-        metadata.nested_insert_with_limits(
-            &[Name::test("0"), Name::test("1")],
-            Metadata::new().into(),
-            limits,
-        )?;
+        metadata
+            .insert_with_limits(Name::test("0"), Metadata::new().into(), limits)
+            .unwrap();
+        metadata
+            .nested_insert_with_limits(
+                &[Name::test("0"), Name::test("1")],
+                Metadata::new().into(),
+                limits,
+            )
+            .unwrap();
         let path = vec![Name::test("0"), Name::test("1"), Name::test("2")];
         let failing_insert =
             metadata.nested_insert_with_limits(&path, "Hello World".to_owned().into(), limits);
-        match failing_insert {
-            Err(_) => Ok(()),
-            Ok(_) => Err(eyre::eyre!("Insertion should have failed.")),
-        }
+
+        assert!(failing_insert.is_err());
     }
 
     #[test]

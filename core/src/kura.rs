@@ -292,25 +292,13 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 pub enum Error {
     /// Generic IO error
     #[error("Failed reading/writing from disk")]
-    IO(
-        #[from]
-        #[source]
-        std::io::Error,
-    ),
+    IO(#[from] std::io::Error),
     /// Error (de)serializing block
     #[error("Failed to serialize/deserialize block")]
-    Codec(
-        #[from]
-        #[source]
-        iroha_version::error::Error,
-    ),
+    Codec(#[from] iroha_version::error::Error),
     /// Allocation error
     #[error("Failed to allocate buffer")]
-    Alloc(
-        #[from]
-        #[source]
-        std::collections::TryReserveError,
-    ),
+    Alloc(#[from] std::collections::TryReserveError),
     /// Zero-height block was provided
     #[error("An attempt to write zero-height block.")]
     ZeroBlock,

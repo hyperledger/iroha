@@ -1,5 +1,8 @@
 //! Data events.
 
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec, vec::Vec};
+
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -441,6 +444,9 @@ mod account {
 }
 
 mod asset {
+    #[cfg(not(feature = "std"))]
+    use alloc::{vec, vec::Vec};
+
     use crate::{prelude::*, ValueMarker};
 
     impl<O: ValueMarker> From<Mint<Asset, O>> for DataEvent {

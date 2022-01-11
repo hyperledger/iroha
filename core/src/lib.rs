@@ -48,6 +48,16 @@ pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 /// Specialized type of Iroha Network
 pub type IrohaNetwork = iroha_p2p::Network<NetworkMessage>;
 
+/// Ids of peers.
+pub type PeersIds = dashmap::DashSet<PeerId>;
+
+/// Provides an API to work with collection of key([`DomainId`]) - value([`Domain`]) pairs.
+pub type DomainsMap = dashmap::DashMap<DomainId, Domain>;
+
+/// `RolesMap` provides an API to work with collection of key(`PeerId`) - value(`Role`) pairs.
+#[cfg(feature = "roles")]
+pub type RolesMap = dashmap::DashMap<RoleId, Role>;
+
 /// The network message
 #[derive(Clone, Debug, Encode, Decode, iroha_actor::Message)]
 pub enum NetworkMessage {
@@ -355,7 +365,7 @@ pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
 
     #[doc(inline)]
-    pub use iroha_crypto::{Hash, KeyPair, PrivateKey, PublicKey, Signature};
+    pub use iroha_crypto::{Hash, KeyPair, PrivateKey, PublicKey};
 
     #[doc(inline)]
     pub use crate::{

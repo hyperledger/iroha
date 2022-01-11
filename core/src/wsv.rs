@@ -14,7 +14,7 @@ use dashmap::{
 };
 use eyre::Result;
 use iroha_crypto::HashOf;
-use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
+use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
 use tokio::task;
@@ -24,6 +24,7 @@ use crate::{
     event::EventsSender,
     prelude::*,
     smartcontracts::{isi::Error, Execute, FindError},
+    DomainsMap, PeersIds,
 };
 
 /// Sender type of the new block notification channel
@@ -57,7 +58,7 @@ pub struct World {
     /// Roles.
     /// [`Role`] pairs.
     #[cfg(feature = "roles")]
-    pub roles: iroha_data_model::role::RolesMap,
+    pub roles: crate::RolesMap,
 }
 
 /// Current state of the blockchain aligned with `Iroha` module.

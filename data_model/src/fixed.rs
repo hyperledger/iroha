@@ -1,16 +1,15 @@
 //! Types used for Fixed-point operations. Uses [`fixnum::FixedPoint`].
 
-use std::mem::size_of;
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec::Vec};
 
 use fixnum::{
     ops::{CheckedAdd, CheckedSub, Zero},
-    typenum::U9,
-    ArithmeticError, ConvertError, FixedPoint,
+    ArithmeticError,
 };
-use iroha_schema::prelude::*;
-use parity_scale_codec::{Decode, Encode, Error, Input, Output};
+use iroha_schema::IntoSchema;
+use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 /// Base type for fixed implementation. May be changed in forks.
 /// To change implementation to i128 or other type you will need to change it in Cargo.toml.
@@ -24,12 +23,23 @@ type Base = i64;
 /// `ERROR_MAX` = 0.5 / (10 ^ PRECISION) =
 ///           = 0.5 / 1e9 =
 ///           = 5e-10
-pub type FixNum = FixedPoint<Base, U9>;
+pub type FixNum = fixnum::FixedPoint<Base, fixnum::typenum::U9>;
 
 /// An encapsulation of [`Fixed`] in encodable form. [`Fixed`] values
 /// should never become negative.
 #[derive(
-    Clone, Copy, Debug, Serialize, Deserialize, IntoSchema, PartialEq, Ord, PartialOrd, Eq,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
 pub struct Fixed(FixNum);
 
@@ -89,26 +99,27 @@ impl Fixed {
 }
 
 /// Custom error type for Fixed point operation errors.
-#[derive(Debug, Clone, Error)]
 #[allow(variant_size_differences)]
+#[derive(Debug, Clone, iroha_macro::FromVariant)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum FixedPointOperationError {
     /// All [`Fixed`] values should be positive.
-    #[error("Negative value {0}")]
+    #[cfg_attr(feature = "std", error("Negative value {0}"))]
     NegativeValue(FixNum),
     /// Conversion failed.
-    #[error("Failed to produce fixed point number")]
-    Conversion(#[source] ConvertError),
+    #[cfg_attr(feature = "std", error("Failed to produce fixed point number"))]
+    Conversion(#[cfg_attr(feature = "std", source)] fixnum::ConvertError),
     /// Overflow
-    #[error("Overflow")]
+    #[cfg_attr(feature = "std", error("Overflow"))]
     Overflow,
     /// Division by zero
-    #[error("Division by zero")]
+    #[cfg_attr(feature = "std", error("Division by zero"))]
     DivideByZero,
     /// Domain violation. E.g. computing `sqrt(-1)`
-    #[error("Domain violation")]
+    #[cfg_attr(feature = "std", error("Domain violation"))]
     DomainViolation,
     /// Arithmetic
-    #[error("Unknown Arithmetic error")]
+    #[cfg_attr(feature = "std", error("Unknown Arithmetic error"))]
     Arithmetic,
 }
 
@@ -141,35 +152,6 @@ impl From<Fixed> for f64 {
     fn from(val: Fixed) -> Self {
         let Fixed(fix_num) = val;
         fix_num.into()
-    }
-}
-
-impl Encode for Fixed {
-    #[inline]
-    fn size_hint(&self) -> usize {
-        size_of::<Base>()
-    }
-
-    #[inline]
-    fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
-        let bits = self.0.into_bits();
-        let buf = bits.to_le_bytes();
-        dest.write(&buf);
-    }
-}
-
-impl Decode for Fixed {
-    #[inline]
-    fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
-        let mut buf = [0_u8; size_of::<Base>()];
-        input.read(&mut buf)?;
-        let value = Base::from_le_bytes(buf);
-        Ok(Fixed(FixedPoint::from_bits(value)))
-    }
-
-    #[inline]
-    fn encoded_fixed_size() -> Option<usize> {
-        Some(size_of::<Base>())
     }
 }
 
