@@ -20,10 +20,10 @@ jobs:
       - name: Format check
         run: cargo +nightly-2021-12-02 fmt --all -- --check
       - name: Static analysis without features
-        run: cargo lints clippy --workspace --benches --tests --quiet --no-default-features
+        run: cargo lints clippy --workspace --benches --tests --examples --quiet --no-default-features
         if: always()
       - name: Static analysis with all features enabled
-        run: cargo lints clippy --workspace --benches --tests --all-features --quiet
+        run: cargo lints clippy --workspace --benches --tests --examples --all-features --quiet
         if: always()
       - name: Documentation check
         run: |

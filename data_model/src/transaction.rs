@@ -304,9 +304,9 @@ impl IntoIterator for PendingTransactions {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum TransactionValue {
     /// Committed transaction
-    Transaction(VersionedTransaction),
+    Transaction(Box<VersionedTransaction>),
     /// Rejected transaction with reason of rejection
-    RejectedTransaction(VersionedRejectedTransaction),
+    RejectedTransaction(Box<VersionedRejectedTransaction>),
 }
 
 impl TransactionValue {

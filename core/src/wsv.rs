@@ -575,6 +575,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .iter()
                 .find(|e| e.hash() == *hash)
                 .cloned()
+                .map(Box::new)
                 .map(TransactionValue::RejectedTransaction)
                 .or_else(|| {
                     b.as_v1()
@@ -583,6 +584,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                         .find(|e| e.hash() == *hash)
                         .cloned()
                         .map(VersionedTransaction::from)
+                        .map(Box::new)
                         .map(TransactionValue::Transaction)
                 })
         })
@@ -603,6 +605,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                     .iter()
                     .filter(|transaction| &transaction.payload().account_id == account_id)
                     .cloned()
+                    .map(Box::new)
                     .map(TransactionValue::RejectedTransaction)
                     .chain(
                         block
@@ -611,6 +614,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                             .filter(|transaction| &transaction.payload().account_id == account_id)
                             .cloned()
                             .map(VersionedTransaction::from)
+                            .map(Box::new)
                             .map(TransactionValue::Transaction),
                     )
                     .collect::<Vec<_>>()
