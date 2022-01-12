@@ -3,6 +3,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
+use derive_more::Display;
 use fixnum::{
     ops::{CheckedAdd, CheckedSub, Zero},
     ArithmeticError,
@@ -100,26 +101,26 @@ impl Fixed {
 
 /// Custom error type for Fixed point operation errors.
 #[allow(variant_size_differences)]
-#[derive(Debug, Clone, iroha_macro::FromVariant)]
+#[derive(Debug, Clone, Display, iroha_macro::FromVariant)]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum FixedPointOperationError {
     /// All [`Fixed`] values should be positive.
-    #[cfg_attr(feature = "std", error("Negative value {0}"))]
+    #[display(fmt = "{}: negative value not allowed", _0)]
     NegativeValue(FixNum),
     /// Conversion failed.
-    #[cfg_attr(feature = "std", error("Failed to produce fixed point number"))]
+    #[display(fmt = "Failed to produce fixed point number")]
     Conversion(#[cfg_attr(feature = "std", source)] fixnum::ConvertError),
     /// Overflow
-    #[cfg_attr(feature = "std", error("Overflow"))]
+    #[display(fmt = "Overflow")]
     Overflow,
     /// Division by zero
-    #[cfg_attr(feature = "std", error("Division by zero"))]
+    #[display(fmt = "Division by zero")]
     DivideByZero,
     /// Domain violation. E.g. computing `sqrt(-1)`
-    #[cfg_attr(feature = "std", error("Domain violation"))]
+    #[display(fmt = "Domain violation")]
     DomainViolation,
     /// Arithmetic
-    #[cfg_attr(feature = "std", error("Unknown Arithmetic error"))]
+    #[display(fmt = "Unknown Arithmetic error")]
     Arithmetic,
 }
 

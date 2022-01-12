@@ -568,13 +568,6 @@ impl From<Or> for ExpressionBox {
     }
 }
 
-/// Error which happens when building [`If`] expression
-#[derive(Debug, Clone, Copy)]
-pub struct IfBuildError {
-    /// Reason for the error
-    pub reason: &'static str,
-}
-
 /// Builder for [`If`] expression.
 #[derive(Debug)]
 #[must_use = ".build() not used"]
@@ -619,16 +612,14 @@ impl IfBuilder {
     /// # Errors
     ///
     /// Fails if some of fields are not filled.
-    pub fn build(self) -> Result<If, IfBuildError> {
+    pub fn build(self) -> Result<If, &'static str> {
         if let (Some(then_expression), Some(else_expression)) =
             (self.then_expression, self.else_expression)
         {
-            Ok(If::new(self.condition, then_expression, else_expression))
-        } else {
-            Err(IfBuildError {
-                reason: "Not all fields filled",
-            })
+            return Ok(If::new(self.condition, then_expression, else_expression));
         }
+
+        Err("Not all fields filled")
     }
 }
 

@@ -8,11 +8,10 @@
 extern crate alloc;
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, fmt, format, string::String, vec::Vec};
-use core::{fmt::Debug, ops::RangeInclusive, str::FromStr};
-#[cfg(feature = "std")]
-use std::fmt;
+use alloc::{boxed::Box, format, string::String, vec::Vec};
+use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
+use derive_more::Display;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_schema::IntoSchema;
@@ -32,43 +31,42 @@ pub mod metadata;
 pub mod query;
 pub mod transaction;
 
-/// `Name` struct represents type for Iroha Entities names, like
-/// [`Domain`](`domain::Domain`)'s name or
-/// [`Account`](`account::Account`)'s name.
-#[derive(
-    Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
-pub struct Name(String);
-
 /// Error which occurs when parsing string into a data model entity
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Display)]
 pub struct ParseError {
     reason: &'static str,
-}
-
-impl core::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.reason)
-    }
 }
 
 #[cfg(feature = "std")]
 impl std::error::Error for ParseError {}
 
-/// Error which occurs when validating [`Name`]
-#[derive(Debug, Clone)]
+/// Error which occurs when validating data model entity
+#[derive(Debug, Clone, Display)]
 pub struct ValidationError {
     reason: String,
 }
 
-impl core::fmt::Display for ValidationError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.reason)
-    }
-}
-
 #[cfg(feature = "std")]
 impl std::error::Error for ValidationError {}
+
+/// `Name` struct represents type for Iroha Entities names, like
+/// [`Domain`](`domain::Domain`)'s name or
+/// [`Account`](`account::Account`)'s name.
+#[derive(
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Display,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+)]
+pub struct Name(String);
 
 impl Name {
     /// Construct [`Name`] if `name` is valid.
@@ -137,12 +135,6 @@ impl Debug for Name {
     }
 }
 
-impl fmt::Display for Name {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 /// Represents a sequence of bytes. Used for storing encoded data.
 pub type Bytes = Vec<u8>;
 
@@ -166,8 +158,14 @@ pub trait TryAsRef<T> {
     fn try_as_ref(&self) -> Result<&T, Self::Error>;
 }
 
-/// Error which occurs when converting reference to an enum to reference to a variant
-#[derive(Debug, Clone, Copy)]
+/// Error which occurs when converting an enum reference to a variant reference
+#[derive(Debug, Clone, Copy, Display)]
+#[display(bound = "GOT: Debug")]
+#[display(
+    fmt = "Expected: {}\nGot: {:?}",
+    "core::any::type_name::<EXPECTED>()",
+    got
+)]
 pub struct EnumTryAsError<EXPECTED, GOT> {
     expected: core::marker::PhantomData<EXPECTED>,
     /// Actual enum variant which was being converted
@@ -180,19 +178,6 @@ impl<EXPECTED, GOT> EnumTryAsError<EXPECTED, GOT> {
             expected: core::marker::PhantomData,
             got,
         }
-    }
-}
-
-impl<EXPECTED, GOT: Debug> core::fmt::Display for EnumTryAsError<EXPECTED, GOT> {
-    // Required to print actual enum variant
-    #[allow(clippy::use_debug)]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "Expected: {}\nGot: {:?}",
-            core::any::type_name::<EXPECTED>(),
-            self.got
-        )
     }
 }
 
@@ -474,32 +459,11 @@ impl<V: Into<Value>> From<Vec<V>> for Value {
     }
 }
 
-#[derive(Debug, FromVariant)]
-pub enum CollectionConversionError<F, T> {
-    UnexpectedCollectionType,
-    ElementConversion { reason: ErrorTryFromEnum<F, T> },
-}
-
-impl<F, T> fmt::Display for CollectionConversionError<F, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::UnexpectedCollectionType => write!(f, "{}", self.name),
-            Self::ElementConversion(error) => write!(f, "{}", error.to_string()),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl<F: Debug + fmt::Display, T: Debug + fmt::Display> std::error::Error
-    for CollectionConversionError<F, T>
-{
-}
-
 impl<V> TryFrom<Value> for Vec<V>
 where
-    Value: TryInto<V, Error = ErrorTryFromEnum<Value, V>>,
+    Value: TryInto<V>,
 {
-    type Error = CollectionConversionError<Value, V>;
+    type Error = ErrorTryFromEnum<Value, Self>;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Vec(vec) = value {
@@ -507,10 +471,10 @@ where
                 .into_iter()
                 .map(TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| CollectionConversionError::ElementConversion { reason: e });
+                .map_err(|_e| Self::Error::default());
         }
 
-        CollectionConversionError::UnexpectedCollectionType
+        Err(Self::Error::default())
     }
 }
 
@@ -564,9 +528,10 @@ pub mod role {
     //! Structures, traits and impls related to `Role`s.
 
     #[cfg(not(feature = "std"))]
-    use alloc::{boxed::Box, collections::btree_set, fmt, string::String};
+    use alloc::{boxed::Box, collections::btree_set, string::String};
+    use core::fmt;
     #[cfg(feature = "std")]
-    use std::{collections::btree_set, fmt};
+    use std::collections::btree_set;
 
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
@@ -1668,10 +1633,10 @@ pub mod domain {
     //! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
 
     #[cfg(not(feature = "std"))]
-    use alloc::{collections::btree_map, fmt, string::String, vec::Vec};
-    use core::{cmp::Ordering, str::FromStr};
+    use alloc::{collections::btree_map, string::String, vec::Vec};
+    use core::{cmp::Ordering, fmt, str::FromStr};
     #[cfg(feature = "std")]
-    use std::{collections::btree_map, fmt};
+    use std::collections::btree_map;
 
     use iroha_crypto::PublicKey;
     use iroha_schema::IntoSchema;
@@ -1858,13 +1823,12 @@ pub mod peer {
     //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
     #[cfg(not(feature = "std"))]
-    use alloc::{fmt, string::String, vec::Vec};
+    use alloc::{string::String, vec::Vec};
     use core::{
         cmp::Ordering,
+        fmt,
         hash::{Hash, Hasher},
     };
-    #[cfg(feature = "std")]
-    use std::fmt;
 
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};

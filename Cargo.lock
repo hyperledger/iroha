@@ -1763,6 +1763,7 @@ dependencies = [
 name = "iroha_data_model"
 version = "2.0.0-pre.1"
 dependencies = [
+ "derive_more",
  "fixnum",
  "hex-literal",
  "iroha_client",

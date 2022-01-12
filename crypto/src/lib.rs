@@ -161,7 +161,6 @@ pub struct KeyPair {
 }
 
 /// Error when dealing with cryptographic functions
-#[cfg(feature = "std")]
 #[derive(Debug, Display)]
 pub enum Error {
     /// Returned when trying to create an algorithm which does not exist

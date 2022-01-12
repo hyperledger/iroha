@@ -1,7 +1,7 @@
 //! This module contains [`Transaction`] structures and related implementations
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_set, format, string::String, vec, vec::Vec};
+use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
 use core::{
     cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
@@ -9,7 +9,8 @@ use core::{
 #[cfg(feature = "std")]
 use std::{collections::btree_set, vec};
 
-use iroha_crypto::{HashOf, SignatureOf, SignatureVerificationFail, SignaturesOf};
+use derive_more::Display;
+use iroha_crypto::{SignatureOf, SignatureVerificationFail, SignaturesOf};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
@@ -24,14 +25,9 @@ use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Ide
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
 
 /// Error which indicates max instruction count was reached
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Display)]
+#[display(fmt = "Too many instructions in payload")]
 pub struct MaxInstructionCount;
-
-impl Display for MaxInstructionCount {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "Too many instructions in payload")
-    }
-}
 
 #[cfg(feature = "std")]
 impl std::error::Error for MaxInstructionCount {}
@@ -56,11 +52,11 @@ pub trait Txn {
     /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
     #[inline]
     #[cfg(feature = "std")]
-    fn hash(&self) -> HashOf<Self::HashOf>
+    fn hash(&self) -> iroha_crypto::HashOf<Self::HashOf>
     where
         Self: Sized,
     {
-        HashOf::new(&self.payload()).transmute()
+        iroha_crypto::HashOf::new(&self.payload()).transmute()
     }
 }
 
@@ -197,7 +193,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    /// Constructs `Transaction`.
+    /// Construct `Transaction`.
     #[inline]
     #[cfg(feature = "std")]
     pub fn new(
@@ -474,20 +470,16 @@ impl Txn for RejectedTransaction {
 }
 
 /// Transaction was reject because it doesn't satisfy signature condition
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(
+    fmt = "Failed to verify signature condition specified in the account: {}",
+    reason
+)]
 pub struct UnsatisfiedSignatureConditionFail {
     /// Reason why signature condition failed
     pub reason: String,
-}
-
-impl Display for UnsatisfiedSignatureConditionFail {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(
-            f,
-            "Failed to verify signature condition specified in the account: {}",
-            self.reason,
-        )
-    }
 }
 
 #[cfg(feature = "std")]
@@ -531,31 +523,26 @@ impl Display for InstructionExecutionFail {
 impl std::error::Error for InstructionExecutionFail {}
 
 /// Transaction was rejected because execution of `WebAssembly` binary failed
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "Failed to execute wasm binary: {}", reason)]
 pub struct WasmExecutionFail {
     /// Error which happened during execution
     pub reason: String,
 }
 
-impl Display for WasmExecutionFail {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "Failed to execute wasm binary: {}", self.reason)
-    }
-}
 #[cfg(feature = "std")]
 impl std::error::Error for WasmExecutionFail {}
 
 /// Transaction was reject because of low authority
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "Action not permitted: {}", reason)]
 pub struct NotPermittedFail {
     /// The cause of failure.
     pub reason: String,
-}
-
-impl Display for NotPermittedFail {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "Action not permitted: {}", self.reason)
-    }
 }
 
 #[cfg(feature = "std")]
@@ -568,6 +555,7 @@ impl std::error::Error for NotPermittedFail {}
     Copy,
     PartialEq,
     Eq,
+    Display,
     Decode,
     Encode,
     Deserialize,
@@ -575,16 +563,11 @@ impl std::error::Error for NotPermittedFail {}
     FromVariant,
     IntoSchema,
 )]
+#[display(fmt = "Block was rejected during consensus")]
 pub enum BlockRejectionReason {
     /// Block was rejected during consensus.
     //TODO: store rejection reasons for blocks?
     ConsensusBlockRejection,
-}
-
-impl Display for BlockRejectionReason {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "Block was rejected during consensus")
-    }
 }
 
 #[cfg(feature = "std")]
@@ -592,69 +575,64 @@ impl std::error::Error for BlockRejectionReason {}
 
 /// The reason for rejecting transaction which happened because of transaction.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Display,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum TransactionRejectionReason {
     /// Insufficient authorisation.
-    #[cfg_attr(
-        feature = "std",
-        error("Transaction rejected due to insufficient authorisation")
-    )]
+    #[display(fmt = "Transaction rejected due to insufficient authorisation")]
     NotPermitted(#[cfg_attr(feature = "std", source)] NotPermittedFail),
     /// Failed to verify signature condition specified in the account.
-    #[cfg_attr(
-        feature = "std",
-        error("Transaction rejected due to an unsatisfied signature condition")
-    )]
+    #[display(fmt = "Transaction rejected due to an unsatisfied signature condition")]
     UnsatisfiedSignatureCondition(
         #[cfg_attr(feature = "std", source)] UnsatisfiedSignatureConditionFail,
     ),
     /// Failed to execute instruction.
-    #[cfg_attr(
-        feature = "std",
-        error("Transaction rejected due to failure in instruction execution")
-    )]
+    #[display(fmt = "Transaction rejected due to failure in instruction execution")]
     InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
     /// Failed to execute WebAssembly binary.
-    #[cfg_attr(
-        feature = "std",
-        error("Transaction rejected due to failure in WebAssembly execution")
-    )]
+    #[display(fmt = "Transaction rejected due to failure in WebAssembly execution")]
     WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
     /// Failed to verify signatures.
-    #[cfg_attr(
-        feature = "std",
-        error("Transaction rejected due to failed signature verification")
-    )]
+    #[display(fmt = "Transaction rejected due to failed signature verification")]
     SignatureVerification(#[cfg_attr(feature = "std", source)] SignatureVerificationFail<Payload>),
     /// Genesis account can sign only transactions in the genesis block.
-    #[cfg_attr(
-        feature = "std",
-        error("The genesis account can only sign transactions in the genesis block.")
-    )]
+    #[display(fmt = "The genesis account can only sign transactions in the genesis block.")]
     UnexpectedGenesisAccountSignature,
 }
 
 /// The reason for rejecting pipeline entity such as transaction or block.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Display,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum RejectionReason {
     /// The reason for rejecting the block.
+    #[display(fmt = "Block was rejected")]
     Block(#[cfg_attr(feature = "std", source)] BlockRejectionReason),
     /// The reason for rejecting transaction.
+    #[display(fmt = "Transaction was rejected")]
     Transaction(#[cfg_attr(feature = "std", source)] TransactionRejectionReason),
-}
-
-impl Display for RejectionReason {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        match self {
-            Self::Block(_) => write!(f, "Block was rejected"),
-            Self::Transaction(_) => write!(f, "Transaction was rejected"),
-        }
-    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.

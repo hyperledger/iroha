@@ -1,7 +1,7 @@
 //! Merkle tree implementation
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::VecDeque, vec, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 
@@ -43,6 +43,7 @@ pub struct BreadthFirstIter<'a, T> {
     queue: Vec<&'a Node<T>>,
 }
 
+#[cfg(feature = "std")]
 impl<U> FromIterator<HashOf<U>> for MerkleTree<U> {
     fn from_iter<T: IntoIterator<Item = HashOf<U>>>(iter: T) -> Self {
         let mut hashes = iter.into_iter().collect::<Vec<_>>();
@@ -93,6 +94,7 @@ impl<T> MerkleTree<T> {
     }
 
     /// Inserts hash into the tree
+    #[cfg(feature = "std")]
     pub fn add(&self, hash: HashOf<T>) -> Self {
         self.iter()
             .filter_map(Node::leaf_hash)
@@ -108,6 +110,7 @@ impl<T> Default for MerkleTree<T> {
 }
 
 impl<T> Node<T> {
+    #[cfg(feature = "std")]
     fn from_nodes(left: Self, right: Self) -> Self {
         Self::Subtree {
             hash: Self::nodes_pair_hash(&left, &right),
@@ -131,6 +134,7 @@ impl<T> Node<T> {
         }
     }
 
+    #[cfg(feature = "std")]
     fn from_node(left: Self) -> Self {
         Self::Subtree {
             hash: left.hash(),
@@ -158,6 +162,7 @@ impl<T> Node<T> {
         }
     }
 
+    #[cfg(feature = "std")]
     fn nodes_pair_hash(left: &Self, right: &Self) -> HashOf<Self> {
         let left_hash = left.hash();
         let right_hash = right.hash();

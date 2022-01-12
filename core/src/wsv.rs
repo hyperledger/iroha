@@ -23,7 +23,7 @@ use crate::{
     block::Chain,
     event::EventsSender,
     prelude::*,
-    smartcontracts::{isi::Error, Execute, FindError},
+    smartcontracts::{isi::Error, wasm, Execute, FindError},
     DomainsMap, PeersIds,
 };
 
@@ -190,7 +190,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                     })?;
                 }
                 Executable::Wasm(bytes) => {
-                    let mut wasm_runtime = crate::smartcontracts::wasm::Runtime::new()?;
+                    let mut wasm_runtime = wasm::Runtime::new()?;
                     wasm_runtime.execute(self, account_id.clone(), bytes)?;
                 }
             }

@@ -7,6 +7,7 @@ use core::borrow::Borrow;
 #[cfg(feature = "std")]
 use std::{collections::btree_map, fmt};
 
+use derive_more::Display;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -32,41 +33,37 @@ impl fmt::Display for Limits {
 }
 
 /// Metadata related errors.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "std", derive(thiserror::Error))]
+#[derive(Debug, Clone, Display)]
 pub enum Error {
     /// Metadata entry too big.
-    #[cfg_attr(feature = "std", error("Metadata entry too big. {limits} - {actual}"))]
+    #[display(fmt = "Metadata entry too big {} - {}", limits, actual)]
     EntrySize {
-        /// The limits that were set for this entry.
+        /// The limits that were set for this entry
         limits: Limits,
-        /// The actual *entry* size in bytes.
+        /// The actual *entry* size in bytes
         actual: usize,
     },
-    /// Metadata exceeds overall length limit.
-    #[cfg_attr(
-        feature = "std",
-        error("Metadata exceeds overall length limit. {limits} - {actual}")
-    )]
+    /// Metadata exceeds overall length limit
+    #[display(fmt = "Metadata exceeds overall length limit {} - {}", limits, actual)]
     OverallSize {
-        /// The limits that were set for this entry.
+        /// The limits that were set for this entry
         limits: Limits,
-        /// The actual *overall* size of metadata.
+        /// The actual *overall* size of metadata
         actual: usize,
     },
-    /// Empty path.
-    #[cfg_attr(feature = "std", error("Path specification empty"))]
+    /// Empty path
+    #[display(fmt = "Path specification empty")]
     EmptyPath(),
-    /// Middle path segment is missing. I.e. nothing was found at that key.
-    #[cfg_attr(feature = "std", error("Path segment {0} not found"))]
+    /// Middle path segment is missing. I.e. nothing was found at that key
+    #[display(fmt = "{}: path segment not found", _0)]
     MissingSegment(Name),
-    /// Middle path segment is not nested metadata. I.e. something was found, but isn't an instance of [`Metadata`].
-    #[cfg_attr(
-        feature = "std",
-        error("Path segment {0} is not an instance of metadata.")
-    )]
+    /// Middle path segment is not nested metadata. I.e. something was found, but isn't an instance of [`Metadata`]
+    #[display(fmt = "{}: path segment not an instance of metadata", _0)]
     InvalidSegment(Name),
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for Error {}
 
 impl Limits {
     /// Constructor.

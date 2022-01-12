@@ -25,9 +25,9 @@ use ursa::{
     },
 };
 
-use crate::PublicKey;
 #[cfg(feature = "std")]
-use crate::{Algorithm, Error, HashOf, KeyPair};
+use crate::{Algorithm, HashOf, KeyPair};
+use crate::{Error, PublicKey};
 
 /// Represents signature of the data (`Block` or `Transaction` for example).
 #[derive(
@@ -435,6 +435,7 @@ pub struct SignatureVerificationFail<T> {
 
 impl<T> SignatureVerificationFail<T> {
     // `Self` should consume given `Error`
+    #[cfg(feature = "std")]
     #[allow(clippy::needless_pass_by_value)]
     fn new(signature: SignatureOf<T>, error: Error) -> Self {
         Self {

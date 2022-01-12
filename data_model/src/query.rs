@@ -5,7 +5,9 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
-use iroha_crypto::{prelude::*, SignatureOf};
+#[cfg(feature = "std")]
+use iroha_crypto::prelude::*;
+use iroha_crypto::SignatureOf;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
@@ -112,6 +114,7 @@ pub struct Payload {
 
 impl Payload {
     /// Hash of this payload.
+    #[cfg(feature = "std")]
     pub fn hash(&self) -> Hash {
         Hash::new(&self.encode())
     }
@@ -1129,7 +1132,9 @@ pub mod prelude {
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, transaction::*, Query, QueryBox, QueryRequest, QueryResult,
-        SignedQueryRequest, VersionedQueryResult, VersionedSignedQueryRequest,
+        permissions::prelude::*, transaction::*, Query, QueryBox, QueryResult, SignedQueryRequest,
+        VersionedQueryResult,
     };
+    #[cfg(feature = "warp")]
+    pub use super::{QueryRequest, VersionedSignedQueryRequest};
 }

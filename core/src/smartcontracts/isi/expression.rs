@@ -11,7 +11,7 @@ use crate::{prelude::*, wsv::WorldTrait};
 
 impl<V: TryFrom<Value>, W: WorldTrait> Evaluate<W> for EvaluatesTo<V>
 where
-    <V as TryFrom<Value>>::Error: std::error::Error,
+    <V as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
     type Value = V;
     type Error = Error;
@@ -24,7 +24,7 @@ where
         let expr = self.expression.evaluate(wsv, context)?;
 
         V::try_from(expr)
-            .map_err(eyre::Error::from)
+            .map_err(Into::into)
             .map_err(Error::Conversion)
     }
 }
