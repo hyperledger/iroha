@@ -13,6 +13,7 @@ pub mod samples {
     use iroha_data_model::uri;
 
     use super::Configuration;
+
     /// Get sample client configuration.
     pub fn get_client_config(key_pair: &KeyPair) -> Configuration {
         let (public_key, private_key) = key_pair.clone().into();
