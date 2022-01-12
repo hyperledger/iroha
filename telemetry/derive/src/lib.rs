@@ -1,5 +1,5 @@
 //! Attribute-like macro for instrumenting `isi` for `prometheus`
-//! metrics. See [`metrics`] for more details.
+//! metrics. See [`macro@metrics`] for more details.
 
 use proc_macro::TokenStream;
 #[cfg(feature = "metric-instrumentation")]
@@ -120,7 +120,7 @@ impl ToTokens for MetricSpec {
 /// metric.  To specify a metric, put it as an attribute parameter
 /// inside quotes.
 
-/// This will increment the [`prometheus::IntVec`] metric
+/// This will increment the `prometheus::IntVec` metric
 /// corresponding to the literal provided in quotes, with the second
 /// argument being `TOTAL_STR == "total"`. If the execution of the
 /// `Fn`'s body doesn't result in an [`Err`] variant, another metric

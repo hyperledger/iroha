@@ -209,7 +209,7 @@ pub enum GetConfiguration {
     ///
     /// # Examples
     ///
-    /// To get the top-level configuration docs for [`Torii`]
+    /// To get the top-level configuration docs for `iroha_core::Torii`
     /// `curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["torii"]} ' -i`
     ///
     /// To get the documentation on the [`Logger::config::Configuration.max_log_level`]

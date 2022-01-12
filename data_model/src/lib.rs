@@ -176,7 +176,7 @@ pub enum IdBox {
     AssetId(asset::Id),
     /// [`AssetDefinitionId`](`asset::DefinitionId`) variant.
     AssetDefinitionId(asset::DefinitionId),
-    /// [`DomainId`](`Id`) variant.
+    /// [`DomainId`](`domain::Id`) variant.
     DomainId(domain::Id),
     /// [`PeerId`](`peer::Id`) variant.
     PeerId(peer::Id),
@@ -218,7 +218,7 @@ pub enum IdentifiableBox {
     /// [`Role`](`role::Role`) variant.
     #[cfg(feature = "roles")]
     Role(Box<role::Role>),
-    /// [`World`](`world::World`).
+    /// `World`.
     World,
 }
 
@@ -252,7 +252,7 @@ pub enum Value {
     String(String),
     /// [`Name`] value.
     Name(Name),
-    /// [`Fixed`] value
+    /// [`fixed::Fixed`] value
     Fixed(fixed::Fixed),
     /// [`Vec`] of `Value`.
     Vec(
@@ -262,9 +262,9 @@ pub enum Value {
     ),
     /// Recursive inclusion of LimitedMetadata,
     LimitedMetadata(metadata::Metadata),
-    /// [`Id`] of [`Asset`], [`Account`], etc.
+    /// `Id` of `Asset`, `Account`, etc.
     Id(IdBox),
-    /// [`Identifiable`] as [`Asset`], [`Account`] etc.
+    /// `Identifiable` as `Asset`, `Account` etc.
     Identifiable(IdentifiableBox),
     /// [`PublicKey`].
     PublicKey(PublicKey),
@@ -274,9 +274,9 @@ pub enum Value {
     SignatureCheckCondition(SignatureCheckCondition),
     /// Committed or rejected transactions
     TransactionValue(TransactionValue),
-    /// Permission token.
+    /// [`PermissionToken`].
     PermissionToken(PermissionToken),
-    /// Hash
+    /// [`struct@Hash`]
     Hash(Hash),
 }
 

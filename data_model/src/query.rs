@@ -32,57 +32,57 @@ use crate::{account::Account, current_time, Identifiable, Value};
     IntoSchema,
 )]
 pub enum QueryBox {
-    /// `FindAllAccounts` variant.
+    /// [`FindAllAccounts`] variant.
     FindAllAccounts(FindAllAccounts),
-    /// `FindAccountById` variant.
+    /// [`FindAccountById`] variant.
     FindAccountById(FindAccountById),
-    /// `FindAccountKeyValueByIdAndKey` variant.
+    /// [`FindAccountKeyValueByIdAndKey`] variant.
     FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
-    /// `FindAccountsByName` variant.
+    /// [`FindAccountsByName`] variant.
     FindAccountsByName(FindAccountsByName),
-    /// `FindAccountsByDomainId` variant.
+    /// [`FindAccountsByDomainId`] variant.
     FindAccountsByDomainId(FindAccountsByDomainId),
-    /// `FindAllAssets` variant.
+    /// [`FindAllAssets`] variant.
     FindAllAssets(FindAllAssets),
-    /// `FindAllAssetsDefinitions` variant.
+    /// [`FindAllAssetsDefinitions`] variant.
     FindAllAssetsDefinitions(FindAllAssetsDefinitions),
-    /// `FindAssetById` variant.
+    /// [`FindAssetById`] variant.
     FindAssetById(FindAssetById),
-    /// `FindAssetByName` variant.
+    /// [`FindAssetsByName`] variant.
     FindAssetsByName(FindAssetsByName),
-    /// `FindAssetsByAccountId` variant.
+    /// [`FindAssetsByAccountId`] variant.
     FindAssetsByAccountId(FindAssetsByAccountId),
-    /// `FindAssetsByAssetDefinitionId` variant.
+    /// [`FindAssetsByAssetDefinitionId`] variant.
     FindAssetsByAssetDefinitionId(FindAssetsByAssetDefinitionId),
-    /// `FindAssetsByDomainId` variant.
+    /// [`FindAssetsByDomainId`] variant.
     FindAssetsByDomainId(FindAssetsByDomainId),
-    /// `FindAssetsByDomainIdAndAssetDefinitionId` variant.
+    /// [`FindAssetsByDomainIdAndAssetDefinitionId`] variant.
     FindAssetsByDomainIdAndAssetDefinitionId(FindAssetsByDomainIdAndAssetDefinitionId),
-    /// `FindAssetQuantityById` variant.
+    /// [`FindAssetQuantityById`] variant.
     FindAssetQuantityById(FindAssetQuantityById),
-    /// `FindAssetKeyValueByIdAndKey` variant.
+    /// [`FindAssetKeyValueByIdAndKey`] variant.
     FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
-    /// `FindAssetKeyValueByIdAndKey` variant.
+    /// [`FindAssetKeyValueByIdAndKey`] variant.
     FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
-    /// `FindAllDomains` variant.
+    /// [`FindAllDomains`] variant.
     FindAllDomains(FindAllDomains),
-    /// `FindDomainById` variant.
+    /// [`FindDomainById`] variant.
     FindDomainById(FindDomainById),
-    /// `FindDomainKeyValueByIdAndKey` variant.
+    /// [`FindDomainKeyValueByIdAndKey`] variant.
     FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
-    /// `FindAllPeers` variant.
+    /// [`FindAllPeers`] variant.
     FindAllPeers(FindAllPeers),
-    /// `FindTransactionsByAccountId` variant.
+    /// [`FindTransactionsByAccountId`] variant.
     FindTransactionsByAccountId(FindTransactionsByAccountId),
-    /// `FindTransactionByHash` variant.
+    /// [`FindTransactionByHash`] variant.
     FindTransactionByHash(FindTransactionByHash),
-    /// `FindAllRoles` variant.
+    /// [`FindAllRoles`] variant.
     #[cfg(feature = "roles")]
     FindAllRoles(FindAllRoles),
-    /// `FindRolesByAccountId` variant.
+    /// [`FindRolesByAccountId`] variant.
     #[cfg(feature = "roles")]
     FindRolesByAccountId(FindRolesByAccountId),
-    /// `FindPermissionTokensByAccountId` variant.
+    /// [`FindPermissionTokensByAccountId`] variant.
     FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
 }
 
@@ -775,7 +775,7 @@ pub mod asset {
     }
 
     impl FindAssetsByDomainId {
-        /// Construct [`FindAssetsByDomainName`].
+        /// Construct [`FindAssetsByDomainId`].
         pub fn new(domain_id: impl Into<EvaluatesTo<DomainId>>) -> Self {
             let domain_id = domain_id.into();
             Self { domain_id }
@@ -783,7 +783,7 @@ pub mod asset {
     }
 
     impl FindAssetsByDomainIdAndAssetDefinitionId {
-        /// Construct [`FindAssetsByDomainNameAndAssetDefinitionId`].
+        /// Construct [`FindAssetsByDomainIdAndAssetDefinitionId`].
         pub fn new(
             domain_id: impl Into<EvaluatesTo<DomainId>>,
             asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,

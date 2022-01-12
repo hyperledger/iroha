@@ -180,7 +180,7 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 pub struct Transaction {
     /// [`Transaction`] payload.
     pub payload: Payload,
-    /// [`Transaction`]'s [`Signature`]s.
+    /// [`SignatureOf`] [`Transaction`].
     pub signatures: BTreeSet<SignatureOf<Payload>>,
 }
 
@@ -380,7 +380,7 @@ impl Txn for VersionedValidTransaction {
 pub struct ValidTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,
-    /// [`Transaction`]'s [`Signature`]s.
+    /// [`SignatureOf`] [`Transaction`].
     pub signatures: SignaturesOf<Payload>,
 }
 
@@ -435,7 +435,7 @@ impl Txn for VersionedRejectedTransaction {
 pub struct RejectedTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,
-    /// [`Transaction`]'s [`Signature`]s.
+    /// [`SignatureOf`] [`Transaction`].
     pub signatures: SignaturesOf<Payload>,
     /// The reason for rejecting this transaction during the validation pipeline.
     pub rejection_reason: TransactionRejectionReason,
@@ -494,6 +494,7 @@ impl Display for InstructionExecutionFail {
             SetKeyValue(_) => "set key-value pair",
             RemoveKeyValue(_) => "remove key-value pair",
             Grant(_) => "grant",
+            Revoke(_) => "revoke",
         };
         write!(
             f,

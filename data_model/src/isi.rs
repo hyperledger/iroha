@@ -40,6 +40,8 @@ pub enum Instruction {
     RemoveKeyValue(RemoveKeyValueBox),
     /// `Grant` variant.
     Grant(GrantBox),
+    /// `Revoke` variant.
+    Revoke(RevokeBox),
 }
 
 impl Instruction {
@@ -60,6 +62,7 @@ impl Instruction {
             SetKeyValue(set_key_value) => set_key_value.len(),
             RemoveKeyValue(remove_key_value) => remove_key_value.len(),
             Grant(grant_box) => grant_box.len(),
+            Revoke(revoke_box) => revoke_box.len(),
         }
     }
 }
@@ -170,6 +173,15 @@ pub struct GrantBox {
     pub destination_id: EvaluatesTo<IdBox>,
 }
 
+/// Sized structure for all possible Grants.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+pub struct RevokeBox {
+    /// Object to grant.
+    pub object: EvaluatesTo<Value>,
+    /// Entity to which to grant this token.
+    pub destination_id: EvaluatesTo<IdBox>,
+}
+
 /// Generic instruction to set value to the object.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct Set<O>
@@ -225,7 +237,7 @@ pub struct Unregister<O>
 where
     O: Identifiable,
 {
-    /// Id of the object which should be unregistered.
+    /// [`Identifiable::Id`] of the object which should be unregistered.
     pub object_id: O::Id,
 }
 
@@ -238,7 +250,7 @@ where
 {
     /// Object which should be minted.
     pub object: O,
-    /// Destination object `Id`.
+    /// Destination object [`Identifiable::Id`].
     pub destination_id: D::Id,
 }
 
@@ -251,7 +263,7 @@ where
 {
     /// Object which should be burned.
     pub object: O,
-    /// Destination object `Id`.
+    /// Destination object [`Identifiable::Id`].
     pub destination_id: D::Id,
 }
 
@@ -279,6 +291,19 @@ where
     /// Object to grant.
     pub object: O,
     /// Entity to which to grant this token.
+    pub destination_id: D::Id,
+}
+
+/// Generic instruction for revoking permission from an entity.
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct Revoke<D, O>
+where
+    D: Identifiable,
+    O: ValueMarker,
+{
+    /// Object to revoke.
+    pub object: O,
+    /// Entity which is being revoked this token from.
     pub destination_id: D::Id,
 }
 
@@ -389,16 +414,51 @@ where
     O: ValueMarker,
 {
     /// Constructor.
+    #[inline]
     pub fn new(object: O, destination_id: D::Id) -> Self {
-        Grant {
+        Self {
             object,
             destination_id,
         }
     }
 }
 
+impl<D, O> Revoke<D, O>
+where
+    D: Identifiable,
+    O: ValueMarker,
+{
+    /// Constructor
+    #[inline]
+    pub fn new(object: O, destination_id: D::Id) -> Self {
+        Self {
+            object,
+            destination_id,
+        }
+    }
+}
+
+impl RevokeBox {
+    /// Compute the number of contained instructions and expressions.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.object.len() + self.destination_id.len() + 1
+    }
+
+    /// Generic constructor.
+    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<IdBox>>>(
+        object: P,
+        destination_id: I,
+    ) -> Self {
+        Self {
+            destination_id: destination_id.into(),
+            object: object.into(),
+        }
+    }
+}
+
 impl GrantBox {
-    /// Calculates number of contained instructions and expressions.
+    /// Compute the number of contained instructions and expressions.
     pub fn len(&self) -> usize {
         self.object.len() + self.destination_id.len() + 1
     }
@@ -416,7 +476,8 @@ impl GrantBox {
 }
 
 impl SetKeyValueBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.object_id.len() + self.key.len() + self.value.len() + 1
     }
@@ -440,7 +501,8 @@ impl SetKeyValueBox {
 }
 
 impl RemoveKeyValueBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.object_id.len() + self.key.len() + 1
     }
@@ -458,7 +520,8 @@ impl RemoveKeyValueBox {
 }
 
 impl RegisterBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.object.len() + 1
     }
@@ -472,7 +535,8 @@ impl RegisterBox {
 }
 
 impl UnregisterBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.object_id.len() + 1
     }
@@ -486,7 +550,8 @@ impl UnregisterBox {
 }
 
 impl MintBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.destination_id.len() + self.object.len() + 1
     }
@@ -504,7 +569,8 @@ impl MintBox {
 }
 
 impl BurnBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.destination_id.len() + self.object.len() + 1
     }
@@ -522,7 +588,8 @@ impl BurnBox {
 }
 
 impl TransferBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.destination_id.len() + self.object.len() + self.source_id.len() + 1
     }
@@ -546,7 +613,8 @@ impl TransferBox {
 }
 
 impl Pair {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         self.left_instruction.len() + self.right_instruction.len() + 1
     }
@@ -564,7 +632,7 @@ impl Pair {
 }
 
 impl SequenceBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
     pub fn len(&self) -> usize {
         self.instructions
             .iter()
@@ -573,14 +641,15 @@ impl SequenceBox {
             + 1
     }
 
-    /// Construct [`Sequence`].
+    /// Construct [`SequenceBox`].
     pub fn new(instructions: Vec<Instruction>) -> Self {
         Self { instructions }
     }
 }
 
 impl If {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
+    #[inline]
     pub fn len(&self) -> usize {
         let otherwise = self.otherwise.as_ref().map_or(0, Instruction::len);
         self.condition.len() + self.then.len() + otherwise + 1
@@ -594,7 +663,7 @@ impl If {
             otherwise: None,
         }
     }
-    /// `If` constructor with `otherwise` instruction.
+    /// [`If`] constructor with `Otherwise` instruction.
     pub fn with_otherwise<
         C: Into<EvaluatesTo<bool>>,
         T: Into<Instruction>,
@@ -613,12 +682,12 @@ impl If {
 }
 
 impl FailBox {
-    /// Calculates number of underneath instructions and expressions
+    /// Length of contained instructions and queries.
     pub const fn len(&self) -> usize {
         1
     }
 
-    /// Construct [`Fail`].
+    /// Construct [`FailBox`].
     pub fn new(message: &str) -> Self {
         Self {
             message: message.to_owned(),
@@ -697,7 +766,7 @@ mod tests {
 pub mod prelude {
     pub use super::{
         Burn, BurnBox, FailBox, Grant, GrantBox, If as IfInstruction, Instruction, Mint, MintBox,
-        Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, SequenceBox, SetKeyValue,
-        SetKeyValueBox, Transfer, TransferBox, Unregister, UnregisterBox,
+        Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox,
+        SequenceBox, SetKeyValue, SetKeyValueBox, Transfer, TransferBox, Unregister, UnregisterBox,
     };
 }

@@ -5,7 +5,7 @@
 use std::iter;
 
 use eyre::Result;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{isi::RevokeBox, prelude::*};
 
 use super::prelude::WorldTrait;
 #[cfg(feature = "roles")]
@@ -27,11 +27,12 @@ pub type DenialReason = String;
 
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
 pub trait IsAllowed<W: WorldTrait, O: NeedsPermission> {
-    /// Checks if the `authority` is allowed to perform `instruction` given the current state of `wsv`.
+    /// Checks if the `authority` is allowed to perform `instruction`
+    /// given the current state of `wsv`.
     ///
     /// # Errors
-    /// In the case when the execution of `instruction` under given `authority` with the current state of `wsv`
-    /// is unallowed.
+    /// If the execution of `instruction` under given `authority` with
+    /// the current state of `wsv` is disallowed.
     fn check(
         &self,
         authority: &AccountId,
@@ -67,7 +68,7 @@ impl<W: WorldTrait, O: NeedsPermission, V: Into<IsAllowedBoxed<W, O>>> Validator
     }
 }
 
-/// `check` will succeed if either `first` or `second` validator succeeds.
+/// `check` succeeds if either `first` or `second` validator succeeds.
 pub struct Or<W: WorldTrait, O: NeedsPermission> {
     first: IsAllowedBoxed<W, O>,
     second: IsAllowedBoxed<W, O>,
@@ -101,8 +102,9 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<Or<W, O>> for IsAllowedBo
     }
 }
 
-/// Wraps validator to check nested permissions.
-/// Pay attention to wrap only validators that do not check nested intructions by themselves.
+/// Wraps validator to check nested permissions.  Pay attention to
+/// wrap only validators that do not check nested intructions by
+/// themselves.
 pub struct CheckNested<W: WorldTrait, O: NeedsPermission> {
     validator: IsAllowedBoxed<W, O>,
 }
@@ -130,6 +132,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W, Instruction> {
             | Instruction::RemoveKeyValue(_)
             | Instruction::Transfer(_)
             | Instruction::Grant(_)
+            | Instruction::Revoke(_)
             | Instruction::Fail(_) => self.validator.check(authority, instruction, wsv),
             Instruction::If(if_box) => {
                 self.check(authority, &if_box.then, wsv)
@@ -149,14 +152,17 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W, Instruction> {
     }
 }
 
-/// Checks an expression recursively to evaluate if there is a query inside of it and if
-/// the user has permission to execute this query.
+/// Checks an expression recursively to evaluate if there is a query
+/// inside of it and if the user has permission to execute this query.
 ///
-/// As the function is recursive, caution should be exercised to have a limit of nestedness, that would not cause stack overflow.
-/// Up to 2^13 calls were tested and are ok. This is within default instruction limit.
+/// As the function is recursive, caution should be exercised to have
+/// a limit of nestedness, that would not cause stack overflow.  Up to
+/// 2^13 calls were tested and are ok. This is within default
+/// instruction limit.
 ///
 /// # Errors
-/// Returns an error if a user is not allowed to execute one of the inner queries, given the current `validator`.
+/// If a user is not allowed to execute one of the inner queries,
+/// given the current `validator`.
 pub fn check_query_in_expression<W: WorldTrait>(
     authority: &AccountId,
     expression: &Expression,
@@ -236,14 +242,18 @@ pub fn check_query_in_expression<W: WorldTrait>(
     }
 }
 
-/// Checks an instruction recursively to evaluate if there is a query inside of it and if
-/// the user has permission to execute this query.
+/// Checks an instruction recursively to evaluate if there is a query
+/// inside of it and if the user has permission to execute this query.
 ///
-/// As the function is recursive, caution should be exercised to have a limit of nestedness, that would not cause stack overflow.
-/// Up to 2^13 calls were tested and are ok. This is within default instruction limit.
+/// As the function is recursive, caution should be exercised to have
+/// a limit of nesting, that would not cause stack overflow.  Up to
+/// 2^13 calls were tested and are ok. This is within default
+/// instruction limit.
 ///
 /// # Errors
-/// Returns an error if a user is not allowed to execute one of the inner queries, given the current `validator`.
+/// If a user is not allowed to execute one of the inner queries,
+/// given the current `validator`.
+#[allow(clippy::too_many_lines)]
 pub fn check_query_in_instruction<W: WorldTrait>(
     authority: &AccountId,
     instruction: &Instruction,
@@ -316,6 +326,15 @@ pub fn check_query_in_instruction<W: WorldTrait>(
                 ))
         }
         Instruction::Grant(instruction) => {
+            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
+                .and(check_query_in_expression(
+                    authority,
+                    &instruction.destination_id.expression,
+                    wsv,
+                    validator,
+                ))
+        }
+        Instruction::Revoke(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
                 .and(check_query_in_expression(
                     authority,
@@ -569,11 +588,28 @@ pub trait IsGrantAllowed<W: WorldTrait> {
     /// Checks the [`GrantBox`] instruction.
     ///
     /// # Errors
-    /// Should return error if this particular validator does not approve this Grant instruction.
+    /// If this validator doesn't approve this Grant instruction.
     fn check_grant(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
+        wsv: &WorldStateView<W>,
+    ) -> Result<(), DenialReason>;
+}
+
+/// Boxed validator implementing the [`IsRevokeAllowed`] trait.
+pub type IsRevokeAllowedBoxed<W> = Box<dyn IsRevokeAllowed<W> + Send + Sync>;
+
+/// Checks the [`RevokeBox`] instruction.
+pub trait IsRevokeAllowed<W: WorldTrait> {
+    /// Checks the [`RevokeBox`] instruction.
+    ///
+    /// # Errors
+    /// If this validator doesn't approve this Revoke instruction.
+    fn check_revoke(
+        &self,
+        authority: &AccountId,
+        instruction: &RevokeBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason>;
 }
@@ -593,18 +629,40 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for IsGrantAllowedBoxed<W> {
     }
 }
 
+impl<W: WorldTrait> IsAllowed<W, Instruction> for IsRevokeAllowedBoxed<W> {
+    fn check(
+        &self,
+        authority: &AccountId,
+        instruction: &Instruction,
+        wsv: &WorldStateView<W>,
+    ) -> Result<(), DenialReason> {
+        if let Instruction::Revoke(isi) = instruction {
+            self.check_revoke(authority, isi, wsv)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 impl<W: WorldTrait> From<IsGrantAllowedBoxed<W>> for IsInstructionAllowedBoxed<W> {
     fn from(validator: IsGrantAllowedBoxed<W>) -> Self {
         Box::new(validator)
     }
 }
 
-/// Unpacks instruction if it is Grant of a Role into several Grants fo Permission Token.
-/// If instruction is not Grant of Role, returns it as inly instruction inside the vec.
-/// Should be called before permission checks by validators.
+impl<W: WorldTrait> From<IsRevokeAllowedBoxed<W>> for IsInstructionAllowedBoxed<W> {
+    fn from(validator: IsRevokeAllowedBoxed<W>) -> Self {
+        Box::new(validator)
+    }
+}
+
+/// Unpacks instruction if it is Grant of a Role into several Grants
+/// fo Permission Token.  If instruction is not Grant of Role, returns
+/// it as inly instruction inside the vec.  Should be called before
+/// permission checks by validators.
 ///
-/// Semantically means that user can grant a role only if they can grant each of the permission tokens
-/// that the role consists of.
+/// Semantically means that user can grant a role only if they can
+/// grant each of the permission tokens that the role consists of.
 ///
 /// # Errors
 /// Evaluation failure of instruction fields.
@@ -637,11 +695,54 @@ pub fn unpack_if_role_grant<W: WorldTrait>(
     Ok(instructions)
 }
 
+/// Unpack instruction if it is a Revoke of a Role, into several
+/// Revocations of Permission Tokens. If the instruction is not a
+/// Revoke of Role, returns it as an internal instruction inside the
+/// vec.
+///
+/// This `fn` should be called before permission checks (by
+/// validators).
+///
+/// Semantically: the user can revoke a role only if they can revoke
+/// each of the permission tokens that the role consists of of.
+///
+/// # Errors
+/// Evaluation failure of each of the instruction fields.
+#[cfg(feature = "roles")]
+pub fn unpack_if_role_revoke<W: WorldTrait>(
+    instruction: Instruction,
+    wsv: &WorldStateView<W>,
+) -> Result<Vec<Instruction>> {
+    let revoke = if let Instruction::Revoke(revoke) = &instruction {
+        revoke
+    } else {
+        return Ok(vec![instruction]);
+    };
+    let id = if let Value::Id(IdBox::RoleId(id)) = revoke.object.evaluate(wsv, &Context::new())? {
+        id
+    } else {
+        return Ok(vec![instruction]);
+    };
+
+    let instructions = if let Some(role) = wsv.world.roles.get(&id) {
+        let destination_id = revoke.destination_id.evaluate(wsv, &Context::new())?;
+        role.permissions
+            .iter()
+            .cloned()
+            .map(|permission_token| RevokeBox::new(permission_token, destination_id.clone()).into())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Ok(instructions)
+}
+
 pub mod prelude {
     //! Exports common types for permissions.
 
     pub use super::{
         AllowAll, DenialReason, HasTokenBoxed, IsAllowedBoxed, IsGrantAllowed, IsGrantAllowedBoxed,
+        IsRevokeAllowed, IsRevokeAllowedBoxed,
     };
 }
 
@@ -702,6 +803,8 @@ mod tests {
     }
 
     struct GrantedToken;
+
+    // TODO: ADD some Revoke tests.
 
     impl<W: WorldTrait> HasToken<W> for GrantedToken {
         fn token(
