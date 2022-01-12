@@ -1,7 +1,7 @@
 //! Expressions to use inside of ISIs.
 
 #![allow(
-    // Because of `serde(skip)`
+    // Because of `codec(skip)`
     clippy::default_trait_access,
     // Because of length on instructions and expressions (can't be 0)
     clippy::len_without_is_empty,
@@ -33,11 +33,11 @@ pub type ExpressionBox = Box<Expression>;
 
 /// Struct for type checking and converting expression results.
 #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(transparent)]
 pub struct EvaluatesTo<V: TryFrom<Value>> {
     /// Expression.
     #[serde(flatten)]
     pub expression: ExpressionBox,
-    #[serde(skip)]
     #[codec(skip)]
     _value_type: PhantomData<V>,
 }
