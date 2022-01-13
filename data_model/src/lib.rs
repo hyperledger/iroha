@@ -2162,7 +2162,10 @@ pub mod pagination {
 }
 
 pub mod uri {
-    //! URI that `Torii` uses to route incoming requests.
+    /// Thin wrapper around components of a Socket address that is not
+    /// `std::net::SocketAddr` for `no_std` compatibility.
+    pub enum SocketAddr {}
+    /// URI that `Torii` uses to route incoming requests.
 
     /// Default socket for listening on external requests
     pub const DEFAULT_API_URL: &str = "127.0.0.1:8080";
