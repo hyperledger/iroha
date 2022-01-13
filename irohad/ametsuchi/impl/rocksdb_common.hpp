@@ -504,6 +504,7 @@ namespace iroha::ametsuchi {
    private:
     expected::Result<void, DbError> reinitDB() {
       assert(db_name_);
+      transaction_db_.reset();
 
       rocksdb::BlockBasedTableOptions table_options;
       table_options.block_cache =
@@ -532,6 +533,12 @@ namespace iroha::ametsuchi {
 
       transaction_db_.reset(transaction_db);
       return {};
+    }
+
+    void flushDB() {
+      assert(transaction_db_);
+      assert(transaction_db_->Flush(rocksdb::FlushOptions()).ok());
+      assert(transaction_db_->FlushWAL(true).ok());
     }
 
     template <typename LoggerT>
@@ -592,8 +599,16 @@ namespace iroha::ametsuchi {
 
     void prepareTransaction(RocksDBContext &tx_context) {
       assert(transaction_db_);
-      tx_context.transaction.reset(
-          transaction_db_->BeginTransaction(rocksdb::WriteOptions()));
+      if (tx_context.transaction) {
+        auto result = transaction_db_->BeginTransaction(
+            rocksdb::WriteOptions(),
+            rocksdb::OptimisticTransactionOptions(),
+            tx_context.transaction.get());
+        assert(result == tx_context.transaction.get());
+      } else {
+        tx_context.transaction.reset(
+            transaction_db_->BeginTransaction(rocksdb::WriteOptions()));
+      }
     }
   };
 
@@ -643,6 +658,10 @@ namespace iroha::ametsuchi {
     /// Get key buffer
     auto &keyBuffer() {
       return tx_context_->key_buffer;
+    }
+
+    auto &context() {
+      return tx_context_;
     }
 
    private:
@@ -739,14 +758,21 @@ namespace iroha::ametsuchi {
           "rocksdb.block-cache-capacity");
     }
 
+    auto reinit() {
+      return tx_context_->db_port->reinitDB();
+    }
+
     /// Makes commit to DB
     auto commit() {
       rocksdb::Status status;
-      if (isTransaction())
-        status = transaction()->Commit();
-
+      if (isTransaction()) {
+        while ((status = transaction()->Commit()).IsTryAgain())
+          ;
+        context()->db_port->prepareTransaction(*tx_context_);
+      }
       commitCache();
-      transaction().reset();
+
+      assert(status.ok());
       return status;
     }
 
@@ -1965,7 +1991,7 @@ namespace iroha::ametsuchi {
                                                     S const &fmtstring) {
     std::pair<bool, rocksdb::Status> status;
     do {
-      status = common.filterDelete(10000ull, fmtstring);
+      status = common.filterDelete(1'000ull, fmtstring);
       if (!status.second.ok())
         return makeError<void>(
             DbErrorCode::kOperationFailed, "Clear {} failed.", fmtstring);
