@@ -2,16 +2,16 @@
 //! non-specific functions like serialization.
 
 #![allow(clippy::module_name_repetitions)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
-use std::{
-    error,
-    fmt::{self, Debug},
-    ops::RangeInclusive,
-    str,
-    time::{Duration, SystemTime},
-};
+#[cfg(not(feature = "std"))]
+extern crate alloc;
 
-use eyre::{eyre, Error, Result, WrapErr};
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format, string::String, vec::Vec};
+use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
+
+use derive_more::Display;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_schema::IntoSchema;
@@ -31,11 +31,40 @@ pub mod metadata;
 pub mod query;
 pub mod transaction;
 
+/// Error which occurs when parsing string into a data model entity
+#[derive(Debug, Clone, Copy, Display)]
+pub struct ParseError {
+    reason: &'static str,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ParseError {}
+
+/// Error which occurs when validating data model entity
+#[derive(Debug, Clone, Display)]
+pub struct ValidationError {
+    reason: String,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ValidationError {}
+
 /// `Name` struct represents type for Iroha Entities names, like
 /// [`Domain`](`domain::Domain`)'s name or
 /// [`Account`](`account::Account`)'s name.
 #[derive(
-    Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Display,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
 pub struct Name(String);
 
@@ -45,7 +74,7 @@ impl Name {
     /// # Errors
     /// Fails if parsing fails
     #[inline]
-    pub fn new(name: &str) -> Result<Self> {
+    pub fn new(name: &str) -> Result<Self, ParseError> {
         name.parse::<Self>()
     }
 
@@ -61,16 +90,21 @@ impl Name {
     ///
     /// # Errors
     /// Fails if `range` does not
-    pub fn validate_len(&self, range: impl Into<RangeInclusive<usize>>) -> Result<()> {
+    pub fn validate_len(
+        &self,
+        range: impl Into<RangeInclusive<usize>>,
+    ) -> Result<(), ValidationError> {
         let range = range.into();
         if range.contains(&self.as_ref().chars().count()) {
             Ok(())
         } else {
-            Err(eyre!(
-                "The number of chars in the name must be {} to {}",
-                &range.start(),
-                &range.end()
-            ))
+            Err(ValidationError {
+                reason: format!(
+                    "Number of chars in the name not in range [{}..{}>",
+                    &range.start(),
+                    &range.end()
+                ),
+            })
         }
     }
 }
@@ -81,25 +115,23 @@ impl AsRef<str> for Name {
     }
 }
 
-impl str::FromStr for Name {
-    type Err = Error;
-    fn from_str(str: &str) -> Result<Self, Self::Err> {
-        if str.chars().any(char::is_whitespace) {
-            return Err(eyre!("Name must have no whitespaces"));
+impl FromStr for Name {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.chars().any(char::is_whitespace) {
+            return Err(ParseError {
+                reason: "Name must have no whitespaces",
+            });
         }
-        Ok(Self(str.to_owned()))
+
+        Ok(Self(String::from(s)))
     }
 }
 
 impl Debug for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.0)
-    }
-}
-
-impl fmt::Display for Name {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 
@@ -125,6 +157,32 @@ pub trait TryAsRef<T> {
     /// Perform the conversion.
     fn try_as_ref(&self) -> Result<&T, Self::Error>;
 }
+
+/// Error which occurs when converting an enum reference to a variant reference
+#[derive(Debug, Clone, Copy, Display)]
+#[display(bound = "GOT: Debug")]
+#[display(
+    fmt = "Expected: {}\nGot: {:?}",
+    "core::any::type_name::<EXPECTED>()",
+    got
+)]
+pub struct EnumTryAsError<EXPECTED, GOT> {
+    expected: core::marker::PhantomData<EXPECTED>,
+    /// Actual enum variant which was being converted
+    pub got: GOT,
+}
+
+impl<EXPECTED, GOT> EnumTryAsError<EXPECTED, GOT> {
+    fn got(got: GOT) -> Self {
+        Self {
+            expected: core::marker::PhantomData,
+            got,
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED, GOT> {}
 
 /// Represents Iroha Configuration parameters.
 #[derive(
@@ -403,19 +461,20 @@ impl<V: Into<Value>> From<Vec<V>> for Value {
 
 impl<V> TryFrom<Value> for Vec<V>
 where
-    V: TryFrom<Value>,
-    <V as TryFrom<Value>>::Error: Send + Sync + error::Error + 'static,
+    Value: TryInto<V>,
 {
-    type Error = eyre::Error;
-    fn try_from(value: Value) -> Result<Vec<V>> {
+    type Error = ErrorTryFromEnum<Value, Self>;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Vec(vec) = value {
-            vec.into_iter()
-                .map(V::try_from)
+            return vec
+                .into_iter()
+                .map(TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()
-                .wrap_err("Failed to convert to vector")
-        } else {
-            Err(eyre::eyre!("Expected vector, but found something else"))
+                .map_err(|_e| Self::Error::default());
         }
+
+        Err(Self::Error::default())
     }
 }
 
@@ -454,7 +513,10 @@ impl From<LengthLimits> for RangeInclusive<usize> {
 }
 
 /// Get the current system time as `Duration` since the unix epoch.
-pub fn current_time() -> Duration {
+#[cfg(feature = "std")]
+pub fn current_time() -> core::time::Duration {
+    use std::time::SystemTime;
+
     #[allow(clippy::expect_used)]
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -465,21 +527,17 @@ pub fn current_time() -> Duration {
 pub mod role {
     //! Structures, traits and impls related to `Role`s.
 
-    use std::{
-        collections::BTreeSet,
-        convert::TryFrom,
-        fmt::{Display, Formatter, Result as FmtResult},
-    };
+    #[cfg(not(feature = "std"))]
+    use alloc::{boxed::Box, collections::btree_set, string::String};
+    use core::fmt;
+    #[cfg(feature = "std")]
+    use std::collections::btree_set;
 
-    use dashmap::DashMap;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
     use crate::{permissions::PermissionToken, IdBox, Identifiable, IdentifiableBox, Name, Value};
-
-    /// `RolesMap` provides an API to work with collection of key (`Id`) - value (`Role`) pairs.
-    pub type RolesMap = DashMap<Id, Role>;
 
     /// Identification of a role.
     #[derive(
@@ -536,8 +594,8 @@ pub mod role {
         }
     }
 
-    impl Display for Id {
-        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    impl fmt::Display for Id {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "{}", self.name)
         }
     }
@@ -580,13 +638,16 @@ pub mod role {
         /// Unique name of the role.
         pub id: Id,
         /// Permission tokens.
-        pub permissions: BTreeSet<PermissionToken>,
+        pub permissions: btree_set::BTreeSet<PermissionToken>,
     }
 
     impl Role {
         /// Constructor.
         #[inline]
-        pub fn new(id: impl Into<Id>, permissions: impl Into<BTreeSet<PermissionToken>>) -> Self {
+        pub fn new(
+            id: impl Into<Id>,
+            permissions: impl Into<btree_set::BTreeSet<PermissionToken>>,
+        ) -> Self {
             Self {
                 id: id.into(),
                 permissions: permissions.into(),
@@ -607,7 +668,10 @@ pub mod role {
 pub mod permissions {
     //! Structures, traits and impls related to `Permission`s.
 
-    use std::collections::BTreeMap;
+    #[cfg(not(feature = "std"))]
+    use alloc::{collections::btree_map, format, string::String, vec::Vec};
+    #[cfg(feature = "std")]
+    use std::collections::btree_map;
 
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
@@ -633,7 +697,7 @@ pub mod permissions {
         /// Name of the permission rule given to account.
         pub name: Name,
         /// Params identifying how this rule applies.
-        pub params: BTreeMap<Name, Value>,
+        pub params: btree_map::BTreeMap<Name, Value>,
     }
 
     impl PermissionToken {
@@ -655,14 +719,18 @@ pub mod permissions {
 pub mod account {
     //! Structures, traits and impls related to `Account`s.
 
-    use std::{
-        collections::{BTreeMap, BTreeSet},
-        fmt,
+    #[cfg(not(feature = "std"))]
+    use alloc::{
+        collections::{btree_map, btree_set},
+        format,
+        string::String,
+        vec,
+        vec::Vec,
     };
+    use core::{fmt, str::FromStr};
+    #[cfg(feature = "std")]
+    use std::collections::{btree_map, btree_set};
 
-    use eyre::{eyre, Error, Result};
-    //TODO: get rid of it?
-    use iroha_crypto::SignatureOf;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -672,19 +740,18 @@ pub mod account {
     use crate::{
         asset::AssetsMap,
         domain::prelude::*,
-        expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
+        expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox},
         metadata::Metadata,
         permissions::PermissionToken,
-        transaction::Payload,
-        Identifiable, Name, PublicKey, Value,
+        Identifiable, Name, ParseError, PublicKey, Value,
     };
 
     /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
     /// (`Account`) pairs.
-    pub type AccountsMap = BTreeMap<Id, Account>;
+    pub type AccountsMap = btree_map::BTreeMap<Id, Account>;
 
     /// Collection of [`PermissionToken`]s
-    pub type Permissions = BTreeSet<PermissionToken>;
+    pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 
     type Signatories = Vec<PublicKey>;
 
@@ -802,7 +869,7 @@ pub mod account {
                 permission_tokens: Permissions::default(),
                 signature_check_condition: SignatureCheckCondition::default(),
                 #[cfg(feature = "roles")]
-                roles: BTreeSet::default(),
+                roles: btree_set::BTreeSet::default(),
             }
         }
     }
@@ -848,19 +915,19 @@ pub mod account {
         pub metadata: Metadata,
         /// Roles of this account, they are tags for sets of permissions stored in [`World`].
         #[cfg(feature = "roles")]
-        pub roles: BTreeSet<RoleId>,
+        pub roles: btree_set::BTreeSet<RoleId>,
     }
 
     impl PartialOrd for Account {
         #[inline]
-        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
             self.id.partial_cmp(&other.id)
         }
     }
 
     impl Ord for Account {
         #[inline]
-        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        fn cmp(&self, other: &Self) -> core::cmp::Ordering {
             self.id.cmp(&other.id)
         }
     }
@@ -907,7 +974,7 @@ pub mod account {
                 signature_check_condition: SignatureCheckCondition::default(),
                 metadata: Metadata::new(),
                 #[cfg(feature = "roles")]
-                roles: BTreeSet::new(),
+                roles: btree_set::BTreeSet::new(),
             }
         }
 
@@ -923,32 +990,23 @@ pub mod account {
                 signature_check_condition: SignatureCheckCondition::default(),
                 metadata: Metadata::new(),
                 #[cfg(feature = "roles")]
-                roles: BTreeSet::new(),
+                roles: btree_set::BTreeSet::new(),
             }
         }
 
         /// Returns a prebuilt expression that when executed
         /// returns if the needed signatures are gathered.
-        pub fn check_signature_condition<'a>(
-            &'a self,
-            signatures: impl IntoIterator<Item = &'a SignatureOf<Payload>>,
-        ) -> EvaluatesTo<bool> {
-            let transaction_signatories: Signatories = signatures
-                .into_iter()
-                .map(|signature| &signature.public_key)
-                .cloned()
-                .collect();
-            WhereBuilder::evaluate(self.signature_check_condition.as_expression().clone())
-                .with_value(
-                    TRANSACTION_SIGNATORIES_VALUE.to_owned(),
-                    transaction_signatories,
-                )
-                .with_value(
-                    ACCOUNT_SIGNATORIES_VALUE.to_owned(),
-                    self.signatories.clone(),
-                )
-                .build()
-                .into()
+        pub fn check_signature_condition(&self, signatories: Signatories) -> EvaluatesTo<bool> {
+            crate::expression::WhereBuilder::evaluate(
+                self.signature_check_condition.as_expression().clone(),
+            )
+            .with_value(
+                String::from(ACCOUNT_SIGNATORIES_VALUE),
+                self.signatories.clone(),
+            )
+            .with_value(String::from(TRANSACTION_SIGNATORIES_VALUE), signatories)
+            .build()
+            .into()
         }
 
         /// Inserts permission token into account.
@@ -964,7 +1022,7 @@ pub mod account {
         /// # Errors
         /// Fails if any sub-construction fails
         #[inline]
-        pub fn new(name: &str, domain_name: &str) -> Result<Self> {
+        pub fn new(name: &str, domain_name: &str) -> Result<Self, ParseError> {
             Ok(Self {
                 name: Name::new(name)?,
                 domain_id: DomainId::new(domain_name)?,
@@ -1008,13 +1066,15 @@ pub mod account {
     }
 
     /// Account Identification is represented by `name@domain_name` string.
-    impl std::str::FromStr for Id {
-        type Err = Error;
+    impl FromStr for Id {
+        type Err = ParseError;
 
         fn from_str(string: &str) -> Result<Self, Self::Err> {
             let vector: Vec<&str> = string.split('@').collect();
             if vector.len() != 2 {
-                return Err(eyre!("Id should have format `name@domain_name`"));
+                return Err(ParseError {
+                    reason: "Id should have format `name@domain_name`",
+                });
             }
             Ok(Self {
                 name: Name::new(vector[0])?,
@@ -1039,14 +1099,16 @@ pub mod asset {
     //! This module contains [`Asset`] structure, it's implementation and related traits and
     //! instructions implementations.
 
-    use std::{
+    #[cfg(not(feature = "std"))]
+    use alloc::{collections::btree_map, string::String, vec::Vec};
+    use core::{
         cmp::Ordering,
-        collections::BTreeMap,
         fmt::{self, Display, Formatter},
         str::FromStr,
     };
+    #[cfg(feature = "std")]
+    use std::collections::btree_map;
 
-    use eyre::{eyre, Error, Result, WrapErr};
     use iroha_macro::FromVariant;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
@@ -1057,16 +1119,16 @@ pub mod asset {
         domain::prelude::*,
         fixed,
         fixed::Fixed,
-        metadata::{Limits as MetadataLimits, Metadata},
-        Identifiable, Name, TryAsMut, TryAsRef, Value,
+        metadata::{Error as MetadataError, Limits as MetadataLimits, Metadata},
+        Identifiable, Name, ParseError, TryAsMut, TryAsRef, Value,
     };
 
     /// [`AssetsMap`] provides an API to work with collection of key ([`Id`]) - value
     /// ([`Asset`]) pairs.
-    pub type AssetsMap = BTreeMap<Id, Asset>;
+    pub type AssetsMap = btree_map::BTreeMap<Id, Asset>;
     /// [`AssetDefinitionsMap`] provides an API to work with collection of key ([`DefinitionId`]) - value
     /// (`AssetDefinition`) pairs.
-    pub type AssetDefinitionsMap = BTreeMap<DefinitionId, AssetDefinitionEntry>;
+    pub type AssetDefinitionsMap = btree_map::BTreeMap<DefinitionId, AssetDefinitionEntry>;
 
     /// An entry in [`AssetDefinitionsMap`].
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -1163,10 +1225,17 @@ pub mod asset {
     }
 
     impl FromStr for AssetValueType {
-        type Err = Error;
-        fn from_str(value_type: &str) -> Result<Self> {
-            serde_json::from_value(serde_json::json!(value_type))
-                .wrap_err("Failed to deserialize value type")
+        type Err = &'static str;
+
+        fn from_str(value_type: &str) -> Result<Self, Self::Err> {
+            // TODO: Could be implemented with some macro
+            match value_type {
+                "Quantity" => Ok(AssetValueType::Quantity),
+                "BigQuantity" => Ok(AssetValueType::BigQuantity),
+                "Fixed" => Ok(AssetValueType::Fixed),
+                "Store" => Ok(AssetValueType::Store),
+                _ => Err("Unknown variant"),
+            }
         }
     }
 
@@ -1209,39 +1278,25 @@ pub mod asset {
     macro_rules! impl_try_as_for_asset_value {
         ( $($variant:ident( $ty:ty ),)* ) => {$(
             impl TryAsMut<$ty> for AssetValue {
-                type Error = Error;
+                type Error = crate::EnumTryAsError<$ty, AssetValueType>;
 
-                fn try_as_mut(&mut self) -> Result<&mut $ty> {
+                fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
                     if let AssetValue:: $variant (value) = self {
                         Ok(value)
                     } else {
-                        Err(eyre!(
-                            concat!(
-                                "Expected source asset with value type:",
-                                stringify!($variant),
-                                ". Got: {:?}",
-                            ),
-                            self.value_type()
-                        ))
+                        Err(crate::EnumTryAsError::got(self.value_type()))
                     }
                 }
             }
 
             impl TryAsRef<$ty> for AssetValue {
-                type Error = Error;
+                type Error = crate::EnumTryAsError<$ty, AssetValueType>;
 
-                fn try_as_ref(&self) -> Result<& $ty > {
+                fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
                     if let AssetValue:: $variant (value) = self {
                         Ok(value)
                     } else {
-                        Err(eyre!(
-                            concat!(
-                                "Expected source asset with value type:",
-                                stringify!($variant),
-                                ". Got: {:?}",
-                            ),
-                            self.value_type()
-                        ))
+                        Err(crate::EnumTryAsError::got(self.value_type()))
                     }
                 }
             }
@@ -1418,9 +1473,10 @@ pub mod asset {
             key: Name,
             value: Value,
             limits: MetadataLimits,
-        ) -> Result<Self> {
+        ) -> Result<Self, MetadataError> {
             let mut store = Metadata::new();
             store.insert_with_limits(key, value, limits)?;
+
             Ok(Self {
                 id,
                 value: store.into(),
@@ -1435,24 +1491,24 @@ pub mod asset {
 
     impl<T> TryAsMut<T> for Asset
     where
-        AssetValue: TryAsMut<T, Error = Error>,
+        AssetValue: TryAsMut<T>,
     {
-        type Error = Error;
+        type Error = <AssetValue as TryAsMut<T>>::Error;
 
         #[inline]
-        fn try_as_mut(&mut self) -> Result<&mut T> {
+        fn try_as_mut(&mut self) -> Result<&mut T, Self::Error> {
             self.value.try_as_mut()
         }
     }
 
     impl<T> TryAsRef<T> for Asset
     where
-        AssetValue: TryAsRef<T, Error = Error>,
+        AssetValue: TryAsRef<T>,
     {
-        type Error = Error;
+        type Error = <AssetValue as TryAsRef<T>>::Error;
 
         #[inline]
-        fn try_as_ref(&self) -> Result<&T> {
+        fn try_as_ref(&self) -> Result<&T, Self::Error> {
             self.value.try_as_ref()
         }
     }
@@ -1463,7 +1519,7 @@ pub mod asset {
         /// # Errors
         /// Fails if any sub-construction fails
         #[inline]
-        pub fn new(name: &str, domain_name: &str) -> Result<Self> {
+        pub fn new(name: &str, domain_name: &str) -> Result<Self, ParseError> {
             Ok(Self {
                 name: Name::new(name)?,
                 domain_id: DomainId::new(domain_name)?,
@@ -1536,14 +1592,14 @@ pub mod asset {
 
     /// Asset Identification is represented by `name#domain_name` string.
     impl FromStr for DefinitionId {
-        type Err = Error;
+        type Err = ParseError;
 
         fn from_str(string: &str) -> Result<Self, Self::Err> {
             let vector: Vec<&str> = string.split('#').collect();
             if vector.len() != 2 {
-                return Err(eyre!(
-                    "Asset definition ID should have format `name#domain_name`.",
-                ));
+                return Err(ParseError {
+                    reason: "Asset definition ID should have format `name#domain_name`",
+                });
             }
             Ok(Self {
                 name: Name::new(vector[0])?,
@@ -1576,10 +1632,12 @@ pub mod asset {
 pub mod domain {
     //! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
 
-    use std::{cmp::Ordering, collections::BTreeMap, fmt, iter, str::FromStr};
+    #[cfg(not(feature = "std"))]
+    use alloc::{collections::btree_map, string::String, vec::Vec};
+    use core::{cmp::Ordering, fmt, str::FromStr};
+    #[cfg(feature = "std")]
+    use std::collections::btree_map;
 
-    use dashmap::DashMap;
-    use eyre::{Error, Result};
     use iroha_crypto::PublicKey;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
@@ -1589,15 +1647,11 @@ pub mod domain {
         account::{Account, AccountsMap, GenesisAccount},
         asset::AssetDefinitionsMap,
         metadata::Metadata,
-        Identifiable, Name, Value,
+        Identifiable, Name, ParseError, Value,
     };
 
     /// Genesis domain name. Genesis domain should contain only genesis account.
     pub const GENESIS_DOMAIN_NAME: &str = "genesis";
-
-    /// [`DomainsMap`] provides an API to work with collection of
-    /// key ([`Id`]) - value ([`Domain`]) pairs.
-    pub type DomainsMap = DashMap<Id, Domain>;
 
     /// Genesis domain. It will contain only one `genesis` account.
     #[derive(Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
@@ -1617,12 +1671,12 @@ pub mod domain {
         fn from(domain: GenesisDomain) -> Self {
             Self {
                 id: Id::test(GENESIS_DOMAIN_NAME),
-                accounts: iter::once((
+                accounts: core::iter::once((
                     <Account as Identifiable>::Id::genesis(),
                     GenesisAccount::new(domain.genesis_key).into(),
                 ))
                 .collect(),
-                asset_definitions: BTreeMap::default(),
+                asset_definitions: btree_map::BTreeMap::default(),
                 metadata: Metadata::new(),
             }
         }
@@ -1730,7 +1784,7 @@ pub mod domain {
         /// # Errors
         /// Fails if any sub-construction fails
         #[inline]
-        pub fn new(name: &str) -> Result<Self> {
+        pub fn new(name: &str) -> Result<Self, ParseError> {
             Ok(Self {
                 name: Name::new(name)?,
             })
@@ -1746,7 +1800,7 @@ pub mod domain {
     }
 
     impl FromStr for Id {
-        type Err = Error;
+        type Err = ParseError;
 
         fn from_str(name: &str) -> Result<Self, Self::Err> {
             Self::new(name)
@@ -1768,21 +1822,19 @@ pub mod domain {
 pub mod peer {
     //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
-    use std::{
+    #[cfg(not(feature = "std"))]
+    use alloc::{string::String, vec::Vec};
+    use core::{
         cmp::Ordering,
         fmt,
         hash::{Hash, Hasher},
     };
 
-    use dashmap::DashSet;
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
     use crate::{Identifiable, PublicKey, Value};
-
-    /// Ids of peers.
-    pub type PeersIds = DashSet<Id>;
 
     /// Peer represents Iroha instance.
     #[derive(
@@ -1865,7 +1917,7 @@ pub mod peer {
         #[inline]
         pub fn new(address: &str, public_key: &PublicKey) -> Self {
             Self {
-                address: address.to_owned(),
+                address: String::from(address),
                 public_key: public_key.clone(),
             }
         }
@@ -1888,7 +1940,16 @@ pub mod peer {
 
 /// Structures and traits related to pagination.
 pub mod pagination {
-    use std::{collections::BTreeMap, fmt};
+    #[cfg(not(feature = "std"))]
+    use alloc::{
+        collections::btree_map,
+        string::{String, ToString as _},
+        vec,
+        vec::Vec,
+    };
+    use core::fmt;
+    #[cfg(feature = "std")]
+    use std::collections::btree_map;
 
     use serde::{Deserialize, Serialize};
     #[cfg(feature = "warp")]
@@ -1897,6 +1958,9 @@ pub mod pagination {
         reply::{self, Response},
         Filter, Rejection, Reply,
     };
+
+    const PAGINATION_START: &str = "start";
+    const PAGINATION_LIMIT: &str = "limit";
 
     /// Describes a collection to which pagination can be applied.
     /// Implemented for the [`Iterator`] implementors.
@@ -1959,12 +2023,9 @@ pub mod pagination {
         }
     }
 
-    const PAGINATION_START: &str = "start";
-    const PAGINATION_LIMIT: &str = "limit";
-
     /// Error for pagination
     #[derive(Debug, Clone, Eq, PartialEq)]
-    pub struct PaginateError(pub std::num::ParseIntError);
+    pub struct PaginateError(pub core::num::ParseIntError);
 
     impl fmt::Display for PaginateError {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1975,6 +2036,7 @@ pub mod pagination {
             )
         }
     }
+    #[cfg(feature = "std")]
     impl std::error::Error for PaginateError {}
 
     #[cfg(feature = "warp")]
@@ -1990,14 +2052,14 @@ pub mod pagination {
         warp::query()
     }
 
-    impl From<Pagination> for BTreeMap<String, String> {
+    impl From<Pagination> for btree_map::BTreeMap<String, String> {
         fn from(pagination: Pagination) -> Self {
             let mut query_params = Self::new();
             if let Some(start) = pagination.start {
-                query_params.insert(PAGINATION_START.to_owned(), start.to_string());
+                query_params.insert(String::from(PAGINATION_START), start.to_string());
             }
             if let Some(limit) = pagination.limit {
-                query_params.insert(PAGINATION_LIMIT.to_owned(), limit.to_string());
+                query_params.insert(String::from(PAGINATION_LIMIT), limit.to_string());
             }
             query_params
         }
@@ -2131,19 +2193,17 @@ pub mod uri {
 
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
+    #[cfg(feature = "std")]
+    pub use super::current_time;
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
     pub use super::{
-        account::prelude::*, asset::prelude::*, current_time, domain::prelude::*,
-        fixed::prelude::*, pagination::prelude::*, peer::prelude::*, transaction::prelude::*, uri,
-        Bytes, IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, Value,
+        account::prelude::*, asset::prelude::*, domain::prelude::*, fixed::prelude::*,
+        pagination::prelude::*, peer::prelude::*, uri, Bytes, EnumTryAsError, IdBox, Identifiable,
+        IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, ValidationError, Value,
     };
     pub use crate::{
-        events::prelude::*,
-        expression::prelude::*,
-        isi::prelude::*,
-        metadata::{self, prelude::*},
-        permissions::prelude::*,
-        query::prelude::*,
+        events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
+        permissions::prelude::*, query::prelude::*, transaction::prelude::*,
     };
 }

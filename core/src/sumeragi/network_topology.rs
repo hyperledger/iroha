@@ -63,6 +63,7 @@ macro_rules! field_is_some_or_err {
 /// Alternative builder for genesis case.
 /// Can set custom topology roles.
 #[derive(Clone, Default, Debug)]
+#[must_use = ".build() not used"]
 pub struct GenesisBuilder {
     leader: Option<PeerId>,
 
@@ -145,6 +146,7 @@ impl GenesisBuilder {
 
 /// Builder of [`Topology`] struct.
 #[derive(Clone, Debug, Default)]
+#[must_use = ".build() not used"]
 pub struct Builder {
     /// Current order of peers. The roles of peers are defined based on this order.
     peers: Option<HashSet<PeerId>>,

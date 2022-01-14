@@ -34,8 +34,8 @@ pub enum Error {
     #[error("Exported function call failed")]
     ExportFnCall(#[source] Trap),
     /// Some other error happened
-    #[error("Some other error happened")]
-    Other(#[source] eyre::Error),
+    #[error(transparent)]
+    Other(eyre::Error),
 }
 
 struct State<'a, W: WorldTrait> {
@@ -262,10 +262,9 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use iroha_crypto::KeyPair;
-    use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
 
     use super::*;
-    use crate::World;
+    use crate::{DomainsMap, PeersIds, World};
 
     fn world_with_test_account(account_id: AccountId) -> World {
         let domain_id = account_id.domain_id.clone();

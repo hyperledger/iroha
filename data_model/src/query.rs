@@ -2,8 +2,12 @@
 
 #![allow(clippy::missing_inline_in_public_items)]
 
-use eyre::Result;
-use iroha_crypto::{prelude::*, SignatureOf};
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec::Vec};
+
+#[cfg(feature = "std")]
+use iroha_crypto::prelude::*;
+use iroha_crypto::SignatureOf;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
@@ -13,7 +17,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "roles")]
 use self::role::*;
 use self::{account::*, asset::*, domain::*, peer::*, permissions::*, transaction::*};
-use crate::{account::Account, current_time, Identifiable, Value};
+use crate::{account::Account, Identifiable, Value};
 
 /// Sized container for all possible Queries.
 #[allow(clippy::enum_variant_names)]
@@ -110,6 +114,7 @@ pub struct Payload {
 
 impl Payload {
     /// Hash of this payload.
+    #[cfg(feature = "std")]
     pub fn hash(&self) -> Hash {
         Hash::new(&self.encode())
     }
@@ -117,11 +122,13 @@ impl Payload {
 
 /// I/O ready structure to send queries.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
+#[cfg(feature = "warp")]
 pub struct QueryRequest {
     /// Payload
     pub payload: Payload,
 }
 
+#[cfg(feature = "warp")]
 declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 /// I/O ready structure to send queries.
@@ -141,11 +148,11 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_mac
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct QueryResult(pub Value);
 
+#[cfg(all(feature = "std", feature = "warp"))]
 impl QueryRequest {
     /// Constructs a new request with the `query`.
-    #[allow(clippy::expect_used)]
     pub fn new(query: QueryBox, account_id: <Account as Identifiable>::Id) -> Self {
-        let timestamp_ms = current_time().as_millis();
+        let timestamp_ms = crate::current_time().as_millis();
         QueryRequest {
             payload: Payload {
                 timestamp_ms,
@@ -159,7 +166,7 @@ impl QueryRequest {
     ///
     /// # Errors
     /// Fails if signature creation fails.
-    pub fn sign(self, key_pair: KeyPair) -> Result<SignedQueryRequest> {
+    pub fn sign(self, key_pair: KeyPair) -> Result<SignedQueryRequest, iroha_crypto::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
         Ok(SignedQueryRequest {
             payload: self.payload,
@@ -171,6 +178,9 @@ impl QueryRequest {
 #[cfg(feature = "roles")]
 pub mod role {
     //! Queries related to `Role`.
+
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
 
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -232,6 +242,9 @@ pub mod role {
 pub mod permissions {
     //! Queries related to `PermissionToken`.
 
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
+
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -269,6 +282,9 @@ pub mod permissions {
 
 pub mod account {
     //! Queries related to `Account`.
+
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
 
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -452,6 +468,9 @@ pub mod asset {
     //! Queries related to `Asset`.
 
     #![allow(clippy::missing_inline_in_public_items)]
+
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
 
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -830,6 +849,9 @@ pub mod domain {
 
     #![allow(clippy::missing_inline_in_public_items)]
 
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
+
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -943,6 +965,9 @@ pub mod domain {
 pub mod peer {
     //! Queries related to `Domain`.
 
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
+
     use iroha_schema::prelude::*;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
@@ -1017,6 +1042,9 @@ pub mod transaction {
     //! Queries related to `Transaction`.
 
     #![allow(clippy::missing_inline_in_public_items)]
+
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
 
     use iroha_crypto::Hash;
     use iroha_schema::prelude::*;
@@ -1104,7 +1132,9 @@ pub mod prelude {
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, transaction::*, Query, QueryBox, QueryRequest, QueryResult,
-        SignedQueryRequest, VersionedQueryResult, VersionedSignedQueryRequest,
+        permissions::prelude::*, transaction::*, Query, QueryBox, QueryResult, SignedQueryRequest,
+        VersionedQueryResult,
     };
+    #[cfg(feature = "warp")]
+    pub use super::{QueryRequest, VersionedSignedQueryRequest};
 }

@@ -71,7 +71,7 @@ pub mod error {
         Repetition(InstructionType, IdBox),
         /// Failed to validate.
         #[error("Failed to validate.")]
-        Validate(#[source] eyre::Report),
+        Validate(#[source] ValidationError),
     }
 
     // The main reason these are needed is because `FromVariant` can
@@ -643,10 +643,9 @@ mod tests {
     #![allow(clippy::restriction)]
 
     use iroha_crypto::KeyPair;
-    use iroha_data_model::{domain::DomainsMap, peer::PeersIds};
 
     use super::*;
-    use crate::wsv::World;
+    use crate::{wsv::World, DomainsMap, PeersIds};
 
     fn world_with_test_domains() -> Result<World> {
         let domains = DomainsMap::new();

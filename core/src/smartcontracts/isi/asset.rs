@@ -63,7 +63,10 @@ pub mod isi {
             )?;
             wsv.asset_or_insert(&self.destination_id, 0_u32)?;
             wsv.modify_asset(&self.destination_id, |asset| {
-                let quantity: &mut u32 = asset.try_as_mut().map_err(Error::Conversion)?;
+                let quantity: &mut u32 = asset
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(Error::Conversion)?;
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(Error::Math(MathError::Overflow))?;
@@ -93,7 +96,10 @@ pub mod isi {
             )?;
             wsv.asset_or_insert(&self.destination_id, 0_u128)?;
             wsv.modify_asset(&self.destination_id, |asset| {
-                let quantity: &mut u128 = asset.try_as_mut().map_err(Error::Conversion)?;
+                let quantity: &mut u128 = asset
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(Error::Conversion)?;
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(Error::Math(MathError::Overflow))?;
@@ -123,7 +129,10 @@ pub mod isi {
             )?;
             wsv.asset_or_insert(&self.destination_id, Fixed::ZERO)?;
             wsv.modify_asset(&self.destination_id, |asset| {
-                let quantity: &mut Fixed = asset.try_as_mut().map_err(Error::Conversion)?;
+                let quantity: &mut Fixed = asset
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(Error::Conversion)?;
                 *quantity = quantity.checked_add(self.object)?;
                 wsv.metrics.tx_amounts.observe((*quantity).into());
                 Ok(())
@@ -147,7 +156,10 @@ pub mod isi {
             let asset_metadata_limits = wsv.config.asset_metadata_limits;
             wsv.asset_or_insert(&self.object_id, Metadata::new())?;
             wsv.modify_asset(&self.object_id, |asset| {
-                let store: &mut Metadata = asset.try_as_mut().map_err(Error::Conversion)?;
+                let store: &mut Metadata = asset
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(Error::Conversion)?;
                 store.insert_with_limits(
                     self.key.clone(),
                     self.value.clone(),
@@ -176,7 +188,10 @@ pub mod isi {
                 AssetValueType::Quantity,
             )?;
             wsv.modify_asset(&self.destination_id, |asset| {
-                let quantity: &mut u32 = asset.try_as_mut().map_err(Error::Conversion)?;
+                let quantity: &mut u32 = asset
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(Error::Conversion)?;
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
@@ -204,7 +219,10 @@ pub mod isi {
                 AssetValueType::BigQuantity,
             )?;
             wsv.modify_asset(&self.destination_id, |asset| {
-                let quantity: &mut u128 = asset.try_as_mut().map_err(Error::Conversion)?;
+                let quantity: &mut u128 = asset
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(Error::Conversion)?;
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
@@ -233,7 +251,10 @@ pub mod isi {
                 AssetValueType::Fixed,
             )?;
             wsv.modify_asset(&self.destination_id, |asset| {
-                let quantity: &mut Fixed = asset.try_as_mut().map_err(Error::Conversion)?;
+                let quantity: &mut Fixed = asset
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(Error::Conversion)?;
                 *quantity = quantity.checked_sub(self.object)?;
                 // Careful if `Fixed` stops being `Copy`.
                 wsv.metrics.tx_amounts.observe((*quantity).into());
@@ -256,7 +277,10 @@ pub mod isi {
         ) -> Result<Self::Diff, Self::Error> {
             assert_asset_type(&self.object_id.definition_id, wsv, AssetValueType::Store)?;
             wsv.modify_asset(&self.object_id, |asset| {
-                let store: &mut Metadata = asset.try_as_mut().map_err(Error::Conversion)?;
+                let store: &mut Metadata = asset
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(Error::Conversion)?;
                 store
                     .remove(&self.key)
                     .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
@@ -299,7 +323,10 @@ pub mod isi {
                 AssetValueType::Quantity,
             )?;
             wsv.modify_asset(&self.source_id, |asset| {
-                let quantity: &mut u32 = asset.try_as_mut().map_err(Error::Conversion)?;
+                let quantity: &mut u32 = asset
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(Error::Conversion)?;
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(Error::Math(MathError::NotEnoughQuantity))?;
@@ -307,7 +334,10 @@ pub mod isi {
             })?;
             wsv.asset_or_insert(&self.destination_id, 0_u32)?;
             wsv.modify_asset(&self.destination_id, |asset| {
-                let quantity: &mut u32 = asset.try_as_mut().map_err(Error::Conversion)?;
+                let quantity: &mut u32 = asset
+                    .try_as_mut()
+                    .map_err(eyre::Error::from)
+                    .map_err(Error::Conversion)?;
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(MathError::Overflow)?;
@@ -491,7 +521,7 @@ pub mod query {
     impl<W: WorldTrait> ValidQuery<W> for FindAssetQuantityById {
         #[log]
         #[metrics(+"find_asset_quantity_by_id")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<u32, Error> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())
@@ -506,6 +536,7 @@ pub mod query {
                 )?
                 .value
                 .try_as_ref()
+                .map_err(eyre::Error::from)
                 .map_err(Error::Conversion)
                 .map(Clone::clone)
         }
@@ -514,7 +545,7 @@ pub mod query {
     impl<W: WorldTrait> ValidQuery<W> for FindAssetKeyValueByIdAndKey {
         #[log]
         #[metrics(+"find_asset_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Value, Error> {
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::default())
@@ -531,7 +562,11 @@ pub mod query {
                     Err(definition_err) => definition_err,
                 }
             })?;
-            let store: &Metadata = asset.value.try_as_ref().map_err(Error::Conversion)?;
+            let store: &Metadata = asset
+                .value
+                .try_as_ref()
+                .map_err(eyre::Error::from)
+                .map_err(Error::Conversion)?;
             Ok(store
                 .get(&key)
                 .ok_or_else(|| Error::Find(Box::new(FindError::MetadataKey(key))))?

@@ -2,10 +2,12 @@
 
 #![allow(clippy::len_without_is_empty, clippy::unused_self)]
 
-use std::fmt::Debug;
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format, string::String, vec::Vec};
+use core::fmt::Debug;
 
 use iroha_macro::FromVariant;
-use iroha_schema::prelude::*;
+use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
@@ -13,7 +15,7 @@ use super::{expression::EvaluatesTo, prelude::*, IdBox, IdentifiableBox, Value, 
 
 /// Sized structure for all possible Instructions.
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, FromVariant, IntoSchema,
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum Instruction {
     /// `Register` variant.
@@ -68,7 +70,7 @@ impl Instruction {
 }
 
 /// Sized structure for all possible key value set instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct SetKeyValueBox {
     /// Where to set this key value.
     pub object_id: EvaluatesTo<IdBox>,
@@ -79,7 +81,7 @@ pub struct SetKeyValueBox {
 }
 
 /// Sized structure for all possible key value pair remove instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct RemoveKeyValueBox {
     /// From where to remove this key value.
     pub object_id: EvaluatesTo<IdBox>,
@@ -88,21 +90,21 @@ pub struct RemoveKeyValueBox {
 }
 
 /// Sized structure for all possible Registers.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct RegisterBox {
     /// The object that should be registered, should be uniquely identifiable by its id.
     pub object: EvaluatesTo<IdentifiableBox>,
 }
 
 /// Sized structure for all possible Unregisters.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct UnregisterBox {
     /// The id of the object that should be unregistered.
     pub object_id: EvaluatesTo<IdBox>,
 }
 
 /// Sized structure for all possible Mints.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct MintBox {
     /// Object to mint.
     pub object: EvaluatesTo<Value>,
@@ -111,7 +113,7 @@ pub struct MintBox {
 }
 
 /// Sized structure for all possible Burns.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct BurnBox {
     /// Object to burn.
     pub object: EvaluatesTo<Value>,
@@ -120,7 +122,7 @@ pub struct BurnBox {
 }
 
 /// Sized structure for all possible Transfers.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct TransferBox {
     /// Entity to transfer from.
     pub source_id: EvaluatesTo<IdBox>,
@@ -131,7 +133,7 @@ pub struct TransferBox {
 }
 
 /// Composite instruction for a pair of instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Pair {
     /// Left instruction
     pub left_instruction: Instruction,
@@ -140,14 +142,14 @@ pub struct Pair {
 }
 
 /// Composite instruction for a sequence of instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct SequenceBox {
     /// Sequence of Iroha Special Instructions to execute.
     pub instructions: Vec<Instruction>,
 }
 
 /// Composite instruction for a conditional execution of other instructions.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct If {
     /// Condition to be checked.
     pub condition: EvaluatesTo<bool>,
@@ -158,14 +160,14 @@ pub struct If {
 }
 
 /// Utilitary instruction to fail execution and submit an error `message`.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct FailBox {
     /// Message to submit.
     pub message: String,
 }
 
 /// Sized structure for all possible Grants.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct GrantBox {
     /// Object to grant.
     pub object: EvaluatesTo<Value>,
@@ -183,7 +185,7 @@ pub struct RevokeBox {
 }
 
 /// Generic instruction to set value to the object.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Set<O>
 where
     O: ValueMarker,
@@ -193,7 +195,7 @@ where
 }
 
 /// Generic instruction to set key value at the object.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct SetKeyValue<O, K, V>
 where
     O: Identifiable,
@@ -209,7 +211,7 @@ where
 }
 
 /// Generic instruction to remove key value at the object.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct RemoveKeyValue<O, K>
 where
     O: Identifiable,
@@ -222,7 +224,7 @@ where
 }
 
 /// Generic instruction for a registration of an object to the identifiable destination.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Register<O>
 where
     O: Identifiable,
@@ -232,7 +234,7 @@ where
 }
 
 /// Generic instruction for an unregistration of an object from the identifiable destination.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Unregister<O>
 where
     O: Identifiable,
@@ -242,7 +244,7 @@ where
 }
 
 /// Generic instruction for a mint of an object to the identifiable destination.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Mint<D, O>
 where
     D: Identifiable,
@@ -255,7 +257,7 @@ where
 }
 
 /// Generic instruction for a burn of an object to the identifiable destination.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Burn<D, O>
 where
     D: Identifiable,
@@ -268,7 +270,7 @@ where
 }
 
 /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Transfer<S: Identifiable, O, D: Identifiable>
 where
     O: ValueMarker,
@@ -282,7 +284,7 @@ where
 }
 
 /// Generic instruction for granting permission to an entity.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Grant<D, O>
 where
     D: Identifiable,
@@ -690,13 +692,16 @@ impl FailBox {
     /// Construct [`FailBox`].
     pub fn new(message: &str) -> Self {
         Self {
-            message: message.to_owned(),
+            message: String::from(message),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
+
     use super::*;
 
     fn if_instruction(

@@ -1,7 +1,11 @@
 //! Module with multihash implementation
 
 #[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
+use alloc::{
+    string::{String, ToString as _},
+    vec,
+    vec::Vec,
+};
 
 use derive_more::Display;
 
@@ -83,7 +87,7 @@ impl From<DigestFunction> for u64 {
     }
 }
 
-/// Error which may occur when converting to/from `Multihash`
+/// Error which occurs when converting to/from `Multihash`
 #[derive(Debug, Clone, Display)]
 pub struct ConvertError {
     reason: String,

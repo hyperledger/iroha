@@ -1,8 +1,11 @@
 //! Pipeline events.
 
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec::Vec};
+
 use iroha_crypto::Hash;
 use iroha_macro::FromVariant;
-use iroha_schema::prelude::*;
+use iroha_schema::prelude::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 
 pub use crate::transaction::RejectionReason as PipelineRejectionReason;
@@ -104,6 +107,9 @@ pub mod prelude {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
+
+    #[cfg(not(feature = "std"))]
+    use alloc::{string::ToString as _, vec, vec::Vec};
 
     use super::*;
     use crate::transaction::{NotPermittedFail, RejectionReason::*, TransactionRejectionReason::*};

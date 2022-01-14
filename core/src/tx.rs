@@ -313,10 +313,17 @@ impl AcceptedTransaction {
         &self,
         wsv: &WorldStateView<W>,
     ) -> Result<bool> {
-        let account_id = self.payload.account_id.clone();
-        wsv.map_account(&account_id, |account| {
+        let account_id = &self.payload.account_id;
+        let signatories = self
+            .signatures
+            .iter()
+            .map(|signature| &signature.public_key)
+            .cloned()
+            .collect();
+
+        wsv.map_account(account_id, |account| {
             account
-                .check_signature_condition(&self.signatures)
+                .check_signature_condition(signatories)
                 .evaluate(wsv, &Context::new())
                 .map_err(|_err| FindError::Account(account_id.clone()))
         })?
@@ -433,7 +440,7 @@ mod tests {
 
     #[test]
     fn hash_should_be_the_same() {
-        let key_pair = &KeyPair::generate().expect("Failed to generate key pair.");
+        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
         let mut config = get_config(
             get_trusted_peers(Some(&key_pair.public_key)),
             Some(key_pair.clone()),

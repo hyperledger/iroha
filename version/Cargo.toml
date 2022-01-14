@@ -17,8 +17,8 @@ json = ["serde", "serde_json"]
 iroha_version_derive = { version = "=2.0.0-pre.1", path = "derive", default-features = false, optional = true }
 iroha_macro = { version = "=2.0.0-pre.1", path = "../macro", default-features = false }
 
-parity-scale-codec = { version = "2.3.1",  default-features = false, optional = true, features = ["derive"] }
+parity-scale-codec = { version = "2.3.1", default-features = false, optional = true, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, optional = true, features = ["alloc"] }
 serde = { version = "1.0", default-features = false, optional = true, features = ["derive"] }
 thiserror = { version = "1.0.28", default-features = false, optional = true }
-warp = { version = "0.3.2",  default-features = false, optional = true }
+warp = { version = "0.3.2", default-features = false, optional = true }

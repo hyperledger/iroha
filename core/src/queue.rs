@@ -47,11 +47,7 @@ pub enum Error {
     InBlockchain,
     /// Signature condition check failed
     #[error("Failure during signature condition execution")]
-    SignatureCondition(
-        #[from]
-        #[source]
-        Report,
-    ),
+    SignatureCondition(#[from] Report),
 }
 
 impl Queue {
@@ -282,11 +278,11 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
+    use iroha_data_model::prelude::*;
     use rand::Rng;
 
     use super::*;
-    use crate::wsv::World;
+    use crate::{wsv::World, DomainsMap, PeersIds};
 
     fn accepted_tx(
         account: &str,
@@ -307,7 +303,7 @@ mod tests {
             instructions.into(),
             proposed_ttl_ms,
         )
-        .sign(&key)
+        .sign(key)
         .expect("Failed to sign.");
         VersionedAcceptedTransaction::from_transaction(tx, 4096)
             .expect("Failed to accept Transaction.")
@@ -409,7 +405,7 @@ mod tests {
         let get_tx = || {
             VersionedAcceptedTransaction::from_transaction(
                 tx.clone()
-                    .sign(&KeyPair::generate().expect("Failed to generate keypair."))
+                    .sign(KeyPair::generate().expect("Failed to generate keypair."))
                     .expect("Failed to sign."),
                 4096,
             )

@@ -6,27 +6,25 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/usr/local/cargo/bin:$PATH \
     RUST_VERSION=1.57.0
 
-
-
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         gcc \
         curl \
-		clang \
-		llvm-dev \
-		libc6-dev \
-		wget \
-		git \
-		cmake \
-		libstdc++-10-dev \
-		libssl-dev \
-		zlib1g-dev \
-		libxxhash-dev \
-		build-essential \
-		pkg-config \
-        ; \
+        clang \
+        llvm-dev \
+        libc6-dev \
+        wget \
+        git \
+        cmake \
+        libstdc++-10-dev \
+        libssl-dev \
+        zlib1g-dev \
+        libxxhash-dev \
+        build-essential \
+        pkg-config \
+    ; \
     dpkgArch="$(dpkg --print-architecture)"; \
     case "${dpkgArch##*-}" in \
         amd64) rustArch='x86_64-unknown-linux-gnu'; rustupSha256='3dc5ef50861ee18657f9db2eeb7392f9c2a6c95c90ab41e45ab4ca71476b4338' ;; \
@@ -52,7 +50,7 @@ RUN git clone https://github.com/rui314/mold.git; \
 
 RUN rustup component add llvm-tools-preview clippy; \
     rustup install --profile default nightly-2021-12-02; \
-    cargo install cargo-lints grcov
+    cargo install cargo-lints cargo-nono grcov
 
 RUN curl -fsSL https://get.docker.com -o get-docker.sh; \
     chmod +x get-docker.sh; \

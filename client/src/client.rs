@@ -105,14 +105,15 @@ impl Client {
             self.proposed_transaction_ttl_ms,
         );
 
-        if self.add_transaction_nonce {
+        let transaction_with_metadata = if self.add_transaction_nonce {
             let nonce = rand::thread_rng().gen::<u32>();
             transaction.with_nonce(nonce)
         } else {
             transaction
         }
-        .with_metadata(metadata)
-        .sign(&self.key_pair)
+        .with_metadata(metadata);
+
+        self.sign_transaction(transaction_with_metadata)
     }
 
     /// Signs transaction
@@ -120,7 +121,19 @@ impl Client {
     /// # Errors
     /// Fails if generating signature fails
     pub fn sign_transaction(&self, transaction: Transaction) -> Result<Transaction> {
-        transaction.sign(&self.key_pair)
+        transaction
+            .sign(self.key_pair.clone())
+            .wrap_err("Failed to sign transaction")
+    }
+
+    /// Signs query
+    ///
+    /// # Errors
+    /// Fails if generating signature fails
+    pub fn sign_query(&self, query: QueryRequest) -> Result<SignedQueryRequest> {
+        query
+            .sign(self.key_pair.clone())
+            .wrap_err("Failed to sign query")
     }
 
     /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
@@ -319,7 +332,7 @@ impl Client {
     {
         let pagination: Vec<_> = pagination.into();
         let request = QueryRequest::new(request.into(), self.account_id.clone());
-        let request: VersionedSignedQueryRequest = request.sign(self.key_pair.clone())?.into();
+        let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
         let response = http_client::post(
             format!("{}/{}", &self.torii_url, uri::QUERY),
             request.encode_versioned(),

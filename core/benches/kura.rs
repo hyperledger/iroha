@@ -28,7 +28,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
         vec![transfer].into(),
         1000,
     )
-    .sign(&keypair)
+    .sign(keypair)
     .expect("Failed to sign.");
     let tx = VersionedAcceptedTransaction::from_transaction(tx, 4096)
         .expect("Failed to accept Transaction.");

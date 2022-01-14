@@ -1110,6 +1110,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d83b4df6079ff2f20dfd4c4a13a5c326d985ae35e289df51ff95e71e76b7ada5"
 dependencies = [
  "derive_more",
+ "parity-scale-codec",
  "serde",
  "static_assertions",
  "typenum",
@@ -1762,8 +1763,7 @@ dependencies = [
 name = "iroha_data_model"
 version = "2.0.0-pre.1"
 dependencies = [
- "dashmap",
- "eyre",
+ "derive_more",
  "fixnum",
  "hex-literal",
  "iroha_client",

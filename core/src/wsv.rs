@@ -14,7 +14,7 @@ use dashmap::{
 };
 use eyre::Result;
 use iroha_crypto::HashOf;
-use iroha_data_model::{domain::DomainsMap, peer::PeersIds, prelude::*};
+use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
 use tokio::task;
@@ -23,7 +23,8 @@ use crate::{
     block::Chain,
     event::EventsSender,
     prelude::*,
-    smartcontracts::{isi::Error, Execute, FindError},
+    smartcontracts::{isi::Error, wasm, Execute, FindError},
+    DomainsMap, PeersIds,
 };
 
 /// Sender type of the new block notification channel
@@ -57,7 +58,7 @@ pub struct World {
     /// Roles.
     /// [`Role`] pairs.
     #[cfg(feature = "roles")]
-    pub roles: iroha_data_model::role::RolesMap,
+    pub roles: crate::RolesMap,
 }
 
 /// Current state of the blockchain aligned with `Iroha` module.
@@ -189,7 +190,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                     })?;
                 }
                 Executable::Wasm(bytes) => {
-                    let mut wasm_runtime = crate::smartcontracts::wasm::Runtime::new()?;
+                    let mut wasm_runtime = wasm::Runtime::new()?;
                     wasm_runtime.execute(self, account_id.clone(), bytes)?;
                 }
             }

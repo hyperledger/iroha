@@ -30,7 +30,6 @@ fn type_has_metrics_field(ty: &Type) -> bool {
             let Path { segments, .. } = pth.path.clone();
             #[allow(clippy::expect_used)]
             let type_name = &segments
-                .iter()
                 .last()
                 .expect("Should have at least one segment")
                 .ident;
@@ -170,7 +169,7 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
             Type::Path(pth) => {
                 let Path { segments, .. } = pth.path;
                 #[allow(clippy::expect_used)]
-                let type_name = &segments.iter().last().expect("non-empty path").ident;
+                let type_name = &segments.last().expect("non-empty path").ident;
                 if *type_name != "Result" {
                     abort!(
                         type_name,
