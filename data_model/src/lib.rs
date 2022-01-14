@@ -1768,7 +1768,11 @@ pub mod domain {
 pub mod peer {
     //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
-    use std::{fmt, hash::Hash};
+    use std::{
+        cmp::Ordering,
+        fmt,
+        hash::{Hash, Hasher},
+    };
 
     use dashmap::DashSet;
     use iroha_schema::IntoSchema;
@@ -1800,25 +1804,42 @@ pub mod peer {
     }
 
     /// Peer's identification.
-    #[derive(
-        Debug,
-        Clone,
-        Eq,
-        PartialEq,
-        PartialOrd,
-        Ord,
-        Hash,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
+    ///
+    /// Equality is tested by `public_key` field only.
+    /// Each peer should have a unique public key.
+    #[derive(Debug, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct Id {
         /// Address of the [`Peer`]'s entrypoint.
         pub address: String,
         /// Public Key of the [`Peer`].
         pub public_key: PublicKey,
+    }
+
+    impl PartialEq for Id {
+        fn eq(&self, other: &Self) -> bool {
+            // Comparison is done by public key only.
+            // It is a system invariant that each peer has a unique public key.
+            // Also it helps to handle peer id comparison without domain name resolution.
+            self.public_key == other.public_key
+        }
+    }
+
+    impl PartialOrd for Id {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl Ord for Id {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.public_key.cmp(&other.public_key)
+        }
+    }
+
+    impl Hash for Id {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.public_key.hash(state);
+        }
     }
 
     impl fmt::Display for Id {
