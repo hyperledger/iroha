@@ -6,7 +6,7 @@
 use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
-use eyre::{Context, Result};
+use eyre::{eyre, Context, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*,
@@ -419,7 +419,10 @@ impl VersionedValidBlock {
         self.as_v1().check_instruction_len(max_instruction_len)
     }
 
-    /// Returns true if block can be send for discussion
+    /// Returns `Ok(())` if validation passed.
+    ///
+    /// # Errors
+    /// Returns the error description if validation doesn't work.
     pub fn validation_check<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
@@ -427,13 +430,35 @@ impl VersionedValidBlock {
         latest_view_change: &HashOf<Proof>,
         block_height: u64,
         max_instruction_number: u64,
-    ) -> bool {
-        !self.is_empty()
-            && !self.has_committed_transactions(wsv)
-            && latest_block == &self.header().previous_block_hash
-            && latest_view_change == &self.header().view_change_proofs.latest_hash()
-            && block_height + 1 == self.header().height
-            && self.check_instruction_len(max_instruction_number).is_ok()
+    ) -> Result<(), eyre::Report> {
+        if self.is_empty() {
+            return Err(eyre!("Block is empty"));
+        }
+        if self.has_committed_transactions(wsv) {
+            return Err(eyre!("Block has committed transactions"));
+        }
+        if latest_block != &self.header().previous_block_hash {
+            return Err(eyre!(
+                "latest block mismatch. Expected: {}, actual: {}",
+                latest_block,
+                &self.header().previous_block_hash
+            ));
+        }
+        if latest_view_change != &self.header().view_change_proofs.latest_hash() {
+            return Err(eyre!(
+                "Latest view change doesn't match the view change proofs. Expected: {}, actual {}",
+                latest_view_change,
+                &self.header().view_change_proofs.latest_hash()
+            ));
+        }
+        if block_height + 1 != self.header().height {
+            return Err(eyre!(
+                "Block heights are in an inconsistent state. Expected: {}, actual: {}",
+                block_height,
+                self.header().height
+            ));
+        }
+        self.check_instruction_len(max_instruction_number)
     }
 }
 

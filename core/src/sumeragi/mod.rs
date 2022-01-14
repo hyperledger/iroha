@@ -1354,39 +1354,41 @@ pub mod message {
                 return Ok(());
             }
             sumeragi.txs_awaiting_created_block.clear();
-            if network_topology.role(&sumeragi.peer_id) == Role::ValidatingPeer
-                && self.block.validation_check(
+            if network_topology.role(&sumeragi.peer_id) == Role::ValidatingPeer {
+                if let Err(e) = self.block.validation_check(
                     &sumeragi.wsv,
                     sumeragi.latest_block_hash(),
                     &sumeragi.latest_view_change_hash(),
                     sumeragi.block_height,
                     sumeragi.max_instruction_number,
-                )
-            {
-                let block_clone = self.block.clone();
-                let wsv_clone = Arc::clone(&sumeragi.wsv);
-                let is_instruction_allowed_clone = Arc::clone(&sumeragi.is_instruction_allowed);
-                let is_query_allowed_clone = Arc::clone(&sumeragi.is_query_allowed);
-                let key_pair_clone = sumeragi.key_pair.clone();
-                let signed_block = task::spawn_blocking(move || -> Result<BlockSigned> {
-                    block_clone
-                        .revalidate(
-                            &*wsv_clone,
-                            &*is_instruction_allowed_clone,
-                            &*is_query_allowed_clone,
-                        )
-                        .sign(key_pair_clone)
-                        .map(Into::into)
-                })
-                .await??;
-                VersionedMessage::from(Message::BlockSigned(signed_block))
-                    .send_to(&sumeragi.broker, network_topology.proxy_tail())
-                    .await;
-                iroha_logger::info!(
-                    peer_role = ?network_topology.role(&sumeragi.peer_id),
-                    block_hash = %self.block.hash(),
-                    "Signed block candidate",
-                );
+                ) {
+                    warn!(?e)
+                } else {
+                    let block_clone = self.block.clone();
+                    let wsv_clone = Arc::clone(&sumeragi.wsv);
+                    let is_instruction_allowed_clone = Arc::clone(&sumeragi.is_instruction_allowed);
+                    let is_query_allowed_clone = Arc::clone(&sumeragi.is_query_allowed);
+                    let key_pair_clone = sumeragi.key_pair.clone();
+                    let signed_block = task::spawn_blocking(move || -> Result<BlockSigned> {
+                        block_clone
+                            .revalidate(
+                                &*wsv_clone,
+                                &*is_instruction_allowed_clone,
+                                &*is_query_allowed_clone,
+                            )
+                            .sign(key_pair_clone)
+                            .map(Into::into)
+                    })
+                    .await??;
+                    VersionedMessage::from(Message::BlockSigned(signed_block))
+                        .send_to(&sumeragi.broker, network_topology.proxy_tail())
+                        .await;
+                    iroha_logger::info!(
+                        peer_role = ?network_topology.role(&sumeragi.peer_id),
+                        block_hash = %self.block.hash(),
+                        "Signed block candidate",
+                    );
+                }
                 //TODO: send to set b so they can observe
             }
             let voting_block = VotingBlock::new(self.block.clone());
