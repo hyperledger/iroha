@@ -28,3 +28,5 @@ members = [
   "version",
   "version/derive",
 ]
+
+exclude = ["wasm"]
