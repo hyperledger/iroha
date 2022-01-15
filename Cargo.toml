@@ -26,6 +26,7 @@ members = [
   "schema/derive",
   "substrate",
   "telemetry",
+  "tools/kura_inspector",
   "version",
   "version/derive",
 ]
