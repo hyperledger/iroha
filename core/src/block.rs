@@ -577,7 +577,6 @@ impl ValidBlock {
     ///
     /// # Panics
     /// If generating keys or block signing fails.
-    #[cfg(test)]
     #[allow(clippy::restriction)]
     pub fn new_dummy() -> Self {
         Self {
