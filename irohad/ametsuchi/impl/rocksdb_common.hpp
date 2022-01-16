@@ -517,6 +517,7 @@ namespace iroha::ametsuchi {
 
       rocksdb::Options options;
       options.create_if_missing = true;
+      options.max_open_files = 100;
       options.optimize_filters_for_hits = true;
       options.table_factory.reset(
           rocksdb::NewBlockBasedTableFactory(table_options));
