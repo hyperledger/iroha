@@ -50,7 +50,8 @@ ServerRunner::~ServerRunner() {
 }
 
 ServerRunner &ServerRunner::append(std::shared_ptr<grpc::Service> service) {
-  services_.push_back(service);
+  if (service)
+    services_.push_back(service);
   return *this;
 }
 

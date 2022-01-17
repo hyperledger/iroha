@@ -110,11 +110,13 @@ void RocksDbBlockStorage::reload() {}
 void RocksDbBlockStorage::clear() {
   RocksDbCommon common(db_context_);
 
-  if (auto status = common.filterDelete(fmtstrings::kPathWsv); !status.ok())
-    log_->error("Unable to delete WSV. Description: {}", status.ToString());
+  if (auto res = dropStore(common); expected::hasError(res))
+    log_->error("Unable to delete Store. Description: {}",
+                res.assumeError().description);
 
-  if (auto status = common.filterDelete(fmtstrings::kPathStore); !status.ok())
-    log_->error("Unable to delete STORE. Description: {}", status.ToString());
+  if (auto res = dropWSV(common); expected::hasError(res))
+    log_->error("Unable to delete WSV. Description: {}",
+                res.assumeError().description);
 }
 
 iroha::expected::Result<void, std::string> RocksDbBlockStorage::forEach(

@@ -177,17 +177,20 @@ namespace iroha::ametsuchi {
 
       callback_(block);
 
-      decltype(std::declval<WsvQuery>().getPeers()) opt_ledger_peers;
-      {
-        if (not(opt_ledger_peers = wsv_query.getPeers())) {
+      boost::optional<
+          std::vector<std::shared_ptr<shared_model::interface::Peer>>>
+          opt_ledger_peers[] = {wsv_query.getPeers(false),  // peers
+                                wsv_query.getPeers(true)};  // syncing peers
+      for (auto &peer_list : opt_ledger_peers)
+        if (!peer_list)
           return expected::makeError(
               std::string{"Failed to get ledger peers! Will retry."});
-        }
-      }
-      assert(opt_ledger_peers);
 
-      ledgerState(std::make_shared<const LedgerState>(
-          std::move(*opt_ledger_peers), block->height(), block->hash()));
+      ledgerState(
+          std::make_shared<const LedgerState>(std::move(*(opt_ledger_peers[0])),
+                                              std::move(*(opt_ledger_peers[1])),
+                                              block->height(),
+                                              block->hash()));
       return expected::makeValue(ledgerState().value());
     } catch (const std::exception &e) {
       std::string msg(fmt::format("failed to apply prepared block {}: {}",

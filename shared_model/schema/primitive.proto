@@ -109,6 +109,7 @@ message Peer {
   oneof certificate {
     string tls_certificate = 3;  // pem-encoded string
   }
+  bool syncing_peer = 4;
 }
 
 message AccountDetailRecordId {

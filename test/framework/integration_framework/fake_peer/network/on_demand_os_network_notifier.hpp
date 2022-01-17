@@ -33,10 +33,11 @@ namespace integration_framework::fake_peer {
     void onDuplicates(const HashesSetType &hashes) override;
 
     void forCachedBatches(
-        std::function<void(const iroha::ordering::OnDemandOrderingService::
-                               BatchesSetType &)> const &f) const override;
+        std::function<void(
+            iroha::ordering::OnDemandOrderingService::BatchesSetType &)> const
+            &f) override;
 
-    bool isEmptyBatchesCache() const override;
+    bool isEmptyBatchesCache() override;
 
     bool hasEnoughBatchesInCache() const override;
 

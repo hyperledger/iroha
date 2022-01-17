@@ -1481,6 +1481,9 @@ namespace iroha {
           R"(WITH has_perms AS ({})
       SELECT public_key, address, tls_certificate, perm FROM peer
       RIGHT OUTER JOIN has_perms ON TRUE
+      UNION
+      SELECT public_key, address, tls_certificate, perm FROM sync_peer
+      RIGHT OUTER JOIN has_perms ON TRUE
       )",
           getAccountRolePermissionCheckSql(Role::kGetPeers));
 
@@ -1500,12 +1503,10 @@ namespace iroha {
                     if (peer_key and address) {
                       peers.push_back(
                           std::make_shared<shared_model::plain::Peer>(
-                              *address, *std::move(peer_key), tls_certificate));
-                    } else {
-                      log_->error(
-                          "Address or public key not set for some peer!");
-                      assert(peer_key);
-                      assert(address);
+                              *address,
+                              *std::move(peer_key),
+                              tls_certificate,
+                              false));
                     }
                   });
             }
