@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Configuration parameters container.
-#[derive(Clone, Default, Deserialize, Serialize, Debug, Configurable)]
+#[derive(Clone, Deserialize, Serialize, Debug, Configurable, Default)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]
@@ -29,6 +29,8 @@ pub struct Configuration {
     pub public_key: PublicKey,
     /// Private key of this peer.
     pub private_key: PrivateKey,
+    /// Disable coloring of the backtrace and error report on panic.
+    pub disable_panic_terminal_colors: bool,
     /// `Kura` related configuration.
     #[config(inner)]
     pub kura: KuraConfiguration,
