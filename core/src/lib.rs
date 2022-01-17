@@ -175,6 +175,9 @@ where
         query_validator: IsQueryAllowedBoxed<K::World>,
         broker: Broker,
     ) -> Result<Self> {
+        if !config.disable_panic_terminal_colors {
+            color_eyre::install()?;
+        }
         // TODO: use channel for prometheus/telemetry endpoint
         #[allow(unused)]
         let telemetry = iroha_logger::init(&config.logger)?;
