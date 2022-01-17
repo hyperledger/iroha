@@ -160,7 +160,7 @@ where
             args.submit_genesis,
             crate::genesis::RawGenesisBlock::from_path(&args.genesis_path)?,
             &config.genesis,
-            config.torii.max_instruction_number,
+            &config.torii.transaction_limits,
         )
         .wrap_err("Failed to initialize genesis.")?;
 

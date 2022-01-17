@@ -157,7 +157,7 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
             submit_genesis,
             genesis,
             &cfg.genesis,
-            cfg.sumeragi.max_instruction_number,
+            &cfg.sumeragi.transaction_limits,
         )
         .expect("Failed to init genesis")
     }

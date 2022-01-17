@@ -48,9 +48,9 @@ impl VersionedAcceptedTransaction {
     /// Can fail if verification of some signature fails
     pub fn from_transaction(
         transaction: Transaction,
-        max_instruction_number: u64,
+        limits: &TransactionLimits,
     ) -> Result<VersionedAcceptedTransaction> {
-        AcceptedTransaction::from_transaction(transaction, max_instruction_number).map(Into::into)
+        AcceptedTransaction::from_transaction(transaction, limits).map(Into::into)
     }
 
     /// Checks if this transaction is waiting longer than specified in
@@ -129,10 +129,10 @@ impl AcceptedTransaction {
     /// Can fail if verification of some signature fails
     pub fn from_transaction(
         transaction: Transaction,
-        max_instruction_number: u64,
+        limits: &TransactionLimits,
     ) -> Result<AcceptedTransaction> {
         transaction
-            .check_instruction_len(max_instruction_number)
+            .check_limits(limits)
             .wrap_err("Failed to accept transaction")?;
         let signatures: SignaturesOf<_> = transaction
             .signatures
@@ -457,8 +457,12 @@ mod tests {
 
         let signed_tx = tx.sign(key_pair).expect("Failed to sign.");
         let signed_tx_hash = signed_tx.hash();
-        let accepted_tx =
-            AcceptedTransaction::from_transaction(signed_tx, 4096).expect("Failed to accept.");
+        let tx_limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
+        let accepted_tx = AcceptedTransaction::from_transaction(signed_tx, &tx_limits)
+            .expect("Failed to accept.");
         let accepted_tx_hash = accepted_tx.hash();
         let valid_tx_hash = accepted_tx
             .validate(
@@ -478,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn transaction_not_accepted() {
+    fn transaction_not_accepted_max_instruction_number() {
         let inst: Instruction = FailBox {
             message: "Will fail".to_owned(),
         }
@@ -488,7 +492,12 @@ mod tests {
             vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
             1000,
         );
-        let result: Result<AcceptedTransaction> = AcceptedTransaction::from_transaction(tx, 4096);
+        let tx_limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
+        let result: Result<AcceptedTransaction> =
+            AcceptedTransaction::from_transaction(tx, &tx_limits);
         assert!(result.is_err());
 
         let err = result.unwrap_err();

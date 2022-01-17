@@ -16,6 +16,11 @@ const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const START_DOMAIN: &str = "start";
 const START_ACCOUNT: &str = "starter";
 
+const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
+    max_instruction_number: 4096,
+    max_wasm_size_bytes: 0,
+};
+
 fn build_test_transaction(keys: KeyPair) -> Transaction {
     let domain_name = "domain";
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
@@ -66,12 +71,12 @@ fn accept_transaction(criterion: &mut Criterion) {
     let mut success_count = 0;
     let mut failures_count = 0;
     let _ = criterion.bench_function("accept", |b| {
-        b.iter(
-            || match AcceptedTransaction::from_transaction(transaction.clone(), 4096) {
+        b.iter(|| {
+            match AcceptedTransaction::from_transaction(transaction.clone(), &TRANSACTION_LIMITS) {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
-            },
-        );
+            }
+        });
     });
     println!(
         "Success count: {}, Failures count: {}",
@@ -99,9 +104,11 @@ fn sign_transaction(criterion: &mut Criterion) {
 
 fn validate_transaction(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction =
-        AcceptedTransaction::from_transaction(build_test_transaction(keys.clone()), 4096)
-            .expect("Failed to accept transaction.");
+    let transaction = AcceptedTransaction::from_transaction(
+        build_test_transaction(keys.clone()),
+        &TRANSACTION_LIMITS,
+    )
+    .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
     let wsv = build_test_wsv(keys);
@@ -124,8 +131,9 @@ fn validate_transaction(criterion: &mut Criterion) {
 
 fn chain_blocks(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = AcceptedTransaction::from_transaction(build_test_transaction(keys), 4096)
-        .expect("Failed to accept transaction.");
+    let transaction =
+        AcceptedTransaction::from_transaction(build_test_transaction(keys), &TRANSACTION_LIMITS)
+            .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction.into()]);
     let mut previous_block_hash = block.clone().chain_first().hash();
     let mut success_count = 0;
@@ -146,9 +154,11 @@ fn chain_blocks(criterion: &mut Criterion) {
 
 fn sign_blocks(criterion: &mut Criterion) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction =
-        AcceptedTransaction::from_transaction(build_test_transaction(keys.clone()), 4096)
-            .expect("Failed to accept transaction.");
+    let transaction = AcceptedTransaction::from_transaction(
+        build_test_transaction(keys.clone()),
+        &TRANSACTION_LIMITS,
+    )
+    .expect("Failed to accept transaction.");
     let wsv = build_test_wsv(keys);
     let block = PendingBlock::new(vec![transaction.into()])
         .chain_first()
@@ -189,8 +199,9 @@ fn validate_blocks(criterion: &mut Criterion) {
     let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
     // Pepare test transaction
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let transaction = AcceptedTransaction::from_transaction(build_test_transaction(keys), 4096)
-        .expect("Failed to accept transaction.");
+    let transaction =
+        AcceptedTransaction::from_transaction(build_test_transaction(keys), &TRANSACTION_LIMITS)
+            .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction.into()]).chain_first();
     let _ = criterion.bench_function("validate_block", |b| {
         b.iter(|| {

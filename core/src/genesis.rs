@@ -42,7 +42,7 @@ pub trait GenesisNetworkTrait:
         submit_genesis: bool,
         raw_block: RawGenesisBlock,
         genesis_config: &GenesisConfiguration,
-        max_instructions_number: u64,
+        transaction_limits: &TransactionLimits,
     ) -> Result<Option<Self>>;
 
     /// Waits for a minimum number of [`Peer`]s needed for consensus to be online.
@@ -166,7 +166,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
         submit_genesis: bool,
         raw_block: RawGenesisBlock,
         genesis_config: &GenesisConfiguration,
-        max_instructions_number: u64,
+        tx_limits: &TransactionLimits,
     ) -> Result<Option<GenesisNetwork>> {
         if !submit_genesis {
             return Ok(None);
@@ -187,7 +187,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
                             .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
                     };
 
-                    raw_transaction.sign_and_accept(genesis_key_pair, max_instructions_number)
+                    raw_transaction.sign_and_accept(genesis_key_pair, tx_limits)
                 })
                 .filter_map(Result::ok)
                 .collect(),
@@ -275,7 +275,7 @@ impl GenesisTransaction {
     pub fn sign_and_accept(
         &self,
         genesis_key_pair: KeyPair,
-        max_instruction_number: u64,
+        limits: &TransactionLimits,
     ) -> Result<VersionedAcceptedTransaction> {
         let transaction = Transaction::new(
             AccountId::genesis(),
@@ -283,7 +283,7 @@ impl GenesisTransaction {
             GENESIS_TRANSACTIONS_TTL_MS,
         )
         .sign(genesis_key_pair)?;
-        VersionedAcceptedTransaction::from_transaction(transaction, max_instruction_number)
+        VersionedAcceptedTransaction::from_transaction(transaction, limits)
     }
 
     /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`NewAccount`].
@@ -375,6 +375,10 @@ mod tests {
     #[test]
     fn load_default_genesis_block() -> Result<()> {
         let genesis_key_pair = KeyPair::generate()?;
+        let tx_limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
         let _genesis_block = GenesisNetwork::from_configuration(
             true,
             RawGenesisBlock::default(),
@@ -383,7 +387,7 @@ mod tests {
                 account_private_key: Some(genesis_key_pair.private_key),
                 ..GenesisConfiguration::default()
             },
-            4096,
+            &tx_limits,
         )?;
         Ok(())
     }

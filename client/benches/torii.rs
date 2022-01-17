@@ -28,7 +28,7 @@ fn query_requests(criterion: &mut Criterion) {
         RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key)
             .expect("Valid names never fail to parse"),
         &configuration.genesis,
-        configuration.sumeragi.max_instruction_number,
+        &configuration.sumeragi.transaction_limits,
     )
     .expect("genesis creation failed");
 
@@ -122,7 +122,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         RawGenesisBlock::new("alice", "wonderland", &configuration.public_key)
             .expect("Valid names never fail to parse"),
         &configuration.genesis,
-        configuration.sumeragi.max_instruction_number,
+        &configuration.sumeragi.transaction_limits,
     )
     .expect("failed to create genesis");
     rt.block_on(peer.start_with_config(genesis, configuration));

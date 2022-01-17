@@ -34,8 +34,8 @@ pub struct Configuration {
     pub transaction_time_to_live_ms: u64,
     /// Transaction status wait timeout in milliseconds.
     pub transaction_status_timeout_ms: u64,
-    /// Maximum number of instructions per transaction
-    pub max_instruction_number: u64,
+    /// Limits to which transactions must adhere to
+    pub transaction_limits: TransactionLimits,
     /// If `true` add nonce, which make different hashes for transactions which occur repeatedly and simultaneously
     pub add_transaction_nonce: bool,
     /// `Logger` configuration.
@@ -53,7 +53,10 @@ impl Default for Configuration {
             torii_telemetry_url: DEFAULT_TORII_TELEMETRY_URL.to_owned(),
             transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,
             transaction_status_timeout_ms: DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS,
-            max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
+            transaction_limits: TransactionLimits {
+                max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
+                max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+            },
             add_transaction_nonce: DEFAULT_ADD_TRANSACTION_NONCE,
             logger_configuration: LoggerConfiguration::default(),
         }

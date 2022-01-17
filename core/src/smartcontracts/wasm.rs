@@ -1,6 +1,7 @@
 //! This module contains logic related to executing smartcontracts via `WebAssembly` VM
 //! Smartcontracts can be written in Rust, compiled to wasm format and submitted in a transaction
 
+use config::Configuration;
 use eyre::WrapErr;
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
@@ -44,15 +45,36 @@ struct State<'a, W: WorldTrait> {
 
     /// Number of instructions in the smartcontract
     instruction_count: u64,
+
+    /// Max number of instructions in the smartcontract
+    max_instruction_count: u64,
 }
 
 impl<'a, W: WorldTrait> State<'a, W> {
-    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId) -> Self {
+    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId, max_instruction_count: u64) -> Self {
         Self {
             wsv,
             account_id,
             instruction_count: 0,
+            max_instruction_count,
         }
+    }
+
+    /// Checks if number of instructions in wasm smartcontract exceeds maximum
+    ///
+    /// # Errors
+    ///
+    /// If number of instructions exceeds maximum
+    #[inline]
+    fn check_instruction_len(&self) -> Result<(), Trap> {
+        if self.instruction_count > self.max_instruction_count {
+            return Err(Trap::new(format!(
+                "Number of instructions exceeds maximum({})",
+                self.max_instruction_count
+            )));
+        }
+
+        Ok(())
     }
 }
 
@@ -60,12 +82,39 @@ impl<'a, W: WorldTrait> State<'a, W> {
 pub struct Runtime<'a, W: WorldTrait> {
     engine: Engine,
     linker: Linker<State<'a, W>>,
+    config: Configuration,
 }
 
 impl<'a, W: WorldTrait> Runtime<'a, W> {
-    /// Every WASM instruction costs approximately 1 unit of fuel. See
-    /// [`wasmtime` reference](https://docs.rs/wasmtime/0.29.0/wasmtime/struct.Store.html#method.add_fuel)
-    const FUEL_LIMIT: u64 = 10_000;
+    /// `Runtime` constructor with default configuration.
+    ///
+    /// # Errors
+    ///
+    /// If unable to construct runtime
+    pub fn new() -> Result<Self, Error> {
+        let engine = Self::create_engine()?;
+        let config = Configuration::default();
+
+        let linker = Self::create_linker(&engine)?;
+
+        Ok(Self {
+            engine,
+            linker,
+            config,
+        })
+    }
+
+    /// `Runtime` constructor.
+    ///
+    /// # Errors
+    ///
+    /// See [`Runtime::new`]
+    pub fn from_configuration(config: Configuration) -> Result<Self, Error> {
+        Ok(Self {
+            config,
+            ..Runtime::new()?
+        })
+    }
 
     fn create_config() -> Config {
         let mut config = Config::new();
@@ -74,8 +123,8 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         config
     }
 
-    fn create_engine(config: &Config) -> Result<Engine, Error> {
-        Engine::new(config).map_err(Error::Initialization)
+    fn create_engine() -> Result<Engine, Error> {
+        Engine::new(&Self::create_config()).map_err(Error::Initialization)
     }
 
     /// Host defined function which executes query. When calling this function, module
@@ -137,11 +186,12 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         let instruction =
             Instruction::decode(&mut isi_bytes).map_err(|error| Trap::new(error.to_string()))?;
 
+        caller.data_mut().instruction_count += 1;
+        caller.data().check_instruction_len()?;
+
         instruction
             .execute(caller.data().account_id.clone(), caller.data().wsv)
             .map_err(|error| Trap::new(error.to_string()))?;
-
-        caller.data_mut().instruction_count += 1;
 
         Ok(())
     }
@@ -178,19 +228,6 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
             .ok_or_else(|| Trap::new(format!("{}: not a memory", WASM_MEMORY_NAME)))
     }
 
-    /// `Runtime` constructor
-    ///
-    /// # Errors
-    ///
-    /// If unable to construct runtime
-    pub fn new() -> Result<Self, Error> {
-        let config = Self::create_config();
-        let engine = Self::create_engine(&config)?;
-        let linker = Self::create_linker(&engine)?;
-
-        Ok(Self { engine, linker })
-    }
-
     /// Executes the given wasm smartcontract
     ///
     /// # Errors
@@ -207,9 +244,12 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         let account_bytes = account_id.encode();
 
         let module = Module::new(&self.engine, bytes).map_err(Error::Instantiation)?;
-        let mut store = Store::new(&self.engine, State::new(wsv, account_id));
+        let mut store = Store::new(
+            &self.engine,
+            State::new(wsv, account_id, self.config.max_instruction_count),
+        );
         store
-            .add_fuel(Self::FUEL_LIMIT)
+            .add_fuel(self.config.fuel_limit)
             .map_err(Error::Instantiation)?;
 
         let instance = self
@@ -254,6 +294,37 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
             .map_err(Error::ExportFnCall)?;
 
         Ok(())
+    }
+}
+
+/// This module contains all configuration related logic.
+pub mod config {
+    use iroha_config::derive::Configurable;
+    use iroha_data_model::transaction;
+    use serde::{Deserialize, Serialize};
+
+    const DEFAULT_FUEL_LIMIT: u64 = 100_000;
+
+    /// [`WebAssembly Runtime`](super::Runtime) configuration.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+    #[config(env_prefix = "WASM_")]
+    #[serde(rename_all = "UPPERCASE", default)]
+    pub struct Configuration {
+        /// Every WASM instruction costs approximately 1 unit of fuel. See
+        /// [`wasmtime` reference](https://docs.rs/wasmtime/0.29.0/wasmtime/struct.Store.html#method.add_fuel)
+        pub fuel_limit: u64,
+
+        /// Maximum number of instructions per transaction
+        pub max_instruction_count: u64,
+    }
+
+    impl Default for Configuration {
+        fn default() -> Self {
+            Configuration {
+                fuel_limit: DEFAULT_FUEL_LIMIT,
+                max_instruction_count: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
+            }
+        }
     }
 }
 
@@ -351,7 +422,7 @@ mod tests {
             isi_len = isi_hex.len() / 3,
         );
         let mut runtime = Runtime::new()?;
-        runtime.execute(&wsv, account_id, wat)?;
+        assert!(runtime.execute(&wsv, account_id, wat).is_ok());
 
         Ok(())
     }
@@ -392,7 +463,59 @@ mod tests {
         );
 
         let mut runtime = Runtime::new()?;
-        runtime.execute(&wsv, account_id, wat)?;
+        assert!(runtime.execute(&wsv, account_id, wat).is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn instruction_limit_reached() -> Result<(), Error> {
+        let account_id = AccountId::test("alice", "wonderland");
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+
+        let isi_hex = {
+            let new_account_id = AccountId::test("mad_hatter", "wonderland");
+            let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+            encode_hex(Instruction::Register(register_isi))
+        };
+
+        let wat = format!(
+            r#"
+            (module
+                ;; Import host function to execute
+                (import "iroha" "{execute_fn_name}"
+                    (func $exec_fn (param i32 i32))
+                )
+
+                {memory_and_alloc}
+
+                ;; Function which starts the smartcontract execution
+                (func (export "{main_fn_name}") (param i32 i32)
+                    (call $exec_fn (i32.const 0) (i32.const {isi1_end}))
+                    (call $exec_fn (i32.const {isi1_end}) (i32.const {isi2_end}))
+                )
+            )
+            "#,
+            main_fn_name = WASM_MAIN_FN_NAME,
+            execute_fn_name = EXECUTE_ISI_FN_NAME,
+            // Store two instructions into adjacent memory and execute them
+            memory_and_alloc = memory_and_alloc(&format!("{}{}", isi_hex, isi_hex)),
+            isi1_end = isi_hex.len() / 3,
+            isi2_end = 2 * isi_hex.len() / 3,
+        );
+        let mut runtime = Runtime::from_configuration(Configuration {
+            fuel_limit: 100_000,
+            max_instruction_count: 1,
+        })?;
+        let res = runtime.execute(&wsv, account_id, wat);
+
+        assert!(res.is_err());
+        if let Error::ExportFnCall(trap) = res.unwrap_err() {
+            assert_eq!(
+                "Number of instructions exceeds maximum(1)",
+                trap.display_reason().to_string()
+            );
+        }
 
         Ok(())
     }

@@ -26,11 +26,13 @@ pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
 
 /// Error which indicates max instruction count was reached
 #[derive(Debug, Clone, Copy, Display)]
-#[display(fmt = "Too many instructions in payload")]
-pub struct MaxInstructionCount;
+pub struct TransactionLimitError(&'static str);
 
 #[cfg(feature = "std")]
-impl std::error::Error for MaxInstructionCount {}
+impl std::error::Error for TransactionLimitError {}
+
+/// Default maximum number of instructions and expressions per transaction
+pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 2_u64.pow(20); // 1 MiB
 
 /// Trait for basic transaction operations
 pub trait Txn {
@@ -40,13 +42,29 @@ pub trait Txn {
     /// Returns payload of a transaction
     fn payload(&self) -> &Payload;
 
-    /// Checks if number of instructions in payload exceeds maximum
+    /// Checks if number of instructions in payload or wasm size exceeds maximum
     ///
     /// # Errors
-    /// Fails if instruction length exceeds maximum instruction number
+    ///
+    /// Fails if number of instructions or wasm size exceeds maximum
     #[inline]
-    fn check_instruction_len(&self, max_instruction_len: u64) -> Result<(), MaxInstructionCount> {
-        self.payload().check_instruction_len(max_instruction_len)
+    fn check_limits(&self, limits: &TransactionLimits) -> Result<(), TransactionLimitError> {
+        match &self.payload().instructions {
+            Executable::Instructions(instructions) => {
+                let instruction_count: usize = instructions.iter().map(Instruction::len).sum();
+
+                if instruction_count as u64 > limits.max_instruction_number {
+                    return Err(TransactionLimitError("Too many instructions in payload"));
+                }
+            }
+            Executable::Wasm(wasm) => {
+                if wasm.len() as u64 > limits.max_wasm_size_bytes {
+                    return Err(TransactionLimitError("wasm binary too large"));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
@@ -96,24 +114,15 @@ impl Payload {
             && self.time_to_live_ms == other.time_to_live_ms
             && self.metadata == other.metadata
     }
+}
 
-    /// Checks if number of instructions in payload exceeds maximum
-    ///
-    /// # Errors
-    /// Fails if instruction length exceeds maximum instruction number
-    pub fn check_instruction_len(
-        &self,
-        max_instruction_number: u64,
-    ) -> Result<(), MaxInstructionCount> {
-        if let Executable::Instructions(instructions) = &self.instructions {
-            if instructions.iter().map(Instruction::len).sum::<usize>() as u64
-                > max_instruction_number
-            {
-                return Err(MaxInstructionCount);
-            }
-        }
-        Ok(())
-    }
+/// Container for limits that transactions must obey.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub struct TransactionLimits {
+    /// Maximum number of instructions per transaction
+    pub max_instruction_number: u64,
+    /// Maximum size of wasm binary
+    pub max_wasm_size_bytes: u64,
 }
 
 declare_versioned!(
@@ -639,7 +648,7 @@ pub enum RejectionReason {
 pub mod prelude {
     pub use super::{
         BlockRejectionReason, Executable, InstructionExecutionFail, NotPermittedFail, Payload,
-        PendingTransactions, RejectedTransaction, RejectionReason, Transaction,
+        PendingTransactions, RejectedTransaction, RejectionReason, Transaction, TransactionLimits,
         TransactionRejectionReason, TransactionValue, Txn, UnsatisfiedSignatureConditionFail,
         ValidTransaction, VersionedPendingTransactions, VersionedRejectedTransaction,
         VersionedTransaction, VersionedValidTransaction, WasmExecutionFail,

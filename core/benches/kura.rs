@@ -30,7 +30,11 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     )
     .sign(keypair)
     .expect("Failed to sign.");
-    let tx = VersionedAcceptedTransaction::from_transaction(tx, 4096)
+    let transaction_limits = TransactionLimits {
+        max_instruction_number: 4096,
+        max_wasm_size_bytes: 0,
+    };
+    let tx = VersionedAcceptedTransaction::from_transaction(tx, &transaction_limits)
         .expect("Failed to accept Transaction.");
     let mut block = PendingBlock::new(vec![tx]).chain_first().validate(
         &WorldStateView::new(World::new()),
