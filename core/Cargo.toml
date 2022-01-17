@@ -55,6 +55,7 @@ warp = "0.3"
 thiserror = "1.0.28"
 pin-project = "1"
 wasmtime = "0.29.0"
+color-eyre = "0.5.11"
 
 # transitive dependencies
 anyhow = ">= 1.0"
