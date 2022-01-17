@@ -1362,7 +1362,7 @@ pub mod message {
                     sumeragi.block_height,
                     sumeragi.max_instruction_number,
                 ) {
-                    warn!(?e)
+                    warn!(%e)
                 } else {
                     let block_clone = self.block.clone();
                     let wsv_clone = Arc::clone(&sumeragi.wsv);
