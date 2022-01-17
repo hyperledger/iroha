@@ -286,6 +286,12 @@ CREATE TABLE peer (
     tls_certificate varchar,
     PRIMARY KEY (public_key)
 );
+CREATE TABLE sync_peer (
+    public_key varchar NOT NULL,
+    address character varying(261) NOT NULL UNIQUE,
+    tls_certificate varchar,
+    PRIMARY KEY (public_key)
+);
 CREATE TABLE asset (
     asset_id character varying(288),
     domain_id character varying(255) NOT NULL REFERENCES domain,

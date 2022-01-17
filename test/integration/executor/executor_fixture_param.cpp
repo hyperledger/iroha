@@ -10,6 +10,9 @@
 using namespace executor_testing;
 
 ExecutorTestParam::ExecutorTestParam()
-    : vm_caller_(std::make_unique<iroha::ametsuchi::MockVmCaller>()) {}
+    : vm_caller_(std::make_unique<iroha::ametsuchi::MockVmCaller>()),
+      subscription_manager_(iroha::getSubscription()) {}
 
-ExecutorTestParam::~ExecutorTestParam() = default;
+ExecutorTestParam::~ExecutorTestParam() {
+  subscription_manager_->dispose();
+}

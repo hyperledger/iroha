@@ -58,9 +58,11 @@ void Yac::stop() {
 
 std::optional<iroha::consensus::yac::Answer> Yac::processRoundSwitch(
     consensus::Round const &round,
-    shared_model::interface::types::PeerList const &peers) {
+    shared_model::interface::types::PeerList const &peers,
+    shared_model::interface::types::PeerList const &sync_peers) {
   round_ = round;
   cluster_order_ = peers;
+  syncing_peers_ = sync_peers;
   std::optional<iroha::consensus::yac::Answer> result;
   auto it = future_states_.lower_bound(round_);
   while (it != future_states_.end()
@@ -297,9 +299,9 @@ void Yac::tryPropagateBack(const std::vector<VoteMessage> &state) {
 // ------|Propagation|------
 
 void Yac::propagateState(const std::vector<VoteMessage> &msg) {
-  for (const auto &peer : cluster_order_) {
-    propagateStateDirectly(*peer, msg);
-  }
+  for (const auto &peer : cluster_order_) propagateStateDirectly(*peer, msg);
+
+  for (const auto &peer : syncing_peers_) propagateStateDirectly(*peer, msg);
 }
 
 void Yac::propagateStateDirectly(const shared_model::interface::Peer &to,

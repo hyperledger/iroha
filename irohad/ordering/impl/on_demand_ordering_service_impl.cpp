@@ -71,7 +71,7 @@ void OnDemandOrderingServiceImpl::removeFromBatchesCache(
   batches_cache_.remove(hashes);
 }
 
-bool OnDemandOrderingServiceImpl::isEmptyBatchesCache() const {
+bool OnDemandOrderingServiceImpl::isEmptyBatchesCache() {
   return batches_cache_.isEmpty();
 }
 
@@ -80,7 +80,7 @@ bool OnDemandOrderingServiceImpl::hasEnoughBatchesInCache() const {
 }
 
 void OnDemandOrderingServiceImpl::forCachedBatches(
-    std::function<void(const BatchesSetType &)> const &f) const {
+    std::function<void(BatchesSetType &)> const &f) {
   batches_cache_.forCachedBatches(f);
 }
 
@@ -144,7 +144,11 @@ OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   auto now = iroha::time::now();
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
   if (!isEmptyBatchesCache())
-    batches_cache_.getTransactions(transaction_limit_, txs);
+    batches_cache_.getTransactions(
+        transaction_limit_, txs, [&](auto const &batch) {
+          assert(batch);
+          return batchAlreadyProcessed(*batch);
+        });
 
   log_->debug("Packed proposal contains: {} transactions.", txs.size());
   return tryCreateProposal(round, txs, now);

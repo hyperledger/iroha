@@ -120,6 +120,7 @@ Let's start Iroha node in Docker container with the following command:
   hyperledger/iroha:latest
 
 .. note:: If you are using Iroha with RocksDB, please add ``--entrypoint irohad`` to these parameters, to skip the PostgreSQL container check.
+.. note:: To use `metrics <../maintenance/metrics.html>`_ with Docker please also set up the port ``-p7001:7001`` and edit the ``config.docker`` file with ``0.0.0.0:7001``.
 
 If you started the node successfully you would see the container id in the same console where you started the container.
 
