@@ -25,11 +25,11 @@ pub trait IntoSchema {
     /// Returns unique type name.
     /// WARN: `core::any::type_name` is compiler related, so is not unique.
     /// I guess we should change it somehow later
+    // TODO: Should return &str if possible
     fn type_name() -> String {
-        let mut name = module_path!().to_owned();
-        name.push_str("::");
-        name.push_str(core::any::type_name::<Self>());
-        name
+        core::any::type_name::<Self>()
+            .replace("alloc::string::String", "String")
+            .replace("alloc::vec::Vec", "Vec")
     }
 
     /// Returns info about current type. Will return map from type names to its metadata

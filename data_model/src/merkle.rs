@@ -6,33 +6,42 @@ use alloc::{boxed::Box, vec, vec::Vec};
 use std::collections::VecDeque;
 
 use iroha_crypto::{Hash, HashOf};
+use iroha_schema::IntoSchema;
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate and prove data at
 /// each block height.
 /// Our implementation uses binary hash tree.
-#[derive(Debug)]
+#[derive(Debug, IntoSchema)]
 pub struct MerkleTree<T> {
     root_node: Node<T>,
 }
 
+/// Represents subtree rooted by the current node
+#[derive(Debug, IntoSchema)]
+pub struct Subtree<T> {
+    /// Left subtree
+    left: Box<Node<T>>,
+    /// Right subtree
+    right: Box<Node<T>>,
+    /// Hash of the node
+    hash: HashOf<Node<T>>,
+}
+
+/// Represents leaf node
+#[derive(Debug, IntoSchema)]
+pub struct Leaf<T> {
+    /// Hash of the node
+    hash: HashOf<T>,
+}
+
 /// Binary Tree's node with possible variants: Subtree, Leaf (with data or links to data) and Empty.
-#[derive(Debug)]
+#[derive(Debug, IntoSchema)]
 #[allow(clippy::module_name_repetitions)]
 pub enum Node<T> {
     /// Node is root of a subtree
-    Subtree {
-        /// Left subtree
-        left: Box<Self>,
-        /// Right subtree
-        right: Box<Self>,
-        /// Hash of the node
-        hash: HashOf<Self>,
-    },
+    Subtree(Subtree<T>),
     /// Leaf node
-    Leaf {
-        /// Hash of the node
-        hash: HashOf<T>,
-    },
+    Leaf(Leaf<T>),
     /// Empty node
     Empty,
 }
@@ -50,7 +59,7 @@ impl<U> FromIterator<HashOf<U>> for MerkleTree<U> {
         hashes.sort_unstable();
         let mut nodes = hashes
             .into_iter()
-            .map(|hash| Node::Leaf { hash })
+            .map(|hash| Node::Leaf(Leaf { hash }))
             .collect::<VecDeque<_>>();
         if nodes.len() % 2 != 0 {
             nodes.push_back(Node::Empty);
@@ -112,50 +121,47 @@ impl<T> Default for MerkleTree<T> {
 impl<T> Node<T> {
     #[cfg(feature = "std")]
     fn from_nodes(left: Self, right: Self) -> Self {
-        Self::Subtree {
+        Self::Subtree(Subtree {
             hash: Self::nodes_pair_hash(&left, &right),
             left: Box::new(left),
             right: Box::new(right),
-        }
+        })
     }
 
     fn get_leaf_inner(&self, idx: usize) -> Result<HashOf<T>, usize> {
-        use Node::*;
-
         match self {
-            Leaf { hash } if idx == 0 => Ok(*hash),
-            Subtree { left, right, .. } => match left.get_leaf_inner(idx) {
+            Node::Leaf(Leaf { hash }) if idx == 0 => Ok(*hash),
+            Node::Subtree(Subtree { left, right, .. }) => match left.get_leaf_inner(idx) {
                 Ok(hash) => Ok(hash),
                 Err(seen) => right
                     .get_leaf_inner(idx - seen)
                     .map_err(|index| index + seen),
             },
-            Leaf { .. } | Empty => Err(1),
+            Node::Leaf { .. } | Node::Empty => Err(1),
         }
     }
 
     #[cfg(feature = "std")]
     fn from_node(left: Self) -> Self {
-        Self::Subtree {
+        Self::Subtree(Subtree {
             hash: left.hash(),
             left: Box::new(left),
             right: Box::new(Node::Empty),
-        }
+        })
     }
 
     /// Return the `Hash` of the root node.
     pub fn hash(&self) -> HashOf<Self> {
-        use Node::*;
         match self {
-            Subtree { hash, .. } => *hash,
-            Leaf { hash } => (*hash).transmute(),
-            Empty => HashOf::from_hash(Hash([0; 32])),
+            Node::Subtree(Subtree { hash, .. }) => *hash,
+            Node::Leaf(Leaf { hash }) => (*hash).transmute(),
+            Node::Empty => HashOf::from_hash(Hash([0; 32])),
         }
     }
 
     /// Returns leaf node hash
     pub const fn leaf_hash(&self) -> Option<HashOf<T>> {
-        if let Self::Leaf { hash } = *self {
+        if let Self::Leaf(Leaf { hash }) = *self {
             Some(hash)
         } else {
             None
@@ -195,7 +201,7 @@ impl<'a, T> Iterator for BreadthFirstIter<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         match &self.queue.pop() {
             Some(node) => {
-                if let Node::Subtree { left, right, .. } = *node {
+                if let Node::Subtree(Subtree { left, right, .. }) = *node {
                     self.queue.push(&*left);
                     self.queue.push(&*right);
                 }
@@ -222,15 +228,15 @@ mod tests {
     #[test]
     fn tree_with_two_layers_should_reach_all_nodes() {
         let tree = MerkleTree {
-            root_node: Node::Subtree {
-                left: Box::new(Node::Leaf {
+            root_node: Node::Subtree(Subtree {
+                left: Box::new(Node::Leaf(Leaf {
                     hash: HashOf::<()>::from_hash(Hash([0; 32])),
-                }),
-                right: Box::new(Node::Leaf {
+                })),
+                right: Box::new(Node::Leaf(Leaf {
                     hash: HashOf::from_hash(Hash([0; 32])),
-                }),
+                })),
                 hash: HashOf::from_hash(Hash([0; 32])),
-            },
+            }),
         };
         assert_eq!(3, tree.into_iter().count());
     }
