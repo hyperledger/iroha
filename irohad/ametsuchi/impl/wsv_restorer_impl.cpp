@@ -166,7 +166,8 @@ namespace iroha::ametsuchi {
       std::shared_ptr<BlockStorageFactory> bsf) {
     IROHA_EXPECTED_TRY_GET_VALUE(command_executor_uniq,
                                  storage.createCommandExecutor());
-    std::shared_ptr<CommandExecutor> command_executor(std::move(command_executor_uniq));
+    std::shared_ptr<CommandExecutor> command_executor(
+        std::move(command_executor_uniq));
 
     std::shared_ptr<BlockStorageFactory> block_storage_factory{
         bsf ? std::move(bsf) : std::make_shared<BlockStorageStubFactory>()};
@@ -226,12 +227,12 @@ namespace iroha::ametsuchi {
         wsv_ledger_height = 0;
       }
 
-      /// Commit reindexed blocks every 1000 blocks. For reliability.
+      /// Commit reindexed blocks every 10 blocks. For reliability.
       /// When doing reindex of huge blockchain and the procedure is interrupted
       /// it is important to continue from last commit point to save time.
       do {
         auto commit_height =
-            std::min(wsv_ledger_height + 1000, last_block_in_storage);
+            std::min(wsv_ledger_height + 10, last_block_in_storage);
         IROHA_EXPECTED_TRY_GET_VALUE(
             mutable_storage,
             storage.createMutableStorage(command_executor,
