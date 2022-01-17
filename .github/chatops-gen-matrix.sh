@@ -68,7 +68,7 @@ handle_user_line(){
       return
    fi
    if [[ "${1:-}" != '/build' ]] ;then
-      echowarn "Line skipped, should start with '/build'"
+      echowarn "Line skipped, should start with '/build' : '${1:-}'"
       return
    fi
    shift
@@ -129,9 +129,9 @@ handle_user_line(){
             done
          done
       done
-      if test "$used_compilers" = ''; then
-         echowarn "No available compilers for '$os' among '$compilers', available: '$AVAILABLE_compilers'"
-      fi
+      # if test "$used_compilers" = ''; then
+      #    echowarn "No available compilers for '$os' among '$compilers', available: '$AVAILABLE_compilers'"
+      # fi
    done
 }
 
@@ -160,12 +160,6 @@ rm -f $ignored
 
 
 to_json(){
-   # echo "{
-   #       os:\"$1\",
-   #       cc:\"$2\",
-   #       BuildType:\"$3\",
-   #       CMAKE_USE:\"$( [[ "$4" = normal ]] || echo "-DUSE_${4^^}=ON" )\"
-   #    }"
    echo "{buildspec:\"$@\"}"
 }
 to_json_multiline(){
@@ -184,16 +178,6 @@ json_include(){
 
 MATRIX="$(echo "$MATRIX" | sed '/^$/d' | sort -uV)"
 echo "$MATRIX"
-
-echo "$MATRIX"                                                          >buildspec
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'                         >buildspec_ubuntu
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/'            >buildspec_ubuntu_release
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/'              >buildspec_ubuntu_debug
-echo "$MATRIX" | awk -v IGNORECASE=1 '/macos/'                          >buildspec_macos
-echo "$MATRIX" | awk -v IGNORECASE=1 '/windows/'                        >buildspec_windows
-## Build Docker images only with GCC-9 (mainstream compiler)
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/ && /gcc-9/' >buildspec_dockerimage_release
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/   && /gcc-9/' >buildspec_dockerimage_debug
 
 echo "$MATRIX"                                                          | json_include >matrix
 echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'                         | json_include >matrix_ubuntu
