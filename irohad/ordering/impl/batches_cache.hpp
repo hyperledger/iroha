@@ -46,7 +46,7 @@ namespace iroha::ordering {
    public:
     uint64_t getTxsCount() const;
 
-    BatchesSetType const &getBatchesSet() const;
+    BatchesSetType &getBatchesSet();
 
     bool insert(std::shared_ptr<shared_model::interface::TransactionBatch> const
                     &batch);
@@ -97,18 +97,43 @@ namespace iroha::ordering {
 
     void remove(const OnDemandOrderingService::HashesSetType &hashes);
 
-    bool isEmpty() const;
+    bool isEmpty();
 
     uint64_t txsCount() const;
     uint64_t availableTxsCount() const;
 
-    void forCachedBatches(
-        std::function<void(const BatchesSetType &)> const &f) const;
+    void forCachedBatches(std::function<void(BatchesSetType &)> const &f);
 
+    template <typename IsProcessedFunc>
     void getTransactions(
         size_t requested_tx_amount,
         std::vector<std::shared_ptr<shared_model::interface::Transaction>>
-            &txs);
+            &collection,
+        IsProcessedFunc &&is_processed) {
+      collection.clear();
+      collection.reserve(requested_tx_amount);
+
+      std::unique_lock lock(batches_cache_cs_);
+      uint32_t depth_counter = 0ul;
+      batches_cache_.remove([&](auto &batch, bool &process_iteration) {
+        if (std::forward<IsProcessedFunc>(is_processed)(batch))
+          return true;
+
+        auto const txs_count = batch->transactions().size();
+        if (collection.size() + txs_count > requested_tx_amount) {
+          ++depth_counter;
+          process_iteration = (depth_counter < 8ull);
+          return false;
+        }
+
+        collection.insert(std::end(collection),
+                          std::begin(batch->transactions()),
+                          std::end(batch->transactions()));
+
+        used_batches_cache_.insert(batch);
+        return true;
+      });
+    }
 
     void processReceivedProposal(
         OnDemandOrderingService::CollectionType batches);

@@ -227,7 +227,7 @@ namespace iroha::ametsuchi {
         wsv_ledger_height = 0;
       }
 
-      /// Commit reindexed blocks every 1000 blocks. For reliability.
+      /// Commit reindexed blocks every 10 blocks. For reliability.
       /// When doing reindex of huge blockchain and the procedure is interrupted
       /// it is important to continue from last commit point to save time.
       do {
