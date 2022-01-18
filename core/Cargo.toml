@@ -54,6 +54,7 @@ warp = "0.3"
 structopt = { version = "0.3", optional = true }
 thiserror = "1.0.28"
 pin-project = "1"
+color-eyre = "0.5.11"
 
 [dev-dependencies]
 tempfile = "3"
