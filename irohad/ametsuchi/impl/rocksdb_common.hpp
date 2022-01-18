@@ -17,7 +17,7 @@
 #include <rocksdb/db.h>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/table.h>
-#include <rocksdb/utilities/optimistic_transaction_db.h>
+#include <rocksdb/utilities/transaction_db.h>
 #include <rocksdb/utilities/transaction.h>
 #include "ametsuchi/impl/database_cache/cache.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
@@ -522,9 +522,9 @@ namespace iroha::ametsuchi {
       options.table_factory.reset(
           rocksdb::NewBlockBasedTableFactory(table_options));
 
-      rocksdb::OptimisticTransactionDB *transaction_db;
-      auto status = rocksdb::OptimisticTransactionDB::Open(
-          options, *db_name_, &transaction_db);
+      rocksdb::TransactionDB *transaction_db;
+      auto status = rocksdb::TransactionDB::Open(
+          options, rocksdb::TransactionDBOptions(), *db_name_, &transaction_db);
 
       if (!status.ok())
         return makeError<void>(DbErrorCode::kInitializeFailed,
@@ -534,12 +534,6 @@ namespace iroha::ametsuchi {
 
       transaction_db_.reset(transaction_db);
       return {};
-    }
-
-    void flushDB() {
-      assert(transaction_db_);
-      assert(transaction_db_->Flush(rocksdb::FlushOptions()).ok());
-      assert(transaction_db_->FlushWAL(true).ok());
     }
 
     template <typename LoggerT>
@@ -584,17 +578,8 @@ namespace iroha::ametsuchi {
       return std::nullopt;
     }
 
-    std::optional<std::string> getPropStr(const rocksdb::Slice &property) {
-      if (transaction_db_) {
-        std::string value;
-        transaction_db_->GetProperty(property, &value);
-        return value;
-      }
-      return std::nullopt;
-    }
-
    private:
-    std::unique_ptr<rocksdb::OptimisticTransactionDB> transaction_db_;
+    std::unique_ptr<rocksdb::TransactionDB> transaction_db_;
     std::optional<std::string> db_name_;
     friend class RocksDbCommon;
 
@@ -603,7 +588,7 @@ namespace iroha::ametsuchi {
       if (tx_context.transaction) {
         auto result = transaction_db_->BeginTransaction(
             rocksdb::WriteOptions(),
-            rocksdb::OptimisticTransactionOptions(),
+            rocksdb::TransactionOptions(),
             tx_context.transaction.get());
         assert(result == tx_context.transaction.get());
       } else {
@@ -765,16 +750,16 @@ namespace iroha::ametsuchi {
 
     /// Makes commit to DB
     auto commit() {
-      rocksdb::Status status;
       if (isTransaction()) {
-        while ((status = transaction()->Commit()).IsTryAgain())
-          ;
-        context()->db_port->prepareTransaction(*tx_context_);
+        if (auto status = transaction()->Commit(); !status.ok()) {
+          transaction().reset();
+          dropCache();
+          return status;
+        }
       }
       commitCache();
-
-      assert(status.ok());
-      return status;
+      context()->db_port->prepareTransaction(*tx_context_);
+      return rocksdb::Status::OK();
     }
 
     /// Rollback all transaction changes
@@ -1992,7 +1977,7 @@ namespace iroha::ametsuchi {
                                                     S const &fmtstring) {
     std::pair<bool, rocksdb::Status> status;
     do {
-      status = common.filterDelete(1'000ull, fmtstring);
+      status = common.filterDelete(100ull, fmtstring);
       if (!status.second.ok())
         return makeError<void>(
             DbErrorCode::kOperationFailed, "Clear {} failed.", fmtstring);
