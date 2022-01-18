@@ -9,6 +9,7 @@ use iroha_core::{
     samples::get_config,
 };
 use iroha_data_model::prelude::*;
+use smallstr::SmallString;
 use test_network::{Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
@@ -128,7 +129,8 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     rt.block_on(peer.start_with_config(genesis, configuration));
     thread::sleep(pipeline_time);
 
-    client_configuration.torii_api_url = "http://".to_owned() + &peer.api_address;
+    client_configuration.torii_api_url =
+        SmallString::from_str(&("http://".to_owned() + &peer.api_address));
     let mut iroha_client = Client::new(&client_configuration);
     iroha_client
         .submit_all(vec![

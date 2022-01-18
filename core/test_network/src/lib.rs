@@ -741,18 +741,21 @@ impl TestConfiguration for Configuration {
 
 use std::str::FromStr;
 
+use smallstr::SmallString;
+
 impl TestClientConfiguration for ClientConfiguration {
     fn test(api_url: &str, telemetry_url: &str) -> Self {
         let mut configuration = iroha_client::samples::get_client_config(&get_key_pair());
         if !api_url.starts_with("http") {
-            configuration.torii_api_url = "http://".to_owned() + api_url;
+            configuration.torii_api_url = SmallString::from_str(&("http://".to_owned() + api_url));
         } else {
-            configuration.torii_api_url = api_url.to_owned();
+            configuration.torii_api_url = SmallString::from_str(api_url);
         }
         if !telemetry_url.starts_with("http") {
-            configuration.torii_telemetry_url = "http://".to_owned() + telemetry_url;
+            configuration.torii_telemetry_url =
+                SmallString::from_str(&("http://".to_owned() + telemetry_url));
         } else {
-            configuration.torii_telemetry_url = telemetry_url.to_owned();
+            configuration.torii_telemetry_url = SmallString::from_str(telemetry_url);
         }
         configuration
     }

@@ -9,6 +9,7 @@ use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::*;
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use tokio::{time, time::Duration};
 
 pub use self::config::GenesisConfiguration;
@@ -23,8 +24,8 @@ use crate::{
     IrohaNetwork,
 };
 
-type Online = Vec<PeerId>;
-type Offline = Vec<PeerId>;
+type Online = SmallVec<[PeerId; 8]>;
+type Offline = SmallVec<[PeerId; 8]>;
 
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
@@ -151,7 +152,7 @@ async fn check_peers_status(
         .peers;
     iroha_logger::info!(peer_count = peers.len(), "Peers status");
 
-    let (online, offline): (Vec<_>, Vec<_>) = network_topology
+    let (online, offline): (SmallVec<_>, SmallVec<_>) = network_topology
         .sorted_peers()
         .iter()
         .cloned()
@@ -228,7 +229,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
 #[derive(Clone, Deserialize, Debug, IntoSchema, Default, Serialize)]
 pub struct RawGenesisBlock {
     /// Transactions
-    pub transactions: Vec<GenesisTransaction>,
+    pub transactions: SmallVec<[GenesisTransaction; 2]>,
 }
 
 impl RawGenesisBlock {
@@ -251,7 +252,7 @@ impl RawGenesisBlock {
     /// Fails if `account_name` or `domain_name` is invalid
     pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Result<Self> {
         Ok(RawGenesisBlock {
-            transactions: vec![GenesisTransaction::new(
+            transactions: smallvec::smallvec![GenesisTransaction::new(
                 account_name,
                 domain_name,
                 public_key,
@@ -264,7 +265,7 @@ impl RawGenesisBlock {
 #[derive(Clone, Deserialize, Debug, IntoSchema, Serialize)]
 pub struct GenesisTransaction {
     /// Instructions
-    pub isi: Vec<Instruction>,
+    pub isi: SmallVec<[Instruction; 8]>,
 }
 
 impl GenesisTransaction {
@@ -292,7 +293,7 @@ impl GenesisTransaction {
     /// Fails if `account_name` or `domain_name` is invalid
     pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Result<Self> {
         Ok(Self {
-            isi: vec![
+            isi: smallvec::smallvec![
                 RegisterBox::new(IdentifiableBox::from(Domain::new(DomainId::new(
                     domain_name,
                 )?)))

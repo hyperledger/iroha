@@ -131,7 +131,7 @@ impl Broker {
                 }
             })
             .collect::<FuturesUnordered<_>>()
-            .collect::<Vec<_>>()
+            .collect::<smallvec::SmallVec<[_; 8]>>()
             .await
             .into_iter()
             .flatten();

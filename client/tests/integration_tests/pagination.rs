@@ -13,7 +13,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     wait_for_genesis_committed(vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let register = ('a'..'z')
+    let register: Vec<Instruction> = ('a'..'z')
         .map(|c| c.to_string())
         .map(|name| AssetDefinitionId::test(&name, "wonderland"))
         .map(AssetDefinition::new_quantity)

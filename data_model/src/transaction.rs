@@ -79,14 +79,28 @@ pub trait Txn {
 }
 
 /// Either ISI or Wasm binary
-#[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum Executable {
     /// Ordered set of instructions.
     Instructions(Vec<Instruction>),
     /// WebAssembly smartcontract
     Wasm(Vec<u8>),
+}
+
+pub struct WasmSmartContract {
+    raw_data: smallvec::SmallVec<[u8; 32]>,
+}
+
+impl<T: core::iter::IntoIterator<Item = Instruction>> From<T> for Executable {
+    fn from(sequence: T) -> Self {
+        Self::Instructions(sequence.into_iter().collect())
+    }
+}
+
+impl From<WasmSmartContract> for Executable {
+    fn from(smartcontract: WasmSmartContract) -> Self {
+        Self::Wasm(smartcontract.raw_data.to_vec())
+    }
 }
 
 /// Iroha [`Transaction`] payload.

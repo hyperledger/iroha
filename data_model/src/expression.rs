@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{query::QueryBox, Value, ValueBox};
 
-/// Binded name for a value.
+/// Bound name for a value.
 pub type ValueName = String;
 
 /// Context, composed of (name, value) pairs.

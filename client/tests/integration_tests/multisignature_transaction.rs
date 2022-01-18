@@ -79,8 +79,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     thread::sleep(pipeline_time);
 
     //Then
-    client_configuration.torii_api_url =
-        "http://".to_owned() + &network.peers.values().last().unwrap().api_address;
+    client_configuration.torii_api_url = smallstr::SmallString::from_string(
+        "http://".to_owned() + &network.peers.values().last().unwrap().api_address,
+    );
     let mut iroha_client_1 = Client::new(&client_configuration);
     let request = client::asset::by_account_id(account_id);
     assert!(iroha_client_1

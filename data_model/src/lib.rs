@@ -29,6 +29,7 @@ pub mod isi;
 pub mod merkle;
 pub mod metadata;
 pub mod query;
+pub mod smallstring;
 pub mod transaction;
 
 /// Error which occurs when parsing string into a data model entity
@@ -119,9 +120,10 @@ impl FromStr for Name {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // TODO: This should also prevent '@' and '#' from being added to names.
         if s.chars().any(char::is_whitespace) {
             return Err(ParseError {
-                reason: "Name must have no whitespaces",
+                reason: "Name must have no white-space",
             });
         }
 
@@ -2161,12 +2163,8 @@ pub mod pagination {
     }
 }
 
+/// URI that `Torii` uses to route incoming requests.
 pub mod uri {
-    /// Thin wrapper around components of a Socket address that is not
-    /// `std::net::SocketAddr` for `no_std` compatibility.
-    pub enum SocketAddr {}
-    /// URI that `Torii` uses to route incoming requests.
-
     /// Default socket for listening on external requests
     pub const DEFAULT_API_URL: &str = "127.0.0.1:8080";
     /// Query URI is used to handle incoming Query requests.
