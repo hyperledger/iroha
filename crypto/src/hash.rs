@@ -158,19 +158,13 @@ impl<T: Encode> HashOf<T> {
 
 impl<T> IntoSchema for HashOf<T> {
     fn schema(map: &mut MetaMap) {
-        let type_name = Self::type_name();
-
         Hash::schema(map);
-        if !map.contains_key(&type_name) {
-            // Field was just inserted above
-            #[allow(clippy::expect_used)]
-            let wrapped_type_metadata = map
-                .get(&Hash::type_name())
-                .expect("Wrapped type metadata should have been present in the schemas")
-                .clone();
 
-            map.insert(type_name, wrapped_type_metadata);
-        }
+        map.entry(Self::type_name()).or_insert_with(|| {
+            Metadata::TupleStruct(UnnamedFieldsMeta {
+                types: vec![Hash::type_name()],
+            })
+        });
     }
 }
 

@@ -2,12 +2,14 @@
 
 #![allow(clippy::print_stdout)]
 
-use iroha_core::block::stream::prelude::*;
 use iroha_schema::prelude::*;
 
 fn build_schemas() -> MetaMap {
-    use iroha_core::genesis::RawGenesisBlock;
-    use iroha_data_model::prelude::*;
+    use iroha_core::{
+        block::{stream::prelude::*, VersionedValidBlock},
+        genesis::RawGenesisBlock,
+    };
+    use iroha_data_model::{merkle::MerkleTree, prelude::*};
 
     macro_rules! schemas {
         ($($t:ty),* $(,)?) => {{
@@ -17,8 +19,10 @@ fn build_schemas() -> MetaMap {
         }};
     }
 
+    // It is sufficient to list top level types only
     schemas! {
-        // It is sufficient to list top level types only
+        RawGenesisBlock,
+
         VersionedBlockPublisherMessage,
         VersionedBlockSubscriberMessage,
         VersionedEventPublisherMessage,
@@ -27,7 +31,10 @@ fn build_schemas() -> MetaMap {
         VersionedSignedQueryRequest,
         VersionedTransaction,
 
-        RawGenesisBlock
+        // Even though these schemas are not exchanged between server and client,
+        // they can be useful to the client to generate and validate their hashes
+        MerkleTree<VersionedTransaction>,
+        VersionedValidBlock,
     }
 }
 
@@ -47,6 +54,42 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+
+    // NOTE: These type parameters should not be have their schema exposed
+    // By default `PhantomData` wrapped types schema will not be included
+    const SCHEMALESS_TYPES: Vec<&str> = vec![];
+
+    // For `PhantomData` wrapped types schemas aren't expanded recursively.
+    // This test ensures that schemas for those types are present as well.
+    fn find_missing_type_params(schemas: &MetaMap) -> HashMap<&str, Vec<&str>> {
+        let mut missing_schemas = HashMap::new();
+
+        for type_name in schemas.keys() {
+            // Missing `PhantomData` schemas
+            let params_list_start = type_name.find('<');
+            let params_list_end = type_name.rfind('>');
+
+            if let (Some(start), Some(end)) = (params_list_start, params_list_end) {
+                for generic in type_name[1 + start..end].split(',') {
+                    let gen = generic.trim();
+
+                    // This is const generic
+                    if gen.parse::<usize>().is_ok() {
+                        continue;
+                    }
+
+                    if !SCHEMALESS_TYPES.contains(&gen) && !schemas.contains_key(gen) {
+                        missing_schemas
+                            .entry(type_name.as_str())
+                            .or_insert_with(Vec::new)
+                            .push(gen);
+                    }
+                }
+            }
+        }
+
+        missing_schemas
+    }
 
     fn find_missing_schemas(schemas: &MetaMap) -> HashMap<&str, Vec<&str>> {
         let mut missing_schemas = HashMap::new();
@@ -87,11 +130,20 @@ mod tests {
             }
         }
 
+        missing_schemas.extend(find_missing_type_params(schemas));
+
         missing_schemas
     }
 
     #[test]
     fn no_missing_schemas() {
         assert!(find_missing_schemas(&build_schemas()).is_empty());
+    }
+
+    #[test]
+    fn no_alloc_prefix() {
+        assert!(build_schemas()
+            .keys()
+            .all(|type_name| !type_name.starts_with("alloc")));
     }
 }

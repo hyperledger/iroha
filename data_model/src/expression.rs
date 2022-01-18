@@ -58,31 +58,20 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     }
 }
 
-const EXPRESSION: &str = "expression";
-
-impl<V: TryFrom<Value> + IntoSchema> IntoSchema for EvaluatesTo<V> {
-    /// Returns unique type name.
-    /// WARN: `std::any::type_name` is compiler related, so is not unique.
-    /// I guess we should change it somehow later
-    fn type_name() -> String {
-        String::from(core::any::type_name::<Self>())
-    }
-
+impl<V: TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
     fn schema(map: &mut MetaMap) {
-        let entry = if let btree_map::Entry::Vacant(free) = map.entry(Self::type_name()) {
-            free
-        } else {
-            return;
-        };
-        let _ = entry.insert(Metadata::Struct(NamedFieldsMeta {
-            declarations: vec![Declaration {
-                name: String::from(EXPRESSION),
-                ty: ExpressionBox::type_name(),
-            }],
-        }));
-        if !map.contains_key(&ExpressionBox::type_name()) {
-            ExpressionBox::schema(map)
-        }
+        ExpressionBox::schema(map);
+
+        map.entry(Self::type_name()).or_insert_with(|| {
+            const EXPRESSION: &str = "expression";
+
+            Metadata::Struct(NamedFieldsMeta {
+                declarations: vec![Declaration {
+                    name: String::from(EXPRESSION),
+                    ty: ExpressionBox::type_name(),
+                }],
+            })
+        });
     }
 }
 
