@@ -13,6 +13,7 @@ The following is the default configuration used by Iroha.
     "digest_function": "",
     "payload": ""
   },
+  "DISABLE_PANIC_TERMINAL_COLORS": false,
   "KURA": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./blocks",
@@ -144,6 +145,16 @@ Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_MAILBOX
 
 ```json
 100
+```
+
+## `disable_panic_terminal_colors`
+
+Disable coloring of the backtrace and error report on panic.
+
+Has type `bool`. Can be configured via environment variable `IROHA_DISABLE_PANIC_TERMINAL_COLORS`
+
+```json
+false
 ```
 
 ## `genesis`

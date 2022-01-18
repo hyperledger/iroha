@@ -7,10 +7,7 @@ use iroha_core::{prelude::AllowAll, Arguments, Iroha};
 use iroha_permissions_validators::public_blockchain::default_permissions;
 
 #[tokio::main]
-#[allow(clippy::expect_used)]
 async fn main() -> Result<(), Report> {
-    color_eyre::install()?;
-
     let mut args = Arguments::default();
 
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
