@@ -4,7 +4,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
-use core::fmt::Debug;
+use core::{fmt::Debug, iter::IntoIterator};
 
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
@@ -622,6 +622,7 @@ impl Pair {
     }
 
     /// Construct [`Pair`].
+    #[must_use]
     pub fn new<LI: Into<Instruction>, RI: Into<Instruction>>(
         left_instruction: LI,
         right_instruction: RI,
@@ -644,7 +645,17 @@ impl SequenceBox {
     }
 
     /// Construct [`SequenceBox`].
-    pub fn new(instructions: Vec<Instruction>) -> Self {
+    #[inline]
+    #[must_use]
+    pub fn new(instructions: impl IntoIterator<Item = Instruction>) -> Self {
+        Self {
+            instructions: instructions.into_iter().collect(),
+        }
+    }
+}
+
+impl From<Vec<Instruction>> for SequenceBox {
+    fn from(instructions: Vec<Instruction>) -> Self {
         Self { instructions }
     }
 }

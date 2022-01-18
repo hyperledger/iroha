@@ -152,6 +152,7 @@ impl<S: Subscriber> EventInspectorTrait for TelemetryLayer<S> {
         &self.subscriber
     }
 
+    #[allow(clippy::option_if_let_else)]
     fn event(&self, event: &Event<'_>) {
         let target = event.metadata().target();
         if let Some(telemetry_target) = target.strip_prefix(TELEMETRY_TARGET_PREFIX) {

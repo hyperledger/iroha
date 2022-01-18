@@ -622,6 +622,7 @@ mod tests {
         #[async_trait::async_trait]
         impl Actor for Actor1 {
             async fn on_start(&mut self, _ctx: &mut Context<Self>) {
+                // Safety: This is just a test.
                 unsafe {
                     INIT_ORDER.push(1);
                 }
@@ -631,6 +632,7 @@ mod tests {
         #[async_trait::async_trait]
         impl Actor for Actor2 {
             async fn on_start(&mut self, _ctx: &mut Context<Self>) {
+                // Safety: This is just a test.
                 unsafe {
                     INIT_ORDER.push(2);
                 }
@@ -640,6 +642,7 @@ mod tests {
         Actor1.start().await;
         Actor2.start().await;
 
+        // Safety: This is just a test.
         unsafe {
             assert_eq!(INIT_ORDER, vec![1, 2]);
         }

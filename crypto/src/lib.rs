@@ -133,18 +133,21 @@ pub struct KeyGenConfiguration {
 
 impl KeyGenConfiguration {
     /// Use seed
+    #[must_use]
     pub fn use_seed(mut self, seed: Vec<u8>) -> Self {
         self.key_gen_option = Some(KeyGenOption::UseSeed(seed));
         self
     }
 
     /// Use private key
+    #[must_use]
     pub fn use_private_key(mut self, private_key: PrivateKey) -> Self {
         self.key_gen_option = Some(KeyGenOption::FromPrivateKey(private_key));
         self
     }
 
     /// With algorithm
+    #[must_use]
     pub fn with_algorithm(mut self, algorithm: Algorithm) -> Self {
         self.algorithm = algorithm;
         self

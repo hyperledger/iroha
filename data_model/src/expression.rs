@@ -197,6 +197,7 @@ impl ContextValue {
     }
 
     /// Constructs `ContextValue`.
+    #[must_use]
     pub fn new(value_name: &str) -> Self {
         Self {
             value_name: String::from(value_name),
@@ -229,6 +230,7 @@ impl Multiply {
     }
 
     /// Constructs `Multiply` expression.
+    #[must_use]
     pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
         Self {
             left: left.into(),
@@ -262,6 +264,7 @@ impl Divide {
     }
 
     /// Constructs `Multiply` expression.
+    #[must_use]
     pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
         Self {
             left: left.into(),
@@ -295,6 +298,7 @@ impl Mod {
     }
 
     /// Constructs `Mod` expression.
+    #[must_use]
     pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
         Self {
             left: left.into(),
@@ -328,6 +332,7 @@ impl RaiseTo {
     }
 
     /// Constructs `RaiseTo` expression.
+    #[must_use]
     pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
         Self {
             left: left.into(),
@@ -361,6 +366,7 @@ impl Add {
     }
 
     /// Constructs `Add` expression.
+    #[must_use]
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -394,6 +400,7 @@ impl Subtract {
     }
 
     /// Constructs `Subtract` expression.
+    #[must_use]
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -427,6 +434,7 @@ impl Greater {
     }
 
     /// Constructs `Greater` expression.
+    #[must_use]
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -460,6 +468,7 @@ impl Less {
     }
 
     /// Constructs `Less` expression.
+    #[must_use]
     pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -491,6 +500,7 @@ impl Not {
     }
 
     /// Constructs `Not` expression.
+    #[must_use]
     pub fn new<E: Into<EvaluatesTo<bool>>>(expression: E) -> Self {
         Self {
             expression: expression.into(),
@@ -522,6 +532,7 @@ impl And {
     }
 
     /// Constructs `And` expression.
+    #[must_use]
     pub fn new<L: Into<EvaluatesTo<bool>>, R: Into<EvaluatesTo<bool>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -554,6 +565,7 @@ impl Or {
     }
 
     /// Constructs `Or` expression.
+    #[must_use]
     pub fn new<L: Into<EvaluatesTo<bool>>, R: Into<EvaluatesTo<bool>>>(left: L, right: R) -> Self {
         Self {
             left: left.into(),
@@ -584,7 +596,7 @@ pub struct IfBuilder {
 impl IfBuilder {
     ///Sets the `condition`.
     pub fn condition<C: Into<EvaluatesTo<bool>>>(condition: C) -> Self {
-        IfBuilder {
+        Self {
             condition: condition.into(),
             then_expression: None,
             else_expression: None,
@@ -593,7 +605,7 @@ impl IfBuilder {
 
     /// Sets `then_expression`.
     pub fn then_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
-        IfBuilder {
+        Self {
             then_expression: Some(expression.into()),
             ..self
         }
@@ -601,7 +613,7 @@ impl IfBuilder {
 
     /// Sets `else_expression`.
     pub fn else_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
-        IfBuilder {
+        Self {
             else_expression: Some(expression.into()),
             ..self
         }
@@ -644,6 +656,7 @@ impl If {
     }
 
     /// Constructs `If` expression.
+    #[must_use]
     pub fn new<
         C: Into<EvaluatesTo<bool>>,
         T: Into<EvaluatesTo<Value>>,
@@ -686,6 +699,7 @@ impl Contains {
     }
 
     /// Constructs `Contains` expression.
+    #[must_use]
     pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Value>>>(
         collection: C,
         element: E,
@@ -722,6 +736,7 @@ impl ContainsAll {
     }
 
     /// Constructs `Contains` expression.
+    #[must_use]
     pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
         collection: C,
         elements: E,
@@ -758,6 +773,7 @@ impl ContainsAny {
     }
 
     /// Constructs `Contains` expression.
+    #[must_use]
     pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
         collection: C,
         elements: E,
@@ -793,6 +809,7 @@ impl Equal {
     }
 
     /// Constructs `Or` expression.
+    #[must_use]
     pub fn new<L: Into<EvaluatesTo<Value>>, R: Into<EvaluatesTo<Value>>>(
         left: L,
         right: R,
@@ -821,14 +838,16 @@ pub struct WhereBuilder {
 
 impl WhereBuilder {
     /// Sets the `expression` to be evaluated.
-    pub fn evaluate<E: Into<EvaluatesTo<Value>>>(expression: E) -> WhereBuilder {
-        WhereBuilder {
+    #[must_use]
+    pub fn evaluate<E: Into<EvaluatesTo<Value>>>(expression: E) -> Self {
+        Self {
             expression: expression.into(),
             values: btree_map::BTreeMap::new(),
         }
     }
 
     /// Binds `expression` result to a `value_name`, by which it will be reachable from the main expression.
+    #[must_use]
     pub fn with_value<E: Into<EvaluatesTo<Value>>>(
         mut self,
         value_name: ValueName,
@@ -839,6 +858,7 @@ impl WhereBuilder {
     }
 
     /// Returns a [`Where`] expression.
+    #[must_use]
     pub fn build(self) -> Where {
         Where::new(self.expression, self.values)
     }
@@ -863,6 +883,7 @@ impl Where {
     }
 
     /// Constructs `Or` expression.
+    #[must_use]
     pub fn new<E: Into<EvaluatesTo<Value>>>(
         expression: E,
         values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,

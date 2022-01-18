@@ -22,14 +22,13 @@ fn connected_peers_with_f_1_0_1() {
 /// Test the number of connected peers, changing the number of faults tolerated down and up
 fn connected_peers_with_f(faults: u64) {
     let n_peers = 3 * faults + 1;
-    let mut status;
 
     let (_rt, network, mut genesis_client) = <Network>::start_test_with_runtime(n_peers as u32, 1);
     wait_for_genesis_committed(network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // Confirm all peers connected
-    status = genesis_client.get_status().unwrap();
+    let mut status = genesis_client.get_status().unwrap();
     assert_eq!(status.peers, n_peers - 1);
     assert_eq!(status.blocks, 1);
 

@@ -38,16 +38,16 @@ pub enum Error {
     Other(eyre::Error),
 }
 
-struct State<'a, W: WorldTrait> {
-    wsv: &'a WorldStateView<W>,
+struct State<'wsv_life, W: WorldTrait> {
+    wsv: &'wsv_life WorldStateView<W>,
     account_id: AccountId,
 
     /// Number of instructions in the smartcontract
     instruction_count: u64,
 }
 
-impl<'a, W: WorldTrait> State<'a, W> {
-    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId) -> Self {
+impl<'wsv_life, W: WorldTrait> State<'wsv_life, W> {
+    fn new(wsv: &'wsv_life WorldStateView<W>, account_id: AccountId) -> Self {
         Self {
             wsv,
             account_id,
@@ -57,12 +57,12 @@ impl<'a, W: WorldTrait> State<'a, W> {
 }
 
 /// `WebAssembly` virtual machine
-pub struct Runtime<'a, W: WorldTrait> {
+pub struct Runtime<'wsv_life, W: WorldTrait> {
     engine: Engine,
-    linker: Linker<State<'a, W>>,
+    linker: Linker<State<'wsv_life, W>>,
 }
 
-impl<'a, W: WorldTrait> Runtime<'a, W> {
+impl<'wsv_life, W: WorldTrait> Runtime<'wsv_life, W> {
     /// Every WASM instruction costs approximately 1 unit of fuel. See
     /// [`wasmtime` reference](https://docs.rs/wasmtime/0.29.0/wasmtime/struct.Store.html#method.add_fuel)
     const FUEL_LIMIT: u64 = 10_000;
@@ -146,7 +146,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         Ok(())
     }
 
-    fn create_linker(engine: &Engine) -> Result<Linker<State<'a, W>>, Error> {
+    fn create_linker(engine: &Engine) -> Result<Linker<State<'wsv_life, W>>, Error> {
         let mut linker = Linker::new(engine);
 
         linker

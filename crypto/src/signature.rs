@@ -189,6 +189,8 @@ impl<T> SignatureOf<T> {
     /// This method uses [`core::mem::transmute`] internally
     pub fn transmute_ref<F>(&self) -> &SignatureOf<F> {
         #[allow(unsafe_code, trivial_casts)]
+        // Safety: This transmutation is normally safe, since the
+        // type is asserted upstream.
         unsafe {
             &*((self as *const Self).cast::<SignatureOf<F>>())
         }
@@ -274,9 +276,9 @@ impl<T> IntoIterator for SignaturesOf<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a SignaturesOf<T> {
-    type Item = &'a SignatureOf<T>;
-    type IntoIter = btree_map::Values<'a, PublicKey, SignatureOf<T>>;
+impl<'sig_life, T> IntoIterator for &'sig_life SignaturesOf<T> {
+    type Item = &'sig_life SignatureOf<T>;
+    type IntoIter = btree_map::Values<'sig_life, PublicKey, SignatureOf<T>>;
     fn into_iter(self) -> Self::IntoIter {
         self.signatures.values()
     }
@@ -334,6 +336,13 @@ impl<T> SignaturesOf<T> {
     /// This method uses [`core::mem::transmute`] internally
     #[allow(unsafe_code)]
     pub fn transmute<F>(self) -> SignaturesOf<F> {
+        // Safety: This usage of transmute is justified by type assertions upstream.
+        // TODO: More checks?
+
+        // TODO: Get rid of this `fn`? If you need to transmute, you
+        // should do this explicitly in an `unsafe` block, and justify
+        // in each individual case. I'm quite sure that this is going
+        // to cause UB eventually.
         let signatures = unsafe { core::mem::transmute(self.signatures) };
         SignaturesOf { signatures }
     }
@@ -370,7 +379,9 @@ impl<T> SignaturesOf<T> {
     }
 
     /// Returns all signatures.
+    #[allow(clippy::iter_not_returning_iterator)] // False-positive.
     pub fn iter(&self) -> impl Iterator<Item = &SignatureOf<T>> {
+        // TODO: Consider turning this into a library impl.
         self.into_iter()
     }
 

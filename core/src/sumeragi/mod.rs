@@ -1161,9 +1161,9 @@ pub mod message {
         /// Send this message over the network to multiple `peers`.
         /// # Errors
         /// Fails if network sending fails
-        pub async fn send_to_multiple<'a, I>(self, broker: &Broker, peers: I)
+        pub async fn send_to_multiple<'item_life, I>(self, broker: &Broker, peers: I)
         where
-            I: IntoIterator<Item = &'a PeerId> + Send,
+            I: IntoIterator<Item = &'item_life PeerId> + Send,
         {
             let futures = peers
                 .into_iter()

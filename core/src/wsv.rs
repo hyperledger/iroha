@@ -133,6 +133,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Add the ability of emitting events to [`WorldStateView`].
+    #[must_use]
     pub fn with_events(mut self, events_sender: EventsSender) -> Self {
         self.events_sender = Some(events_sender);
         self

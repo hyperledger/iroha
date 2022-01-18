@@ -299,10 +299,10 @@ fn variant_index(v: &Variant, i: usize) -> TokenStream2 {
 }
 
 /// Finds specific attribute with codec ident satisfying predicate
-fn find_meta_item<'a, F, R, I, M>(mut itr: I, mut pred: F) -> Option<R>
+fn find_meta_item<'it_life, Func, Res, It, M>(mut itr: It, mut pred: Func) -> Option<Res>
 where
-    F: FnMut(M) -> Option<R> + Clone,
-    I: Iterator<Item = &'a Attribute>,
+    Func: FnMut(M) -> Option<Res> + Clone,
+    It: Iterator<Item = &'it_life Attribute>,
     M: Parse,
 {
     itr.find_map(|attr| {

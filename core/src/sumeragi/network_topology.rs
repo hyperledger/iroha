@@ -366,10 +366,10 @@ impl Topology {
     }
 
     /// Returns signatures of the peers with the specified `roles` from all `signatures`.
-    pub fn filter_signatures_by_roles<'a>(
-        &'a self,
-        roles: &'a [Role],
-        signatures: impl IntoIterator<Item = &'a SignatureOf<VersionedValidBlock>> + 'a,
+    pub fn filter_signatures_by_roles<'life>(
+        &'life self,
+        roles: &'life [Role],
+        signatures: impl IntoIterator<Item = &'life SignatureOf<VersionedValidBlock>> + 'life,
     ) -> Vec<SignatureOf<VersionedValidBlock>> {
         let roles: HashSet<Role> = roles.iter().copied().collect();
         let public_keys: HashSet<_> = roles

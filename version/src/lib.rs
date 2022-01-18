@@ -188,7 +188,7 @@ pub mod json {
     use super::{error::Result, Version};
 
     /// [`Serialize`] versioned analog, specifically for JSON.
-    pub trait DeserializeVersioned<'a>: Deserialize<'a> + Version {
+    pub trait DeserializeVersioned<'life>: Deserialize<'life> + Version {
         /// Use this function for versioned objects instead of [`serde_json::from_str`].
         ///
         /// # Errors

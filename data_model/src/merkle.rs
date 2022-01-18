@@ -39,8 +39,8 @@ pub enum Node<T> {
 
 #[derive(Debug)]
 /// BFS iterator over the Merkle tree
-pub struct BreadthFirstIter<'a, T> {
-    queue: Vec<&'a Node<T>>,
+pub struct BreadthFirstIter<'node_life, T> {
+    queue: Vec<&'node_life Node<T>>,
 }
 
 #[cfg(feature = "std")]
@@ -89,12 +89,14 @@ impl<T> MerkleTree<T> {
     }
 
     /// Returns BFS iterator over the tree
+    #[allow(clippy::iter_not_returning_iterator)] // False-positive
     pub fn iter(&self) -> BreadthFirstIter<T> {
         BreadthFirstIter::new(&self.root_node)
     }
 
     /// Inserts hash into the tree
     #[cfg(feature = "std")]
+    #[must_use]
     pub fn add(&self, hash: HashOf<T>) -> Self {
         self.iter()
             .filter_map(Node::leaf_hash)
@@ -177,8 +179,8 @@ impl<T> Node<T> {
     }
 }
 
-impl<'a, T> BreadthFirstIter<'a, T> {
-    fn new(root_node: &'a Node<T>) -> Self {
+impl<'node_life, T> BreadthFirstIter<'node_life, T> {
+    fn new(root_node: &'node_life Node<T>) -> Self {
         BreadthFirstIter {
             queue: vec![root_node],
         }
@@ -189,8 +191,8 @@ impl<'a, T> BreadthFirstIter<'a, T> {
 /// `'a` lifetime specified for `Node`. Because `Node` is recursive data structure with self
 /// composition in case of `Node::Subtree` we use `Box` to know size of each `Node` object in
 /// memory.
-impl<'a, T> Iterator for BreadthFirstIter<'a, T> {
-    type Item = &'a Node<T>;
+impl<'node_life, T> Iterator for BreadthFirstIter<'node_life, T> {
+    type Item = &'node_life Node<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &self.queue.pop() {
@@ -206,9 +208,9 @@ impl<'a, T> Iterator for BreadthFirstIter<'a, T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a MerkleTree<T> {
-    type Item = &'a Node<T>;
-    type IntoIter = BreadthFirstIter<'a, T>;
+impl<'node_life, T> IntoIterator for &'node_life MerkleTree<T> {
+    type Item = &'node_life Node<T>;
+    type IntoIter = BreadthFirstIter<'node_life, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         BreadthFirstIter::new(&self.root_node)

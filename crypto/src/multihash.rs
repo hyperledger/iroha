@@ -24,6 +24,7 @@ pub const BLS12_381_G2_PUB: &str = "bls12_381-g2-pub";
 /// The corresponding byte codes are taken from [official multihash table](https://github.com/multiformats/multicodec/blob/master/table.csv)
 #[repr(u64)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+#[allow(clippy::enum_variant_names)]
 pub enum DigestFunction {
     /// Ed25519
     #[display(fmt = "{}", "ED_25519_PUB_STR")]

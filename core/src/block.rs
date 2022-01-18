@@ -44,6 +44,7 @@ impl<T> From<EmptyChainHash<T>> for HashOf<T> {
 
 /// Blockchain.
 #[derive(Debug, Default)]
+#[must_use]
 pub struct Chain {
     blocks: DashMap<u64, VersionedCommittedBlock>,
 }
@@ -64,6 +65,7 @@ impl Chain {
     }
 
     /// Iterator over height and block.
+    #[allow(clippy::iter_not_returning_iterator)] // False-positive
     pub fn iter(&self) -> ChainIterator {
         ChainIterator::new(self)
     }
@@ -87,14 +89,14 @@ impl Chain {
 }
 
 /// Chain iterator
-pub struct ChainIterator<'a> {
-    chain: &'a Chain,
+pub struct ChainIterator<'life> {
+    chain: &'life Chain,
     pos_front: u64,
     pos_back: u64,
 }
 
-impl<'a> ChainIterator<'a> {
-    fn new(chain: &'a Chain) -> Self {
+impl<'chain_life> ChainIterator<'chain_life> {
+    fn new(chain: &'chain_life Chain) -> Self {
         ChainIterator {
             chain,
             pos_front: 1,
@@ -107,8 +109,8 @@ impl<'a> ChainIterator<'a> {
     }
 }
 
-impl<'a> Iterator for ChainIterator<'a> {
-    type Item = MapRef<'a, u64, VersionedCommittedBlock>;
+impl<'life> Iterator for ChainIterator<'life> {
+    type Item = MapRef<'life, u64, VersionedCommittedBlock>;
     fn next(&mut self) -> Option<Self::Item> {
         if !self.is_exhausted() {
             let val = self.chain.blocks.get(&self.pos_front);
@@ -141,7 +143,7 @@ impl<'a> Iterator for ChainIterator<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for ChainIterator<'a> {
+impl<'life> DoubleEndedIterator for ChainIterator<'life> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.is_exhausted() {
             let val = self.chain.blocks.get(&self.pos_back);
@@ -164,6 +166,7 @@ declare_versioned_with_scale!(VersionedPendingBlock 1..2, Debug, Clone, iroha_ma
 /// Blocks lifecycle starts from "Pending" state which is represented by `PendingBlock` struct.
 #[version_with_scale(n = 1, versioned = "VersionedPendingBlock")]
 #[derive(Debug, Clone, Decode, Encode)]
+#[must_use]
 pub struct PendingBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
@@ -243,6 +246,7 @@ impl PendingBlock {
 
 /// When `PendingBlock` chained with a blockchain it becomes `ChainedBlock`
 #[derive(Debug, Clone, Decode, Encode)]
+#[must_use]
 pub struct ChainedBlock {
     /// Header
     pub header: BlockHeader,
@@ -373,6 +377,7 @@ impl VersionedValidBlock {
     }
 
     /// Validate block transactions against current state of the world.
+    #[must_use]
     pub fn revalidate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,
@@ -511,6 +516,7 @@ impl ValidBlock {
     }
 
     /// Validate block transactions against current state of the world.
+    #[must_use]
     pub fn revalidate<W: WorldTrait>(
         self,
         wsv: &WorldStateView<W>,

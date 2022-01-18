@@ -218,12 +218,14 @@ impl Transaction {
     }
 
     /// Adds metadata to the `Transaction`
+    #[must_use]
     pub fn with_metadata(mut self, metadata: UnlimitedMetadata) -> Self {
         self.payload.metadata = metadata;
         self
     }
 
     /// Adds nonce to the `Transaction`
+    #[must_use]
     pub fn with_nonce(mut self, nonce: u32) -> Self {
         self.payload.nonce = Some(nonce);
         self

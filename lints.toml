@@ -49,6 +49,8 @@ allow = [
     'clippy::wildcard_enum_match_arm',
     'clippy::wildcard_imports',
     'elided_lifetimes_in_paths',
+    'clippy::manual_assert',    # We can't rely on Debug assertions.
+    'clippy::separated_literal_suffix',
     # Our preferred style.
     'clippy::mod-module-files',
     # Most trybuild code triggers a false-positive.

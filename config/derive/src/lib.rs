@@ -22,7 +22,10 @@ mod attrs {
     pub const INNER: &str = "inner";
 }
 
-fn get_type_argument<'a, 'b>(s: &'a str, ty: &'b Type) -> Option<&'b GenericArgument> {
+fn get_type_argument<'first, 'second>(
+    s: &'first str,
+    ty: &'second Type,
+) -> Option<&'second GenericArgument> {
     let path = if let Type::Path(r#type) = ty {
         r#type
     } else {

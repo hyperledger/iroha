@@ -16,7 +16,7 @@ iroha_futures = { version = "=2.0.0-pre.1", path = "../futures", features = ["te
 iroha_telemetry_derive = { version = "=2.0.0-pre.1", path = "derive" }
 
 
-async-trait = "0.1"
+async-trait = "0.1.52"
 chrono = "0.4"
 eyre = "0.6.5"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
