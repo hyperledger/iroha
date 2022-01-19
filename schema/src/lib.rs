@@ -252,34 +252,6 @@ impl<T: IntoSchema> IntoSchema for Vec<T> {
     }
 }
 
-use smallvec::SmallVec;
-
-impl<T: IntoSchema, A: smallvec::Array<Item = T>> IntoSchema for SmallVec<A> {
-    fn type_name() -> String {
-        format!("Vec<{}>", T::type_name())
-    }
-
-    fn schema(map: &mut MetaMap) {
-        let _ = map
-            .entry(Self::type_name())
-            .or_insert_with(|| Metadata::Vec(T::type_name()));
-        if !map.contains_key(&T::type_name()) {
-            T::schema(map);
-        }
-    }
-}
-
-use smallstr::SmallString;
-
-impl<A: smallvec::Array<Item = u8>> IntoSchema for SmallString<A> {
-    fn type_name() -> String {
-        "String".to_owned()
-    }
-    fn schema(map: &mut MetaMap) {
-        let _ = map.entry(Self::type_name()).or_insert(Metadata::String);
-    }
-}
-
 impl<T: IntoSchema> IntoSchema for Option<T> {
     fn type_name() -> String {
         format!("Option<{}>", T::type_name())

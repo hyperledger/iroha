@@ -1,4 +1,4 @@
-//! This module contains [`Transaction`] structures and related implementations
+//! [`Transaction`] structures and related implementations.
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
@@ -87,6 +87,10 @@ pub enum Executable {
     Wasm(Vec<u8>),
 }
 
+/// Wrapper for byte representation of [`Executable::Wasm`].  Inline
+/// into [`Executable::Wasm`] as soon as GATs are stabilised and
+/// implementations for from byte vector can be split off from
+/// [`IntoIterator<Item = Instruction>`].
 pub struct WasmSmartContract {
     raw_data: smallvec::SmallVec<[u8; 32]>,
 }

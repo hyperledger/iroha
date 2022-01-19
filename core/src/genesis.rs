@@ -9,7 +9,7 @@ use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::*;
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
+use small::SmallVec;
 use tokio::{time, time::Duration};
 
 pub use self::config::GenesisConfiguration;
@@ -69,6 +69,7 @@ pub trait GenesisNetworkTrait:
         network: Addr<IrohaNetwork>,
         ctx: &mut iroha_actor::Context<SumeragiWithFault<Self, K, W, F>>,
     ) -> Result<()> {
+        iroha_logger::debug!("Starting submit genesis");
         let genesis_topology = self
             .wait_for_peers(sumeragi.peer_id.clone(), sumeragi.topology.clone(), network)
             .await?;
@@ -99,6 +100,7 @@ pub struct GenesisNetwork {
 
 impl Deref for GenesisNetwork {
     type Target = Vec<VersionedAcceptedTransaction>;
+
     fn deref(&self) -> &Self::Target {
         &self.transactions
     }
@@ -170,8 +172,10 @@ impl GenesisNetworkTrait for GenesisNetwork {
         tx_limits: &TransactionLimits,
     ) -> Result<Option<GenesisNetwork>> {
         if !submit_genesis {
+            iroha_logger::debug!("Not submitting genesis");
             return Ok(None);
         }
+        iroha_logger::debug!("Submitting genesis.");
         Ok(Some(GenesisNetwork {
             transactions: raw_block
                 .transactions
@@ -252,11 +256,11 @@ impl RawGenesisBlock {
     /// Fails if `account_name` or `domain_name` is invalid
     pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Result<Self> {
         Ok(RawGenesisBlock {
-            transactions: smallvec::smallvec![GenesisTransaction::new(
+            transactions: SmallVec(smallvec::smallvec![GenesisTransaction::new(
                 account_name,
                 domain_name,
                 public_key,
-            )?],
+            )?]),
         })
     }
 }
@@ -293,7 +297,7 @@ impl GenesisTransaction {
     /// Fails if `account_name` or `domain_name` is invalid
     pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Result<Self> {
         Ok(Self {
-            isi: smallvec::smallvec![
+            isi: SmallVec(smallvec::smallvec![
                 RegisterBox::new(IdentifiableBox::from(Domain::new(DomainId::new(
                     domain_name,
                 )?)))
@@ -306,7 +310,7 @@ impl GenesisTransaction {
                     .into(),
                 ))
                 .into(),
-            ],
+            ]),
         })
     }
 }

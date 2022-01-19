@@ -29,7 +29,7 @@ pub mod isi;
 pub mod merkle;
 pub mod metadata;
 pub mod query;
-pub mod smallstring;
+pub mod small;
 pub mod transaction;
 
 /// Error which occurs when parsing string into a data model entity
@@ -737,12 +737,14 @@ pub mod account {
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
+    // I swear this is not intentional.
+    use super::small;
     #[cfg(feature = "roles")]
     use crate::role::Id as RoleId;
     use crate::{
         asset::AssetsMap,
         domain::prelude::*,
-        expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox},
+        expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
         metadata::Metadata,
         permissions::PermissionToken,
         Identifiable, Name, ParseError, PublicKey, Value,
@@ -755,7 +757,13 @@ pub mod account {
     /// Collection of [`PermissionToken`]s
     pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 
-    type Signatories = Vec<PublicKey>;
+    // The size of the array must be fixed. If we use more than `1` we
+    // waste all of that space for all non-multisig accounts. If we
+    // have 1 signatory per account, we keep the signature on the
+    // stack. If we have more than 1, we keep everything on the
+    // heap. Thanks to the union feature, we're not wasting `8Bytes`
+    // of space, over `Vec`.
+    type Signatories = small::SmallVec<[PublicKey; 1]>;
 
     /// Genesis account name.
     pub const GENESIS_ACCOUNT_NAME: &str = "genesis";
@@ -890,7 +898,7 @@ pub mod account {
         /// Account with single `signatory` constructor.
         #[inline]
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
-            let signatories = vec![signatory];
+            let signatories = small::SmallVec(smallvec::smallvec![signatory]);
             Self {
                 id,
                 signatories,
@@ -971,7 +979,7 @@ pub mod account {
             Self {
                 id,
                 assets: AssetsMap::new(),
-                signatories: Vec::new(),
+                signatories: small::SmallVec::new(),
                 permission_tokens: Permissions::new(),
                 signature_check_condition: SignatureCheckCondition::default(),
                 metadata: Metadata::new(),
@@ -983,7 +991,7 @@ pub mod account {
         /// Account with single `signatory` constructor.
         #[inline]
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
-            let signatories = vec![signatory];
+            let signatories = small::SmallVec(smallvec::smallvec![signatory]);
             Self {
                 id,
                 assets: AssetsMap::new(),
@@ -999,16 +1007,16 @@ pub mod account {
         /// Returns a prebuilt expression that when executed
         /// returns if the needed signatures are gathered.
         pub fn check_signature_condition(&self, signatories: Signatories) -> EvaluatesTo<bool> {
-            crate::expression::WhereBuilder::evaluate(
-                self.signature_check_condition.as_expression().clone(),
-            )
-            .with_value(
-                String::from(ACCOUNT_SIGNATORIES_VALUE),
-                self.signatories.clone(),
-            )
-            .with_value(String::from(TRANSACTION_SIGNATORIES_VALUE), signatories)
-            .build()
-            .into()
+            let expr =
+                WhereBuilder::evaluate(self.signature_check_condition.as_expression().clone())
+                    .with_value(
+                        String::from(ACCOUNT_SIGNATORIES_VALUE),
+                        self.signatories.clone(),
+                    )
+                    .with_value(String::from(TRANSACTION_SIGNATORIES_VALUE), signatories)
+                    .build()
+                    .into();
+            expr
         }
 
         /// Inserts permission token into account.
@@ -2205,6 +2213,6 @@ pub mod prelude {
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
-        permissions::prelude::*, query::prelude::*, transaction::prelude::*,
+        permissions::prelude::*, query::prelude::*, small, transaction::prelude::*,
     };
 }
