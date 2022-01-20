@@ -1529,6 +1529,7 @@ namespace iroha {
               engine_calls.callee,
               engine_calls.created_address,
               engine_calls.engine_response,
+              engine_calls.engine_err_response,
               burrow_tx_logs.log_idx,
               burrow_tx_logs.address,
               burrow_tx_logs.data,

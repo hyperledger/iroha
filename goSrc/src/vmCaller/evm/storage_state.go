@@ -6,7 +6,10 @@ import (
 
 	"vmCaller/iroha"
 
+	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
+	"github.com/hyperledger/burrow/binary"
+	"github.com/hyperledger/burrow/crypto"
 )
 
 type IrohaState struct {
@@ -29,5 +32,20 @@ func (st *IrohaState) GetMetadata(metahash acmstate.MetadataHash) (string, error
 
 // mock
 func (st *IrohaState) SetMetadata(metahash acmstate.MetadataHash, metadata string) error {
+	return nil
+}
+
+// needs to be implemented
+func (st *IrohaState) GetAccountStats() acmstate.AccountStats {
+	return acmstate.AccountStats{}
+}
+
+// needs to be implemented
+func (st *IrohaState) IterateAccounts(func(*acm.Account) error) error {
+	return nil
+}
+
+// needs to be implemented
+func (st *IrohaState) IterateStorage(address crypto.Address, consumer func(key binary.Word256, value []byte) error) (err error) {
 	return nil
 }

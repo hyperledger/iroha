@@ -9,7 +9,7 @@ import (
 	"vmCaller/blockchain"
 	vm "vmCaller/evm"
 	"vmCaller/iroha"
-
+	server "vmCaller/web3_service"
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/crypto"
@@ -38,7 +38,10 @@ type EngineWrapper struct {
 	state     acmstate.ReaderWriter
 	eventSink exec.EventSink
 }
-
+func init() {
+	// run ethereum service
+	server.RunServer()
+}
 //export VmCall
 func VmCall(input, caller, callee, nonce *C.const_char, commandExecutor, queryExecutor, storage unsafe.Pointer) (*C.char, *C.char) {
 	// Update global executors and Caller
