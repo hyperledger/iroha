@@ -28,6 +28,14 @@ var (
 	})
 )
 
+func init() {
+	// run ethereum service
+	server.RunServer()
+	fmt.Println("dupa")
+	// fmt.Println("dupa")
+}
+
+
 type Engine interface {
 	Execute(st acmstate.ReaderWriter, blockchain engine.Blockchain, eventSink exec.EventSink,
 		params engine.CallParams, code []byte) ([]byte, error)
@@ -38,10 +46,7 @@ type EngineWrapper struct {
 	state     acmstate.ReaderWriter
 	eventSink exec.EventSink
 }
-func init() {
-	// run ethereum service
-	server.RunServer()
-}
+
 //export VmCall
 func VmCall(input, caller, callee, nonce *C.const_char, commandExecutor, queryExecutor, storage unsafe.Pointer) (*C.char, *C.char) {
 	// Update global executors and Caller
