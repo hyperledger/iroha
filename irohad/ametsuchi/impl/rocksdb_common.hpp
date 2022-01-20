@@ -508,7 +508,7 @@ namespace iroha::ametsuchi {
 
       rocksdb::BlockBasedTableOptions table_options;
       table_options.block_cache =
-          rocksdb::NewLRUCache(1 * 1024 * 1024 * 1024LL);
+          rocksdb::NewLRUCache(512 * 1024 * 1024LL);
       table_options.block_size = 32 * 1024;
       // table_options.pin_l0_filter_and_index_blocks_in_cache = true;
       table_options.cache_index_and_filter_blocks = true;
