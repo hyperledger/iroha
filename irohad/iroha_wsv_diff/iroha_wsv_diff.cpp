@@ -130,7 +130,7 @@ expected::Result<void> initialize() try {
               FLAGS_pg_opt,
               "iroha_default",
               log_manager->getChild("PostgresOptions")->getLogger()),
-          log_manager));
+          log_manager, true));
   pg_pool_wrapper_ = std::move(pool_wrapper);
 
   IROHA_EXPECTED_TRY_GET_VALUE(

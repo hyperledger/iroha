@@ -399,8 +399,8 @@ iroha::expected::Result<std::shared_ptr<iroha::ametsuchi::PoolWrapper>,
                         std::string>
 PgConnectionInit::init(StartupWsvDataPolicy startup_wsv_data_policy,
                        iroha::ametsuchi::PostgresOptions const &pg_opt,
-                       logger::LoggerManagerTreePtr log_manager) {
-  return prepareWorkingDatabase(startup_wsv_data_policy, pg_opt) | [&] {
+                       logger::LoggerManagerTreePtr log_manager, bool skip_schema_check) {
+  return prepareWorkingDatabase(startup_wsv_data_policy, pg_opt, skip_schema_check) | [&] {
     return prepareConnectionPool(KTimesReconnectionStrategyFactory{10},
                                  pg_opt,
                                  kDbPoolSize,
@@ -411,7 +411,7 @@ PgConnectionInit::init(StartupWsvDataPolicy startup_wsv_data_policy,
 iroha::expected::Result<void, std::string>
 PgConnectionInit::prepareWorkingDatabase(
     StartupWsvDataPolicy startup_wsv_data_policy,
-    const PostgresOptions &options) {
+    const PostgresOptions &options, bool skip_schema_check) {
   return getMaintenanceSession(options) | [&](auto maintenance_sql) {
     int work_db_exists;
     *maintenance_sql << "select exists("
@@ -428,7 +428,7 @@ PgConnectionInit::prepareWorkingDatabase(
     } else {  // StartupWsvDataPolicy::kReuse
       return isSchemaCompatible(options) | [&](bool is_compatible)
                  -> iroha::expected::Result<void, std::string> {
-        if (not is_compatible) {
+        if (not is_compatible && !skip_schema_check) {
           return "The schema is not compatible. "
                  "Either overwrite the ledger or use a compatible binary "
                  "version.";
