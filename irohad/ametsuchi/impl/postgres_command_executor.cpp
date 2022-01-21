@@ -1548,7 +1548,6 @@ namespace iroha {
 
       return executor.execute();
     }
-
     CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::CallEngine &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
