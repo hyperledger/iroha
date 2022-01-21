@@ -59,6 +59,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use dashmap::{mapref::entry::Entry, DashMap};
 use futures::{prelude::*, stream::FuturesUnordered};
+use iroha_data_primitives::small::{self, SmallVec};
 
 use super::*;
 
@@ -115,25 +116,26 @@ impl Broker {
         } else {
             return;
         };
-        let closed = entry
-            .get()
-            .iter()
-            .filter_map(|(id, recipient)| Some((id, recipient.downcast_ref::<Recipient<M>>()?)))
-            .map(|(id, recipient)| {
-                let m = m.clone();
-                async move {
-                    if recipient.0.is_closed() {
-                        return Some(*id);
-                    }
 
-                    recipient.send(m).await;
-                    None
-                }
-            })
-            .collect::<FuturesUnordered<_>>()
-            .collect::<smallvec::SmallVec<[_; 8]>>()
-            .await
-            .into_iter()
+        let closed = entry
+                .get()
+                .iter()
+                .filter_map(|(id, recipient)| Some((id, recipient.downcast_ref::<Recipient<M>>()?)))
+                .map(|(id, recipient)| {
+                    let m = m.clone();
+                    async move {
+                        if recipient.0.is_closed() {
+                            return Some(*id);
+                        }
+
+                        recipient.send(m).await;
+                        None
+                    }
+                })
+                .collect::<FuturesUnordered<_>>()
+                .collect::<SmallVec<[_; small::SMALL_SIZE]>>() // TODO: Revise using real-world benchmarks.
+                .await
+                .into_iter()
             .flatten();
 
         let entry = entry.get_mut();

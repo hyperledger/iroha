@@ -1,6 +1,6 @@
 //! Configuration as well as the default values for the URLs used for the main endpoints: `p2p`, `telemetry`, but not `api`.
 use iroha_config::derive::Configurable;
-use iroha_data_model::uri::DEFAULT_API_URL;
+use iroha_data_model::{transaction::TransactionLimits, uri::DEFAULT_API_URL};
 use serde::{Deserialize, Serialize};
 
 /// Default socket for p2p communication
@@ -11,6 +11,8 @@ pub const DEFAULT_TORII_TELEMETRY_URL: &str = "127.0.0.1:8180";
 pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
 /// Default maximum instruction number
 pub const DEFAULT_TORII_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
+/// Default maximum wasm size
+pub const DEFAULT_TORII_MAX_WASM_SIZE: u64 = 2_u64.pow(20); // 1MiB
 /// Default upper bound on `content-length` specified in the HTTP request header
 pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: usize = 2_usize.pow(12) * 4000;
 
@@ -30,8 +32,8 @@ pub struct ToriiConfiguration {
     pub max_transaction_size: usize,
     /// Maximum number of bytes in raw message. Used to prevent from DOS attacks.
     pub max_content_len: usize,
-    /// Maximum number of instruction per transaction. Used to prevent from DOS attacks.
-    pub max_instruction_number: u64,
+    /// Limits to which transactions must adhere
+    pub transaction_limits: TransactionLimits,
 }
 
 impl Default for ToriiConfiguration {
@@ -42,7 +44,10 @@ impl Default for ToriiConfiguration {
             telemetry_url: DEFAULT_TORII_TELEMETRY_URL.to_owned(),
             max_transaction_size: DEFAULT_TORII_MAX_TRANSACTION_SIZE,
             max_content_len: DEFAULT_TORII_MAX_CONTENT_LENGTH,
-            max_instruction_number: DEFAULT_TORII_MAX_INSTRUCTION_NUMBER,
+            transaction_limits: TransactionLimits {
+                max_instruction_number: DEFAULT_TORII_MAX_INSTRUCTION_NUMBER,
+                max_wasm_size_bytes: DEFAULT_TORII_MAX_WASM_SIZE,
+            },
         }
     }
 }

@@ -6,18 +6,18 @@ use super::*;
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_instructions<W: WorldTrait>(
     iroha_cfg: Configuration,
-    wsv: Arc<WorldStateView<W>>,
-    queue: Arc<Queue>,
+    _wsv: Arc<WorldStateView<W>>,
+    queue: Arc<Queue<W>>,
     transaction: VersionedTransaction,
 ) -> Result<Empty> {
     let transaction: Transaction = transaction.into_v1();
     let transaction = VersionedAcceptedTransaction::from_transaction(
         transaction,
-        iroha_cfg.torii.max_instruction_number,
+        &iroha_cfg.torii.transaction_limits,
     )
     .map_err(Error::AcceptTransaction)?;
     #[allow(clippy::map_err_ignore)]
-    let push_result = queue.push(transaction, &wsv).map_err(|(_, err)| err);
+    let push_result = queue.push(transaction).map_err(|(_, err)| err);
     if let Err(ref error) = push_result {
         iroha_logger::warn!(%error, "Failed to push to queue")
     }
@@ -57,13 +57,13 @@ async fn handle_health() -> Json {
 
 #[iroha_futures::telemetry_future]
 async fn handle_pending_transactions<W: WorldTrait>(
-    wsv: Arc<WorldStateView<W>>,
-    queue: Arc<Queue>,
+    _wsv: Arc<WorldStateView<W>>,
+    queue: Arc<Queue<W>>,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
     Ok(Scale(
         queue
-            .all_transactions(&wsv)
+            .all_transactions()
             .into_iter()
             .map(VersionedAcceptedTransaction::into_v1)
             .map(Transaction::from)
@@ -229,7 +229,7 @@ impl<W: WorldTrait> Torii<W> {
     pub fn from_configuration(
         iroha_cfg: Configuration,
         wsv: Arc<WorldStateView<W>>,
-        queue: Arc<Queue>,
+        queue: Arc<Queue<W>>,
         query_validator: Arc<IsQueryAllowedBoxed<W>>,
         events: EventsSender,
         network: Addr<IrohaNetwork>,

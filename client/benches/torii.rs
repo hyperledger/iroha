@@ -12,7 +12,6 @@ use iroha_core::{
 };
 use iroha_data_model::prelude::*;
 use iroha_version::Encode;
-use smallstr::SmallString;
 use test_network::{get_key_pair, Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
@@ -67,14 +66,14 @@ fn query_requests(criterion: &mut Criterion) {
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
 
     // TODO: We should definitely turn this into type-checked state. `String` is a terrible bodge
-    client_config.torii_api_url = SmallString::from_string(peer.api_address.clone());
+    client_config.torii_api_url = small::SmallStr::from_string(peer.api_address.clone());
     if !client_config.torii_api_url.starts_with("http://") {
         client_config.torii_api_url =
-            SmallString::from_string(format!("http://{}", client_config.torii_api_url));
+            small::SmallStr::from_string(format!("http://{}", client_config.torii_api_url));
     }
     if !client_config.torii_telemetry_url.starts_with("http://") {
         client_config.torii_telemetry_url =
-            SmallString::from_string(format!("http://{}", client_config.torii_telemetry_url));
+            small::SmallStr::from_string(format!("http://{}", client_config.torii_telemetry_url));
     }
     let mut iroha_client = Client::new(&client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
@@ -151,14 +150,14 @@ fn instruction_submits(criterion: &mut Criterion) {
     ));
     let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
-    client_config.torii_api_url = SmallString::from_string(peer.api_address.clone());
+    client_config.torii_api_url = small::SmallStr::from_string(peer.api_address.clone());
     if !client_config.torii_api_url.starts_with("http://") {
         client_config.torii_api_url =
-            SmallString::from_string(format!("http://{}", client_config.torii_api_url));
+            small::SmallStr::from_string(format!("http://{}", client_config.torii_api_url));
     }
     if !client_config.torii_telemetry_url.starts_with("http://") {
         client_config.torii_telemetry_url =
-            SmallString::from_string(format!("http://{}", client_config.torii_telemetry_url));
+            small::SmallStr::from_string(format!("http://{}", client_config.torii_telemetry_url));
     }
     let mut iroha_client = Client::new(&client_config);
     thread::sleep(std::time::Duration::from_millis(5000));

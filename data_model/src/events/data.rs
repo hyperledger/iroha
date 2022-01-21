@@ -3,6 +3,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec, vec::Vec};
 
+use iroha_data_primitives::small::{smallvec, SmallVec};
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -275,9 +276,9 @@ impl From<Event> for Vec<Event> {
     }
 }
 
-impl<T: smallvec::Array<Item = Event>> From<Event> for smallvec::SmallVec<T> {
-    fn from(src: Event) -> Self {
-        smallvec::smallvec![src]
+impl<A: small::Array<Item = Event>> From<Event> for SmallVec<A> {
+    fn from(item: Event) -> Self {
+        Self(smallvec![item])
     }
 }
 

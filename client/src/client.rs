@@ -18,7 +18,7 @@ use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
 use rand::Rng;
 use serde::de::DeserializeOwned;
-use smallstr::SmallString;
+use small::SmallStr;
 
 use crate::{
     config::Configuration,
@@ -29,11 +29,11 @@ use crate::{
 #[derive(Clone)]
 pub struct Client {
     /// Url for accessing iroha node
-    pub torii_url: SmallString<[u8; 32]>,
+    pub torii_url: SmallStr,
     /// Url to report status for administration
-    pub telemetry_url: SmallString<[u8; 32]>,
-    /// Maximum number of instructions in blockchain
-    pub max_instruction_number: u64,
+    pub telemetry_url: SmallStr,
+    /// Limits to which transactions must adhere to
+    pub transaction_limits: TransactionLimits,
     /// Accounts keypair
     pub key_pair: KeyPair,
     /// Transaction time to live in milliseconds

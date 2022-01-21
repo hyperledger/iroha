@@ -9,8 +9,6 @@ iroha_schema_derive = { version = "=2.0.0-pre.1", path = "derive" }
 
 serde = { version = "1.0.132", default-features = false, features = ["derive", "alloc"] }
 fixnum = { version = "0.6.1", default-features = false, features = ["i64"] }
-smallstr = { version = "0.2.0", features = ["serde", "union"] }
-smallvec = { version = "1.6.1", features = ["serde", "union"] }
 
 [dev-dependencies]
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive", "full"] }

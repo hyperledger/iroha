@@ -13,6 +13,7 @@ members = [
   "crypto",
   "crypto_cli",
   "data_model",
+  "data_model/primitives",
   "futures",
   "futures/derive",
   "logger",

@@ -115,7 +115,9 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
         )),
     );
     // and check that it is added without errors
-    let sum = quantity.checked_add(quantity2)?;
+    let sum = quantity
+        .checked_add(quantity2)
+        .map_err(|e| eyre::eyre!("{}", e))?;
     test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
             asset.id.definition_id == asset_definition_id && asset.value == AssetValue::Fixed(sum)

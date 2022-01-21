@@ -6,9 +6,7 @@ use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_data_model::{prelude::*, transaction};
 use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
-use smallstr::SmallString;
-
-type SmallStr = SmallString<[u8; 32]>;
+use small::SmallStr;
 
 const DEFAULT_TORII_TELEMETRY_URL: &str = "127.0.0.1:8180";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
@@ -52,8 +50,8 @@ impl Default for Configuration {
             public_key: PublicKey::default(),
             private_key: PrivateKey::default(),
             account_id: AccountId::test("", ""),
-            torii_api_url: SmallString::from_str(uri::DEFAULT_API_URL),
-            torii_telemetry_url: SmallString::from_str(DEFAULT_TORII_TELEMETRY_URL),
+            torii_api_url: small::SmallStr::from_str(uri::DEFAULT_API_URL),
+            torii_telemetry_url: small::SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL),
             transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,
             transaction_status_timeout_ms: DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS,
             transaction_limits: TransactionLimits {

@@ -8,6 +8,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+// TODO: #1854, CI doesn't catch errors with unused imports in this block.
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 use core::{fmt, ops::Range};
@@ -135,7 +136,8 @@ impl std::error::Error for UnsupportedVersion {}
 impl UnsupportedVersion {
     /// Constructs [`UnsupportedVersion`].
     #[must_use]
-    pub const fn new(version: u8, raw: RawVersioned) -> Self {
+    #[inline]
+    pub fn new(version: u8, raw: RawVersioned) -> Self {
         Self { version, raw }
     }
 }

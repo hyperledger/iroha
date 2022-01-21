@@ -24,6 +24,8 @@ use crate::{
     IrohaNetwork,
 };
 
+// TODO: 8 is just the optimal value for tests. This number should be
+// revised as soon as we have real data, to fix #1855.
 type Online = SmallVec<[PeerId; 8]>;
 type Offline = SmallVec<[PeerId; 8]>;
 

@@ -13,6 +13,8 @@ use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
 use derive_more::Display;
 use iroha_crypto::{Hash, PublicKey};
+use iroha_data_primitives::small::SmallVec;
+pub use iroha_data_primitives::{fixed, small};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -24,12 +26,10 @@ use crate::{
 
 pub mod events;
 pub mod expression;
-pub mod fixed;
 pub mod isi;
 pub mod merkle;
 pub mod metadata;
 pub mod query;
-pub mod small;
 pub mod transaction;
 
 /// Error which occurs when parsing string into a data model entity
@@ -357,6 +357,19 @@ impl Value {
     }
 }
 
+impl<A: small::Array> From<SmallVec<A>> for Value
+where
+    A::Item: Into<Value>,
+{
+    fn from(sv: SmallVec<A>) -> Self {
+        // This looks inefficient, but `Value` can only hold a
+        // heap-allocated `Vec` (it's recursive) and the vector
+        // conversions only do a heap allocation (if that).
+        let vec: Vec<_> = sv.0.into_vec();
+        vec.into()
+    }
+}
+
 macro_rules! from_and_try_from_value_idbox {
     ( $($variant:ident( $ty:ty ),)* ) => {
         $(
@@ -476,6 +489,24 @@ where
                 .map_err(|_e| Self::Error::default());
         }
 
+        Err(Self::Error::default())
+    }
+}
+
+impl<A: small::Array> TryFrom<Value> for small::SmallVec<A>
+where
+    Value: TryInto<A::Item>,
+{
+    type Error = ErrorTryFromEnum<Value, Self>;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::Vec(vec) = value {
+            return vec
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<small::SmallVec<_>, _>>()
+                .map_err(|_e| Self::Error::default());
+        }
         Err(Self::Error::default())
     }
 }
@@ -733,12 +764,11 @@ pub mod account {
     #[cfg(feature = "std")]
     use std::collections::{btree_map, btree_set};
 
+    use iroha_data_primitives::small::{smallvec, SmallVec};
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use serde::{Deserialize, Serialize};
 
-    // I swear this is not intentional.
-    use super::small;
     #[cfg(feature = "roles")]
     use crate::role::Id as RoleId;
     use crate::{
@@ -763,7 +793,7 @@ pub mod account {
     // stack. If we have more than 1, we keep everything on the
     // heap. Thanks to the union feature, we're not wasting `8Bytes`
     // of space, over `Vec`.
-    type Signatories = small::SmallVec<[PublicKey; 1]>;
+    type Signatories = SmallVec<[PublicKey; 1]>;
 
     /// Genesis account name.
     pub const GENESIS_ACCOUNT_NAME: &str = "genesis";
@@ -898,7 +928,7 @@ pub mod account {
         /// Account with single `signatory` constructor.
         #[inline]
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
-            let signatories = small::SmallVec(smallvec::smallvec![signatory]);
+            let signatories = SmallVec(smallvec![signatory]);
             Self {
                 id,
                 signatories,
@@ -979,7 +1009,7 @@ pub mod account {
             Self {
                 id,
                 assets: AssetsMap::new(),
-                signatories: small::SmallVec::new(),
+                signatories: SmallVec::new(),
                 permission_tokens: Permissions::new(),
                 signature_check_condition: SignatureCheckCondition::default(),
                 metadata: Metadata::new(),
@@ -991,7 +1021,7 @@ pub mod account {
         /// Account with single `signatory` constructor.
         #[inline]
         pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
-            let signatories = small::SmallVec(smallvec::smallvec![signatory]);
+            let signatories = SmallVec(smallvec![signatory]);
             Self {
                 id,
                 assets: AssetsMap::new(),
