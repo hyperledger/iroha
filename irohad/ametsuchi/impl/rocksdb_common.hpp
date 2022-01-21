@@ -10,10 +10,12 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <fmt/compile.h>
 #include <fmt/format.h>
 #include <rocksdb/db.h>
+#include <rocksdb/filter_policy.h>
 #include <rocksdb/table.h>
 #include <rocksdb/utilities/optimistic_transaction_db.h>
 #include <rocksdb/utilities/transaction.h>
@@ -502,6 +504,7 @@ namespace iroha::ametsuchi {
    private:
     expected::Result<void, DbError> reinitDB() {
       assert(db_name_);
+      transaction_db_.reset();
 
       rocksdb::BlockBasedTableOptions table_options;
       table_options.block_cache =
@@ -509,9 +512,12 @@ namespace iroha::ametsuchi {
       table_options.block_size = 32 * 1024;
       // table_options.pin_l0_filter_and_index_blocks_in_cache = true;
       table_options.cache_index_and_filter_blocks = true;
+      table_options.filter_policy.reset(
+          rocksdb::NewBloomFilterPolicy(10, false));
 
       rocksdb::Options options;
       options.create_if_missing = true;
+      options.max_open_files = 100;
       options.optimize_filters_for_hits = true;
       options.table_factory.reset(
           rocksdb::NewBlockBasedTableFactory(table_options));
@@ -528,6 +534,12 @@ namespace iroha::ametsuchi {
 
       transaction_db_.reset(transaction_db);
       return {};
+    }
+
+    void flushDB() {
+      assert(transaction_db_);
+      assert(transaction_db_->Flush(rocksdb::FlushOptions()).ok());
+      assert(transaction_db_->FlushWAL(true).ok());
     }
 
     template <typename LoggerT>
@@ -588,8 +600,16 @@ namespace iroha::ametsuchi {
 
     void prepareTransaction(RocksDBContext &tx_context) {
       assert(transaction_db_);
-      tx_context.transaction.reset(
-          transaction_db_->BeginTransaction(rocksdb::WriteOptions()));
+      if (tx_context.transaction) {
+        auto result = transaction_db_->BeginTransaction(
+            rocksdb::WriteOptions(),
+            rocksdb::OptimisticTransactionOptions(),
+            tx_context.transaction.get());
+        assert(result == tx_context.transaction.get());
+      } else {
+        tx_context.transaction.reset(
+            transaction_db_->BeginTransaction(rocksdb::WriteOptions()));
+      }
     }
   };
 
@@ -639,6 +659,10 @@ namespace iroha::ametsuchi {
     /// Get key buffer
     auto &keyBuffer() {
       return tx_context_->key_buffer;
+    }
+
+    auto &context() {
+      return tx_context_;
     }
 
    private:
@@ -691,9 +715,19 @@ namespace iroha::ametsuchi {
         c->set(key, valueBuffer());
     }
 
+    void storeCommit(std::string_view key) {
+      if (auto c = cache(); c && c->isCacheable(key))
+        c->setCommit(key, valueBuffer());
+    }
+
     void dropCache() {
       if (auto c = cache())
-        c->drop();
+        c->rollback();
+    }
+
+    void commitCache() {
+      if (auto c = cache())
+        c->commit();
     }
 
    public:
@@ -725,13 +759,21 @@ namespace iroha::ametsuchi {
           "rocksdb.block-cache-capacity");
     }
 
+    auto reinit() {
+      return tx_context_->db_port->reinitDB();
+    }
+
     /// Makes commit to DB
     auto commit() {
       rocksdb::Status status;
-      if (isTransaction())
-        status = transaction()->Commit();
+      if (isTransaction()) {
+        while ((status = transaction()->Commit()).IsTryAgain())
+          ;
+        context()->db_port->prepareTransaction(*tx_context_);
+      }
+      commitCache();
 
-      transaction().reset();
+      assert(status.ok());
       return status;
     }
 
@@ -820,7 +862,7 @@ namespace iroha::ametsuchi {
 
       auto status = transaction()->Get(ro, slice, &valueBuffer());
       if (status.ok())
-        storeInCache(slice.ToStringView());
+        storeCommit(slice.ToStringView());
 
       return status;
     }
@@ -890,20 +932,27 @@ namespace iroha::ametsuchi {
 
     /// Removes range of items by key-filter
     template <typename S, typename... Args>
-    auto filterDelete(S const &fmtstring, Args &&... args) {
+    auto filterDelete(uint64_t delete_count,
+                      S const &fmtstring,
+                      Args &&... args) -> std::pair<bool, rocksdb::Status> {
       auto it = seek(fmtstring, std::forward<Args>(args)...);
       if (!it->status().ok())
-        return it->status();
+        return std::make_pair<bool, rocksdb::Status>(false, it->status());
 
       rocksdb::Slice const key(keyBuffer().data(), keyBuffer().size());
       if (auto c = cache(); c && c->isCacheable(key.ToStringView()))
         c->filterDelete(key.ToStringView());
 
-      for (; it->Valid() && it->key().starts_with(key); it->Next())
+      bool was_deleted = false;
+      for (; delete_count-- && it->Valid() && it->key().starts_with(key);
+           it->Next()) {
         if (auto status = transaction()->Delete(it->key()); !status.ok())
-          return status;
+          return std::pair<bool, rocksdb::Status>(was_deleted, status);
+        else
+          was_deleted = true;
+      }
 
-      return it->status();
+      return std::pair<bool, rocksdb::Status>(was_deleted, it->status());
     }
 
    private:
@@ -1938,11 +1987,26 @@ namespace iroha::ametsuchi {
     return result;
   }
 
-  inline expected::Result<void, DbError> dropWSV(RocksDbCommon &common) {
-    if (auto status = common.filterDelete(fmtstrings::kPathWsv); !status.ok())
-      return makeError<void>(DbErrorCode::kOperationFailed,
-                             "Clear WSV failed.");
+  template <typename S>
+  inline expected::Result<void, DbError> dropBranch(RocksDbCommon &common,
+                                                    S const &fmtstring) {
+    std::pair<bool, rocksdb::Status> status;
+    do {
+      status = common.filterDelete(1'000ull, fmtstring);
+      if (!status.second.ok())
+        return makeError<void>(
+            DbErrorCode::kOperationFailed, "Clear {} failed.", fmtstring);
+      common.commit();
+    } while (status.first);
     return {};
+  }
+
+  inline expected::Result<void, DbError> dropStore(RocksDbCommon &common) {
+    return dropBranch(common, fmtstrings::kPathStore);
+  }
+
+  inline expected::Result<void, DbError> dropWSV(RocksDbCommon &common) {
+    return dropBranch(common, fmtstrings::kPathWsv);
   }
 
 }  // namespace iroha::ametsuchi

@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 #include <boost/range/combine.hpp>
+
+#include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "module/irohad/ordering/ordering_mocks.hpp"
