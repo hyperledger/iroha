@@ -2,14 +2,20 @@ package execution
 
 import (
 	"fmt"
-	// "vmCaller/iroha"
+
+	vm "vmCaller/evm"
+	"vmCaller/iroha"
 
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/bcm"
 	"github.com/hyperledger/burrow/crypto"
+	"github.com/hyperledger/burrow/execution/contexts"
+	"github.com/hyperledger/burrow/execution/evm"
 	"github.com/hyperledger/burrow/execution/exec"
 	"github.com/hyperledger/burrow/logging"
+	"github.com/hyperledger/burrow/txs"
+	"github.com/hyperledger/burrow/txs/payload"
 )
 
 // Run a contract's code on an isolated and unpersisted state
@@ -17,36 +23,42 @@ import (
 func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress, address crypto.Address, data []byte,
 	logger *logging.Logger) (*exec.TxExecution, error) {
 	fmt.Println("executing call sim")
-	// worldState := vm.NewIrohaState(iroha.StoragePointer)
-	// cache := acmstate.NewCache(reader)
-	// exe := contexts.CallContext{
-	// 	EVM: evm.New(evm.Options{
-	// 		Natives: vm.MustCreateNatives(),
-	// 	}),
-	// 	RunCall:       true,
-	// 	State:         cache,
-	// 	MetadataState: acmstate.NewMemoryState(),
-	// 	Blockchain:    blockchain,
-	// 	Logger:        logger,
-	// }
+	// worldState :=
+	//not working, solve using lines from 209 in call_context.go
+	// add logger and events :)
+	cache := vm.NewIrohaState(iroha.StoragePointer)
+	fmt.Println("new state created")
+	exe := contexts.CallContext{
+		EVM: evm.New(evm.Options{
+			Natives: vm.MustCreateNatives(),
+		}),
+		RunCall:       true,
+		State:         cache,
+		MetadataState: acmstate.NewMemoryState(),
+		Blockchain:    blockchain,
+		Logger:        nil,
+	}
+	fmt.Println("exe created")
+	txe := exec.NewTxExecution(txs.Enclose("dupa", &payload.CallTx{
+		Input: &payload.TxInput{
+			Address: fromAddress,
+		},
+		Address:  &address,
+		Data:     data,
+		GasLimit: 999999,
+	}))
+	fmt.Println("new txe created")
+	// Set height for downstream synchronisation purposes
+	txe.Height = 1
+	fmt.Println("last block height calculated")
+	err := exe.Execute(txe, txe.Envelope.Tx.Payload)
+	fmt.Println("executed")
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil, err
+	}
+	return txe, nil
 
-	// txe := exec.NewTxExecution(txs.Enclose(blockchain.ChainID(), &payload.CallTx{
-	// 	Input: &payload.TxInput{
-	// 		Address: fromAddress,
-	// 	},
-	// 	Address:  &address,
-	// 	Data:     data,
-	// 	GasLimit: contexts.GasLimit,
-	// }))
-
-	// // Set height for downstream synchronisation purposes
-	// txe.Height = blockchain.LastBlockHeight()
-	// err := exe.Execute(txe, txe.Envelope.Tx.Payload)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// return txe, nil
-	return
 }
 
 // Run the given code on an isolated and unpersisted state
