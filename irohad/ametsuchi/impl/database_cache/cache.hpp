@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/common.hpp"
@@ -21,6 +22,7 @@ namespace iroha::ametsuchi {
 
     CachebleSetType cacheable_paths_;
     std::unique_ptr<iroha::RadixTree<Type>> cache_;
+    std::unique_ptr<iroha::RadixTree<std::optional<Type>>> tmp_cache_;
 
     auto cachebleSearch(std::string_view key) const {
       auto it = std::lower_bound(
@@ -59,25 +61,54 @@ namespace iroha::ametsuchi {
 
     template <typename Func>
     bool get(std::string_view key, Func &&func) {
+      if (auto *ptr = tmp_cache_->find(key.data(), key.size()))
+        return *ptr ? std::forward<Func>(func)(**ptr) : false;
       if (auto *ptr = cache_->find(key.data(), key.size()))
         return std::forward<Func>(func)(*ptr);
       return false;
     }
 
     void set(std::string_view key, std::string_view const &value) {
+      assert(isCacheable(key));
+      tmp_cache_->template insert(key.data(), key.size(), value);
+    }
+
+    void setCommit(std::string_view key, std::string_view const &value) {
+      assert(isCacheable(key));
+      assert(tmp_cache_->find(key.data(), key.size()) == nullptr);
       cache_->template insert(key.data(), key.size(), value);
     }
 
     auto erase(std::string_view key) {
-      return cache_->erase(key.data(), key.size());
+      return tmp_cache_->template insert(key.data(), key.size(), std::nullopt);
     }
 
-    auto filterDelete(std::string_view key) {
-      return cache_->filterDelete(key.data(), key.size());
+    void filterDelete(std::string_view filter) {
+      cache_->filterEnumerate(
+          filter.data(), filter.size(), [&](std::string_view key, Type *) {
+            tmp_cache_->template insert(key.data(), key.size(), std::nullopt);
+          });
+    }
+
+    void rollback() {
+      tmp_cache_ = std::make_unique<iroha::RadixTree<std::optional<Type>>>();
+    }
+
+    void commit() {
+      tmp_cache_->filterEnumerate(
+          nullptr, 0ul, [&](std::string_view key, std::optional<Type> *value) {
+            if (*value)
+              cache_->template insert(
+                  key.data(), key.size(), std::move(**value));
+            else
+              cache_->erase(key.data(), key.size());
+          });
+      tmp_cache_ = std::make_unique<iroha::RadixTree<std::optional<Type>>>();
     }
 
     void drop() {
       cache_ = std::make_unique<iroha::RadixTree<Type>>();
+      tmp_cache_ = std::make_unique<iroha::RadixTree<std::optional<Type>>>();
     }
   };
 

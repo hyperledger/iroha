@@ -43,10 +43,15 @@ auto signature() {
 TEST(YacHashProviderTest, MakeYacHashTest) {
   YacHashProviderImpl hash_provider;
   iroha::consensus::Round round{1, 0};
-  auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
   shared_model::crypto::Hash block_hash(std::string{"hash"});
+
   auto ledger_state = std::make_shared<LedgerState>(
-      shared_model::interface::types::PeerList{std::move(peer)}, 1, block_hash);
+      shared_model::interface::types::PeerList{
+          makePeer("127.0.0.1", "111"_hex_pubkey)},
+      shared_model::interface::types::PeerList{
+          makePeer("127.0.0.2", "222"_hex_pubkey)},
+      1,
+      block_hash);
   auto proposal = std::make_shared<const MockProposal>();
   EXPECT_CALL(*proposal, hash())
       .WillRepeatedly(
@@ -80,10 +85,15 @@ TEST(YacHashProviderTest, MakeYacHashTest) {
 TEST(YacHashProviderTest, ToModelHashTest) {
   YacHashProviderImpl hash_provider;
   iroha::consensus::Round round{1, 0};
-  auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
+
   shared_model::crypto::Hash block_hash(std::string{"hash"});
   auto ledger_state = std::make_shared<LedgerState>(
-      shared_model::interface::types::PeerList{std::move(peer)}, 1, block_hash);
+      shared_model::interface::types::PeerList{
+          makePeer("127.0.0.1", "111"_hex_pubkey)},
+      shared_model::interface::types::PeerList{
+          makePeer("127.0.0.2", "222"_hex_pubkey)},
+      1,
+      block_hash);
   auto proposal = std::make_shared<MockProposal>();
   EXPECT_CALL(*proposal, hash())
       .WillRepeatedly(

@@ -57,11 +57,14 @@ class OnDemandOrderingGateTest : public ::testing::Test {
                                                std::move(ufactory),
                                                tx_cache,
                                                1000,
-                                               getTestLogger("OrderingGate"));
+                                               getTestLogger("OrderingGate"),
+                                               false);
 
     auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
+        shared_model::interface::types::PeerList{
+            makePeer("127.0.0.1", "222"_hex_pubkey)},
         round.block_round,
         shared_model::crypto::Hash{std::string{"hash"}});
   }

@@ -24,12 +24,15 @@ namespace iroha {
 
   struct LedgerState {
     shared_model::interface::types::PeerList ledger_peers;
+    shared_model::interface::types::PeerList ledger_syncing_peers;
     TopBlockInfo top_block_info;
 
     LedgerState(shared_model::interface::types::PeerList peers,
+                shared_model::interface::types::PeerList syncing_peers,
                 shared_model::interface::types::HeightType height,
                 shared_model::crypto::Hash top_hash)
         : ledger_peers(std::move(peers)),
+          ledger_syncing_peers(std::move(syncing_peers)),
           top_block_info(height, std::move(top_hash)) {}
   };
 }  // namespace iroha

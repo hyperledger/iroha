@@ -108,12 +108,12 @@ namespace iroha {
       void removeFromBatchesCache(
           const OnDemandOrderingService::HashesSetType &hashes);
 
-      bool isEmptyBatchesCache() const override;
+      bool isEmptyBatchesCache() override;
 
       bool hasEnoughBatchesInCache() const override;
 
       void forCachedBatches(
-          std::function<void(const BatchesSetType &)> const &f) const override;
+          std::function<void(BatchesSetType &)> const &f) override;
 
       bool hasProposal(consensus::Round round) const override;
 
