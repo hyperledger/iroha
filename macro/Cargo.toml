@@ -22,3 +22,6 @@ std = []
 
 [dependencies]
 iroha_derive = { version = "=2.0.0-pre.1", path = "derive" }
+
+[dev-dependencies]
+parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
