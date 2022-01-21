@@ -8,6 +8,7 @@ Configure
       :maxdepth: 1
 
       torii-tls.rst
+      db.rst
 
 In this section we will understand how to configure Iroha.
 Some configuration parameters must be the same in all the nodes (they are marked with \*) and some can differ.
