@@ -591,7 +591,7 @@ namespace iroha::ametsuchi {
     void prepareTransaction(RocksDBContext &tx_context) {
       assert(transaction_db_);
       if (tx_context.transaction) {
-        auto result = transaction_db_->BeginTransaction(
+        [[maybe_unused]] auto result = transaction_db_->BeginTransaction(
             rocksdb::WriteOptions(),
             rocksdb::TransactionOptions(),
             tx_context.transaction.get());
