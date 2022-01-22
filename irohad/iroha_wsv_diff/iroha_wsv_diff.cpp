@@ -130,7 +130,8 @@ expected::Result<void> initialize() try {
               FLAGS_pg_opt,
               "iroha_default",
               log_manager->getChild("PostgresOptions")->getLogger()),
-          log_manager, true));
+          log_manager,
+          true));
   pg_pool_wrapper_ = std::move(pool_wrapper);
 
   IROHA_EXPECTED_TRY_GET_VALUE(
@@ -1064,7 +1065,9 @@ int wsv_check() try {
     return 0;
   } else {
     cout << "~~~ WSV-s DIFFER!!! ~~~" << endl;
-    cout << "For future investigation use difftool on files rocksdb.wsv and postgres.wsv. Just like:" << endl;
+    cout << "For future investigation use difftool on files rocksdb.wsv and "
+            "postgres.wsv. Just like:"
+         << endl;
     cout << "   diff <(tail -n+2 postgres.wsv) <(tail -n+2 rockdb.wsv)" << endl;
     cout << "(Here command tail is to drop first line.)" << endl;
     return 1;

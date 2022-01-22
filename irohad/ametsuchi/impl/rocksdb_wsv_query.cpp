@@ -194,15 +194,17 @@ namespace iroha::ametsuchi {
       assert(!hash_str.empty());
 
       uint64_t number;
-      auto [ptr, ec] { std::from_chars(
+      auto [ptr, ec]{std::from_chars(
           height_str.data(), height_str.data() + height_str.size(), number)};
       if (ec == std::errc())
-      return iroha::TopBlockInfo(
-          number,
-          shared_model::crypto::Hash(shared_model::crypto::Blob::fromHexString(
-              std::string{hash_str})));
+        return iroha::TopBlockInfo(
+            number,
+            shared_model::crypto::Hash(
+                shared_model::crypto::Blob::fromHexString(
+                    std::string{hash_str})));
       else
-        return expected::makeError("Height in top block info is not a valid number.");
+        return expected::makeError(
+            "Height in top block info is not a valid number.");
     }
   }
 

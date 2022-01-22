@@ -17,8 +17,8 @@
 #include <rocksdb/db.h>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/table.h>
-#include <rocksdb/utilities/transaction_db.h>
 #include <rocksdb/utilities/transaction.h>
+#include <rocksdb/utilities/transaction_db.h>
 #include "ametsuchi/impl/database_cache/cache.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "common/disable_warnings.h"
@@ -512,8 +512,7 @@ namespace iroha::ametsuchi {
       transaction_db_.reset();
 
       rocksdb::BlockBasedTableOptions table_options;
-      table_options.block_cache =
-          rocksdb::NewLRUCache(512 * 1024 * 1024LL);
+      table_options.block_cache = rocksdb::NewLRUCache(512 * 1024 * 1024LL);
       table_options.block_size = 32 * 1024;
       // table_options.pin_l0_filter_and_index_blocks_in_cache = true;
       table_options.cache_index_and_filter_blocks = true;
@@ -591,10 +590,10 @@ namespace iroha::ametsuchi {
     void prepareTransaction(RocksDBContext &tx_context) {
       assert(transaction_db_);
       if (tx_context.transaction) {
-        [[maybe_unused]] auto result = transaction_db_->BeginTransaction(
-            rocksdb::WriteOptions(),
-            rocksdb::TransactionOptions(),
-            tx_context.transaction.get());
+        [[maybe_unused]] auto result =
+            transaction_db_->BeginTransaction(rocksdb::WriteOptions(),
+                                              rocksdb::TransactionOptions(),
+                                              tx_context.transaction.get());
         assert(result == tx_context.transaction.get());
       } else {
         tx_context.transaction.reset(
