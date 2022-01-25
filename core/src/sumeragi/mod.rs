@@ -1844,8 +1844,53 @@ pub mod config {
     #[serde(rename_all = "UPPERCASE")]
     #[serde(transparent)]
     pub struct TrustedPeers {
-        /// Optional list of predefined trusted peers.
+        /// Optional list of predefined trusted peers. Must contain unique entries. Custom deserializer raises error if duplicates found.
+        #[serde(deserialize_with = "deserialize_unique_trusted_peers")]
         pub peers: HashSet<PeerId>,
+    }
+
+    /// Custom deserializer that ensures that `trusted_peers` only contains unique `PeerId`'s.
+    ///
+    /// # Errors
+    /// - Peer Ids not unique,
+    /// - Not a sequence (array)
+    fn deserialize_unique_trusted_peers<'de, D>(
+        deserializer: D,
+    ) -> Result<HashSet<PeerId>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        /// Helper, for constructing a unique visitor that errors whenever a duplicate entry is found.
+        struct UniqueVisitor(core::marker::PhantomData<fn() -> HashSet<PeerId>>);
+
+        impl<'de> serde::de::Visitor<'de> for UniqueVisitor {
+            type Value = HashSet<PeerId>;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+                formatter.write_str("a set of unique `Peer::Id`s.")
+            }
+
+            fn visit_seq<S>(self, mut seq: S) -> Result<HashSet<PeerId>, S::Error>
+            where
+                S: serde::de::SeqAccess<'de>,
+            {
+                let mut result = HashSet::new();
+                while let Some(value) = seq.next_element()? {
+                    if result.contains(&value) {
+                        return Err(serde::de::Error::custom(format!(
+                            "The peer id: {}'s public key appears twice.",
+                            &value
+                        )));
+                    }
+                    result.insert(value);
+                }
+
+                Ok(result)
+            }
+        }
+
+        let visitor = UniqueVisitor(core::marker::PhantomData);
+        deserializer.deserialize_seq(visitor)
     }
 
     impl TrustedPeers {
@@ -1853,7 +1898,7 @@ pub mod config {
         ///
         /// # Errors
         /// Fails if there is no file or if file is not valid json
-        pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<TrustedPeers> {
+        pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
             let file = File::open(&path)
                 .wrap_err_with(|| format!("Failed to open trusted peers file {:?}", &path))?;
             let reader = BufReader::new(file);
@@ -1872,7 +1917,7 @@ pub mod config {
         }
     }
 
-    // Allowed because `HashSet::new()` is not const yet.
+    // `HashSet::new()` is not const yet.
     fn default_empty_trusted_peers() -> TrustedPeers {
         TrustedPeers {
             peers: HashSet::new(),

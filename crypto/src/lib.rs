@@ -160,6 +160,15 @@ pub struct KeyPair {
     pub private_key: PrivateKey,
 }
 
+impl From<(PublicKey, PrivateKey)> for KeyPair {
+    fn from((public_key, private_key): (PublicKey, PrivateKey)) -> Self {
+        Self {
+            public_key,
+            private_key,
+        }
+    }
+}
+
 /// Error when dealing with cryptographic functions
 #[derive(Debug, Display)]
 pub enum Error {

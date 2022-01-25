@@ -3,18 +3,15 @@ use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
 use iroha_config::derive::Configurable;
-use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
+use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
 use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    block_sync::config::BlockSyncConfiguration,
-    genesis::config::GenesisConfiguration,
-    kura::config::KuraConfiguration,
-    queue::Configuration as QueueConfiguration,
-    sumeragi::config::{SumeragiConfiguration, TrustedPeers},
-    torii::config::ToriiConfiguration,
+    block_sync::config::BlockSyncConfiguration, genesis::config::GenesisConfiguration,
+    kura::config::KuraConfiguration, queue::Configuration as QueueConfiguration,
+    sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
     wsv::config::Configuration as WorldStateViewConfiguration,
 };
 
@@ -85,51 +82,43 @@ impl Default for NetworkConfiguration {
 }
 
 impl Configuration {
-    /// This method will build `Configuration` from a json *pretty* formatted file (without `:` in
-    /// key names).
-    ///
-    /// # Panics
-    /// This method will panic if configuration file presented, but has incorrect scheme or format.
+    /// Construct [`Self`] from a path-like object.
     ///
     /// # Errors
-    /// This method will return error if system will fail to find a file or read it's content.
-    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration> {
-        let file = File::open(path).wrap_err("Failed to open the config file")?;
+    /// - File not found.
+    /// - File found, but peer configuration parsing failed.
+    /// - Length of the array in raw json representation is different
+    /// to the lenght of the array in
+    /// [`self.sumeragi.trusted_peers.peers`], most likely due to two
+    /// (or more) peers having the same public key.
+    pub fn from_path<P: AsRef<Path> + Debug + Clone>(path: P) -> Result<Configuration> {
+        let file = File::open(path.clone())
+            .wrap_err(format!("Failed to open the config file {:?}", path))?;
         let reader = BufReader::new(file);
-        let mut configuration: Configuration =
-            serde_json::from_reader(reader).wrap_err("Failed to deserialize json from reader")?;
-        configuration.sumeragi.key_pair = KeyPair {
-            public_key: configuration.public_key.clone(),
-            private_key: configuration.private_key.clone(),
-        };
-        configuration.sumeragi.peer_id =
-            PeerId::new(&configuration.torii.p2p_addr, &configuration.public_key);
+        let mut configuration: Configuration = serde_json::from_reader(reader).wrap_err(
+            format!("Failed to parse {:?} as Iroha peer configuration.", path),
+        )?;
+        configuration.finalise();
         Ok(configuration)
     }
 
-    /// Loads configuration from environment
-    /// # Errors
-    /// Fails if fails to deserialize configuration from env variables
-    pub fn load_environment(&mut self) -> Result<()> {
-        iroha_config::Configurable::load_environment(self)?;
-        self.sumeragi.key_pair = KeyPair {
-            public_key: self.public_key.clone(),
-            private_key: self.private_key.clone(),
-        };
+    fn finalise(&mut self) {
+        self.sumeragi.key_pair = self.key_pair().into();
         self.sumeragi.peer_id = PeerId::new(&self.torii.p2p_addr, &self.public_key.clone());
-        Ok(())
     }
 
-    /// Load trusted peers variables from a json *pretty* formatted file.
+    /// Loads configuration from environment
     ///
     /// # Errors
-    /// Fails if can not load [`TrustedPeers`] from `path`.
-    pub fn load_trusted_peers_from_path<P: AsRef<Path> + Debug>(&mut self, path: P) -> Result<()> {
-        self.sumeragi.trusted_peers = TrustedPeers::from_path(&path)?;
+    /// If Configuration deserialize fails:
+    /// - Configuration `TrustedPeers` contains entries with duplicate public keys
+    pub fn load_environment(&mut self) -> Result<()> {
+        iroha_config::Configurable::load_environment(self)?;
+        self.finalise();
         Ok(())
     }
 
-    /// Gets `public_key` and `private_key` configuration parameters.
+    /// Get `public_key` and `private_key` configuration parameters.
     pub fn key_pair(&self) -> (PublicKey, PrivateKey) {
         (self.public_key.clone(), self.private_key.clone())
     }
@@ -142,6 +131,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+    use crate::sumeragi::config::TrustedPeers;
 
     const CONFIGURATION_PATH: &str = "../configs/peer/config.json";
 
@@ -241,5 +231,13 @@ mod tests {
         let result: Vec<PeerId> =
             serde_json::from_str(trusted_peers_string).expect("Failed to parse Trusted Peers.");
         assert_eq!(expected_trusted_peers, result);
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_trusted_peers_fail_duplicate_peer_id() {
+        let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address":"127.0.0.1:1337", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address":"localhost:1338", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address": "195.162.0.1:23", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}]"#;
+        let _result: TrustedPeers =
+            serde_json::from_str(trusted_peers_string).expect("Failed to parse Trusted Peers");
     }
 }
