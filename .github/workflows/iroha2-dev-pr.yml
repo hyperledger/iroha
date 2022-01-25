@@ -9,8 +9,12 @@ on:
       - "**.toml"
       - "**.yml"
 
+      # Not part of the workspace
+      - "!wasm/**"
+
 env:
   CARGO_TERM_COLOR: always
+  RUSTC_BOOTSTRAP: 1
 
 jobs:
   test:
@@ -23,19 +27,13 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
         run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2
-        env:
-          RUSTC_BOOTSTRAP: 1
       - name: Run iroha tests with network mock
         run: mold -run cargo test --quiet --features mock -- --ignored --skip unstable_network --test-threads 2
-        env:
-          RUSTC_BOOTSTRAP: 1
         working-directory: core/test_network
       - name: Run iroha_actor deadlock detection tests
+        working-directory: actor
         run: mold -run cargo test --quiet --features deadlock_detection -- --skip unstable_network --test-threads 2
         if: always()
-        env:
-          RUSTC_BOOTSTRAP: 1
-        working-directory: actor
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
@@ -51,7 +49,6 @@ jobs:
         run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2 || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
-          RUSTC_BOOTSTRAP: 1
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate a grcov coverage report
         run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info

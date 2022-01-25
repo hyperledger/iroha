@@ -5,7 +5,7 @@
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
-use syn::{parse_macro_input, ItemFn, Path, ReturnType, Signature, Type};
+use syn::{parse_macro_input, parse_quote, ItemFn, Path, ReturnType, Signature, Type};
 
 /// Used to annotate user-defined function which starts the execution of smartcontract
 #[proc_macro_error]
@@ -15,11 +15,18 @@ pub fn iroha_wasm(_: TokenStream, item: TokenStream) -> TokenStream {
         attrs,
         vis,
         sig,
-        block,
+        mut block,
     }: ItemFn = parse_macro_input!(item as ItemFn);
 
     verify_function_signature(&sig);
     let fn_name = &sig.ident;
+
+    block.stmts.insert(
+        0,
+        parse_quote!(
+            use iroha_wasm::Execute as _;
+        ),
+    );
 
     quote! {
         #[no_mangle]

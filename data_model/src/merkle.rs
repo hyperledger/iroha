@@ -1,7 +1,7 @@
 //! Merkle tree implementation
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 

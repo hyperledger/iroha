@@ -5,6 +5,12 @@
 #![allow(unsafe_code)]
 #![no_std]
 
+#[cfg(all(not(test), not(target_pointer_width = "32")))]
+compile_error!("Target architectures other then 32-bit are not supported");
+
+#[cfg(all(not(test), not(all(target_arch = "wasm32", target_os = "unknown"))))]
+compile_error!("Targets other then wasm32-unknown-unknown are not supported");
+
 extern crate alloc;
 
 use alloc::{boxed::Box, format, vec::Vec};
@@ -37,6 +43,45 @@ fn panic(_info: &::core::panic::PanicInfo) -> ! {
 #[alloc_error_handler]
 fn oom(layout: ::core::alloc::Layout) -> ! {
     panic!("Allocation({} bytes) failed", layout.size())
+}
+
+pub trait Execute {
+    type Result;
+    fn execute(&self) -> Self::Result;
+}
+
+impl Execute for data_model::isi::Instruction {
+    type Result = ();
+
+    /// Execute the given instruction on the host environment
+    fn execute(&self) -> Self::Result {
+        #[cfg(not(test))]
+        use host::execute_instruction as host_execute_instruction;
+        #[cfg(test)]
+        use tests::_iroha_wasm_execute_instruction_mock as host_execute_instruction;
+
+        // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
+        unsafe { encode_and_execute(self, host_execute_instruction) };
+    }
+}
+impl Execute for data_model::query::QueryBox {
+    type Result = QueryResult;
+
+    /// Executes the given query on the host environment
+    fn execute(&self) -> Self::Result {
+        #[cfg(not(test))]
+        use host::execute_query as host_execute_query;
+        #[cfg(test)]
+        use tests::_iroha_wasm_execute_query_mock as host_execute_query;
+
+        // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
+        //         - ownership of the returned result is transfered into `_decode_from_raw`
+        unsafe {
+            let host::WasmQueryResult(res_ptr, res_len) =
+                encode_and_execute(self, host_execute_query);
+            _decode_from_raw(res_ptr, res_len)
+        }
+    }
 }
 
 #[no_mangle]
@@ -114,7 +159,7 @@ pub unsafe fn _decode_from_raw<T: Decode>(ptr: WasmUsize, len: WasmUsize) -> T {
 ///
 /// The given function must not take ownership of the pointer argument
 unsafe fn encode_and_execute<T: Encode, O>(
-    obj: T,
+    obj: &T,
     fun: unsafe extern "C" fn(WasmUsize, WasmUsize) -> O,
 ) -> O {
     // NOTE: It's imperative that encoded object is stored on the heap
@@ -131,30 +176,9 @@ unsafe fn encode_and_execute<T: Encode, O>(
     fun(ptr, len)
 }
 
-/// Executes the given query on the host environment
-pub fn execute_query(query: QueryBox) -> QueryResult {
-    #[cfg(not(test))]
-    use host::execute_query as host_execute_query;
-    #[cfg(test)]
-    use tests::_iroha_wasm_execute_query_mock as host_execute_query;
-
-    // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
-    //         - ownership of the returned result is transfered into `_decode_from_raw`
-    unsafe {
-        let host::WasmQueryResult(res_ptr, res_len) = encode_and_execute(query, host_execute_query);
-        _decode_from_raw(res_ptr, res_len)
-    }
-}
-
-/// Execute the given instruction on the host environment
-pub fn execute_instruction(instruction: Instruction) {
-    #[cfg(not(test))]
-    use host::execute_instruction as host_execute_instruction;
-    #[cfg(test)]
-    use tests::_iroha_wasm_execute_instruction_mock as host_execute_instruction;
-
-    // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
-    unsafe { encode_and_execute(instruction, host_execute_instruction) };
+/// Most used items
+pub mod prelude {
+    pub use crate::{iroha_wasm, Execute};
 }
 
 #[cfg(test)]
@@ -163,6 +187,8 @@ mod tests {
     #![allow(clippy::pedantic)]
 
     use core::{mem::ManuallyDrop, slice};
+
+    use webassembly_test::webassembly_test;
 
     use super::*;
 
@@ -202,13 +228,13 @@ mod tests {
         host::WasmQueryResult(bytes.as_ptr() as WasmUsize, bytes.len() as WasmUsize)
     }
 
-    #[test]
+    #[webassembly_test]
     fn execute_instruction_test() {
-        execute_instruction(get_test_instruction())
+        get_test_instruction().execute()
     }
 
-    #[test]
+    #[webassembly_test]
     fn execute_query_test() {
-        assert_eq!(execute_query(get_test_query()), QUERY_RESULT);
+        assert_eq!(get_test_query().execute(), QUERY_RESULT);
     }
 }

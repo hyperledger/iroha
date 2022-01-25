@@ -9,6 +9,9 @@ on:
       - "**.toml"
       - "**.yml"
 
+      # Not part of the workspace
+      - "!wasm/**"
+
 jobs:
   check:
     runs-on: [self-hosted, Linux]
@@ -17,20 +20,21 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
+
       - name: Format check
         run: cargo +nightly-2021-12-02 fmt --all -- --check
       - name: Static analysis without features
         run: cargo lints clippy --workspace --benches --tests --examples --quiet --no-default-features
         if: always()
       - name: Static analysis with all features enabled
-        run: cargo lints clippy --workspace --benches --tests --examples --all-features --quiet
+        run: cargo lints clippy --workspace --benches --tests --examples --quiet --all-features
         if: always()
-      - name: Verify iroha_data_model supports no_std
+      - name: Verify iroha_data_model still supports no_std
         run: cargo nono check --package iroha_data_model --no-default-features
         if: always()
+
       - name: Documentation check
         run: |
           cargo doc --no-deps --quiet
           ./scripts/check_docs.sh
         if: always()
-
