@@ -31,8 +31,8 @@ pub struct Client {
     pub torii_url: String,
     /// Url to report status for administration
     pub telemetry_url: String,
-    /// Maximum number of instructions in blockchain
-    pub max_instruction_number: u64,
+    /// Limits to which transactions must adhere to
+    pub transaction_limits: TransactionLimits,
     /// Accounts keypair
     pub key_pair: KeyPair,
     /// Transaction time to live in milliseconds
@@ -55,7 +55,7 @@ impl Client {
         Self {
             torii_url: configuration.torii_api_url.clone(),
             telemetry_url: configuration.torii_telemetry_url.clone(),
-            max_instruction_number: configuration.max_instruction_number,
+            transaction_limits: configuration.transaction_limits,
             key_pair: KeyPair {
                 public_key: configuration.public_key.clone(),
                 private_key: configuration.private_key.clone(),
@@ -75,7 +75,7 @@ impl Client {
         Self {
             torii_url: configuration.torii_api_url.clone(),
             telemetry_url: configuration.torii_telemetry_url.clone(),
-            max_instruction_number: configuration.max_instruction_number,
+            transaction_limits: configuration.transaction_limits,
             key_pair: KeyPair {
                 public_key: configuration.public_key.clone(),
                 private_key: configuration.private_key.clone(),
@@ -199,7 +199,7 @@ impl Client {
         &mut self,
         transaction: Transaction,
     ) -> Result<HashOf<VersionedTransaction>> {
-        transaction.check_instruction_len(self.max_instruction_number)?;
+        transaction.check_limits(&self.transaction_limits)?;
         let transaction: VersionedTransaction = transaction.into();
         let hash = transaction.hash();
         let transaction_bytes: Vec<u8> = transaction.encode_versioned();

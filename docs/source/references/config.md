@@ -30,7 +30,10 @@ The following is the default configuration used by Iroha.
     "COMMIT_TIME_MS": 2000,
     "TX_RECEIPT_TIME_MS": 500,
     "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
-    "MAX_INSTRUCTION_NUMBER": 4096,
+    "TRANSACTION_LIMITS": {
+      "max_instruction_number": 4096,
+      "max_wasm_size_bytes": 1048576
+    },
     "MAILBOX": 100,
     "GOSSIP_BATCH_SIZE": 500,
     "GOSSIP_PERIOD_MS": 1000
@@ -41,7 +44,10 @@ The following is the default configuration used by Iroha.
     "TELEMETRY_URL": "127.0.0.1:8180",
     "MAX_TRANSACTION_SIZE": 32768,
     "MAX_CONTENT_LEN": 16384000,
-    "MAX_INSTRUCTION_NUMBER": 4096
+    "TRANSACTION_LIMITS": {
+      "max_instruction_number": 4096,
+      "max_wasm_size_bytes": 1048576
+    }
   },
   "BLOCK_SYNC": {
     "GOSSIP_PERIOD_MS": 10000,
@@ -457,11 +463,14 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
   "GOSSIP_BATCH_SIZE": 500,
   "GOSSIP_PERIOD_MS": 1000,
   "MAILBOX": 100,
-  "MAX_INSTRUCTION_NUMBER": 4096,
   "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
   "PEER_ID": {
     "address": "",
     "public_key": "ed0100"
+  },
+  "TRANSACTION_LIMITS": {
+    "max_instruction_number": 4096,
+    "max_wasm_size_bytes": 1048576
   },
   "TRUSTED_PEERS": [],
   "TX_RECEIPT_TIME_MS": 500
@@ -534,16 +543,6 @@ Has type `usize`. Can be configured via environment variable `SUMERAGI_MAILBOX`
 100
 ```
 
-### `sumeragi.max_instruction_number`
-
-Maximum instruction number per transaction
-
-Has type `u64`. Can be configured via environment variable `SUMERAGI_MAX_INSTRUCTION_NUMBER`
-
-```json
-4096
-```
-
 ### `sumeragi.n_topology_shifts_before_reshuffle`
 
 After N view changes topology will change tactic from shifting by one, to reshuffle.
@@ -564,6 +563,19 @@ Has type `PeerId`. Can be configured via environment variable `SUMERAGI_PEER_ID`
 {
   "address": "",
   "public_key": "ed0100"
+}
+```
+
+### `sumeragi.transaction_limits`
+
+Limits to which transactions must adhere
+
+Has type `TransactionLimits`. Can be configured via environment variable `SUMERAGI_TRANSACTION_LIMITS`
+
+```json
+{
+  "max_instruction_number": 4096,
+  "max_wasm_size_bytes": 1048576
 }
 ```
 
@@ -663,10 +675,13 @@ Has type `ToriiConfiguration`. Can be configured via environment variable `IROHA
 {
   "API_URL": "127.0.0.1:8080",
   "MAX_CONTENT_LEN": 16384000,
-  "MAX_INSTRUCTION_NUMBER": 4096,
   "MAX_TRANSACTION_SIZE": 32768,
   "P2P_ADDR": "127.0.0.1:1337",
-  "TELEMETRY_URL": "127.0.0.1:8180"
+  "TELEMETRY_URL": "127.0.0.1:8180",
+  "TRANSACTION_LIMITS": {
+    "max_instruction_number": 4096,
+    "max_wasm_size_bytes": 1048576
+  }
 }
 ```
 
@@ -688,16 +703,6 @@ Has type `usize`. Can be configured via environment variable `TORII_MAX_CONTENT_
 
 ```json
 16384000
-```
-
-### `torii.max_instruction_number`
-
-Maximum number of instruction per transaction. Used to prevent from DOS attacks.
-
-Has type `u64`. Can be configured via environment variable `TORII_MAX_INSTRUCTION_NUMBER`
-
-```json
-4096
 ```
 
 ### `torii.max_transaction_size`
@@ -728,6 +733,19 @@ Has type `String`. Can be configured via environment variable `TORII_TELEMETRY_U
 
 ```json
 "127.0.0.1:8180"
+```
+
+### `torii.transaction_limits`
+
+Limits to which transactions must adhere
+
+Has type `TransactionLimits`. Can be configured via environment variable `TORII_TRANSACTION_LIMITS`
+
+```json
+{
+  "max_instruction_number": 4096,
+  "max_wasm_size_bytes": 1048576
+}
 ```
 
 ## `wsv`

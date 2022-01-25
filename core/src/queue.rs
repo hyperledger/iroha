@@ -305,7 +305,11 @@ mod tests {
         )
         .sign(key)
         .expect("Failed to sign.");
-        VersionedAcceptedTransaction::from_transaction(tx, 4096)
+        let limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
+        VersionedAcceptedTransaction::from_transaction(tx, &limits)
             .expect("Failed to accept Transaction.")
     }
 
@@ -403,11 +407,15 @@ mod tests {
             100_000,
         );
         let get_tx = || {
+            let tx_limits = TransactionLimits {
+                max_instruction_number: 4096,
+                max_wasm_size_bytes: 0,
+            };
             VersionedAcceptedTransaction::from_transaction(
                 tx.clone()
                     .sign(KeyPair::generate().expect("Failed to generate keypair."))
                     .expect("Failed to sign."),
-                4096,
+                &tx_limits,
             )
             .expect("Failed to accept Transaction.")
         };

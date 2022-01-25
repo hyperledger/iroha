@@ -51,7 +51,7 @@ pub mod utils {
                 _submit_genesis: bool,
                 _block_path: RawGenesisBlock,
                 _genesis_config: &GenesisConfiguration,
-                _max_instructions_number: u64,
+                _transaction_limits: &TransactionLimits,
             ) -> Result<Option<Self>> {
                 Ok(None)
             }
@@ -269,7 +269,11 @@ pub mod utils {
             let tx = Transaction::new(ALICE_ID.clone(), instructions.into(), 100_000)
                 .sign(ALICE_KEYS.clone())
                 .unwrap();
-            VersionedAcceptedTransaction::from_transaction(tx, 4096).unwrap()
+            let tx_limits = TransactionLimits {
+                max_instruction_number: 4096,
+                max_wasm_size_bytes: 0,
+            };
+            VersionedAcceptedTransaction::from_transaction(tx, &tx_limits).unwrap()
         }
     }
 }

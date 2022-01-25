@@ -49,7 +49,7 @@ fn main() {
         true,
         generate_genesis(1_000_000_u32),
         &configuration.genesis,
-        configuration.sumeragi.max_instruction_number,
+        &configuration.sumeragi.transaction_limits,
     )
     .expect("genesis creation failed");
 

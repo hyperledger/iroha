@@ -414,9 +414,9 @@ impl VersionedValidBlock {
     }
 
     /// # Errors
-    /// Asserts specific instruction number of instruction in transaction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
-        self.as_v1().check_instruction_len(max_instruction_len)
+    /// Asserts specific transaction limits (number of instructions and size of wasm binary)
+    pub fn check_transaction_limits(&self, limits: &TransactionLimits) -> Result<()> {
+        self.as_v1().check_transaction_limits(limits)
     }
 
     /// Returns `Ok(())` if validation passed.
@@ -429,7 +429,7 @@ impl VersionedValidBlock {
         latest_block: &HashOf<VersionedCommittedBlock>,
         latest_view_change: &HashOf<Proof>,
         block_height: u64,
-        max_instruction_number: u64,
+        limits: &TransactionLimits,
     ) -> Result<(), eyre::Report> {
         if self.is_empty() {
             return Err(eyre!("Block is empty"));
@@ -458,7 +458,7 @@ impl VersionedValidBlock {
                 self.header().height
             ));
         }
-        self.check_instruction_len(max_instruction_number)
+        self.check_transaction_limits(limits)
     }
 }
 
@@ -478,16 +478,16 @@ pub struct ValidBlock {
 
 impl ValidBlock {
     /// # Errors
-    /// Asserts specific instruction number of instruction constraint
-    pub fn check_instruction_len(&self, max_instruction_len: u64) -> Result<()> {
+    /// Asserts specific transaction limits (number of instructions and size of wasm binary)
+    pub fn check_transaction_limits(&self, tx_limits: &TransactionLimits) -> Result<()> {
         self.transactions
             .iter()
-            .map(|tx| tx.check_instruction_len(max_instruction_len))
+            .map(|tx| tx.check_limits(tx_limits))
             .collect::<Result<Vec<_>, _>>()
             .map(drop)?;
         self.rejected_transactions
             .iter()
-            .map(|tx| tx.check_instruction_len(max_instruction_len))
+            .map(|tx| tx.check_limits(tx_limits))
             .collect::<Result<Vec<_>, _>>()
             .map(drop)?;
         Ok(())

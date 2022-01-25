@@ -193,7 +193,7 @@ where
     is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
     is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
     telemetry_started: bool,
-    max_instruction_number: u64,
+    transaction_limits: TransactionLimits,
     /// Genesis network
     pub genesis_network: Option<G>,
     /// Broker
@@ -294,7 +294,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
             is_instruction_allowed: Arc::new(is_instruction_allowed),
             is_query_allowed,
             telemetry_started,
-            max_instruction_number: configuration.max_instruction_number,
+            transaction_limits: configuration.transaction_limits,
             genesis_network,
             queue,
             broker,
@@ -1360,7 +1360,7 @@ pub mod message {
                     sumeragi.latest_block_hash(),
                     &sumeragi.latest_view_change_hash(),
                     sumeragi.block_height,
-                    sumeragi.max_instruction_number,
+                    &sumeragi.transaction_limits,
                 ) {
                     warn!(%e)
                 } else {
@@ -1762,13 +1762,12 @@ pub mod config {
     use eyre::{Result, WrapErr};
     use iroha_config::derive::Configurable;
     use iroha_crypto::prelude::*;
-    use iroha_data_model::prelude::*;
+    use iroha_data_model::{prelude::*, transaction};
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
     const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
     const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
-    const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
     const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
     const DEFAULT_MAILBOX_SIZE: usize = 100;
     const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
@@ -1796,8 +1795,8 @@ pub mod config {
         pub tx_receipt_time_ms: u64,
         /// After N view changes topology will change tactic from shifting by one, to reshuffle.
         pub n_topology_shifts_before_reshuffle: u64,
-        /// Maximum instruction number per transaction
-        pub max_instruction_number: u64,
+        /// Limits to which transactions must adhere
+        pub transaction_limits: TransactionLimits,
         /// Mailbox size
         pub mailbox: usize,
         /// Maximum number of transactions in tx gossip batch message. While configuring this, attention should be payed to `p2p` max message size.
@@ -1816,7 +1815,10 @@ pub mod config {
                 commit_time_ms: DEFAULT_COMMIT_TIME_MS,
                 tx_receipt_time_ms: DEFAULT_TX_RECEIPT_TIME_MS,
                 n_topology_shifts_before_reshuffle: DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE,
-                max_instruction_number: DEFAULT_MAX_INSTRUCTION_NUMBER,
+                transaction_limits: TransactionLimits {
+                    max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
+                    max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
+                },
                 mailbox: DEFAULT_MAILBOX_SIZE,
                 gossip_batch_size: DEFAULT_GOSSIP_BATCH_SIZE,
                 gossip_period_ms: DEFAULT_GOSSIP_PERIOD_MS,
