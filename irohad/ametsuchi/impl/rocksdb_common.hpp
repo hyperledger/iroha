@@ -496,7 +496,7 @@ namespace iroha::ametsuchi {
   /**
    * Port to provide access to RocksDB instance.
    */
-  struct RocksDBPort {
+  struct RocksDBPort final {
     RocksDBPort(RocksDBPort const &) = delete;
     RocksDBPort &operator=(RocksDBPort const &) = delete;
     RocksDBPort() = default;
@@ -506,10 +506,54 @@ namespace iroha::ametsuchi {
       return reinitDB();
     }
 
+    enum ColumnFamilyType {
+      kDefault,
+      kWsv,
+      kStore,
+      //////
+      kTotal
+    };
+
+    ~RocksDBPort() {
+      closeDb();
+    }
+
    private:
-    expected::Result<void, DbError> reinitDB() {
-      assert(db_name_);
+    struct {
+      std::string name;
+      rocksdb::ColumnFamilyHandle *handle;
+    } cf_handles[ColumnFamilyType::kTotal] = {
+        {rocksdb::kDefaultColumnFamilyName, nullptr},
+        {"wsv", nullptr},
+        {"store", nullptr}
+    };
+
+    void closeDb() {
+      for (auto &cf : cf_handles)
+        if (nullptr != cf.handle) {
+          transaction_db_->DestroyColumnFamilyHandle(cf.handle);
+          cf.handle = nullptr;
+        }
       transaction_db_.reset();
+    }
+
+    void dropColumnFamily(ColumnFamilyType type) {
+      assert(type < ColumnFamilyType::kTotal);
+      auto &cf = cf_handles[type];
+
+      if (cf.handle) {
+        assert(transaction_db_);
+        transaction_db_->DropColumnFamily(cf.handle);
+        transaction_db_->DestroyColumnFamilyHandle(cf.handle);
+        transaction_db_->CreateColumnFamily({}, cf.name, &cf.handle);
+      }
+    }
+
+    expected::Result<void, DbError> reinitDB() {
+      db_name_ = "/home/iceseer/Tmp/222";
+
+      assert(db_name_);
+      closeDb();
 
       rocksdb::BlockBasedTableOptions table_options;
       table_options.block_cache = rocksdb::NewLRUCache(512 * 1024 * 1024LL);
@@ -521,22 +565,63 @@ namespace iroha::ametsuchi {
 
       rocksdb::Options options;
       options.create_if_missing = true;
+      options.create_missing_column_families = true;
       options.max_open_files = 100;
       options.optimize_filters_for_hits = true;
       options.table_factory.reset(
           rocksdb::NewBlockBasedTableFactory(table_options));
 
+      /// print all column families
+      std::vector<std::string> colfam;
+      rocksdb::DB::ListColumnFamilies(options, *db_name_, &colfam);
+      std::cout << "RocksDB detected column families:" << std::endl;
+      for (auto const &cf : colfam)
+              std::cout << cf << std::endl;
+
+      std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+      for (auto &cf : cf_handles)
+        column_families.emplace_back(rocksdb::ColumnFamilyDescriptor{cf.name, {}});
+
+      std::vector<rocksdb::ColumnFamilyHandle*> handles;
       rocksdb::TransactionDB *transaction_db;
       auto status = rocksdb::TransactionDB::Open(
-          options, rocksdb::TransactionDBOptions(), *db_name_, &transaction_db);
+          options, rocksdb::TransactionDBOptions(), *db_name_,
+          column_families, &handles,
+          &transaction_db);
 
+      //rocksdb::DB::ListColumnFamilies
       if (!status.ok())
         return makeError<void>(DbErrorCode::kInitializeFailed,
                                "Db '{}' initialization failed with status: {}.",
                                *db_name_,
                                status.ToString());
 
+      assert(ColumnFamilyType::kTotal == handles.size());
+      for (uint32_t ix = 0; ix < handles.size(); ++ix) {
+        assert(handles[ix]->GetName() == cf_handles[ix].name);
+        cf_handles[ix].handle = handles[ix];
+      }
       transaction_db_.reset(transaction_db);
+
+      /*std::string value;
+      status = transaction_db_->Get(rocksdb::ReadOptions{}, handles[1], std::string_view("1"), &value);
+
+      transaction_db_->DropColumnFamily(handles[1]);
+      status = transaction_db_->Put(rocksdb::WriteOptions{}, handles[1], std::string_view("1"), std::string_view("2"));
+      transaction_db_->DestroyColumnFamilyHandle(handles[1]);
+
+      status = transaction_db_->CreateColumnFamily({}, "wsv", &handles[1]);
+      status = transaction_db_->Put(rocksdb::WriteOptions{}, handles[1], std::string_view("1"), std::string_view("3"));
+
+      transaction_db_->DestroyColumnFamilyHandle(handles[0]);
+      transaction_db_->DestroyColumnFamilyHandle(handles[1]);
+      transaction_db_->DestroyColumnFamilyHandle(handles[2]);*/
+      /*delete handles[0];
+      delete handles[1];
+      delete handles[2];*/
+      //transaction_db_.reset();
+/*      rocksdb::ColumnFamilyHandle *handle = nullptr;
+      status = transaction_db_->CreateColumnFamily({}, "store", &handle);*/
       return {};
     }
 
@@ -1984,7 +2069,8 @@ namespace iroha::ametsuchi {
       if (!status.second.ok())
         return makeError<void>(
             DbErrorCode::kOperationFailed, "Clear {} failed.", fmtstring);
-      common.commit();
+      if (!common.commit().ok())
+        throw std::runtime_error("RocksDB commit failed.");
     } while (status.first);
     return {};
   }
