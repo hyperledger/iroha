@@ -60,7 +60,7 @@ namespace iroha::ametsuchi {
               [&](auto const &signatory) {
                 signatories.emplace_back(signatory.ToStringView());
                 return true;
-              },
+              }, RocksDBPort::ColumnFamilyType::kWsv,
               fmtstrings::kPathSignatories,
               domain_id,
               account_name);
@@ -100,10 +100,10 @@ namespace iroha::ametsuchi {
           rocksdb::Status status;
           if (syncing_peers)
             status = enumerateKeysAndValues(
-                common, std::move(callback), fmtstrings::kPathSPeers);
+                common, std::move(callback), RocksDBPort::ColumnFamilyType::kWsv, fmtstrings::kPathSPeers);
           else
             status = enumerateKeysAndValues(
-                common, std::move(callback), fmtstrings::kPathPeers);
+                common, std::move(callback), RocksDBPort::ColumnFamilyType::kWsv,fmtstrings::kPathPeers);
 
           RDB_ERROR_CHECK(canExist(
               status, [&]() { return fmt::format("Enumerate peers"); }));

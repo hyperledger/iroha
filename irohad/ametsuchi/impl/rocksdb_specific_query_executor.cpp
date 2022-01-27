@@ -186,7 +186,7 @@ operator()(
                                [&](auto role) {
                                  roles.emplace_back(role.ToStringView());
                                  return true;
-                               },
+                               },RocksDBPort::ColumnFamilyType::kWsv,
                                fmtstrings::kPathAccountRoles,
                                domain_id,
                                account_name);
@@ -261,7 +261,7 @@ operator()(
                     [&](auto const &signatory) {
                       signatories.emplace_back(signatory.ToStringView());
                       return true;
-                    },
+                    },RocksDBPort::ColumnFamilyType::kWsv,
                     fmtstrings::kPathSignatories,
                     domain_id,
                     account_name);
