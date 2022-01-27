@@ -759,7 +759,8 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
                               [&](auto key) {
                                 ++counter;
                                 return true;
-                              }, RocksDBPort::ColumnFamilyType::kWsv,
+                              },
+                              RocksDBPort::ColumnFamilyType::kWsv,
                               fmtstrings::kPathSignatories,
                               domain_id,
                               account_name);
@@ -926,7 +927,8 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
                               [&](auto key) {
                                 ++counter;
                                 return true;
-                              },RocksDBPort::ColumnFamilyType::kWsv,
+                              },
+                              RocksDBPort::ColumnFamilyType::kWsv,
                               fmtstrings::kPathSignatories,
                               domain_id,
                               account_name);
@@ -1062,7 +1064,8 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     RDB_ERROR_CHECK(forAsset<kDbOperation::kCheck, kDbEntry::kMustExist>(
         common, asset_name, domain_id));
 
-    auto status = common.get(RocksDBPort::ColumnFamilyType::kWsv,fmtstrings::kSetting,
+    auto status = common.get(RocksDBPort::ColumnFamilyType::kWsv,
+                             fmtstrings::kSetting,
                              iroha::ametsuchi::kMaxDescriptionSizeKey);
     RDB_ERROR_CHECK(canExist(
         status, [&] { return fmt::format("Max description size key"); }));

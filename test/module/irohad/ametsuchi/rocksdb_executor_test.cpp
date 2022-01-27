@@ -100,7 +100,8 @@ namespace iroha::ametsuchi {
                                    [&](auto r) {
                                      roles.emplace_back(r.ToStringView());
                                      return true;
-                                   }, RocksDBPort::ColumnFamilyType::kWsv,
+                                   },
+                                   RocksDBPort::ColumnFamilyType::kWsv,
                                    fmtstrings::kPathAccountRoles,
                                    domain,
                                    account);
@@ -233,7 +234,8 @@ namespace iroha::ametsuchi {
             result += '\"';
 
             return true;
-          },RocksDBPort::ColumnFamilyType::kWsv,
+          },
+          RocksDBPort::ColumnFamilyType::kWsv,
           fmtstrings::kPathAccountDetail,
           domain,
           account);

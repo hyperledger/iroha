@@ -418,7 +418,8 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys) {
             && it->key().ToStringView() != key2_)
           throw;
         return true;
-      },RocksDBPort::ColumnFamilyType::kWsv,
+      },
+      RocksDBPort::ColumnFamilyType::kWsv,
       "keY");
   ASSERT_TRUE(status.ok());
   ASSERT_EQ(counter, 2);
@@ -429,13 +430,17 @@ TEST_F(RocksDBTest, FilterDelete) {
     RocksDbCommon common(tx_context_);
     insertDb("ab", "ab");
     insertDb("k", "121");
-    ASSERT_TRUE(common.filterDelete(2ull, RocksDBPort::ColumnFamilyType::kWsv, "keY").second.ok());
+    ASSERT_TRUE(
+        common.filterDelete(2ull, RocksDBPort::ColumnFamilyType::kWsv, "keY")
+            .second.ok());
     ASSERT_TRUE(common.commit().ok());
   }
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_TRUE(common.get(RocksDBPort::ColumnFamilyType::kWsv, key1_).IsNotFound());
-    ASSERT_TRUE(common.get(RocksDBPort::ColumnFamilyType::kWsv, key2_).IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, key1_).IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, key2_).IsNotFound());
   }
   {
     ASSERT_TRUE(readDb(key3_) == value3_);
@@ -447,12 +452,15 @@ TEST_F(RocksDBTest, FilterDelete) {
 TEST_F(RocksDBTest, FilterDelete2) {
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_TRUE(common.filterDelete(1ull, RocksDBPort::ColumnFamilyType::kWsv, "keY").second.ok());
+    ASSERT_TRUE(
+        common.filterDelete(1ull, RocksDBPort::ColumnFamilyType::kWsv, "keY")
+            .second.ok());
     ASSERT_TRUE(common.commit().ok());
   }
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_TRUE(common.get(RocksDBPort::ColumnFamilyType::kWsv, key1_).IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, key1_).IsNotFound());
   }
   {
     ASSERT_TRUE(readDb(key2_) == value2_);
@@ -465,13 +473,17 @@ TEST_F(RocksDBTest, FilterDelete2) {
 TEST_F(RocksDBTest, FilterDelete3) {
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_TRUE(common.filterDelete(1000ull, RocksDBPort::ColumnFamilyType::kWsv, "keY").second.ok());
+    ASSERT_TRUE(
+        common.filterDelete(1000ull, RocksDBPort::ColumnFamilyType::kWsv, "keY")
+            .second.ok());
     ASSERT_TRUE(common.commit().ok());
   }
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_TRUE(common.get(RocksDBPort::ColumnFamilyType::kWsv, key1_).IsNotFound());
-    ASSERT_TRUE(common.get(RocksDBPort::ColumnFamilyType::kWsv, key2_).IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, key1_).IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, key2_).IsNotFound());
   }
   {
     ASSERT_TRUE(readDb(key3_) == value3_);
@@ -489,7 +501,8 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys2) {
         if (it->key().ToStringView() != key4_)
           throw;
         return true;
-      },RocksDBPort::ColumnFamilyType::kWsv,
+      },
+      RocksDBPort::ColumnFamilyType::kWsv,
       "key");
   ASSERT_TRUE(status.ok());
   ASSERT_EQ(counter, 1);
@@ -502,7 +515,8 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys3) {
                       [&](auto const &it, auto key_size) mutable {
                         throw;
                         return false;
-                      },RocksDBPort::ColumnFamilyType::kWsv,
+                      },
+                      RocksDBPort::ColumnFamilyType::kWsv,
                       "keyT")
                   .ok());
   ASSERT_TRUE(common
@@ -510,7 +524,8 @@ TEST_F(RocksDBTest, SimpleEnumerateKeys3) {
                       [&](auto const &it, auto key_size) mutable {
                         throw;
                         return false;
-                      },RocksDBPort::ColumnFamilyType::kWsv,
+                      },
+                      RocksDBPort::ColumnFamilyType::kWsv,
                       "ko")
                   .ok());
 }
@@ -524,13 +539,15 @@ TEST_F(RocksDBTest, NumberRewrite) {
   {
     RocksDbCommon common(tx_context_);
     common.encode(55ull);
-    ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "{}", "123").ok());
+    ASSERT_TRUE(
+        common.put(RocksDBPort::ColumnFamilyType::kWsv, "{}", "123").ok());
     ASSERT_TRUE(common.commit().ok());
   }
   uint64_t value;
   {
     RocksDbCommon common(tx_context_);
-    ASSERT_TRUE(common.get(RocksDBPort::ColumnFamilyType::kWsv, "{}", "123").ok());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, "{}", "123").ok());
     common.decode(value);
   }
   ASSERT_TRUE(value == 55ull);
@@ -546,7 +563,8 @@ TEST_F(RocksDBTest, Skip) {
   {
     RocksDbCommon common(tx_context_);
     ASSERT_FALSE(common.get(RocksDBPort::ColumnFamilyType::kWsv, "123").ok());
-    ASSERT_TRUE(common.get(RocksDBPort::ColumnFamilyType::kWsv, "123").IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, "123").IsNotFound());
   }
 }
 
@@ -603,7 +621,8 @@ TEST_F(RocksDBTest, SortingOrder) {
         auto const key = it->key();
         s.push_back(std::string(key.ToStringView()));
         return true;
-      },RocksDBPort::ColumnFamilyType::kWsv,
+      },
+      RocksDBPort::ColumnFamilyType::kWsv,
       "");
 
   ASSERT_EQ(s[0], "1");
@@ -626,7 +645,8 @@ TEST_F(RocksDBTest, LowerBoundSearch) {
   common.valueBuffer().clear();
   ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, target2).ok());
   ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, target).ok());
-  ASSERT_TRUE(common.put(RocksDBPort::ColumnFamilyType::kWsv, "wta1234570#2#1").ok());
+  ASSERT_TRUE(
+      common.put(RocksDBPort::ColumnFamilyType::kWsv, "wta1234570#2#1").ok());
 
   {
     auto it = common.seek(RocksDBPort::ColumnFamilyType::kWsv, "wta0");
@@ -635,7 +655,8 @@ TEST_F(RocksDBTest, LowerBoundSearch) {
   }
 
   {
-    auto it = common.seek(RocksDBPort::ColumnFamilyType::kWsv, "wta1234411#0#0");
+    auto it =
+        common.seek(RocksDBPort::ColumnFamilyType::kWsv, "wta1234411#0#0");
     ASSERT_TRUE(it->Valid());
     ASSERT_TRUE(it->key().ToStringView() == target);
   }
@@ -697,7 +718,8 @@ TEST_F(RocksDBTest, Signatories) {
 
         ++counter;
         return true;
-      },RocksDBPort::ColumnFamilyType::kWsv,
+      },
+      RocksDBPort::ColumnFamilyType::kWsv,
       fmtstrings::kPathSignatories,
       "dom",
       "acc");
