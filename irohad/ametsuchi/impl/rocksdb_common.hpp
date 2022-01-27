@@ -588,7 +588,6 @@ namespace iroha::ametsuchi {
           column_families, &handles,
           &transaction_db);
 
-      //rocksdb::DB::ListColumnFamilies
       if (!status.ok())
         return makeError<void>(DbErrorCode::kInitializeFailed,
                                "Db '{}' initialization failed with status: {}.",
@@ -601,26 +600,6 @@ namespace iroha::ametsuchi {
         cf_handles[ix].handle = handles[ix];
       }
       transaction_db_.reset(transaction_db);
-
-      /*std::string value;
-      status = transaction_db_->Get(rocksdb::ReadOptions{}, handles[1], std::string_view("1"), &value);
-
-      transaction_db_->DropColumnFamily(handles[1]);
-      status = transaction_db_->Put(rocksdb::WriteOptions{}, handles[1], std::string_view("1"), std::string_view("2"));
-      transaction_db_->DestroyColumnFamilyHandle(handles[1]);
-
-      status = transaction_db_->CreateColumnFamily({}, "wsv", &handles[1]);
-      status = transaction_db_->Put(rocksdb::WriteOptions{}, handles[1], std::string_view("1"), std::string_view("3"));
-
-      transaction_db_->DestroyColumnFamilyHandle(handles[0]);
-      transaction_db_->DestroyColumnFamilyHandle(handles[1]);
-      transaction_db_->DestroyColumnFamilyHandle(handles[2]);*/
-      /*delete handles[0];
-      delete handles[1];
-      delete handles[2];*/
-      //transaction_db_.reset();
-/*      rocksdb::ColumnFamilyHandle *handle = nullptr;
-      status = transaction_db_->CreateColumnFamily({}, "store", &handle);*/
       return {};
     }
 
