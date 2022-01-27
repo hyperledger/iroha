@@ -106,7 +106,7 @@ TEST_F(RocksDBIndexerTest, SimpleInsertTxByTs) {
         items[std::stoull(std::string(ts.ToStringView()))] =
             hash.ToStringView();
         return true;
-      },
+      }, RocksDBPort::ColumnFamilyType::kWsv,
       fmtstrings::kPathTransactionByTs,
       account_1_);
   ASSERT_TRUE(status.ok());
@@ -123,7 +123,7 @@ TEST_F(RocksDBIndexerTest, SimpleInsertTxByTs) {
         items[std::stoull(std::string(ts.ToStringView()))] =
             hash.ToStringView();
         return true;
-      },
+      },RocksDBPort::ColumnFamilyType::kWsv,
       fmtstrings::kPathTransactionByTs,
       account_2_);
   ASSERT_TRUE(status.ok());
@@ -218,7 +218,7 @@ TEST_F(RocksDBIndexerTest, SimpleCheckTxByPos) {
       [&](auto position, auto data) {
         items[std::string(position.ToStringView())] = data.ToStringView();
         return true;
-      },
+      },RocksDBPort::ColumnFamilyType::kWsv,
       fmtstrings::kPathTransactionByPosition,
       account_1_);
 
@@ -241,7 +241,7 @@ TEST_F(RocksDBIndexerTest, SimpleCheckTxByPos) {
       [&](auto position, auto data) {
         items[std::string(position.ToStringView())] = data.ToStringView();
         return true;
-      },
+      },RocksDBPort::ColumnFamilyType::kWsv,
       fmtstrings::kPathTransactionByPosition,
       account_2_);
 

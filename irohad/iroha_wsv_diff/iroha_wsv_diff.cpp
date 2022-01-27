@@ -839,6 +839,7 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
         assert(key.empty());
         return true;
       },
+      iroha::ametsuchi::RocksDBPort::ColumnFamilyType::kWsv,
       RDB_ROOT RDB_WSV);
   for (auto &[permaccid, gp_set] : grant_perms_map) {
     auto &acc = find_account_by_id(permaccid);
