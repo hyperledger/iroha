@@ -53,7 +53,7 @@ pub enum Error {
     },
     /// Empty path
     #[display(fmt = "Path specification empty")]
-    EmptyPath(),
+    EmptyPath,
     /// Middle path segment is missing. I.e. nothing was found at that key
     #[display(fmt = "{}: path segment not found", _0)]
     MissingSegment(Name),
@@ -165,7 +165,7 @@ impl Metadata {
                 actual: self.map.len(),
             });
         }
-        let key = path.last().ok_or_else(Error::EmptyPath)?;
+        let key = path.last().ok_or(Error::EmptyPath)?;
         let mut layer = self;
         for k in path.iter().take(path.len() - 1) {
             layer = match layer

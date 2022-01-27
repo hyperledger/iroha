@@ -9,6 +9,9 @@ on:
       - "**.toml"
       - "**.yml"
 
+      # Not part of the workspace
+      - "!wasm/**"
+
 env:
   CARGO_TERM_COLOR: always
 

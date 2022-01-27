@@ -13,10 +13,12 @@ use crate::{
     wsv::{WorldStateView, WorldTrait},
 };
 
-const WASM_ALLOC_FN: &str = "alloc";
+type WasmUsize = u32;
+
+const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
 const WASM_MEMORY_NAME: &str = "memory";
-const WASM_MAIN_FN_NAME: &str = "main";
-const EXECUTE_ISI_FN_NAME: &str = "execute_isi";
+const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
+const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
 const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
 
 /// `WebAssembly` execution error type
@@ -33,7 +35,7 @@ pub enum Error {
     ExportNotFound(#[source] anyhow::Error),
     /// Call to function exported from module failed
     #[error("Exported function call failed")]
-    ExportFnCall(#[source] Trap),
+    ExportFnCall(#[from] Trap),
     /// Some other error happened
     #[error(transparent)]
     Other(eyre::Error),
@@ -130,14 +132,19 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
     /// Host defined function which executes query. When calling this function, module
     /// serializes query to linear memory and provides offset and length as parameters
     ///
+    /// # Warning
+    ///
+    /// This function doesn't take ownership of the provided allocation
+    /// but it does transfer ownership of the result to the caller
+    ///
     /// # Errors
     ///
     /// If decoding or execution of the query fails
     fn execute_query(
         mut caller: Caller<State<W>>,
-        offset: u32,
-        len: u32,
-    ) -> Result<(u32, u32), Trap> {
+        offset: WasmUsize,
+        len: WasmUsize,
+    ) -> Result<(WasmUsize, WasmUsize), Trap> {
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
         let memory = Self::get_memory(&mut caller)?;
 
@@ -152,8 +159,8 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
             .map_err(|e| Trap::new(e.to_string()))?
             .encode();
 
-        let res_bytes_len: u32 = {
-            let res_bytes_len: Result<u32, _> = res_bytes.len().try_into();
+        let res_bytes_len: WasmUsize = {
+            let res_bytes_len: Result<WasmUsize, _> = res_bytes.len().try_into();
             res_bytes_len.map_err(|error| Trap::new(error.to_string()))?
         };
 
@@ -174,10 +181,19 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
     /// Host defined function which executes ISI. When calling this function, module
     /// serializes ISI to linear memory and provides offset and length as parameters
     ///
+    /// # Warning
+    ///
+    /// This function doesn't take ownership of the provided allocation
+    /// but it does tranasfer ownership of the result to the caller
+    ///
     /// # Errors
     ///
     /// If decoding or execution of the ISI fails
-    fn execute_isi(mut caller: Caller<State<W>>, offset: u32, len: u32) -> Result<(), Trap> {
+    fn execute_instruction(
+        mut caller: Caller<State<W>>,
+        offset: WasmUsize,
+        len: WasmUsize,
+    ) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
 
         // Accessing memory as a byte slice to avoid the use of unsafe
@@ -200,7 +216,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         let mut linker = Linker::new(engine);
 
         linker
-            .func_wrap("iroha", EXECUTE_ISI_FN_NAME, Self::execute_isi)
+            .func_wrap("iroha", EXECUTE_ISI_FN_NAME, Self::execute_instruction)
             .map_err(Error::Initialization)?;
 
         linker
@@ -210,13 +226,15 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         Ok(linker)
     }
 
-    fn get_alloc_fn(caller: &mut Caller<State<W>>) -> Result<TypedFunc<u32, u32>, Trap> {
+    fn get_alloc_fn(
+        caller: &mut Caller<State<W>>,
+    ) -> Result<TypedFunc<WasmUsize, WasmUsize>, Trap> {
         caller
             .get_export(WASM_ALLOC_FN)
             .ok_or_else(|| Trap::new(format!("{}: export not found", WASM_ALLOC_FN)))?
             .into_func()
             .ok_or_else(|| Trap::new(format!("{}: not a function", WASM_ALLOC_FN)))?
-            .typed::<u32, u32, _>(caller)
+            .typed::<WasmUsize, WasmUsize, _>(caller)
             .map_err(|_error| Trap::new(format!("{}: unexpected declaration", WASM_ALLOC_FN)))
     }
 
@@ -257,7 +275,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
             .instantiate(&mut store, &module)
             .map_err(Error::Instantiation)?;
         let alloc_fn = instance
-            .get_typed_func::<u32, u32, _>(&mut store, WASM_ALLOC_FN)
+            .get_typed_func::<WasmUsize, WasmUsize, _>(&mut store, WASM_ALLOC_FN)
             .map_err(Error::ExportNotFound)?;
 
         let memory = instance
@@ -272,7 +290,10 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         let account_bytes_len = account_bytes
             .len()
             .try_into()
-            .wrap_err("Scale encoded account ID has size larger than u32::MAX")
+            .wrap_err(format!(
+                "Encoded account ID has size larger than {}::MAX",
+                std::any::type_name::<WasmUsize>()
+            ))
             .map_err(Error::Other)?;
 
         let account_offset = {
@@ -286,11 +307,13 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
             acc_offset
         };
 
-        let main = instance
-            .get_typed_func::<(u32, u32), (), _>(&mut store, WASM_MAIN_FN_NAME)
+        let main_fn = instance
+            .get_typed_func::<(WasmUsize, WasmUsize), (), _>(&mut store, WASM_MAIN_FN_NAME)
             .map_err(Error::ExportNotFound)?;
 
-        main.call(&mut store, (account_offset, account_bytes_len))
+        // NOTE: This function takes ownership of the pointer
+        main_fn
+            .call(&mut store, (account_offset, account_bytes_len))
             .map_err(Error::ExportFnCall)?;
 
         Ok(())

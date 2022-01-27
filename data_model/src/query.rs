@@ -145,7 +145,7 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_mac
 
 /// Sized container for all possible Query results.
 #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct QueryResult(pub Value);
 
 #[cfg(all(feature = "std", feature = "warp"))]

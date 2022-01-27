@@ -1100,7 +1100,7 @@ pub mod asset {
     //! instructions implementations.
 
     #[cfg(not(feature = "std"))]
-    use alloc::{collections::btree_map, string::String, vec::Vec};
+    use alloc::{collections::btree_map, format, string::String, vec::Vec};
     use core::{
         cmp::Ordering,
         fmt::{self, Display, Formatter},
@@ -1633,7 +1633,7 @@ pub mod domain {
     //! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
 
     #[cfg(not(feature = "std"))]
-    use alloc::{collections::btree_map, string::String, vec::Vec};
+    use alloc::{collections::btree_map, format, string::String, vec::Vec};
     use core::{cmp::Ordering, fmt, str::FromStr};
     #[cfg(feature = "std")]
     use std::collections::btree_map;
@@ -1823,7 +1823,7 @@ pub mod peer {
     //! This module contains [`Peer`] structure and related implementations and traits implementations.
 
     #[cfg(not(feature = "std"))]
-    use alloc::{string::String, vec::Vec};
+    use alloc::{format, string::String, vec::Vec};
     use core::{
         cmp::Ordering,
         fmt,
