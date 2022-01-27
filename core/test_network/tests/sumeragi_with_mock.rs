@@ -309,12 +309,7 @@ where
         .find(|(leader, _)| if to_leader { *leader } else { !*leader })
         .unwrap();
     let peer = network.peer_by_id(&peer).unwrap();
-    peer.iroha
-        .as_ref()
-        .unwrap()
-        .queue
-        .push(tx, &*peer.iroha.as_ref().unwrap().wsv)
-        .unwrap();
+    peer.iroha.as_ref().unwrap().queue.push(tx).unwrap();
 }
 
 async fn put_tx_in_queue_to_all<W, G, S, K, B>(network: &Network<W, G, K, S, B>)
@@ -327,12 +322,7 @@ where
 {
     let tx = world::sign_tx(vec![]);
     for peer in network.peers() {
-        peer.iroha
-            .as_ref()
-            .unwrap()
-            .queue
-            .push(tx.clone(), &*peer.iroha.as_ref().unwrap().wsv)
-            .unwrap();
+        peer.iroha.as_ref().unwrap().queue.push(tx.clone()).unwrap();
     }
 }
 

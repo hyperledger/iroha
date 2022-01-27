@@ -87,7 +87,7 @@ pub struct Iroha<
     /// World state view
     pub wsv: Arc<WorldStateView<W>>,
     /// Queue of transactions
-    pub queue: Arc<Queue>,
+    pub queue: Arc<Queue<W>>,
     /// Sumeragi consensus
     pub sumeragi: AlwaysAddr<S>,
     /// Kura - block storage
@@ -220,8 +220,8 @@ where
             )
             .with_events(events_sender.clone()),
         );
-        let queue = Arc::new(Queue::from_configuration(&config.queue));
 
+        let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
         let telemetry_started = Self::start_telemetry(telemetry, &config).await?;
         let query_validator = Arc::new(query_validator);
         let kura = K::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())

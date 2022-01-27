@@ -41,7 +41,7 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
             )),
         ),
     );
-    let queue = Arc::new(Queue::from_configuration(&config.queue));
+    let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
     let network = IrohaNetwork::new(
         Broker::new(),
         config.torii.p2p_addr.clone(),
