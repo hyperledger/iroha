@@ -452,7 +452,7 @@ RocksDbSpecificQueryExecutor::readTxs(
 
       if (ordering_ptr->field
           == shared_model::interface::Ordering::Field::kCreatedTime) {
-        auto it = common.template seek(fmtstrings::kTransactionByTs,
+        auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,fmtstrings::kTransactionByTs,
                                        query.accountId(),
                                        tx_ts,
                                        tx_height,
@@ -463,7 +463,7 @@ RocksDbSpecificQueryExecutor::readTxs(
                                         fmtstrings::kPathTransactionByTs,
                                         query.accountId());
       } else {
-        auto it = common.template seek(fmtstrings::kTransactionByPosition,
+        auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,fmtstrings::kTransactionByPosition,
                                        query.accountId(),
                                        tx_height,
                                        tx_index,
@@ -478,7 +478,7 @@ RocksDbSpecificQueryExecutor::readTxs(
   } else {
     if (ordering_ptr->field
         == shared_model::interface::Ordering::Field::kCreatedTime) {
-      auto it = common.template seek(fmtstrings::kTransactionByTsLowerBound,
+      auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,fmtstrings::kTransactionByTsLowerBound,
                                      query.accountId(),
                                      bounds.tsFrom);
       status = enumerateKeysAndValues(common,
@@ -487,7 +487,7 @@ RocksDbSpecificQueryExecutor::readTxs(
                                       fmtstrings::kPathTransactionByTs,
                                       query.accountId());
     } else {
-      auto it = common.template seek(fmtstrings::kTransactionByHeight,
+      auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,fmtstrings::kTransactionByHeight,
                                      query.accountId(),
                                      bounds.heightFrom);
       status = enumerateKeysAndValues(common,
@@ -695,7 +695,7 @@ operator()(
           next_asset_id = asset.ToStringView();
           return false;
         }
-      },
+      },RocksDBPort::ColumnFamilyType::kWsv,
       fmtstrings::kPathAccountAssets,
       domain_id,
       account_name);
@@ -803,7 +803,7 @@ operator()(
                                   assert(!"Role can not be empty string!");
                                 }
                                 return true;
-                              },
+                              },RocksDBPort::ColumnFamilyType::kWsv,
                               fmtstrings::kPathRoles);
   RDB_ERROR_CHECK(canExist(status, [&] { return "Enumerate roles"; }));
 
@@ -949,7 +949,7 @@ operator()(
               std::nullopt,
               syncing_peer));
           return true;
-        },
+        },RocksDBPort::ColumnFamilyType::kWsv,
         path);
   };
 
