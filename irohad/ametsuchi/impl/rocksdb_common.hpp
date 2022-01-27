@@ -739,6 +739,11 @@ namespace iroha::ametsuchi {
       return tx_context_;
     }
 
+    auto &port() {
+      assert(tx_context_);
+      return tx_context_->db_port;
+    }
+
    private:
     auto &transaction() {
       if (!tx_context_->transaction)
@@ -804,37 +809,44 @@ namespace iroha::ametsuchi {
         c->commit();
     }
 
+    auto getHandle(RocksDBPort::ColumnFamilyType type) {
+      assert(type < RocksDBPort::ColumnFamilyType::kTotal);
+      assert(port()->cf_handles[type].handle != nullptr);
+
+      return port()->cf_handles[type].handle;
+    }
+
    public:
     template <typename LoggerT>
     void printStatus(LoggerT &log) {
-      tx_context_->db_port->printStatus(log);
+      port()->printStatus(log);
     }
 
     auto propGetBlockCacheUsage() {
-      return tx_context_->db_port->getPropUInt64("rocksdb.block-cache-usage");
+      return port()->getPropUInt64("rocksdb.block-cache-usage");
     }
 
     auto propGetCurSzAllMemTables() {
-      return tx_context_->db_port->getPropUInt64(
+      return port()->getPropUInt64(
           "rocksdb.cur-size-all-mem-tables");
     }
 
     auto propGetNumSnapshots() {
-      return tx_context_->db_port->getPropUInt64("rocksdb.num-snapshots");
+      return port()->getPropUInt64("rocksdb.num-snapshots");
     }
 
     auto propGetTotalSSTFilesSize() {
-      return tx_context_->db_port->getPropUInt64(
+      return port()->getPropUInt64(
           "rocksdb.total-sst-files-size");
     }
 
     auto propGetBlockCacheCapacity() {
-      return tx_context_->db_port->getPropUInt64(
+      return port()->getPropUInt64(
           "rocksdb.block-cache-capacity");
     }
 
     auto reinit() {
-      return tx_context_->db_port->reinitDB();
+      return port()->reinitDB();
     }
 
     /// Makes commit to DB
@@ -915,7 +927,7 @@ namespace iroha::ametsuchi {
 
     /// Read data from database to @see valueBuffer
     template <typename S, typename... Args>
-    auto get(S const &fmtstring, Args &&... args) {
+    auto get(RocksDBPort::ColumnFamilyType cf_type, S const &fmtstring, Args &&... args) {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
@@ -933,7 +945,7 @@ namespace iroha::ametsuchi {
       rocksdb::ReadOptions ro;
       ro.fill_cache = false;
 
-      auto status = transaction()->Get(ro, slice, &valueBuffer());
+      auto status = transaction()->Get(ro, getHandle(cf_type), slice, &valueBuffer());
       if (status.ok())
         storeCommit(slice.ToStringView());
 
@@ -942,12 +954,12 @@ namespace iroha::ametsuchi {
 
     /// Put data from @see valueBuffer to database
     template <typename S, typename... Args>
-    auto put(S const &fmtstring, Args &&... args) {
+    auto put(RocksDBPort::ColumnFamilyType cf_type, S const &fmtstring, Args &&... args) {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
       rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
-      auto status = transaction()->Put(slice, valueBuffer());
+      auto status = transaction()->Put(getHandle(cf_type), slice, valueBuffer());
 
       if (status.ok())
         storeInCache(slice.ToStringView());
@@ -957,7 +969,7 @@ namespace iroha::ametsuchi {
 
     /// Delete database entry by the key
     template <typename S, typename... Args>
-    auto del(S const &fmtstring, Args &&... args) {
+    auto del(RocksDBPort::ColumnFamilyType cf_type, S const &fmtstring, Args &&... args) {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
@@ -965,19 +977,19 @@ namespace iroha::ametsuchi {
       if (auto c = cache(); c && c->isCacheable(slice.ToStringView()))
         c->erase(slice.ToStringView());
 
-      return transaction()->Delete(slice);
+      return transaction()->Delete(getHandle(cf_type), slice);
     }
 
     /// Searches for the first key that matches a prefix
     template <typename S, typename... Args>
-    auto seek(S const &fmtstring, Args &&... args) {
+    auto seek(RocksDBPort::ColumnFamilyType cf_type, S const &fmtstring, Args &&... args) {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
       rocksdb::ReadOptions ro;
       ro.fill_cache = false;
 
-      std::unique_ptr<rocksdb::Iterator> it(transaction()->GetIterator(ro));
+      std::unique_ptr<rocksdb::Iterator> it(transaction()->GetIterator(ro, getHandle(cf_type)));
       it->Seek(rocksdb::Slice(keyBuffer().data(), keyBuffer().size()));
 
       return it;
@@ -998,17 +1010,17 @@ namespace iroha::ametsuchi {
     /// Iterate over all the keys that matches a prefix and call lambda
     /// with key-value. To stop enumeration callback F must return false.
     template <typename F, typename S, typename... Args>
-    auto enumerate(F &&func, S const &fmtstring, Args &&... args) {
-      auto it = seek(fmtstring, std::forward<Args>(args)...);
+    auto enumerate(F &&func, RocksDBPort::ColumnFamilyType cf_type,S const &fmtstring, Args &&... args) {
+      auto it = seek(cf_type, fmtstring, std::forward<Args>(args)...);
       return enumerate(it, std::forward<F>(func));
     }
 
     /// Removes range of items by key-filter
     template <typename S, typename... Args>
-    auto filterDelete(uint64_t delete_count,
+    auto filterDelete(uint64_t delete_count, RocksDBPort::ColumnFamilyType cf_type,
                       S const &fmtstring,
                       Args &&... args) -> std::pair<bool, rocksdb::Status> {
-      auto it = seek(fmtstring, std::forward<Args>(args)...);
+      auto it = seek(cf_type, fmtstring, std::forward<Args>(args)...);
       if (!it->status().ok())
         return std::make_pair<bool, rocksdb::Status>(false, it->status());
 
@@ -1019,7 +1031,7 @@ namespace iroha::ametsuchi {
       bool was_deleted = false;
       for (; delete_count-- && it->Valid() && it->key().starts_with(key);
            it->Next()) {
-        if (auto status = transaction()->Delete(it->key()); !status.ok())
+        if (auto status = transaction()->Delete(getHandle(cf_type), it->key()); !status.ok())
           return std::pair<bool, rocksdb::Status>(was_deleted, status);
         else
           was_deleted = true;
@@ -1059,6 +1071,7 @@ namespace iroha::ametsuchi {
   template <typename F, typename S, typename... Args>
   inline auto enumerateKeys(RocksDbCommon &rdb,
                             F &&func,
+                            RocksDBPort::ColumnFamilyType cf_type,
                             S const &strformat,
                             Args &&... args) {
     static_assert(
@@ -1075,6 +1088,7 @@ namespace iroha::ametsuchi {
                   - fmtstrings::kDelimiterCountForAField
                       * fmtstrings::kDelimiterSize));
         },
+        cf_type,
         strformat,
         std::forward<Args>(args)...);
   }
@@ -1098,9 +1112,11 @@ namespace iroha::ametsuchi {
   template <typename F, typename S, typename... Args>
   inline auto enumerateKeysAndValues(RocksDbCommon &rdb,
                                      F &&func,
+                                     RocksDBPort::ColumnFamilyType cf_type,
                                      S const &strformat,
                                      Args &&... args) {
     return rdb.enumerate(makeKVLambda(std::forward<F>(func)),
+                         cf_type,
                          strformat,
                          std::forward<Args>(args)...);
   }
@@ -1869,6 +1885,7 @@ namespace iroha::ametsuchi {
                                   }
                                   return true;
                                 },
+          RocksDBPort::ColumnFamilyType::kWsv,
                                 fmtstrings::kPathAccountRoles,
                                 domain,
                                 account);
@@ -2045,6 +2062,7 @@ namespace iroha::ametsuchi {
 
           return true;
         },
+        RocksDBPort::ColumnFamilyType::kWsv,
         fmtstrings::kPathAccountDetail,
         domain,
         account);
