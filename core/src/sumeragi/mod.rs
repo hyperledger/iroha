@@ -163,7 +163,7 @@ where
 {
     key_pair: KeyPair,
     /// Address of queue
-    pub queue: Arc<Queue>,
+    pub queue: Arc<Queue<W>>,
     /// The current topology of the peer to peer network.
     pub topology: Topology,
     /// The peer id of myself.
@@ -243,7 +243,7 @@ pub trait SumeragiTrait:
         is_query_allowed: Arc<IsQueryAllowedBoxed<Self::World>>,
         telemetry_started: bool,
         genesis_network: Option<Self::GenesisNetwork>,
-        queue: Arc<Queue>,
+        queue: Arc<Queue<Self::World>>,
         broker: Broker,
         kura: AlwaysAddr<Self::Kura>,
         network: Addr<IrohaNetwork>,
@@ -265,7 +265,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
         is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
         telemetry_started: bool,
         genesis_network: Option<G>,
-        queue: Arc<Queue>,
+        queue: Arc<Queue<W>>,
         broker: Broker,
         kura: AlwaysAddr<K>,
         network: Addr<IrohaNetwork>,
@@ -368,7 +368,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         if self.voting_in_progress().await {
             return;
         }
-        let txs = self.queue.get_transactions_for_block(&*self.wsv);
+        let txs = self.queue.get_transactions_for_block();
         if let Err(error) = self.round(txs, ctx).await {
             error!(%error, "Round failed");
         }
@@ -383,9 +383,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Han
     async fn handle(&mut self, Gossip: Gossip) {
         // Select N random transactions and gossip them.
         // This is done for peer not to DOS themselves under high tx load.
-        let txs = self
-            .queue
-            .n_random_transactions(&*self.wsv, self.gossip_batch_size);
+        let txs = self.queue.n_random_transactions(self.gossip_batch_size);
         self.gossip_transactions(txs).await;
     }
 }
@@ -1607,10 +1605,7 @@ pub mod message {
             self,
             sumeragi: &mut SumeragiWithFault<G, K, W, F>,
         ) -> Result<()> {
-            match sumeragi
-                .queue
-                .push(self.transaction.clone(), &*sumeragi.wsv)
-            {
+            match sumeragi.queue.push(self.transaction.clone()) {
                 Ok(()) if sumeragi.is_leader() => {
                     VersionedMessage::from(Message::TransactionReceived(TransactionReceipt::new(
                         &self.transaction,
@@ -1652,7 +1647,7 @@ pub mod message {
             sumeragi: &mut SumeragiWithFault<G, K, W, F>,
         ) -> Result<()> {
             for tx in self.txs {
-                match sumeragi.queue.push(tx, &*sumeragi.wsv) {
+                match sumeragi.queue.push(tx) {
                     Err((_, queue::Error::InBlockchain)) | Ok(()) => {}
                     Err((_, err)) => {
                         iroha_logger::warn!(?err, "Failed to push into queue gossiped transaction.")
