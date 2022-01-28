@@ -331,8 +331,8 @@ Irohad::RunResult Irohad::initStorage(
       cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_ROLES);
       cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN);
 
-      db_context_ =
-          std::make_shared<ametsuchi::RocksDBContext>(std::move(rdb_port));
+      db_context_ = std::make_shared<ametsuchi::RocksDBContext>(
+          std::move(rdb_port), std::move(cache));
     } break;
 
     default:
