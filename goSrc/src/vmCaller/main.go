@@ -47,6 +47,11 @@ type EngineWrapper struct {
 	eventSink exec.EventSink
 }
 
+//export tryExport
+func tryExport(storage unsafe.Pointer) {
+	fmt.Println("called succesfully from c++")
+}
+
 //export VmCall
 func VmCall(input, caller, callee, nonce *C.const_char, commandExecutor, queryExecutor, storage unsafe.Pointer) (*C.char, *C.char) {
 	// Update global executors and Caller

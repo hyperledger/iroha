@@ -14,6 +14,10 @@
 
 using namespace iroha::ametsuchi;
 
+void BurrowVmCaller::exportBurrow(PostgresBurrowStorage &burrowStorage) const  {
+  tryExport(&burrowStorage);
+}
+
 iroha::expected::Result<std::optional<std::string>, std::string>
 BurrowVmCaller::call(
     std::string const &tx_hash,

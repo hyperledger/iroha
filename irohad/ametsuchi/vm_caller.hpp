@@ -19,11 +19,12 @@ namespace iroha::ametsuchi {
   class BurrowStorage;
   class CommandExecutor;
   class SpecificQueryExecutor;
+  class PostgresBurrowStorage;
 
   class VmCaller {
    public:
     virtual ~VmCaller() = default;
-
+    virtual void exportBurrow(PostgresBurrowStorage &burrowStorage) const = 0;
     virtual iroha::expected::Result<std::optional<std::string>, std::string>
     call(std::string const &tx_hash,
          shared_model::interface::types::CommandIndexType cmd_index,
@@ -34,6 +35,7 @@ namespace iroha::ametsuchi {
          BurrowStorage &burrow_storage,
          CommandExecutor &command_executor,
          SpecificQueryExecutor &query_executor) const = 0;
+    // virtual void setBurrowHandler() const = 0;
   };
 }  // namespace iroha::ametsuchi
 
