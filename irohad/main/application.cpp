@@ -140,7 +140,9 @@ Irohad::Irohad(
   // initialization of iroha daemon
 
   if (auto e = expected::resultToOptionalError(initPendingTxsStorage() | [&] {
-
+#if defined(USE_BURROW)
+        vm_caller_ = std::make_unique<iroha::ametsuchi::BurrowVmCaller>();
+#endif
         return initStorage(
             startup_wsv_data_policy,
             config_.database_config
@@ -150,10 +152,6 @@ Irohad::Irohad(
       })) {
     log_->error("Storage initialization failed: {}", e.value());
   }
-  #if defined(USE_BURROW)
-        // create and pass burrow storage here
-        vm_caller_ = std::make_unique<iroha::ametsuchi::BurrowVmCaller>();
-  #endif
 }
 
 Irohad::~Irohad() {
@@ -259,7 +257,11 @@ Irohad::RunResult Irohad::initStorage(
   query_response_factory_ =
       std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
 
-  
+  std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
+      vm_caller_ref;
+  if (vm_caller_) {
+    vm_caller_ref = *vm_caller_.value();
+  }
 
   auto storage_creator = [&]() -> RunResult {
     auto process_block =
@@ -329,19 +331,13 @@ Irohad::RunResult Irohad::initStorage(
       cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_ROLES);
       cache->addCacheblePath(RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN);
 
-      db_context_ = std::make_shared<ametsuchi::RocksDBContext>(
-          std::move(rdb_port), std::move(cache));
+      db_context_ =
+          std::make_shared<ametsuchi::RocksDBContext>(std::move(rdb_port));
     } break;
 
     default:
       return iroha::expected::makeError<std::string>(
           "Unexpected storage type!");
-  }
-  std::optional<std::reference_wrapper<const iroha::ametsuchi::VmCaller>>
-      vm_caller_ref;
-  if (vm_caller_) {
-    vm_caller_.setDbConnection(connection from pool wrapper)
-    vm_caller_ref = *vm_caller_.value();
   }
   return storage_creator();
 }
