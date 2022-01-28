@@ -1528,7 +1528,7 @@ namespace iroha {
               target.t caller,
               engine_calls.callee,
               engine_calls.created_address,
-              coalesce(engine_calls.engine_response, engine_calls.engine_err_response),
+              engine_calls.engine_response,
               burrow_tx_logs.log_idx,
               burrow_tx_logs.address,
               burrow_tx_logs.data,
