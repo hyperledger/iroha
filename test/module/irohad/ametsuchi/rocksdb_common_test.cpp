@@ -381,6 +381,57 @@ TEST_F(RocksDBTest, SimpleDelete) {
   ASSERT_TRUE(status.IsNotFound());
 }
 
+TEST_F(RocksDBTest, RemoveTableTest) {
+  {
+    RocksDbCommon common(tx_context_);
+    common.valueBuffer() = "aaa";
+    ASSERT_TRUE(
+        common.put(RocksDBPort::ColumnFamilyType::kWsv, "test_key").ok());
+    ASSERT_TRUE(
+        common.put(RocksDBPort::ColumnFamilyType::kStore, "test_key").ok());
+    ASSERT_TRUE(common.commit().ok());
+
+    common.valueBuffer().clear();
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "aaa");
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kStore, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "aaa");
+    ASSERT_TRUE(common.commit().ok());
+
+    common.dropTable(RocksDBPort::ColumnFamilyType::kWsv);
+    ASSERT_TRUE(common.get(RocksDBPort::ColumnFamilyType::kWsv, "test_key")
+                    .IsNotFound());
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kStore, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "aaa");
+
+    common.valueBuffer() = "bbb";
+    ASSERT_TRUE(
+        common.put(RocksDBPort::ColumnFamilyType::kWsv, "test_key").ok());
+    ASSERT_TRUE(common.commit().ok());
+
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "bbb");
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kStore, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "aaa");
+  }
+  {
+    RocksDbCommon common(tx_context_);
+    common.valueBuffer().clear();
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kWsv, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "bbb");
+    ASSERT_TRUE(
+        common.get(RocksDBPort::ColumnFamilyType::kStore, "test_key").ok());
+    ASSERT_TRUE(common.valueBuffer() == "aaa");
+    ASSERT_TRUE(common.commit().ok());
+  }
+}
+
 TEST_F(RocksDBTest, SimpleInsert) {
   RocksDbCommon common(tx_context_);
 
