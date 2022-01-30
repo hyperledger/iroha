@@ -20,7 +20,9 @@ namespace {
       const shared_model::interface::types::SettingKeyType &key,
       uint64_t &destination) {
     RocksDbCommon common(db_context);
-    auto status = common.get(fmtstrings::kSetting, kMaxDescriptionSizeKey);
+    auto status = common.get(RocksDBPort::ColumnFamilyType::kWsv,
+                             fmtstrings::kSetting,
+                             kMaxDescriptionSizeKey);
 
     if (auto result = iroha::ametsuchi::canExist(
             status, [&] { return fmt::format("Max description size key"); });

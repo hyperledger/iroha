@@ -39,7 +39,8 @@ namespace iroha::ametsuchi {
 
     void commit() override {
       RocksDbCommon common(tx_context_);
-      common.commit();
+      if (!common.commit().ok())
+        throw std::runtime_error("RocksDb commit failed.");
     }
 
     void rollback() override {

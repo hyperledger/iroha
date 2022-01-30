@@ -7,6 +7,7 @@
 #define IROHA_ROCKSDB_COMMON_HPP
 
 #include <charconv>
+#include <iostream>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -17,8 +18,8 @@
 #include <rocksdb/db.h>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/table.h>
-#include <rocksdb/utilities/optimistic_transaction_db.h>
 #include <rocksdb/utilities/transaction.h>
+#include <rocksdb/utilities/transaction_db.h>
 #include "ametsuchi/impl/database_cache/cache.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "common/disable_warnings.h"
@@ -434,6 +435,11 @@ namespace iroha::ametsuchi {
       assert(db_port);
     }
 
+    ~RocksDBContext() {
+      transaction.reset();
+      db_port.reset();
+    }
+
    private:
     friend class RocksDbCommon;
     friend struct RocksDBPort;
@@ -491,7 +497,7 @@ namespace iroha::ametsuchi {
   /**
    * Port to provide access to RocksDB instance.
    */
-  struct RocksDBPort {
+  struct RocksDBPort final {
     RocksDBPort(RocksDBPort const &) = delete;
     RocksDBPort &operator=(RocksDBPort const &) = delete;
     RocksDBPort() = default;
@@ -501,14 +507,54 @@ namespace iroha::ametsuchi {
       return reinitDB();
     }
 
+    enum ColumnFamilyType {
+      kDefault,
+      kWsv,
+      kStore,
+      //////
+      kTotal
+    };
+
+    ~RocksDBPort() {
+      closeDb();
+    }
+
    private:
+    struct {
+      std::string name;
+      rocksdb::ColumnFamilyHandle *handle;
+    } cf_handles[ColumnFamilyType::kTotal] = {
+        {rocksdb::kDefaultColumnFamilyName, nullptr},
+        {"wsv", nullptr},
+        {"store", nullptr}};
+
+    void closeDb() {
+      for (auto &cf : cf_handles)
+        if (nullptr != cf.handle) {
+          transaction_db_->DestroyColumnFamilyHandle(cf.handle);
+          cf.handle = nullptr;
+        }
+      transaction_db_.reset();
+    }
+
+    void dropColumnFamily(ColumnFamilyType type) {
+      assert(type < ColumnFamilyType::kTotal);
+      auto &cf = cf_handles[type];
+
+      if (cf.handle) {
+        assert(transaction_db_);
+        transaction_db_->DropColumnFamily(cf.handle);
+        transaction_db_->DestroyColumnFamilyHandle(cf.handle);
+        transaction_db_->CreateColumnFamily({}, cf.name, &cf.handle);
+      }
+    }
+
     expected::Result<void, DbError> reinitDB() {
       assert(db_name_);
-      transaction_db_.reset();
+      closeDb();
 
       rocksdb::BlockBasedTableOptions table_options;
-      table_options.block_cache =
-          rocksdb::NewLRUCache(1 * 1024 * 1024 * 1024LL);
+      table_options.block_cache = rocksdb::NewLRUCache(512 * 1024 * 1024LL);
       table_options.block_size = 32 * 1024;
       // table_options.pin_l0_filter_and_index_blocks_in_cache = true;
       table_options.cache_index_and_filter_blocks = true;
@@ -517,14 +563,32 @@ namespace iroha::ametsuchi {
 
       rocksdb::Options options;
       options.create_if_missing = true;
+      options.create_missing_column_families = true;
       options.max_open_files = 100;
       options.optimize_filters_for_hits = true;
       options.table_factory.reset(
           rocksdb::NewBlockBasedTableFactory(table_options));
 
-      rocksdb::OptimisticTransactionDB *transaction_db;
-      auto status = rocksdb::OptimisticTransactionDB::Open(
-          options, *db_name_, &transaction_db);
+      /// print all column families
+      std::vector<std::string> colfam;
+      rocksdb::DB::ListColumnFamilies(options, *db_name_, &colfam);
+      std::cout << "RocksDB detected column families:" << std::endl;
+      for (auto const &cf : colfam) std::cout << cf << std::endl;
+
+      std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+      for (auto &cf : cf_handles)
+        column_families.emplace_back(
+            rocksdb::ColumnFamilyDescriptor{cf.name, {}});
+
+      std::vector<rocksdb::ColumnFamilyHandle *> handles;
+      rocksdb::TransactionDB *transaction_db;
+      auto status =
+          rocksdb::TransactionDB::Open(options,
+                                       rocksdb::TransactionDBOptions(),
+                                       *db_name_,
+                                       column_families,
+                                       &handles,
+                                       &transaction_db);
 
       if (!status.ok())
         return makeError<void>(DbErrorCode::kInitializeFailed,
@@ -532,14 +596,13 @@ namespace iroha::ametsuchi {
                                *db_name_,
                                status.ToString());
 
+      assert(ColumnFamilyType::kTotal == handles.size());
+      for (uint32_t ix = 0; ix < handles.size(); ++ix) {
+        assert(handles[ix]->GetName() == cf_handles[ix].name);
+        cf_handles[ix].handle = handles[ix];
+      }
       transaction_db_.reset(transaction_db);
       return {};
-    }
-
-    void flushDB() {
-      assert(transaction_db_);
-      assert(transaction_db_->Flush(rocksdb::FlushOptions()).ok());
-      assert(transaction_db_->FlushWAL(true).ok());
     }
 
     template <typename LoggerT>
@@ -584,27 +647,18 @@ namespace iroha::ametsuchi {
       return std::nullopt;
     }
 
-    std::optional<std::string> getPropStr(const rocksdb::Slice &property) {
-      if (transaction_db_) {
-        std::string value;
-        transaction_db_->GetProperty(property, &value);
-        return value;
-      }
-      return std::nullopt;
-    }
-
    private:
-    std::unique_ptr<rocksdb::OptimisticTransactionDB> transaction_db_;
+    std::unique_ptr<rocksdb::TransactionDB> transaction_db_;
     std::optional<std::string> db_name_;
     friend class RocksDbCommon;
 
     void prepareTransaction(RocksDBContext &tx_context) {
       assert(transaction_db_);
       if (tx_context.transaction) {
-        auto result = transaction_db_->BeginTransaction(
-            rocksdb::WriteOptions(),
-            rocksdb::OptimisticTransactionOptions(),
-            tx_context.transaction.get());
+        [[maybe_unused]] auto result =
+            transaction_db_->BeginTransaction(rocksdb::WriteOptions(),
+                                              rocksdb::TransactionOptions(),
+                                              tx_context.transaction.get());
         assert(result == tx_context.transaction.get());
       } else {
         tx_context.transaction.reset(
@@ -663,6 +717,11 @@ namespace iroha::ametsuchi {
 
     auto &context() {
       return tx_context_;
+    }
+
+    auto &port() {
+      assert(tx_context_);
+      return tx_context_->db_port;
     }
 
    private:
@@ -730,50 +789,53 @@ namespace iroha::ametsuchi {
         c->commit();
     }
 
+    auto getHandle(RocksDBPort::ColumnFamilyType type) {
+      assert(type < RocksDBPort::ColumnFamilyType::kTotal);
+      assert(port()->cf_handles[type].handle != nullptr);
+
+      return port()->cf_handles[type].handle;
+    }
+
    public:
     template <typename LoggerT>
     void printStatus(LoggerT &log) {
-      tx_context_->db_port->printStatus(log);
+      port()->printStatus(log);
     }
 
     auto propGetBlockCacheUsage() {
-      return tx_context_->db_port->getPropUInt64("rocksdb.block-cache-usage");
+      return port()->getPropUInt64("rocksdb.block-cache-usage");
     }
 
     auto propGetCurSzAllMemTables() {
-      return tx_context_->db_port->getPropUInt64(
-          "rocksdb.cur-size-all-mem-tables");
+      return port()->getPropUInt64("rocksdb.cur-size-all-mem-tables");
     }
 
     auto propGetNumSnapshots() {
-      return tx_context_->db_port->getPropUInt64("rocksdb.num-snapshots");
+      return port()->getPropUInt64("rocksdb.num-snapshots");
     }
 
     auto propGetTotalSSTFilesSize() {
-      return tx_context_->db_port->getPropUInt64(
-          "rocksdb.total-sst-files-size");
+      return port()->getPropUInt64("rocksdb.total-sst-files-size");
     }
 
     auto propGetBlockCacheCapacity() {
-      return tx_context_->db_port->getPropUInt64(
-          "rocksdb.block-cache-capacity");
+      return port()->getPropUInt64("rocksdb.block-cache-capacity");
     }
 
     auto reinit() {
-      return tx_context_->db_port->reinitDB();
+      return port()->reinitDB();
     }
 
     /// Makes commit to DB
     auto commit() {
       rocksdb::Status status;
       if (isTransaction()) {
-        while ((status = transaction()->Commit()).IsTryAgain())
-          ;
-        context()->db_port->prepareTransaction(*tx_context_);
+        if ((status = transaction()->Commit()); !status.ok())
+          dropCache();
+        else
+          commitCache();
       }
-      commitCache();
-
-      assert(status.ok());
+      transaction().reset();
       return status;
     }
 
@@ -842,7 +904,9 @@ namespace iroha::ametsuchi {
 
     /// Read data from database to @see valueBuffer
     template <typename S, typename... Args>
-    auto get(S const &fmtstring, Args &&... args) {
+    auto get(RocksDBPort::ColumnFamilyType cf_type,
+             S const &fmtstring,
+             Args &&... args) {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
@@ -860,7 +924,8 @@ namespace iroha::ametsuchi {
       rocksdb::ReadOptions ro;
       ro.fill_cache = false;
 
-      auto status = transaction()->Get(ro, slice, &valueBuffer());
+      auto status =
+          transaction()->Get(ro, getHandle(cf_type), slice, &valueBuffer());
       if (status.ok())
         storeCommit(slice.ToStringView());
 
@@ -869,12 +934,15 @@ namespace iroha::ametsuchi {
 
     /// Put data from @see valueBuffer to database
     template <typename S, typename... Args>
-    auto put(S const &fmtstring, Args &&... args) {
+    auto put(RocksDBPort::ColumnFamilyType cf_type,
+             S const &fmtstring,
+             Args &&... args) {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
       rocksdb::Slice const slice(keyBuffer().data(), keyBuffer().size());
-      auto status = transaction()->Put(slice, valueBuffer());
+      auto status =
+          transaction()->Put(getHandle(cf_type), slice, valueBuffer());
 
       if (status.ok())
         storeInCache(slice.ToStringView());
@@ -884,7 +952,9 @@ namespace iroha::ametsuchi {
 
     /// Delete database entry by the key
     template <typename S, typename... Args>
-    auto del(S const &fmtstring, Args &&... args) {
+    auto del(RocksDBPort::ColumnFamilyType cf_type,
+             S const &fmtstring,
+             Args &&... args) {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
@@ -892,19 +962,22 @@ namespace iroha::ametsuchi {
       if (auto c = cache(); c && c->isCacheable(slice.ToStringView()))
         c->erase(slice.ToStringView());
 
-      return transaction()->Delete(slice);
+      return transaction()->Delete(getHandle(cf_type), slice);
     }
 
     /// Searches for the first key that matches a prefix
     template <typename S, typename... Args>
-    auto seek(S const &fmtstring, Args &&... args) {
+    auto seek(RocksDBPort::ColumnFamilyType cf_type,
+              S const &fmtstring,
+              Args &&... args) {
       keyBuffer().clear();
       fmt::format_to(keyBuffer(), fmtstring, std::forward<Args>(args)...);
 
       rocksdb::ReadOptions ro;
       ro.fill_cache = false;
 
-      std::unique_ptr<rocksdb::Iterator> it(transaction()->GetIterator(ro));
+      std::unique_ptr<rocksdb::Iterator> it(
+          transaction()->GetIterator(ro, getHandle(cf_type)));
       it->Seek(rocksdb::Slice(keyBuffer().data(), keyBuffer().size()));
 
       return it;
@@ -925,17 +998,21 @@ namespace iroha::ametsuchi {
     /// Iterate over all the keys that matches a prefix and call lambda
     /// with key-value. To stop enumeration callback F must return false.
     template <typename F, typename S, typename... Args>
-    auto enumerate(F &&func, S const &fmtstring, Args &&... args) {
-      auto it = seek(fmtstring, std::forward<Args>(args)...);
+    auto enumerate(F &&func,
+                   RocksDBPort::ColumnFamilyType cf_type,
+                   S const &fmtstring,
+                   Args &&... args) {
+      auto it = seek(cf_type, fmtstring, std::forward<Args>(args)...);
       return enumerate(it, std::forward<F>(func));
     }
 
     /// Removes range of items by key-filter
     template <typename S, typename... Args>
     auto filterDelete(uint64_t delete_count,
+                      RocksDBPort::ColumnFamilyType cf_type,
                       S const &fmtstring,
                       Args &&... args) -> std::pair<bool, rocksdb::Status> {
-      auto it = seek(fmtstring, std::forward<Args>(args)...);
+      auto it = seek(cf_type, fmtstring, std::forward<Args>(args)...);
       if (!it->status().ok())
         return std::make_pair<bool, rocksdb::Status>(false, it->status());
 
@@ -946,13 +1023,18 @@ namespace iroha::ametsuchi {
       bool was_deleted = false;
       for (; delete_count-- && it->Valid() && it->key().starts_with(key);
            it->Next()) {
-        if (auto status = transaction()->Delete(it->key()); !status.ok())
+        if (auto status = transaction()->Delete(getHandle(cf_type), it->key());
+            !status.ok())
           return std::pair<bool, rocksdb::Status>(was_deleted, status);
         else
           was_deleted = true;
       }
 
       return std::pair<bool, rocksdb::Status>(was_deleted, it->status());
+    }
+
+    void dropTable(RocksDBPort::ColumnFamilyType cf_type) {
+      port()->dropColumnFamily(cf_type);
     }
 
    private:
@@ -986,6 +1068,7 @@ namespace iroha::ametsuchi {
   template <typename F, typename S, typename... Args>
   inline auto enumerateKeys(RocksDbCommon &rdb,
                             F &&func,
+                            RocksDBPort::ColumnFamilyType cf_type,
                             S const &strformat,
                             Args &&... args) {
     static_assert(
@@ -1002,6 +1085,7 @@ namespace iroha::ametsuchi {
                   - fmtstrings::kDelimiterCountForAField
                       * fmtstrings::kDelimiterSize));
         },
+        cf_type,
         strformat,
         std::forward<Args>(args)...);
   }
@@ -1025,9 +1109,11 @@ namespace iroha::ametsuchi {
   template <typename F, typename S, typename... Args>
   inline auto enumerateKeysAndValues(RocksDbCommon &rdb,
                                      F &&func,
+                                     RocksDBPort::ColumnFamilyType cf_type,
                                      S const &strformat,
                                      Args &&... args) {
     return rdb.enumerate(makeKVLambda(std::forward<F>(func)),
+                         cf_type,
                          strformat,
                          std::forward<Args>(args)...);
   }
@@ -1114,14 +1200,15 @@ namespace iroha::ametsuchi {
   inline expected::Result<rocksdb::Status, DbError> executeOperation(
       RocksDbCommon &common,
       OperationDescribtionF &&op_formatter,
+      RocksDBPort::ColumnFamilyType cf_type,
       Args &&... args) {
     rocksdb::Status status;
     if constexpr (kOp == kDbOperation::kGet || kOp == kDbOperation::kCheck)
-      status = common.get(std::forward<Args>(args)...);
+      status = common.get(cf_type, std::forward<Args>(args)...);
     else if constexpr (kOp == kDbOperation::kPut)
-      status = common.put(std::forward<Args>(args)...);
+      status = common.put(cf_type, std::forward<Args>(args)...);
     else if constexpr (kOp == kDbOperation::kDel)
-      status = common.del(std::forward<Args>(args)...);
+      status = common.del(cf_type, std::forward<Args>(args)...);
 
     static_assert(kOp == kDbOperation::kGet || kOp == kDbOperation::kCheck
                       || kOp == kDbOperation::kPut || kOp == kDbOperation::kDel,
@@ -1267,10 +1354,13 @@ namespace iroha::ametsuchi {
 
   template <typename RetT, kDbOperation kOp, kDbEntry kSc, typename... Args>
   inline expected::Result<std::optional<RetT>, DbError> dbCall(
-      RocksDbCommon &common, Args &&... args) {
+      RocksDbCommon &common,
+      RocksDBPort::ColumnFamilyType cf_type,
+      Args &&... args) {
     auto status = executeOperation<kOp, kSc>(
         common,
         [&] { return fmt::format(std::forward<Args>(args)...); },
+        cf_type,
         std::forward<Args>(args)...);
     RDB_ERROR_CHECK(status);
     return loadValue<kOp, RetT>(common, status);
@@ -1291,8 +1381,11 @@ namespace iroha::ametsuchi {
   forAccountDetailsCount(RocksDbCommon &common,
                          std::string_view account,
                          std::string_view domain) {
-    return dbCall<uint64_t, kOp, kSc>(
-        common, fmtstrings::kAccountDetailsCount, domain, account);
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kAccountDetailsCount,
+                                      domain,
+                                      account);
   }
 
   /**
@@ -1306,7 +1399,10 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<IrohadVersion>, DbError>
   forStoreVersion(RocksDbCommon &common) {
-    return dbCall<IrohadVersion, kOp, kSc>(common, fmtstrings::kStoreVersion);
+    return dbCall<IrohadVersion, kOp, kSc>(
+        common,
+        RocksDBPort::ColumnFamilyType::kStore,
+        fmtstrings::kStoreVersion);
   }
 
   /**
@@ -1320,7 +1416,8 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<IrohadVersion>, DbError> forWSVVersion(
       RocksDbCommon &common) {
-    return dbCall<IrohadVersion, kOp, kSc>(common, fmtstrings::kWsvVersion);
+    return dbCall<IrohadVersion, kOp, kSc>(
+        common, RocksDBPort::ColumnFamilyType::kWsv, fmtstrings::kWsvVersion);
   }
 
   /**
@@ -1336,7 +1433,10 @@ namespace iroha::ametsuchi {
   inline expected::Result<std::optional<std::string_view>, DbError> forBlock(
       RocksDbCommon &common, uint64_t height) {
     return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kBlockDataInStore, height);
+        common,
+        RocksDBPort::ColumnFamilyType::kStore,
+        fmtstrings::kBlockDataInStore,
+        height);
   }
 
   /**
@@ -1350,7 +1450,9 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError> forBlocksTotalCount(
       RocksDbCommon &common) {
-    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kBlocksTotalCount);
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kStore,
+                                      fmtstrings::kBlocksTotalCount);
   }
 
   /**
@@ -1368,8 +1470,11 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       std::string_view account,
       std::string_view domain) {
-    return dbCall<uint64_t, kOp, kSc>(
-        common, fmtstrings::kQuorum, domain, account);
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kQuorum,
+                                      domain,
+                                      account);
   }
 
   /**
@@ -1384,8 +1489,10 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError> forTxsTotalCount(
       RocksDbCommon &common, std::string_view account_id) {
-    return dbCall<uint64_t, kOp, kSc>(
-        common, fmtstrings::kTxsTotalCount, account_id);
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kTxsTotalCount,
+                                      account_id);
   }
 
   /**
@@ -1399,7 +1506,9 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError> forTxsTotalCount(
       RocksDbCommon &common) {
-    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kAllTxsTotalCount);
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kAllTxsTotalCount);
   }
 
   /**
@@ -1413,7 +1522,9 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError>
   forDomainsTotalCount(RocksDbCommon &common) {
-    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kDomainsTotalCount);
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kDomainsTotalCount);
   }
 
   /**
@@ -1447,7 +1558,7 @@ namespace iroha::ametsuchi {
       Result<std::optional<shared_model::interface::RolePermissionSet>, DbError>
       forRole(RocksDbCommon &common, std::string_view role) {
     return dbCall<shared_model::interface::RolePermissionSet, kOp, kSc>(
-        common, fmtstrings::kRole, role);
+        common, RocksDBPort::ColumnFamilyType::kWsv, fmtstrings::kRole, role);
   }
 
   /**
@@ -1462,9 +1573,12 @@ namespace iroha::ametsuchi {
   inline expected::Result<std::optional<uint64_t>, DbError> forPeersCount(
       RocksDbCommon &common, bool is_syncing_peer) {
     if (is_syncing_peer)
-      return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kSPeersCount);
+      return dbCall<uint64_t, kOp, kSc>(common,
+                                        RocksDBPort::ColumnFamilyType::kWsv,
+                                        fmtstrings::kSPeersCount);
 
-    return dbCall<uint64_t, kOp, kSc>(common, fmtstrings::kPeersCount);
+    return dbCall<uint64_t, kOp, kSc>(
+        common, RocksDBPort::ColumnFamilyType::kWsv, fmtstrings::kPeersCount);
   }
 
   /**
@@ -1482,6 +1596,7 @@ namespace iroha::ametsuchi {
                        shared_model::crypto::Hash const &tx_hash) {
     return dbCall<std::string_view, kOp, kSc>(
         common,
+        RocksDBPort::ColumnFamilyType::kWsv,
         fmtstrings::kTransactionStatus,
         std::string_view((char const *)tx_hash.blob().data(),
                          tx_hash.blob().size()));
@@ -1506,7 +1621,13 @@ namespace iroha::ametsuchi {
                            uint64_t height,
                            uint64_t index) {
     return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kTransactionByPosition, account, height, index, ts);
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kTransactionByPosition,
+        account,
+        height,
+        index,
+        ts);
   }
 
   /**
@@ -1527,7 +1648,13 @@ namespace iroha::ametsuchi {
                             uint64_t height,
                             uint64_t index) {
     return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kTransactionByTs, account, ts, height, index);
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kTransactionByTs,
+        account,
+        ts,
+        height,
+        index);
   }
 
   /**
@@ -1543,7 +1670,7 @@ namespace iroha::ametsuchi {
   inline expected::Result<std::optional<std::string_view>, DbError> forSettings(
       RocksDbCommon &common, std::string_view key) {
     return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kSetting, key);
+        common, RocksDBPort::ColumnFamilyType::kWsv, fmtstrings::kSetting, key);
   }
 
   /**
@@ -1563,10 +1690,16 @@ namespace iroha::ametsuchi {
                  bool is_sync_peer) {
     if (is_sync_peer)
       return dbCall<std::string_view, kOp, kSc>(
-          common, fmtstrings::kSPeerAddress, pubkey);
+          common,
+          RocksDBPort::ColumnFamilyType::kWsv,
+          fmtstrings::kSPeerAddress,
+          pubkey);
 
     return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kPeerAddress, pubkey);
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kPeerAddress,
+        pubkey);
   }
 
   /**
@@ -1584,10 +1717,16 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common, std::string_view pubkey, bool is_sync_peer) {
     if (is_sync_peer)
       return dbCall<std::string_view, kOp, kSc>(
-          common, fmtstrings::kSPeerTLS, pubkey);
+          common,
+          RocksDBPort::ColumnFamilyType::kWsv,
+          fmtstrings::kSPeerTLS,
+          pubkey);
 
     return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kPeerTLS, pubkey);
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kPeerTLS,
+        pubkey);
   }
 
   /**
@@ -1603,8 +1742,11 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError> forAsset(
       RocksDbCommon &common, std::string_view asset, std::string_view domain) {
-    return dbCall<uint64_t, kOp, kSc>(
-        common, fmtstrings::kAsset, domain, asset);
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kAsset,
+                                      domain,
+                                      asset);
   }
 
   /**
@@ -1620,7 +1762,8 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   expected::Result<std::optional<std::string_view>, DbError> forTopBlockInfo(
       RocksDbCommon &common) {
-    return dbCall<std::string_view, kOp, kSc>(common, fmtstrings::kTopBlock);
+    return dbCall<std::string_view, kOp, kSc>(
+        common, RocksDBPort::ColumnFamilyType::kWsv, fmtstrings::kTopBlock);
   }
 
   /**
@@ -1640,8 +1783,12 @@ namespace iroha::ametsuchi {
       std::string_view account,
       std::string_view domain,
       std::string_view role) {
-    return dbCall<bool, kOp, kSc>(
-        common, fmtstrings::kAccountRole, domain, account, role);
+    return dbCall<bool, kOp, kSc>(common,
+                                  RocksDBPort::ColumnFamilyType::kWsv,
+                                  fmtstrings::kAccountRole,
+                                  domain,
+                                  account,
+                                  role);
   }
 
   /**
@@ -1665,7 +1812,13 @@ namespace iroha::ametsuchi {
                    std::string_view creator_id,
                    std::string_view key) {
     return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kAccountDetail, domain, account, creator_id, key);
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kAccountDetail,
+        domain,
+        account,
+        creator_id,
+        key);
   }
 
   /**
@@ -1685,8 +1838,12 @@ namespace iroha::ametsuchi {
       std::string_view account,
       std::string_view domain,
       std::string_view pubkey) {
-    return dbCall<bool, kOp, kSc>(
-        common, fmtstrings::kSignatory, domain, account, pubkey);
+    return dbCall<bool, kOp, kSc>(common,
+                                  RocksDBPort::ColumnFamilyType::kWsv,
+                                  fmtstrings::kSignatory,
+                                  domain,
+                                  account,
+                                  pubkey);
   }
 
   /**
@@ -1702,7 +1859,10 @@ namespace iroha::ametsuchi {
   inline expected::Result<std::optional<std::string_view>, DbError> forDomain(
       RocksDbCommon &common, std::string_view domain) {
     return dbCall<std::string_view, kOp, kSc>(
-        common, fmtstrings::kDomain, domain);
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kDomain,
+        domain);
   }
 
   /**
@@ -1720,8 +1880,11 @@ namespace iroha::ametsuchi {
       RocksDbCommon &common,
       std::string_view account,
       std::string_view domain) {
-    return dbCall<uint64_t, kOp, kSc>(
-        common, fmtstrings::kAccountAssetSize, domain, account);
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kAccountAssetSize,
+                                      domain,
+                                      account);
   }
 
   /**
@@ -1743,7 +1906,12 @@ namespace iroha::ametsuchi {
                   std::string_view domain,
                   std::string_view asset) {
     return dbCall<shared_model::interface::Amount, kOp, kSc>(
-        common, fmtstrings::kAccountAsset, domain, account, asset);
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kAccountAsset,
+        domain,
+        account,
+        asset);
   }
 
   /**
@@ -1767,7 +1935,12 @@ namespace iroha::ametsuchi {
                           std::string_view domain,
                           std::string_view grantee_account_id) {
     return dbCall<shared_model::interface::GrantablePermissionSet, kOp, kSc>(
-        common, fmtstrings::kGranted, domain, account, grantee_account_id);
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kGranted,
+        domain,
+        account,
+        grantee_account_id);
   }
 
   /**
@@ -1796,6 +1969,7 @@ namespace iroha::ametsuchi {
                                   }
                                   return true;
                                 },
+                                RocksDBPort::ColumnFamilyType::kWsv,
                                 fmtstrings::kPathAccountRoles,
                                 domain,
                                 account);
@@ -1972,6 +2146,7 @@ namespace iroha::ametsuchi {
 
           return true;
         },
+        RocksDBPort::ColumnFamilyType::kWsv,
         fmtstrings::kPathAccountDetail,
         domain,
         account);
@@ -1987,26 +2162,14 @@ namespace iroha::ametsuchi {
     return result;
   }
 
-  template <typename S>
-  inline expected::Result<void, DbError> dropBranch(RocksDbCommon &common,
-                                                    S const &fmtstring) {
-    std::pair<bool, rocksdb::Status> status;
-    do {
-      status = common.filterDelete(1'000ull, fmtstring);
-      if (!status.second.ok())
-        return makeError<void>(
-            DbErrorCode::kOperationFailed, "Clear {} failed.", fmtstring);
-      common.commit();
-    } while (status.first);
+  inline expected::Result<void, DbError> dropStore(RocksDbCommon &common) {
+    common.dropTable(RocksDBPort::ColumnFamilyType::kStore);
     return {};
   }
 
-  inline expected::Result<void, DbError> dropStore(RocksDbCommon &common) {
-    return dropBranch(common, fmtstrings::kPathStore);
-  }
-
   inline expected::Result<void, DbError> dropWSV(RocksDbCommon &common) {
-    return dropBranch(common, fmtstrings::kPathWsv);
+    common.dropTable(RocksDBPort::ColumnFamilyType::kWsv);
+    return {};
   }
 
 }  // namespace iroha::ametsuchi

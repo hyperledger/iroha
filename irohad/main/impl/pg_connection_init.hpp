@@ -34,11 +34,13 @@ namespace iroha {
                               std::string>
       init(StartupWsvDataPolicy startup_wsv_data_policy,
            iroha::ametsuchi::PostgresOptions const &pg_opt,
-           logger::LoggerManagerTreePtr log_manager);
+           logger::LoggerManagerTreePtr log_manager,
+           bool skip_schema_check = false);
 
       static expected::Result<void, std::string> prepareWorkingDatabase(
           StartupWsvDataPolicy startup_wsv_data_policy,
-          const PostgresOptions &options);
+          const PostgresOptions &options,
+          bool skip_schema_check = false);
 
       static expected::Result<std::shared_ptr<PoolWrapper>, std::string>
       prepareConnectionPool(
