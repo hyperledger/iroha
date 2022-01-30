@@ -71,7 +71,6 @@ jobs:
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-20.04 #ubuntu-latest
-    #container: ubuntu:latest  ## This is required as barrier between AWS-hosted runners and GitHub-hosted runners - they have different set of software, so run in container
     name: Check if github workflows were properly made from sources
     steps:
       - name: REF and SHA of commented PR to ENV
@@ -237,13 +236,6 @@ jobs:
       matrix_windows: ${{steps.matrixes.outputs.matrix_windows}}
       matrix_dockerimage_release: ${{steps.matrixes.outputs.matrix_dockerimage_release}}
       matrix_dockerimage_debug: ${{steps.matrixes.outputs.matrix_dockerimage_debug}}
-      buildspec_ubuntu: ${{steps.matrixes.outputs.buildspec_ubuntu}}
-      buildspec_ubuntu_debug: ${{steps.matrixes.outputs.buildspec_ubuntu_release}}
-      buildspec_ubuntu_release: ${{steps.matrixes.outputs.buildspec_ubuntu_debug}}
-      buildspec_macos: ${{steps.matrixes.outputs.buildspec_macos}}
-      buildspec_windows: ${{steps.matrixes.outputs.buildspec_windows}}
-      buildspec_dockerimage_release: ${{steps.matrixes.outputs.buildspec_dockerimage_release}}
-      buildspec_dockerimage_debug: ${{steps.matrixes.outputs.buildspec_dockerimage_debug}}
   ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
   ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
   ## and conditional tags :edge for development branch, and :latest for git-tags.
@@ -338,19 +330,12 @@ jobs:
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
-        ## Docker image will be pushed with tags:
-        ##  - hash of file Dockerfile.builder
-        ##  - branchname, when branch is pushed
-        ##  - pr-NUMBER, when pushed to PR
-        ##  - git tag when tag is pushed
-        ##  - semver like 1.2.3 and 1.2 when tag vX.X.X is pushed
-        ##  - tag 'edge' when branch support/1.2.x is pushed
-        ##  - schedule, see the docs
+          ## Docker image will be pushed with tags:
+          ##  - hash of file Dockerfile.builder
+          ##  - branchname, when branch is pushed
+          ##  - pr-NUMBER, when pushed to PR
+          ##  - git tag when tag is pushed
+          ##  - schedule, see the docs
       - uses: docker/metadata-action@v3
         name: Docker meta GHCR
         id: meta_ghcr
@@ -361,11 +346,12 @@ jobs:
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
+          ## Docker image will be pushed with tags:
+          ##  - hash of file Dockerfile.builder
+          ##  - branchname, when branch is pushed
+          ##  - pr-NUMBER, when pushed to PR
+          ##  - git tag when tag is pushed
+          ##  - schedule, see the docs
 
           images: ghcr.io/${{ github.repository }}-builder
       - name: Set up Docker Buildx
@@ -406,27 +392,15 @@ jobs:
       - name: Check if dockertaghash exists in remote registry
         id: dockertag_already
         run: |
-          ## FIXME page size is 100 and cannot be more, this needs to be extended in loop asking tags till the end
-          exists=$( curl -fL https://hub.docker.com/v2/repositories/$DOCKERHUB_ORG/iroha-builder/tags |
-            jq 'any( .results[]|.name == "${{env.dockertag}}" ; .)' )
-          echo "::set-output name=exists::$exists"
-
-          if test $exists = true ;then
-            tag=$dockertag
-          else
-            tag=edge
-          fi
-          container="$DOCKERHUB_ORG/iroha-builder:$tag"
-          echo "::set-output name=container::$container"
-          echo "::set-output name=container_tag::$tag"
-      - if: ${{ steps.dockertag_already.outputs.container_tag != env.dockertag || steps.dockertag_already.outputs.container == '' }}
-        name: Possible ERROR, edited but not pushed
+          echo "::set-output name=container::$DOCKERHUB_ORG/iroha-builder:$dockertag"
+      - name: Possible ERROR, Dockerfile edited but image cannot be pushed
+        if: ${{ steps.docker_login.outcome != 'success' || steps.build_and_push.outcome != 'success' }}
         env:
           container: ${{steps.dockertag_already.outputs.container}}
           dockertag: ${{env.dockertag}}
         run: |
           cat <<END
-            ::error::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
+            ::error::CHANGES TO Dockerfile.builder WERE NOT APPLYED.
 
             It seems container with tag '$dockertag' was not pushed to registry and does not exist remotely.
             The most possible reason is GitHub secrets are inaccessable to PRs from public forks.
@@ -450,11 +424,8 @@ jobs:
       ## and secret cannot be used in job:container directly, and there is no github non-secret variables...
       ## if dockertag is already pushed then use it. But let it be empty when tag does not exist remotely.
       dockertag: ${{steps.dockertag.outputs.dockertag}}
-      _dockertag: :${{steps.dockertag.outputs.dockertag}}
-      pushed: ${{ steps.docker_login.outcome == 'success' && steps.build_and_push.outcome == 'success' }}
-      dockertag_already_exists: ${{steps.dockertag_already.outputs.exists}}
       container: ${{steps.dockertag_already.outputs.container}}
-      container_tag: ${{steps.dockertag_already.outputs.container_tag}}
+      pushed: ${{ steps.docker_login.outcome == 'success' && steps.build_and_push.outcome == 'success' }}
   ## Build iroha in a container made of the image earlier prepared
   ## Result artifacts are
   ## - stand-alone irohad (linked statically)
@@ -463,9 +434,8 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    ## Container is taken from previous job
-    container: #&container
+    runs-on: [self-hosted, Linux]
+    container: ## Container is taken from previous job
       image: ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
     strategy:
@@ -493,34 +463,9 @@ jobs:
           cat >/dev/null <<'END'
             ${{ toJson(needs) }}
           END
-      - run: test -n "$container"
-        env:
+      - env:
           container: ${{needs.Docker-iroha-builder.outputs.container}}
-      - if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag || needs.Docker-iroha-builder.outputs.container == '' }}
-        name: Possible WARNING
-        env:
-          container: ${{needs.Docker-iroha-builder.outputs.container}}
-          dockertag: ${{needs.Docker-iroha-builder.outputs.dockertag}}
-        run: |
-          cat <<END
-            ::warning::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
-
-            It seems container with tag '$dockertag' was not pushed to registry and does not exist remotely.
-            The most possible reason is GitHub secrets are inaccessable to PRs from public forks.
-
-            $(test ${{github.event.pull_request.head.repo.full_name}} != ${{github.event.pull_request.base.repo.full_name}} \
-              && echo -n "SECRETS ARE NOT EXPOSED TO FORKS" || echo -n "SECRETS AVAILABLE")
-
-            **Consider to open PR from the same organization.**
-
-            What we know about this build:
-              - PR URL is ${{github.event.pull_request.html_url}}
-              - head repo is '${{github.event.pull_request.head.repo.full_name}}'
-              - base repo is '${{github.event.pull_request.base.repo.full_name}}'
-              - See more information in previous step 'Show context'
-
-            Please ask @kuvaldini on GitHub or in Telegram if you need help.
-          END
+        run: test -n "$container"
       - name: System info
         run: |
           set -x
@@ -591,8 +536,7 @@ jobs:
           key: ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
           restore-keys: ${{runner.os}}-ccache-
       - run: ccache --show-stats | tee /tmp/ccache-stats
-      - #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
-        ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+      - ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
         uses: actions/cache@v2
         with:
@@ -774,9 +718,8 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    ## Container is taken from previous job
-    container: #&container
+    runs-on: [self-hosted, Linux]
+    container: ## Container is taken from previous job
       image: ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
     defaults:
@@ -800,34 +743,9 @@ jobs:
           cat >/dev/null <<'END'
             ${{ toJson(needs) }}
           END
-      - run: test -n "$container"
-        env:
+      - env:
           container: ${{needs.Docker-iroha-builder.outputs.container}}
-      - if: ${{ needs.Docker-iroha-builder.outputs.container_tag != needs.Docker-iroha-builder.outputs.dockertag || needs.Docker-iroha-builder.outputs.container == '' }}
-        name: Possible WARNING
-        env:
-          container: ${{needs.Docker-iroha-builder.outputs.container}}
-          dockertag: ${{needs.Docker-iroha-builder.outputs.dockertag}}
-        run: |
-          cat <<END
-            ::warning::Running on container '$container', YOUR CHANGES TO Dockerfile.builder WERE NOT APPLYED.
-
-            It seems container with tag '$dockertag' was not pushed to registry and does not exist remotely.
-            The most possible reason is GitHub secrets are inaccessable to PRs from public forks.
-
-            $(test ${{github.event.pull_request.head.repo.full_name}} != ${{github.event.pull_request.base.repo.full_name}} \
-              && echo -n "SECRETS ARE NOT EXPOSED TO FORKS" || echo -n "SECRETS AVAILABLE")
-
-            **Consider to open PR from the same organization.**
-
-            What we know about this build:
-              - PR URL is ${{github.event.pull_request.html_url}}
-              - head repo is '${{github.event.pull_request.head.repo.full_name}}'
-              - base repo is '${{github.event.pull_request.base.repo.full_name}}'
-              - See more information in previous step 'Show context'
-
-            Please ask @kuvaldini on GitHub or in Telegram if you need help.
-          END
+        run: test -n "$container"
       - name: System info
         run: |
           set -x
@@ -898,8 +816,7 @@ jobs:
           key: ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
           restore-keys: ${{runner.os}}-ccache-
       - run: ccache --show-stats | tee /tmp/ccache-stats
-      - #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
-        ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+      - ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
         uses: actions/cache@v2
         with:
@@ -1206,8 +1123,7 @@ jobs:
           key: ${{runner.os}}-ccache-${{ github.event.pull_request.head.sha }}
           restore-keys: ${{runner.os}}-ccache-
       - run: ccache --show-stats | tee /tmp/ccache-stats
-      - #if: ${{false}}  ## This works bad when something patched or something updated, seems they does not recalc hash of changed packages. See todos in the begining of file.
-        ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
+      - ## Read the docs https://vcpkg.readthedocs.io/en/latest/users/binarycaching/ https://github.com/microsoft/vcpkg/blob/master/docs/users/binarycaching.md
         name: Restore cache Vcpkg binarycache ## NOTE not useng NuGet because on ubuntu nuget needs mono of 433MB, unusable.
         uses: actions/cache@v2
         with:
@@ -1276,7 +1192,6 @@ jobs:
             build/test_data/**
       - name: Install Postgres on MacOS
         run: brew install postgresql
-        ## ToDo may be optimize, i.e. cache package
       - name: CTest
         run: |
           echo ::group::'boilerplate'
@@ -1407,10 +1322,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
-    #if: ${{ false }}  ##FIXME Somehow cmake fails to find GTest and others
     if: ${{ false && ( fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
-    # matrix:
-    #   BuildYype: [ Debug ] #,Release, RelWithDebInfo
     defaults:
       run:
         shell: bash #pwsh
@@ -1482,11 +1394,11 @@ jobs:
         run: choco install postgresql
     # - *step_ctest
   ## Build and publish docker image named 'hyperledger/iroha'  with irohad and iroha tools inside.
-  ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
-  ## and conditional tags :edge (for development branches) and :latest (for git-tags)
+  ## The result docker image is pushed with tags :branch_name, :pr-NUMBER, :tag_name,
+  ## and :latest (for git-tags).
   ## Those docker image tags could be extended with suffixes with compiler and build type like
-  ## -gcc10, -clang, -debug, -gcc10-debug.
-  ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha-burrow:commit-XXXXX-debug
+  ## -gcc10, -clang, -debug, -gcc10-debug. Like :latest-debug, :main-debug, :1.3.0-gcc10-debug.
+  ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha:nightly.
   ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   docker-R:
     needs:
@@ -1597,39 +1509,27 @@ jobs:
         id: meta
         uses: docker/metadata-action@v3
         with:
+          images: |
+            ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
           tags: |
-            type=raw,value=${{env.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
-
-          images: |
-            ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
-          flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
+          flavor: |
+            suffix=${{env._compiler_suffix}}${{env._debug_suffix}},onlatest=true
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - uses: docker/metadata-action@v3
         name: Docker meta GHCR
         id: meta_ghcr
         with:
           tags: |
-            type=raw,value=${{env.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
-
-          flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
+          flavor: |
+            suffix=${{env._compiler_suffix}}${{env._debug_suffix}},onlatest=true
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
 
           images: ghcr.io/${{ github.repository }}${{ env._uses_suffix }}
@@ -1784,39 +1684,27 @@ jobs:
         id: meta
         uses: docker/metadata-action@v3
         with:
+          images: |
+            ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
           tags: |
-            type=raw,value=${{env.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
-
-          images: |
-            ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
-          flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
+          flavor: |
+            suffix=${{env._compiler_suffix}}${{env._debug_suffix}},onlatest=true
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
       - uses: docker/metadata-action@v3
         name: Docker meta GHCR
         id: meta_ghcr
         with:
           tags: |
-            type=raw,value=${{env.dockertag}}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
             type=schedule
-            type=edge,branch=develop
-          #  type=semver,pattern={{version}}
-          #  type=semver,pattern={{major}}.{{minor}}
-          #  type=sha,prefix=commit-,format=short
-          #  type=sha,prefix=commit-,format=long
-
-          flavor: suffix=${{env._compiler_suffix}}${{env._debug_suffix}}
+          flavor: |
+            suffix=${{env._compiler_suffix}}${{env._debug_suffix}},onlatest=true
           #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
 
           images: ghcr.io/${{ github.repository }}${{ env._uses_suffix }}
