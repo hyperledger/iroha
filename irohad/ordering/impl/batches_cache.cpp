@@ -7,6 +7,7 @@
 
 #include <fmt/core.h>
 #include <iostream>
+#include <mutex>
 
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
@@ -28,7 +29,7 @@ namespace iroha::ordering {
     return tx_count_;
   }
 
-  BatchesContext::BatchesSetType const &BatchesContext::getBatchesSet() const {
+  BatchesContext::BatchesSetType &BatchesContext::getBatchesSet() {
     return batches_;
   }
 
@@ -96,7 +97,7 @@ namespace iroha::ordering {
     });
   }
 
-  bool BatchesCache::isEmpty() const {
+  bool BatchesCache::isEmpty() {
     std::shared_lock lock(batches_cache_cs_);
     return batches_cache_.getBatchesSet().empty();
   }
@@ -112,35 +113,9 @@ namespace iroha::ordering {
   }
 
   void BatchesCache::forCachedBatches(
-      std::function<void(const BatchesSetType &)> const &f) const {
-    std::shared_lock lock(batches_cache_cs_);
-    f(batches_cache_.getBatchesSet());
-  }
-
-  void BatchesCache::getTransactions(
-      size_t requested_tx_amount,
-      std::vector<std::shared_ptr<shared_model::interface::Transaction>>
-          &collection) {
-    collection.clear();
-    collection.reserve(requested_tx_amount);
-
+      std::function<void(BatchesSetType &)> const &f) {
     std::unique_lock lock(batches_cache_cs_);
-    uint32_t depth_counter = 0ul;
-    batches_cache_.remove([&](auto &batch, bool &process_iteration) {
-      auto const txs_count = batch->transactions().size();
-      if (collection.size() + txs_count > requested_tx_amount) {
-        ++depth_counter;
-        process_iteration = (depth_counter < 8ull);
-        return false;
-      }
-
-      collection.insert(std::end(collection),
-                        std::begin(batch->transactions()),
-                        std::end(batch->transactions()));
-
-      used_batches_cache_.insert(batch);
-      return true;
-    });
+    f(batches_cache_.getBatchesSet());
   }
 
   void BatchesCache::processReceivedProposal(
