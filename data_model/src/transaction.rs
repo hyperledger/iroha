@@ -238,15 +238,15 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 
 /// This structure represents transaction in non-trusted form.
 ///
-/// `Iroha` and its' clients use [`Transaction`] to send transactions via network.
-/// Direct usage in business logic is strongly prohibited. Before any interactions
-/// `accept`.
+/// `Iroha` and its' clients use [`Transaction`] to send transactions
+/// via network.  Direct usage in business logic is strongly
+/// prohibited. Before any interactions `accept`.
 #[version(n = 1, versioned = "VersionedTransaction")]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Transaction {
     /// [`Transaction`] payload.
     pub payload: Payload,
-    /// [`SignatureOf`] [`Transaction`].
+    /// [`SignatureOf`] [`Payload`].
     pub signatures: btree_set::BTreeSet<SignatureOf<Payload>>,
 }
 
@@ -457,7 +457,7 @@ impl Txn for VersionedValidTransaction {
 pub struct ValidTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,
-    /// [`SignatureOf`] [`Transaction`].
+    /// [`SignatureOf`] [`Payload`].
     pub signatures: SignaturesOf<Payload>,
 }
 

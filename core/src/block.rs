@@ -598,7 +598,6 @@ impl From<&ValidBlock> for Vec<Event> {
         block
             .transactions
             .iter()
-            .cloned()
             .map(|transaction| {
                 PipelineEvent::new(
                     PipelineEntityType::Transaction,
@@ -607,20 +606,14 @@ impl From<&ValidBlock> for Vec<Event> {
                 )
                 .into()
             })
-            .chain(
-                block
-                    .rejected_transactions
-                    .iter()
-                    .cloned()
-                    .map(|transaction| {
-                        PipelineEvent::new(
-                            PipelineEntityType::Transaction,
-                            PipelineStatus::Validating,
-                            transaction.hash().into(),
-                        )
-                        .into()
-                    }),
-            )
+            .chain(block.rejected_transactions.iter().map(|transaction| {
+                PipelineEvent::new(
+                    PipelineEntityType::Transaction,
+                    PipelineStatus::Validating,
+                    transaction.hash().into(),
+                )
+                .into()
+            }))
             .chain(iter::once(
                 PipelineEvent::new(
                     PipelineEntityType::Block,

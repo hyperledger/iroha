@@ -14,6 +14,7 @@ pub mod smartcontracts;
 pub mod stream;
 pub mod sumeragi;
 pub mod torii;
+pub mod triggers;
 pub mod tx;
 pub mod wsv;
 

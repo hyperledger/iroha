@@ -68,6 +68,7 @@ pub enum Status {
     Clone,
     PartialEq,
     Eq,
+    Hash,
     Debug,
     Decode,
     Encode,
@@ -90,6 +91,7 @@ pub enum Updated {
     Clone,
     PartialEq,
     Eq,
+    Hash,
     Debug,
     Decode,
     Encode,
@@ -110,6 +112,7 @@ pub enum MetadataUpdated {
     Clone,
     PartialEq,
     Eq,
+    Hash,
     Debug,
     Decode,
     Encode,
@@ -125,7 +128,9 @@ pub enum AssetUpdated {
 }
 
 /// Filter to select [`Event`]s which match the `entity` and `status` conditions.
-#[derive(Default, Debug, Decode, Encode, Deserialize, Serialize, Clone, IntoSchema)]
+#[derive(
+    Default, Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
 pub struct EventFilter {
     /// Optional filter by [`Entity`]. [`None`] accepts any entities.
     entity: Option<EntityFilter>,
@@ -135,7 +140,7 @@ pub struct EventFilter {
 
 /// Filter to select entities under the [`Entity`] of the optional id,
 /// or all the entities of the [`Entity`] type.
-#[derive(Debug, Decode, Encode, Deserialize, Serialize, Clone, IntoSchema)]
+#[derive(Debug, Decode, PartialEq, Eq, Hash, Encode, Deserialize, Serialize, Clone, IntoSchema)]
 pub enum EntityFilter {
     /// Filter by [`Entity::Account`].
     Account(Option<AccountId>),
@@ -155,6 +160,7 @@ pub enum EntityFilter {
     Clone,
     PartialEq,
     Eq,
+    Hash,
     Debug,
     Decode,
     Encode,
