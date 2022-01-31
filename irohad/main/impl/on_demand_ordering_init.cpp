@@ -11,6 +11,7 @@
 #include <rxcpp/operators/rx-start_with.hpp>
 #include <rxcpp/operators/rx-with_latest_from.hpp>
 #include <rxcpp/operators/rx-zip.hpp>
+#include "backend/plain/peer.hpp"
 #include "common/permutation_generator.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
@@ -29,7 +30,7 @@ using namespace iroha::ordering;
 
 namespace {
   /// indexes to permutations for corresponding rounds
-  enum RoundType { kCurrentRound, kNextRound, kRoundAfterNext, kCount };
+  enum RoundType { kCurrentRound, kNextRound, kCount };
 
   template <RoundType V>
   using RoundTypeConstant = std::integral_constant<RoundType, V>;
@@ -116,8 +117,7 @@ auto OnDemandOrderingInit::createConnectionManager(
 
     // generate permutation of peers list from corresponding round
     // hash
-    auto generate_permutation = [&](auto round) {
-      auto &hash = std::get<round()>(current_hashes);
+    auto generate_permutation = [&](auto &hash, auto round) {
       log_->debug("Using hash: {}", hash.toString());
 
       auto prng = iroha::makeSeededPrng(hash.blob().data(), hash.blob().size());
@@ -125,9 +125,10 @@ auto OnDemandOrderingInit::createConnectionManager(
           permutations[round()], std::move(prng), current_peers.size());
     };
 
-    generate_permutation(RoundTypeConstant<kCurrentRound>{});
-    generate_permutation(RoundTypeConstant<kNextRound>{});
-    generate_permutation(RoundTypeConstant<kRoundAfterNext>{});
+    generate_permutation(std::get<kCurrentRound + 1>(current_hashes),
+                         RoundTypeConstant<kCurrentRound>{});
+    generate_permutation(std::get<kNextRound + 1>(current_hashes),
+                         RoundTypeConstant<kNextRound>{});
 
     using iroha::synchronizer::SynchronizationOutcomeType;
     switch (latest_commit.sync_outcome) {
@@ -183,7 +184,7 @@ auto OnDemandOrderingInit::createConnectionManager(
     peers.peers.at(OnDemandConnectionManager::kCommitRejectConsumer) =
         getOsPeer(kNextRound, kNextRejectRoundConsumer);
     peers.peers.at(OnDemandConnectionManager::kCommitCommitConsumer) =
-        getOsPeer(kRoundAfterNext, kNextCommitRoundConsumer);
+        getOsPeer(kNextRound, kNextCommitRoundConsumer);
     peers.peers.at(OnDemandConnectionManager::kIssuer) =
         getOsPeer(kCurrentRound, current_round.reject_round);
     return peers;
