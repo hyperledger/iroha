@@ -10,10 +10,10 @@ use test_network::{get_key_pair, Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
 fn main() {
-    fn generate_accounts(num: u32) -> Vec<GenesisTransaction> {
+    fn generate_accounts(num: u32) -> small::SmallVec<[GenesisTransaction; 2]> {
         use iroha_data_model::*;
 
-        let mut ret = Vec::with_capacity(usize::try_from(num).expect("panic"));
+        let mut ret = small::SmallVec::new();
         for i in 0_u32..num {
             ret.push(
                 GenesisTransaction::new(
@@ -29,7 +29,7 @@ fn main() {
                 AssetDefinition::new_quantity(asset_definition_id.clone()),
             ));
             ret.push(GenesisTransaction {
-                isi: vec![create_asset.into()],
+                isi: small::SmallVec(smallvec::smallvec![create_asset.into()]),
             });
         }
         ret

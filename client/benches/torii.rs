@@ -4,6 +4,7 @@ use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use iroha_client::client::{asset, Client};
+use iroha_config::runtime_upgrades::Reload;
 use iroha_core::{
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     prelude::*,
@@ -22,6 +23,7 @@ fn query_requests(criterion: &mut Criterion) {
         std::iter::once(peer.id.clone()).collect(),
         Some(get_key_pair()),
     );
+
     let rt = Runtime::test();
     let genesis = GenesisNetwork::from_configuration(
         true,
@@ -32,8 +34,12 @@ fn query_requests(criterion: &mut Criterion) {
     )
     .expect("genesis creation failed");
 
-    rt.block_on(peer.start_with_config(genesis, configuration));
-
+    rt.block_on(peer.start_with_config(genesis, configuration.clone()));
+    configuration
+        .logger
+        .max_log_level
+        .reload(iroha_logger::Level(iroha_config::logger::Level::ERROR))
+        .expect("Should not fail");
     let mut group = criterion.benchmark_group("query-requests");
     let domain_name = "domain";
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
@@ -60,12 +66,14 @@ fn query_requests(criterion: &mut Criterion) {
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
 
     // TODO: We should definitely turn this into type-checked state. `String` is a terrible bodge
-    client_config.torii_api_url = peer.api_address.clone();
+    client_config.torii_api_url = small::SmallStr::from_string(peer.api_address.clone());
     if !client_config.torii_api_url.starts_with("http://") {
-        client_config.torii_api_url = format!("http://{}", client_config.torii_api_url);
+        client_config.torii_api_url =
+            small::SmallStr::from_string(format!("http://{}", client_config.torii_api_url));
     }
     if !client_config.torii_telemetry_url.starts_with("http://") {
-        client_config.torii_telemetry_url = format!("http://{}", client_config.torii_telemetry_url);
+        client_config.torii_telemetry_url =
+            small::SmallStr::from_string(format!("http://{}", client_config.torii_telemetry_url));
     }
     let mut iroha_client = Client::new(&client_config);
     thread::sleep(std::time::Duration::from_millis(5000));
@@ -142,12 +150,14 @@ fn instruction_submits(criterion: &mut Criterion) {
     ));
     let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
-    client_config.torii_api_url = peer.api_address.clone();
+    client_config.torii_api_url = small::SmallStr::from_string(peer.api_address.clone());
     if !client_config.torii_api_url.starts_with("http://") {
-        client_config.torii_api_url = format!("http://{}", client_config.torii_api_url);
+        client_config.torii_api_url =
+            small::SmallStr::from_string(format!("http://{}", client_config.torii_api_url));
     }
     if !client_config.torii_telemetry_url.starts_with("http://") {
-        client_config.torii_telemetry_url = format!("http://{}", client_config.torii_telemetry_url);
+        client_config.torii_telemetry_url =
+            small::SmallStr::from_string(format!("http://{}", client_config.torii_telemetry_url));
     }
     let mut iroha_client = Client::new(&client_config);
     thread::sleep(std::time::Duration::from_millis(5000));

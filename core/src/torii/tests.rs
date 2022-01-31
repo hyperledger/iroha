@@ -8,7 +8,7 @@ use iroha_version::prelude::*;
 use tokio::time;
 use warp::test::WsClient;
 
-use super::*;
+use super::{routing::*, *};
 use crate::{
     queue::Queue,
     samples::{get_config, get_trusted_peers},

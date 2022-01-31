@@ -3,6 +3,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec, vec::Vec};
 
+use iroha_data_primitives::small::{smallvec, SmallVec};
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -272,6 +273,12 @@ impl StatusFilter {
 impl From<Event> for Vec<Event> {
     fn from(src: Event) -> Self {
         vec![src]
+    }
+}
+
+impl<A: small::Array<Item = Event>> From<Event> for SmallVec<A> {
+    fn from(item: Event) -> Self {
+        Self(smallvec![item])
     }
 }
 

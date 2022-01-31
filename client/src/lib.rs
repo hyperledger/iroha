@@ -21,7 +21,7 @@ pub mod samples {
             public_key,
             private_key,
             account_id: iroha_data_model::prelude::AccountId::test("alice", "wonderland"),
-            torii_api_url: uri::DEFAULT_API_URL.to_owned(),
+            torii_api_url: iroha_data_model::small::SmallStr::from_str(uri::DEFAULT_API_URL),
             ..Configuration::default()
         }
     }

@@ -9,6 +9,7 @@ use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::prelude::*;
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
+use small::SmallVec;
 use tokio::{time, time::Duration};
 
 pub use self::config::GenesisConfiguration;
@@ -23,8 +24,10 @@ use crate::{
     IrohaNetwork,
 };
 
-type Online = Vec<PeerId>;
-type Offline = Vec<PeerId>;
+// TODO: 8 is just the optimal value for tests. This number should be
+// revised as soon as we have real data, to fix #1855.
+type Online = SmallVec<[PeerId; 8]>;
+type Offline = SmallVec<[PeerId; 8]>;
 
 /// Time to live for genesis transactions.
 const GENESIS_TRANSACTIONS_TTL_MS: u64 = 100_000;
@@ -68,6 +71,7 @@ pub trait GenesisNetworkTrait:
         network: Addr<IrohaNetwork>,
         ctx: &mut iroha_actor::Context<SumeragiWithFault<Self, K, W, F>>,
     ) -> Result<()> {
+        iroha_logger::debug!("Starting submit genesis");
         let genesis_topology = self
             .wait_for_peers(sumeragi.peer_id.clone(), sumeragi.topology.clone(), network)
             .await?;
@@ -98,6 +102,7 @@ pub struct GenesisNetwork {
 
 impl Deref for GenesisNetwork {
     type Target = Vec<VersionedAcceptedTransaction>;
+
     fn deref(&self) -> &Self::Target {
         &self.transactions
     }
@@ -151,7 +156,7 @@ async fn check_peers_status(
         .peers;
     iroha_logger::info!(peer_count = peers.len(), "Peers status");
 
-    let (online, offline): (Vec<_>, Vec<_>) = network_topology
+    let (online, offline): (SmallVec<_>, SmallVec<_>) = network_topology
         .sorted_peers()
         .iter()
         .cloned()
@@ -169,8 +174,10 @@ impl GenesisNetworkTrait for GenesisNetwork {
         tx_limits: &TransactionLimits,
     ) -> Result<Option<GenesisNetwork>> {
         if !submit_genesis {
+            iroha_logger::debug!("Not submitting genesis");
             return Ok(None);
         }
+        iroha_logger::debug!("Submitting genesis.");
         Ok(Some(GenesisNetwork {
             transactions: raw_block
                 .transactions
@@ -228,7 +235,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
 #[derive(Clone, Deserialize, Debug, IntoSchema, Default, Serialize)]
 pub struct RawGenesisBlock {
     /// Transactions
-    pub transactions: Vec<GenesisTransaction>,
+    pub transactions: SmallVec<[GenesisTransaction; 2]>,
 }
 
 impl RawGenesisBlock {
@@ -251,11 +258,11 @@ impl RawGenesisBlock {
     /// Fails if `account_name` or `domain_name` is invalid
     pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Result<Self> {
         Ok(RawGenesisBlock {
-            transactions: vec![GenesisTransaction::new(
+            transactions: SmallVec(smallvec::smallvec![GenesisTransaction::new(
                 account_name,
                 domain_name,
                 public_key,
-            )?],
+            )?]),
         })
     }
 }
@@ -264,7 +271,7 @@ impl RawGenesisBlock {
 #[derive(Clone, Deserialize, Debug, IntoSchema, Serialize)]
 pub struct GenesisTransaction {
     /// Instructions
-    pub isi: Vec<Instruction>,
+    pub isi: SmallVec<[Instruction; 8]>,
 }
 
 impl GenesisTransaction {
@@ -292,7 +299,7 @@ impl GenesisTransaction {
     /// Fails if `account_name` or `domain_name` is invalid
     pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Result<Self> {
         Ok(Self {
-            isi: vec![
+            isi: SmallVec(smallvec::smallvec![
                 RegisterBox::new(IdentifiableBox::from(Domain::new(DomainId::new(
                     domain_name,
                 )?)))
@@ -305,7 +312,7 @@ impl GenesisTransaction {
                     .into(),
                 ))
                 .into(),
-            ],
+            ]),
         })
     }
 }

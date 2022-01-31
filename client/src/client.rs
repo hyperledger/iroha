@@ -18,6 +18,7 @@ use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
 use rand::Rng;
 use serde::de::DeserializeOwned;
+use small::SmallStr;
 
 use crate::{
     config::Configuration,
@@ -28,9 +29,9 @@ use crate::{
 #[derive(Clone)]
 pub struct Client {
     /// Url for accessing iroha node
-    pub torii_url: String,
+    pub torii_url: SmallStr,
     /// Url to report status for administration
-    pub telemetry_url: String,
+    pub telemetry_url: SmallStr,
     /// Limits to which transactions must adhere to
     pub transaction_limits: TransactionLimits,
     /// Accounts keypair
@@ -156,7 +157,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all(
         &mut self,
-        instructions: Vec<Instruction>,
+        instructions: impl IntoIterator<Item = Instruction>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
     }
@@ -184,7 +185,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_with_metadata(
         &mut self,
-        instructions: Vec<Instruction>,
+        instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_transaction(self.build_transaction(instructions.into(), metadata)?)
@@ -245,7 +246,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking(
         &mut self,
-        instructions: Vec<Instruction>,
+        instructions: impl IntoIterator<Item = Instruction>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
     }
@@ -272,7 +273,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking_with_metadata(
         &mut self,
-        instructions: Vec<Instruction>,
+        instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         struct EventListenerInitialized;

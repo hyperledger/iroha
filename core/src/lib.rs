@@ -33,7 +33,7 @@ use crate::{
         message::VersionedMessage as BlockSyncMessage, BlockSynchronizer, BlockSynchronizerTrait,
     },
     config::Configuration,
-    genesis::GenesisNetwork,
+    genesis::{GenesisNetwork, RawGenesisBlock},
     kura::{Kura, KuraTrait},
     prelude::*,
     queue::Queue,
@@ -158,7 +158,7 @@ where
     ) -> Result<Self> {
         let genesis = G::from_configuration(
             args.submit_genesis,
-            crate::genesis::RawGenesisBlock::from_path(&args.genesis_path)?,
+            RawGenesisBlock::from_path(&args.genesis_path)?,
             &config.genesis,
             &config.torii.transaction_limits,
         )

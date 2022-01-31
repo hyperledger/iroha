@@ -1,10 +1,11 @@
-//! This module contains [`Transaction`] structures and related implementations
+//! [`Transaction`] structures and related implementations.
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::btree_set, format, string::String, vec, vec::Vec};
 use core::{
     cmp::Ordering,
     fmt::{Display, Formatter, Result as FmtResult},
+    iter::IntoIterator,
 };
 #[cfg(feature = "std")]
 use std::{collections::btree_set, vec};
@@ -57,8 +58,8 @@ pub trait Txn {
                     return Err(TransactionLimitError("Too many instructions in payload"));
                 }
             }
-            Executable::Wasm(wasm) => {
-                if wasm.len() as u64 > limits.max_wasm_size_bytes {
+            Executable::Wasm(WasmSmartContract { raw_data }) => {
+                if raw_data.len() as u64 > limits.max_wasm_size_bytes {
                     return Err(TransactionLimitError("wasm binary too large"));
                 }
             }
@@ -78,15 +79,36 @@ pub trait Txn {
     }
 }
 
+// TODO: Reduce after 1858 is closed.
 /// Either ISI or Wasm binary
-#[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum Executable {
     /// Ordered set of instructions.
     Instructions(Vec<Instruction>),
     /// WebAssembly smartcontract
-    Wasm(Vec<u8>),
+    Wasm(WasmSmartContract),
+}
+
+impl<T: IntoIterator<Item = Instruction>> From<T> for Executable {
+    fn from(collection: T) -> Self {
+        Self::Instructions(collection.into_iter().collect())
+    }
+}
+
+/// Wrapper for byte representation of [`Executable::Wasm`].  Inline
+/// into [`Executable::Wasm`] as soon as GATs are stabilised and
+/// implementations for from byte vector can be split off from
+/// [`IntoIterator<Item = Instruction>`].
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct WasmSmartContract {
+    /// Raw wasm blob.
+    pub raw_data: Vec<u8>,
+}
+
+impl AsRef<[u8]> for WasmSmartContract {
+    fn as_ref(&self) -> &[u8] {
+        self.raw_data.as_ref()
+    }
 }
 
 /// Iroha [`Transaction`] payload.
