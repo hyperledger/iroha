@@ -110,7 +110,13 @@ auto OnDemandOrderingInit::createConnectionManager(
 
     iroha::consensus::Round current_round = latest_commit.round;
 
-    auto &current_peers = latest_commit.ledger_state->ledger_peers;
+    auto current_peers = latest_commit.ledger_state->ledger_peers;
+    std::sort(current_peers.begin(), current_peers.end(), [](auto l, auto r) {
+      return std::less<std::string>{}(l->pubkey(), r->pubkey());
+    });
+
+    for (auto const &cp : current_peers)
+      log_->debug("Used peer: {}", cp->pubkey());
 
     /// permutations for peers lists
     std::array<std::vector<size_t>, kCount> permutations;
