@@ -7,7 +7,7 @@
 #define IROHA_APPLICATION_HPP
 
 #include <optional>
-
+#include <soci/soci.h>
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
@@ -265,7 +265,7 @@ class Irohad {
   // ------------------------| internal dependencies |-------------------------
 
   std::optional<std::shared_ptr<iroha::ametsuchi::PostgresBurrowStorage>>burrow_storage_;
-
+  soci::session sql;
   std::optional<std::unique_ptr<iroha::ametsuchi::VmCaller>> vm_caller_;
 
   std::shared_ptr<iroha::ametsuchi::RocksDBContext> db_context_;

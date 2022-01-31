@@ -151,7 +151,8 @@ func (srv *EthService) EthBlockNumber() (*web3.EthBlockNumberResult, error) {
 func (srv *EthService) EthCall(req *web3.EthCallParams) (*web3.EthCallResult, error) {
 	fmt.Println("executing my own function!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 	// we need to fetch state from iroha somehow
-	var to, from crypto.Address
+	var to crypto.Address
+	var from string
 	var err error
 
 	if addr := req.Transaction.To; addr != "" {
@@ -162,10 +163,7 @@ func (srv *EthService) EthCall(req *web3.EthCallParams) (*web3.EthCallResult, er
 	}
 
 	if addr := req.Transaction.From; addr != "" {
-		from, err = x.DecodeToAddress(addr)
-		if err != nil {
-			return nil, err
-		}
+		from = addr
 	}
 
 	data, err := x.DecodeToBytes(req.Transaction.Data)

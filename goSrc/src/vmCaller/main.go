@@ -49,7 +49,7 @@ type EngineWrapper struct {
 
 //export tryExport
 func tryExport(storage unsafe.Pointer) {
-	fmt.Println("called succesfully from c++")
+	iroha.StoragePointer = storage
 }
 
 //export VmCall

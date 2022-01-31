@@ -10,60 +10,75 @@ import (
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/bcm"
 	"github.com/hyperledger/burrow/crypto"
-	"github.com/hyperledger/burrow/execution/contexts"
-	"github.com/hyperledger/burrow/execution/evm"
 	"github.com/hyperledger/burrow/execution/exec"
 	"github.com/hyperledger/burrow/logging"
-	"github.com/hyperledger/burrow/txs"
-	"github.com/hyperledger/burrow/txs/payload"
+
+	"github.com/hyperledger/burrow/execution/native"
+	"github.com/hyperledger/burrow/permission"
 )
 
 // Run a contract's code on an isolated and unpersisted state
 // Cannot be used to create new contracts
-func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress, address crypto.Address, data []byte,
+func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress string, address crypto.Address, data []byte,
 	logger *logging.Logger) (*exec.TxExecution, error) {
 	fmt.Println("executing call sim")
 	// worldState :=
 	//not working, solve using lines from 209 in call_context.go
 	// add logger and events :)
-	cache := vm.NewIrohaState(iroha.StoragePointer)
+	worldState := vm.NewIrohaState(iroha.StoragePointer)
 	fmt.Println("new state created")
-	exe := contexts.CallContext{
-		EVM: evm.New(evm.Options{
-			Natives: vm.MustCreateNatives(),
-		}),
-		RunCall:       true,
-		State:         cache,
-		MetadataState: acmstate.NewMemoryState(),
-		Blockchain:    blockchain,
-		Logger:        nil,
+	if err := worldState.UpdateAccount(&acm.Account{
+		Address:     acm.GlobalPermissionsAddress,
+		Balance:     999999,
+		Permissions: permission.DefaultAccountPermissions,
+	}); err != nil {
+		fmt.Println("unable to update account")
 	}
-	fmt.Println("exe created")
-	txe := exec.NewTxExecution(txs.Enclose("dupa", &payload.CallTx{
-		Input: &payload.TxInput{
-			Address: fromAddress,
-		},
-		Address:  &address,
-		Data:     data,
-		GasLimit: 999999,
-	}))
-	fmt.Println("new txe created")
-	// Set height for downstream synchronisation purposes
-	txe.Height = 1
-	fmt.Println("last block height calculated")
-	err := exe.Execute(txe, txe.Envelope.Tx.Payload)
-	fmt.Println("executed")
+	evmCaller := native.AddressFromName(fromAddress)
+	callerAccount, err := worldState.GetAccount(evmCaller)
 	if err != nil {
-		fmt.Println(err.Error())
-		return nil, err
+		fmt.Println("Unable to get account")
 	}
-	return txe, nil
+	fmt.Println(callerAccount)
+	// exe := contexts.CallContext{
+	// 	EVM: evm.New(evm.Options{
+	// 		Natives: vm.MustCreateNatives(),
+	// 	}),
+	// 	RunCall:       true,
+	// 	State:         cache,
+	// 	MetadataState: acmstate.NewMemoryState(),
+	// 	Blockchain:    blockchain,
+	// 	Logger:        nil,
+	// }
+	// fmt.Println("exe created")
+	// fmt.Println(address)
+	// fmt.Println(data)
+	// txe := exec.NewTxExecution(txs.Enclose("dupa", &payload.CallTx{
+	// 	Input: &payload.TxInput{
+	// 		Address: fromAddress,
+	// 	},
+	// 	Address:  &address,
+	// 	Data:     data,
+	// 	GasLimit: 999999,
+	// }))
+	// fmt.Println("new txe created")
+	// // Set height for downstream synchronisation purposes
+	// txe.Height = 1
+	// fmt.Println("last block height calculated")
+	// fmt.Println(txe.Envelope.Tx.Payload)
+	// err := exe.Execute(txe, txe.Envelope.Tx.Payload)
+	// fmt.Println("executed")
+	// if err != nil {
+	// 	fmt.Println(err.Error())
+	// 	return nil, err
+	// }
+	return nil, nil
 
 }
 
 // Run the given code on an isolated and unpersisted state
 // Cannot be used to create new contracts.
-func CallCodeSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress, address crypto.Address, code, data []byte,
+func CallCodeSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress string, address crypto.Address, code, data []byte,
 	logger *logging.Logger) (*exec.TxExecution, error) {
 
 	// Attach code to target account (overwriting target)

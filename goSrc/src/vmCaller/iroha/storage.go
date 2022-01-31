@@ -8,6 +8,7 @@ package iroha
 import "C"
 import (
 	"encoding/hex"
+	"fmt"
 	"unsafe"
 
 	"github.com/hyperledger/burrow/acm"
@@ -88,6 +89,7 @@ func (st *IrohaStorage) UpdateAccount(account *acm.Account) error {
 	defer cAddress.free()
 	cAccount := MakeIrohaCharBuffer(hex.EncodeToString(marshalledData))
 	defer cAccount.free()
+	fmt.Println("about to update account")
 	_, err = handleIrohaCallResult(C.Iroha_UpdateAccount(st.storage, *cAddress, *cAccount))
 
 	if err != nil {
