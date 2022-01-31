@@ -13,7 +13,7 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::{Deref, DerefMut};
 use iroha_schema::prelude::*;
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{Decode, Encode, Error as ScaleError, Input};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
 use ursa::{
@@ -227,10 +227,11 @@ impl<T: Encode> SignatureOf<T> {
 /// GUARANTEE 1: This container always contains at least 1 signature
 /// GUARANTEE 2: Each signature corresponds to a different public key
 #[allow(clippy::unsafe_derive_deserialize)]
-#[derive(Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Encode, Serialize, IntoSchema)]
 #[serde(transparent)]
 // Transmute guard
 #[repr(transparent)]
+// TODO: Serialze/Encode as BTreeSet?
 pub struct SignaturesOf<T> {
     // This structure is backed by map because only one signature is allowed per public key.
     // In the case of Iroha this means that each peer can sign the payload at most once.
@@ -260,6 +261,37 @@ impl<T> PartialEq for SignaturesOf<T> {
     }
 }
 impl<T> Eq for SignaturesOf<T> {}
+
+impl<'de, T> Deserialize<'de> for SignaturesOf<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+
+        let signatures =
+            <btree_map::BTreeMap<PublicKey, SignatureOf<T>>>::deserialize(deserializer)?;
+
+        if signatures.is_empty() {
+            return Err(D::Error::custom(
+                "Could not deserialize SignaturesOf<T>. Input contains 0 signatures",
+            ));
+        }
+
+        Ok(Self { signatures })
+    }
+}
+impl<T> Decode for SignaturesOf<T> {
+    fn decode<I: Input>(input: &mut I) -> Result<Self, ScaleError> {
+        let signatures = <btree_map::BTreeMap<PublicKey, SignatureOf<T>>>::decode(input)?;
+
+        if signatures.is_empty() {
+            return Err("Could not decode SignaturesOf<T>. Input contains 0 signatures".into());
+        }
+
+        Ok(Self { signatures })
+    }
+}
 
 impl<T> IntoIterator for SignaturesOf<T> {
     type Item = SignatureOf<T>;
@@ -525,5 +557,31 @@ mod tests {
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
         assert_eq!(signature.public_key, key_pair.public_key);
         assert!(signature.verify(message).is_ok())
+    }
+
+    #[test]
+    fn decode_signatures_of() {
+        let no_signatures: SignaturesOf<i32> = SignaturesOf {
+            signatures: btree_map::BTreeMap::new(),
+        };
+        let bytes = no_signatures.encode();
+
+        let signatures = SignaturesOf::<i32>::decode(&mut &bytes[..]);
+        assert!(signatures.is_err());
+    }
+
+    #[test]
+    fn deserialize_signatures_of() -> Result<(), serde_json::Error> {
+        use serde_json;
+
+        let no_signatures: SignaturesOf<i32> = SignaturesOf {
+            signatures: btree_map::BTreeMap::new(),
+        };
+        let serialized = serde_json::to_string(&no_signatures)?;
+
+        let signatures = serde_json::from_str::<SignaturesOf<i32>>(serialized.as_str());
+        assert!(signatures.is_err());
+
+        Ok(())
     }
 }
