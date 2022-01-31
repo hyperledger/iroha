@@ -5,10 +5,10 @@ use kura_inspector::{print, Config, DefaultOutput};
 #[derive(Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"))]
 struct Opts {
-    /// Height of the block up to which exclude from the inspection.
-    /// Defaults to exclude the all except the latest block
+    /// Height of the block from which start the inspection.
+    /// Defaults to the latest block height
     #[clap(short, long, name = "BLOCK_HEIGHT")]
-    skip_to: Option<usize>,
+    from: Option<usize>,
     #[clap(subcommand)]
     command: Command,
 }
@@ -37,10 +37,10 @@ async fn main() {
 
 impl From<Opts> for Config {
     fn from(src: Opts) -> Self {
-        let Opts { skip_to, command } = src;
+        let Opts { from, command } = src;
 
         match command {
-            Command::Print { length } => Config::Print(print::Config { skip_to, length }),
+            Command::Print { length } => Config::Print(print::Config { from, length }),
         }
     }
 }

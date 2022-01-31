@@ -8,9 +8,9 @@ use crate::Output;
 /// Configuration for the `print` subcommand.
 #[derive(Clone, Copy)]
 pub struct Config {
-    /// Height of the block up to which exclude from the printing.
-    /// `None` means excluding the all except the latest block.
-    pub skip_to: Option<usize>,
+    /// Height of the block from which start the printing.
+    /// `None` means printing only the latest block.
+    pub from: Option<usize>,
     /// Number of the blocks to print.
     /// The excess will be truncated.
     pub length: usize,
@@ -40,8 +40,10 @@ impl Config {
             .map_err(Error::ReadBlockStore)?;
         tokio::pin!(block_stream);
 
-        if let Some(height) = self.skip_to {
-            let mut block_stream = block_stream.skip(height).take(self.length);
+        if let Some(height) = self.from {
+            let mut block_stream = block_stream
+                .skip(height.saturating_sub(1))
+                .take(self.length);
             while let Some(block_result) = block_stream.next().await {
                 output.print(block_result).map_err(Error::Output)?
             }
@@ -90,8 +92,6 @@ pub enum Error {
 mod tests {
     use std::io::Write;
 
-    use iroha_core::prelude::ValidBlock;
-
     use super::*;
 
     type TestOutput = Output<Vec<u8>, Vec<u8>>;
@@ -116,58 +116,82 @@ mod tests {
         .unwrap()
     }
 
+    fn block() -> VersionedCommittedBlock {
+        use iroha_core::block::{BlockHeader, EmptyChainHash, ValidBlock};
+
+        ValidBlock {
+            header: BlockHeader {
+                timestamp: 0,
+                height: 1,
+                previous_block_hash: EmptyChainHash::default().into(),
+                transactions_hash: EmptyChainHash::default().into(),
+                rejected_transactions_hash: EmptyChainHash::default().into(),
+                view_change_proofs: iroha_core::sumeragi::view_change::ProofChain::empty(),
+                invalidated_blocks_hashes: Vec::new(),
+                genesis_topology: None,
+            },
+            rejected_transactions: vec![],
+            transactions: vec![],
+            signatures: std::collections::BTreeSet::default(),
+        }
+        .sign(iroha_core::prelude::KeyPair::generate().unwrap())
+        .unwrap()
+        .commit()
+        .into()
+    }
+
     #[tokio::test]
     /// Confirm that `print` command defaults to print the latest block.
     async fn test_print_default() {
         const BLOCK_COUNT: usize = 10;
 
         let dir = tempfile::tempdir().unwrap();
-        let brock_store = block_store(&dir).await;
+        let block_store = block_store(&dir).await;
         let mut output = TestOutput::new();
 
         let mut tester = Vec::new();
         for height in 1..=BLOCK_COUNT {
-            let mut block: VersionedCommittedBlock = ValidBlock::new_dummy().commit().into();
+            let mut block = block();
             block.as_mut_v1().header.height = height as u64;
             if BLOCK_COUNT == height {
                 writeln!(tester, "{:#?}", block).unwrap()
             }
-            brock_store.write(&block).await.unwrap();
+            block_store.write(&block).await.unwrap();
         }
         let cfg = Config {
-            skip_to: None,
+            from: None,
             length: 1,
         };
-        cfg.run(&brock_store, &mut output).await.unwrap();
+        cfg.run(&block_store, &mut output).await.unwrap();
 
         assert_eq!(tester, output.ok)
     }
 
     #[tokio::test]
-    /// Confirm that `skip_to` and `length` options work properly.
+    /// Confirm that `from` and `length` options work properly.
     async fn test_print_range() {
         const BLOCK_COUNT: usize = 10;
-        const SKIP_TO: usize = 2;
+        const FROM: usize = 3;
         const LENGTH: usize = 5;
 
         let dir = tempfile::tempdir().unwrap();
-        let brock_store = block_store(&dir).await;
+        let block_store = block_store(&dir).await;
         let mut output = TestOutput::new();
 
         let mut tester = Vec::new();
         for height in 1..=BLOCK_COUNT {
-            let mut block: VersionedCommittedBlock = ValidBlock::new_dummy().commit().into();
+            let mut block = block();
             block.as_mut_v1().header.height = height as u64;
-            if (SKIP_TO + 1..=SKIP_TO + LENGTH).contains(&height) {
+            if (FROM..FROM + LENGTH).contains(&height) {
                 writeln!(tester, "{:#?}", block).unwrap()
             }
-            brock_store.write(&block).await.unwrap();
+            block_store.write(&block).await.unwrap();
         }
         let cfg = Config {
-            skip_to: Some(SKIP_TO),
+            from: Some(FROM),
             length: LENGTH,
         };
-        cfg.run(&brock_store, &mut output).await.unwrap();
+        cfg.run(&block_store, &mut output).await.unwrap();
 
         assert_eq!(tester, output.ok)
     }
