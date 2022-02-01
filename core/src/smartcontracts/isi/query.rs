@@ -307,7 +307,7 @@ mod tests {
 
         let va_tx = VersionedAcceptedTransaction::from_transaction(signed_tx.clone(), &tx_limits)?;
 
-        let mut block = PendingBlock::new(Vec::new());
+        let mut block = PendingBlock::new(Vec::new(), Vec::new());
         block.transactions.push(va_tx.clone());
         let vcb = block
             .chain_first()

@@ -37,7 +37,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     };
     let tx = VersionedAcceptedTransaction::from_transaction(tx, &transaction_limits)
         .expect("Failed to accept Transaction.");
-    let mut block = PendingBlock::new(vec![tx])
+    let mut block = PendingBlock::new(vec![tx], Vec::new())
         .chain_first()
         .validate(&TransactionValidator::new(
             transaction_limits,

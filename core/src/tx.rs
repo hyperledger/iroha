@@ -56,8 +56,8 @@ impl<W: WorldTrait> TransactionValidator<W> {
         }
     }
 
-    /// Move transaction lifecycle forward by checking an ability to
-    /// apply instructions to the `WorldStateView<W>`.
+    /// Move transaction lifecycle forward by checking if the
+    /// instructions can be applied to the `WorldStateView`.
     ///
     /// # Errors
     /// Fails if validation of instruction fails (e.g. permissions mismatch).

@@ -6,6 +6,7 @@ pub mod domain;
 pub mod expression;
 pub mod permissions;
 pub mod query;
+pub mod triggers;
 pub mod tx;
 pub mod world;
 
@@ -160,6 +161,9 @@ pub mod error {
         /// Peer not found.
         #[error("Peer {0} not found")]
         Peer(PeerId),
+        /// Trigger not found.
+        #[error("Trigger not found.")]
+        Trigger(TriggerId),
     }
 
     /// Mintability logic error

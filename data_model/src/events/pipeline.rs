@@ -7,11 +7,27 @@ use iroha_crypto::Hash;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 pub use crate::transaction::RejectionReason as PipelineRejectionReason;
 
 /// Event filter.
-#[derive(Default, Debug, PartialEq, Eq, Clone, Copy, Decode, Encode, IntoSchema, Hash)]
+#[derive(
+    Default,
+    Debug,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    Decode,
+    Encode,
+    IntoSchema,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 pub struct EventFilter {
     /// Filter by Entity if `Some`, if `None` all entities are accepted.
     pub entity: Option<EntityType>,
@@ -55,7 +71,21 @@ impl EventFilter {
 }
 
 /// Entity type to filter events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, Hash)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    IntoSchema,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 pub enum EntityType {
     /// Block.
     Block,

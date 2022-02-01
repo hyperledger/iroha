@@ -139,7 +139,7 @@ fn chain_blocks(criterion: &mut Criterion) {
     let transaction =
         AcceptedTransaction::from_transaction(build_test_transaction(keys), &TRANSACTION_LIMITS)
             .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction.into()]);
+    let block = PendingBlock::new(vec![transaction.into()], Vec::new());
     let mut previous_block_hash = block.clone().chain_first().hash();
     let mut success_count = 0;
     let _ = criterion.bench_function("chain_block", |b| {
@@ -170,7 +170,7 @@ fn sign_blocks(criterion: &mut Criterion) {
         AllowAll::new(),
         Arc::new(build_test_wsv(keys)),
     );
-    let block = PendingBlock::new(vec![transaction.into()])
+    let block = PendingBlock::new(vec![transaction.into()], Vec::new())
         .chain_first()
         .validate(&transaction_validator);
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
@@ -212,7 +212,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     let transaction =
         AcceptedTransaction::from_transaction(build_test_transaction(keys), &TRANSACTION_LIMITS)
             .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction.into()]).chain_first();
+    let block = PendingBlock::new(vec![transaction.into()], Vec::new()).chain_first();
     let transaction_validator = TransactionValidator::new(
         TRANSACTION_LIMITS,
         AllowAll::new(),

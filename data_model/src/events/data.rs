@@ -35,6 +35,8 @@ pub enum Entity {
     #[cfg(feature = "roles")]
     /// [`Role`].
     Role(RoleId),
+    /// [`Trigger`]
+    Trigger(TriggerId),
 }
 
 /// Entity status.
@@ -66,6 +68,8 @@ pub enum Status {
 #[derive(
     Copy,
     Clone,
+    PartialOrd,
+    Ord,
     PartialEq,
     Eq,
     Hash,
@@ -83,12 +87,15 @@ pub enum Updated {
     Authentication,
     Permission,
     Asset(AssetUpdated),
+    Trigger(TriggerUpdated),
 }
 
 /// Description for [`Updated::Metadata`].
 #[derive(
     Copy,
     Clone,
+    PartialOrd,
+    Ord,
     PartialEq,
     Eq,
     Hash,
@@ -106,10 +113,35 @@ pub enum MetadataUpdated {
     Removed,
 }
 
+/// Description for [`Updated::Metadata`].
+#[derive(
+    Copy,
+    Clone,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Hash,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+)]
+#[allow(missing_docs)]
+pub enum TriggerUpdated {
+    Extended,
+    Shortened,
+}
+
 /// Description for [`Updated::Asset`].
 #[derive(
     Copy,
     Clone,
+    PartialOrd,
+    Ord,
     PartialEq,
     Eq,
     Hash,
@@ -129,7 +161,19 @@ pub enum AssetUpdated {
 
 /// Filter to select [`Event`]s which match the `entity` and `status` conditions.
 #[derive(
-    Default, Debug, Clone, PartialEq, Eq, Hash, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Default,
+    Debug,
+    Clone,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Hash,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
 pub struct EventFilter {
     /// Optional filter by [`Entity`]. [`None`] accepts any entities.
@@ -140,7 +184,20 @@ pub struct EventFilter {
 
 /// Filter to select entities under the [`Entity`] of the optional id,
 /// or all the entities of the [`Entity`] type.
-#[derive(Debug, Decode, PartialEq, Eq, Hash, Encode, Deserialize, Serialize, Clone, IntoSchema)]
+#[derive(
+    Debug,
+    Decode,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Hash,
+    Encode,
+    Deserialize,
+    Serialize,
+    Clone,
+    IntoSchema,
+)]
 pub enum EntityFilter {
     /// Filter by [`Entity::Account`].
     Account(Option<AccountId>),
@@ -158,6 +215,8 @@ pub enum EntityFilter {
 #[derive(
     Copy,
     Clone,
+    PartialOrd,
+    Ord,
     PartialEq,
     Eq,
     Hash,
@@ -284,6 +343,41 @@ impl From<MetadataUpdated> for Status {
 impl From<AssetUpdated> for Status {
     fn from(src: AssetUpdated) -> Self {
         Self::Updated(src.into())
+    }
+}
+
+mod trigger {
+    use super::TriggerUpdated;
+    use crate::prelude::*;
+
+    impl From<Register<Trigger>> for DataEvent {
+        fn from(src: Register<Trigger>) -> Self {
+            Self::new(src.object.id, DataStatus::Created)
+        }
+    }
+
+    impl From<Unregister<Trigger>> for DataEvent {
+        fn from(src: Unregister<Trigger>) -> Self {
+            Self::new(src.object_id, DataStatus::Deleted)
+        }
+    }
+
+    impl From<Mint<Trigger, u32>> for DataEvent {
+        fn from(src: Mint<Trigger, u32>) -> Self {
+            Self::new(
+                src.destination_id,
+                DataStatus::Updated(Updated::Trigger(TriggerUpdated::Extended)),
+            )
+        }
+    }
+
+    impl From<Burn<Trigger, u32>> for DataEvent {
+        fn from(src: Burn<Trigger, u32>) -> Self {
+            Self::new(
+                src.destination_id,
+                DataStatus::Updated(Updated::Trigger(TriggerUpdated::Shortened)),
+            )
+        }
     }
 }
 
