@@ -32,6 +32,7 @@ Iroha_Result Iroha_UpdateAccount(void *storage,
                                  Iroha_CharBuffer address,
                                  Iroha_CharBuffer account) {
   std::cout<<"updating account"<<std::endl;
+  std::cout<<storage<<std::endl;
   return performQuery(storage,
                       &BurrowStorage::updateAccount,
                       iroha::charBufferToStringView(address),

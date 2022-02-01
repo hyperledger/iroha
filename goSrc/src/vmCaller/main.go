@@ -49,6 +49,8 @@ type EngineWrapper struct {
 
 //export tryExport
 func tryExport(storage unsafe.Pointer) {
+	fmt.Println("called from c++")
+	fmt.Println(storage)
 	iroha.StoragePointer = storage
 }
 
@@ -58,7 +60,7 @@ func VmCall(input, caller, callee, nonce *C.const_char, commandExecutor, queryEx
 	iroha.IrohaCommandExecutor = commandExecutor
 	iroha.IrohaQueryExecutor = queryExecutor
 	iroha.Caller = C.GoString(caller)
-	iroha.StoragePointer = storage
+	// iroha.StoragePointer = storage
 	// Iroha world state
 	worldState := vm.NewIrohaState(storage)
 	if err := worldState.UpdateAccount(&acm.Account{

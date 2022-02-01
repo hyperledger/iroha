@@ -7,6 +7,7 @@
 #define IROHA_STORAGE_IMPL_HPP
 
 #include "ametsuchi/impl/storage_base.hpp"
+#include "ametsuchi/impl/postgres_burrow_storage.hpp"
 
 #include <soci/soci.h>
 
@@ -103,6 +104,7 @@ namespace iroha {
               std::shared_ptr<shared_model::interface::Block const>)> callback,
           logger::LoggerManagerTreePtr log_manager);
 
+     
      private:
       friend class ::iroha::ametsuchi::AmetsuchiTest;
 
@@ -110,6 +112,9 @@ namespace iroha {
        * Method tries to perform rollback on passed session
        */
       void tryRollback(soci::session &session);
+
+      std::optional<std::shared_ptr<iroha::ametsuchi::PostgresBurrowStorage>>burrow_storage_;
+      std::optional<std::shared_ptr<soci::session>> sql;
 
       /// ref for pool_wrapper_::connection_pool_
       std::shared_ptr<PoolWrapper> pool_wrapper_;

@@ -286,6 +286,8 @@ class Irohad {
   // IR-907 14.09.2020 @lebdron: remove it from here
   std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
 
+  // iroha::ametsuchi::PostgresBurrowStorage burrow_storage_;
+
   std::shared_ptr<iroha::network::GenericClientFactory>
       inter_peer_client_factory_;
 
@@ -395,6 +397,8 @@ class Irohad {
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager
 
   logger::LoggerPtr log_;  ///< log for local messages
+
+  
 };
 
 #endif  // IROHA_APPLICATION_HPP

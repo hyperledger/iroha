@@ -15,7 +15,7 @@
 #include "common/result_fwd.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
-
+#include "ametsuchi/impl/postgres_burrow_storage.hpp"
 namespace shared_model::interface {
   class Block;
   class QueryResponseFactory;
@@ -32,7 +32,7 @@ namespace iroha {
     class VmCaller;
     struct RocksDBContext;
   }  // namespace ametsuchi
-
+  
   expected::Result<std::shared_ptr<iroha::ametsuchi::Storage>, std::string>
   initStorage(
       std::shared_ptr<ametsuchi::RocksDBContext> db_context,

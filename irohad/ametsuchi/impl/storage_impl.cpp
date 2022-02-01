@@ -31,7 +31,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
-
+#include <iostream>
 namespace iroha::ametsuchi {
 
   StorageImpl::StorageImpl(
@@ -238,7 +238,7 @@ namespace iroha::ametsuchi {
             maybe_top_block_info.assumeValue().height,
             maybe_top_block_info.assumeValue().top_hash);
     }
-
+    std::cout<<"creating storage"<<std::endl;
     return expected::makeValue(std::shared_ptr<StorageImpl>(
         new StorageImpl(std::move(ledger_state),
                         std::move(postgres_options),

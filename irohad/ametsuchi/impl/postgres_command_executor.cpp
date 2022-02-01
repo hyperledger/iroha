@@ -8,7 +8,7 @@
 #include <exception>
 #include <forward_list>
 #include <memory>
-
+#include <iostream>
 #include <fmt/core.h>
 #include <soci/postgresql/soci-postgresql.h>
 #include <boost/algorithm/string.hpp>
@@ -1439,6 +1439,7 @@ namespace iroha {
           perm_converter_{std::move(perm_converter)},
           specific_query_executor_{std::move(specific_query_executor)},
           vm_caller_{std::move(vm_caller)} {
+            std::cout<<"creating postgres_cmd"<<std::endl;
       initStatements();
     }
 
