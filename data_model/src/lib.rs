@@ -109,7 +109,7 @@ impl Name {
             Ok(())
         } else {
             Err(ValidationError::new(&format!(
-                "Number of chars in the name not in range [{}..{}>",
+                "Name must be between {} and {} characters in length.",
                 &range.start(),
                 &range.end()
             )))

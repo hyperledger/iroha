@@ -67,7 +67,7 @@ pub mod isi {
             wsv.modify_account(&self.destination_id, |account| {
                 if account.signatories.len() < 2 {
                     return Err(Self::Error::Validate(ValidationError::new(
-                        "Public keys cannot be burned to nothing.",
+                        "Public keys cannot be burned to nothing. If you want to delete the account, please use an unregister instruction.",
                     )));
                 }
                 if let Some(index) = account
