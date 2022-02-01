@@ -50,6 +50,15 @@ pub struct ValidationError {
 #[cfg(feature = "std")]
 impl std::error::Error for ValidationError {}
 
+impl ValidationError {
+    /// Construct [`ValidationError`].
+    pub fn new(reason: &str) -> Self {
+        Self {
+            reason: reason.to_owned(),
+        }
+    }
+}
+
 /// `Name` struct represents type for Iroha Entities names, like
 /// [`Domain`](`domain::Domain`)'s name or
 /// [`Account`](`account::Account`)'s name.
@@ -99,13 +108,11 @@ impl Name {
         if range.contains(&self.as_ref().chars().count()) {
             Ok(())
         } else {
-            Err(ValidationError {
-                reason: format!(
-                    "Number of chars in the name not in range [{}..{}>",
-                    &range.start(),
-                    &range.end()
-                ),
-            })
+            Err(ValidationError::new(&format!(
+                "Number of chars in the name not in range [{}..{}>",
+                &range.start(),
+                &range.end()
+            )))
         }
     }
 }

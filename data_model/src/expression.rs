@@ -175,7 +175,7 @@ impl<T: Into<Value>> From<T> for ExpressionBox {
     Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 pub struct ContextValue {
-    /// Name binded to the value.
+    /// Name bound to the value.
     pub value_name: String,
 }
 
