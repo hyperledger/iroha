@@ -317,9 +317,9 @@ Irohad::RunResult Irohad::initStorage(
           PgConnectionInit::init(
               startup_wsv_data_policy, *pg_opt_, log_manager_));
       pool_wrapper_ = std::move(pool_wrapper);
-      sql = soci::session(*pool_wrapper_->connection_pool_);
+      sql = std::make_shared<soci::session>(*pool_wrapper_->connection_pool_);
       const std::string burrow_default_tx_hash = " ";
-      burrow_storage_ = std::make_shared<PostgresBurrowStorage>(sql, burrow_default_tx_hash, 0);
+      burrow_storage_ = std::make_shared<PostgresBurrowStorage>(*sql.value().get(), burrow_default_tx_hash, 0);
       vm_caller_.value().get()->exportBurrow(*burrow_storage_.value().get());
     } break;
 
