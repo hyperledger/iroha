@@ -231,7 +231,7 @@ impl<T: Encode> SignatureOf<T> {
 #[serde(transparent)]
 // Transmute guard
 #[repr(transparent)]
-// TODO: Serialze/Encode as BTreeSet?
+// TODO: Serialize/Encode as BTreeSet?
 pub struct SignaturesOf<T> {
     // This structure is backed by map because only one signature is allowed per public key.
     // In the case of Iroha this means that each peer can sign the payload at most once.

@@ -8,8 +8,7 @@ pub mod wasm;
 use iroha_data_model::prelude::*;
 pub use isi::*;
 
-use super::wsv::WorldStateView;
-use crate::wsv::WorldTrait;
+use crate::wsv::{WorldStateView, WorldTrait};
 
 /// Trait implementations should provide actions to apply changes on [`WorldStateView`].
 #[allow(clippy::missing_errors_doc)]

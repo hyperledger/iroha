@@ -1,6 +1,8 @@
 //! This module contains logic related to executing smartcontracts via `WebAssembly` VM
 //! Smartcontracts can be written in Rust, compiled to wasm format and submitted in a transaction
 
+use std::sync::Arc;
+
 use config::Configuration;
 use eyre::WrapErr;
 use iroha_data_model::prelude::*;
@@ -8,8 +10,12 @@ use iroha_logger::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use wasmtime::{Caller, Config, Engine, Linker, Module, Store, Trap, TypedFunc};
 
+use super::permissions::IsInstructionAllowedBoxed;
 use crate::{
-    smartcontracts::{Execute, ValidQuery},
+    smartcontracts::{
+        permissions::{check_instruction_permissions, IsQueryAllowedBoxed},
+        Execute, ValidQuery,
+    },
     wsv::{WorldStateView, WorldTrait},
 };
 
@@ -41,34 +47,29 @@ pub enum Error {
     Other(eyre::Error),
 }
 
-struct State<'a, W: WorldTrait> {
-    wsv: &'a WorldStateView<W>,
-    account_id: AccountId,
-
+struct Validator<'a, W: WorldTrait> {
     /// Number of instructions in the smartcontract
     instruction_count: u64,
 
-    /// Max number of instructions in the smartcontract
+    /// Max allowed number of instructions in the smartcontract
     max_instruction_count: u64,
+
+    is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
+    is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+
+    wsv: &'a WorldStateView<W>,
 }
 
-impl<'a, W: WorldTrait> State<'a, W> {
-    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId, max_instruction_count: u64) -> Self {
-        Self {
-            wsv,
-            account_id,
-            instruction_count: 0,
-            max_instruction_count,
-        }
-    }
-
+impl<W: WorldTrait> Validator<'_, W> {
     /// Checks if number of instructions in wasm smartcontract exceeds maximum
     ///
     /// # Errors
     ///
     /// If number of instructions exceeds maximum
     #[inline]
-    fn check_instruction_len(&self) -> Result<(), Trap> {
+    fn check_instruction_len(&mut self) -> Result<(), Trap> {
+        self.instruction_count += 1;
+
         if self.instruction_count > self.max_instruction_count {
             return Err(Trap::new(format!(
                 "Number of instructions exceeds maximum({})",
@@ -77,6 +78,66 @@ impl<'a, W: WorldTrait> State<'a, W> {
         }
 
         Ok(())
+    }
+
+    fn validate_instruction(
+        &mut self,
+        account_id: &AccountId,
+        instruction: &Instruction,
+    ) -> Result<(), Trap> {
+        self.check_instruction_len()?;
+
+        check_instruction_permissions(
+            account_id,
+            instruction,
+            &self.is_instruction_allowed,
+            &self.is_query_allowed,
+            self.wsv,
+        )
+        .map_err(|error| Trap::new(error.to_string()))
+    }
+
+    fn validate_query(&self, account_id: &AccountId, query: &QueryBox) -> Result<(), Trap> {
+        self.is_query_allowed
+            .check(account_id, query, self.wsv)
+            .map_err(Trap::new)
+    }
+}
+
+struct State<'a, W: WorldTrait> {
+    account_id: AccountId,
+
+    /// Ensures smartcontract adheres to limits
+    validator: Option<Validator<'a, W>>,
+
+    wsv: &'a WorldStateView<W>,
+}
+
+impl<'a, W: WorldTrait> State<'a, W> {
+    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId) -> Self {
+        Self {
+            wsv,
+            account_id,
+            validator: None,
+        }
+    }
+
+    fn with_validator(
+        mut self,
+        max_instruction_count: u64,
+        is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
+        is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+    ) -> Self {
+        let validator = Validator {
+            instruction_count: 0,
+            max_instruction_count,
+            is_instruction_allowed,
+            is_query_allowed,
+            wsv: self.wsv,
+        };
+
+        self.validator = Some(validator);
+        self
     }
 }
 
@@ -154,6 +215,12 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         let query =
             QueryBox::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?;
 
+        if let Some(validator) = &caller.data().validator {
+            validator
+                .validate_query(&caller.data().account_id, &query)
+                .map_err(|error| Trap::new(error.to_string()))?;
+        }
+
         let res_bytes = query
             .execute(caller.data().wsv)
             .map_err(|e| Trap::new(e.to_string()))?
@@ -202,11 +269,15 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         let instruction =
             Instruction::decode(&mut isi_bytes).map_err(|error| Trap::new(error.to_string()))?;
 
-        caller.data_mut().instruction_count += 1;
-        caller.data().check_instruction_len()?;
+        let account_id = caller.data().account_id.clone();
+        if let Some(validator) = &mut caller.data_mut().validator {
+            validator
+                .validate_instruction(&account_id, &instruction)
+                .map_err(|error| Trap::new(error.to_string()))?;
+        }
 
         instruction
-            .execute(caller.data().account_id.clone(), caller.data().wsv)
+            .execute(account_id, caller.data().wsv)
             .map_err(|error| Trap::new(error.to_string()))?;
 
         Ok(())
@@ -246,26 +317,59 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
             .ok_or_else(|| Trap::new(format!("{}: not a memory", WASM_MEMORY_NAME)))
     }
 
+    /// Validates that the given smartcontract is eligible for execution
+    ///
+    /// # Errors
+    ///
+    /// - if unable to validate instructions and queries are permitted
+    /// - if instruction limits are not obeyed
+    /// - if execution of the smartcontract fails (check ['execute'])
+    pub fn validate(
+        &mut self,
+        wsv: &WorldStateView<W>,
+        account_id: &AccountId,
+        bytes: impl AsRef<[u8]>,
+        max_instruction_count: u64,
+        is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
+        is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+    ) -> Result<(), Error> {
+        let state = State::new(wsv, account_id.clone()).with_validator(
+            max_instruction_count,
+            is_instruction_allowed,
+            is_query_allowed,
+        );
+
+        self.execute_with_state(account_id, bytes, state)
+    }
+
     /// Executes the given wasm smartcontract
     ///
     /// # Errors
     ///
-    /// If unable to construct wasm module or instance of wasm module, if unable to add fuel limit,
-    /// if unable to find expected exports(main, memory, allocator) or if the execution of the
-    /// smartcontract fails
+    /// - if unable to construct wasm module or instance of wasm module
+    /// - if unable to add fuel limit
+    /// - if unable to find expected exports(main, memory, allocator)
+    /// - if the execution of the smartcontract fails
     pub fn execute(
         &mut self,
         wsv: &WorldStateView<W>,
-        account_id: AccountId,
+        account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
+    ) -> Result<(), Error> {
+        let state = State::new(wsv, account_id.clone());
+        self.execute_with_state(account_id, bytes, state)
+    }
+
+    fn execute_with_state(
+        &mut self,
+        account_id: &AccountId,
+        bytes: impl AsRef<[u8]>,
+        state: State<W>,
     ) -> Result<(), Error> {
         let account_bytes = account_id.encode();
 
         let module = Module::new(&self.engine, bytes).map_err(Error::Instantiation)?;
-        let mut store = Store::new(
-            &self.engine,
-            State::new(wsv, account_id, self.config.max_instruction_count),
-        );
+        let mut store = Store::new(&self.engine, state);
         store
             .add_fuel(self.config.fuel_limit)
             .map_err(Error::Instantiation)?;
@@ -323,7 +427,6 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
 /// This module contains all configuration related logic.
 pub mod config {
     use iroha_config::derive::Configurable;
-    use iroha_data_model::transaction;
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_FUEL_LIMIT: u64 = 100_000;
@@ -336,16 +439,12 @@ pub mod config {
         /// Every WASM instruction costs approximately 1 unit of fuel. See
         /// [`wasmtime` reference](https://docs.rs/wasmtime/0.29.0/wasmtime/struct.Store.html#method.add_fuel)
         pub fuel_limit: u64,
-
-        /// Maximum number of instructions per transaction
-        pub max_instruction_count: u64,
     }
 
     impl Default for Configuration {
         fn default() -> Self {
             Configuration {
                 fuel_limit: DEFAULT_FUEL_LIMIT,
-                max_instruction_count: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
             }
         }
     }
@@ -358,7 +457,10 @@ mod tests {
     use iroha_crypto::KeyPair;
 
     use super::*;
-    use crate::{DomainsMap, PeersIds, World};
+    use crate::{
+        smartcontracts::permissions::{AllowAll, DenyAll},
+        DomainsMap, PeersIds, World,
+    };
 
     fn world_with_test_account(account_id: AccountId) -> World {
         let domain_id = account_id.domain_id.clone();
@@ -445,7 +547,7 @@ mod tests {
             isi_len = isi_hex.len() / 3,
         );
         let mut runtime = Runtime::new()?;
-        assert!(runtime.execute(&wsv, account_id, wat).is_ok());
+        assert!(runtime.execute(&wsv, &account_id, wat).is_ok());
 
         Ok(())
     }
@@ -486,7 +588,7 @@ mod tests {
         );
 
         let mut runtime = Runtime::new()?;
-        assert!(runtime.execute(&wsv, account_id, wat).is_ok());
+        assert!(runtime.execute(&wsv, &account_id, wat).is_ok());
 
         Ok(())
     }
@@ -526,18 +628,133 @@ mod tests {
             isi1_end = isi_hex.len() / 3,
             isi2_end = 2 * isi_hex.len() / 3,
         );
-        let mut runtime = Runtime::from_configuration(Configuration {
-            fuel_limit: 100_000,
-            max_instruction_count: 1,
-        })?;
-        let res = runtime.execute(&wsv, account_id, wat);
+
+        let mut runtime = Runtime::new()?;
+        let res = runtime.validate(
+            &wsv,
+            &account_id,
+            wat,
+            1,
+            Arc::new(AllowAll.into()),
+            Arc::new(AllowAll.into()),
+        );
 
         assert!(res.is_err());
         if let Error::ExportFnCall(trap) = res.unwrap_err() {
-            assert_eq!(
-                "Number of instructions exceeds maximum(1)",
-                trap.display_reason().to_string()
-            );
+            assert!(trap
+                .display_reason()
+                .to_string()
+                .starts_with("Number of instructions exceeds maximum(1)"));
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn instructions_not_allowed() -> Result<(), Error> {
+        let account_id = AccountId::test("alice", "wonderland");
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+
+        let isi_hex = {
+            let new_account_id = AccountId::test("mad_hatter", "wonderland");
+            let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+            encode_hex(Instruction::Register(register_isi))
+        };
+
+        let wat = format!(
+            r#"
+            (module
+                ;; Import host function to execute
+                (import "iroha" "{execute_fn_name}"
+                    (func $exec_fn (param i32 i32))
+                )
+
+                {memory_and_alloc}
+
+                ;; Function which starts the smartcontract execution
+                (func (export "{main_fn_name}") (param i32 i32)
+                    (call $exec_fn (i32.const 0) (i32.const {isi_len}))
+                )
+            )
+            "#,
+            main_fn_name = WASM_MAIN_FN_NAME,
+            execute_fn_name = EXECUTE_ISI_FN_NAME,
+            memory_and_alloc = memory_and_alloc(&isi_hex),
+            isi_len = isi_hex.len() / 3,
+        );
+
+        let mut runtime = Runtime::new()?;
+        let res = runtime.validate(
+            &wsv,
+            &account_id,
+            wat,
+            1,
+            Arc::new(DenyAll.into()),
+            Arc::new(AllowAll.into()),
+        );
+
+        assert!(res.is_err());
+        if let Error::ExportFnCall(trap) = res.unwrap_err() {
+            assert!(trap
+                .display_reason()
+                .to_string()
+                .starts_with("Transaction rejected due to insufficient authorisation"));
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn queries_not_allowed() -> Result<(), Error> {
+        let account_id = AccountId::test("alice", "wonderland");
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+
+        let query_hex = {
+            let find_acc_query = FindAccountById::new(account_id.clone());
+            encode_hex(QueryBox::FindAccountById(find_acc_query))
+        };
+
+        let wat = format!(
+            r#"
+            (module
+                ;; Import host function to execute
+                (import "iroha" "{execute_fn_name}"
+                    (func $exec_fn (param i32 i32) (result i32 i32))
+                )
+
+                {memory_and_alloc}
+
+                ;; Function which starts the smartcontract execution
+                (func (export "{main_fn_name}") (param i32 i32)
+                    (call $exec_fn (i32.const 0) (i32.const {isi_len}))
+
+                    ;; No use of return values
+                    drop drop
+                )
+            )
+            "#,
+            main_fn_name = WASM_MAIN_FN_NAME,
+            execute_fn_name = EXECUTE_QUERY_FN_NAME,
+            memory_and_alloc = memory_and_alloc(&query_hex),
+            isi_len = query_hex.len() / 3,
+        );
+
+        let mut runtime = Runtime::new()?;
+        let res = runtime.validate(
+            &wsv,
+            &account_id,
+            wat,
+            1,
+            Arc::new(AllowAll.into()),
+            Arc::new(DenyAll.into()),
+        );
+
+        assert!(res.is_err());
+        if let Error::ExportFnCall(trap) = res.unwrap_err() {
+            assert!(trap
+                .display_reason()
+                .to_string()
+                .starts_with("All operations are denied"));
         }
 
         Ok(())

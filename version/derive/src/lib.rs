@@ -16,8 +16,8 @@ use syn::{
     parse_macro_input,
     punctuated::Punctuated,
     spanned::Spanned,
-    AttributeArgs, Error as SynError, Ident, ItemEnum, ItemStruct, Lit, LitInt, Meta, NestedMeta,
-    Path, Result as SynResult, Token,
+    token, AttributeArgs, Error as SynError, Ident, ItemEnum, ItemStruct, Lit, LitInt, Meta,
+    NestedMeta, Path, Result as SynResult,
 };
 
 const VERSION_NUMBER_ARG_NAME: &str = "n";
@@ -185,8 +185,8 @@ fn impl_version(args: Vec<NestedMeta>, item: TokenStream) -> TokenStream2 {
 struct DeclareVersionedArgs {
     pub enum_name: Ident,
     pub range: Range<u8>,
-    pub _comma: Option<Token![,]>,
-    pub derive: Punctuated<Path, Token![,]>,
+    pub _comma: Option<token::Comma>,
+    pub derive: Punctuated<Path, token::Comma>,
 }
 
 impl DeclareVersionedArgs {
@@ -216,7 +216,7 @@ impl Parse for DeclareVersionedArgs {
         let enum_name: Ident = input.parse()?;
         let start_version: LitInt = input.parse()?;
         let start_version: u8 = start_version.base10_parse()?;
-        let _ = input.parse::<Token![..]>()?;
+        let _ = input.parse::<token::Dot2>()?;
         let end_version: LitInt = input.parse()?;
         let end_version: u8 = end_version.base10_parse()?;
         if end_version <= start_version {
@@ -376,6 +376,7 @@ fn impl_declare_versioned(
         impl iroha_version::Version for #enum_name {
             fn version(&self) -> u8 {
                 use #enum_name::*;
+
                 match self {
                     #(#version_idents (_) => #version_numbers),* ,
                 }

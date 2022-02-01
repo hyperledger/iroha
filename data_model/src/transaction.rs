@@ -8,10 +8,10 @@ use core::{
     iter::IntoIterator,
 };
 #[cfg(feature = "std")]
-use std::{collections::btree_set, vec};
+use std::{collections::btree_set, time::Duration, vec};
 
 use derive_more::Display;
-use iroha_crypto::{SignatureOf, SignatureVerificationFail, SignaturesOf};
+use iroha_crypto::{SignatureOf, SignaturesOf};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned, declare_versioned_with_scale, version, version_with_scale};
@@ -26,8 +26,10 @@ use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Ide
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
 
 /// Error which indicates max instruction count was reached
-#[derive(Debug, Clone, Copy, Display)]
-pub struct TransactionLimitError(&'static str);
+#[derive(
+    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+pub struct TransactionLimitError(String);
 
 #[cfg(feature = "std")]
 impl std::error::Error for TransactionLimitError {}
@@ -43,6 +45,16 @@ pub trait Txn {
     /// Returns payload of a transaction
     fn payload(&self) -> &Payload;
 
+    /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
+    #[inline]
+    #[cfg(feature = "std")]
+    fn hash(&self) -> iroha_crypto::HashOf<Self::HashOf>
+    where
+        Self: Sized,
+    {
+        iroha_crypto::HashOf::new(&self.payload()).transmute()
+    }
+
     /// Checks if number of instructions in payload or wasm size exceeds maximum
     ///
     /// # Errors
@@ -55,12 +67,14 @@ pub trait Txn {
                 let instruction_count: usize = instructions.iter().map(Instruction::len).sum();
 
                 if instruction_count as u64 > limits.max_instruction_number {
-                    return Err(TransactionLimitError("Too many instructions in payload"));
+                    return Err(TransactionLimitError(String::from(
+                        "Too many instructions in payload",
+                    )));
                 }
             }
             Executable::Wasm(WasmSmartContract { raw_data }) => {
                 if raw_data.len() as u64 > limits.max_wasm_size_bytes {
-                    return Err(TransactionLimitError("wasm binary too large"));
+                    return Err(TransactionLimitError(String::from("wasm binary too large")));
                 }
             }
         }
@@ -68,14 +82,27 @@ pub trait Txn {
         Ok(())
     }
 
-    /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
-    #[inline]
+    /// Checks if this transaction is waiting longer than specified in
+    /// `transaction_time_to_live` from `QueueConfiguration` or
+    /// `time_to_live_ms` of this transaction.  Meaning that the
+    /// transaction will be expired as soon as the lesser of the
+    /// specified TTLs was reached.
     #[cfg(feature = "std")]
-    fn hash(&self) -> iroha_crypto::HashOf<Self::HashOf>
-    where
-        Self: Sized,
-    {
-        iroha_crypto::HashOf::new(&self.payload()).transmute()
+    fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
+        let tx_timestamp = Duration::from_millis(self.payload().creation_time);
+        crate::current_time().saturating_sub(tx_timestamp)
+            > core::cmp::min(
+                transaction_time_to_live,
+                Duration::from_millis(self.payload().time_to_live_ms),
+            )
+    }
+
+    /// If `true`, this transaction is regarded to have been tampered
+    /// to have a future timestamp.
+    #[cfg(feature = "std")]
+    fn is_in_future(&self, threshold: Duration) -> bool {
+        let tx_timestamp = Duration::from_millis(self.payload().creation_time);
+        tx_timestamp.saturating_sub(crate::current_time()) > threshold
     }
 }
 
@@ -628,15 +655,14 @@ pub enum TransactionRejectionReason {
     UnsatisfiedSignatureCondition(
         #[cfg_attr(feature = "std", source)] UnsatisfiedSignatureConditionFail,
     ),
+    /// Failed to validate transaction limits (e.g. number of instructions)
+    LimitCheck(#[cfg_attr(feature = "std", source)] TransactionLimitError),
     /// Failed to execute instruction.
     #[display(fmt = "Transaction rejected due to failure in instruction execution")]
     InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
     /// Failed to execute WebAssembly binary.
     #[display(fmt = "Transaction rejected due to failure in WebAssembly execution")]
     WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
-    /// Failed to verify signatures.
-    #[display(fmt = "Transaction rejected due to failed signature verification")]
-    SignatureVerification(#[cfg_attr(feature = "std", source)] SignatureVerificationFail<Payload>),
     /// Genesis account can sign only transactions in the genesis block.
     #[display(fmt = "The genesis account can only sign transactions in the genesis block.")]
     UnexpectedGenesisAccountSignature,
