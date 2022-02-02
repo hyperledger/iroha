@@ -2,6 +2,7 @@ mod add_account;
 mod add_asset;
 mod add_domain;
 mod asset_propagation;
+mod burn_public_keys;
 mod config;
 mod connected_peers;
 mod events;

@@ -70,7 +70,7 @@ pub mod error {
         #[error("Repetition")]
         Repetition(InstructionType, IdBox),
         /// Failed to validate.
-        #[error("Failed to validate.")]
+        #[error("Failed to validate: {0}")]
         Validate(#[source] ValidationError),
     }
 
