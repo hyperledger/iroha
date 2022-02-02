@@ -65,7 +65,7 @@ impl FromStr for Algorithm {
             SECP_256_K1 => Ok(Algorithm::Secp256k1),
             BLS_NORMAL => Ok(Algorithm::BlsNormal),
             BLS_SMALL => Ok(Algorithm::BlsSmall),
-            _ => Err(eyre!("The {} algorithm is not supported.")),
+            _ => Err(eyre!("The {} algorithm is not supported.", algorithm)),
         }
     }
 }

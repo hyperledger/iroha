@@ -85,7 +85,7 @@ impl Signature {
         };
         match result {
             Ok(true) => Ok(()),
-            _ => Err(eyre!("Signature did not pass verification: {}")),
+            _ => Err(eyre!("Signature did not pass verification: {:?}", payload)),
         }
     }
 }
