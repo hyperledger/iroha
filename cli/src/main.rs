@@ -6,10 +6,7 @@ use iroha_permissions_validators::public_blockchain::default_permissions;
 use structopt::StructOpt;
 
 #[tokio::main]
-#[allow(clippy::expect_used)]
 async fn main() -> Result<(), Report> {
-    color_eyre::install()?;
-
     <Iroha>::new(
         &Arguments::from_args(),
         default_permissions(),

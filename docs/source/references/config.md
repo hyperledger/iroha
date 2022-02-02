@@ -13,6 +13,7 @@ The following is the default configuration used by Iroha.
     "digest_function": "",
     "payload": ""
   },
+  "DISABLE_PANIC_TERMINAL_COLORS": false,
   "KURA": {
     "INIT_MODE": "strict",
     "BLOCK_STORE_PATH": "./blocks",
@@ -57,7 +58,8 @@ The following is the default configuration used by Iroha.
     "MAX_LOG_LEVEL": "INFO",
     "TELEMETRY_CAPACITY": 1000,
     "COMPACT_MODE": false,
-    "LOG_FILE_PATH": null
+    "LOG_FILE_PATH": null,
+    "TERMINAL_COLORS": true
   },
   "GENESIS": {
     "ACCOUNT_PUBLIC_KEY": null,
@@ -143,6 +145,16 @@ Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_MAILBOX
 
 ```json
 100
+```
+
+## `disable_panic_terminal_colors`
+
+Disable coloring of the backtrace and error report on panic.
+
+Has type `bool`. Can be configured via environment variable `IROHA_DISABLE_PANIC_TERMINAL_COLORS`
+
+```json
+false
 ```
 
 ## `genesis`
@@ -277,7 +289,8 @@ Has type `LoggerConfiguration`. Can be configured via environment variable `IROH
   "COMPACT_MODE": false,
   "LOG_FILE_PATH": null,
   "MAX_LOG_LEVEL": "INFO",
-  "TELEMETRY_CAPACITY": 1000
+  "TELEMETRY_CAPACITY": 1000,
+  "TERMINAL_COLORS": true
 }
 ```
 
@@ -319,6 +332,16 @@ Has type `usize`. Can be configured via environment variable `TELEMETRY_CAPACITY
 
 ```json
 1000
+```
+
+### `logger.terminal_colors`
+
+Enable ANSI terminal colors for formatted output.
+
+Has type `bool`. Can be configured via environment variable `TERMINAL_COLORS`
+
+```json
+true
 ```
 
 ## `network`
