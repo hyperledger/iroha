@@ -282,10 +282,6 @@ Irohad::RunResult Irohad::initStorage(
             }
           }
         };
-    // sql = std::make_shared<soci::session>(*pool_wrapper_->connection_pool_);
-    // std::string burrow_default_tx_hash = " ";
-    // burrow_storage_ = std::make_shared<PostgresBurrowStorage>(*sql.value().get(), burrow_default_tx_hash, 0);
-    // vm_caller_.value().get()->exportBurrow(*burrow_storage_.value().get());
     auto st = type == StorageType::kPostgres
         ? ::iroha::initStorage(*pg_opt_,
                                pool_wrapper_,
@@ -349,11 +345,7 @@ Irohad::RunResult Irohad::initStorage(
     // std::cout<<&burrow_storage_.value().get()<<std::endl;
     // vm_caller_.value().get()->exportBurrow(*burrow_storage_.value().get());
   auto tmp = storage_creator();
-  sql = std::make_unique<soci::session>(*pool_wrapper_->connection_pool_);
-    const std::string tx = " ";
-    burrow_storage_ = std::make_shared<iroha::ametsuchi::PostgresBurrowStorage>(*sql.value().get(),tx,0);
-    // std::cout<<&burrow_storage_.value().get()<<std::endl;
-    vm_caller_.value().get()->exportBurrow(*burrow_storage_.value().get());
+  
   return tmp;
 }
 
