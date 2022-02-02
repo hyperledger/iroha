@@ -80,7 +80,8 @@ func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress 
 		return nil, nil
 	}
 	// create object encapsulating response
-	txe := exec.TxExecution{Result{Return: output}}
+	txe := exec.TxExecution{}
+	txe.Result = &exec.Result{Return: output}
 	// exe := contexts.CallContext{
 	// 	EVM: evm.New(evm.Options{
 	// 		Natives: vm.MustCreateNatives(),
@@ -113,7 +114,7 @@ func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress 
 	// 	fmt.Println(err.Error())
 	// 	return nil, err
 	// }
-	return nil, nil
+	return &txe, nil
 
 }
 
