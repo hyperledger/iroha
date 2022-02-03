@@ -242,6 +242,130 @@ var (
 			F:        getRolePermissions,
 		},
 	)
+		QueryServiceContract = native.New().MustContract("QueryServiceContract",
+		`* acmstate.ReaderWriter for bridging EVM state and Iroha state.
+			* @dev This interface describes the functions exposed by the native service contracts layer in burrow.
+			`,
+		native.Function{
+			Comment: `
+				* @notice Gets asset balance of an Iroha account
+				* @param Account Iroha account ID
+				* @param Asset asset ID
+				* @return Asset balance of the Account
+				`,
+			PermFlag: permission.Call,
+			F:        getAssetBalance,
+		},
+		native.Function{
+			Comment: `
+				* @notice Gets account detail
+				* @param Account account id to be used
+				* @return details of the account
+				`,
+			PermFlag: permission.Call,
+			F:        getAccountDetail,
+		},
+		native.Function{
+			Comment: `
+				* @notice Gets state of the account
+				* @param Account account id to be used
+				* @return state of the account
+				`,
+			PermFlag: permission.Call,
+			F:        getAccount,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get signatories of the account
+				* @param Account account to be used
+				* @return signatories of the account
+				`,
+			PermFlag: permission.Call,
+			F:        getSignatories,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get Asset's info
+				* @param Asset asset id to be used
+				* @return details of the asset
+				`,
+			PermFlag: permission.Call,
+			F:        getAssetInfo,
+		},
+		native.Function{
+			Comment: `
+				* @notice Gets all peers
+				* @return details of the peers
+				`,
+			PermFlag: permission.Call,
+			F:        getPeers,
+		},
+		native.Function{
+			Comment: `
+				* @notice Gets block 
+				* @param Height height of block to be used
+				* @return the block at the given height 
+				`,
+			PermFlag: permission.Call,
+			F:        getBlock,
+		},
+		native.Function{
+			Comment: `
+				* @notice Gets all roles
+				* @return details of the roles
+				`,
+			PermFlag: permission.Call,
+			F:        getRoles,
+		},
+		native.Function{
+			Comment: `
+				* @notice Gets permissions of the role
+				* @param Role role id to be used
+				* @return permissions of the given role
+				`,
+			PermFlag: permission.Call,
+			F:        getRolePermissions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get transactions of the account
+				* @param Account account to be used
+				* @param TxPaginationMeta`,
+			PermFlag: permission.Call,
+			F:        getAccountTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get pending transactions of the account
+				* @param TxPaginationMeta`,
+			PermFlag: permission.Call,
+			F:        getPendingTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get account asset transactions of the account
+				* @param account Id 
+				* @param asset Id
+				* @param TxPaginationMeta`,
+			PermFlag: permission.Call,
+			F:        getAccountAssetTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Get Transactions
+				* @param tx hashes`,
+			PermFlag: permission.Call,
+			F:       getTransactions,
+		},
+		native.Function{
+			Comment: `
+				* @notice Create Role
+				* @param role name
+				* @param permissions`,
+			PermFlag: permission.Call,
+			F:       createRole,
+		},
+	)
 )
 
 type getAssetBalanceArgs struct {
@@ -751,6 +875,22 @@ func MustCreateNatives() *native.Natives {
 		panic(err)
 	}
 	return ns
+}
+
+func MustCreateQueryNatives() *native.Natives {
+	ns, err := createQueryNatives()
+	if err != nil {
+		panic(err)
+	}
+	return ns
+}
+
+func createQueryNatives() (*native.Natives, error) {
+	ns, err := native.Merge(QueryServiceContract, native.Permissions, native.Precompiles)
+	if err != nil {
+		return nil, err
+	}
+	return ns, nil
 }
 
 func createNatives() (*native.Natives, error) {
