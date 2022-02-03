@@ -93,110 +93,21 @@ func NewKernel(dbDir string) (*Kernel, error) {
 }
 
 // SetLogger initializes the kernel with the provided logger
-func (kern *Kernel) SetLogger(logger *logging.Logger) {
-	logger = logger.WithScope("NewKernel()").With(structure.TimeKey,
-		log.DefaultTimestampUTC, structure.RunId, kern.RunID.String())
-	heightValuer := log.Valuer(func() interface{} { return kern.Blockchain.LastBlockHeight() })
-	kern.Logger = logger.WithInfo(structure.CallerKey, log.Caller(LoggingCallerDepth)).With("height", heightValuer)
-	kern.Emitter.SetLogger(logger)
-}
+func (kern *Kernel) SetLogger(logger *logging.Logger) {}
 
 // LoadState starts from scratch or previous chain
 func (kern *Kernel) LoadState(genesisDoc *genesis.GenesisDoc) (err error) {
-	var existing bool
-	kern.Blockchain, existing, err = bcm.LoadOrNewBlockchain(kern.database, genesisDoc, kern.Logger)
-	if err != nil {
-		return fmt.Errorf("error creating or loading blockchain state: %v", err)
-	}
-
-	if existing {
-		kern.Logger.InfoMsg("Loading application state", "height", kern.Blockchain.LastBlockHeight())
-		kern.State, err = state.LoadState(kern.database, execution.VersionAtHeight(kern.Blockchain.LastBlockHeight()))
-		if err != nil {
-			return fmt.Errorf("could not load persisted execution state at hash 0x%X: %v",
-				kern.Blockchain.AppHashAfterLastBlock(), err)
-		}
-
-		if !bytes.Equal(kern.State.Hash(), kern.Blockchain.AppHashAfterLastBlock()) {
-			return fmt.Errorf("state and blockchain disagree on app hash at height %d: "+
-				"state gives %X, blockchain gives %X", kern.Blockchain.LastBlockHeight(),
-				kern.State.Hash(), kern.Blockchain.AppHashAfterLastBlock())
-		}
-	} else {
-		kern.Logger.InfoMsg("Creating new application state from genesis")
-		kern.State, err = state.MakeGenesisState(kern.database, genesisDoc)
-		if err != nil {
-			return fmt.Errorf("could not build genesis state: %v", err)
-		}
-
-		if err = kern.State.InitialCommit(); err != nil {
-			return err
-		}
-	}
-
-	kern.Logger.InfoMsg("State loading successful")
-
-	params := execution.ParamsFromGenesis(genesisDoc)
-	kern.checker = execution.NewBatchChecker(kern.State, params, kern.Blockchain, kern.Logger)
-	kern.committer = execution.NewBatchCommitter(kern.State, params, kern.Blockchain, kern.Emitter, kern.Logger, kern.exeOptions...)
 	return nil
 }
 
 // LoadDump restores chain state from the given dump file
 func (kern *Kernel) LoadDump(genesisDoc *genesis.GenesisDoc, restoreFile string, silent bool) (err error) {
-	var exists bool
-	if kern.Blockchain, exists, err = bcm.LoadOrNewBlockchain(kern.database, genesisDoc, kern.Logger); err != nil {
-		return fmt.Errorf("error creating or loading blockchain state: %v", err)
-	}
-
-	if exists {
-		if silent {
-			kern.Logger.InfoMsg("State already exists, skipping...")
-			return nil
-		}
-		return fmt.Errorf("existing state found, please remove before restoring")
-	}
-
-	kern.Blockchain.SetBlockStore(bcm.NewBlockStore(store.NewBlockStore(kern.database)))
-
-	if kern.State, err = state.MakeGenesisState(kern.database, genesisDoc); err != nil {
-		return fmt.Errorf("could not build genesis state: %v", err)
-	}
-
-	if len(genesisDoc.AppHash) == 0 {
-		return fmt.Errorf("AppHash is required when restoring chain")
-	}
-
-	reader, err := dump.NewFileReader(restoreFile)
-	if err != nil {
-		return err
-	}
-
-	err = dump.Load(reader, kern.State)
-	if err != nil {
-		return err
-	}
-
-	if !bytes.Equal(kern.State.Hash(), kern.Blockchain.GenesisDoc().AppHash) {
-		return fmt.Errorf("restore produced a different apphash expect 0x%x got 0x%x",
-			kern.Blockchain.GenesisDoc().AppHash, kern.State.Hash())
-	}
-	err = kern.Blockchain.CommitWithAppHash(kern.State.Hash())
-	if err != nil {
-		return fmt.Errorf("unable to commit %v", err)
-	}
-
-	kern.Logger.InfoMsg("State restore successful",
-		"state_hash", kern.State.Hash())
 	return nil
 }
 
 // GetNodeView builds and returns a wrapper of our tendermint node
 func (kern *Kernel) GetNodeView() (*tendermint.NodeView, error) {
-	if kern.Node == nil {
-		return nil, nil
-	}
-	return tendermint.NewNodeView(kern.Node, kern.txCodec, kern.RunID)
+	return nil, nil
 }
 
 // AddExecutionOptions extends our execution options
@@ -210,26 +121,18 @@ func (kern *Kernel) AddProcesses(pl ...process.Launcher) {
 }
 
 // SetKeyClient explicitly sets the key client
-func (kern *Kernel) SetKeyClient(client keys.KeyClient) {
-	kern.keyClient = client
-}
+// func (kern *Kernel) SetKeyClient(client keys.KeyClient) {
+// 	kern.keyClient = client
+// }
 
-// SetKeyStore explicitly sets the key store
-func (kern *Kernel) SetKeyStore(store *keys.KeyStore) {
-	kern.keyStore = store
-}
+// // SetKeyStore explicitly sets the key store
+// func (kern *Kernel) SetKeyStore(store *keys.KeyStore) {
+// 	kern.keyStore = store
+// }
 
 // Generates an in-memory Tendermint PrivValidator (suitable for passing to LoadTendermintFromConfig)
 func (kern *Kernel) PrivValidator(validator crypto.Address) (tmTypes.PrivValidator, error) {
-	val, err := keys.AddressableSigner(kern.keyClient, validator)
-	if err != nil {
-		return nil, fmt.Errorf("could not get validator addressable from keys client: %v", err)
-	}
-	signer, err := keys.AddressableSigner(kern.keyClient, val.GetAddress())
-	if err != nil {
-		return nil, err
-	}
-	return tendermint.NewPrivValidatorMemory(val, signer), nil
+	return nil, nil
 }
 
 // Boot the kernel starting Tendermint and RPC layers
