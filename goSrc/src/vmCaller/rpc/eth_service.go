@@ -86,7 +86,6 @@ var _ EventsReader = &state.State{}
 
 // Web3ClientVersion returns the version of burrow
 func (srv *EthService) Web3ClientVersion() (*web3.Web3ClientVersionResult, error) {
-	fmt.Println("returning version")
 	return &web3.Web3ClientVersionResult{
 		ClientVersion: project.FullVersion(),
 	}, nil
@@ -149,8 +148,6 @@ func (srv *EthService) EthBlockNumber() (*web3.EthBlockNumberResult, error) {
 
 // EthCall executes a new message call immediately without creating a transaction
 func (srv *EthService) EthCall(req *web3.EthCallParams) (*web3.EthCallResult, error) {
-	fmt.Println("executing my own function!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-	// we need to fetch state from iroha somehow
 	var to crypto.Address
 	var from string
 	var err error
@@ -170,9 +167,6 @@ func (srv *EthService) EthCall(req *web3.EthCallParams) (*web3.EthCallResult, er
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(from)
-	fmt.Println(to)
-	fmt.Println(data)
 	txe, err := myExecution.CallSim(srv.accounts, srv.blockchain, from, to, data, srv.logger)
 	if err != nil {
 		return nil, err

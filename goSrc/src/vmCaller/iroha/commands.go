@@ -190,30 +190,21 @@ func GetAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 			QueryCounter:     1},
 		Query: &pb.Query_Payload_GetAccountAssets{
 			GetAccountAssets: &pb.GetAccountAssets{AccountId: accountID}}}}
-	fmt.Println("Account id is:")
-	fmt.Println(accountID)
-	fmt.Println("iroha query executor")
-	fmt.Println(IrohaQueryExecutor)
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
-	fmt.Println(queryResponse)
-	fmt.Println(err)
 	if err != nil {
 		return []*pb.AccountAsset{}, err
 	}
 	switch response := queryResponse.Response.(type) {
 	case *pb.QueryResponse_ErrorResponse:
-		fmt.Println("error response")
 		return []*pb.AccountAsset{}, fmt.Errorf(
 			"ErrorResponse in GetIrohaAccountAssets: %d, %v",
 			response.ErrorResponse.ErrorCode,
 			response.ErrorResponse.Message,
 		)
 	case *pb.QueryResponse_AccountAssetsResponse:
-		fmt.Println("good response")
 		accountAssetsResponse := queryResponse.GetAccountAssetsResponse()
 		return accountAssetsResponse.AccountAssets, nil
 	default:
-		fmt.Println("wrong response type")
 		return []*pb.AccountAsset{}, fmt.Errorf("Wrong response type in GetIrohaAccountAssets")
 	}
 }

@@ -45,9 +45,7 @@ type EngineWrapper struct {
 // Cannot be used to create new contracts
 func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress string, address crypto.Address, data []byte,
 	logger *logging.Logger) (*exec.TxExecution, error) {
-	fmt.Println("executing call sim")
 	worldState := vm.NewIrohaState(iroha.StoragePointer)
-	fmt.Println("new state created")
 	if err := worldState.UpdateAccount(&acm.Account{
 		Address:     acm.GlobalPermissionsAddress,
 		Balance:     999999,
@@ -56,11 +54,10 @@ func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress 
 		fmt.Println("unable to update account")
 	}
 	evmCaller := native.AddressFromName(fromAddress)
-	callerAccount, err := worldState.GetAccount(evmCaller)
-	if err != nil {
-		fmt.Println("Unable to get account")
-	}
-	fmt.Println(callerAccount)
+	// callerAccount, err := worldState.GetAccount(evmCaller)
+	// if err != nil {
+	// 	fmt.Println("Unable to get account")
+	// }
 
 	engine := EngineWrapper{
 		engine:    burrowEVM,
@@ -73,49 +70,16 @@ func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress 
 	}
 
 	output, err := engine.Execute(evmCaller, evmCallee, data)
-	fmt.Println("output is ")
-	fmt.Println(output)
-	fmt.Println(hex.EncodeToString(output))
+	if err != nil {
+		return nil, err
+	}
 	if output == nil {
 		return nil, nil
 	}
 	// create object encapsulating response
 	txe := exec.TxExecution{}
 	txe.Result = &exec.Result{Return: output}
-	// exe := contexts.CallContext{
-	// 	EVM: evm.New(evm.Options{
-	// 		Natives: vm.MustCreateNatives(),
-	// 	}),
-	// 	RunCall:       true,
-	// 	State:         cache,
-	// 	MetadataState: acmstate.NewMemoryState(),
-	// 	Blockchain:    blockchain,
-	// 	Logger:        nil,
-	// }
-	// fmt.Println("exe created")
-	// fmt.Println(address)
-	// fmt.Println(data)
-	// txe := exec.NewTxExecution(txs.Enclose("dupa", &payload.CallTx{
-	// 	Input: &payload.TxInput{
-	// 		Address: fromAddress,
-	// 	},
-	// 	Address:  &address,
-	// 	Data:     data,
-	// 	GasLimit: 999999,
-	// }))
-	// fmt.Println("new txe created")
-	// // Set height for downstream synchronisation purposes
-	// txe.Height = 1
-	// fmt.Println("last block height calculated")
-	// fmt.Println(txe.Envelope.Tx.Payload)
-	// err := exe.Execute(txe, txe.Envelope.Tx.Payload)
-	// fmt.Println("executed")
-	// if err != nil {
-	// 	fmt.Println(err.Error())
-	// 	return nil, err
-	// }
 	return &txe, nil
-
 }
 
 func (w *EngineWrapper) Execute(caller, callee crypto.Address, input []byte) ([]byte, error) {

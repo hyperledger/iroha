@@ -4,7 +4,7 @@
  */
 
 #include "ametsuchi/impl/burrow_storage.h"
-#include <iostream>
+
 #include "ametsuchi/burrow_storage.hpp"
 #include "ametsuchi/impl/common_c_types_helpers.hpp"
 #include "common/result.hpp"
@@ -12,7 +12,6 @@
 namespace {
   template <typename Func, typename... Args>
   Iroha_Result performQuery(void *storage, Func function, Args... args) {
-    std::cout<<"visiting in place"<<std::endl;
     return iroha::visit_in_place(
         (reinterpret_cast<iroha::ametsuchi::BurrowStorage *>(storage)
              ->*function)(args...),
@@ -31,8 +30,6 @@ Iroha_Result Iroha_GetAccount(void *storage, Iroha_CharBuffer address) {
 Iroha_Result Iroha_UpdateAccount(void *storage,
                                  Iroha_CharBuffer address,
                                  Iroha_CharBuffer account) {
-  std::cout<<"updating account"<<std::endl;
-  std::cout<<storage<<std::endl;
   return performQuery(storage,
                       &BurrowStorage::updateAccount,
                       iroha::charBufferToStringView(address),

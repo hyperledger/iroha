@@ -254,11 +254,7 @@ type getAssetBalanceRets struct {
 }
 
 func getAssetBalance(ctx native.Context, args getAssetBalanceArgs) (getAssetBalanceRets, error) {
-	fmt.Println("executing in native contract")
 	balances, err := iroha.GetAccountAssets(args.Account)
-	fmt.Println("balances are:")
-	fmt.Println(balances)
-	fmt.Println(err)
 	if err != nil {
 		return getAssetBalanceRets{}, err
 	}
@@ -275,8 +271,6 @@ func getAssetBalance(ctx native.Context, args getAssetBalanceArgs) (getAssetBala
 		"account", args.Account,
 		"asset", args.Asset,
 		"value", value)
-	fmt.Println("value is: ")
-	fmt.Println(value)
 	return getAssetBalanceRets{Result: value}, nil
 }
 

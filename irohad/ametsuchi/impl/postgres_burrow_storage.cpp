@@ -6,7 +6,6 @@
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 
 #include <optional>
-#include <iostream>
 #include <soci/soci.h>
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_string_view.hpp"
@@ -24,7 +23,6 @@ PostgresBurrowStorage::PostgresBurrowStorage(
 
 Result<std::optional<std::string>, std::string>
 PostgresBurrowStorage::getAccount(std::string_view address) {
-  std::cout<<"getting account"<<std::endl;
   try {
     std::optional<std::string> data;
     sql_ << "select data from burrow_account_data "
@@ -38,17 +36,14 @@ PostgresBurrowStorage::getAccount(std::string_view address) {
 
 Result<void, std::string> PostgresBurrowStorage::updateAccount(
     std::string_view address, std::string_view account) {
-      std::cout<<"updatng account!@!@!@!"<<std::endl;
   try {
     int check = 0;
-    std::cout<<"before creating query"<<std::endl;
     sql_ << "insert into burrow_account_data (address, data) "
             "values (lower(:address), :data) "
             "on conflict (address) do update set data = excluded.data "
             "returning 1",
         soci::use(address, "address"), soci::use(account, "data"),
         soci::into(check);
-    std::cout<<check<<std::endl;
     if (check == 0) {
       return makeError("account data update failed");
     }

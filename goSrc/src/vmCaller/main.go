@@ -32,8 +32,6 @@ var (
 func init() {
 	// run ethereum service
 	server.RunServer()
-	fmt.Println("dupa")
-	// fmt.Println("dupa")
 }
 
 type Engine interface {
@@ -49,8 +47,6 @@ type EngineWrapper struct {
 
 //export tryExport
 func tryExport(storage unsafe.Pointer) {
-	fmt.Println("called from c++")
-	fmt.Println(storage)
 	iroha.StoragePointer = storage
 }
 
