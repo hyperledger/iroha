@@ -467,7 +467,7 @@ func handleErrors(result *C.Iroha_CommandError, err error, commandName string) (
 		if error_extra_ptr != nil {
 			error_extra = ": " + *error_extra_ptr
 		}
-		return fmt.Errorf("Error executing %s command: %s error_code %d", commandName, error_extra, result.error_code)
+		return fmt.Errorf("Error executing %s command: %s", commandName, error_extra)
 	}
 	return nil
 }
