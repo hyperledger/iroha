@@ -35,7 +35,7 @@ pub struct TransactionLimitError(String);
 impl std::error::Error for TransactionLimitError {}
 
 /// Default maximum number of instructions and expressions per transaction
-pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 2_u64.pow(20); // 1 MiB
+pub const DEFAULT_MAX_WASM_SIZE_BYTES: u64 = 2_u64.pow(22); // 4 MiB
 
 /// Trait for basic transaction operations
 pub trait Txn {

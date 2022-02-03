@@ -32,7 +32,7 @@ The following is the default configuration used by Iroha.
     "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
     "TRANSACTION_LIMITS": {
       "max_instruction_number": 4096,
-      "max_wasm_size_bytes": 1048576
+      "max_wasm_size_bytes": 4194304
     },
     "MAILBOX": 100,
     "GOSSIP_BATCH_SIZE": 500,
@@ -466,7 +466,7 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
   },
   "TRANSACTION_LIMITS": {
     "max_instruction_number": 4096,
-    "max_wasm_size_bytes": 1048576
+    "max_wasm_size_bytes": 4194304
   },
   "TRUSTED_PEERS": [],
   "TX_RECEIPT_TIME_MS": 500
@@ -571,7 +571,7 @@ Has type `TransactionLimits`. Can be configured via environment variable `SUMERA
 ```json
 {
   "max_instruction_number": 4096,
-  "max_wasm_size_bytes": 1048576
+  "max_wasm_size_bytes": 4194304
 }
 ```
 
