@@ -28,7 +28,6 @@
 #include "validators/always_valid_validator.hpp"
 #include "validators/protobuf/proto_block_validator.hpp"
 
-
 namespace ametsuchi = iroha::ametsuchi;
 
 using shared_model::interface::types::PublicKeyHexStringView;
