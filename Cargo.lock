@@ -1687,7 +1687,7 @@ dependencies = [
  "rand 0.8.4",
  "serde",
  "serde_json",
- "smallstr",
+ "smallstr 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec",
  "tempfile",
  "test_network",
@@ -1762,7 +1762,7 @@ dependencies = [
  "rand 0.8.4",
  "serde",
  "serde_json",
- "smallstr",
+ "smallstr 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec",
  "tempfile",
  "thiserror",
@@ -1803,7 +1803,6 @@ name = "iroha_data_model"
 version = "2.0.0-pre.1"
 dependencies = [
  "derive_more",
- "fixnum",
  "hex-literal",
  "iroha_client",
  "iroha_core",
@@ -1828,17 +1827,14 @@ version = "2.0.0-pre.1"
 dependencies = [
  "derive_more",
  "fixnum",
- "iroha_crypto",
  "iroha_macro",
  "iroha_schema",
- "iroha_version",
  "parity-scale-codec",
  "serde",
  "serde_json",
- "smallstr",
+ "smallstr 0.2.0 (git+https://github.com/murarth/smallstr?rev=68efc08)",
  "smallvec",
  "thiserror",
- "warp",
 ]
 
 [[package]]
@@ -3247,6 +3243,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "smallstr"
+version = "0.2.0"
+source = "git+https://github.com/murarth/smallstr?rev=68efc08#68efc08826b789d26fda4422eb625740edaed0e3"
+dependencies = [
+ "serde",
+ "smallvec",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3432,7 +3437,7 @@ dependencies = [
  "iroha_p2p",
  "once_cell",
  "rand 0.8.4",
- "smallstr",
+ "smallstr 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile",
  "tokio",
  "unique_port",

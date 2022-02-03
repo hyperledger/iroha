@@ -31,9 +31,9 @@ Iroha has the following features:
 
 ## Notes
 * Rust compilation highly favours multi-core CPUs such as Apple M1™, AMD Ryzen™/Threadripper™/Epyc™, Intel Alder Lake
-* On systems with restricted memory but many CPU cores, compilation of Iroha may sometimes fail with (`SIGKILL`). If this happens to you, restrict the number of CPU cores using `cargo build -j <number>`, where `<number>` (without the angle brackets) is half your RAM capacity rounded down. 
-* Blockchain operations are done in-memory, so RAM requirements may increase over time, depending on the size and number of blocks in your blockchain. 
-* Iroha itself does not require any persistent storage, as all of its configuration options can be specified via environment variables. 
+* On systems with restricted memory but many CPU cores, compilation of Iroha may sometimes fail with (`SIGKILL`). If this happens to you, restrict the number of CPU cores using `cargo build -j <number>`, where `<number>` (without the angle brackets) is half your RAM capacity rounded down.
+* Blockchain operations are done in-memory, so RAM requirements may increase over time, depending on the size and number of blocks in your blockchain.
+* Iroha itself does not require any persistent storage, as all of its configuration options can be specified via environment variables.
 
 
 # Building, testing and running
@@ -116,35 +116,35 @@ Iroha project mainly consists of the following crates:
 * [`iroha_telemetry`](telemetry) — monitoring and analysis of telemetry data
 * [`iroha_version`](version) — message versioning for non-simultaneous system updates
 
-# Maintenance 
+# Maintenance
 ## Configuration
 
-A detailed breakdown of all available configuration parameters is available [here](./docs/source/references/config.md). All configuration parameters can be either provided as a `config.json` or using environment variables. 
+A detailed breakdown of all available configuration parameters is available [here](./docs/source/references/config.md). All configuration parameters can be either provided as a `config.json` or using environment variables.
 
-The tests in the repository verify that the `trusted_peers.json` is compatible with the provided `config.json`, and that the `client/config.json` can be used to operate on the provided `genesis.json` block. It may be useful to generate the configurations by looking at [`core/src/samples.rs`](./core/src/samples.rs) and [`client/src/samples.rs`](./core/src/samples.rs) to see examples that can be serialised into `json` and used for your needs. 
+It may be useful to generate the configurations by looking at [`core/src/samples.rs`](./core/src/samples.rs) and [`client/src/samples.rs`](./core/src/samples.rs) to see examples that can be serialised into `json` and used for your needs.
 
 ## Endpoints
 
-A detailed list of all available endpoints is available [here](./docs/source/references/api_spec.md#endpoints). 
+A detailed list of all available endpoints is available [here](./docs/source/references/api_spec.md#endpoints).
 
 ## Logging
 
-By default Iroha logs in a human readable format to `stdout`. The logging level is set as described [here](./docs/source/references/config.md#loggermax_log_level), and it can be changed at run-time using the `configuration` endpoint. 
+By default Iroha logs in a human readable format to `stdout`. The logging level is set as described [here](./docs/source/references/config.md#loggermax_log_level), and it can be changed at run-time using the `configuration` endpoint.
 
-For example if your iroha instance is running at `127.0.0.1:8080` to change the log level to `DEBUG` using `curl` one can 
+For example if your iroha instance is running at `127.0.0.1:8080` to change the log level to `DEBUG` using `curl` one can
 ```bash
 curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"LogLevel": "DEBUG"}' -i
 ```
 
-Optional JSON formatted logging can be saved to the [logging file](./docs/source/references/config.md#loggerlog_file_path). [Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the peer administrator's responsibility. 
+Optional JSON formatted logging can be saved to the [logging file](./docs/source/references/config.md#loggerlog_file_path). [Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the peer administrator's responsibility.
 
 ## Monitoring
 
-The details of the `Health` endpoint can be found [here](./docs/source/references/api_spec.md#health). 
+The details of the `Health` endpoint can be found [here](./docs/source/references/api_spec.md#health).
 
 Iroha is instrumented to produce both JSON-formatted as well as `prometheus`-readable metrics at the `status` and `metrics` endpoints respectively. More information is found in the [API specifications](./docs/source/references/api_spec.md).
 
-The [`prometheus`](https://prometheus.io/docs/introduction/overview/) monitoring system is the de-factor standard for monitoring long-running services such as an Iroha peer. In order to get started, please [install `prometheus`](https://prometheus.io/docs/introduction/first_steps/), and execute the following in the project root. 
+The [`prometheus`](https://prometheus.io/docs/introduction/overview/) monitoring system is the de-factor standard for monitoring long-running services such as an Iroha peer. In order to get started, please [install `prometheus`](https://prometheus.io/docs/introduction/first_steps/), and execute the following in the project root.
 
 ```
 prometheus --config.file=configs/prometheus.yml
@@ -152,15 +152,15 @@ prometheus --config.file=configs/prometheus.yml
 
 ## Storage
 
-The blocks are written to the `blocks` sub-folder (created automatically by Iroha) in the working directory of the peer. Additionally, if specified, the logging file must also be stored in a user-specified directory. 
+The blocks are written to the `blocks` sub-folder (created automatically by Iroha) in the working directory of the peer. Additionally, if specified, the logging file must also be stored in a user-specified directory.
 
-No additional storage is necessary. 
+No additional storage is necessary.
 
-## Scaling 
+## Scaling
 
-Multiple instances of Iroha peer and client can be run on the same physical machine and in the same working directory (although it is recommended to give each a clean new working directory). 
+Multiple instances of Iroha peer and client can be run on the same physical machine and in the same working directory (although it is recommended to give each a clean new working directory).
 
-The provided `docker-compose` file showcases a minimum viable network and the general methods of using the `hyperledger/iroha2:dev` docker image for deploying a network of peers. 
+The provided `docker-compose` file showcases a minimum viable network and the general methods of using the `hyperledger/iroha2:dev` docker image for deploying a network of peers.
 
 # Further reading
 

@@ -4,7 +4,7 @@
 //! `SmallVec` should be determined based on the average case size of
 //! the collection.
 #[cfg(not(feature = "std"))]
-use alloc::{borrow::ToOwned, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use core::fmt;
 
 use iroha_schema::{IntoSchema, MetaMap};

@@ -23,5 +23,4 @@ futures = { version = "0.3.17", default-features = false, features = ["std", "as
 tokio = { version = "1.6.0", features = ["sync", "time", "rt", "rt-multi-thread", "macros"]}
 thiserror = "1.0.28"
 
-
 petgraph = { version = "0.6", default-features = false, optional = true }

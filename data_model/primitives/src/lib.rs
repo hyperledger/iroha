@@ -1,5 +1,3 @@
-#![allow(clippy::module_name_repetitions)]
-#![cfg_attr(not(feature = "std"), no_std)]
 //! Data primitives used inside Iroha, but not related directly to the
 //! blockchain-specific data model.
 //!
@@ -8,6 +6,8 @@
 //! `Encode` and `Decode` trait implementations, you should add the
 //! wrapper as a submodule to this crate, rather than into
 //! `iroha_data_model` directly.
+
+#![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
