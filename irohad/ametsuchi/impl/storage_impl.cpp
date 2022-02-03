@@ -238,6 +238,7 @@ namespace iroha::ametsuchi {
             maybe_top_block_info.assumeValue().height,
             maybe_top_block_info.assumeValue().top_hash);
     }
+
     return expected::makeValue(std::shared_ptr<StorageImpl>(
         new StorageImpl(std::move(ledger_state),
                         std::move(postgres_options),

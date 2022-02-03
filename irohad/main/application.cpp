@@ -316,7 +316,6 @@ Irohad::RunResult Irohad::initStorage(
           PgConnectionInit::init(
               startup_wsv_data_policy, *pg_opt_, log_manager_));
       pool_wrapper_ = std::move(pool_wrapper);
-      
     } break;
 
     case StorageType::kRocksDb: {

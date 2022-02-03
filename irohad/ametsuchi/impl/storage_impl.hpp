@@ -104,7 +104,6 @@ namespace iroha {
               std::shared_ptr<shared_model::interface::Block const>)> callback,
           logger::LoggerManagerTreePtr log_manager);
 
-     
      private:
       friend class ::iroha::ametsuchi::AmetsuchiTest;
 

@@ -28,7 +28,6 @@
 #include "validators/always_valid_validator.hpp"
 #include "validators/protobuf/proto_block_validator.hpp"
 
-
 namespace ametsuchi = iroha::ametsuchi;
 
 using shared_model::interface::types::PublicKeyHexStringView;
@@ -165,11 +164,6 @@ iroha::initStorage(
         ? makeFlatFileBlockStorage(block_storage_dir.value(), log_manager)
         : makePostgresBlockStorage(
               pool_wrapper, block_transport_factory, log_manager);
-    
-    // auto sql = std::make_unique<soci::session>(*pool_wrapper->connection_pool_);
-    // const std::string tx = " ";
-    // iroha::ametsuchi::PostgresBurrowStorage burrow_storage_ = iroha::ametsuchi::PostgresBurrowStorage(*sql.get(),tx,0);
-    // vm_caller_ref.value().get().exportBurrow(&burrow_storage_);
     return ametsuchi::StorageImpl::create(
         pg_opt,
         pool_wrapper,

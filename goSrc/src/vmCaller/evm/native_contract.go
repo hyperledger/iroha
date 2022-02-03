@@ -271,6 +271,7 @@ func getAssetBalance(ctx native.Context, args getAssetBalanceArgs) (getAssetBala
 		"account", args.Account,
 		"asset", args.Asset,
 		"value", value)
+
 	return getAssetBalanceRets{Result: value}, nil
 }
 

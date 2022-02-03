@@ -263,11 +263,9 @@ class Irohad {
       query_response_factory_;
 
   // ------------------------| internal dependencies |-------------------------
-
   std::optional<std::shared_ptr<iroha::ametsuchi::PostgresBurrowStorage>>burrow_storage_;
   std::optional<std::shared_ptr<soci::session>> sql;
   std::optional<std::unique_ptr<iroha::ametsuchi::VmCaller>> vm_caller_;
-
   std::shared_ptr<iroha::ametsuchi::RocksDBContext> db_context_;
 
  public:
@@ -285,8 +283,6 @@ class Irohad {
 
   // IR-907 14.09.2020 @lebdron: remove it from here
   std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
-
-  // iroha::ametsuchi::PostgresBurrowStorage burrow_storage_;
 
   std::shared_ptr<iroha::network::GenericClientFactory>
       inter_peer_client_factory_;
@@ -397,8 +393,6 @@ class Irohad {
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager
 
   logger::LoggerPtr log_;  ///< log for local messages
-
-  
 };
 
 #endif  // IROHA_APPLICATION_HPP
