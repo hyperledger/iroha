@@ -57,7 +57,7 @@ pin-project = "1"
 wasmtime = "0.33.0"
 color-eyre = "0.5.11"
 smallstr = { version = "0.2.0", features = ["serde", "union"] }
-smallvec = { version = "1.6.1", features = ["serde", "union"] }
+smallvec = { version = "1.8.0", features = ["serde", "union"] }
 
 # transitive dependencies
 anyhow = ">= 1.0"

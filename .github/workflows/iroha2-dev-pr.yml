@@ -31,9 +31,14 @@ jobs:
         run: mold -run cargo test --quiet --features mock -- --ignored --skip unstable_network --test-threads 2
         working-directory: core/test_network
       - name: Run iroha_actor deadlock detection tests
-        working-directory: actor
         run: mold -run cargo test --quiet --features deadlock_detection -- --skip unstable_network --test-threads 2
+        working-directory: actor
         if: always()
+      - name: Verify wasm smartcontracts are able to build
+        run: mold -run cargo build --target wasm32-unknown-unknown --quiet
+        working-directory: wasm
+        env:
+          RUSTC_BOOTSTRAP: 1
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.

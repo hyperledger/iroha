@@ -14,7 +14,7 @@ based on predefined configuration.
 
 ### Generating Keys
 
-Before deployment each Peer should generate own pair of cryptographic keys. In our example we will use `Ed25519` and 
+Before deployment each Peer should generate own pair of cryptographic keys. In our example we will use `Ed25519` and
 [iroha_crypto_cli](https://github.com/hyperledger/iroha/blob/iroha2-dev/crypto_cli/README.md) tool. This tool is a recommended way to generate iroha keys.
 
 ```bash
@@ -45,7 +45,7 @@ mkdir deploy
 
 #### Build Iroha Binary
 
-Build and copy Iroha binary into the directory. 
+Build and copy Iroha binary into the directory.
 
 ```bash
 cargo build --release
@@ -54,20 +54,18 @@ cp ./target/release/iroha deploy
 
 #### Copy configs
 
-Copy and if necessary edit config, genesis and trusted peers.
+Copy and if necessary edit config, genesis.
 ```bash
 cp ./configs/peer/config.json deploy
 cp ./configs/peer/genesis.json deploy
-cp ./configs/peer/trusted_peers.json deploy
 ```
 
-Set `trusted_peers.json` to contain ids of the peers you are planning to start.
-
-Also update the `PUBLIC_KEY`, `PRIVATE_KEY`, `TORII.P2P_ADDR` and `TORII.API_URL` correspondingly, they should be unique for each of the peers. `trusted_peers.json` address fields should correspond to `TORII.P2P_URL`s of peers.
+In `config.json` define `TRUSTED_PEERS` to contain ids of the peers you are planning to start.
+Also update `PUBLIC_KEY`, `PRIVATE_KEY`, `TORII.P2P_ADDR` and `TORII.API_URL` correspondingly, they should be unique for each of the peers. `TRUSTED_PEERS` address fields should correspond to `TORII.P2P_URL`s of peers.
 
 #### Start Iroha
 
-Start Iroha peer. It can be done either with `--genesis` param to specify `genesis.json` location or without. Pay attention that for multi-peer setup only one peer should be started with `--genesis` param.  
+Start Iroha peer. It can be done either with `--genesis` param to specify `genesis.json` location or without. Pay attention that for multi-peer setup only one peer should be started with `--genesis` param.
 
 ```bash
 cd deploy
@@ -118,7 +116,7 @@ docker-compose down
 
 ### Want to help us develop Iroha?
 
-That's great! 
+That's great!
 Check out [this document](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md)
 
 ## [Need help?](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md#contact)

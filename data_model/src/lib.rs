@@ -54,7 +54,7 @@ impl ValidationError {
     /// Construct [`ValidationError`].
     pub fn new(reason: &str) -> Self {
         Self {
-            reason: reason.to_owned(),
+            reason: String::from(reason),
         }
     }
 }
@@ -764,7 +764,6 @@ pub mod account {
         collections::{btree_map, btree_set},
         format,
         string::String,
-        vec,
         vec::Vec,
     };
     use core::{fmt, str::FromStr};
