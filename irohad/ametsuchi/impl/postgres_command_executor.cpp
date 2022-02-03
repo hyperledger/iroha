@@ -8,6 +8,7 @@
 #include <exception>
 #include <forward_list>
 #include <memory>
+
 #include <fmt/core.h>
 #include <soci/postgresql/soci-postgresql.h>
 #include <boost/algorithm/string.hpp>

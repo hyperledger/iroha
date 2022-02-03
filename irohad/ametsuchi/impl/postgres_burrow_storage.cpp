@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 
 #include <optional>
+
 #include <soci/soci.h>
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_string_view.hpp"
