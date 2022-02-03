@@ -35,17 +35,17 @@ func (st *IrohaState) SetMetadata(metahash acmstate.MetadataHash, metadata strin
 	return nil
 }
 
-// needs to be implemented
+// mock
 func (st *IrohaState) GetAccountStats() acmstate.AccountStats {
 	return acmstate.AccountStats{}
 }
 
-// needs to be implemented
+// mock
 func (st *IrohaState) IterateAccounts(func(*acm.Account) error) error {
 	return nil
 }
 
-// needs to be implemented
+// mock
 func (st *IrohaState) IterateStorage(address crypto.Address, consumer func(key binary.Word256, value []byte) error) (err error) {
 	return nil
 }
