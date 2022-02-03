@@ -7,7 +7,6 @@ package iroha
 // #include "ametsuchi/impl/proto_specific_query_executor.h"
 import "C"
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -15,6 +14,8 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	pb "iroha.protocol"
+	"vmCaller/iroha_model"
+	"encoding/json"
 )
 
 var (
