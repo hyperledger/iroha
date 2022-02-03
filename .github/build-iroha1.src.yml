@@ -58,10 +58,16 @@ on:
         description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
         required: false
         default: '/build'
+      # skip_testing:
+      #   description: 'Skip testing parameter for testers'
+      #   required: false
+      #   default: OFF
+  repository_dispatch:
+    inputs:
       skip_testing:
-          description: 'Skip testing parameter for testers'
-          required: false
-          default: OFF
+        description: 'Skip testing parameter for testers'
+        required: false
+        default: OFF
   # issue_comment:
   #   types: [created, edited]
   schedule:
