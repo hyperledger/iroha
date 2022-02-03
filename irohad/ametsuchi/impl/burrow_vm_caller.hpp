@@ -13,6 +13,7 @@ namespace iroha::ametsuchi {
   class BurrowVmCaller : public VmCaller {
    public:
     void exportBurrow(PostgresBurrowStorage &BurrowStorage) const override;
+    void stopBurrow() const override;
     iroha::expected::Result<std::optional<std::string>, std::string> call(
         std::string const &tx_hash,
         shared_model::interface::types::CommandIndexType cmd_index,

@@ -45,9 +45,14 @@ type EngineWrapper struct {
 	eventSink exec.EventSink
 }
 
-//export tryExport
-func tryExport(storage unsafe.Pointer) {
+//export TryExport
+func TryExport(storage unsafe.Pointer) {
 	iroha.StoragePointer = storage
+}
+
+//export ShutdownService
+func ShutdownService() {
+	server.ShutdownServer()
 }
 
 //export VmCall

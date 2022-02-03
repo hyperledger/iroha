@@ -161,6 +161,9 @@ Irohad::~Irohad() {
   if (ordering_gate) {
     ordering_gate->stop();
   }
+  if (vm_caller_) {
+    vm_caller_.value().get()->stopBurrow();
+  }
   subscription_engine_->dispose();
 }
 

@@ -26,6 +26,7 @@ namespace iroha::ametsuchi {
     virtual ~VmCaller() = default;
 
     virtual void exportBurrow(PostgresBurrowStorage &burrowStorage) const = 0;
+    virtual void stopBurrow() const = 0;
     virtual iroha::expected::Result<std::optional<std::string>, std::string>
     call(std::string const &tx_hash,
          shared_model::interface::types::CommandIndexType cmd_index,
