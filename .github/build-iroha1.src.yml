@@ -47,7 +47,7 @@ name: Iroha1
 ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
 on:
   push:
-    branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
+    branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha, feature/DOPS-1585/* ]
     tags: '**'
   pull_request:
     branches: [ main, support/1.*, edge, develop ]  ## target branches
