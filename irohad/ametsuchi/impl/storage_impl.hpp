@@ -7,7 +7,6 @@
 #define IROHA_STORAGE_IMPL_HPP
 
 #include "ametsuchi/impl/storage_base.hpp"
-#include "ametsuchi/impl/postgres_burrow_storage.hpp"
 
 #include <soci/soci.h>
 
