@@ -25,11 +25,12 @@ pub mod error {
     use core::fmt;
 
     use iroha_macro::FromVariant;
+    use parity_scale_codec::{Decode, Encode};
 
     use super::UnsupportedVersion;
 
     /// Versioning errors
-    #[derive(Debug, FromVariant)]
+    #[derive(Debug, Clone, Decode, Encode, FromVariant)]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
     pub enum Error {
         /// This is not a versioned object
@@ -42,14 +43,34 @@ pub mod error {
         UnsupportedScaleEncode,
         /// JSON (de)serialization issue
         #[cfg(feature = "json")]
-        Serde(#[cfg_attr(feature = "std", source)] serde_json::Error),
+        Serde,
         /// Parity SCALE (de)serialization issue
         #[cfg(feature = "scale")]
-        ParityScale(#[cfg_attr(feature = "std", source)] parity_scale_codec::Error),
+        ParityScale,
         /// Problem with parsing integers
-        ParseInt(#[cfg_attr(feature = "std", source)] core::num::ParseIntError),
+        ParseInt,
         /// Input version unsupported
         UnsupportedVersion(UnsupportedVersion),
+    }
+
+    #[cfg(feature = "json")]
+    impl From<serde_json::Error> for Error {
+        fn from(_: serde_json::Error) -> Self {
+            Self::Serde
+        }
+    }
+
+    #[cfg(feature = "scale")]
+    impl From<parity_scale_codec::Error> for Error {
+        fn from(_: parity_scale_codec::Error) -> Self {
+            Self::ParityScale
+        }
+    }
+
+    impl From<core::num::ParseIntError> for Error {
+        fn from(_: core::num::ParseIntError) -> Self {
+            Self::ParseInt
+        }
     }
 
     impl fmt::Display for Error {
@@ -64,10 +85,10 @@ pub mod error {
                     "Cannot encode unsupported version from SCALE to JSON"
                 }
                 #[cfg(feature = "json")]
-                Self::Serde(_) => "JSON (de)serialization issue",
+                Self::Serde => "JSON (de)serialization issue",
                 #[cfg(feature = "scale")]
-                Self::ParityScale(_) => "Parity SCALE (de)serialization issue",
-                Self::ParseInt(_) => "Problem with parsing integers",
+                Self::ParityScale => "Parity SCALE (de)serialization issue",
+                Self::ParseInt => "Problem with parsing integers",
                 Self::UnsupportedVersion(_) => "Input version unsupported",
             };
 

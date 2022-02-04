@@ -197,7 +197,7 @@ impl AssertReady {
         let router = warp::post()
             .and(post_router)
             .with(warp::trace::request())
-            .recover(Torii::<World>::recover_arg_parse);
+            .recover(handle_rejection);
 
         let request: VersionedSignedQueryRequest =
             QueryRequest::new(self.query, self.account.unwrap_or(authority))

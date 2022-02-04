@@ -269,7 +269,7 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::new())
                 .wrap_err("Failed to evaluate account id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let roles = wsv.map_account(&account_id, |account| {
                 account.roles.iter().cloned().collect::<Vec<_>>()
             })?;
@@ -285,7 +285,7 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::new())
                 .wrap_err("Failed to evaluate account id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let tokens = wsv.map_account(&account_id, |account| {
                 wsv.account_permission_tokens(account)
                     .iter()
@@ -318,7 +318,7 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             wsv.map_account(&id, Clone::clone).map_err(Into::into)
         }
     }
@@ -331,7 +331,7 @@ pub mod query {
                 .name
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get account name")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
                 for (id, account) in &domain.accounts {
@@ -352,7 +352,7 @@ pub mod query {
                 .domain_id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             Ok(wsv
                 .domain(&id)?
                 .accounts
@@ -370,12 +370,12 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get account id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let key = self
                 .key
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             wsv.map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
                 .ok_or_else(|| query::Error::Find(Box::new(FindError::MetadataKey(key))))
         }

@@ -289,6 +289,50 @@ async fn update_metrics<W: WorldTrait>(
     Ok(())
 }
 
+/// Convert accumulated `Rejection` into appropriate `Reply`.
+#[allow(clippy::unused_async)]
+// TODO: -> Result<impl Reply, Infallible>
+pub(crate) async fn handle_rejection(rejection: Rejection) -> Result<Response, Rejection> {
+    use super::Error::*;
+
+    let err = if let Some(err) = rejection.find::<Error>() {
+        err
+    } else {
+        iroha_logger::error!(?rejection, "unhandled rejection");
+        return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    };
+
+    #[allow(clippy::match_same_arms)]
+    let response = match err {
+        Query(err) => err.clone().into_response(),
+        VersionedTransaction(err) => {
+            reply::with_status(err.to_string(), err.status_code()).into_response()
+        }
+        AcceptTransaction(_err) => return unhandled(rejection),
+        RequestPendingTransactions(_err) => return unhandled(rejection),
+        DecodeRequestPendingTransactions(err) => {
+            reply::with_status(err.to_string(), err.status_code()).into_response()
+        }
+        EncodePendingTransactions(err) => {
+            reply::with_status(err.to_string(), err.status_code()).into_response()
+        }
+        TxTooBig => return unhandled(rejection),
+        Config(_err) => return unhandled(rejection),
+        PushIntoQueue(_err) => return unhandled(rejection),
+        Status(_err) => return unhandled(rejection),
+        ConfigurationReload(_err) => return unhandled(rejection),
+        Prometheus(_err) => return unhandled(rejection),
+    };
+
+    Ok(response)
+}
+
+// TODO: Remove this. Handle all the `Error` cases in `handle_rejection`
+fn unhandled(rejection: Rejection) -> Result<Response, Rejection> {
+    iroha_logger::error!(?rejection, "unhandled rejection");
+    Err(rejection)
+}
+
 impl<W: WorldTrait> Torii<W> {
     /// Construct `Torii` from `ToriiConfiguration`.
     pub fn from_configuration(
@@ -309,18 +353,6 @@ impl<W: WorldTrait> Torii<W> {
         }
     }
 
-    /// Fixing status code for custom rejection, because of argument parsing
-    #[allow(clippy::unused_async)]
-    pub(crate) async fn recover_arg_parse(rejection: Rejection) -> Result<impl Reply, Rejection> {
-        if let Some(err) = rejection.find::<query::Error>() {
-            return Ok(reply::with_status(err.to_string(), err.status_code()));
-        }
-        if let Some(err) = rejection.find::<iroha_version::error::Error>() {
-            return Ok(reply::with_status(err.to_string(), err.status_code()));
-        }
-        Err(rejection)
-    }
-
     /// Helper function to create router. This router can tested without starting up an HTTP server
     fn create_telemetry_router(&self) -> impl Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router_status = endpoint2(
@@ -336,7 +368,7 @@ impl<W: WorldTrait> Torii<W> {
             .and(get_router_status)
             .or(get_router_metrics)
             .with(warp::trace::request())
-            .recover(Torii::<W>::recover_arg_parse)
+            .recover(handle_rejection)
     }
 
     /// Helper function to create router. This router can tested without starting up an HTTP server
@@ -418,7 +450,7 @@ impl<W: WorldTrait> Torii<W> {
             .or(warp::post().and(post_router))
             .or(warp::get().and(get_router))
             .with(warp::trace::request())
-            .recover(Torii::<W>::recover_arg_parse)
+            .recover(handle_rejection)
     }
 
     /// Start status and metrics endpoints.

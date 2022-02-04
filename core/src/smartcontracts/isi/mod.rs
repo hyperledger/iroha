@@ -33,6 +33,7 @@ pub mod error {
 
     use iroha_crypto::HashOf;
     use iroha_data_model::{fixed::FixedPointOperationError, metadata, prelude::*};
+    use parity_scale_codec::{Decode, Encode};
     use thiserror::Error;
 
     use super::{query, VersionedCommittedBlock};
@@ -66,7 +67,7 @@ pub mod error {
         FailBox(std::string::String),
         /// Conversion Error
         #[error("Conversion Error: {0}")]
-        Conversion(#[source] eyre::Error),
+        Conversion(std::string::String),
         /// Repeated instruction
         #[error("Repetition")]
         Repetition(InstructionType, IdBox),
@@ -128,7 +129,7 @@ pub mod error {
     }
 
     /// Type assertion error
-    #[derive(Debug, Clone, Error)]
+    #[derive(Debug, Clone, Error, Decode, Encode)]
     pub enum FindError {
         /// Failed to find asset
         #[error("Failed to find asset: `{0}`")]
@@ -242,7 +243,7 @@ pub mod error {
             match err {
                 FixedPointOperationError::NegativeValue(_) => Self::Math(MathError::NegativeValue),
                 FixedPointOperationError::Conversion(e) => {
-                    Self::Conversion(eyre::eyre!("Mathematical conversion failed. {}", e))
+                    Self::Conversion(format!("Mathematical conversion failed. {}", e))
                 }
                 FixedPointOperationError::Overflow => Self::Math(MathError::Overflow),
                 FixedPointOperationError::DivideByZero => Self::Math(MathError::DivideByZero),
@@ -259,7 +260,7 @@ pub mod error {
     }
 
     /// Block with parent hash not found struct
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, Decode, Encode)]
     pub struct ParentHashNotFound(pub HashOf<VersionedCommittedBlock>);
 
     impl Display for ParentHashNotFound {

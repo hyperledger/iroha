@@ -15,7 +15,7 @@ impl<W: WorldTrait> ValidQuery<W> for FindTransactionsByAccountId {
             .account_id
             .evaluate(wsv, &Context::default())
             .wrap_err("Failed to get account id")
-            .map_err(query::Error::Evaluate)?;
+            .map_err(|e| query::Error::Evaluate(e.to_string()))?;
         Ok(wsv.transactions_values_by_account_id(&id))
     }
 }
@@ -28,7 +28,7 @@ impl<W: WorldTrait> ValidQuery<W> for FindTransactionByHash {
             .hash
             .evaluate(wsv, &Context::default())
             .wrap_err("Failed to get hash")
-            .map_err(query::Error::Evaluate)?;
+            .map_err(|e| query::Error::Evaluate(e.to_string()))?;
         let hash = HashOf::from_hash(hash);
         if !wsv.has_transaction(&hash) {
             return Err(FindError::Transaction(hash).into());

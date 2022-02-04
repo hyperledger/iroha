@@ -123,7 +123,7 @@ impl<T: IntoIterator<Item = Instruction>> From<T> for Executable {
 }
 
 /// Wrapper for byte representation of [`Executable::Wasm`].  Inline
-/// into [`Executable::Wasm`] as soon as GATs are stabilised and
+/// into [`Executable::Wasm`] as soon as GATs are stabilized and
 /// implementations for from byte vector can be split off from
 /// [`IntoIterator<Item = Instruction>`].
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]

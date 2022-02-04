@@ -36,34 +36,15 @@
   + `limit` - Optional parameter in queries where results can be indexed. Use to return specific number of results.
 
 **Responses**:
-- 200 OK - Query Executed Successfully and Found Value
-  + Body: `VersionedQueryResult` [*](#iroha-structures)
-- 4xx - Query Rejected or Found Nothing
 
-Status and whether each step succeeded:
-| Status | Decode & Versioning | Signature | Permission | Find |
-| -- | -- | -- | -- | -- |
-| 400 | N | - | - | - |
-| 401 | Y | N | - | - |
-| 404 | Y | Y | N | - |
-| 404 | Y | Y | Y | N |
-| 200 | Y | Y | Y | Y |
-
-#### Asset Not Found 404
-Hint and whether each object exists:
-| Hint | Domain | Account | Asset Definition | Asset |
-| -- | -- | -- | -- | -- |
-| "domain" | N | - | - | - |
-| "account" | Y | N | - | - |
-| "definition" | Y | - | N | - |
-| - | Y | Y | Y | N |
-
-#### Account Not Found 404
-Hint and whether each object exists:
-| Hint | Domain | Account |
-| -- | -- | -- |
-| "domain" | N | - |
-| - | Y | N |
+| Response        | Status | Body [*](#iroha-structures) |
+| --------------- | ------ | ---- |
+| Decode err.     |    400 | `QueryError::Decode` |
+| Version err.    |    400 | `QueryError::Version` |
+| Signature err.  |    401 | `QueryError::Signature` |
+| Permission err. |    403 | `QueryError::Permission` |
+| Find err.       |    404 | `QueryError::Find` |
+| Success         |    200 | `VersionedQueryResult` |
 
 ### Events
 
@@ -245,6 +226,8 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 - `VersionedTransaction` - `iroha_data_model::transaction::VersionedTransaction`
 - `VersionedSignedQueryRequest` - `iroha_data_model::query::VersionedSignedQueryRequest`
 - `VersionedQueryResult` - `iroha_data_model::query::VersionedQueryResult`
+<!-- SATO -->
+- `QueryError` - 
 
 - `EventStreamSubscriptionRequest` - `iroha_data_model::events::EventSubscriberMessage::SubscriptionRequest`
 - `EventStreamSubscriptionAccepted` - `iroha_data_model::events::EventPublisherMessage::SubscriptionAccepted`
