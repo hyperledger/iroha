@@ -39,6 +39,7 @@ use crate::{
     queue::Queue,
     sumeragi::{message::VersionedMessage as SumeragiMessage, Sumeragi, SumeragiTrait},
     torii::Torii,
+    tx::TransactionValidator,
     wsv::WorldTrait,
 };
 
@@ -160,7 +161,7 @@ where
             args.submit_genesis,
             RawGenesisBlock::from_path(&args.genesis_path)?,
             &config.genesis,
-            &config.torii.transaction_limits,
+            &config.sumeragi.transaction_limits,
         )
         .wrap_err("Failed to initialize genesis.")?;
 
@@ -221,9 +222,16 @@ where
             .with_events(events_sender.clone()),
         );
 
+        let query_validator = Arc::new(query_validator);
+        let transaction_validator = TransactionValidator::new(
+            config.sumeragi.transaction_limits,
+            Arc::new(instruction_validator),
+            Arc::clone(&query_validator),
+            Arc::clone(&wsv),
+        );
+
         let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
         let telemetry_started = Self::start_telemetry(telemetry, &config).await?;
-        let query_validator = Arc::new(query_validator);
         let kura = K::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())
             .await?
             .preinit();
@@ -231,8 +239,7 @@ where
             &config.sumeragi,
             events_sender.clone(),
             Arc::clone(&wsv),
-            instruction_validator,
-            Arc::clone(&query_validator),
+            transaction_validator,
             telemetry_started,
             genesis,
             Arc::clone(&queue),

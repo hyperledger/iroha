@@ -1,12 +1,13 @@
 #![allow(missing_docs, clippy::restriction)]
 
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, sync::Arc};
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
     kura::{config::KuraConfiguration, BlockStore},
     prelude::*,
+    tx::TransactionValidator,
     wsv::World,
 };
 use iroha_crypto::KeyPair;
@@ -36,11 +37,14 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     };
     let tx = VersionedAcceptedTransaction::from_transaction(tx, &transaction_limits)
         .expect("Failed to accept Transaction.");
-    let mut block = PendingBlock::new(vec![tx]).chain_first().validate(
-        &WorldStateView::new(World::new()),
-        &AllowAll.into(),
-        &AllowAll.into(),
-    );
+    let mut block = PendingBlock::new(vec![tx])
+        .chain_first()
+        .validate(&TransactionValidator::new(
+            transaction_limits,
+            AllowAll::new(),
+            AllowAll::new(),
+            Arc::new(WorldStateView::new(World::new())),
+        ));
     for _ in 0..n_validators {
         block = block
             .sign(KeyPair::generate().expect("Failed to generate KeyPair."))

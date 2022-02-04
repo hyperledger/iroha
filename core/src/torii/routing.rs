@@ -6,14 +6,13 @@ use super::*;
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_instructions<W: WorldTrait>(
     iroha_cfg: Configuration,
-    _wsv: Arc<WorldStateView<W>>,
     queue: Arc<Queue<W>>,
     transaction: VersionedTransaction,
 ) -> Result<Empty> {
     let transaction: Transaction = transaction.into_v1();
     let transaction = VersionedAcceptedTransaction::from_transaction(
         transaction,
-        &iroha_cfg.torii.transaction_limits,
+        &iroha_cfg.sumeragi.transaction_limits,
     )
     .map_err(Error::AcceptTransaction)?;
     #[allow(clippy::map_err_ignore)]
@@ -57,7 +56,6 @@ async fn handle_health() -> Json {
 
 #[iroha_futures::telemetry_future]
 async fn handle_pending_transactions<W: WorldTrait>(
-    _wsv: Arc<WorldStateView<W>>,
     queue: Arc<Queue<W>>,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
@@ -280,10 +278,10 @@ impl<W: WorldTrait> Torii<W> {
     ) -> impl Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router = warp::path(uri::HEALTH)
             .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
-            .or(endpoint3(
+            .or(endpoint2(
                 handle_pending_transactions,
                 warp::path(uri::PENDING_TRANSACTIONS)
-                    .and(add_state!(self.wsv, self.queue))
+                    .and(add_state!(self.queue))
                     .and(paginate()),
             ))
             .or(endpoint2(
@@ -293,10 +291,10 @@ impl<W: WorldTrait> Torii<W> {
                     .and(warp::body::json()),
             ));
 
-        let post_router = endpoint4(
+        let post_router = endpoint3(
             handle_instructions,
             warp::path(uri::TRANSACTION)
-                .and(add_state!(self.iroha_cfg, self.wsv, self.queue))
+                .and(add_state!(self.iroha_cfg, self.queue))
                 .and(warp::body::content_length_limit(
                     self.iroha_cfg.torii.max_content_len as u64,
                 ))

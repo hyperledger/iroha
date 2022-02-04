@@ -191,7 +191,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                 }
                 Executable::Wasm(bytes) => {
                     let mut wasm_runtime = wasm::Runtime::new()?;
-                    wasm_runtime.execute(self, account_id.clone(), bytes)?;
+                    wasm_runtime.execute(self, account_id, bytes)?;
                 }
             }
 

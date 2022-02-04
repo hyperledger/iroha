@@ -603,11 +603,12 @@ mod tests {
 
     use iroha_actor::broker::Broker;
     use iroha_crypto::KeyPair;
+    use iroha_data_model::transaction::TransactionLimits;
     use tempfile::TempDir;
     use tokio::io;
 
     use super::*;
-    use crate::{sumeragi::view_change, wsv::World};
+    use crate::{sumeragi::view_change, tx::TransactionValidator, wsv::World};
 
     const TEST_STORAGE_FILE_SIZE: u64 = 3_u64;
 
@@ -629,17 +630,27 @@ mod tests {
         .is_ok());
     }
 
+    fn get_transaction_validator() -> TransactionValidator<World> {
+        let tx_limits = TransactionLimits {
+            max_instruction_number: 4096,
+            max_wasm_size_bytes: 0,
+        };
+
+        TransactionValidator::new(
+            tx_limits,
+            AllowAll::new(),
+            AllowAll::new(),
+            Arc::new(WorldStateView::new(World::new())),
+        )
+    }
+
     #[tokio::test]
     async fn write_block_to_block_store() {
         let dir = tempfile::tempdir().unwrap();
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
             .chain_first()
-            .validate(
-                &WorldStateView::new(World::new()),
-                &AllowAll.into(),
-                &AllowAll.into(),
-            )
+            .validate(&get_transaction_validator())
             .sign(keypair)
             .expect("Failed to sign blocks.")
             .commit();
@@ -669,11 +680,7 @@ mod tests {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let mut block = PendingBlock::new(Vec::new())
             .chain_first()
-            .validate(
-                &WorldStateView::new(World::new()),
-                &AllowAll.into(),
-                &AllowAll.into(),
-            )
+            .validate(&get_transaction_validator())
             .sign(keypair.clone())
             .expect("Failed to sign blocks.")
             .commit();
@@ -684,11 +691,7 @@ mod tests {
                 .expect("Failed to write block to file.");
             block = PendingBlock::new(Vec::new())
                 .chain(height, hash, view_change::ProofChain::empty(), Vec::new())
-                .validate(
-                    &WorldStateView::new(World::new()),
-                    &AllowAll.into(),
-                    &AllowAll.into(),
-                )
+                .validate(&get_transaction_validator())
                 .sign(keypair.clone())
                 .expect("Failed to sign blocks.")
                 .commit();
@@ -714,11 +717,7 @@ mod tests {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
             .chain_first()
-            .validate(
-                &WorldStateView::new(World::new()),
-                &AllowAll.into(),
-                &AllowAll.into(),
-            )
+            .validate(&get_transaction_validator())
             .sign(keypair)
             .expect("Failed to sign blocks.")
             .commit();
@@ -755,11 +754,7 @@ mod tests {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
             .chain_first()
-            .validate(
-                &WorldStateView::new(World::new()),
-                &AllowAll.into(),
-                &AllowAll.into(),
-            )
+            .validate(&get_transaction_validator())
             .sign(keypair.clone())
             .expect("Failed to sign blocks.")
             .commit();
@@ -774,11 +769,7 @@ mod tests {
                 view_change::ProofChain::empty(),
                 Vec::new(),
             )
-            .validate(
-                &WorldStateView::new(World::new()),
-                &AllowAll.into(),
-                &AllowAll.into(),
-            )
+            .validate(&get_transaction_validator())
             .sign(keypair)
             .expect("Failed to sign blocks.")
             .commit();
@@ -804,11 +795,7 @@ mod tests {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
             .chain_first()
-            .validate(
-                &WorldStateView::new(World::new()),
-                &AllowAll.into(),
-                &AllowAll.into(),
-            )
+            .validate(&get_transaction_validator())
             .sign(keypair.clone())
             .expect("Failed to sign blocks.")
             .commit();
@@ -818,11 +805,7 @@ mod tests {
             .expect("Failed to write block to file.");
         let _gap_block = PendingBlock::new(Vec::new())
             .chain(3_u64, hash, view_change::ProofChain::empty(), Vec::new())
-            .validate(
-                &WorldStateView::new(World::new()),
-                &AllowAll.into(),
-                &AllowAll.into(),
-            )
+            .validate(&get_transaction_validator())
             .sign(keypair)
             .expect("Failed to sign blocks.")
             .commit();

@@ -219,11 +219,14 @@ impl<W: WorldTrait> ValidQuery<W> for QueryBox {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use std::sync::Arc;
+
     use iroha_crypto::KeyPair;
+    use iroha_data_model::transaction::TransactionLimits;
     use once_cell::sync::Lazy;
 
     use super::*;
-    use crate::{wsv::World, DomainsMap, PeersIds};
+    use crate::{tx::TransactionValidator, wsv::World, DomainsMap, PeersIds};
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> = Lazy::new(|| AccountId::test("alice", "wonderland"));
@@ -292,7 +295,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_transaction() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domains());
+        let wsv = Arc::new(WorldStateView::new(world_with_test_domains()));
 
         let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
@@ -308,7 +311,12 @@ mod tests {
         block.transactions.push(va_tx.clone());
         let vcb = block
             .chain_first()
-            .validate(&wsv, &AllowAll.into(), &AllowAll.into())
+            .validate(&TransactionValidator::new(
+                tx_limits,
+                AllowAll::new(),
+                AllowAll::new(),
+                Arc::clone(&wsv),
+            ))
             .sign(ALICE_KEYS.clone())
             .expect("Failed to sign blocks.")
             .commit();

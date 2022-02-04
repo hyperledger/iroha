@@ -33,7 +33,7 @@ use crate::{
     kura::{GetBlockHash, KuraTrait, StoreBlock},
     prelude::*,
     queue::Queue,
-    smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
+    tx::TransactionValidator,
     wsv::WorldTrait,
     IrohaNetwork, NetworkMessage, VersionedValidBlock,
 };
@@ -190,10 +190,9 @@ where
     block_height: u64,
     /// Hashes of invalidated blocks
     pub invalidated_blocks_hashes: Vec<HashOf<VersionedValidBlock>>,
-    is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
-    is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
-    telemetry_started: bool,
     transaction_limits: TransactionLimits,
+    transaction_validator: TransactionValidator<W>,
+    telemetry_started: bool,
     /// Genesis network
     pub genesis_network: Option<G>,
     /// Broker
@@ -239,8 +238,7 @@ pub trait SumeragiTrait:
         configuration: &config::SumeragiConfiguration,
         events_sender: EventsSender,
         wsv: Arc<WorldStateView<Self::World>>,
-        is_instruction_allowed: IsInstructionAllowedBoxed<Self::World>,
-        is_query_allowed: Arc<IsQueryAllowedBoxed<Self::World>>,
+        transaction_validator: TransactionValidator<Self::World>,
         telemetry_started: bool,
         genesis_network: Option<Self::GenesisNetwork>,
         queue: Arc<Queue<Self::World>>,
@@ -261,8 +259,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
         configuration: &config::SumeragiConfiguration,
         events_sender: EventsSender,
         wsv: Arc<WorldStateView<W>>,
-        is_instruction_allowed: IsInstructionAllowedBoxed<W>,
-        is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+        transaction_validator: TransactionValidator<W>,
         telemetry_started: bool,
         genesis_network: Option<G>,
         queue: Arc<Queue<W>>,
@@ -275,6 +272,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
             .reshuffle_after(configuration.n_topology_shifts_before_reshuffle)
             .with_peers(configuration.trusted_peers.peers.clone())
             .build()?;
+
         Ok(Self {
             key_pair: configuration.key_pair.clone(),
             topology: network_topology,
@@ -291,10 +289,9 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
             block_time: Duration::from_millis(configuration.block_time_ms),
             block_height: 0,
             invalidated_blocks_hashes: Vec::new(),
-            is_instruction_allowed: Arc::new(is_instruction_allowed),
-            is_query_allowed,
             telemetry_started,
             transaction_limits: configuration.transaction_limits,
+            transaction_validator,
             genesis_network,
             queue,
             broker,
@@ -728,7 +725,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         // It is assumed that we only need to send 1 tx to check liveness.
         let tx = txs
             .choose(&mut rand::thread_rng())
-            .expect("It was checked earlier that transactions are not empty.");
+            .expect("It was checked earlier that transactions are not empty.")
+            .clone();
         let tx_hash = tx.hash();
         info!(
             peer_addr = %self.peer_id.address,
@@ -756,9 +754,12 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             self.tx_receipt_time,
         );
 
-        VersionedMessage::from(Message::from(TransactionForwarded::new(tx, &self.peer_id)))
-            .send_to(&self.broker, self.topology.leader())
-            .await;
+        VersionedMessage::from(Message::from(TransactionForwarded::new(
+            tx,
+            self.peer_id.clone(),
+        )))
+        .send_to(&self.broker, self.topology.leader())
+        .await;
     }
 
     /// Returns:
@@ -841,11 +842,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         block: ChainedBlock,
         ctx: &mut Context<Self>,
     ) -> Result<()> {
-        let block = block.validate(
-            &*self.wsv,
-            &self.is_instruction_allowed,
-            &self.is_query_allowed,
-        );
+        let block = block.validate(&self.transaction_validator);
         let network_topology = self.network_topology_current_or_genesis(block.header());
         info!(
             peer_role = ?network_topology.role(&self.peer_id),
@@ -1094,7 +1091,7 @@ impl VotingBlock {
 pub mod message {
     #![allow(clippy::module_name_repetitions)]
 
-    use std::{sync::Arc, time::Duration};
+    use std::time::Duration;
 
     use eyre::{Result, WrapErr};
     use futures::{prelude::*, stream::FuturesUnordered};
@@ -1363,17 +1360,11 @@ pub mod message {
                     warn!(%e)
                 } else {
                     let block_clone = self.block.clone();
-                    let wsv_clone = Arc::clone(&sumeragi.wsv);
-                    let is_instruction_allowed_clone = Arc::clone(&sumeragi.is_instruction_allowed);
-                    let is_query_allowed_clone = Arc::clone(&sumeragi.is_query_allowed);
                     let key_pair_clone = sumeragi.key_pair.clone();
+                    let transaction_validator = sumeragi.transaction_validator.clone();
                     let signed_block = task::spawn_blocking(move || -> Result<BlockSigned> {
                         block_clone
-                            .revalidate(
-                                &*wsv_clone,
-                                &*is_instruction_allowed_clone,
-                                &*is_query_allowed_clone,
-                            )
+                            .revalidate(&transaction_validator)
                             .sign(key_pair_clone)
                             .map(Into::into)
                     })
@@ -1574,7 +1565,7 @@ pub mod message {
     #[non_exhaustive]
     pub struct TransactionForwarded {
         /// Transaction that is forwarded from a client by a peer to the leader
-        pub transaction: VersionedAcceptedTransaction,
+        pub transaction: VersionedTransaction,
         /// `PeerId` of the peer that forwarded this transaction to a leader.
         pub peer: PeerId,
     }
@@ -1582,12 +1573,14 @@ pub mod message {
     impl TransactionForwarded {
         /// Constructs `TransactionForwarded` message.
         pub fn new(
-            transaction: &VersionedAcceptedTransaction,
-            peer: &PeerId,
+            transaction: VersionedAcceptedTransaction,
+            peer: PeerId,
         ) -> TransactionForwarded {
             TransactionForwarded {
-                transaction: transaction.clone(),
-                peer: peer.clone(),
+                // Converting into non-accepted transaction because it's not possible
+                // to guarantee that the sending peer checked transaction limits
+                transaction: transaction.into(),
+                peer,
             }
         }
 
@@ -1605,7 +1598,11 @@ pub mod message {
             self,
             sumeragi: &mut SumeragiWithFault<G, K, W, F>,
         ) -> Result<()> {
-            match sumeragi.queue.push(self.transaction.clone()) {
+            let transaction = VersionedAcceptedTransaction::from_transaction(
+                self.transaction.clone().into_v1(),
+                &sumeragi.transaction_limits,
+            )?;
+            match sumeragi.queue.push(transaction) {
                 Ok(()) if sumeragi.is_leader() => {
                     VersionedMessage::from(Message::TransactionReceived(TransactionReceipt::new(
                         &self.transaction,
@@ -1624,13 +1621,17 @@ pub mod message {
     /// Message for gossiping batches of transactions.
     #[derive(Decode, Encode, Debug, Clone)]
     pub struct TransactionGossip {
-        txs: Vec<VersionedAcceptedTransaction>,
+        txs: Vec<VersionedTransaction>,
     }
 
     impl TransactionGossip {
         /// Constructor.
         pub fn new(txs: Vec<VersionedAcceptedTransaction>) -> Self {
-            Self { txs }
+            Self {
+                // Converting into non-accepted transaction because it's not possible
+                // to guarantee that the sending peer checked transaction limits
+                txs: txs.into_iter().map(Into::into).collect(),
+            }
         }
 
         /// Handles this message as part of `Sumeragi` consensus.
@@ -1646,7 +1647,11 @@ pub mod message {
             self,
             sumeragi: &mut SumeragiWithFault<G, K, W, F>,
         ) -> Result<()> {
-            for tx in self.txs {
+            for transaction in self.txs {
+                let tx = VersionedAcceptedTransaction::from_transaction(
+                    transaction.into_v1(),
+                    &sumeragi.transaction_limits,
+                )?;
                 match sumeragi.queue.push(tx) {
                     Err((_, queue::Error::InBlockchain)) | Ok(()) => {}
                     Err((_, err)) => {
@@ -1677,7 +1682,7 @@ pub mod message {
         /// Can fail creating new signature
         #[allow(clippy::expect_used, clippy::unwrap_in_result)]
         pub fn new(
-            transaction: &VersionedAcceptedTransaction,
+            transaction: &VersionedTransaction,
             key_pair: &KeyPair,
         ) -> Result<TransactionReceipt> {
             let hash = transaction.hash();

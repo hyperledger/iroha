@@ -17,12 +17,11 @@ use parity_scale_codec::{Decode, Encode};
 
 use crate::{
     prelude::*,
-    smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{
         network_topology::Topology,
         view_change::{Proof, ProofChain as ViewChangeProofs},
     },
-    tx::VersionedAcceptedTransaction,
+    tx::{TransactionValidator, VersionedAcceptedTransaction},
     wsv::WorldTrait,
 };
 
@@ -284,19 +283,13 @@ impl ChainedBlock {
     /// Validate block transactions against current state of the world.
     pub fn validate<W: WorldTrait>(
         self,
-        wsv: &WorldStateView<W>,
-        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
-        is_query_allowed: &IsQueryAllowedBoxed<W>,
+        transaction_validator: &TransactionValidator<W>,
     ) -> VersionedValidBlock {
         let mut txs = Vec::new();
         let mut rejected = Vec::new();
+
         for tx in self.transactions {
-            match tx.validate(
-                wsv,
-                is_instruction_allowed,
-                is_query_allowed,
-                self.header.is_genesis(),
-            ) {
+            match transaction_validator.validate(tx.into_v1(), self.header.is_genesis()) {
                 Ok(tx) => txs.push(tx),
                 Err(tx) => {
                     iroha_logger::warn!(
@@ -375,13 +368,9 @@ impl VersionedValidBlock {
     /// Validate block transactions against current state of the world.
     pub fn revalidate<W: WorldTrait>(
         self,
-        wsv: &WorldStateView<W>,
-        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
-        is_query_allowed: &IsQueryAllowedBoxed<W>,
+        transaction_validator: &TransactionValidator<W>,
     ) -> Self {
-        self.into_v1()
-            .revalidate(wsv, is_instruction_allowed, is_query_allowed)
-            .into()
+        self.into_v1().revalidate(transaction_validator).into()
     }
 
     /// Calculate hash of the current block.
@@ -414,7 +403,7 @@ impl VersionedValidBlock {
     }
 
     /// # Errors
-    /// Asserts specific transaction limits (number of instructions and size of wasm binary)
+    /// Asserts specific transaction limits hold true
     pub fn check_transaction_limits(&self, limits: &TransactionLimits) -> Result<()> {
         self.as_v1().check_transaction_limits(limits)
     }
@@ -478,7 +467,7 @@ pub struct ValidBlock {
 
 impl ValidBlock {
     /// # Errors
-    /// Asserts specific transaction limits (number of instructions and size of wasm binary)
+    /// Asserts specific transaction limits hold true
     pub fn check_transaction_limits(&self, tx_limits: &TransactionLimits) -> Result<()> {
         self.transactions
             .iter()
@@ -513,9 +502,7 @@ impl ValidBlock {
     /// Validate block transactions against current state of the world.
     pub fn revalidate<W: WorldTrait>(
         self,
-        wsv: &WorldStateView<W>,
-        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
-        is_query_allowed: &IsQueryAllowedBoxed<W>,
+        transaction_validator: &TransactionValidator<W>,
     ) -> Self {
         Self {
             signatures: self.signatures,
@@ -528,7 +515,7 @@ impl ValidBlock {
                     .chain(self.rejected_transactions.into_iter().map(Into::into))
                     .collect(),
             }
-            .validate(wsv, is_instruction_allowed, is_query_allowed)
+            .validate(transaction_validator)
             .into_v1()
         }
     }

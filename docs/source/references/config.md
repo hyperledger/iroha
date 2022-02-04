@@ -32,7 +32,7 @@ The following is the default configuration used by Iroha.
     "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
     "TRANSACTION_LIMITS": {
       "max_instruction_number": 4096,
-      "max_wasm_size_bytes": 1048576
+      "max_wasm_size_bytes": 4194304
     },
     "MAILBOX": 100,
     "GOSSIP_BATCH_SIZE": 500,
@@ -43,11 +43,7 @@ The following is the default configuration used by Iroha.
     "API_URL": "127.0.0.1:8080",
     "TELEMETRY_URL": "127.0.0.1:8180",
     "MAX_TRANSACTION_SIZE": 32768,
-    "MAX_CONTENT_LEN": 16384000,
-    "TRANSACTION_LIMITS": {
-      "max_instruction_number": 4096,
-      "max_wasm_size_bytes": 1048576
-    }
+    "MAX_CONTENT_LEN": 16384000
   },
   "BLOCK_SYNC": {
     "GOSSIP_PERIOD_MS": 10000,
@@ -470,7 +466,7 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
   },
   "TRANSACTION_LIMITS": {
     "max_instruction_number": 4096,
-    "max_wasm_size_bytes": 1048576
+    "max_wasm_size_bytes": 4194304
   },
   "TRUSTED_PEERS": [],
   "TX_RECEIPT_TIME_MS": 500
@@ -575,7 +571,7 @@ Has type `TransactionLimits`. Can be configured via environment variable `SUMERA
 ```json
 {
   "max_instruction_number": 4096,
-  "max_wasm_size_bytes": 1048576
+  "max_wasm_size_bytes": 4194304
 }
 ```
 
@@ -677,11 +673,7 @@ Has type `ToriiConfiguration`. Can be configured via environment variable `IROHA
   "MAX_CONTENT_LEN": 16384000,
   "MAX_TRANSACTION_SIZE": 32768,
   "P2P_ADDR": "127.0.0.1:1337",
-  "TELEMETRY_URL": "127.0.0.1:8180",
-  "TRANSACTION_LIMITS": {
-    "max_instruction_number": 4096,
-    "max_wasm_size_bytes": 1048576
-  }
+  "TELEMETRY_URL": "127.0.0.1:8180"
 }
 ```
 
@@ -733,19 +725,6 @@ Has type `String`. Can be configured via environment variable `TORII_TELEMETRY_U
 
 ```json
 "127.0.0.1:8180"
-```
-
-### `torii.transaction_limits`
-
-Limits to which transactions must adhere
-
-Has type `TransactionLimits`. Can be configured via environment variable `TORII_TRANSACTION_LIMITS`
-
-```json
-{
-  "max_instruction_number": 4096,
-  "max_wasm_size_bytes": 1048576
-}
 ```
 
 ## `wsv`

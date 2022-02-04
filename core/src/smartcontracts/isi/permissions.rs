@@ -2,7 +2,7 @@
 
 //! This module contains permissions related Iroha functionality.
 
-use std::iter;
+use std::{iter, sync::Arc};
 
 use eyre::Result;
 use iroha_data_model::{isi::RevokeBox, prelude::*};
@@ -163,7 +163,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W, Instruction> {
 /// # Errors
 /// If a user is not allowed to execute one of the inner queries,
 /// given the current `validator`.
-pub fn check_query_in_expression<W: WorldTrait>(
+fn check_query_in_expression<W: WorldTrait>(
     authority: &AccountId,
     expression: &Expression,
     wsv: &WorldStateView<W>,
@@ -254,7 +254,7 @@ pub fn check_query_in_expression<W: WorldTrait>(
 /// If a user is not allowed to execute one of the inner queries,
 /// given the current `validator`.
 #[allow(clippy::too_many_lines)]
-pub fn check_query_in_instruction<W: WorldTrait>(
+fn check_query_in_instruction<W: WorldTrait>(
     authority: &AccountId,
     instruction: &Instruction,
     wsv: &WorldStateView<W>,
@@ -493,9 +493,31 @@ impl<W: WorldTrait> ValidatorBuilder<W, Instruction> {
 #[derive(Debug, Clone, Copy)]
 pub struct AllowAll;
 
+impl AllowAll {
+    /// Construct permission which allows all items
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new<T>() -> Arc<T>
+    where
+        Self: Into<T>,
+    {
+        Arc::new(Self.into())
+    }
+}
+
 /// Disallows all operations to be executed for all possible values. Mostly for tests and simple cases.
 #[derive(Debug, Clone, Copy)]
 pub struct DenyAll;
+
+impl DenyAll {
+    /// Construct permission which denies all items
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new<T>() -> Arc<T>
+    where
+        Self: Into<T>,
+    {
+        Arc::new(Self.into())
+    }
+}
 
 impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllowAll {
     fn check(
@@ -668,7 +690,7 @@ impl<W: WorldTrait> From<IsRevokeAllowedBoxed<W>> for IsInstructionAllowedBoxed<
 /// # Errors
 /// Evaluation failure of instruction fields.
 #[cfg(feature = "roles")]
-pub fn unpack_if_role_grant<W: WorldTrait>(
+fn unpack_if_role_grant<W: WorldTrait>(
     instruction: Instruction,
     wsv: &WorldStateView<W>,
 ) -> Result<Vec<Instruction>> {
@@ -736,6 +758,38 @@ pub fn unpack_if_role_revoke<W: WorldTrait>(
         Vec::new()
     };
     Ok(instructions)
+}
+
+/// Verify that the given instruction is allowed to execute
+///
+/// # Errors
+///
+/// If given instruction is not permitted to execute
+#[allow(clippy::expect_used)]
+pub fn check_instruction_permissions<W: WorldTrait>(
+    account_id: &AccountId,
+    instruction: &Instruction,
+    is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
+    is_query_allowed: &IsQueryAllowedBoxed<W>,
+    wsv: &WorldStateView<W>,
+) -> Result<(), TransactionRejectionReason> {
+    #[cfg(feature = "roles")]
+    let granted_instructions = &unpack_if_role_grant(instruction.clone(), wsv)
+        .expect("Infallible. Evaluations have been checked by instruction execution.");
+    #[cfg(not(feature = "roles"))]
+    let granted_instructions = std::iter::once(instruction);
+
+    for isi in granted_instructions {
+        is_instruction_allowed
+            .check(account_id, isi, wsv)
+            .map_err(|reason| NotPermittedFail { reason })
+            .map_err(TransactionRejectionReason::NotPermitted)?;
+    }
+    check_query_in_instruction(account_id, instruction, wsv, is_query_allowed)
+        .map_err(|reason| NotPermittedFail { reason })
+        .map_err(TransactionRejectionReason::NotPermitted)?;
+
+    Ok(())
 }
 
 pub mod prelude {

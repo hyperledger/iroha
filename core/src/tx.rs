@@ -2,7 +2,7 @@
 //!
 //! `Transaction` is the start of the Transaction lifecycle.
 
-use std::{cmp::min, time::Duration};
+use std::sync::Arc;
 
 use eyre::{Result, WrapErr};
 use iroha_crypto::SignaturesOf;
@@ -13,11 +13,157 @@ use parity_scale_codec::{Decode, Encode};
 use crate::{
     prelude::*,
     smartcontracts::{
-        permissions::{self, IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
+        permissions::{
+            check_instruction_permissions, IsInstructionAllowedBoxed, IsQueryAllowedBoxed,
+        },
         wasm, Evaluate, Execute, FindError,
     },
     wsv::WorldTrait,
 };
+
+/// Used to validate transaction and thus move transaction lifecycle forward
+#[derive(Clone)]
+pub struct TransactionValidator<W: WorldTrait> {
+    transaction_limits: TransactionLimits,
+
+    is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
+    is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+
+    wsv: Arc<WorldStateView<W>>,
+}
+
+impl<W: WorldTrait> TransactionValidator<W> {
+    /// Construct [`TransactionValidator`]
+    pub fn new(
+        transaction_limits: TransactionLimits,
+
+        is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
+        is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+
+        wsv: Arc<WorldStateView<W>>,
+    ) -> Self {
+        Self {
+            transaction_limits,
+            is_instruction_allowed,
+            is_query_allowed,
+            wsv,
+        }
+    }
+
+    /// Move transaction lifecycle forward by checking an ability to
+    /// apply instructions to the `WorldStateView<W>`.
+    ///
+    /// # Errors
+    /// Fails if validation of instruction fails (e.g. permissions mismatch).
+    pub fn validate(
+        &self,
+        tx: AcceptedTransaction,
+        is_genesis: bool,
+    ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
+        if let Err(rejection_reason) = self.validate_internal(&tx, is_genesis) {
+            return Err(RejectedTransaction {
+                payload: tx.payload,
+                signatures: tx.signatures,
+                rejection_reason,
+            }
+            .into());
+        }
+
+        Ok(ValidTransaction {
+            payload: tx.payload,
+            signatures: tx.signatures,
+        }
+        .into())
+    }
+
+    fn validate_internal(
+        &self,
+        tx: &AcceptedTransaction,
+        is_genesis: bool,
+    ) -> Result<(), TransactionRejectionReason> {
+        let account_id = &tx.payload.account_id;
+        self.validate_signatures(tx, is_genesis)?;
+
+        // Sanity check - should have been checked by now
+        tx.check_limits(&self.transaction_limits)?;
+
+        // WSV is cloned here so that instructions don't get applied to the blockchain
+        // Therefore, this instruction execution validates before actually executing
+        let wsv = WorldStateView::clone(&self.wsv);
+
+        match &tx.payload.instructions {
+            Executable::Instructions(instructions) => {
+                for instruction in instructions {
+                    instruction
+                        .clone()
+                        .execute(account_id.clone(), &wsv)
+                        .map_err(|reason| InstructionExecutionFail {
+                            instruction: instruction.clone(),
+                            reason: reason.to_string(),
+                        })
+                        .map_err(TransactionRejectionReason::InstructionExecution)?;
+
+                    // Permission validation is skipped for genesis.
+                    if !is_genesis {
+                        check_instruction_permissions(
+                            account_id,
+                            instruction,
+                            &self.is_instruction_allowed,
+                            &self.is_query_allowed,
+                            &wsv,
+                        )?
+                    }
+                }
+            }
+            Executable::Wasm(bytes) => {
+                let mut wasm_runtime = wasm::Runtime::new()
+                    .map_err(|reason| WasmExecutionFail {
+                        reason: reason.to_string(),
+                    })
+                    .map_err(TransactionRejectionReason::WasmExecution)?;
+                wasm_runtime
+                    .validate(
+                        &wsv,
+                        account_id,
+                        bytes,
+                        self.transaction_limits.max_instruction_number,
+                        Arc::clone(&self.is_instruction_allowed),
+                        Arc::clone(&self.is_query_allowed),
+                    )
+                    .map_err(|reason| WasmExecutionFail {
+                        reason: reason.to_string(),
+                    })
+                    .map_err(TransactionRejectionReason::WasmExecution)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_signatures(
+        &self,
+        tx: &AcceptedTransaction,
+        is_genesis: bool,
+    ) -> Result<(), TransactionRejectionReason> {
+        if !is_genesis && tx.payload().account_id == AccountId::genesis() {
+            return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
+        }
+
+        let option_reason = match tx.check_signature_condition(&self.wsv) {
+            Ok(true) => None,
+            Ok(false) => Some("Signature condition not satisfied.".to_owned()),
+            Err(reason) => Some(reason.to_string()),
+        }
+        .map(|reason| UnsatisfiedSignatureConditionFail { reason })
+        .map(TransactionRejectionReason::UnsatisfiedSignatureCondition);
+
+        if let Some(reason) = option_reason {
+            return Err(reason);
+        }
+
+        Ok(())
+    }
+}
 
 declare_versioned_with_scale!(VersionedAcceptedTransaction 1..2, Debug, Clone, iroha_macro::FromVariant);
 
@@ -53,47 +199,10 @@ impl VersionedAcceptedTransaction {
         AcceptedTransaction::from_transaction(transaction, limits).map(Into::into)
     }
 
-    /// Checks if this transaction is waiting longer than specified in
-    /// `transaction_time_to_live` from `QueueConfiguration` or
-    /// `time_to_live_ms` of this transaction.  Meaning that the
-    /// transaction will be expired as soon as the lesser of the
-    /// specified TTLs was reached.
-    pub fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
-        self.as_v1().is_expired(transaction_time_to_live)
-    }
-
-    /// If `true`, this transaction is regarded as one that has been
-    /// tampered with. This is common practice in e.g. `https`, where
-    /// setting your system clock back in time will prevent you from
-    /// accessing any of the https web-sites.
-    pub fn is_in_future(&self, threshold: Duration) -> bool {
-        self.as_v1().is_in_future(threshold)
-    }
-
-    /// Move transaction lifecycle forward by checking an ability to
-    /// apply instructions to the `WorldStateView<W>`.
+    /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
     ///
     /// # Errors
-    /// Fails if validation of instruction fails (e.g. permissions mismatch).
-    pub fn validate<W: WorldTrait>(
-        self,
-        wsv: &WorldStateView<W>,
-        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
-        is_query_allowed: &IsQueryAllowedBoxed<W>,
-        is_genesis: bool,
-    ) -> Result<VersionedValidTransaction, VersionedRejectedTransaction> {
-        self.into_v1()
-            .validate(wsv, is_instruction_allowed, is_query_allowed, is_genesis)
-            .map(Into::into)
-            .map_err(Into::into)
-    }
-
-    /// Checks that the signatures of this transaction satisfy the
-    /// signature condition specified in the account.
-    ///
-    /// # Errors
-    /// - if signature conditionon fails
-    /// - if account is not found
+    /// Can fail if signature condition account fails or if account is not found
     pub fn check_signature_condition<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
@@ -127,10 +236,7 @@ impl AcceptedTransaction {
     ///
     /// # Errors
     /// Can fail if verification of some signature fails
-    pub fn from_transaction(
-        transaction: Transaction,
-        limits: &TransactionLimits,
-    ) -> Result<AcceptedTransaction> {
+    pub fn from_transaction(transaction: Transaction, limits: &TransactionLimits) -> Result<Self> {
         transaction
             .check_limits(limits)
             .wrap_err("Failed to accept transaction")?;
@@ -148,163 +254,6 @@ impl AcceptedTransaction {
         })
     }
 
-    /// Checks if this transaction is waiting longer than specified in
-    /// `transaction_time_to_live` from `QueueConfiguration` or
-    /// `time_to_live_ms` of this transaction.  Meaning that the
-    /// transaction will be expired as soon as the lesser of the
-    /// specified TTLs was reached.
-    pub fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
-        let tx_timestamp = Duration::from_millis(self.payload.creation_time);
-        current_time().saturating_sub(tx_timestamp)
-            > min(
-                transaction_time_to_live,
-                Duration::from_millis(self.payload.time_to_live_ms),
-            )
-    }
-
-    /// If `true`, this transaction is regarded to have been tampered
-    /// to have a future timestamp.
-    pub fn is_in_future(&self, threshold: Duration) -> bool {
-        let tx_timestamp = Duration::from_millis(self.payload.creation_time);
-        tx_timestamp.saturating_sub(current_time()) > threshold
-    }
-
-    fn check_signatures<W: WorldTrait>(
-        &self,
-        wsv: &WorldStateView<W>,
-        is_genesis: bool,
-    ) -> Result<(), TransactionRejectionReason> {
-        if !is_genesis && self.payload().account_id == AccountId::genesis() {
-            return Err(TransactionRejectionReason::UnexpectedGenesisAccountSignature);
-        }
-
-        self.signatures
-            .verify(&self.payload)
-            .map_err(TransactionRejectionReason::SignatureVerification)?;
-
-        let option_reason = match self.check_signature_condition(wsv) {
-            Ok(true) => None,
-            Ok(false) => Some("Signature condition not satisfied.".to_owned()),
-            Err(reason) => Some(reason.to_string()),
-        }
-        .map(|reason| UnsatisfiedSignatureConditionFail { reason })
-        .map(TransactionRejectionReason::UnsatisfiedSignatureCondition);
-
-        if let Some(reason) = option_reason {
-            return Err(reason);
-        }
-
-        Ok(())
-    }
-
-    #[allow(clippy::expect_used)]
-    #[allow(clippy::unwrap_in_result)]
-    fn check_instruction_permissions<W: WorldTrait>(
-        account_id: &AccountId,
-        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
-        is_query_allowed: &IsQueryAllowedBoxed<W>,
-        instruction: &Instruction,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), TransactionRejectionReason> {
-        #[cfg(feature = "roles")]
-        let granted_instructions = &permissions::unpack_if_role_grant(instruction.clone(), wsv)
-            .expect("Infallible. Evaluations have been checked by instruction execution.");
-        #[cfg(not(feature = "roles"))]
-        let granted_instructions = std::iter::once(instruction);
-
-        for isi in granted_instructions {
-            is_instruction_allowed
-                .check(account_id, isi, wsv)
-                .map_err(|reason| NotPermittedFail { reason })
-                .map_err(TransactionRejectionReason::NotPermitted)?;
-        }
-        permissions::check_query_in_instruction(account_id, instruction, wsv, is_query_allowed)
-            .map_err(|reason| NotPermittedFail { reason })
-            .map_err(TransactionRejectionReason::NotPermitted)?;
-
-        Ok(())
-    }
-
-    fn validate_internal<W: WorldTrait>(
-        &self,
-        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
-        is_query_allowed: &IsQueryAllowedBoxed<W>,
-        is_genesis: bool,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), TransactionRejectionReason> {
-        let account_id = &self.payload.account_id;
-        self.check_signatures(wsv, is_genesis)?;
-
-        // WSV is cloned here so that instructions don't get applied to the blockchain
-        // Therefore, this instruction execution validates before actually executing
-        let wsv = wsv.clone();
-
-        match &self.payload.instructions {
-            Executable::Instructions(instructions) => {
-                for instruction in instructions {
-                    instruction
-                        .clone()
-                        .execute(account_id.clone(), &wsv)
-                        .map_err(|reason| InstructionExecutionFail {
-                            instruction: instruction.clone(),
-                            reason: reason.to_string(),
-                        })
-                        .map_err(TransactionRejectionReason::InstructionExecution)?;
-
-                    // Permission validation is skipped for genesis.
-                    if !is_genesis {
-                        Self::check_instruction_permissions(
-                            account_id,
-                            is_instruction_allowed,
-                            is_query_allowed,
-                            instruction,
-                            &wsv,
-                        )?
-                    }
-                }
-            }
-            Executable::Wasm(bytes) => {
-                let mut wasm_runtime = wasm::Runtime::new()
-                    .map_err(|reason| WasmExecutionFail {
-                        reason: reason.to_string(),
-                    })
-                    .map_err(TransactionRejectionReason::WasmExecution)?;
-                wasm_runtime
-                    .execute(&wsv, account_id.clone(), bytes)
-                    .map_err(|reason| WasmExecutionFail {
-                        reason: reason.to_string(),
-                    })
-                    .map_err(TransactionRejectionReason::WasmExecution)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Move transaction lifecycle forward by checking an ability to apply instructions to the
-    /// `WorldStateView<W>`.
-    ///
-    /// # Errors
-    /// Can fail if:
-    /// - signature verification fails
-    /// - instruction execution fails
-    /// - permission check fails
-    pub fn validate<W: WorldTrait>(
-        self,
-        wsv: &WorldStateView<W>,
-        is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
-        is_query_allowed: &IsQueryAllowedBoxed<W>,
-        is_genesis: bool,
-    ) -> Result<ValidTransaction, RejectedTransaction> {
-        match self.validate_internal(is_instruction_allowed, is_query_allowed, is_genesis, wsv) {
-            Ok(()) => Ok(ValidTransaction {
-                payload: self.payload,
-                signatures: self.signatures,
-            }),
-            Err(reason) => Err(self.reject(reason)),
-        }
-    }
-
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
     ///
     /// # Errors
@@ -314,6 +263,7 @@ impl AcceptedTransaction {
         wsv: &WorldStateView<W>,
     ) -> Result<bool> {
         let account_id = &self.payload.account_id;
+
         let signatories = self
             .signatures
             .iter()
@@ -328,15 +278,6 @@ impl AcceptedTransaction {
                 .map_err(|_err| FindError::Account(account_id.clone()))
         })?
         .wrap_err("Failed to find the account")
-    }
-
-    /// Rejects transaction with the `rejection_reason`.
-    pub fn reject(self, rejection_reason: TransactionRejectionReason) -> RejectedTransaction {
-        RejectedTransaction {
-            payload: self.payload,
-            signatures: self.signatures,
-            rejection_reason,
-        }
     }
 }
 impl Txn for AcceptedTransaction {
@@ -464,21 +405,18 @@ mod tests {
         let accepted_tx = AcceptedTransaction::from_transaction(signed_tx, &tx_limits)
             .expect("Failed to accept.");
         let accepted_tx_hash = accepted_tx.hash();
-        let valid_tx_hash = accepted_tx
-            .validate(
-                &WorldStateView::new(World::with(
-                    init::domains(&config).unwrap(),
-                    BTreeSet::new(),
-                )),
-                &AllowAll.into(),
-                &AllowAll.into(),
-                true,
-            )
-            .expect("Failed to validate.")
-            .hash();
+        let wsv = Arc::new(WorldStateView::new(World::with(
+            init::domains(&config).unwrap(),
+            BTreeSet::new(),
+        )));
+        let valid_tx_hash =
+            TransactionValidator::new(tx_limits, AllowAll::new(), AllowAll::new(), wsv)
+                .validate(accepted_tx, true)
+                .expect("Failed to validate.")
+                .hash();
         assert_eq!(tx_hash, signed_tx_hash);
         assert_eq!(tx_hash, accepted_tx_hash);
-        assert_eq!(tx_hash, valid_tx_hash);
+        assert_eq!(tx_hash, valid_tx_hash.transmute());
     }
 
     #[test]

@@ -1,12 +1,15 @@
 #![allow(missing_docs, clippy::restriction)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
     prelude::*,
     sumeragi::view_change,
-    tx::AcceptedTransaction,
+    tx::{AcceptedTransaction, TransactionValidator},
     wsv::{World, WorldTrait},
 };
 use iroha_data_model::prelude::*;
@@ -111,17 +114,19 @@ fn validate_transaction(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
-    let wsv = build_test_wsv(keys);
     let _ = criterion.bench_function("validate", move |b| {
-        b.iter(|| {
-            match transaction
-                .clone()
-                .validate(&wsv, &AllowAll.into(), &AllowAll.into(), false)
-            {
+        let transaction_validator = TransactionValidator::new(
+            TRANSACTION_LIMITS,
+            AllowAll::new(),
+            AllowAll::new(),
+            Arc::new(build_test_wsv(keys.clone())),
+        );
+        b.iter(
+            || match transaction_validator.validate(transaction.clone(), false) {
                 Ok(_) => success_count += 1,
                 Err(_) => failures_count += 1,
-            }
-        });
+            },
+        );
     });
     println!(
         "Success count: {}, Failures count: {}",
@@ -159,10 +164,15 @@ fn sign_blocks(criterion: &mut Criterion) {
         &TRANSACTION_LIMITS,
     )
     .expect("Failed to accept transaction.");
-    let wsv = build_test_wsv(keys);
+    let transaction_validator = TransactionValidator::new(
+        TRANSACTION_LIMITS,
+        AllowAll::new(),
+        AllowAll::new(),
+        Arc::new(build_test_wsv(keys)),
+    );
     let block = PendingBlock::new(vec![transaction.into()])
         .chain_first()
-        .validate(&wsv, &AllowAll.into(), &AllowAll.into());
+        .validate(&transaction_validator);
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
@@ -196,19 +206,20 @@ fn validate_blocks(criterion: &mut Criterion) {
     };
     let mut domains = BTreeMap::new();
     domains.insert(domain_id, domain);
-    let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
     // Pepare test transaction
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction =
         AcceptedTransaction::from_transaction(build_test_transaction(keys), &TRANSACTION_LIMITS)
             .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction.into()]).chain_first();
+    let transaction_validator = TransactionValidator::new(
+        TRANSACTION_LIMITS,
+        AllowAll::new(),
+        AllowAll::new(),
+        Arc::new(WorldStateView::new(World::with(domains, BTreeSet::new()))),
+    );
     let _ = criterion.bench_function("validate_block", |b| {
-        b.iter(|| {
-            block
-                .clone()
-                .validate(&wsv, &AllowAll.into(), &AllowAll.into())
-        });
+        b.iter(|| block.clone().validate(&transaction_validator));
     });
 }
 
