@@ -313,8 +313,8 @@ mod tests {
             .chain_first()
             .validate(&TransactionValidator::new(
                 tx_limits,
-                Arc::new(AllowAll.into()),
-                Arc::new(AllowAll.into()),
+                AllowAll::new(),
+                AllowAll::new(),
                 Arc::clone(&wsv),
             ))
             .sign(ALICE_KEYS.clone())

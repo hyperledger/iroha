@@ -409,15 +409,11 @@ mod tests {
             init::domains(&config).unwrap(),
             BTreeSet::new(),
         )));
-        let valid_tx_hash = TransactionValidator::new(
-            tx_limits,
-            Arc::new(AllowAll.into()),
-            Arc::new(AllowAll.into()),
-            wsv,
-        )
-        .validate(accepted_tx, true)
-        .expect("Failed to validate.")
-        .hash();
+        let valid_tx_hash =
+            TransactionValidator::new(tx_limits, AllowAll::new(), AllowAll::new(), wsv)
+                .validate(accepted_tx, true)
+                .expect("Failed to validate.")
+                .hash();
         assert_eq!(tx_hash, signed_tx_hash);
         assert_eq!(tx_hash, accepted_tx_hash);
         assert_eq!(tx_hash, valid_tx_hash.transmute());

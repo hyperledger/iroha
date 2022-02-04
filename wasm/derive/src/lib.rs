@@ -31,9 +31,6 @@ pub fn iroha_wasm(_: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         #[no_mangle]
         unsafe extern "C" fn _iroha_wasm_main(ptr: u32, len: u32) {
-            #[cfg(debug_assertions)]
-            debug_assert!(false, "Only smartcontracts built with `release` profile are allowed");
-
             #fn_name(iroha_wasm::_decode_from_raw::<AccountId>(ptr, len))
         }
 

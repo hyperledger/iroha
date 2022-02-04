@@ -638,8 +638,8 @@ mod tests {
 
         TransactionValidator::new(
             tx_limits,
-            Arc::new(AllowAll.into()),
-            Arc::new(AllowAll.into()),
+            AllowAll::new(),
+            AllowAll::new(),
             Arc::new(WorldStateView::new(World::new())),
         )
     }

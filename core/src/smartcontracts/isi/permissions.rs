@@ -2,7 +2,7 @@
 
 //! This module contains permissions related Iroha functionality.
 
-use std::iter;
+use std::{iter, sync::Arc};
 
 use eyre::Result;
 use iroha_data_model::{isi::RevokeBox, prelude::*};
@@ -493,9 +493,31 @@ impl<W: WorldTrait> ValidatorBuilder<W, Instruction> {
 #[derive(Debug, Clone, Copy)]
 pub struct AllowAll;
 
+impl AllowAll {
+    /// Construct permission which allows all items
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new<T>() -> Arc<T>
+    where
+        Self: Into<T>,
+    {
+        Arc::new(Self.into())
+    }
+}
+
 /// Disallows all operations to be executed for all possible values. Mostly for tests and simple cases.
 #[derive(Debug, Clone, Copy)]
 pub struct DenyAll;
+
+impl DenyAll {
+    /// Construct permission which denies all items
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new<T>() -> Arc<T>
+    where
+        Self: Into<T>,
+    {
+        Arc::new(Self.into())
+    }
+}
 
 impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllowAll {
     fn check(
@@ -738,7 +760,7 @@ pub fn unpack_if_role_revoke<W: WorldTrait>(
     Ok(instructions)
 }
 
-/// Verifies that the given instruction is allowed to execute
+/// Verify that the given instruction is allowed to execute
 ///
 /// # Errors
 ///

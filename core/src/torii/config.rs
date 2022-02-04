@@ -12,7 +12,9 @@ pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
 /// Default upper bound on `content-length` specified in the HTTP request header
 pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: usize = 2_usize.pow(12) * 4000;
 
-/// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
+/// Structure that defines the configuration parameters of `Torii` which is the routing module.
+/// For example the `p2p_addr`, which is used for consensus and block-synchronisation purposes,
+/// as well as `max_transaction_size`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]

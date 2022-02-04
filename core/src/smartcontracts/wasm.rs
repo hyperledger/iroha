@@ -321,7 +321,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
     ///
     /// # Errors
     ///
-    /// - if unable to validate instructions and queries are permitted
+    /// - if instructions failed to validate, but queries are permitted
     /// - if instruction limits are not obeyed
     /// - if execution of the smartcontract fails (check ['execute'])
     pub fn validate(
@@ -630,14 +630,7 @@ mod tests {
         );
 
         let mut runtime = Runtime::new()?;
-        let res = runtime.validate(
-            &wsv,
-            &account_id,
-            wat,
-            1,
-            Arc::new(AllowAll.into()),
-            Arc::new(AllowAll.into()),
-        );
+        let res = runtime.validate(&wsv, &account_id, wat, 1, AllowAll::new(), AllowAll::new());
 
         assert!(res.is_err());
         if let Error::ExportFnCall(trap) = res.unwrap_err() {
@@ -684,14 +677,7 @@ mod tests {
         );
 
         let mut runtime = Runtime::new()?;
-        let res = runtime.validate(
-            &wsv,
-            &account_id,
-            wat,
-            1,
-            Arc::new(DenyAll.into()),
-            Arc::new(AllowAll.into()),
-        );
+        let res = runtime.validate(&wsv, &account_id, wat, 1, DenyAll::new(), AllowAll::new());
 
         assert!(res.is_err());
         if let Error::ExportFnCall(trap) = res.unwrap_err() {
@@ -740,14 +726,7 @@ mod tests {
         );
 
         let mut runtime = Runtime::new()?;
-        let res = runtime.validate(
-            &wsv,
-            &account_id,
-            wat,
-            1,
-            Arc::new(AllowAll.into()),
-            Arc::new(DenyAll.into()),
-        );
+        let res = runtime.validate(&wsv, &account_id, wat, 1, AllowAll::new(), DenyAll::new());
 
         assert!(res.is_err());
         if let Error::ExportFnCall(trap) = res.unwrap_err() {
