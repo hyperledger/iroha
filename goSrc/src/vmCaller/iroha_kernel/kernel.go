@@ -4,7 +4,6 @@
 package iroha_kernel
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -17,11 +16,9 @@ import (
 
 	myRpc "vmCaller/rpc"
 
-	"github.com/go-kit/kit/log"
 	"github.com/hyperledger/burrow/bcm"
 	"github.com/hyperledger/burrow/consensus/tendermint"
 	"github.com/hyperledger/burrow/crypto"
-	"github.com/hyperledger/burrow/dump"
 	"github.com/hyperledger/burrow/event"
 	"github.com/hyperledger/burrow/execution"
 	"github.com/hyperledger/burrow/execution/state"
@@ -33,7 +30,6 @@ import (
 	"github.com/hyperledger/burrow/rpc"
 	"github.com/hyperledger/burrow/txs"
 	"github.com/streadway/simpleuuid"
-	"github.com/tendermint/tendermint/store"
 	tmTypes "github.com/tendermint/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 )

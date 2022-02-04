@@ -263,7 +263,7 @@ class Irohad {
 
   // ------------------------| internal dependencies |-------------------------
   std::optional<std::shared_ptr<iroha::ametsuchi::PostgresBurrowStorage>>burrow_storage_;
-  std::optional<std::shared_ptr<soci::session>> sql;
+  std::optional<std::shared_ptr<soci::session>> sql_;
   std::optional<std::unique_ptr<iroha::ametsuchi::VmCaller>> vm_caller_;
   std::shared_ptr<iroha::ametsuchi::RocksDBContext> db_context_;
 

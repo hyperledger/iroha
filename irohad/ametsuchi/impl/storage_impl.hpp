@@ -112,9 +112,6 @@ namespace iroha {
        */
       void tryRollback(soci::session &session);
 
-      std::optional<std::shared_ptr<iroha::ametsuchi::PostgresBurrowStorage>>burrow_storage_;
-      std::optional<std::shared_ptr<soci::session>> sql;
-
       /// ref for pool_wrapper_::connection_pool_
       std::shared_ptr<PoolWrapper> pool_wrapper_;
       std::shared_ptr<soci::connection_pool> &connection_;
