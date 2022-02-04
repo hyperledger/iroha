@@ -9,7 +9,6 @@ import (
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/process"
 	"github.com/hyperledger/burrow/rpc"
-	// "github.com/hyperledger/burrow/rpc/web3"
 )
 
 var (
@@ -36,7 +35,7 @@ func RunServer() {
 		nil,
 		nil,
 		kern.Logger)
-	if err != nil {
+	if err != nil {	
 		fmt.Errorf("Error while starting web3 server")
 	}
 	processes := []process.Launcher{myKernel.Web3Launcher(&kern, web3_config)}
