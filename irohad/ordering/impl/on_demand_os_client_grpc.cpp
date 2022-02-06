@@ -140,7 +140,7 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   }
 }
 
-void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
+void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round, std::optional<std::shared_ptr<const shared_model::interface::Proposal>> &&ref_proposal) {
   // Cancel an unfinished request
   if (auto maybe_context = context_.lock()) {
     maybe_context->TryCancel();
@@ -154,6 +154,7 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
       [round,
+        ref_proposal{std::move(ref_proposal)},
        time_provider(time_provider_),
        proposal_request_timeout(proposal_request_timeout_),
        context(std::move(context)),

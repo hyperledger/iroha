@@ -56,7 +56,7 @@ namespace iroha {
 
       void onBatches(CollectionType batches) override;
 
-      void onRequestProposal(consensus::Round round) override;
+      void onRequestProposal(consensus::Round round, std::optional<std::shared_ptr<const shared_model::interface::Proposal>> &&ref_proposal) override;
 
       /**
        * Initialize corresponding peers in connections_ using factory_

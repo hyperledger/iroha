@@ -13,6 +13,7 @@
 #include "common/result_fwd.hpp"
 #include "consensus/round.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "interfaces/iroha_internal/proposal.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -53,7 +54,7 @@ namespace iroha {
          * @param round - number of collaboration round.
          * Calculated as block_height + 1
          */
-        virtual void onRequestProposal(consensus::Round round) = 0;
+        virtual void onRequestProposal(consensus::Round round, std::optional<std::shared_ptr<const shared_model::interface::Proposal>> &&ref_proposal) = 0;
 
         virtual ~OdOsNotification() = default;
       };
