@@ -85,8 +85,6 @@ namespace iroha {
           std::shared_ptr<const shared_model::interface::Proposal> proposal)
           const;
 
-      void waitForLocalProposal(consensus::Round const &round);
-
       logger::LoggerPtr log_;
 
       /// max number of transactions passed to one ordering service

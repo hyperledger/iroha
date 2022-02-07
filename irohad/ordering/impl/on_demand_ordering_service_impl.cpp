@@ -18,6 +18,7 @@
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "main/subscription.hpp"
+#include "subscription/scheduler_impl.hpp"
 
 using iroha::ordering::OnDemandOrderingServiceImpl;
 
@@ -82,6 +83,41 @@ bool OnDemandOrderingServiceImpl::hasEnoughBatchesInCache() const {
 void OnDemandOrderingServiceImpl::forCachedBatches(
     std::function<void(BatchesSetType &)> const &f) {
   batches_cache_.forCachedBatches(f);
+}
+
+void OnDemandOrderingServiceImpl::waitForLocalProposal(consensus::Round const &round, std::chrono::milliseconds const &delay) const {
+  if (!hasProposal(round) && !hasEnoughBatchesInCache()) {
+    auto scheduler = std::make_shared<subscription::SchedulerBase>();
+    auto tid = getSubscription()->dispatcher()->bind(scheduler);
+
+    auto batches_subscription = SubscriberCreator<
+        bool,
+        std::shared_ptr<shared_model::interface::TransactionBatch>>::
+    template create<EventTypes::kOnTxsEnoughForProposal>(
+        static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+        [scheduler(utils::make_weak(scheduler))](auto, auto) {
+          if (auto maybe_scheduler = scheduler.lock())
+            maybe_scheduler->dispose();
+        });
+    auto proposals_subscription =
+        SubscriberCreator<bool, consensus::Round>::template create<
+            EventTypes::kOnPackProposal>(
+            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+            [round, scheduler(utils::make_weak(scheduler))](auto,
+                                                            auto packed_round) {
+              if (auto maybe_scheduler = scheduler.lock();
+                  maybe_scheduler and round == packed_round)
+                maybe_scheduler->dispose();
+            });
+    scheduler->addDelayed(delay, [scheduler(utils::make_weak(scheduler))] {
+      if (auto maybe_scheduler = scheduler.lock()) {
+        maybe_scheduler->dispose();
+      }
+    });
+
+    scheduler->process();
+    getSubscription()->dispatcher()->unbind(*tid);
+  }
 }
 
 std::optional<std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>

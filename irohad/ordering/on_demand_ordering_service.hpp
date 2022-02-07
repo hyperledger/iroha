@@ -7,6 +7,7 @@
 #define IROHA_ON_DEMAND_ORDERING_SERVICE_HPP
 
 #include <unordered_set>
+#include <chrono>
 
 #include "consensus/round.hpp"
 #include "cryptography/hash.hpp"
@@ -89,6 +90,13 @@ namespace iroha {
        * @param hashes - txs list
        */
       virtual void onDuplicates(const HashesSetType &hashes) = 0;
+
+      /**
+       * Method to wait until proposal become available.
+       * @param round which proposal to wait
+       * @param delay time to wait
+       */
+      virtual void waitForLocalProposal(consensus::Round const &round, std::chrono::milliseconds const &delay) const = 0;
 
       /**
        * Method to get betches under lock

@@ -68,40 +68,7 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   consensus::Round round{request->round().block_round(),
                          request->round().reject_round()};
   log_->info("Received RequestProposal for {} from {}", round, context->peer());
-  if (not ordering_service_->hasProposal(round)
-      and not ordering_service_->hasEnoughBatchesInCache()) {
-    auto scheduler = std::make_shared<subscription::SchedulerBase>();
-    auto tid = getSubscription()->dispatcher()->bind(scheduler);
-
-    auto batches_subscription = SubscriberCreator<
-        bool,
-        std::shared_ptr<shared_model::interface::TransactionBatch>>::
-        template create<EventTypes::kOnTxsEnoughForProposal>(
-            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
-            [scheduler(utils::make_weak(scheduler))](auto, auto) {
-              if (auto maybe_scheduler = scheduler.lock())
-                maybe_scheduler->dispose();
-            });
-    auto proposals_subscription =
-        SubscriberCreator<bool, consensus::Round>::template create<
-            EventTypes::kOnPackProposal>(
-            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
-            [round, scheduler(utils::make_weak(scheduler))](auto,
-                                                            auto packed_round) {
-              if (auto maybe_scheduler = scheduler.lock();
-                  maybe_scheduler and round == packed_round)
-                maybe_scheduler->dispose();
-            });
-    scheduler->addDelayed(delay_, [scheduler(utils::make_weak(scheduler))] {
-      if (auto maybe_scheduler = scheduler.lock()) {
-        maybe_scheduler->dispose();
-      }
-    });
-
-    scheduler->process();
-
-    getSubscription()->dispatcher()->unbind(*tid);
-  }
+  ordering_service_->waitForLocalProposal(round, delay_);
 
   if (auto maybe_proposal = ordering_service_->onRequestProposal(round)) {
     *response->mutable_proposal() =

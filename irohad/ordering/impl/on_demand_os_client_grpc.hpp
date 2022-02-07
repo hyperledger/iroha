@@ -59,6 +59,8 @@ namespace iroha {
 
         void onRequestProposal(consensus::Round round, std::optional<std::shared_ptr<const shared_model::interface::Proposal>> &&ref_proposal) override;
 
+        std::chrono::milliseconds getRequestDelay() const override;
+
        private:
         logger::LoggerPtr log_;
         std::shared_ptr<proto::OnDemandOrdering::StubInterface> stub_;

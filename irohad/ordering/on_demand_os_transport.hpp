@@ -9,6 +9,7 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include <chrono>
 
 #include "common/result_fwd.hpp"
 #include "consensus/round.hpp"
