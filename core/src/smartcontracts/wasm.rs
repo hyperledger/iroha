@@ -205,7 +205,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         mut caller: Caller<State<W>>,
         offset: WasmUsize,
         len: WasmUsize,
-    ) -> Result<(WasmUsize, WasmUsize), Trap> {
+    ) -> Result<WasmUsize, Trap> {
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
         let memory = Self::get_memory(&mut caller)?;
 
@@ -221,10 +221,11 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
                 .map_err(|error| Trap::new(error.to_string()))?;
         }
 
-        let res_bytes = query
-            .execute(caller.data().wsv)
-            .map_err(|e| Trap::new(e.to_string()))?
-            .encode();
+        let res_bytes = Self::encode_with_length_prefix(
+            query
+                .execute(caller.data().wsv)
+                .map_err(|e| Trap::new(e.to_string()))?,
+        )?;
 
         let res_bytes_len: WasmUsize = {
             let res_bytes_len: Result<WasmUsize, _> = res_bytes.len().try_into();
@@ -242,7 +243,37 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
             res_offset
         };
 
-        Ok((res_offset, res_bytes_len))
+        Ok(res_offset)
+    }
+
+    /// Encode the given object but also add it's length in front of it. This can be considered
+    /// a custom encoding format
+    ///
+    /// Usually, to retrieve the encoded object both pointer and the length of the allocation
+    /// are provided. However, due to the lack of support for multivalue return values in stable
+    /// `WebAssembly` it's not possible to return two values from a wasm function without some
+    /// shenanignas. In those cases, only one value is sent which is pointer to the allocation
+    /// with the first element being the length of the encoded object following it.
+    fn encode_with_length_prefix<T: Encode>(obj: T) -> Result<Vec<u8>, Trap> {
+        let len_size_bytes = core::mem::size_of::<WasmUsize>();
+
+        let mut r = Vec::with_capacity(len_size_bytes + obj.size_hint());
+
+        // Reserve space for length
+        r.resize(len_size_bytes, 0);
+        obj.encode_to(&mut r);
+
+        // Store length as byte array in front of encoding
+        for (i, byte) in WasmUsize::try_from(r.len())
+            .map_err(|e| Trap::new(e.to_string()))?
+            .to_be_bytes()
+            .into_iter()
+            .enumerate()
+        {
+            r[i] = byte;
+        }
+
+        Ok(r)
     }
 
     /// Host defined function which executes ISI. When calling this function, module
@@ -429,7 +460,7 @@ pub mod config {
     use iroha_config::derive::Configurable;
     use serde::{Deserialize, Serialize};
 
-    const DEFAULT_FUEL_LIMIT: u64 = 100_000;
+    const DEFAULT_FUEL_LIMIT: u64 = 1_000_000;
 
     /// [`WebAssembly Runtime`](super::Runtime) configuration.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
@@ -567,7 +598,7 @@ mod tests {
             (module
                 ;; Import host function to execute
                 (import "iroha" "{execute_fn_name}"
-                    (func $exec_fn (param i32 i32) (result i32 i32))
+                    (func $exec_fn (param i32 i32) (result i32))
                 )
 
                 {memory_and_alloc}
@@ -577,7 +608,7 @@ mod tests {
                     (call $exec_fn (i32.const 0) (i32.const {isi_len}))
 
                     ;; No use of return values
-                    drop drop
+                    drop
                 )
             )
             "#,
@@ -705,7 +736,7 @@ mod tests {
             (module
                 ;; Import host function to execute
                 (import "iroha" "{execute_fn_name}"
-                    (func $exec_fn (param i32 i32) (result i32 i32))
+                    (func $exec_fn (param i32 i32) (result i32))
                 )
 
                 {memory_and_alloc}
@@ -714,8 +745,8 @@ mod tests {
                 (func (export "{main_fn_name}") (param i32 i32)
                     (call $exec_fn (i32.const 0) (i32.const {isi_len}))
 
-                    ;; No use of return values
-                    drop drop
+                    ;; No use of return value
+                    drop
                 )
             )
             "#,
