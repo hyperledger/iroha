@@ -415,8 +415,10 @@ jobs:
         id: dockertag_already
         run: |
           echo "::set-output name=container::$DOCKERHUB_ORG/iroha-builder:$dockertag"
-      - name: Possible ERROR, Dockerfile edited but image cannot be pushed
-        if: ${{ steps.docker_login.outcome != 'success' || steps.build_and_push.outcome != 'success' }}
+          docker pull "$DOCKERHUB_ORG/iroha-builder:$dockertag"
+      - name: Possible ERROR, Dockerfile edited, image was build, but seems not pushed, CANNOT PULL.
+        if: failure()
+        #if: ${{ steps.docker_login.outcome != 'success' || steps.build_and_push.outcome != 'success' }}
         env:
           container: ${{steps.dockertag_already.outputs.container}}
           dockertag: ${{env.dockertag}}
@@ -519,7 +521,7 @@ jobs:
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
           echo >>$GITHUB_ENV  features="$features"
-          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fq skip_testing)
+          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
           # if [[ " ${{matrix.buildspec}} " = *" skip_testing "* ]]   #echo ${{matrix.buildspec}} | grep -Fq skip_testing
           # then echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=OFF CMAKE_BENCHMARKING=OFF
           # else echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=ON  CMAKE_BENCHMARKING=ON
@@ -805,7 +807,7 @@ jobs:
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
           echo >>$GITHUB_ENV  features="$features"
-          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fq skip_testing)
+          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
           # if [[ " ${{matrix.buildspec}} " = *" skip_testing "* ]]   #echo ${{matrix.buildspec}} | grep -Fq skip_testing
           # then echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=OFF CMAKE_BENCHMARKING=OFF
           # else echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=ON  CMAKE_BENCHMARKING=ON
@@ -1104,7 +1106,7 @@ jobs:
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
           echo >>$GITHUB_ENV  features="$features"
-          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fq skip_testing)
+          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
           # if [[ " ${{matrix.buildspec}} " = *" skip_testing "* ]]   #echo ${{matrix.buildspec}} | grep -Fq skip_testing
           # then echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=OFF CMAKE_BENCHMARKING=OFF
           # else echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=ON  CMAKE_BENCHMARKING=ON
@@ -1500,7 +1502,7 @@ jobs:
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
           echo >>$GITHUB_ENV  features="$features"
-          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fq skip_testing)
+          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
           # if [[ " ${{matrix.buildspec}} " = *" skip_testing "* ]]   #echo ${{matrix.buildspec}} | grep -Fq skip_testing
           # then echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=OFF CMAKE_BENCHMARKING=OFF
           # else echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=ON  CMAKE_BENCHMARKING=ON
@@ -1680,7 +1682,7 @@ jobs:
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
           echo >>$GITHUB_ENV  features="$features"
-          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fq skip_testing)
+          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
           # if [[ " ${{matrix.buildspec}} " = *" skip_testing "* ]]   #echo ${{matrix.buildspec}} | grep -Fq skip_testing
           # then echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=OFF CMAKE_BENCHMARKING=OFF
           # else echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=ON  CMAKE_BENCHMARKING=ON
