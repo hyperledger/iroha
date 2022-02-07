@@ -14,6 +14,7 @@ compile_error!("Targets other then wasm32-unknown-unknown are not supported");
 extern crate alloc;
 
 use alloc::{boxed::Box, format, vec::Vec};
+use core::ops::RangeFrom;
 
 use data_model::prelude::*;
 pub use iroha_data_model as data_model;
@@ -76,11 +77,7 @@ impl Execute for data_model::query::QueryBox {
 
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transfered into `_decode_from_raw`
-        unsafe {
-            let host::WasmQueryResult(res_ptr, res_len) =
-                encode_and_execute(self, host_execute_query);
-            _decode_from_raw(res_ptr, res_len)
-        }
+        unsafe { decode_with_length_prefix_from_raw(encode_and_execute(self, host_execute_query)) }
     }
 }
 
@@ -92,14 +89,9 @@ extern "C" fn _iroha_wasm_alloc(len: WasmUsize) -> WasmUsize {
 }
 
 /// Host exports
+#[cfg(not(test))]
 mod host {
     use super::WasmUsize;
-
-    /// Helper struct which guarantees to be FFI safe since tuple is not
-    #[repr(C)]
-    #[must_use]
-    #[derive(Debug, Clone, Copy)]
-    pub(super) struct WasmQueryResult(pub WasmUsize, pub WasmUsize);
 
     #[link(wasm_import_module = "iroha")]
     extern "C" {
@@ -110,8 +102,7 @@ mod host {
         ///
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
-        #[cfg(not(test))]
-        pub(super) fn execute_query(ptr: WasmUsize, len: WasmUsize) -> WasmQueryResult;
+        pub(super) fn execute_query(ptr: WasmUsize, len: WasmUsize) -> WasmUsize;
 
         /// Executes encoded instruction by providing offset and length
         /// into WebAssembly's linear memory where instruction is stored
@@ -120,9 +111,32 @@ mod host {
         ///
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
-        #[cfg(not(test))]
         pub(super) fn execute_instruction(ptr: WasmUsize, len: WasmUsize);
     }
+}
+
+/// Decode the object from given pointer where first element is the size of the object
+/// following it. This can be considered a custom encoding format.
+///
+/// # Warning
+///
+/// This method takes ownership of the given pointer
+///
+/// # Safety
+///
+/// It's safe to call this function as long as it's safe to construct, from the given
+/// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
+unsafe fn decode_with_length_prefix_from_raw<T: Decode>(ptr: WasmUsize) -> T {
+    let len_size_bytes = core::mem::size_of::<WasmUsize>();
+
+    #[allow(clippy::expect_used)]
+    let len = WasmUsize::from_be_bytes(
+        core::slice::from_raw_parts(ptr as *mut _, len_size_bytes)
+            .try_into()
+            .expect("Prefix length size(bytes) incorrect. This is a bug."),
+    );
+
+    _decode_from_raw_in_range(ptr, len, len_size_bytes..)
 }
 
 /// Decode the object from given pointer and length
@@ -133,14 +147,33 @@ mod host {
 ///
 /// # Safety
 ///
-/// It's safe to call this function as long as it's safe to construct `Box<[u8]>` from the given pointer
+/// It's safe to call this function as long as it's safe to construct, from the given
+/// pointer, `Box<[u8]>` containing the encoded object
+pub unsafe fn _decode_from_raw<T: Decode>(ptr: WasmUsize, len: WasmUsize) -> T {
+    _decode_from_raw_in_range(ptr, len, 0..)
+}
+
+/// Decode the object from given pointer and length in the given range
+///
+/// # Warning
+///
+/// This method takes ownership of the given pointer
+///
+/// # Safety
+///
+/// It's safe to call this function as long as it's safe to construct, from the given
+/// pointer, `Box<[u8]>` containing the encoded object
 // `WasmUsize` is always pointer sized
 #[allow(clippy::cast_possible_truncation)]
-pub unsafe fn _decode_from_raw<T: Decode>(ptr: WasmUsize, len: WasmUsize) -> T {
+unsafe fn _decode_from_raw_in_range<T: Decode>(
+    ptr: WasmUsize,
+    len: WasmUsize,
+    range: RangeFrom<usize>,
+) -> T {
     let bytes = Box::from_raw(core::slice::from_raw_parts_mut(ptr as *mut _, len as usize));
 
     #[allow(clippy::expect_used, clippy::expect_fun_call)]
-    T::decode(&mut &bytes[..]).expect(
+    T::decode(&mut &bytes[range]).expect(
         format!(
             "Decoding of {} failed. This is a bug",
             core::any::type_name::<T>()
@@ -194,6 +227,23 @@ mod tests {
 
     const QUERY_RESULT: QueryResult = QueryResult(Value::U32(1234));
 
+    fn encode_query_result(res: QueryResult) -> Vec<u8> {
+        let len_size_bytes = core::mem::size_of::<WasmUsize>();
+
+        let mut r = Vec::with_capacity(len_size_bytes + res.size_hint());
+
+        // Reserve space for length
+        r.resize(len_size_bytes, 0);
+        res.encode_to(&mut r);
+
+        // Store length of encoded object as byte array at the beginning of the vec
+        for (i, byte) in (r.len() as WasmUsize).to_be_bytes().into_iter().enumerate() {
+            r[i] = byte;
+        }
+
+        r
+    }
+
     fn get_test_instruction() -> Instruction {
         let new_account_id = AccountId::test("mad_hatter", "wonderland");
         let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
@@ -219,13 +269,13 @@ mod tests {
     pub(super) unsafe extern "C" fn _iroha_wasm_execute_query_mock(
         ptr: WasmUsize,
         len: WasmUsize,
-    ) -> host::WasmQueryResult {
+    ) -> WasmUsize {
         let bytes = slice::from_raw_parts(ptr as *const _, len as usize);
         let query = QueryBox::decode(&mut &*bytes).unwrap();
         assert_eq!(query, get_test_query());
 
-        let bytes = ManuallyDrop::new(QUERY_RESULT.encode().into_boxed_slice());
-        host::WasmQueryResult(bytes.as_ptr() as WasmUsize, bytes.len() as WasmUsize)
+        let bytes = ManuallyDrop::new(encode_query_result(QUERY_RESULT).into_boxed_slice());
+        bytes.as_ptr() as WasmUsize
     }
 
     #[webassembly_test]
