@@ -71,7 +71,7 @@ namespace iroha {
 
       void processReceivedProposal(CollectionType batches) override;
 
-      void waitForLocalProposal(consensus::Round const &round, std::chrono::milliseconds const &delay) const override;
+      std::optional<std::shared_ptr<const ProposalType>> waitForLocalProposal(consensus::Round const &round, std::chrono::milliseconds const &delay) override;
 
      private:
       /**

@@ -9,6 +9,7 @@
 #include "ordering/on_demand_ordering_service.hpp"
 
 #include <memory>
+#include <set>
 #include <numeric>
 #include <shared_mutex>
 #include <unordered_set>
@@ -26,9 +27,8 @@ namespace iroha::ordering {
    */
   class BatchesContext {
    public:
-    using BatchesSetType = std::unordered_set<
+    using BatchesSetType = std::set<
         std::shared_ptr<shared_model::interface::TransactionBatch>,
-        OnDemandOrderingService::BatchPointerHasher,
         shared_model::interface::BatchHashEquality>;
 
     BatchesContext(BatchesContext const &) = delete;

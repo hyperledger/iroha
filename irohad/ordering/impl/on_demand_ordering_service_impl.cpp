@@ -85,7 +85,7 @@ void OnDemandOrderingServiceImpl::forCachedBatches(
   batches_cache_.forCachedBatches(f);
 }
 
-void OnDemandOrderingServiceImpl::waitForLocalProposal(consensus::Round const &round, std::chrono::milliseconds const &delay) const {
+std::optional<std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>> OnDemandOrderingServiceImpl::waitForLocalProposal(consensus::Round const &round, std::chrono::milliseconds const &delay) {
   if (!hasProposal(round) && !hasEnoughBatchesInCache()) {
     auto scheduler = std::make_shared<subscription::SchedulerBase>();
     auto tid = getSubscription()->dispatcher()->bind(scheduler);
@@ -118,6 +118,8 @@ void OnDemandOrderingServiceImpl::waitForLocalProposal(consensus::Round const &r
     scheduler->process();
     getSubscription()->dispatcher()->unbind(*tid);
   }
+
+  return onRequestProposal(round);
 }
 
 std::optional<std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>

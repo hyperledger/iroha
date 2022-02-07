@@ -189,6 +189,24 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round, std::option
         } else {
           maybe_log->info("RPC succeeded: {}", context->peer());
         }
+
+        switch (response.optional_proposal_case()) {
+          case proto::ProposalResponse::kSameProposalHash: {
+            callback({std::move(ref_proposal), round});
+          }break;
+          case proto::ProposalResponse::kProposal: {
+            auto proposal_result = maybe_proposal_factory->build(response.proposal());
+            if (expected::hasError(proposal_result)) {
+              maybe_log->info("{}", proposal_result.assumeError().error);
+              callback({std::nullopt, round});
+            } else
+              callback({std::move(proposal_result).assumeValue(), round});
+          }break;
+          default: {
+            callback({std::nullopt, round}); }
+            break;
+        }
+/*
         if (not response.has_proposal()) {
           callback({std::nullopt, round});
           return;
@@ -200,7 +218,7 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round, std::option
           callback({std::nullopt, round});
           return;
         }
-        callback({std::move(maybe_proposal).assumeValue(), round});
+        callback({std::move(maybe_proposal).assumeValue(), round});*/
       });
 }
 

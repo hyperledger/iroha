@@ -44,9 +44,8 @@ namespace iroha {
         }
       };
 
-      using BatchesSetType = std::unordered_set<
+      using BatchesSetType = std::set<
           std::shared_ptr<shared_model::interface::TransactionBatch>,
-          BatchPointerHasher,
           shared_model::interface::BatchHashEquality>;
 
       /**
@@ -96,7 +95,7 @@ namespace iroha {
        * @param round which proposal to wait
        * @param delay time to wait
        */
-      virtual void waitForLocalProposal(consensus::Round const &round, std::chrono::milliseconds const &delay) const = 0;
+      virtual std::optional<std::shared_ptr<const ProposalType>> waitForLocalProposal(consensus::Round const &round, std::chrono::milliseconds const &delay) = 0;
 
       /**
        * Method to get betches under lock
