@@ -31,6 +31,10 @@ OnDemandConnectionManager::~OnDemandConnectionManager() {
   std::lock_guard<std::shared_timed_mutex> lock(mutex_);
 }
 
+std::chrono::milliseconds OnDemandConnectionManager::getRequestDelay() const {
+  return factory_->getRequestDelay();
+}
+
 void OnDemandConnectionManager::onBatches(CollectionType batches) {
   /*
    * Transactions are sent to the current and next rounds (+1)

@@ -56,6 +56,11 @@ namespace iroha {
          */
         virtual void onRequestProposal(consensus::Round round, std::optional<std::shared_ptr<const shared_model::interface::Proposal>> &&ref_proposal) = 0;
 
+        /**
+         * @return delay proposal to wait for.
+         */
+        virtual std::chrono::milliseconds getRequestDelay() const = 0;
+
         virtual ~OdOsNotification() = default;
       };
 
@@ -73,6 +78,11 @@ namespace iroha {
         virtual iroha::expected::Result<std::unique_ptr<OdOsNotification>,
                                         std::string>
         create(const shared_model::interface::Peer &to) = 0;
+
+        /**
+         * @return delay proposal to wait for.
+         */
+        virtual std::chrono::milliseconds getRequestDelay() const = 0;
 
         virtual ~OdOsNotificationFactory() = default;
       };

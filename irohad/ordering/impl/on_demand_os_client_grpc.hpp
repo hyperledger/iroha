@@ -89,6 +89,8 @@ namespace iroha {
         iroha::expected::Result<std::unique_ptr<OdOsNotification>, std::string>
         create(const shared_model::interface::Peer &to) override;
 
+        std::chrono::milliseconds getRequestDelay() const override;
+
        private:
         std::shared_ptr<TransportFactoryType> proposal_factory_;
         std::function<OnDemandOsClientGrpc::TimepointType()> time_provider_;

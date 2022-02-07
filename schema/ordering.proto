@@ -25,6 +25,9 @@ message BatchesRequest {
 
 message ProposalRequest {
   ProposalRound round = 1;
+  oneof optional_ref_proposal {
+    bytes ref_proposal_hash = 2;
+  }
 }
 
 message ProposalResponse {

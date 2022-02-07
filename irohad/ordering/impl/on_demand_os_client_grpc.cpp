@@ -151,6 +151,9 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round, std::option
   proto::ProposalRequest request;
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
+  if (ref_proposal.has_value())
+    request.set_ref_proposal_hash(ref_proposal.value()->hash().hex());
+
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
       [round,
@@ -230,4 +233,8 @@ OnDemandOsClientGrpcFactory::create(const shared_model::interface::Peer &to) {
                                                   os_execution_keepers_,
                                                   to.pubkey());
   };
+}
+
+std::chrono::milliseconds OnDemandOsClientGrpcFactory::getRequestDelay() const {
+  return proposal_request_timeout_;
 }

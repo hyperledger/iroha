@@ -22,6 +22,8 @@
 #include "logger/logger.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "validators/field_validator.hpp"
+#include "main/subscription.hpp"
+#include "subscription/scheduler_impl.hpp"
 
 using iroha::ordering::OnDemandOrderingGate;
 
@@ -60,6 +62,45 @@ void OnDemandOrderingGate::propagateBatch(
       transport::OdOsNotification::CollectionType{batch});
 }
 
+void OnDemandOrderingGate::waitForLocalProposal(consensus::Round const &round) {
+  assert(ordering_service_);
+  assert(network_client_);
+
+  if (!ordering_service_->hasProposal(round)
+      && !ordering_service_->hasEnoughBatchesInCache()) {
+    auto scheduler = std::make_shared<subscription::SchedulerBase>();
+    auto tid = getSubscription()->dispatcher()->bind(scheduler);
+
+    auto batches_subscription = SubscriberCreator<
+        bool,
+        std::shared_ptr<shared_model::interface::TransactionBatch>>::
+    template create<EventTypes::kOnTxsEnoughForProposal>(
+        static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+        [scheduler(utils::make_weak(scheduler))](auto, auto) {
+          if (auto maybe_scheduler = scheduler.lock())
+            maybe_scheduler->dispose();
+        });
+    auto proposals_subscription =
+        SubscriberCreator<bool, consensus::Round>::template create<
+            EventTypes::kOnPackProposal>(
+            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+            [round, scheduler(utils::make_weak(scheduler))](auto,
+                                                            auto packed_round) {
+              if (auto maybe_scheduler = scheduler.lock();
+                  maybe_scheduler and round == packed_round)
+                maybe_scheduler->dispose();
+            });
+    scheduler->addDelayed(network_client_->getRequestDelay(), [scheduler(utils::make_weak(scheduler))] {
+      if (auto maybe_scheduler = scheduler.lock()) {
+        maybe_scheduler->dispose();
+      }
+    });
+
+    scheduler->process();
+    getSubscription()->dispatcher()->unbind(*tid);
+  }
+}
+
 void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
   log_->debug("Current: {}", event.next_round);
   current_round_ = event.next_round;
@@ -79,6 +120,7 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
 
   if (!syncing_mode_) {
     assert(ordering_service_);
+    waitForLocalProposal(event.next_round);
     network_client_->onRequestProposal(event.next_round, ordering_service_->onRequestProposal(event.next_round));
   }
 }
