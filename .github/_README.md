@@ -1,31 +1,45 @@
-GitHub Actions
-==============
+GitHub Actions CI for Iroha
+===========================
 
-GitHub Workflow description in YAML does not support anchors.
-There are several workarounds => anyway they come to building-editing workflow yaml from source.
-So I suggest yet another one `make-workflows.sh` based on YAML tool `yq`.
+> For the **smooth experience** please `pre-commit install` after clone.
 
-### USAGE
-0. Move your workflows to `.github/*.src.yml`
-1. Put `make-workflows.sh` to directory `.github/`
-2. (optional) Copy or link `pre-commit-hook.sh` to `.git/hooks/pre-commit`
-   Like `ln -s ../../.github/pre-commit-hook.sh .git/hooks/pre-commit`
-
-### Using pre-commit
-```yaml
-repos:
-- repo: local
-  hooks:
-  - id: make-workflows
-    name: Make GitHub workflows from *.src.yml
-    entry: bash -c '.github/make-workflows.sh && git add .github/workflows'
-    language: system
-    types: [yaml]
-    pass_filenames: false
-```
-
-### Links
-1. https://stackoverflow.com/questions/67368724/share-same-steps-for-different-github-actions-jobs
-2. https://github.community/t/support-for-yaml-anchors/16128/60
-3. https://github.com/mithro/actions-includes
-4. https://github.com/allejo/gha-workflows
+### List of files
+- `build-iroha1.src.yml`  
+  Main file here. GitHub workflow YAML description with ANCHORS, code is not duplicated. 
+  IMPORTANT: regeneration required after after edit, which is automated with pre-commit.
+- `workflows/build-iroha1.yml`  
+  Result worflow taken by GitHub and generated with make-workflows script. Long file of repeated code. DO NOT EDIT MANUALLY.
+- `make-workflows.sh`  
+  A tool to generate workflows/*.yml from *.src.yml - evaluates anchors. [Read the docs](_README.make-workflows.md).
+- `chatops-gen-matrix.sh`  
+  Generates build matrixes form convenient user input. See `--help`
+  ```
+  USAGE:
+    chatops-gen-matrix.sh --help
+    echo /build [build_spec...] | chatops-gen-matrix.sh
+  EXAMPLE build_spec:
+    /build ubuntu release gcc10
+    /build macos llvm release
+    /build all
+    /build ubuntu all              ## build all possible configurations on Ubuntu
+    /build ubuntu burrow all       ## build all possible configurations on Ubuntu with Burrow
+  AVAILABLE build_spec keywords:
+    ubuntu|linux
+    macos
+    windows
+    normal
+    burrow
+    ursa
+    release|Release
+    debug|Debug
+    gcc|gcc-9|gcc9
+    gcc-10|gcc10
+    clang|clang-10|clang10
+    llvm
+    msvc
+    all|everything|beforemerge|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge
+   ```
+- `pre-commit-hook.sh`  
+  See docs of make-workflows. Use instead of pre-commit as `ln -s ../../.github/pre-commit-hook.sh .git/hooks/pre-commit`, reserv alternative.
+- `TESTS_ALLOWED_TO_FAIL`  
+  One day tests of Iroha become failing. To fix CI and postpone fixing tests, this file was invented. It allows CI to pass even when listed tests are failing. HACK. DO NOT USE UNLESS YOU DEFINITELY KNOW WHAT'S GOING.

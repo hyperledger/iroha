@@ -39,6 +39,7 @@ END
    cat <<END
 USAGE:
    $(basename $0) --help
+   $(basename $0) /build ubuntu clang
    echo /build [build_spec...] | $(basename $0)
 END
    --help-buildspec
@@ -90,6 +91,7 @@ handle_user_line(){
          clang|clang-10|clang10)    compilers+=" clang clang-10"  ;;
          llvm)                      compilers+=" $1 " ;;
          msvc)                      compilers+=" $1 " ;;
+         skip-testing|skip_testing) skip_testing=yes ;;
          all|everything|beforemerge|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge)
             oses=${oses:-"$ALL_oses"}
             build_types=${build_types:-"$ALL_build_types"}
