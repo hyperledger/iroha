@@ -2,6 +2,7 @@
 ## Generated from build-iroha1.src.yml with make-workflows.sh
 
 name: Iroha1
+## TODO IMPORTANT DISALLOW deploying tags and main and develop builds where skip_testing was set.
 ## TODO 1. [vcpkg,optimization-space,optimization-speed]
 ##         Build only Debug or only Release - reduce vcpkg build duration and output size 2times
 ##         see directory triplets/, `vcpkg help triplets` and link: https://stackoverflow.com/a/52781832/3743145
@@ -522,10 +523,6 @@ jobs:
           esac
           echo >>$GITHUB_ENV  features="$features"
           echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
-          # if [[ " ${{matrix.buildspec}} " = *" skip_testing "* ]]   #echo ${{matrix.buildspec}} | grep -Fq skip_testing
-          # then echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=OFF CMAKE_BENCHMARKING=OFF
-          # else echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=ON  CMAKE_BENCHMARKING=ON
-          # fi
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -808,10 +805,6 @@ jobs:
           esac
           echo >>$GITHUB_ENV  features="$features"
           echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
-          # if [[ " ${{matrix.buildspec}} " = *" skip_testing "* ]]   #echo ${{matrix.buildspec}} | grep -Fq skip_testing
-          # then echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=OFF CMAKE_BENCHMARKING=OFF
-          # else echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=ON  CMAKE_BENCHMARKING=ON
-          # fi
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -1107,10 +1100,6 @@ jobs:
           esac
           echo >>$GITHUB_ENV  features="$features"
           echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
-          # if [[ " ${{matrix.buildspec}} " = *" skip_testing "* ]]   #echo ${{matrix.buildspec}} | grep -Fq skip_testing
-          # then echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=OFF CMAKE_BENCHMARKING=OFF
-          # else echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=ON  CMAKE_BENCHMARKING=ON
-          # fi
       - name: Homebrew
         run: brew install cmake ninja coreutils ccache bash
         ## Takes 22 seconds with default github runner
@@ -1503,10 +1492,6 @@ jobs:
           esac
           echo >>$GITHUB_ENV  features="$features"
           echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
-          # if [[ " ${{matrix.buildspec}} " = *" skip_testing "* ]]   #echo ${{matrix.buildspec}} | grep -Fq skip_testing
-          # then echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=OFF CMAKE_BENCHMARKING=OFF
-          # else echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=ON  CMAKE_BENCHMARKING=ON
-          # fi
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -1683,10 +1668,6 @@ jobs:
           esac
           echo >>$GITHUB_ENV  features="$features"
           echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
-          # if [[ " ${{matrix.buildspec}} " = *" skip_testing "* ]]   #echo ${{matrix.buildspec}} | grep -Fq skip_testing
-          # then echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=OFF CMAKE_BENCHMARKING=OFF
-          # else echo >>$GITHUB_ENV  CMAKE_TESTING=-DTESTING=ON  CMAKE_BENCHMARKING=ON
-          # fi
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
