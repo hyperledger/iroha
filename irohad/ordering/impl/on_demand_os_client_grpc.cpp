@@ -144,7 +144,10 @@ std::chrono::milliseconds OnDemandOsClientGrpc::getRequestDelay() const {
   return proposal_request_timeout_;
 }
 
-void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round, std::optional<std::shared_ptr<const shared_model::interface::Proposal>> ref_proposal) {
+void OnDemandOsClientGrpc::onRequestProposal(
+    consensus::Round round,
+    std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+        ref_proposal) {
   // Cancel an unfinished request
   if (auto maybe_context = context_.lock()) {
     maybe_context->TryCancel();
@@ -161,7 +164,7 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round, std::option
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
       [round,
-        ref_proposal{std::move(ref_proposal)},
+       ref_proposal{std::move(ref_proposal)},
        time_provider(time_provider_),
        proposal_request_timeout(proposal_request_timeout_),
        context(std::move(context)),
@@ -193,32 +196,31 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round, std::option
         switch (response.optional_proposal_case()) {
           case proto::ProposalResponse::kSameProposalHash: {
             callback({std::move(ref_proposal), round});
-          }break;
+          } break;
           case proto::ProposalResponse::kProposal: {
-            auto proposal_result = maybe_proposal_factory->build(response.proposal());
+            auto proposal_result =
+                maybe_proposal_factory->build(response.proposal());
             if (expected::hasError(proposal_result)) {
               maybe_log->info("{}", proposal_result.assumeError().error);
               callback({std::nullopt, round});
             } else
               callback({std::move(proposal_result).assumeValue(), round});
-          }break;
-          default: {
-            callback({std::nullopt, round}); }
-            break;
+          } break;
+          default: { callback({std::nullopt, round}); } break;
         }
-/*
-        if (not response.has_proposal()) {
-          callback({std::nullopt, round});
-          return;
-        }
-        auto maybe_proposal =
-            maybe_proposal_factory->build(response.proposal());
-        if (expected::hasError(maybe_proposal)) {
-          maybe_log->info("{}", maybe_proposal.assumeError().error);
-          callback({std::nullopt, round});
-          return;
-        }
-        callback({std::move(maybe_proposal).assumeValue(), round});*/
+        /*
+                if (not response.has_proposal()) {
+                  callback({std::nullopt, round});
+                  return;
+                }
+                auto maybe_proposal =
+                    maybe_proposal_factory->build(response.proposal());
+                if (expected::hasError(maybe_proposal)) {
+                  maybe_log->info("{}", maybe_proposal.assumeError().error);
+                  callback({std::nullopt, round});
+                  return;
+                }
+                callback({std::move(maybe_proposal).assumeValue(), round});*/
       });
 }
 

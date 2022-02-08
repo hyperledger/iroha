@@ -135,7 +135,8 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
   EXPECT_CALL(*ordering_service, forCachedBatches(_))
       .WillOnce(InvokeArgument<0>(transactions));
 
-  EXPECT_CALL(*ordering_service, waitForLocalProposal(round, std::chrono::milliseconds(1)))
+  EXPECT_CALL(*ordering_service,
+              waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
 
   std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
@@ -170,7 +171,8 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
   std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
   EXPECT_CALL(*notification, onRequestProposal(round, p)).Times(1);
 
-  EXPECT_CALL(*ordering_service, waitForLocalProposal(round, std::chrono::milliseconds(1)))
+  EXPECT_CALL(*ordering_service,
+              waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
 
   auto event = RoundSwitch(round, ledger_state);
@@ -193,11 +195,12 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
   std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
       proposal;
 
-  EXPECT_CALL(*ordering_service, waitForLocalProposal(round, std::chrono::milliseconds(1)))
+  EXPECT_CALL(*ordering_service,
+              waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
 
-std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
+  std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
   EXPECT_CALL(*notification, onRequestProposal(round, p)).Times(1);
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
@@ -218,7 +221,8 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
   std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
       proposal;
 
-  EXPECT_CALL(*ordering_service, waitForLocalProposal(round, std::chrono::milliseconds(1)))
+  EXPECT_CALL(*ordering_service,
+              waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
@@ -254,7 +258,8 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
           std::move(proposal)));
 
   // set expectations for ordering service
-  EXPECT_CALL(*ordering_service, waitForLocalProposal(round, std::chrono::milliseconds(1)))
+  EXPECT_CALL(*ordering_service,
+              waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
@@ -311,7 +316,8 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
           std::move(proposal)));
 
   // set expectations for ordering service
-  EXPECT_CALL(*ordering_service, waitForLocalProposal(round, std::chrono::milliseconds(1)))
+  EXPECT_CALL(*ordering_service,
+              waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
@@ -359,7 +365,8 @@ TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
 
   OnDemandOrderingService::BatchesSetType collection{batch1, batch2};
   OnDemandOrderingService::BatchesSetType collection2{batch1, batch2};
-  EXPECT_CALL(*ordering_service, waitForLocalProposal(round, std::chrono::milliseconds(1)))
+  EXPECT_CALL(*ordering_service,
+              waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
   EXPECT_CALL(*ordering_service, forCachedBatches(_))
       .WillOnce(InvokeArgument<0>(collection2));

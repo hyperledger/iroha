@@ -70,24 +70,28 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   log_->info("Received RequestProposal for {} from {}", round, context->peer());
   auto maybe_proposal = ordering_service_->waitForLocalProposal(round, delay_);
   if (maybe_proposal.has_value()) {
-    if (request->has_ref_proposal_hash() && maybe_proposal.value()->hash() == shared_model::crypto::Hash(request->ref_proposal_hash()))
+    if (request->has_ref_proposal_hash()
+        && maybe_proposal.value()->hash()
+            == shared_model::crypto::Hash(request->ref_proposal_hash()))
       response->set_same_proposal_hash(request->ref_proposal_hash());
     else
-    *response->mutable_proposal() =
-        static_cast<const shared_model::proto::Proposal *>(
-            maybe_proposal->get())
-            ->getTransport();
+      *response->mutable_proposal() =
+          static_cast<const shared_model::proto::Proposal *>(
+              maybe_proposal->get())
+              ->getTransport();
   }
 
   log_->debug(
       "Responding for {} with {}: our proposal {}",
       round,
-      request->has_ref_proposal_hash() ? request->ref_proposal_hash() : "NO REFERENCE PROPOSAL HASH",
+      request->has_ref_proposal_hash() ? request->ref_proposal_hash()
+                                       : "NO REFERENCE PROPOSAL HASH",
       response->optional_proposal_case() == response->kProposal
-          ? fmt::format("has DIFFERENT hash {}, sending full proposal", maybe_proposal.value()->hash().hex())
+          ? fmt::format("has DIFFERENT hash {}, sending full proposal",
+                        maybe_proposal.value()->hash().hex())
           : response->optional_proposal_case() == response->kSameProposalHash
-          ? "has SAME hash, sending only hash"
-          : "is EMPTY");
+              ? "has SAME hash, sending only hash"
+              : "is EMPTY");
 
   return ::grpc::Status::OK;
 }

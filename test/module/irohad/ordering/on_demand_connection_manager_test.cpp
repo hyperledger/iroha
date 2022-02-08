@@ -96,7 +96,8 @@ TEST_F(OnDemandConnectionManagerTest, onBatches) {
  */
 TEST_F(OnDemandConnectionManagerTest, onRequestProposal) {
   consensus::Round round{};
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>> prop{};
+  std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+      prop{};
   EXPECT_CALL(*connections[OnDemandConnectionManager::kIssuer],
               onRequestProposal(round, prop))
       .Times(1);

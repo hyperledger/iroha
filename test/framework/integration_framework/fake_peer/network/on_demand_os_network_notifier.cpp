@@ -24,7 +24,10 @@ namespace integration_framework::fake_peer {
         std::make_shared<BatchesCollection>(std::move(batches)));
   }
 
-  std::optional<std::shared_ptr<const OnDemandOsNetworkNotifier::ProposalType>> OnDemandOsNetworkNotifier::waitForLocalProposal(iroha::consensus::Round const &round, std::chrono::milliseconds const &/*delay*/) {
+  std::optional<std::shared_ptr<const OnDemandOsNetworkNotifier::ProposalType>>
+  OnDemandOsNetworkNotifier::waitForLocalProposal(
+      iroha::consensus::Round const &round,
+      std::chrono::milliseconds const & /*delay*/) {
     return onRequestProposal(round);
   }
 
