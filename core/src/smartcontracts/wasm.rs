@@ -8,7 +8,9 @@ use eyre::WrapErr;
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use parity_scale_codec::{Decode, Encode};
-use wasmtime::{Caller, Config, Engine, Linker, Module, Store, Trap, TypedFunc};
+use wasmtime::{
+    Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
+};
 
 use super::permissions::IsInstructionAllowedBoxed;
 use crate::{
@@ -40,6 +42,8 @@ pub enum Error {
     #[error("Named export not found")]
     ExportNotFound(#[source] anyhow::Error),
     /// Call to function exported from module failed
+    ///
+    /// As of Wasmtime(0.33) this can also mean that max linear memory was consumed
     #[error("Exported function call failed")]
     ExportFnCall(#[from] Trap),
     /// Some other error happened
@@ -106,19 +110,25 @@ impl<W: WorldTrait> Validator<'_, W> {
 
 struct State<'a, W: WorldTrait> {
     account_id: AccountId,
-
     /// Ensures smartcontract adheres to limits
     validator: Option<Validator<'a, W>>,
-
+    store_limits: StoreLimits,
     wsv: &'a WorldStateView<W>,
 }
 
 impl<'a, W: WorldTrait> State<'a, W> {
-    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId) -> Self {
+    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId, config: Configuration) -> Self {
         Self {
             wsv,
             account_id,
             validator: None,
+
+            store_limits: StoreLimitsBuilder::new()
+                .memory_size(config.max_memory)
+                .instances(1)
+                .memories(1)
+                .tables(1)
+                .build(),
         }
     }
 
@@ -190,6 +200,36 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         Engine::new(&Self::create_config()).map_err(Error::Initialization)
     }
 
+    /// Encode the given object but also add it's length in front of it. This can be considered
+    /// a custom encoding format
+    ///
+    /// Usually, to retrieve the encoded object both pointer and the length of the allocation
+    /// are provided. However, due to the lack of support for multivalue return values in stable
+    /// `WebAssembly` it's not possible to return two values from a wasm function without some
+    /// shenanignas. In those cases, only one value is sent which is pointer to the allocation
+    /// with the first element being the length of the encoded object following it.
+    fn encode_with_length_prefix<T: Encode>(obj: &T) -> Result<Vec<u8>, Trap> {
+        let len_size_bytes = core::mem::size_of::<WasmUsize>();
+
+        let mut r = Vec::with_capacity(len_size_bytes + obj.size_hint());
+
+        // Reserve space for length
+        r.resize(len_size_bytes, 0);
+        obj.encode_to(&mut r);
+
+        // Store length as byte array in front of encoding
+        for (i, byte) in WasmUsize::try_from(r.len())
+            .map_err(|e| Trap::new(e.to_string()))?
+            .to_be_bytes()
+            .into_iter()
+            .enumerate()
+        {
+            r[i] = byte;
+        }
+
+        Ok(r)
+    }
+
     /// Host defined function which executes query. When calling this function, module
     /// serializes query to linear memory and provides offset and length as parameters
     ///
@@ -222,7 +262,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         }
 
         let res_bytes = Self::encode_with_length_prefix(
-            query
+            &query
                 .execute(caller.data().wsv)
                 .map_err(|e| Trap::new(e.to_string()))?,
         )?;
@@ -237,43 +277,14 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
                 .call(&mut caller, res_bytes_len)
                 .map_err(|e| Trap::new(e.to_string()))?;
 
-            let res_mem_range = res_offset as usize..res_offset as usize + res_bytes.len();
-            memory.data_mut(&mut caller)[res_mem_range].copy_from_slice(&res_bytes[..]);
+            memory
+                .write(&mut caller, res_offset as usize, &res_bytes)
+                .map_err(|error| Trap::new(error.to_string()))?;
 
             res_offset
         };
 
         Ok(res_offset)
-    }
-
-    /// Encode the given object but also add it's length in front of it. This can be considered
-    /// a custom encoding format
-    ///
-    /// Usually, to retrieve the encoded object both pointer and the length of the allocation
-    /// are provided. However, due to the lack of support for multivalue return values in stable
-    /// `WebAssembly` it's not possible to return two values from a wasm function without some
-    /// shenanignas. In those cases, only one value is sent which is pointer to the allocation
-    /// with the first element being the length of the encoded object following it.
-    fn encode_with_length_prefix<T: Encode>(obj: T) -> Result<Vec<u8>, Trap> {
-        let len_size_bytes = core::mem::size_of::<WasmUsize>();
-
-        let mut r = Vec::with_capacity(len_size_bytes + obj.size_hint());
-
-        // Reserve space for length
-        r.resize(len_size_bytes, 0);
-        obj.encode_to(&mut r);
-
-        // Store length as byte array in front of encoding
-        for (i, byte) in WasmUsize::try_from(r.len())
-            .map_err(|e| Trap::new(e.to_string()))?
-            .to_be_bytes()
-            .into_iter()
-            .enumerate()
-        {
-            r[i] = byte;
-        }
-
-        Ok(r)
     }
 
     /// Host defined function which executes ISI. When calling this function, module
@@ -364,7 +375,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
         is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
     ) -> Result<(), Error> {
-        let state = State::new(wsv, account_id.clone()).with_validator(
+        let state = State::new(wsv, account_id.clone(), self.config).with_validator(
             max_instruction_count,
             is_instruction_allowed,
             is_query_allowed,
@@ -387,7 +398,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
-        let state = State::new(wsv, account_id.clone());
+        let state = State::new(wsv, account_id.clone(), self.config);
         self.execute_with_state(account_id, bytes, state)
     }
 
@@ -401,6 +412,8 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
 
         let module = Module::new(&self.engine, bytes).map_err(Error::Instantiation)?;
         let mut store = Store::new(&self.engine, state);
+        store.limiter(|stat| &mut stat.store_limits);
+
         store
             .add_fuel(self.config.fuel_limit)
             .map_err(Error::Instantiation)?;
@@ -436,8 +449,9 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
                 .call(&mut store, account_bytes_len)
                 .map_err(Error::ExportFnCall)?;
 
-            let acc_mem_range = acc_offset as usize..acc_offset as usize + account_bytes.len();
-            memory.data_mut(&mut store)[acc_mem_range].copy_from_slice(&account_bytes[..]);
+            memory
+                .write(&mut store, acc_offset as usize, &account_bytes)
+                .map_err(|error| Trap::new(error.to_string()))?;
 
             acc_offset
         };
@@ -461,6 +475,7 @@ pub mod config {
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_FUEL_LIMIT: u64 = 1_000_000;
+    const DEFAULT_MAX_MEMORY: usize = 500 * 2_usize.pow(20); // 500 MiB
 
     /// [`WebAssembly Runtime`](super::Runtime) configuration.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
@@ -470,12 +485,16 @@ pub mod config {
         /// Every WASM instruction costs approximately 1 unit of fuel. See
         /// [`wasmtime` reference](https://docs.rs/wasmtime/0.29.0/wasmtime/struct.Store.html#method.add_fuel)
         pub fuel_limit: u64,
+
+        /// Maximum amount of linear memory a given smartcontract can allocate
+        pub max_memory: usize,
     }
 
     impl Default for Configuration {
         fn default() -> Self {
             Configuration {
                 fuel_limit: DEFAULT_FUEL_LIMIT,
+                max_memory: DEFAULT_MAX_MEMORY,
             }
         }
     }
