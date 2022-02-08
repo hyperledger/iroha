@@ -46,7 +46,7 @@ namespace iroha {
 
       using BatchesSetType =
           std::set<std::shared_ptr<shared_model::interface::TransactionBatch>,
-                   shared_model::interface::BatchHashEquality>;
+                   shared_model::interface::BatchHashLess>;
 
       /**
        * Type of stored transaction batches

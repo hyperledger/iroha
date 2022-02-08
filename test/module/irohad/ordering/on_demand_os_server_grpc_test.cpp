@@ -132,9 +132,9 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
 
   std::shared_ptr<const shared_model::interface::Proposal> iproposal(
       std::make_shared<const shared_model::proto::Proposal>(proposal));
-  EXPECT_CALL(*notification, onRequestProposal(round))
+  std::chrono::milliseconds delay(0);
+  EXPECT_CALL(*notification, waitForLocalProposal(round, delay))
       .WillOnce(Return(ByMove(std::move(iproposal))));
-  EXPECT_CALL(*notification, hasEnoughBatchesInCache()).WillOnce(Return(true));
 
   grpc::ServerContext context;
   server->RequestProposal(&context, &request, &response);
@@ -160,9 +160,9 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposalNone) {
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
   proto::ProposalResponse response;
-  EXPECT_CALL(*notification, onRequestProposal(round))
+  std::chrono::milliseconds delay(0);
+  EXPECT_CALL(*notification, waitForLocalProposal(round, delay))
       .WillOnce(Return(ByMove(std::move(std::nullopt))));
-  EXPECT_CALL(*notification, hasEnoughBatchesInCache()).WillOnce(Return(false));
 
   grpc::ServerContext context;
   server->RequestProposal(&context, &request, &response);

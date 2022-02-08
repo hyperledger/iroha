@@ -208,19 +208,6 @@ void OnDemandOsClientGrpc::onRequestProposal(
           } break;
           default: { callback({std::nullopt, round}); } break;
         }
-        /*
-                if (not response.has_proposal()) {
-                  callback({std::nullopt, round});
-                  return;
-                }
-                auto maybe_proposal =
-                    maybe_proposal_factory->build(response.proposal());
-                if (expected::hasError(maybe_proposal)) {
-                  maybe_log->info("{}", maybe_proposal.assumeError().error);
-                  callback({std::nullopt, round});
-                  return;
-                }
-                callback({std::move(maybe_proposal).assumeValue(), round});*/
       });
 }
 

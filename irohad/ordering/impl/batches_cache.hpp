@@ -29,7 +29,7 @@ namespace iroha::ordering {
    public:
     using BatchesSetType =
         std::set<std::shared_ptr<shared_model::interface::TransactionBatch>,
-                 shared_model::interface::BatchHashEquality>;
+                 shared_model::interface::BatchHashLess>;
 
     BatchesContext(BatchesContext const &) = delete;
     BatchesContext &operator=(BatchesContext const &) = delete;
