@@ -55,7 +55,7 @@ namespace iroha {
          * @param round - number of collaboration round.
          * Calculated as block_height + 1
          */
-        virtual void onRequestProposal(consensus::Round round, std::optional<std::shared_ptr<const shared_model::interface::Proposal>> &&ref_proposal) = 0;
+        virtual void onRequestProposal(consensus::Round round, std::optional<std::shared_ptr<const shared_model::interface::Proposal>> ref_proposal) = 0;
 
         /**
          * @return delay proposal to wait for.

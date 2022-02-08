@@ -5,6 +5,8 @@
 
 #include "framework/integration_framework/fake_peer/network/on_demand_os_network_notifier.hpp"
 
+#include <chrono>
+
 #include "backend/protobuf/proposal.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/behaviour.hpp"
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
@@ -20,6 +22,10 @@ namespace integration_framework::fake_peer {
     std::lock_guard<std::mutex> guard(batches_subject_mutex_);
     batches_subject_.get_subscriber().on_next(
         std::make_shared<BatchesCollection>(std::move(batches)));
+  }
+
+  std::optional<std::shared_ptr<const OnDemandOsNetworkNotifier::ProposalType>> OnDemandOsNetworkNotifier::waitForLocalProposal(iroha::consensus::Round const &round, std::chrono::milliseconds const &/*delay*/) {
+    return onRequestProposal(round);
   }
 
   std::optional<std::shared_ptr<const OnDemandOsNetworkNotifier::ProposalType>>

@@ -20,6 +20,8 @@ namespace iroha::ordering::transport {
                 create,
                 (const shared_model::interface::Peer &),
                 (override));
+    MOCK_CONST_METHOD0(getRequestDelay,
+                 std::chrono::milliseconds());
   };
 }  // namespace iroha::ordering::transport
 
@@ -42,6 +44,8 @@ namespace iroha::ordering {
     MOCK_METHOD(bool, hasEnoughBatchesInCache, (), (const, override));
     MOCK_METHOD(bool, hasProposal, (consensus::Round), (const, override));
     MOCK_METHOD(void, processReceivedProposal, (CollectionType), (override));
+
+    MOCK_METHOD2(waitForLocalProposal, std::optional<std::shared_ptr<const ProposalType>>(consensus::Round const &, std::chrono::milliseconds const &));
   };
 }  // namespace iroha::ordering
 

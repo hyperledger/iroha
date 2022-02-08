@@ -144,7 +144,7 @@ std::chrono::milliseconds OnDemandOsClientGrpc::getRequestDelay() const {
   return proposal_request_timeout_;
 }
 
-void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round, std::optional<std::shared_ptr<const shared_model::interface::Proposal>> &&ref_proposal) {
+void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round, std::optional<std::shared_ptr<const shared_model::interface::Proposal>> ref_proposal) {
   // Cancel an unfinished request
   if (auto maybe_context = context_.lock()) {
     maybe_context->TryCancel();
