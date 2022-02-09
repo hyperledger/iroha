@@ -842,8 +842,11 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         block: ChainedBlock,
         ctx: &mut Context<Self>,
     ) -> Result<()> {
+        info!(block_hash = %block.hash(), "Validating block");
+
         let block = block.validate(&self.transaction_validator);
         let network_topology = self.network_topology_current_or_genesis(block.header());
+
         info!(
             peer_role = ?network_topology.role(&self.peer_id),
             block_hash = %block.hash(),
@@ -1036,7 +1039,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
                 self.latest_block_hash(),
             )
         {
-            iroha_logger::info!(
+            info!(
                 prev_view_changes_count = self.topology.view_change_proofs().len(),
                 new_view_changes_count = suggested_chain.len(),
                 latest_block = ?self.latest_block_hash(),
@@ -1144,7 +1147,7 @@ pub mod message {
         /// # Errors
         /// Fails if network sending fails
         #[iroha_futures::telemetry_future]
-        #[iroha_logger::log(skip(self))]
+        #[log(skip(self))]
         pub async fn send_to(self, broker: &Broker, peer: &PeerId) {
             let post = Post {
                 data: NetworkMessage::SumeragiMessage(Box::new(self)),
@@ -1211,7 +1214,7 @@ pub mod message {
         /// Handles this message as part of `Sumeragi` consensus.
         /// # Errors
         /// Fails if message handling fails
-        #[iroha_logger::log(skip(self, sumeragi, ctx))]
+        #[log(skip(self, sumeragi, ctx))]
         #[iroha_futures::telemetry_future]
         pub async fn handle<
             G: GenesisNetworkTrait,
@@ -1332,7 +1335,7 @@ pub mod message {
             }
 
             for event in Vec::<Event>::from(&self.block) {
-                iroha_logger::trace!(?event);
+                trace!(?event);
                 drop(sumeragi.events_sender.send(event));
             }
             sumeragi.update_view_changes(self.block.header().view_change_proofs.clone());
@@ -1342,7 +1345,7 @@ pub mod message {
                 .filter_signatures_by_roles(&[Role::Leader], self.block.verified_signatures())
                 .is_empty()
             {
-                iroha_logger::error!(
+                error!(
                     role = ?sumeragi.topology.role(&sumeragi.peer_id),
                     "Rejecting Block as it is not signed by leader.",
                 );
@@ -1372,7 +1375,7 @@ pub mod message {
                     VersionedMessage::from(Message::BlockSigned(signed_block))
                         .send_to(&sumeragi.broker, network_topology.proxy_tail())
                         .await;
-                    iroha_logger::info!(
+                    info!(
                         peer_role = ?network_topology.role(&sumeragi.peer_id),
                         block_hash = %self.block.hash(),
                         "Signed block candidate",
@@ -1447,7 +1450,7 @@ pub mod message {
                 entry.verified_signatures(),
             );
 
-            iroha_logger::info!(
+            info!(
                 peer_role = ?network_topology.role(&sumeragi.peer_id),
                 %block_hash,
                 valid_signatures_count = valid_signatures.len(),
@@ -1467,7 +1470,7 @@ pub mod message {
             block.as_mut_v1().signatures = signatures;
             let block = block.sign(sumeragi.key_pair.clone())?;
 
-            iroha_logger::info!(
+            info!(
                 peer_role = ?network_topology.role(&sumeragi.peer_id),
                 %block_hash,
                 "Block reached required number of votes",
@@ -1655,7 +1658,7 @@ pub mod message {
                 match sumeragi.queue.push(tx) {
                     Err((_, queue::Error::InBlockchain)) | Ok(()) => {}
                     Err((_, err)) => {
-                        iroha_logger::warn!(?err, "Failed to push into queue gossiped transaction.")
+                        warn!(?err, "Failed to push into queue gossiped transaction.")
                     }
                 }
             }

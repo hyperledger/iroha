@@ -40,10 +40,12 @@ iroha_core = { version = "=2.0.0-pre.1", path = "../core", features = ["dev-tele
 iroha_permissions_validators = { version = "=2.0.0-pre.1", path = "../permissions_validators" }
 test_network = { version = "=2.0.0-pre.1", path = "../core/test_network" }
 
-color-eyre = "0.5.11"
-criterion = { version = "0.3", features = ["html_reports"] }
-tempfile = "3"
+parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
+criterion = { version = "0.3", features = ["html_reports"] }
+color-eyre = "0.5.11"
+tempfile = "3"
+hex = "0.4.0"
 
 [[bench]]
 name = "torii"

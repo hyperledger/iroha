@@ -23,11 +23,16 @@ use crate::{
 
 type WasmUsize = u32;
 
-const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
-const WASM_MEMORY_NAME: &str = "memory";
-const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
-const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
-const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
+/// Exported function to allocate memory
+pub const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
+/// Name of the exported memory
+pub const WASM_MEMORY_NAME: &str = "memory";
+/// Name of the exported entry to smartcontract execution
+pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
+/// Name of the imported function to execute instructions
+pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
+/// Name of the imported function to execute queries
+pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
 
 /// `WebAssembly` execution error type
 #[derive(Debug, thiserror::Error)]
@@ -318,9 +323,11 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
                 .map_err(|error| Trap::new(error.to_string()))?;
         }
 
-        instruction
+        let events = instruction
             .execute(account_id, caller.data().wsv)
             .map_err(|error| Trap::new(error.to_string()))?;
+
+        caller.data().wsv.produce_events(events);
 
         Ok(())
     }
@@ -674,7 +681,7 @@ mod tests {
             main_fn_name = WASM_MAIN_FN_NAME,
             execute_fn_name = EXECUTE_ISI_FN_NAME,
             // Store two instructions into adjacent memory and execute them
-            memory_and_alloc = memory_and_alloc(&format!("{}{}", isi_hex, isi_hex)),
+            memory_and_alloc = memory_and_alloc(&isi_hex.repeat(2)),
             isi1_end = isi_hex.len() / 3,
             isi2_end = 2 * isi_hex.len() / 3,
         );
