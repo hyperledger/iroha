@@ -114,6 +114,40 @@ TEST_F(OnDemandOsServerGrpcTest, SendBatches) {
 
 /**
  * @given server
+ * @when proposal is requested with reference hash same as proposal hash
+ * @then only hash returns
+ */
+TEST_F(OnDemandOsServerGrpcTest, RequestSameProposal) {
+  auto creator = "test";
+  protocol::Proposal proposal;
+  proposal.add_transactions()
+      ->mutable_payload()
+      ->mutable_reduced_payload()
+      ->set_creator_account_id(creator);
+
+  std::shared_ptr<const shared_model::interface::Proposal> iproposal(
+      std::make_shared<const shared_model::proto::Proposal>(proposal));
+
+  proto::ProposalRequest request;
+  request.mutable_round()->set_block_round(round.block_round);
+  request.mutable_round()->set_reject_round(round.reject_round);
+  request.set_ref_proposal_hash(
+      std::string((char *)iproposal->hash().blob().data(),
+                  iproposal->hash().blob().size()));
+
+  std::chrono::milliseconds delay(0);
+  EXPECT_CALL(*notification, waitForLocalProposal(round, delay))
+      .WillOnce(Return(ByMove(std::move(iproposal))));
+
+  grpc::ServerContext context;
+  proto::ProposalResponse response;
+  server->RequestProposal(&context, &request, &response);
+
+  ASSERT_TRUE(response.has_same_proposal_hash());
+}
+
+/**
+ * @given server
  * @when proposal is requested
  * AND proposal returned
  * @then it is correctly serialized

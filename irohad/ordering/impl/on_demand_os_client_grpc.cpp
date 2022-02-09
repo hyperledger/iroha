@@ -159,7 +159,9 @@ void OnDemandOsClientGrpc::onRequestProposal(
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
   if (ref_proposal.has_value())
-    request.set_ref_proposal_hash(ref_proposal.value()->hash().hex());
+    request.set_ref_proposal_hash(
+        std::string((char *)ref_proposal.value()->hash().blob().data(),
+                    ref_proposal.value()->hash().blob().size()));
 
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
