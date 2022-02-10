@@ -78,4 +78,11 @@ impl Consumer {
             Err(Error::ExpectedEventReceived)
         }
     }
+
+    /// Returns mut reference to stored `stream`
+    ///
+    /// Useful for performing other read/write stuff with `stream`
+    pub fn stream_mut(&mut self) -> &mut WebSocket {
+        &mut self.stream
+    }
 }

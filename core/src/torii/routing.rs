@@ -167,10 +167,20 @@ async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::R
     let mut consumer = Consumer::new(stream).await?;
 
     loop {
-        let event = events.recv().await?;
-
-        iroha_logger::trace!(?event);
-        consumer.consume(event).await?;
+        tokio::select! {
+            message = consumer.stream_mut().next() => {
+                if let Some(message) = message {
+                    if message?.is_close() {
+                        return Ok(());
+                    }
+                }
+            }
+            event = events.recv() => {
+                let event = event?;
+                iroha_logger::trace!(?event);
+                consumer.consume(event).await?;
+            }
+        }
     }
 }
 
@@ -320,6 +330,7 @@ impl<W: WorldTrait> Torii<W> {
             .map(|events, ws: Ws| {
                 ws.on_upgrade(|this_ws| async move {
                     if let Err(error) = handle_subscription(events, this_ws).await {
+                        println!("Failed to subscribe someone: {}", error);
                         iroha_logger::error!(%error, "Failed to subscribe someone");
                     }
                 })
