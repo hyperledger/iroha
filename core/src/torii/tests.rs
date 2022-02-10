@@ -573,7 +573,5 @@ async fn test_subscription_websocket_clean_closing() {
     // Closing connection
     let close_message = ws::Message::close();
     client.send(close_message).await;
-    let close_response = client.recv().await.unwrap();
-    assert!(close_response.is_close());
     assert!(client.recv_closed().await.is_ok());
 }
