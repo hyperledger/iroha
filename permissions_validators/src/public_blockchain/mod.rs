@@ -263,6 +263,7 @@ mod tests {
                     )]
                     .into(),
                     metadata: Metadata::new(),
+                    logo: None,
                 },
             )],
             [],
@@ -361,6 +362,7 @@ mod tests {
                     )]
                     .into(),
                     metadata: Metadata::new(),
+                    logo: None,
                 },
             )],
             [],
@@ -462,6 +464,7 @@ mod tests {
                     )]
                     .into(),
                     metadata: Metadata::new(),
+                    logo: None,
                 },
             )],
             [],
@@ -695,6 +698,7 @@ mod tests {
                     )]
                     .into(),
                     metadata: Metadata::new(),
+                    logo: None,
                 },
             )],
             [],
@@ -733,6 +737,7 @@ mod tests {
                     )]
                     .into(),
                     metadata: Metadata::new(),
+                    logo: None,
                 },
             )],
             [],
