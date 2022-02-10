@@ -1,18 +1,32 @@
 //! Iroha is a quite dynamic system so many events can happen.
 //! This module contains descriptions of such an events and
-//! utilitary Iroha Special Instructions to work with them.
+//! utilitarian Iroha Special Instructions to work with them.
 
-use eyre::{eyre, Result};
 use iroha_data_model::events::prelude::*;
+use iroha_macro::error::ErrorTryFromEnum;
 use tokio::sync::broadcast;
 use warp::ws::WebSocket;
 
-use crate::stream::{Sink, Stream};
+use crate::stream::{self, Sink, Stream};
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = broadcast::Sender<Event>;
 /// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
 pub type EventsReceiver = broadcast::Receiver<Event>;
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Stream error: {0}")]
+    Stream(#[from] stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>),
+
+    #[error("Can't retrieve subscription filter: {0}")]
+    CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriberMessage, EventFilter>),
+
+    #[error("Got unexpected response. Expected `EventReceived`")]
+    ExpectedEventReceived,
+}
+
+pub type Result<T> = core::result::Result<T, Error>;
 
 /// Consumer for Iroha `Event`(s).
 /// Passes the events over the corresponding connection `stream` if they match the `filter`.
@@ -61,7 +75,7 @@ impl Consumer {
         if let EventSubscriberMessage::EventReceived = message.into_v1() {
             Ok(())
         } else {
-            Err(eyre!("Expected `EventReceived`."))
+            Err(Error::ExpectedEventReceived)
         }
     }
 }

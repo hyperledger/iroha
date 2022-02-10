@@ -15,9 +15,9 @@ const TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// Error type with generic for actual Stream/Sink error type
 #[derive(thiserror::Error, Debug)]
-pub enum Error<StreamError>
+pub enum Error<InternalStreamError>
 where
-    StreamError: std::error::Error + Send + Sync + 'static,
+    InternalStreamError: std::error::Error + Send + Sync + 'static,
 {
     #[error("Read message timeout")]
     ReadTimeout,
@@ -28,8 +28,8 @@ where
     #[error("No message")]
     NoMessage,
 
-    #[error("Stream error: {err}")]
-    Stream { err: StreamError },
+    #[error("Internal stream error: {err}")]
+    InternalStream { err: InternalStreamError },
 
     #[error("`Close` message received")]
     CloseMessage,
@@ -79,7 +79,7 @@ where
         )
         .await
         .map_err(|_| Error::SendTimeout)?
-        .map_err(|err| Error::Stream { err })
+        .map_err(|err| Error::InternalStream { err })
     }
 }
 
@@ -100,7 +100,7 @@ pub trait Stream<R: DecodeVersioned>:
             .await
             .map_err(|_| Error::ReadTimeout)?
             .ok_or_else(|| Error::NoMessage)?
-            .map_err(|err| Error::Stream { err })?;
+            .map_err(|err| Error::InternalStream { err })?;
 
         if subscription_request_message.is_close() {
             return Err(Error::CloseMessage);
