@@ -14,18 +14,23 @@ pub type EventsSender = broadcast::Sender<Event>;
 /// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
 pub type EventsReceiver = broadcast::Receiver<Event>;
 
+/// Type of error for `Consumer`
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// Error from provided stream/websocket
     #[error("Stream error: {0}")]
     Stream(#[from] stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>),
 
+    /// Error from converting received message to filter
     #[error("Can't retrieve subscription filter: {0}")]
     CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriberMessage, EventFilter>),
 
+    /// Error, that occurs when client answered not with `EventReceived` message
     #[error("Got unexpected response. Expected `EventReceived`")]
     ExpectedEventReceived,
 }
 
+/// Result type for `Consumer`
 pub type Result<T> = core::result::Result<T, Error>;
 
 /// Consumer for Iroha `Event`(s).
