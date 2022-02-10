@@ -533,3 +533,47 @@ async fn blocks_stream() {
     let block: VersionedCommittedBlock = block_message.into_v1().try_into().unwrap();
     assert_eq!(block.header().height, BLOCK_COUNT as u64 + 1);
 }
+
+#[tokio::test]
+async fn test_subscription_websocket_clean_closing() {
+    use iroha_data_model::events::pipeline;
+    use warp::filters::ws;
+
+    use crate::{
+        stream::{Sink, Stream},
+        EventFilter,
+    };
+
+    let (torii, _) = create_torii().await;
+    let router = torii.create_api_router();
+
+    let mut client = warp::test::ws()
+        .path("/events")
+        .handshake(router)
+        .await
+        .unwrap();
+
+    // Subscribing
+    let event_filter = EventFilter::Pipeline(pipeline::EventFilter::by_entity(
+        pipeline::EntityType::Block,
+    ));
+    let subscribe_message = VersionedEventSubscriberMessage::from(
+        EventSubscriberMessage::SubscriptionRequest(event_filter),
+    );
+    Sink::send(&mut client, subscribe_message).await.unwrap();
+
+    let confirmation_response: VersionedEventPublisherMessage =
+        Stream::recv(&mut client).await.unwrap();
+    let confirmation_response = confirmation_response.into_v1();
+    assert!(matches!(
+        confirmation_response,
+        EventPublisherMessage::SubscriptionAccepted
+    ));
+
+    // Closing connection
+    let close_message = ws::Message::close();
+    client.send(close_message).await;
+    let close_response = client.recv().await.unwrap();
+    assert!(close_response.is_close());
+    assert!(client.recv_closed().await.is_ok());
+}
