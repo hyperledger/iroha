@@ -203,6 +203,7 @@ fn validate_blocks(criterion: &mut Criterion) {
         accounts,
         asset_definitions,
         metadata: Metadata::new(),
+        logo: None,
     };
     let mut domains = BTreeMap::new();
     domains.insert(domain_id, domain);

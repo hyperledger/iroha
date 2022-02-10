@@ -1679,7 +1679,7 @@ pub mod domain {
     //! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
 
     #[cfg(not(feature = "std"))]
-    use alloc::{collections::btree_map, format, string::String, vec::Vec};
+    use alloc::{borrow::ToOwned, collections::btree_map, format, string::String, vec::Vec};
     use core::{cmp::Ordering, fmt, str::FromStr};
     #[cfg(feature = "std")]
     use std::collections::btree_map;
@@ -1724,6 +1724,7 @@ pub mod domain {
                 .collect(),
                 asset_definitions: btree_map::BTreeMap::default(),
                 metadata: Metadata::new(),
+                logo: None,
             }
         }
     }
@@ -1739,6 +1740,8 @@ pub mod domain {
         pub asset_definitions: AssetDefinitionsMap,
         /// Metadata of this domain as a key-value store.
         pub metadata: Metadata,
+        /// IPFS link to domain logo
+        pub logo: Option<IpfsPath>,
     }
 
     impl PartialOrd for Domain {
@@ -1763,6 +1766,7 @@ pub mod domain {
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
                 metadata: Metadata::new(),
+                logo: None,
             }
         }
 
@@ -1773,6 +1777,7 @@ pub mod domain {
                 accounts: AccountsMap::new(),
                 asset_definitions: AssetDefinitionsMap::new(),
                 metadata: Metadata::new(),
+                logo: None,
             }
         }
 
@@ -1787,6 +1792,7 @@ pub mod domain {
                 accounts: accounts_map,
                 asset_definitions: AssetDefinitionsMap::new(),
                 metadata: Metadata::new(),
+                logo: None,
             }
         }
     }
@@ -1801,6 +1807,90 @@ pub mod domain {
                 .map(Into::into)
                 .collect::<Vec<Self>>()
                 .into()
+        }
+    }
+
+    /// Represents path in IPFS. Performs some checks to ensure path validity.
+    ///
+    /// Should be constructed with `from_str()` method.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct IpfsPath(String);
+
+    impl FromStr for IpfsPath {
+        type Err = ParseError;
+
+        fn from_str(string: &str) -> Result<Self, Self::Err> {
+            let mut subpath = string.split('/');
+            let path_segment = subpath.next().ok_or(ParseError {
+                reason: "Impossible error: first value of str::split() always has value",
+            })?;
+
+            if path_segment.is_empty() {
+                let root_type = subpath.next().ok_or(ParseError {
+                    reason: "Expected root type, but nothing found",
+                })?;
+                let key = subpath.next().ok_or(ParseError {
+                    reason: "Expected at least one content id",
+                })?;
+
+                match root_type {
+                    "ipfs" | "ipld" => Self::check_cid(key)?,
+                    "ipns" => (),
+                    _ => {
+                        return Err(ParseError {
+                            reason: "Unexpected root type. Expected `ipfs`, `ipld` or `ipns`",
+                        })
+                    }
+                }
+            } else {
+                // by default if there is no prefix it's an ipfs or ipld path
+                Self::check_cid(path_segment)?;
+            }
+
+            for path in subpath {
+                Self::check_cid(path)?;
+            }
+
+            Ok(IpfsPath(string.to_owned()))
+        }
+    }
+
+    impl AsRef<str> for IpfsPath {
+        fn as_ref(&self) -> &str {
+            &self.0
+        }
+    }
+
+    impl IpfsPath {
+        /// Instantly construct [`IpfsPath`] assuming the given `path` is valid.
+        #[inline]
+        pub fn test(path: String) -> Self {
+            Self(path)
+        }
+
+        /// Superficially checks IPFS `cid` (Content Identifier)
+        #[inline]
+        fn check_cid(cid: &str) -> Result<(), ParseError> {
+            if cid.len() < 2 {
+                return Err(ParseError {
+                    reason: "IPFS cid is too short",
+                });
+            }
+
+            Ok(())
         }
     }
 
@@ -1862,6 +1952,47 @@ pub mod domain {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{Domain, GenesisDomain, Id as DomainId, GENESIS_DOMAIN_NAME};
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_invalid_ipfs_path() {
+            assert!(matches!(
+                IpfsPath::from_str(""),
+                Err(err) if err.to_string() == "Expected root type, but nothing found"
+            ));
+            assert!(matches!(
+                IpfsPath::from_str("/ipld"),
+                Err(err) if err.to_string() == "Expected at least one content id"
+            ));
+            assert!(matches!(
+                IpfsPath::from_str("/ipfs/a"),
+                Err(err) if err.to_string() == "IPFS cid is too short"
+            ));
+            assert!(matches!(
+                IpfsPath::from_str("/ipfsssss/QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE"),
+                Err(err) if err.to_string() == "Unexpected root type. Expected `ipfs`, `ipld` or `ipns`"
+            ));
+        }
+
+        #[test]
+        #[allow(clippy::expect_used)]
+        fn test_valid_ipfs_path() {
+            // Valid paths
+            IpfsPath::from_str("QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE")
+                .expect("Path without root should be valid");
+            IpfsPath::from_str("/ipfs/QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE")
+                .expect("Path with ipfs root should be valid");
+            IpfsPath::from_str("/ipld/QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE")
+                .expect("Path with ipld root should be valid");
+            IpfsPath::from_str("/ipns/QmSrPmbaUKA3ZodhzPWZnpFgcPMFWF4QsxXbkWfEptTBJd")
+                .expect("Path with ipns root should be valid");
+            IpfsPath::from_str("/ipfs/SomeFolder/SomeImage")
+                .expect("Path with folders should be valid");
+        }
     }
 }
 
