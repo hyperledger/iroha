@@ -1,6 +1,6 @@
 //! Iroha is a quite dynamic system so many events can happen.
 //! This module contains descriptions of such an events and
-//! utilitarian Iroha Special Instructions to work with them.
+//! utility Iroha Special Instructions to work with them.
 
 use iroha_data_model::events::prelude::*;
 use iroha_macro::error::ErrorTryFromEnum;
@@ -20,11 +20,9 @@ pub enum Error {
     /// Error from provided stream/websocket
     #[error("Stream error: {0}")]
     Stream(#[from] stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>),
-
     /// Error from converting received message to filter
     #[error("Can't retrieve subscription filter: {0}")]
     CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriberMessage, EventFilter>),
-
     /// Error, that occurs when client answered not with `EventReceived` message
     #[error("Got unexpected response. Expected `EventReceived`")]
     ExpectedEventReceived,

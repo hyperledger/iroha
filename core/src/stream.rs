@@ -19,35 +19,26 @@ pub enum Error<InternalStreamError>
 where
     InternalStreamError: std::error::Error + Send + Sync + 'static,
 {
-    /// Error, that occurs when `recv()` timeout exceeds
+    /// `recv()` timeout exceeded
     #[error("Read message timeout")]
     ReadTimeout,
-
-    /// Error, that occurs when `send()` timeout exceeds
+    /// `send()` timeout exceeded
     #[error("Send message timeout")]
     SendTimeout,
-
     /// Error, indicating that empty message was received
     #[error("No message")]
     NoMessage,
-
     /// Error in internal stream representation (typically WebSocket)
     ///
     /// Made without `from` macro because it will break `IrohaVersion` variant conversion
-    #[error("Internal stream error: {err}")]
-    InternalStream {
-        /// Internal stream error representation
-        err: InternalStreamError,
-    },
-
+    #[error("Internal stream error: {0}")]
+    InternalStream(InternalStreamError),
     /// Error, indicating that `Close` message was received
     #[error("`Close` message received")]
     CloseMessage,
-
     /// Error, indicating that only binary messages are expected, but non-binary was received
     #[error("Non binary message received")]
     NonBinaryMessage,
-
     /// Error message during versioned message decoding
     #[error("Iroha version error: {0}")]
     IrohaVersion(#[from] iroha_version::error::Error),
@@ -55,7 +46,7 @@ where
 
 /// Represents message used by the stream
 pub trait StreamMessage {
-    /// Constructs new binary message
+    /// Construct new binary message
     fn binary(source: Vec<u8>) -> Self;
 
     /// Decodes the message into byte slice
@@ -91,7 +82,7 @@ where
         )
         .await
         .map_err(|_err| Error::SendTimeout)?
-        .map_err(|err| Error::InternalStream { err })
+        .map_err(Error::InternalStream)
     }
 }
 
@@ -112,7 +103,7 @@ pub trait Stream<R: DecodeVersioned>:
             .await
             .map_err(|_err| Error::ReadTimeout)?
             .ok_or(Error::NoMessage)?
-            .map_err(|err| Error::InternalStream { err })?;
+            .map_err(Error::InternalStream)?;
 
         if subscription_request_message.is_close() {
             return Err(Error::CloseMessage);
