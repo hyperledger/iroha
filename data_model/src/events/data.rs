@@ -410,6 +410,6 @@ mod tests {
 pub mod prelude {
     pub use super::{
         AssetUpdated, Entity as DataEntity, Event as DataEvent, EventFilter as DataEventFilter,
-        MetadataUpdated, Status as DataStatus, Updated,
+        MetadataUpdated, Status as DataStatus, TriggerUpdated, Updated,
     };
 }

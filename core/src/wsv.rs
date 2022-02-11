@@ -160,12 +160,9 @@ impl<W: WorldTrait> WorldStateView<W> {
         match executable {
             Executable::Instructions(instructions) => {
                 instructions.iter().cloned().try_for_each(|instruction| {
-                    // Why does `execute` need to take ownership?
-                    // If it needs to clone, that could be done
-                    // internally.
                     let events = instruction.execute(authority.clone(), self)?;
 
-                    self.produce_events(events.into_iter().map(Event::from).collect());
+                    self.produce_events(events);
                     Ok::<_, eyre::Report>(())
                 })?;
             }
@@ -543,17 +540,19 @@ impl<W: WorldTrait> WorldStateView<W> {
         vec
     }
 
-    /// Handle events produced by ISI execution.
-    fn produce_events(&self, events: Vec<Event>) {
-        self.triggers.produce_recommendations(&events);
-        let events_sender = if let Some(sender) = &self.events_sender {
-            sender
-        } else {
-            return warn!("wsv does not equip an events sender");
-        };
-        for event in events {
-            drop(events_sender.send(event))
-        }
+    /// Get `AssetDefinitionEntry` immutable view.
+    ///
+    /// # Errors
+    /// - Asset definition entry not found
+    pub fn asset_definition_entry(
+        &self,
+        id: &<AssetDefinition as Identifiable>::Id,
+    ) -> Result<AssetDefinitionEntry, FindError> {
+        self.domain(&id.domain_id)?
+            .asset_definitions
+            .get(id)
+            .ok_or_else(|| FindError::AssetDefinition(id.clone()))
+            .map(Clone::clone)
     }
 
     /// Returns receiving end of the mpsc channel through which

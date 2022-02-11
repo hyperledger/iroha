@@ -89,39 +89,16 @@ impl TriggerSet {
     /// - if addition to remaining current trigger repeats
     /// overflows. Indefinitely repeating triggers always cause an
     /// overflow.
-    pub fn mint_repeats(&self, key: trigger::Id, amount: u32) -> Result<(), smartcontracts::Error> {
+    pub fn mod_repeats(
+        &self,
+        key: trigger::Id,
+        f: impl Fn(u32) -> Result<u32, MathError>,
+    ) -> Result<(), smartcontracts::Error> {
         if self.hooks.contains_key(&key) {
             let mut action = self.hooks.get_mut(&key).ok_or(FindError::Trigger(key))?;
             let new_repeats = match action.value().repeats {
-                Repeats::Exactly(n) => n
-                    .checked_add(amount)
-                    .ok_or(smartcontracts::Error::Math(MathError::Overflow)),
+                Repeats::Exactly(n) => f(n).map_err(Into::into),
                 _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
-            }?;
-            action.value_mut().repeats = Repeats::Exactly(new_repeats);
-            Ok(())
-        } else {
-            Err(smartcontracts::Error::Find(Box::new(FindError::Trigger(
-                key,
-            ))))
-        }
-    }
-
-    /// Reduce repetitions of the hook identified by [`trigger::Id`].
-    ///
-    /// # Errors
-    /// - if trigger not found.
-    /// - if subtraction from remaining current trigger repeats
-    /// underflows. Indefinitely repeating triggers always cause an
-    /// underflow.
-    pub fn burn_repeats(&self, key: trigger::Id, amount: u32) -> Result<(), smartcontracts::Error> {
-        if self.hooks.contains_key(&key) {
-            let mut action = self.hooks.get_mut(&key).ok_or(FindError::Trigger(key))?;
-            let new_repeats = match action.value().repeats {
-                Repeats::Indefinitely => Err(smartcontracts::Error::Math(MathError::Overflow)),
-                Repeats::Exactly(n) => n
-                    .checked_sub(amount)
-                    .ok_or(smartcontracts::Error::Math(MathError::Overflow)),
             }?;
             action.value_mut().repeats = Repeats::Exactly(new_repeats);
             Ok(())
@@ -135,7 +112,7 @@ impl TriggerSet {
     /// Produce and store recommendations for next block execution.
     ///
     /// # Panics
-    /// If locking recommendations for writing fails.
+    /// (RARE) If locking recommendations for writing fails.
     pub fn produce_recommendations(&self, events: &[Event]) {
         let actions = self.actions_matching(events);
         #[allow(clippy::expect_used)]
@@ -147,7 +124,7 @@ impl TriggerSet {
     }
 
     /// Find all actions which match the current events.
-    pub fn actions_matching(&self, events: &[Event]) -> Vec<Action> {
+    fn actions_matching(&self, events: &[Event]) -> Vec<Action> {
         let mut result = Vec::new();
         for event in events {
             for mut trigger in self.hooks.iter_mut() {

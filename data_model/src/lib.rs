@@ -565,7 +565,7 @@ impl From<LengthLimits> for RangeInclusive<usize> {
     }
 }
 
-/// Get the current system time as `Duration` since the unix epoch.s
+/// Get the current system time as `Duration` since the unix epoch.
 #[cfg(feature = "std")]
 pub fn current_time() -> core::time::Duration {
     use std::time::SystemTime;
@@ -612,9 +612,9 @@ pub mod trigger {
         IntoSchema,
     )]
     pub struct Trigger {
-        /// An Identification of the `NewAccount`.
+        /// [`Id`] of the [`Trigger`].
         pub id: Id,
-        /// Action to be performed given the trigger.
+        /// Action to be performed when the trigger matches.
         pub action: Action,
         /// Metadata of this account as a key-value store.
         pub metadata: Metadata,
