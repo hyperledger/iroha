@@ -215,7 +215,8 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.new_block_notifier.subscribe()
     }
 
-    fn produce_events(&self, events: impl IntoIterator<Item = DataEvent>) {
+    /// Send events to known subscribers.
+    pub(crate) fn produce_events(&self, events: impl IntoIterator<Item = DataEvent>) {
         let events = events.into_iter().map(Event::from);
         let events_sender = if let Some(sender) = &self.events_sender {
             sender
