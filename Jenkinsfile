@@ -212,6 +212,7 @@ node ('master') {
         // Just hint, not the main way to Notify about build status.
         ///Disable yellow status @kuvaldini @BulatSaif https://github.com/hyperledger/iroha/pull/1028#issuecomment-872080478
         //gitNotify ("Jenkins: Merge to trunk", "Please, run: 'Before merge to trunk'", 'PENDING', env.JOB_URL + "/build")
+        x64linux_compiler_list = ['gcc9', 'gcc10', 'clang10']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testList = '()'
