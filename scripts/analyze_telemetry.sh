@@ -19,8 +19,8 @@ top() {
 get_func() { jq -r "select(.name == \"$1\")"; }
 
 mean() { jq -sr '[.[].duration] | add/length | select(.duration != null and .duration != 0)'; }
-max()  { jq -sr '[.[].duration] | max | select(.duration != null and .duration != 0)'; }
-min()  { jq -sr '[.[].duration] | min | select(.duration != null and .duration != 0)'; }
+max()  { jq -sr '[.[].duration] | max'; }
+min()  { jq -sr '[.[].duration] | min'; }
 
 top_info() {
 	echo "|Function Name|Max time|Average time|Min time|"
