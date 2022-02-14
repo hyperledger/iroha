@@ -19,68 +19,70 @@ pub mod isi {
 
     impl<W: WorldTrait> Execute<W> for Register<NewAccount> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"register_account")]
         fn execute(
             self,
             _authority: <NewAccount as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            let account = self.object.clone();
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let account = self.object;
+            let account_id = account.id.clone();
+
             account
                 .id
                 .name
                 .validate_len(wsv.config.ident_length_limits)
                 .map_err(Error::Validate)?;
-            let domain_id = account.id.domain_id.clone();
+
             match wsv
-                .domain_mut(&domain_id)?
+                .domain_mut(&account_id.domain_id)?
                 .accounts
-                .entry(account.id.clone())
+                .entry(account_id.clone())
             {
                 Entry::Occupied(_) => {
                     return Err(Error::Repetition(
                         InstructionType::Register,
-                        IdBox::AccountId(account.id),
+                        IdBox::AccountId(account_id),
                     ))
                 }
                 Entry::Vacant(entry) => {
                     let _ = entry.insert(account.into());
                 }
             }
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(account_id, DataStatus::Created)])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Unregister<Account> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"unregister_account")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            let account_id = self.object_id.clone();
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let account_id = self.object_id;
+
             wsv.domain_mut(&account_id.domain_id)?
                 .accounts
                 .remove(&account_id);
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(account_id, DataStatus::Deleted)])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Register<AssetDefinition> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"register_asset_def")]
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
+        ) -> Result<Vec<DataEvent>, Self::Error> {
             let asset_definition = self.object.clone();
             asset_definition
                 .id
@@ -103,21 +105,22 @@ pub mod isi {
                     ))
                 }
             }
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(self.object.id, DataStatus::Created)])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Unregister<AssetDefinition> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"unregister_asset_def")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            let asset_definition_id = self.object_id.clone();
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let asset_definition_id = self.object_id;
+
             wsv.domain_mut(&asset_definition_id.domain_id)?
                 .asset_definitions
                 .remove(&asset_definition_id);
@@ -134,97 +137,111 @@ pub mod isi {
                     }
                 }
             }
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                asset_definition_id,
+                DataStatus::Deleted,
+            )])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for SetKeyValue<AssetDefinition, Name, Value> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"set_key_value_asset_def")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let asset_definition_id = self.object_id;
+
             let metadata_limits = wsv.config.asset_definition_metadata_limits;
-            wsv.modify_asset_definition_entry(&self.object_id, |asset_definition_entry| {
+            wsv.modify_asset_definition_entry(&asset_definition_id, |asset_definition_entry| {
                 asset_definition_entry
                     .definition
                     .metadata
-                    .insert_with_limits(self.key.clone(), self.value.clone(), metadata_limits)?;
+                    .insert_with_limits(self.key, self.value, metadata_limits)?;
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                asset_definition_id,
+                MetadataUpdated::Inserted,
+            )])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for RemoveKeyValue<AssetDefinition, Name> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"remove_key_value_asset_def")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            wsv.modify_asset_definition_entry(&self.object_id, |asset_definition_entry| {
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let asset_definition_id = self.object_id;
+
+            wsv.modify_asset_definition_entry(&asset_definition_id, |asset_definition_entry| {
                 asset_definition_entry
                     .definition
                     .metadata
                     .remove(&self.key)
-                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+                    .ok_or(FindError::MetadataKey(self.key))?;
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                asset_definition_id,
+                MetadataUpdated::Removed,
+            )])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for SetKeyValue<Domain, Name, Value> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"set_key_value_domain")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            let Self {
-                object_id,
-                key,
-                value,
-            } = self.clone();
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let domain_id = self.object_id;
+
             let limits = wsv.config.domain_metadata_limits;
-            wsv.modify_domain(&object_id, |domain| {
-                domain.metadata.insert_with_limits(key, value, limits)?;
+            wsv.modify_domain(&domain_id, |domain| {
+                domain
+                    .metadata
+                    .insert_with_limits(self.key, self.value, limits)?;
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(domain_id, MetadataUpdated::Inserted)])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Domain, Name> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"remove_key_value_domain")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            let Self { object_id, key } = self.clone();
-            wsv.modify_domain(&object_id, |domain| {
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let domain_id = self.object_id;
+
+            wsv.modify_domain(&domain_id, |domain| {
                 domain
                     .metadata
-                    .remove(&key)
-                    .ok_or(FindError::MetadataKey(key))?;
+                    .remove(&self.key)
+                    .ok_or(FindError::MetadataKey(self.key))?;
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(domain_id, MetadataUpdated::Removed)])
         }
     }
 }

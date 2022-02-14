@@ -17,53 +17,61 @@ pub mod isi {
 
     impl<W: WorldTrait> Execute<W> for Mint<Account, PublicKey> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"mint_account_pubkey")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            let public_key = self.object.clone();
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let public_key = self.object;
+
             wsv.modify_account(&self.destination_id, |account| {
                 account.signatories.push(public_key);
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                self.destination_id,
+                Updated::Authentication,
+            )])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Mint<Account, SignatureCheckCondition> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"mint_account_signature_check_condition")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            let id = self.destination_id.clone();
-            wsv.modify_account(&id, |account| {
-                account.signature_check_condition = self.object.clone();
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let signature_check_condition = self.object;
+
+            wsv.modify_account(&self.destination_id, |account| {
+                account.signature_check_condition = signature_check_condition;
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                self.destination_id,
+                Updated::Authentication,
+            )])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Burn<Account, PublicKey> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"burn_account_pubkey")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            let public_key = self.object.clone();
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let public_key = &self.object;
+
             wsv.modify_account(&self.destination_id, |account| {
                 if account.signatories.len() < 2 {
                     return Err(Self::Error::Validate(ValidationError::new(
@@ -73,146 +81,172 @@ pub mod isi {
                 if let Some(index) = account
                     .signatories
                     .iter()
-                    .position(|key| key == &public_key)
+                    .position(|key| key == public_key)
                 {
                     account.signatories.remove(index);
                 }
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                self.destination_id,
+                Updated::Authentication,
+            )])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for SetKeyValue<Account, Name, Value> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"set_key_value_account_string_value")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
+        ) -> Result<Vec<DataEvent>, Self::Error> {
             let account_metadata_limits = wsv.config.account_metadata_limits;
-            let id = self.object_id.clone();
-            wsv.modify_account(&id, |account| {
+
+            wsv.modify_account(&self.object_id, |account| {
                 account.metadata.insert_with_limits(
-                    self.key.clone(),
-                    self.value.clone(),
+                    self.key,
+                    self.value,
                     account_metadata_limits,
                 )?;
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                self.object_id,
+                MetadataUpdated::Inserted,
+            )])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for RemoveKeyValue<Account, Name> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"remove_account_key_value")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
+        ) -> Result<Vec<DataEvent>, Self::Error> {
             wsv.modify_account(&self.object_id, |account| {
                 account
                     .metadata
                     .remove(&self.key)
-                    .ok_or_else(|| FindError::MetadataKey(self.key.clone()))?;
+                    .ok_or(FindError::MetadataKey(self.key))?;
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                self.object_id,
+                MetadataUpdated::Removed,
+            )])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Grant<Account, PermissionToken> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"grant_account_permission_token")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            let id = self.destination_id.clone();
-            wsv.modify_account(&id, |account| {
-                let _ = account.permission_tokens.insert(self.object.clone());
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let permission = self.object;
+
+            wsv.modify_account(&self.destination_id, |account| {
+                let _ = account.permission_tokens.insert(permission);
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                self.destination_id,
+                Updated::Permission,
+            )])
         }
     }
 
     impl<W: WorldTrait> Execute<W> for Revoke<Account, PermissionToken> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"revoke_account_permission_token")]
         fn execute(
             self,
             _authority: AccountId,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
-            let id = self.destination_id.clone();
-            wsv.modify_account(&id, |account| {
-                let _ = account.permission_tokens.remove(&self.object);
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let permission = &self.object;
+
+            wsv.modify_account(&self.destination_id, |account| {
+                let _ = account.permission_tokens.remove(permission);
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                self.destination_id,
+                Updated::Permission,
+            )])
         }
     }
 
     #[cfg(feature = "roles")]
     impl<W: WorldTrait> Execute<W> for Grant<Account, RoleId> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"grant_account_role")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let role = self.object;
+
             wsv.world()
                 .roles
-                .get(&self.object)
-                .ok_or_else(|| FindError::Role(self.object.clone()))?;
+                .get(&role)
+                .ok_or_else(|| FindError::Role(role.clone()))?;
 
-            let id = self.destination_id.clone();
-            wsv.modify_account(&id, |account| {
-                let _ = account.roles.insert(self.object.clone());
+            wsv.modify_account(&self.destination_id, |account| {
+                let _ = account.roles.insert(role);
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                self.destination_id,
+                Updated::Permission,
+            )])
         }
     }
 
     #[cfg(feature = "roles")]
     impl<W: WorldTrait> Execute<W> for Revoke<Account, RoleId> {
         type Error = Error;
-        type Diff = DataEvent;
 
         #[metrics(+"revoke_account_role")]
         fn execute(
             self,
             _authority: AccountId,
             wsv: &WorldStateView<W>,
-        ) -> Result<Self::Diff, Self::Error> {
+        ) -> Result<Vec<DataEvent>, Self::Error> {
+            let role = self.object;
+
             wsv.world()
                 .roles
-                .get(&self.object)
-                .ok_or_else(|| FindError::Role(self.object.clone()))?;
+                .get(&role)
+                .ok_or_else(|| FindError::Role(role.clone()))?;
 
-            let id = self.destination_id.clone();
-            wsv.modify_account(&id, |account| {
-                let _ = account.roles.remove(&self.object);
+            wsv.modify_account(&self.destination_id, |account| {
+                let _ = account.roles.remove(&role);
                 Ok(())
             })?;
-            Ok(self.into())
+
+            Ok(vec![DataEvent::new(
+                self.destination_id,
+                Updated::Permission,
+            )])
         }
     }
 }

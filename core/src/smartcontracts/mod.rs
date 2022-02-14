@@ -15,15 +15,13 @@ use crate::wsv::{WorldStateView, WorldTrait};
 pub trait Execute<W: WorldTrait> {
     /// Error type returned by execute function
     type Error: std::error::Error;
-    /// Difference between [`WorldStateView`] before and after execution of [`Self`].
-    type Diff: Into<Vec<DataEvent>>;
 
     /// Apply actions to `wsv` on behalf of `authority`.
     fn execute(
         self,
         authority: AccountId,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error>;
+    ) -> Result<Vec<DataEvent>, Self::Error>;
 }
 
 /// Calculate the result of the expression without mutating the state.
