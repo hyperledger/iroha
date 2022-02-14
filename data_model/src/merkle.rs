@@ -1,4 +1,4 @@
-//! Merkle tree implementation
+//! Merkle tree implementation.
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
