@@ -294,10 +294,11 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.metrics.block_height.inc();
     }
 
-    // TODO: There could be just this one method `blocks` instead of `blocks_from_height` and
-    // `blocks_after_height`. Also, this method would return references instead of cloning
-    // blockchain but comes with the risk of deadlock if consumer of the iterator stores
-    // references to blocks
+    // TODO: There could be just this one method `blocks` instead of
+    // `blocks_from_height` and `blocks_after_height`. Also, this
+    // method would return references instead of cloning blockchain
+    // but comes with the risk of deadlock if consumer of the iterator
+    // stores references to blocks
     /// Returns iterator over blockchain blocks
     ///
     /// **Locking behaviour**: Holding references to blocks stored in the blockchain can induce

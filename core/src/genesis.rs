@@ -16,8 +16,8 @@ pub use self::config::GenesisConfiguration;
 use crate::{
     kura::KuraTrait,
     sumeragi::{
+        fault::{FaultInjection, SumeragiWithFault},
         network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
-        FaultInjection, SumeragiWithFault,
     },
     tx::VersionedAcceptedTransaction,
     wsv::WorldTrait,

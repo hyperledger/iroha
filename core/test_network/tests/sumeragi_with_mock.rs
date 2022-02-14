@@ -15,8 +15,10 @@ use iroha_core::{
     kura::KuraTrait,
     prelude::*,
     sumeragi::{
-        network_topology::Topology, Gossip, IsLeader, RetrieveTransactions, Sumeragi,
-        SumeragiTrait, SumeragiWithFault,
+        fault::SumeragiWithFault,
+        message::{Gossip, IsLeader, RetrieveTransactions},
+        network_topology::Topology,
+        Sumeragi, SumeragiTrait,
     },
     wsv::WorldTrait,
 };
@@ -78,8 +80,9 @@ pub mod utils {
             genesis::GenesisNetworkTrait,
             kura::KuraTrait,
             sumeragi::{
-                message::Message as SumeragiMessage, network_topology::Role, FaultInjection,
-                SumeragiWithFault,
+                fault::{FaultInjection, SumeragiWithFault},
+                message::Message as SumeragiMessage,
+                network_topology::Role,
             },
             wsv::WorldTrait,
         };
@@ -388,13 +391,13 @@ async fn change_view_on_commit_timeout() {
     let topologies = network
         .send_to_actor_on_peers(
             |iroha| &iroha.sumeragi,
-            iroha_core::sumeragi::CurrentNetworkTopology,
+            iroha_core::sumeragi::message::CurrentNetworkTopology,
         )
         .await;
     let invalid_block_hashes = network
         .send_to_actor_on_peers(
             |iroha| &iroha.sumeragi,
-            iroha_core::sumeragi::InvalidatedBlockHashes,
+            iroha_core::sumeragi::message::InvalidatedBlockHashes,
         )
         .await;
 
@@ -447,7 +450,7 @@ async fn change_view_on_tx_receipt_timeout() {
     let topologies = network
         .send_to_actor_on_peers(
             |iroha| &iroha.sumeragi,
-            iroha_core::sumeragi::CurrentNetworkTopology,
+            iroha_core::sumeragi::message::CurrentNetworkTopology,
         )
         .await;
     for (topology, _) in topologies {
@@ -478,7 +481,7 @@ async fn change_view_on_block_creation_timeout() {
     let topologies = network
         .send_to_actor_on_peers(
             |iroha| &iroha.sumeragi,
-            iroha_core::sumeragi::CurrentNetworkTopology,
+            iroha_core::sumeragi::message::CurrentNetworkTopology,
         )
         .await;
 
@@ -509,13 +512,13 @@ async fn not_enough_votes() {
     let topologies = network
         .send_to_actor_on_peers(
             |iroha| &iroha.sumeragi,
-            iroha_core::sumeragi::CurrentNetworkTopology,
+            iroha_core::sumeragi::message::CurrentNetworkTopology,
         )
         .await;
     let invalid_block_hashes = network
         .send_to_actor_on_peers(
             |iroha| &iroha.sumeragi,
-            iroha_core::sumeragi::InvalidatedBlockHashes,
+            iroha_core::sumeragi::message::InvalidatedBlockHashes,
         )
         .await;
 
