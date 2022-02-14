@@ -167,39 +167,30 @@ mod subscription {
     use super::*;
     use crate::{event, stream};
 
-    type StreamError = stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>;
-
     /// Type for any error during subscription handling
     #[derive(thiserror::Error, Debug)]
     enum Error {
         /// Event consuming error
         #[error("Event consuming error: {0}")]
-        Consumer(event::Error),
+        Consumer(Box<event::Error>),
         /// Event receiving error
         #[error("Event receiving error: {0}")]
         Event(#[from] tokio::sync::broadcast::error::RecvError),
-        /// Error from provided stream/websocket
-        #[error("Stream error: {0}")]
-        Stream(StreamError),
+        /// Error from provided websocket
+        #[error("WebSocket error: {0}")]
+        WebSocket(#[from] warp::Error),
         /// Error, indicating that `Close` message was received
         #[error("`Close` message received")]
         CloseMessage,
     }
 
+    type StreamError = stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>;
+
     impl From<event::Error> for Error {
         fn from(error: event::Error) -> Self {
             match error {
                 event::Error::Stream(StreamError::CloseMessage) => Self::CloseMessage,
-                error => Self::Consumer(error),
-            }
-        }
-    }
-
-    impl From<StreamError> for Error {
-        fn from(error: StreamError) -> Self {
-            match error {
-                StreamError::CloseMessage => Self::CloseMessage,
-                error => Self::Stream(error),
+                error => Self::Consumer(Box::new(error)),
             }
         }
     }
@@ -228,12 +219,15 @@ mod subscription {
 
         loop {
             tokio::select! {
-                // This branch catches `Close` message or unexpected valid messages
-                message =
-                    Stream::<VersionedEventSubscriberMessage>::recv(consumer.stream_mut()) =>
-                {
-                    let message = message?;
-                    iroha_logger::trace!("Unexpected message received: {:?}", message);
+                // This branch catches `Close` ans unexpected messages
+                message_opt = consumer.stream_mut().next() => {
+                    if let Some(message) = message_opt {
+                        let message = message?;
+                        if message.is_close() {
+                            return Err(Error::CloseMessage);
+                        }
+                        iroha_logger::trace!("Unexpected message received: {:?}", message);
+                    }
                 }
                 // This branch catches and sends events
                 event = events.recv() => {
