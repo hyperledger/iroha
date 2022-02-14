@@ -547,7 +547,7 @@ async fn test_subscription_websocket_clean_closing() {
     let (torii, _) = create_torii().await;
     let router = torii.create_api_router();
 
-    let mut client = warp::test::ws()
+    let mut endpoint = warp::test::ws()
         .path("/events")
         .handshake(router)
         .await
@@ -560,10 +560,10 @@ async fn test_subscription_websocket_clean_closing() {
     let subscribe_message = VersionedEventSubscriberMessage::from(
         EventSubscriberMessage::SubscriptionRequest(event_filter),
     );
-    Sink::send(&mut client, subscribe_message).await.unwrap();
+    Sink::send(&mut endpoint, subscribe_message).await.unwrap();
 
     let confirmation_response: VersionedEventPublisherMessage =
-        Stream::recv(&mut client).await.unwrap();
+        Stream::recv(&mut endpoint).await.unwrap();
     let confirmation_response = confirmation_response.into_v1();
     assert!(matches!(
         confirmation_response,
@@ -572,6 +572,6 @@ async fn test_subscription_websocket_clean_closing() {
 
     // Closing connection
     let close_message = ws::Message::close();
-    client.send(close_message).await;
-    assert!(client.recv_closed().await.is_ok());
+    endpoint.send(close_message).await;
+    assert!(endpoint.recv_closed().await.is_ok());
 }
