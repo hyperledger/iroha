@@ -161,26 +161,89 @@ async fn stream_blocks<W: WorldTrait>(
     Ok(())
 }
 
-#[iroha_futures::telemetry_future]
-async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
-    let mut events = events.subscribe();
-    let mut consumer = Consumer::new(stream).await?;
+mod subscription {
+    //! This module contains `handle_subscription()` function and other stuff for its implementation
 
-    loop {
-        tokio::select! {
-            message_opt = consumer.stream_mut().next() => {
-                if let Some(message) = message_opt {
-                    if message?.is_close() {
-                        return Ok(());
-                    }
+    use super::*;
+    use crate::{event, stream};
+
+    type StreamError = stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>;
+
+    /// Type for any error during subscription handling
+    #[derive(thiserror::Error, Debug)]
+    enum Error {
+        /// Event consuming error
+        #[error("Event consuming error: {0}")]
+        Consumer(event::Error),
+        /// Event receiving error
+        #[error("Event receiving error: {0}")]
+        Event(#[from] tokio::sync::broadcast::error::RecvError),
+        /// Error from provided stream/websocket
+        #[error("Stream error: {0}")]
+        Stream(StreamError),
+        /// Error, indicating that `Close` message was received
+        #[error("`Close` message received")]
+        CloseMessage,
+    }
+
+    impl From<event::Error> for Error {
+        fn from(error: event::Error) -> Self {
+            match error {
+                event::Error::Stream(StreamError::CloseMessage) => Self::CloseMessage,
+                error => Self::Consumer(error),
+            }
+        }
+    }
+
+    impl From<StreamError> for Error {
+        fn from(error: StreamError) -> Self {
+            match error {
+                StreamError::CloseMessage => Self::CloseMessage,
+                error => Self::Stream(error),
+            }
+        }
+    }
+
+    type Result<T> = core::result::Result<T, Error>;
+
+    /// Handle subscription request
+    ///
+    /// Subscribes `stream` for `events` filtered by filter that is received through the `stream`
+    ///
+    /// There should be a [`warp::filters::ws::Message::close()`] message to end subscription
+    #[iroha_futures::telemetry_future]
+    pub async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
+        match subscribe_forever(events, stream).await {
+            Ok(()) | Err(Error::CloseMessage) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Make endless `stream` subscription for `events`
+    ///
+    /// Ideally should return `Result<!>` cause it either runs forever either returns `Err` variant
+    async fn subscribe_forever(events: EventsSender, stream: WebSocket) -> Result<()> {
+        let mut events = events.subscribe();
+        let mut consumer = Consumer::new(stream).await?;
+
+        loop {
+            tokio::select! {
+                // This branch catches `Close` message or unexpected valid messages
+                message =
+                    Stream::<VersionedEventSubscriberMessage>::recv(consumer.stream_mut()) =>
+                {
+                    let message = message?;
+                    iroha_logger::trace!("Unexpected message received: {:?}", message);
                 }
+                // This branch catches and sends events
+                event = events.recv() => {
+                    let event = event?;
+                    iroha_logger::trace!(?event);
+                    consumer.consume(event).await?;
+                }
+                // Else branch to prevent panic
+                else => ()
             }
-            event = events.recv() => {
-                let event = event?;
-                iroha_logger::trace!(?event);
-                consumer.consume(event).await?;
-            }
-            else => ()
         }
     }
 }
@@ -330,7 +393,7 @@ impl<W: WorldTrait> Torii<W> {
             .and(warp::ws())
             .map(|events, ws: Ws| {
                 ws.on_upgrade(|this_ws| async move {
-                    if let Err(error) = handle_subscription(events, this_ws).await {
+                    if let Err(error) = subscription::handle_subscription(events, this_ws).await {
                         iroha_logger::error!(%error, "Failed to subscribe someone");
                     }
                 })
