@@ -7,7 +7,10 @@ use iroha_data_model::{
 };
 
 use super::{Error, Evaluate, FindError, MathError};
-use crate::{prelude::*, wsv::WorldTrait};
+use crate::{
+    prelude::ValidQuery,
+    wsv::{WorldStateView, WorldTrait},
+};
 
 impl<V: TryFrom<Value>, W: WorldTrait> Evaluate<W> for EvaluatesTo<V>
 where

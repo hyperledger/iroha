@@ -2,9 +2,10 @@
 
 use super::*;
 
+#[allow(clippy::expect_used)]
 /// Can un-register asset with the corresponding asset definition.
 pub static CAN_UNREGISTER_ASSET_WITH_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::test("can_unregister_asset_with_definition"));
+    Lazy::new(|| Name::new("can_unregister_asset_with_definition").expect("Tested. Works."));
 
 /// Checks that account can un-register only the assets which were
 /// registered by this account in the first place.

@@ -104,6 +104,7 @@ impl<T> MerkleTree<T> {
 
     /// Inserts hash into the tree
     #[cfg(feature = "std")]
+    #[must_use]
     pub fn add(&self, hash: HashOf<T>) -> Self {
         self.iter()
             .filter_map(Node::leaf_hash)
@@ -151,7 +152,7 @@ impl<T> Node<T> {
     }
 
     /// Return the `Hash` of the root node.
-    pub fn hash(&self) -> HashOf<Self> {
+    pub const fn hash(&self) -> HashOf<Self> {
         match self {
             Node::Subtree(Subtree { hash, .. }) => *hash,
             Node::Leaf(Leaf { hash }) => (*hash).transmute(),

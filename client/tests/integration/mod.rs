@@ -1,3 +1,5 @@
+pub use iroha::config::Configuration;
+
 mod add_account;
 mod add_asset;
 mod add_domain;

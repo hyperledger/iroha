@@ -2,26 +2,34 @@
 
 use super::*;
 
+#[allow(clippy::expect_used)]
 /// Can set key value in user's assets permission token name.
 pub static CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::test("can_set_key_value_in_user_assets"));
+    Lazy::new(|| Name::new("can_set_key_value_in_user_assets").expect("Tested. Works."));
+#[allow(clippy::expect_used)]
 /// Can remove key value in user's assets permission token name.
 pub static CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS: Lazy<Name> =
-    Lazy::new(|| Name::test("can_remove_key_value_in_user_assets"));
+    Lazy::new(|| Name::new("can_remove_key_value_in_user_assets").expect("Tested. Works."));
+#[allow(clippy::expect_used)]
 /// Can burn user's assets permission token name.
 pub static CAN_SET_KEY_VALUE_IN_USER_METADATA: Lazy<Name> =
-    Lazy::new(|| Name::test("can_set_key_value_in_user_metadata"));
+    Lazy::new(|| Name::new("can_set_key_value_in_user_metadata").expect("Tested. Works."));
+#[allow(clippy::expect_used)]
 /// Can burn user's assets permission token name.
 pub static CAN_REMOVE_KEY_VALUE_IN_USER_METADATA: Lazy<Name> =
-    Lazy::new(|| Name::test("can_remove_key_value_in_user_metadata"));
+    Lazy::new(|| Name::new("can_remove_key_value_in_user_metadata").expect("Tested. Works."));
+#[allow(clippy::expect_used)]
 /// Can set key value in the corresponding asset definition.
 pub static CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::test("can_set_key_value_in_asset_definition"));
+    Lazy::new(|| Name::new("can_set_key_value_in_asset_definition").expect("Tested. Works."));
+#[allow(clippy::expect_used)]
 /// Can remove key value in the corresponding asset definition.
 pub static CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::test("can_remove_key_value_in_asset_definition"));
+    Lazy::new(|| Name::new("can_remove_key_value_in_asset_definition").expect("Tested. Works."));
+#[allow(clippy::expect_used)]
 /// Target account id for setting and removing key value permission tokens.
-pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::test("account_id"));
+pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> =
+    Lazy::new(|| Name::new("account_id").expect("Tested. Works."));
 
 /// Checks that account can set keys for assets only for the signer account.
 #[derive(Debug, Copy, Clone)]

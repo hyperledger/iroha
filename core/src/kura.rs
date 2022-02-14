@@ -173,7 +173,7 @@ impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
                 let last_block = self.wsv.latest_block_hash();
                 let height = self.wsv.height();
                 self.broker
-                    .issue_send(sumeragi::Init { last_block, height })
+                    .issue_send(sumeragi::message::Init { last_block, height })
                     .await;
             }
             Err(error) => {

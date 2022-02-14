@@ -1,3 +1,4 @@
+//! Kura inspector binary. For usage run with `--help`.  
 use clap::{Parser, Subcommand};
 use kura_inspector::{print, Config, DefaultOutput};
 

@@ -14,7 +14,11 @@ use self::{
 };
 use crate::{
     prelude::*,
-    sumeragi::{network_topology::Role, CommitBlock, GetNetworkTopology, SumeragiTrait},
+    sumeragi::{
+        message::{CommitBlock, GetNetworkTopology},
+        network_topology::Role,
+        SumeragiTrait,
+    },
     wsv::WorldTrait,
     VersionedCommittedBlock,
 };

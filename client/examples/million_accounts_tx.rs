@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::restriction)]
 use std::{thread, time::Duration};
 
 use iroha_data_model::prelude::*;
@@ -6,11 +6,13 @@ use test_network::{wait_for_genesis_committed, Peer as TestPeer};
 
 fn create_million_accounts_directly() {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
     for i in 0_u32..1_000_000_u32 {
         let domain_name = format!("wonderland-{}", i);
-        let normal_account_id = AccountId::test(&format!("bob-{}", i), &domain_name);
-        let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::test(&domain_name)));
+        let normal_account_id = AccountId::new(&format!("bob-{}", i), &domain_name).expect("Valid");
+        let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(
+            DomainId::new(&domain_name).expect("Valid"),
+        )));
         let create_account = RegisterBox::new(IdentifiableBox::from(NewAccount::new(
             normal_account_id.clone(),
         )));

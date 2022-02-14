@@ -1,9 +1,9 @@
 #![allow(missing_docs, clippy::pedantic, clippy::restriction)]
 
+use iroha::samples::get_config;
 use iroha_core::{
     genesis::{GenesisNetwork, GenesisNetworkTrait, GenesisTransaction, RawGenesisBlock},
     prelude::*,
-    samples::get_config,
 };
 use iroha_data_model::prelude::*;
 use test_network::{get_key_pair, Peer as TestPeer, TestRuntime};
@@ -24,7 +24,8 @@ fn main() {
                 .expect("Failed to create Genesis"),
             );
             let asset_definition_id =
-                AssetDefinitionId::test(&format!("xor-{}", num), &format!("wonderland-{}", num));
+                AssetDefinitionId::new(&format!("xor-{}", num), &format!("wonderland-{}", num))
+                    .expect("Valid");
             let create_asset = RegisterBox::new(IdentifiableBox::from(
                 AssetDefinition::new_quantity(asset_definition_id.clone()),
             ));

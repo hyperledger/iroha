@@ -2,9 +2,10 @@
 
 use super::*;
 
+#[allow(clippy::expect_used)]
 /// Can mint asset with the corresponding asset definition.
 pub static CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::test("can_mint_user_asset_definitions"));
+    Lazy::new(|| Name::new("can_mint_user_asset_definitions").expect("Tested. Works."));
 
 /// Checks that account can mint only the assets which were registered by this account.
 #[derive(Debug, Copy, Clone)]

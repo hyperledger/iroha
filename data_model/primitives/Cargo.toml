@@ -29,8 +29,7 @@ fixnum = { version = "0.6.1", default-features = false, features = ["serde", "pa
 derive_more = { version = "0.99.16", default-features = false, features = ["display"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 smallvec = { version = "1.8.0", default-features = false, features = ["serde", "union"] }
-# TODO: use specific version (> 0.2.0) once it's available
-smallstr = { git = "https://github.com/murarth/smallstr", rev = "68efc08", default-features = false, features = ["serde", "union"] }
+smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
 thiserror = { version = "1.0.28", optional = true }
 
 [dev-dependencies]

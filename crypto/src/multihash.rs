@@ -22,6 +22,7 @@ pub const BLS12_381_G2_PUB: &str = "bls12_381-g2-pub";
 
 /// Type of digest function.
 /// The corresponding byte codes are taken from [official multihash table](https://github.com/multiformats/multicodec/blob/master/table.csv)
+#[allow(clippy::enum_variant_names)]
 #[repr(u64)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
 pub enum DigestFunction {
@@ -94,7 +95,7 @@ pub struct ConvertError {
 }
 
 impl ConvertError {
-    fn new(reason: String) -> Self {
+    const fn new(reason: String) -> Self {
         Self { reason }
     }
 }

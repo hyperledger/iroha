@@ -4,24 +4,28 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::*;
+
+use super::Configuration;
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
 ) -> Result<()> {
     // Given
     let (_rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
-    wait_for_genesis_committed(network.clients(), 0);
+    wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
-    let account_id = AccountId::test("account", "domain");
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
+        Domain::new(DomainId::new("domain")?).into(),
+    ));
+    let account_id = AccountId::new("account", "domain")?;
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(account_id.clone(), KeyPair::generate()?.public_key).into(),
     ));
-    let asset_definition_id = AssetDefinitionId::test("xor", "domain");
+    let asset_definition_id = AssetDefinitionId::new("xor", "domain")?;
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));

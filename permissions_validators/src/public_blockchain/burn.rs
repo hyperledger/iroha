@@ -3,11 +3,13 @@
 use super::*;
 
 /// Can burn asset with the corresponding asset definition.
+#[allow(clippy::expect_used)]
 pub static CAN_BURN_ASSET_WITH_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::test("can_burn_asset_with_definition"));
+    Lazy::new(|| Name::new("can_burn_asset_with_definition").expect("normal name"));
+#[allow(clippy::expect_used)]
 /// Can burn user's assets permission token name.
 pub static CAN_BURN_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::test("can_burn_user_assets"));
+    Lazy::new(|| Name::new("can_burn_user_assets").expect("normal name"));
 
 /// Checks that account can burn only the assets which were registered by this account.
 #[derive(Debug, Copy, Clone)]

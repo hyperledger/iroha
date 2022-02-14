@@ -65,7 +65,6 @@ pub struct BasicAuth {
 }
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
-// TODO: design macro to load config from env.
 #[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
@@ -99,10 +98,11 @@ pub struct Configuration {
 
 impl Default for Configuration {
     fn default() -> Self {
+        #[allow(clippy::expect_used)]
         Self {
             public_key: PublicKey::default(),
             private_key: PrivateKey::default(),
-            account_id: AccountId::test("", ""),
+            account_id: AccountId::new("", "").expect("Empty strings are valid"),
             basic_auth: None,
             torii_api_url: small::SmallStr::from_str(uri::DEFAULT_API_URL),
             torii_telemetry_url: small::SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL),

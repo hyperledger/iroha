@@ -3,15 +3,18 @@
 use std::{sync::mpsc, thread};
 
 use eyre::Result;
-use iroha_core::{config::Configuration, smartcontracts::wasm};
+use iroha_core::smartcontracts::wasm;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use parity_scale_codec::Encode;
 use test_network::{Peer as TestPeer, *};
 
+use super::Configuration;
 use crate::wasm::utils::wasm_template;
 
 fn produce_instructions() -> Vec<Instruction> {
-    let domains = (0..4).map(|domain_index: usize| Domain::test(&domain_index.to_string()));
+    let domains = (0..4).map(|domain_index: usize| {
+        Domain::new(DomainId::new(&domain_index.to_string()).expect("Valid"))
+    });
 
     let registers: [Instruction; 4] = domains
         .into_iter()
@@ -22,6 +25,7 @@ fn produce_instructions() -> Vec<Instruction> {
         .try_into()
         .unwrap();
 
+    // TODO: should we re-introduce the DSL?
     vec![
         // domain "0"
         // pair
@@ -94,7 +98,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
 
 fn transaction_execution_should_produce_events(executable: Executable) -> Result<()> {
     let (_rt, _peer, mut client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![client.clone()], 0);
+    wait_for_genesis_committed(&vec![client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // spawn event reporter
@@ -121,7 +125,7 @@ fn transaction_execution_should_produce_events(executable: Executable) -> Result
 
     // assertion
     for i in 0..4_usize {
-        let domain_id = DomainId::test(&i.to_string());
+        let domain_id = DomainId::new(&i.to_string()).expect("Valid");
         let expected_event = DomainEvent::Created(domain_id).into();
         let event: DataEvent = event_receiver.recv()??.try_into()?;
         assert_eq!(event, expected_event);

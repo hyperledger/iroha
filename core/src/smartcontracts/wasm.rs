@@ -1,11 +1,12 @@
-//! This module contains logic related to executing smartcontracts via `WebAssembly` VM
-//! Smartcontracts can be written in Rust, compiled to wasm format and submitted in a transaction
+//! This module contains logic related to executing smartcontracts via
+//! `WebAssembly` VM Smartcontracts can be written in Rust, compiled
+//! to wasm format and submitted in a transaction
 
 use std::sync::Arc;
 
 use config::Configuration;
 use eyre::WrapErr;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, ParseError};
 use iroha_logger::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use wasmtime::{
@@ -46,26 +47,36 @@ pub enum Error {
     /// Expected named export not found in module
     #[error("Named export not found")]
     ExportNotFound(#[source] anyhow::Error),
-    /// Call to function exported from module failed
+    /// Call to the function exported from module failed
     ///
-    /// As of Wasmtime(0.33) this can also mean that max linear memory was consumed
+    /// In Wasmtime v0.33, can also mean that max linear memory was
+    /// consumed
     #[error("Exported function call failed")]
     ExportFnCall(#[from] Trap),
+    /// Parse Error
+    #[error("Failed to Parse valid name")]
+    Parse(#[source] ParseError),
     /// Some other error happened
     #[error(transparent)]
     Other(eyre::Error),
 }
 
+impl From<ParseError> for Error {
+    fn from(err: ParseError) -> Self {
+        Self::Parse(err)
+    }
+}
+
 struct Validator<'a, W: WorldTrait> {
     /// Number of instructions in the smartcontract
     instruction_count: u64,
-
     /// Max allowed number of instructions in the smartcontract
     max_instruction_count: u64,
-
+    /// If this particular instruction is allowed
     is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
+    /// If this particular query is allowed
     is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
-
+    /// Current [`WorldStateview`]
     wsv: &'a WorldStateView<W>,
 }
 
@@ -543,9 +554,7 @@ mod tests {
                 global.get $mem_size
 
                 (global.set $mem_size
-                    (i32.add (global.get $mem_size) (local.get $size))
-                )
-            )
+                    (i32.add (global.get $mem_size) (local.get $size))))
             "#,
             memory_name = WASM_MEMORY_NAME,
             alloc_fn_name = WASM_ALLOC_FN,
@@ -571,11 +580,11 @@ mod tests {
 
     #[test]
     fn execute_instruction_exported() -> Result<(), Error> {
-        let account_id = AccountId::test("alice", "wonderland");
+        let account_id = AccountId::new("alice", "wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
-            let new_account_id = AccountId::test("mad_hatter", "wonderland");
+            let new_account_id = AccountId::new("mad_hatter", "wonderland")?;
             let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
             encode_hex(Instruction::Register(register_isi))
         };
@@ -585,16 +594,13 @@ mod tests {
             (module
                 ;; Import host function to execute
                 (import "iroha" "{execute_fn_name}"
-                    (func $exec_fn (param i32 i32))
-                )
+                    (func $exec_fn (param i32 i32)))
 
                 {memory_and_alloc}
 
                 ;; Function which starts the smartcontract execution
                 (func (export "{main_fn_name}") (param i32 i32)
-                    (call $exec_fn (i32.const 0) (i32.const {isi_len}))
-                )
-            )
+                    (call $exec_fn (i32.const 0) (i32.const {isi_len}))))
             "#,
             main_fn_name = WASM_MAIN_FN_NAME,
             execute_fn_name = EXECUTE_ISI_FN_NAME,
@@ -609,7 +615,7 @@ mod tests {
 
     #[test]
     fn execute_query_exported() -> Result<(), Error> {
-        let account_id = AccountId::test("alice", "wonderland");
+        let account_id = AccountId::new("alice", "wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let query_hex = {
@@ -622,8 +628,7 @@ mod tests {
             (module
                 ;; Import host function to execute
                 (import "iroha" "{execute_fn_name}"
-                    (func $exec_fn (param i32 i32) (result i32))
-                )
+                    (func $exec_fn (param i32 i32) (result i32)))
 
                 {memory_and_alloc}
 
@@ -632,9 +637,7 @@ mod tests {
                     (call $exec_fn (i32.const 0) (i32.const {isi_len}))
 
                     ;; No use of return values
-                    drop
-                )
-            )
+                    drop))
             "#,
             main_fn_name = WASM_MAIN_FN_NAME,
             execute_fn_name = EXECUTE_QUERY_FN_NAME,
@@ -650,11 +653,11 @@ mod tests {
 
     #[test]
     fn instruction_limit_reached() -> Result<(), Error> {
-        let account_id = AccountId::test("alice", "wonderland");
+        let account_id = AccountId::new("alice", "wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
-            let new_account_id = AccountId::test("mad_hatter", "wonderland");
+            let new_account_id = AccountId::new("mad_hatter", "wonderland")?;
             let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
             encode_hex(Instruction::Register(register_isi))
         };
@@ -664,17 +667,14 @@ mod tests {
             (module
                 ;; Import host function to execute
                 (import "iroha" "{execute_fn_name}"
-                    (func $exec_fn (param i32 i32))
-                )
+                    (func $exec_fn (param i32 i32)))
 
                 {memory_and_alloc}
 
                 ;; Function which starts the smartcontract execution
                 (func (export "{main_fn_name}") (param i32 i32)
                     (call $exec_fn (i32.const 0) (i32.const {isi1_end}))
-                    (call $exec_fn (i32.const {isi1_end}) (i32.const {isi2_end}))
-                )
-            )
+                    (call $exec_fn (i32.const {isi1_end}) (i32.const {isi2_end}))))
             "#,
             main_fn_name = WASM_MAIN_FN_NAME,
             execute_fn_name = EXECUTE_ISI_FN_NAME,
@@ -700,11 +700,11 @@ mod tests {
 
     #[test]
     fn instructions_not_allowed() -> Result<(), Error> {
-        let account_id = AccountId::test("alice", "wonderland");
+        let account_id = AccountId::new("alice", "wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
-            let new_account_id = AccountId::test("mad_hatter", "wonderland");
+            let new_account_id = AccountId::new("mad_hatter", "wonderland")?;
             let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
             encode_hex(Instruction::Register(register_isi))
         };
@@ -747,7 +747,7 @@ mod tests {
 
     #[test]
     fn queries_not_allowed() -> Result<(), Error> {
-        let account_id = AccountId::test("alice", "wonderland");
+        let account_id = AccountId::new("alice", "wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let query_hex = {
@@ -760,8 +760,7 @@ mod tests {
             (module
                 ;; Import host function to execute
                 (import "iroha" "{execute_fn_name}"
-                    (func $exec_fn (param i32 i32) (result i32))
-                )
+                    (func $exec_fn (param i32 i32) (result i32)))
 
                 {memory_and_alloc}
 
@@ -770,9 +769,7 @@ mod tests {
                     (call $exec_fn (i32.const 0) (i32.const {isi_len}))
 
                     ;; No use of return value
-                    drop
-                )
-            )
+                    drop))
             "#,
             main_fn_name = WASM_MAIN_FN_NAME,
             execute_fn_name = EXECUTE_QUERY_FN_NAME,

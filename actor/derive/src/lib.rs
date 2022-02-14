@@ -17,7 +17,7 @@ struct Result {
 
 const RESULT: &str = "result";
 
-// TODO: make it const generic type once it will be stabilized
+// TODO: Refactor when [const_generics](https://github.com/rust-lang/rust/issues/44580) is stable.
 fn parse_const_ident(input: ParseStream, ident: &'static str) -> syn::Result<Ident> {
     let parse_ident: Ident = input.parse()?;
     if parse_ident == ident {

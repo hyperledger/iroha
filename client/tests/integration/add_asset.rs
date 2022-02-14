@@ -4,18 +4,19 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_core::config::Configuration;
 use iroha_data_model::{fixed::Fixed, prelude::*};
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Given
-    let account_id = AccountId::test("alice", "wonderland");
-    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
+    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
     )));
@@ -44,11 +45,11 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
 #[test]
 fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Given
-    let account_id = AccountId::test("alice", "wonderland");
-    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
+    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_big_quantity(
         asset_definition_id.clone(),
     )));
@@ -79,8 +80,8 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
 
     // Given
-    let account_id = AccountId::test("alice", "wonderland");
-    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
+    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
     let identifiable_box =
         IdentifiableBox::from(AssetDefinition::with_precision(asset_definition_id.clone()));
     let create_asset = RegisterBox::new(identifiable_box);
@@ -132,7 +133,7 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let normal_asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
+    let normal_asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         normal_asset_definition_id.clone(),
     )));
@@ -140,7 +141,8 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
     iroha_logger::info!("Creating asset");
 
     let too_long_asset_name = "0".repeat(2_usize.pow(14));
-    let incorrect_asset_definition_id = AssetDefinitionId::test(&too_long_asset_name, "wonderland");
+    let incorrect_asset_definition_id =
+        AssetDefinitionId::new(&too_long_asset_name, "wonderland").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         incorrect_asset_definition_id.clone(),
     )));

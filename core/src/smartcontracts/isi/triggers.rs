@@ -4,8 +4,6 @@
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics;
 
-use crate::prelude::*;
-
 /// All instructions related to triggers.
 /// - registering a trigger
 /// - un-registering a trigger

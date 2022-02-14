@@ -283,7 +283,8 @@ impl Account {
 }
 
 impl Id {
-    /// Construct [`Id`] from an account `name` and a `domain_name` if these names are valid.
+    /// Construct [`Id`] from an account `name` and a `domain_name` if
+    /// these names are valid.
     ///
     /// # Errors
     /// Fails if any sub-construction fails
@@ -295,21 +296,15 @@ impl Id {
         })
     }
 
-    /// Instantly construct [`Id`] from an account `name` and a `domain_name` assuming these names are valid.
-    #[inline]
-    pub fn test(name: &str, domain_name: &str) -> Self {
-        Self {
-            name: Name::test(name),
-            domain_id: DomainId::test(domain_name),
-        }
-    }
-
     /// Construct [`Id`] of the genesis account.
     #[inline]
     pub fn genesis() -> Self {
+        #[allow(clippy::expect_used)]
         Self {
-            name: Name::test(GENESIS_ACCOUNT_NAME),
-            domain_id: DomainId::test(GENESIS_DOMAIN_NAME),
+            name: Name::new(GENESIS_ACCOUNT_NAME)
+                .expect("Programmer error. Must not contain whitespace."),
+            domain_id: DomainId::new(GENESIS_DOMAIN_NAME)
+                .expect("Programmer error. Must not contain whitespace."),
         }
     }
 }

@@ -9,7 +9,8 @@ use quote::quote;
 const SKIP_FROM_ATTR: &str = "skip_from";
 const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
 
-/// [`FromVariant`] is used for implementing `From<Variant> for Enum` and `TryFrom<Enum> for Variant`.
+/// [`FromVariant`] is used for implementing `From<Variant> for Enum`
+/// and `TryFrom<Enum> for Variant`.
 ///
 /// ```rust
 /// use iroha_derive::FromVariant;
@@ -23,7 +24,7 @@ const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
 ///     Vec(#[skip_from] Vec<Obj>),
 /// }
 ///
-/// // For example for avoid cases like this:
+/// // For example, to avoid:
 /// impl<T: Into<Obj>> From<Vec<T>> for Obj {
 ///     fn from(vec: Vec<T>) -> Self {
 ///         # stringify!(

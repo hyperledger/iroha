@@ -16,8 +16,11 @@ use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_validators(n_validators: u32) {
     let dir = tempfile::tempdir().unwrap();
-    let alice_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "alice", "test");
-    let bob_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "bob", "test");
+    let alice_id = AccountId::new("alice", "test").expect("tested");
+    let bob_id = AccountId::new("bob", "test").expect("tested");
+    let xor_id = AssetDefinitionId::new("xor", "test").expect("tested");
+    let alice_xor_id = <Asset as Identifiable>::Id::new(xor_id.clone(), alice_id);
+    let bob_xor_id = <Asset as Identifiable>::Id::new(xor_id, bob_id);
     let transfer = Instruction::Transfer(TransferBox {
         source_id: IdBox::AssetId(alice_xor_id).into(),
         object: Value::U32(10).into(),
@@ -25,7 +28,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     });
     let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let tx = Transaction::new(
-        AccountId::test("alice", "wonderland"),
+        AccountId::new("alice", "wonderland").expect("checked"),
         vec![transfer].into(),
         1000,
     )

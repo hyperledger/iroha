@@ -92,13 +92,6 @@ The following is the default configuration used by Iroha.
       "max": 128
     }
   },
-  "TELEMETRY": {
-    "NAME": null,
-    "URL": null,
-    "MIN_PERIOD": 1,
-    "MAX_EXPONENT": 4,
-    "FILE": null
-  },
   "NETWORK": {
     "MAILBOX": 100
   }
@@ -595,72 +588,6 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_TX_RECEIPT_
 500
 ```
 
-## `telemetry`
-
-Configuration for telemetry
-
-Has type `iroha_telemetry::Configuration`. Can be configured via environment variable `IROHA_TELEMETRY`
-
-```json
-{
-  "FILE": null,
-  "MAX_EXPONENT": 4,
-  "MIN_PERIOD": 1,
-  "NAME": null,
-  "URL": null
-}
-```
-
-### `telemetry.file`
-
-The filepath that to write dev-telemetry to
-
-Has type `Option<PathBuf>`. Can be configured via environment variable `TELEMETRY_FILE`
-
-```json
-null
-```
-
-### `telemetry.max_exponent`
-
-The maximum exponent of 2 that is used for increasing delay between reconnections
-
-Has type `u8`. Can be configured via environment variable `TELEMETRY_MAX_EXPONENT`
-
-```json
-4
-```
-
-### `telemetry.min_period`
-
-The minimum period of time in seconds to wait before reconnecting
-
-Has type `u64`. Can be configured via environment variable `TELEMETRY_MIN_PERIOD`
-
-```json
-1
-```
-
-### `telemetry.name`
-
-The node's name to be seen on the telemetry
-
-Has type `Option<String>`. Can be configured via environment variable `TELEMETRY_NAME`
-
-```json
-null
-```
-
-### `telemetry.url`
-
-The url of the telemetry, e.g., ws://127.0.0.1:8001/submit
-
-Has type `Option<Url>`. Can be configured via environment variable `TELEMETRY_URL`
-
-```json
-null
-```
-
 ## `torii`
 
 `Torii` related configuration.
@@ -729,7 +656,7 @@ Has type `String`. Can be configured via environment variable `TORII_TELEMETRY_U
 
 ## `wsv`
 
-Configuration for [`WorldStateView`](crate::wsv::WorldStateView).
+Configuration for `WorldStateView`.
 
 Has type `WorldStateViewConfiguration`. Can be configured via environment variable `IROHA_WSV`
 

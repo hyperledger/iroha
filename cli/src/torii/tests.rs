@@ -1,42 +1,52 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
-use std::time::Duration;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use futures::future::FutureExt;
 use iroha_actor::{broker::Broker, Actor};
+use iroha_core::{
+    block::{BlockHeader, EmptyChainHash},
+    queue::Queue,
+    smartcontracts::{isi::error::FindError, permissions::DenyAll},
+    stream::{Sink, Stream},
+    sumeragi::view_change::ProofChain,
+    tx::TransactionValidator,
+    wsv::World,
+};
+use iroha_data_model::account::GENESIS_ACCOUNT_NAME;
 use iroha_version::prelude::*;
 use tokio::time;
 use warp::test::WsClient;
 
 use super::{routing::*, *};
-use crate::{
-    queue::Queue,
-    samples::{get_config, get_trusted_peers},
-    smartcontracts::{isi::error::FindError, permissions::DenyAll},
-    stream::{Sink, Stream},
-    wsv::World,
-};
+use crate::samples::{get_config, get_trusted_peers};
 
 async fn create_torii() -> (Torii<World>, KeyPair) {
-    let mut config = get_config(get_trusted_peers(None), None);
+    let mut config = crate::samples::get_config(crate::samples::get_trusted_peers(None), None);
     config.torii.p2p_addr = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     config.torii.api_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     config.torii.telemetry_url =
         format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     let (events, _) = tokio::sync::broadcast::channel(100);
     let wsv = Arc::new(WorldStateView::new(World::with(
-        ('a'..'z')
-            .map(|name| name.to_string())
-            .map(|name| (DomainId::test(&name), Domain::test(&name))),
+        ('a'..'z').map(|name| name.to_string()).map(|name| {
+            (
+                DomainId::new(&name).expect("Valid"),
+                Domain::new(DomainId::new(&name).expect("Valid")),
+            )
+        }),
         vec![],
     )));
     let keys = KeyPair::generate().expect("Failed to generate keys");
     wsv.world.domains.insert(
-        DomainId::test("wonderland"),
+        DomainId::new("wonderland").expect("Valid"),
         Domain::with_accounts(
             "wonderland",
             std::iter::once(Account::with_signatory(
-                AccountId::test("alice", "wonderland"),
+                AccountId::new("alice", "wonderland").expect("Valid"),
                 keys.public_key.clone(),
             )),
         ),
@@ -75,7 +85,7 @@ async fn torii_pagination() {
     let get_domains = |start, limit| {
         let query: VerifiedQueryRequest = QueryRequest::new(
             QueryBox::FindAllDomains(Default::default()),
-            AccountId::test("alice", "wonderland"),
+            AccountId::new("alice", "wonderland").expect("Valid"),
         )
         .sign(keys.clone())
         .expect("Failed to sign query with keys")
@@ -135,14 +145,14 @@ impl QuerySet {
         self
     }
     async fn query(self, query: QueryBox) -> QueryResponseTest {
-        use crate::smartcontracts::Execute;
+        use iroha_core::smartcontracts::Execute;
 
         let (mut torii, keys) = create_torii().await;
         if self.deny_all {
             torii.query_validator = Arc::new(DenyAll.into());
         }
 
-        let authority = AccountId::test("alice", "wonderland");
+        let authority = AccountId::new("alice", "wonderland").expect("Valid");
         for instruction in self.instructions {
             instruction
                 .execute(authority.clone(), &torii.wsv)
@@ -234,25 +244,40 @@ impl QueryResponseTest {
 const DOMAIN: &str = "desert";
 
 fn register_domain() -> Instruction {
-    Instruction::Register(RegisterBox::new(Domain::test(DOMAIN)))
+    Instruction::Register(RegisterBox::new(Domain::new(
+        DomainId::new(DOMAIN).expect("Valid"),
+    )))
 }
+
 fn register_account(name: &str) -> Instruction {
     Instruction::Register(RegisterBox::new(NewAccount::with_signatory(
-        AccountId::test(name, DOMAIN),
+        AccountId::new(name, DOMAIN).expect("Valid"),
         KeyPair::generate().unwrap().public_key,
     )))
 }
+
 fn register_asset_definition(name: &str) -> Instruction {
     Instruction::Register(RegisterBox::new(AssetDefinition::new_quantity(
-        AssetDefinitionId::test(name, DOMAIN),
+        AssetDefinitionId::new(name, DOMAIN).expect("Valid"),
     )))
 }
+
 fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
     Instruction::Mint(MintBox::new(
         Value::U32(quantity),
-        AssetId::test(asset, DOMAIN, account, DOMAIN),
+        asset_id_new(asset, DOMAIN, account),
     ))
 }
+
+fn asset_id_new(asset: &str, domain: &str, account: &str) -> AssetId {
+    AssetId::new(
+        AssetDefinitionId::new(asset, domain).expect("Valid"),
+        AccountId::new(account, DOMAIN).expect("Valid"),
+    )
+}
+
+// TODO: All the following tests must be parameterised and collapsed
+
 #[tokio::test]
 async fn find_asset() {
     QuerySet::new()
@@ -260,8 +285,8 @@ async fn find_asset() {
         .given(register_account("alice"))
         .given(register_asset_definition("rose"))
         .given(mint_asset(99, "rose", "alice"))
-        .query(QueryBox::FindAssetById(FindAssetById::new(AssetId::test(
-            "rose", DOMAIN, "alice", DOMAIN,
+        .query(QueryBox::FindAssetById(FindAssetById::new(asset_id_new(
+            "rose", DOMAIN, "alice",
         ))))
         .await
         .status(StatusCode::OK)
@@ -277,6 +302,7 @@ async fn find_asset() {
         })
         .assert()
 }
+
 #[tokio::test]
 async fn find_asset_with_no_mint() {
     QuerySet::new()
@@ -285,7 +311,7 @@ async fn find_asset_with_no_mint() {
         .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            AssetId::test("rose", DOMAIN, "alice", DOMAIN),
+            asset_id_new("rose", DOMAIN, "alice"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -298,6 +324,7 @@ async fn find_asset_with_no_mint() {
         })
         .assert()
 }
+
 #[tokio::test]
 async fn find_asset_with_no_asset_definition() {
     QuerySet::new()
@@ -306,7 +333,7 @@ async fn find_asset_with_no_asset_definition() {
     // .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            AssetId::test("rose", DOMAIN, "alice", DOMAIN),
+            asset_id_new("rose", DOMAIN, "alice"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -319,6 +346,7 @@ async fn find_asset_with_no_asset_definition() {
         })
         .assert()
 }
+
 #[tokio::test]
 async fn find_asset_with_no_account() {
     QuerySet::new()
@@ -327,7 +355,7 @@ async fn find_asset_with_no_account() {
         .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            AssetId::test("rose", DOMAIN, "alice", DOMAIN),
+            asset_id_new("rose", DOMAIN, "alice"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -340,6 +368,7 @@ async fn find_asset_with_no_account() {
         })
         .assert()
 }
+
 #[tokio::test]
 async fn find_asset_with_no_domain() {
     QuerySet::new()
@@ -348,7 +377,7 @@ async fn find_asset_with_no_domain() {
     // .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            AssetId::test("rose", DOMAIN, "alice", DOMAIN),
+            asset_id_new("rose", DOMAIN, "alice"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -361,6 +390,7 @@ async fn find_asset_with_no_domain() {
         })
         .assert()
 }
+
 #[tokio::test]
 async fn find_asset_definition() {
     QuerySet::new()
@@ -386,25 +416,27 @@ async fn find_asset_definition() {
         })
         .assert()
 }
+
 #[tokio::test]
 async fn find_account() {
     QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
-            AccountId::test("alice", DOMAIN),
+            AccountId::new("alice", DOMAIN).expect("Valid"),
         )))
         .await
         .status(StatusCode::OK)
         .assert()
 }
+
 #[tokio::test]
 async fn find_account_with_no_account() {
     QuerySet::new()
         .given(register_domain())
     // .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
-            AccountId::test("alice", DOMAIN),
+            AccountId::new("alice", DOMAIN).expect("Valid"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -417,13 +449,14 @@ async fn find_account_with_no_account() {
         })
         .assert()
 }
+
 #[tokio::test]
 async fn find_account_with_no_domain() {
     QuerySet::new()
     // .given(register_domain())
     // .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
-            AccountId::test("alice", DOMAIN),
+            AccountId::new("alice", DOMAIN).expect("Valid"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -436,23 +469,25 @@ async fn find_account_with_no_domain() {
         })
         .assert()
 }
+
 #[tokio::test]
 async fn find_domain() {
     QuerySet::new()
         .given(register_domain())
         .query(QueryBox::FindDomainById(FindDomainById::new(
-            DomainId::test(DOMAIN),
+            DomainId::new(DOMAIN).expect("Valid"),
         )))
         .await
         .status(StatusCode::OK)
         .assert()
 }
+
 #[tokio::test]
 async fn find_domain_with_no_domain() {
     QuerySet::new()
     // .given(register_domain())
         .query(QueryBox::FindDomainById(FindDomainById::new(
-            DomainId::test(DOMAIN),
+            DomainId::new(DOMAIN).expect("Valid"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -465,15 +500,19 @@ async fn find_domain_with_no_domain() {
         })
         .assert()
 }
+
 fn query() -> QueryBox {
-    QueryBox::FindAccountById(FindAccountById::new(AccountId::test("alice", DOMAIN)))
+    QueryBox::FindAccountById(FindAccountById::new(
+        AccountId::new("alice", DOMAIN).expect("Valid"),
+    ))
 }
+
 #[tokio::test]
 async fn query_with_wrong_signatory() {
     QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
-        .account(AccountId::test("alice", DOMAIN))
+        .account(AccountId::new("alice", DOMAIN).expect("Valid"))
     // .deny_all()
         .query(query())
         .await
@@ -481,6 +520,7 @@ async fn query_with_wrong_signatory() {
         .body_matches_err(|body| matches!(*body, query::Error::Signature(_)))
         .assert()
 }
+
 #[tokio::test]
 async fn query_with_wrong_signature() {
     QuerySet::new()
@@ -494,6 +534,7 @@ async fn query_with_wrong_signature() {
         .body_matches_err(|body| matches!(*body, query::Error::Signature(_)))
         .assert()
 }
+
 #[tokio::test]
 async fn query_with_wrong_signature_and_no_permission() {
     QuerySet::new()
@@ -507,6 +548,7 @@ async fn query_with_wrong_signature_and_no_permission() {
         .body_matches_err(|body| matches!(*body, query::Error::Signature(_)))
         .assert()
 }
+
 #[tokio::test]
 async fn query_with_no_permission() {
     QuerySet::new()
@@ -520,6 +562,7 @@ async fn query_with_no_permission() {
         .body_matches_err(|body| matches!(*body, query::Error::Permission(_)))
         .assert()
 }
+
 #[tokio::test]
 async fn query_with_no_permission_and_no_find() {
     QuerySet::new()
@@ -533,6 +576,7 @@ async fn query_with_no_permission_and_no_find() {
         .body_matches_err(|body| matches!(*body, query::Error::Permission(_)))
         .assert()
 }
+
 #[tokio::test]
 async fn query_with_no_find() {
     QuerySet::new()
@@ -547,6 +591,28 @@ async fn query_with_no_find() {
         .assert()
 }
 
+// Iroha peers are not allowed to create empty blocks. This block should not exist outside of testing.
+fn new_dummy() -> ValidBlock {
+    ValidBlock {
+        header: BlockHeader {
+            timestamp: 0,
+            height: 1,
+            previous_block_hash: EmptyChainHash::default().into(),
+            transactions_hash: EmptyChainHash::default().into(),
+            rejected_transactions_hash: EmptyChainHash::default().into(),
+            view_change_proofs: ProofChain::empty(),
+            invalidated_blocks_hashes: Vec::new(),
+            genesis_topology: None,
+        },
+        rejected_transactions: vec![],
+        transactions: vec![],
+        trigger_recommendations: vec![],
+        signatures: BTreeSet::default(),
+    }
+    .sign(KeyPair::generate().unwrap())
+    .unwrap()
+}
+
 #[tokio::test]
 async fn blocks_stream() {
     const BLOCK_COUNT: usize = 4;
@@ -555,7 +621,7 @@ async fn blocks_stream() {
     let router = torii.create_api_router();
 
     // Initialize blockchain
-    let mut block = ValidBlock::new_dummy().commit();
+    let mut block = new_dummy().commit();
     for i in 1..=BLOCK_COUNT {
         block.header.height = i as u64;
         let block: VersionedCommittedBlock = block.clone().into();
@@ -606,15 +672,66 @@ async fn blocks_stream() {
     assert_eq!(block.header().height, BLOCK_COUNT as u64 + 1);
 }
 
+/// Returns the a map of a form `domain_name -> domain`, for initial domains.
+pub fn domains(
+    configuration: &crate::config::Configuration,
+) -> eyre::Result<BTreeMap<DomainId, Domain>> {
+    let key = configuration
+        .genesis
+        .account_public_key
+        .clone()
+        .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
+    Ok(std::iter::once((
+        DomainId::new(GENESIS_DOMAIN_NAME).expect("Valid"),
+        Domain::from(GenesisDomain::new(key)),
+    ))
+    .collect())
+}
+
+#[test]
+fn hash_should_be_the_same() {
+    let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
+    let mut config = get_config(
+        get_trusted_peers(Some(&key_pair.public_key)),
+        Some(key_pair.clone()),
+    );
+    config.genesis.account_private_key = Some(key_pair.private_key.clone());
+    config.genesis.account_public_key = Some(key_pair.public_key.clone());
+
+    let tx = Transaction::new(
+        AccountId::new(GENESIS_ACCOUNT_NAME, GENESIS_DOMAIN_NAME).expect("Valid"),
+        Vec::<Instruction>::new().into(),
+        1000,
+    );
+    let tx_hash = tx.hash();
+
+    let signed_tx = tx.sign(key_pair).expect("Failed to sign.");
+    let signed_tx_hash = signed_tx.hash();
+    let tx_limits = TransactionLimits {
+        max_instruction_number: 4096,
+        max_wasm_size_bytes: 0,
+    };
+    let accepted_tx =
+        AcceptedTransaction::from_transaction(signed_tx, &tx_limits).expect("Failed to accept.");
+    let accepted_tx_hash = accepted_tx.hash();
+    let wsv = Arc::new(WorldStateView::new(World::with(
+        domains(&config).unwrap(),
+        BTreeSet::new(),
+    )));
+    let valid_tx_hash = TransactionValidator::new(tx_limits, AllowAll::new(), AllowAll::new(), wsv)
+        .validate(accepted_tx, true)
+        .expect("Failed to validate.")
+        .hash();
+    assert_eq!(tx_hash, signed_tx_hash);
+    assert_eq!(tx_hash, accepted_tx_hash);
+    assert_eq!(tx_hash, valid_tx_hash.transmute());
+}
+
 #[tokio::test]
 async fn test_subscription_websocket_clean_closing() {
-    use iroha_data_model::events::pipeline;
+    use iroha_core::stream::{Sink, Stream};
+    use iroha_data_model::events::{pipeline, EventFilter};
     use warp::filters::ws;
-
-    use crate::{
-        stream::{Sink, Stream},
-        EventFilter,
-    };
 
     let (torii, _) = create_torii().await;
     let router = torii.create_api_router();

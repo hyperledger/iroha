@@ -26,18 +26,21 @@ const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
 
 fn build_test_transaction(keys: KeyPair) -> Transaction {
     let domain_name = "domain";
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
+        Domain::new(DomainId::new(domain_name).expect("does not panic")).into(),
+    ));
     let account_name = "account";
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(
-            AccountId::test(account_name, domain_name),
+            AccountId::new(account_name, domain_name).expect("does not panic"),
             KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
                 .public_key,
         )
         .into(),
     ));
-    let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
+    let asset_definition_id =
+        AssetDefinitionId::new("xor", domain_name).expect("Valid definition Ids");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true).into(),
     ));
@@ -47,7 +50,7 @@ fn build_test_transaction(keys: KeyPair) -> Transaction {
         create_asset.into(),
     ];
     Transaction::new(
-        AccountId::test(START_ACCOUNT, START_DOMAIN),
+        AccountId::new(START_ACCOUNT, START_DOMAIN).expect("valid START ACCOUNT and START_DOMAIN"),
         instructions.into(),
         TRANSACTION_TIME_TO_LIVE_MS,
     )
@@ -58,12 +61,12 @@ fn build_test_transaction(keys: KeyPair) -> Transaction {
 fn build_test_wsv(keys: KeyPair) -> WorldStateView<World> {
     WorldStateView::new({
         let mut domains = BTreeMap::new();
-        let mut domain = Domain::test(START_DOMAIN);
-        let account_id = AccountId::test(START_ACCOUNT, START_DOMAIN);
+        let mut domain = Domain::new(DomainId::new(START_DOMAIN).expect("Valid"));
+        let account_id = AccountId::new(START_ACCOUNT, START_DOMAIN).expect("Valid");
         let mut account = Account::new(account_id.clone());
         account.signatories.push(keys.public_key);
         domain.accounts.insert(account_id, account);
-        domains.insert(DomainId::test(START_DOMAIN), domain);
+        domains.insert(DomainId::new(START_DOMAIN).expect("is valid"), domain);
         World::with(domains, BTreeSet::new())
     })
 }
@@ -113,7 +116,7 @@ fn validate_transaction(criterion: &mut Criterion) {
     )
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
-    let mut failures_count = 0;
+    let mut failure_count = 0;
     let _ = criterion.bench_function("validate", move |b| {
         let transaction_validator = TransactionValidator::new(
             TRANSACTION_LIMITS,
@@ -124,13 +127,13 @@ fn validate_transaction(criterion: &mut Criterion) {
         b.iter(
             || match transaction_validator.validate(transaction.clone(), false) {
                 Ok(_) => success_count += 1,
-                Err(_) => failures_count += 1,
+                Err(_) => failure_count += 1,
             },
         );
     });
     println!(
-        "Success count: {}, Failures count: {}",
-        success_count, failures_count
+        "Success count: {}, Failure count: {}",
+        success_count, failure_count
     );
 }
 
@@ -193,11 +196,11 @@ fn validate_blocks(criterion: &mut Criterion) {
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let domain_name = "global";
     let asset_definitions = BTreeMap::new();
-    let account_id = AccountId::test("root", domain_name);
+    let account_id = AccountId::new("root", domain_name).expect("is valid");
     let account = Account::with_signatory(account_id.clone(), key_pair.public_key);
     let mut accounts = BTreeMap::new();
     accounts.insert(account_id, account);
-    let domain_id = DomainId::test(domain_name);
+    let domain_id = DomainId::new(domain_name).expect("is valid");
     let domain = Domain {
         id: domain_id.clone(),
         accounts,

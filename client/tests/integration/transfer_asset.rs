@@ -3,19 +3,23 @@
 use std::thread;
 
 use iroha_client::client;
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn client_can_transfer_asset_to_another_account() {
     let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
+    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
-    let account1_id = AccountId::test("account1", "domain");
-    let account2_id = AccountId::test("account2", "domain");
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
+        Domain::new(DomainId::new("domain").expect("Valid")).into(),
+    ));
+    let account1_id = AccountId::new("account1", "domain").expect("Valid");
+    let account2_id = AccountId::new("account2", "domain").expect("Valid");
     let create_account1 = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(
             account1_id.clone(),
@@ -34,7 +38,7 @@ fn client_can_transfer_asset_to_another_account() {
         )
         .into(),
     ));
-    let asset_definition_id = AssetDefinitionId::test("xor", "domain");
+    let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
     let quantity: u32 = 200;
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),

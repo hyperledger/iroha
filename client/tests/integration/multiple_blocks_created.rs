@@ -3,9 +3,11 @@
 use std::thread;
 
 use iroha_client::client::{self, Client};
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::*;
+
+use super::Configuration;
 
 const N_BLOCKS: usize = 510;
 
@@ -14,11 +16,13 @@ const N_BLOCKS: usize = 510;
 fn long_multiple_blocks_created() {
     // Given
     let (_rt, network, mut iroha_client) = <Network>::start_test_with_runtime(4, 1);
-    wait_for_genesis_committed(network.clients(), 0);
+    wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
-    let account_id = AccountId::test("account", "domain");
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
+        Domain::new(DomainId::new("domain").expect("Valid")).into(),
+    ));
+    let account_id = AccountId::new("account", "domain").expect("Valid");
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(
             account_id.clone(),
@@ -28,7 +32,7 @@ fn long_multiple_blocks_created() {
         )
         .into(),
     ));
-    let asset_definition_id = AssetDefinitionId::test("xor", "domain");
+    let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));

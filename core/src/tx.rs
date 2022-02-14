@@ -371,61 +371,10 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 mod tests {
     #![allow(clippy::pedantic, clippy::restriction)]
 
-    use std::collections::BTreeSet;
-
     use eyre::Result;
-    use iroha_data_model::{
-        account::GENESIS_ACCOUNT_NAME, domain::GENESIS_DOMAIN_NAME,
-        transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-    };
+    use iroha_data_model::transaction::DEFAULT_MAX_INSTRUCTION_NUMBER;
 
     use super::*;
-    use crate::{
-        init,
-        samples::{get_config, get_trusted_peers},
-        smartcontracts::permissions::AllowAll,
-        wsv::World,
-    };
-
-    #[test]
-    fn hash_should_be_the_same() {
-        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
-        let mut config = get_config(
-            get_trusted_peers(Some(&key_pair.public_key)),
-            Some(key_pair.clone()),
-        );
-        config.genesis.account_private_key = Some(key_pair.private_key.clone());
-        config.genesis.account_public_key = Some(key_pair.public_key.clone());
-
-        let tx = Transaction::new(
-            AccountId::test(GENESIS_ACCOUNT_NAME, GENESIS_DOMAIN_NAME),
-            Vec::<Instruction>::new().into(),
-            1000,
-        );
-        let tx_hash = tx.hash();
-
-        let signed_tx = tx.sign(key_pair).expect("Failed to sign.");
-        let signed_tx_hash = signed_tx.hash();
-        let tx_limits = TransactionLimits {
-            max_instruction_number: 4096,
-            max_wasm_size_bytes: 0,
-        };
-        let accepted_tx = AcceptedTransaction::from_transaction(signed_tx, &tx_limits)
-            .expect("Failed to accept.");
-        let accepted_tx_hash = accepted_tx.hash();
-        let wsv = Arc::new(WorldStateView::new(World::with(
-            init::domains(&config).unwrap(),
-            BTreeSet::new(),
-        )));
-        let valid_tx_hash =
-            TransactionValidator::new(tx_limits, AllowAll::new(), AllowAll::new(), wsv)
-                .validate(accepted_tx, true)
-                .expect("Failed to validate.")
-                .hash();
-        assert_eq!(tx_hash, signed_tx_hash);
-        assert_eq!(tx_hash, accepted_tx_hash);
-        assert_eq!(tx_hash, valid_tx_hash.transmute());
-    }
 
     #[test]
     fn transaction_not_accepted_max_instruction_number() {
@@ -434,7 +383,7 @@ mod tests {
         }
         .into();
         let tx = Transaction::new(
-            AccountId::test("root", "global"),
+            AccountId::new("root", "global").expect("Valid"),
             vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
             1000,
         );

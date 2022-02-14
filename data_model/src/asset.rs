@@ -417,15 +417,6 @@ impl DefinitionId {
             domain_id: DomainId::new(domain_name)?,
         })
     }
-
-    /// Instantly construct [`Id`] from an asset definition `name` and a `domain_name` assuming these names are valid.
-    #[inline]
-    pub fn test(name: &str, domain_name: &str) -> Self {
-        Self {
-            name: Name::test(name),
-            domain_id: DomainId::test(domain_name),
-        }
-    }
 }
 
 impl Id {
@@ -435,20 +426,6 @@ impl Id {
         Self {
             definition_id,
             account_id,
-        }
-    }
-
-    /// Instantly construct [`Id`] from names which constitute [`DefinitionId`] and [`AccountId`] assuming these names are valid.
-    #[inline]
-    pub fn test(
-        asset_definition_name: &str,
-        asset_definition_domain_name: &str,
-        account_name: &str,
-        account_domain_name: &str,
-    ) -> Self {
-        Self {
-            definition_id: DefinitionId::test(asset_definition_name, asset_definition_domain_name),
-            account_id: AccountId::test(account_name, account_domain_name),
         }
     }
 }

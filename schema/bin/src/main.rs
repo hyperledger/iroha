@@ -72,6 +72,7 @@ mod tests {
             let params_list_end = type_name.rfind('>');
 
             if let (Some(start), Some(end)) = (params_list_start, params_list_end) {
+                #[allow(clippy::string_slice)] // We don't have non-ascii characters in source code.
                 for generic in type_name[1 + start..end].split(',') {
                     let gen = generic.trim();
 

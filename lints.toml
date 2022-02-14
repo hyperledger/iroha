@@ -1,6 +1,4 @@
-#
 # For all clippy lints please visit: https://rust-lang.github.io/rust-clippy/master/
-#
 deny = [
     'anonymous_parameters',
     'clippy::all',
@@ -51,6 +49,7 @@ allow = [
     'elided_lifetimes_in_paths',
     # Our preferred style.
     'clippy::mod-module-files',
+    'clippy::separated-literal-suffix',
     # Most trybuild code triggers a false-positive.
     'clippy::self-named-module-files',
     # We often need to shadow the name of the method to specialise.

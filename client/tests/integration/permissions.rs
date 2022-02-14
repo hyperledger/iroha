@@ -3,11 +3,13 @@
 use std::thread;
 
 use iroha_client::client::{self, Client};
-use iroha_core::{config::Configuration, prelude::AllowAll};
+use iroha_core::prelude::AllowAll;
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::{private_blockchain, public_blockchain};
 use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
+
+use super::Configuration;
 
 const BURN_REJECTION_REASON: &str = "Failed to pass first check with Can\'t burn assets from another account. \
     and second check with Account does not have the needed permission token: \
@@ -32,13 +34,13 @@ fn permissions_disallow_asset_transfer() {
         public_blockchain::default_permissions(),
         AllowAll.into(),
     ));
-    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
+    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let alice_id = AccountId::test("alice", "wonderland");
-    let bob_id = AccountId::test("bob", "wonderland");
-    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
+    let alice_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let bob_id = AccountId::new("bob", "wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
     )));
@@ -98,9 +100,9 @@ fn permissions_disallow_asset_burn() {
     thread::sleep(pipeline_time * 5);
 
     let domain_name = "wonderland";
-    let alice_id = AccountId::test("alice", domain_name);
-    let bob_id = AccountId::test("bob", domain_name);
-    let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
+    let alice_id = AccountId::new("alice", domain_name).expect("Valid");
+    let bob_id = AccountId::new("bob", domain_name).expect("Valid");
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name).expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
     )));
@@ -163,7 +165,9 @@ fn account_can_query_only_its_own_domain() {
 
     let domain_name = "wonderland";
     let new_domain_name = "wonderland2";
-    let register_domain = RegisterBox::new(IdentifiableBox::from(Domain::test(new_domain_name)));
+    let register_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(
+        DomainId::new(new_domain_name).expect("Valid"),
+    )));
 
     iroha_client
         .submit(register_domain)
@@ -173,11 +177,15 @@ fn account_can_query_only_its_own_domain() {
 
     // Alice can query the domain in which her account exists.
     assert!(iroha_client
-        .request(client::domain::by_id(DomainId::test(domain_name)))
+        .request(client::domain::by_id(
+            DomainId::new(domain_name).expect("Valid")
+        ))
         .is_ok());
 
     // Alice can not query other domains.
     assert!(iroha_client
-        .request(client::domain::by_id(DomainId::test(new_domain_name)))
+        .request(client::domain::by_id(
+            DomainId::new(new_domain_name).expect("Valid")
+        ))
         .is_err());
 }

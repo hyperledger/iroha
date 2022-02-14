@@ -129,6 +129,20 @@ impl WorldTrait for World {
 
 /// WARNING!!! INTERNAL USE ONLY!!!
 impl<W: WorldTrait> WorldStateView<W> {
+    /// Construct [`WorldStateView`] with given [`World`].
+    #[must_use]
+    #[inline]
+    pub fn new(world: W) -> Self {
+        Self::from_configuration(Configuration::default(), world)
+    }
+
+    /// Add the ability of emitting events to [`WorldStateView`].
+    #[must_use]
+    pub fn with_events(mut self, events_sender: EventsSender) -> Self {
+        self.events_sender = Some(events_sender);
+        self
+    }
+
     /// Get `Account`'s `Asset`s and pass it to closure
     ///
     /// # Errors
@@ -294,14 +308,16 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.metrics.block_height.inc();
     }
 
-    // TODO: There could be just this one method `blocks` instead of `blocks_from_height` and
-    // `blocks_after_height`. Also, this method would return references instead of cloning
-    // blockchain but comes with the risk of deadlock if consumer of the iterator stores
-    // references to blocks
+    // TODO: There could be just this one method `blocks` instead of
+    // `blocks_from_height` and `blocks_after_height`. Also, this
+    // method would return references instead of cloning blockchain
+    // but comes with the risk of deadlock if consumer of the iterator
+    // stores references to blocks
     /// Returns iterator over blockchain blocks
     ///
     /// **Locking behaviour**: Holding references to blocks stored in the blockchain can induce
     /// deadlock. This limitation is imposed by the fact that blockchain is backed by [`dashmap::DashMap`]
+    #[inline]
     pub fn blocks(
         &self,
     ) -> impl Iterator<Item = impl Deref<Target = VersionedCommittedBlock> + '_> + '_ {
@@ -360,6 +376,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Returns reference for trusted peer ids
+    #[inline]
     pub fn trusted_peers_ids(&self) -> &PeersIds {
         &self.world.trusted_peers_ids
     }
@@ -408,6 +425,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Returns reference for domains map
+    #[inline]
     pub fn domains(&self) -> &DomainsMap {
         &self.world.domains
     }
@@ -449,6 +467,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].
+    #[inline]
     pub fn from_configuration(config: Configuration, world: W) -> Self {
         let (new_block_notifier, _) = tokio::sync::watch::channel(());
 
@@ -466,6 +485,7 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Returns [`Some`] milliseconds since the genesis block was
     /// committed, or [`None`] if it wasn't.
+    #[inline]
     pub fn genesis_timestamp(&self) -> Option<u128> {
         self.blocks
             .iter()
@@ -474,6 +494,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Check if this [`VersionedTransaction`] is already committed or rejected.
+    #[inline]
     pub fn has_transaction(&self, hash: &HashOf<VersionedTransaction>) -> bool {
         self.transactions.contains(hash)
     }
@@ -580,11 +601,6 @@ impl<W: WorldTrait> WorldStateView<W> {
         })
     }
 
-    /// Construct [`WorldStateView`] with given [`World`].
-    pub fn new(world: W) -> Self {
-        Self::from_configuration(Configuration::default(), world)
-    }
-
     /// Get all `PeerId`s without an ability to modify them.
     pub fn peers(&self) -> Vec<Peer> {
         let mut vec = self
@@ -615,6 +631,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Returns receiving end of the mpsc channel through which
     /// subscribers are notified when new block is added to the
     /// blockchain(after block validation).
+    #[inline]
     pub fn subscribe_to_new_block_notifications(&self) -> NewBlockNotificationReceiver {
         self.new_block_notifier.subscribe()
     }
@@ -687,13 +704,9 @@ impl<W: WorldTrait> WorldStateView<W> {
         transactions
     }
 
-    /// Add the ability of emitting events to [`WorldStateView`].
-    pub fn with_events(mut self, events_sender: EventsSender) -> Self {
-        self.events_sender = Some(events_sender);
-        self
-    }
-
     /// Get an immutable view of the `World`.
+    #[must_use]
+    #[inline]
     pub fn world(&self) -> &W {
         &self.world
     }

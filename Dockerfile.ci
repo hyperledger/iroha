@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=1.57.0
+    RUST_VERSION=1.59.0
 
 RUN set -eux; \
     apt-get update; \
@@ -43,8 +43,8 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/rui314/mold.git; \
-    git -C "./mold" checkout v1.0.0; \
-    make --directory="./mold"; \
+    git -C "./mold" checkout v1.1.1; \
+    make --directory="./mold" CXX=clang++; \
     make --directory="./mold" install; \
     rm -rf "./mold"
 
@@ -61,5 +61,3 @@ RUN curl -fsSL https://get.docker.com -o get-docker.sh; \
 
 RUN curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose; \
     chmod +x /usr/local/bin/docker-compose
-
-    # Refer to docker-compose.yml to see which ports should be exposed.

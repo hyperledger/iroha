@@ -32,7 +32,7 @@ fn impl_telemetry_future(
     if asyncness.is_none() {
         abort!(
             asyncness,
-            "Function should be async for using telemetry_future"
+            "Only async functions can be instrumented for `telemetry_future`"
         );
     }
 

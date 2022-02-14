@@ -7,10 +7,9 @@ use std::{iter, sync::Arc};
 use eyre::Result;
 use iroha_data_model::{isi::RevokeBox, prelude::*};
 
-use super::prelude::WorldTrait;
 #[cfg(feature = "roles")]
 use super::Evaluate;
-use crate::prelude::*;
+use crate::wsv::{WorldStateView, WorldTrait};
 
 /// Operation for which the permission should be checked.
 pub trait NeedsPermission {}
@@ -504,7 +503,8 @@ impl AllowAll {
     }
 }
 
-/// Disallows all operations to be executed for all possible values. Mostly for tests and simple cases.
+/// Disallows all operations to be executed for all possible
+/// values. Mostly for tests and simple cases.
 #[derive(Debug, Clone, Copy)]
 pub struct DenyAll;
 
@@ -558,12 +558,15 @@ pub type HasTokenBoxed<W> = Box<dyn HasToken<W> + Send + Sync>;
 
 /// Trait that should be implemented by validator that checks the need to have permission token for a certain action.
 pub trait HasToken<W: WorldTrait> {
-    /// This function should return the token that `authority` should possess, given the `instruction`
-    /// they are planning to execute on the current state of `wsv`
+    /// This function should return the token that `authority` should
+    /// possess, given the `instruction` they are planning to execute
+    /// on the current state of `wsv`
     ///
     /// # Errors
-    /// In the case when it is impossible to deduce the required token given current data
-    /// (e.g. unexistent account or unaplicable instruction).
+    ///
+    /// In the case when it is impossible to deduce the required token
+    /// given current data (e.g. unexistent account or unaplicable
+    /// instruction).
     fn token(
         &self,
         authority: &AccountId,
@@ -868,8 +871,23 @@ mod tests {
             _instruction: &Instruction,
             _wsv: &WorldStateView<W>,
         ) -> Result<PermissionToken, String> {
-            Ok(PermissionToken::new(Name::test("token"), BTreeMap::new()))
+            Ok(PermissionToken::new(
+                Name::new("token").expect("Valid"),
+                BTreeMap::new(),
+            ))
         }
+    }
+
+    fn asset_id(
+        asset_name: &str,
+        asset_domain: &str,
+        account_name: &str,
+        account_domain: &str,
+    ) -> IdBox {
+        IdBox::AssetId(AssetId::new(
+            AssetDefinitionId::new(asset_name, asset_domain).expect("Valid"),
+            AccountId::new(account_name, account_domain).expect("Valid"),
+        ))
     }
 
     #[test]
@@ -878,16 +896,13 @@ mod tests {
             .with_validator(DenyBurn)
             .with_validator(DenyAlice)
             .all_should_succeed();
-        let instruction_burn: Instruction = BurnBox::new(
-            Value::U32(10),
-            IdBox::AssetId(AssetId::test("xor", "test", "alice", "test")),
-        )
-        .into();
+        let instruction_burn: Instruction =
+            BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
         let instruction_fail = Instruction::Fail(FailBox {
             message: "fail message".to_owned(),
         });
-        let account_bob = <Account as Identifiable>::Id::test("bob", "test");
-        let account_alice = <Account as Identifiable>::Id::test("alice", "test");
+        let account_bob = <Account as Identifiable>::Id::new("bob", "test").expect("Valid");
+        let account_alice = <Account as Identifiable>::Id::new("alice", "test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check(&account_bob, &instruction_burn, &wsv)
@@ -908,17 +923,14 @@ mod tests {
         let permissions_validator = ValidatorBuilder::new()
             .with_recursive_validator(DenyBurn)
             .all_should_succeed();
-        let instruction_burn: Instruction = BurnBox::new(
-            Value::U32(10),
-            IdBox::AssetId(AssetId::test("xor", "test", "alice", "test")),
-        )
-        .into();
+        let instruction_burn: Instruction =
+            BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
         let instruction_fail = Instruction::Fail(FailBox {
             message: "fail message".to_owned(),
         });
         let nested_instruction_sequence =
             Instruction::If(If::new(true, instruction_burn.clone()).into());
-        let account_alice = <Account as Identifiable>::Id::test("alice", "test");
+        let account_alice = <Account as Identifiable>::Id::new("alice", "test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check(&account_alice, &instruction_fail, &wsv)
@@ -932,53 +944,55 @@ mod tests {
     }
 
     #[test]
-    pub fn granted_permission() {
-        let alice_id = <Account as Identifiable>::Id::test("alice", "test");
-        let bob_id = <Account as Identifiable>::Id::test("bob", "test");
-        let alice_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "alice", "test");
+    pub fn granted_permission() -> Result<()> {
+        let alice_id = <Account as Identifiable>::Id::new("alice", "test")?;
+        let bob_id = <Account as Identifiable>::Id::new("bob", "test")?;
+        let alice_xor_id = <Asset as Identifiable>::Id::new(
+            AssetDefinitionId::new("xor", "test").expect("Valid"),
+            AccountId::new("alice", "test").expect("Valid"),
+        );
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
-        let mut domain = Domain::test("test");
+        let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
         let mut bob_account = Account::new(bob_id.clone());
         let _ = bob_account.permission_tokens.insert(PermissionToken::new(
-            Name::test("token"),
+            Name::new("token").expect("Valid"),
             BTreeMap::default(),
         ));
         domain.accounts.insert(bob_id.clone(), bob_account);
-        let domains = vec![(DomainId::test("test"), domain)];
+        let domains = vec![(DomainId::new("test").expect("Valid"), domain)];
         let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
         let validator: HasTokenBoxed<_> = Box::new(GrantedToken);
         assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());
         assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_ok());
+        Ok(())
     }
 
     #[test]
     pub fn check_query_permissions_nested() {
         let instruction: Instruction = Pair::new(
             TransferBox::new(
-                IdBox::AssetId(AssetId::test("btc", "crypto", "seller", "company")),
+                asset_id("btc", "crypto", "seller", "company"),
                 Expression::Add(Add::new(
                     Expression::Query(
-                        FindAssetQuantityById::new(AssetId::test(
-                            "btc2eth_rate",
-                            "exchange",
-                            "dex",
-                            "exchange",
+                        FindAssetQuantityById::new(AssetId::new(
+                            AssetDefinitionId::new("btc2eth_rate", "exchange").expect("Valid"),
+                            AccountId::new("dex", "exchange").expect("Valid"),
                         ))
                         .into(),
                     ),
                     10_u32,
                 )),
-                IdBox::AssetId(AssetId::test("btc", "crypto", "buyer", "company")),
+                asset_id("btc", "crypto", "buyer", "company"),
             ),
             TransferBox::new(
-                IdBox::AssetId(AssetId::test("eth", "crypto", "buyer", "company")),
+                asset_id("eth", "crypto", "buyer", "company"),
                 15_u32,
-                IdBox::AssetId(AssetId::test("eth", "crypto", "seller", "company")),
+                asset_id("eth", "crypto", "seller", "company"),
             ),
         )
         .into();
         let wsv = WorldStateView::new(World::new());
-        let alice_id = <Account as Identifiable>::Id::test("alice", "test");
+        let alice_id = <Account as Identifiable>::Id::new("alice", "test").expect("Valid");
         assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &DenyAll.into()).is_err())
     }
 }

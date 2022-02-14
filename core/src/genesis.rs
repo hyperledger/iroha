@@ -16,8 +16,8 @@ pub use self::config::GenesisConfiguration;
 use crate::{
     kura::KuraTrait,
     sumeragi::{
+        fault::{FaultInjection, SumeragiWithFault},
         network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
-        FaultInjection, SumeragiWithFault,
     },
     tx::VersionedAcceptedTransaction,
     wsv::WorldTrait,
@@ -231,7 +231,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
     }
 }
 
-/// `RawGenesisBlock` is an initial block of the network
+/// [`RawGenesisBlock`] is an initial block of the network
 #[derive(Clone, Deserialize, Debug, IntoSchema, Default, Serialize)]
 pub struct RawGenesisBlock {
     /// Transactions
@@ -239,7 +239,8 @@ pub struct RawGenesisBlock {
 }
 
 impl RawGenesisBlock {
-    /// Construct a genesis block from a `.json` file at the specified path.
+    /// Construct a genesis block from a `.json` file at the specified
+    /// path-like object.
     ///
     /// # Errors
     /// If file not found or deserialization from file fails.

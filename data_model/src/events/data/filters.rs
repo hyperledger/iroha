@@ -687,13 +687,17 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn entity_scope() {
         const DOMAIN: &str = "wonderland";
         const ACCOUNT: &str = "alice";
         const ASSET: &str = "rose";
-        let domain_id = DomainId::test(DOMAIN);
-        let account_id = AccountId::test(ACCOUNT, DOMAIN);
-        let asset_id = AssetId::test(ASSET, DOMAIN, ACCOUNT, DOMAIN);
+        let domain_id = DomainId::new(DOMAIN).expect("Valid");
+        let account_id = AccountId::new(ACCOUNT, DOMAIN).expect("Valid");
+        let asset_id = AssetId::new(
+            AssetDefinitionId::new(ASSET, DOMAIN).expect("Valid"),
+            AccountId::new(ACCOUNT, DOMAIN).expect("Valid"),
+        );
 
         let domain_created = DomainEvent::Created(domain_id);
         let account_created = AccountEvent::Created(account_id.clone());
