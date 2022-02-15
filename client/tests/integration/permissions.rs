@@ -32,7 +32,7 @@ fn permissions_disallow_asset_transfer() {
         public_blockchain::default_permissions(),
         AllowAll.into(),
     ));
-    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
+    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // Given

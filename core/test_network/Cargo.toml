@@ -9,6 +9,7 @@ edition = "2021"
 mock = []
 
 [dependencies]
+iroha = { path = "../../cli" }
 iroha_core = { path = "../../core" }
 iroha_client = { path = "../../client" }
 iroha_data_model = { path = "../../data_model" }

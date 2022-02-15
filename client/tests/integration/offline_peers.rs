@@ -10,7 +10,7 @@ fn genesis_block_is_commited_with_some_offline_peers() {
     // Given
     let rt = Runtime::test();
     let (network, mut iroha_client) = rt.block_on(<Network>::start_test_with_offline(4, 1, 1));
-    wait_for_genesis_committed(network.clients(), 1);
+    wait_for_genesis_committed(&network.clients(), 1);
 
     //When
     let alice_id = AccountId::test("alice", "wonderland");

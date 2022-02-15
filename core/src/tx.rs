@@ -370,6 +370,28 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::pedantic, clippy::restriction)]
+    pub mod init {
+        use std::collections::BTreeMap;
+
+        use color_eyre::eyre::{eyre, Result};
+        use iroha_data_model::prelude::*;
+
+        /// Returns the a map of a form `domain_name -> domain`, for initial domains.
+        pub fn domains(
+            configuration: &crate::config::Configuration,
+        ) -> Result<BTreeMap<DomainId, Domain>> {
+            let key = configuration
+                .genesis
+                .account_public_key
+                .clone()
+                .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
+            Ok(std::iter::once((
+                DomainId::test(GENESIS_DOMAIN_NAME),
+                Domain::from(GenesisDomain::new(key)),
+            ))
+            .collect())
+        }
+    }
 
     use std::collections::BTreeSet;
 
@@ -381,7 +403,6 @@ mod tests {
 
     use super::*;
     use crate::{
-        init,
         samples::{get_config, get_trusted_peers},
         smartcontracts::permissions::AllowAll,
         wsv::World,

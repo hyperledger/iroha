@@ -10,7 +10,7 @@ use test_network::{Peer as TestPeer, *};
 #[test]
 fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
+    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
     let pipeline_time = Configuration::pipeline_time();
 

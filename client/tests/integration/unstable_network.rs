@@ -75,7 +75,7 @@ fn unstable_network(
         );
         (network, client)
     });
-    wait_for_genesis_committed(network.clients(), n_offline_peers);
+    wait_for_genesis_committed(&network.clients(), n_offline_peers);
 
     let pipeline_time = Configuration::pipeline_time();
 

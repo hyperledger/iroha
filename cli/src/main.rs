@@ -1,15 +1,14 @@
-//! Iroha peer command line
+//! Iroha peer command-line interface.
 
 use std::str::FromStr;
 
-use color_eyre::Report;
-use iroha_core::{prelude::AllowAll, Arguments, Iroha};
+use iroha::Arguments;
+use iroha_core::prelude::AllowAll;
 use iroha_permissions_validators::public_blockchain::default_permissions;
 
 #[tokio::main]
-async fn main() -> Result<(), Report> {
+async fn main() -> Result<(), color_eyre::Report> {
     let mut args = Arguments::default();
-
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
         print_help();
         return Ok(());
@@ -27,7 +26,7 @@ async fn main() -> Result<(), Report> {
         args.genesis_path = std::path::PathBuf::from_str(&genesis_path)?;
     }
 
-    <Iroha>::new(&args, default_permissions(), AllowAll.into())
+    <iroha::Iroha>::new(&args, default_permissions(), AllowAll.into())
         .await?
         .start()
         .await?;

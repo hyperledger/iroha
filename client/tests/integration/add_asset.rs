@@ -11,7 +11,7 @@ use test_network::{Peer as TestPeer, *};
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Given
     let account_id = AccountId::test("alice", "wonderland");
@@ -44,7 +44,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
 #[test]
 fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Given
     let account_id = AccountId::test("alice", "wonderland");

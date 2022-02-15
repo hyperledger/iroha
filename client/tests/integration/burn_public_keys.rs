@@ -31,7 +31,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
     let bob_keys_count = |client: &mut Client| account_keys_count(client, bob_id.clone());
 
     let (_rt, _peer, mut client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![client.clone()], 0);
+    wait_for_genesis_committed(&vec![client.clone()], 0);
 
     let register_bob = RegisterBox::new(NewAccount::new(bob_id.clone())).into();
 

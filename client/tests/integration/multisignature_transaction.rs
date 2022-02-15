@@ -14,7 +14,7 @@ use test_network::*;
 #[test]
 fn multisignature_transactions_should_wait_for_all_signatures() {
     let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1);
-    wait_for_genesis_committed(network.clients(), 0);
+    wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
     let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));

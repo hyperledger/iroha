@@ -94,7 +94,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
 
 fn transaction_execution_should_produce_events(executable: Executable) -> Result<()> {
     let (_rt, _peer, mut client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![client.clone()], 0);
+    wait_for_genesis_committed(&vec![client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // spawn event reporter
