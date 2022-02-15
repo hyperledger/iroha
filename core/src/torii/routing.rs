@@ -165,7 +165,7 @@ mod subscription {
     //! This module contains `handle_subscription()` function and other stuff for its implementation
 
     use super::*;
-    use crate::{event, stream};
+    use crate::event;
 
     /// Type for any error during subscription handling
     #[derive(thiserror::Error, Debug)]
@@ -184,12 +184,14 @@ mod subscription {
         CloseMessage,
     }
 
-    type StreamError = stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>;
-
     impl From<event::Error> for Error {
         fn from(error: event::Error) -> Self {
             match error {
-                event::Error::Stream(StreamError::CloseMessage) => Self::CloseMessage,
+                event::Error::Stream(box_err)
+                    if matches!(*box_err, event::StreamError::CloseMessage) =>
+                {
+                    Self::CloseMessage
+                }
                 error => Self::Consumer(Box::new(error)),
             }
         }
@@ -220,13 +222,10 @@ mod subscription {
         loop {
             tokio::select! {
                 // This branch catches `Close` ans unexpected messages
-                message_opt = consumer.stream_mut().next() => {
-                    if let Some(message) = message_opt {
-                        let message = message?;
-                        if message.is_close() {
-                            return Err(Error::CloseMessage);
-                        }
-                        iroha_logger::trace!("Unexpected message received: {:?}", message);
+                closed = consumer.stream_closed() => {
+                    match closed {
+                        Ok(()) => return Err(Error::CloseMessage),
+                        Err(err) => return Err(err.into())
                     }
                 }
                 // This branch catches and sends events

@@ -2,6 +2,7 @@
 //! This module contains descriptions of such an events and
 //! utility Iroha Special Instructions to work with them.
 
+use futures::TryStreamExt;
 use iroha_data_model::events::prelude::*;
 use iroha_macro::error::ErrorTryFromEnum;
 use tokio::sync::broadcast;
@@ -13,19 +14,34 @@ use crate::stream::{self, Sink, Stream};
 pub type EventsSender = broadcast::Sender<Event>;
 /// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
 pub type EventsReceiver = broadcast::Receiver<Event>;
+/// Type of Stream error
+pub type StreamError = stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>;
 
 /// Type of error for `Consumer`
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Error from provided stream/websocket
     #[error("Stream error: {0}")]
-    Stream(#[from] stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>),
+    Stream(Box<StreamError>),
     /// Error from converting received message to filter
     #[error("Can't retrieve subscription filter: {0}")]
     CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriberMessage, EventFilter>),
     /// Error, that occurs when client answered not with `EventReceived` message
     #[error("Got unexpected response. Expected `EventReceived`")]
     ExpectedEventReceived,
+    /// Error from provided websocket
+    #[error("WebSocket error: {0}")]
+    WebSocket(#[from] warp::Error),
+
+    /// Error that occurs than `WebSocket::next()` call returns `None`
+    #[error("Can't receive message from stream")]
+    CantReceiveMessage,
+}
+
+impl From<StreamError> for Error {
+    fn from(error: StreamError) -> Self {
+        Self::Stream(Box::new(error))
+    }
 }
 
 /// Result type for `Consumer`
@@ -82,10 +98,17 @@ impl Consumer {
         }
     }
 
-    /// Returns mut reference to stored `stream`
+    /// Listen for `Close` message in loop
     ///
-    /// Useful for performing other read/write stuff with `stream`
-    pub fn stream_mut(&mut self) -> &mut WebSocket {
-        &mut self.stream
+    /// # Errors
+    /// Can fail if can't receive message from stream for some reason
+    pub async fn stream_closed(&mut self) -> Result<()> {
+        while let Some(message) = self.stream.try_next().await? {
+            if message.is_close() {
+                return Ok(());
+            }
+            iroha_logger::trace!("Unexpected message received: {:?}", message);
+        }
+        Err(Error::CantReceiveMessage)
     }
 }
