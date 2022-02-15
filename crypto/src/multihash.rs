@@ -94,7 +94,7 @@ pub struct ConvertError {
 }
 
 impl ConvertError {
-    fn new(reason: String) -> Self {
+    const fn new(reason: String) -> Self {
         Self { reason }
     }
 }

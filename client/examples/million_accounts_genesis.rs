@@ -1,9 +1,9 @@
 #![allow(missing_docs, clippy::pedantic, clippy::restriction)]
 
+use iroha::samples::get_config;
 use iroha_core::{
     genesis::{GenesisNetwork, GenesisNetworkTrait, GenesisTransaction, RawGenesisBlock},
     prelude::*,
-    samples::get_config,
 };
 use iroha_data_model::prelude::*;
 use test_network::{get_key_pair, Peer as TestPeer, TestRuntime};

@@ -3,6 +3,7 @@
 //! used in code.
 
 use super::{config::SumeragiConfiguration, *};
+use crate::block::Triggers;
 
 /// Fault injection for consensus tests
 pub trait FaultInjection: Send + Sync + Sized + 'static {
@@ -215,7 +216,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         let txs = self.queue.get_transactions_for_block();
         // TODO: This should properly process triggers
         let trigger_recommendations = Vec::new();
-        if let Err(error) = self.round(txs, ctx).await {
+        if let Err(error) = self.round(txs, trigger_recommendations, ctx).await {
             error!(%error, "Round failed");
         }
     }
@@ -481,7 +482,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             ))
         } else {
             self.validate_and_publish_created_block(
-                PendingBlock::new(transactions).chain_first_with_genesis_topology(genesis_topology),
+                PendingBlock::new(transactions, Vec::new())
+                    .chain_first_with_genesis_topology(genesis_topology),
                 ctx,
             )
             .await
@@ -496,6 +498,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
     pub async fn round(
         &mut self,
         transactions: Vec<VersionedAcceptedTransaction>,
+        trigger_recommendations: Triggers,
         ctx: &mut Context<Self>,
     ) -> Result<()> {
         if transactions.is_empty() {
@@ -503,7 +506,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         }
 
         if Role::Leader == self.topology.role(&self.peer_id) {
-            let block = PendingBlock::new(transactions).chain(
+            let block = PendingBlock::new(transactions, trigger_recommendations).chain(
                 self.block_height,
                 *self.latest_block_hash(),
                 self.view_change_proofs().clone(),

@@ -3,9 +3,11 @@
 use std::thread;
 
 use iroha_client::client::{self, Client};
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::*;
+
+use super::Configuration;
 
 const N_BLOCKS: usize = 510;
 

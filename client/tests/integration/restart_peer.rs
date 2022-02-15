@@ -4,11 +4,13 @@ use std::{str::FromStr, thread, time::Duration};
 
 use eyre::Result;
 use iroha_client::client::{self, Client};
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
 use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
+
+use super::Configuration;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {

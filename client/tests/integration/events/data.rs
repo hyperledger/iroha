@@ -3,11 +3,12 @@
 use std::{sync::mpsc, thread};
 
 use eyre::Result;
-use iroha_core::{config::Configuration, smartcontracts::wasm};
+use iroha_core::smartcontracts::wasm;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use parity_scale_codec::Encode;
 use test_network::{Peer as TestPeer, *};
 
+use super::Configuration;
 use crate::wasm::utils::wasm_template;
 
 fn produce_instructions() -> Vec<Instruction> {

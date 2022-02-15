@@ -1,7 +1,11 @@
 //! Routing functions for Torii. If you want to add an endpoint to
 //! Iroha you should add it here by creating a `handle_*` function,
 //! and add it to impl Torii.
+#[cfg(feature = "telemetry")]
+use iroha_telemetry::metrics::Status;
+
 use super::*;
+use crate::Configuration;
 
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_instructions<W: WorldTrait>(
@@ -101,7 +105,6 @@ async fn handle_post_configuration(
 
     iroha_logger::debug!(?cfg);
     match cfg {
-        // TODO: Now the configuration value and the actual value don't match.
         LogLevel(level) => {
             iroha_cfg.logger.max_log_level.reload(level.into())?;
         }
@@ -162,10 +165,11 @@ async fn stream_blocks<W: WorldTrait>(
 }
 
 mod subscription {
-    //! This module contains `handle_subscription()` function and other stuff for its implementation
+    //! Contains the `handle_subscription` functions and used for general routing.
+
+    use iroha_core::event;
 
     use super::*;
-    use crate::event;
 
     /// Type for any error during subscription handling
     #[derive(thiserror::Error, Debug)]
@@ -241,6 +245,7 @@ mod subscription {
     }
 }
 
+#[cfg(feature = "telemetry")]
 async fn handle_metrics<W: WorldTrait>(
     wsv: Arc<WorldStateView<W>>,
     network: Addr<IrohaNetwork>,
@@ -249,6 +254,7 @@ async fn handle_metrics<W: WorldTrait>(
     wsv.metrics.try_to_string().map_err(Error::Prometheus)
 }
 
+#[cfg(feature = "telemetry")]
 async fn handle_status<W: WorldTrait>(
     wsv: Arc<WorldStateView<W>>,
     network: Addr<IrohaNetwork>,
@@ -258,6 +264,7 @@ async fn handle_status<W: WorldTrait>(
     Ok(reply::json(&status))
 }
 
+#[cfg(feature = "telemetry")]
 async fn update_metrics<W: WorldTrait>(
     wsv: &WorldStateView<W>,
     network: Addr<IrohaNetwork>,
@@ -321,6 +328,7 @@ impl<W: WorldTrait> Torii<W> {
         Err(rejection)
     }
 
+    #[cfg(feature = "telemetry")]
     /// Helper function to create router. This router can tested without starting up an HTTP server
     fn create_telemetry_router(&self) -> impl Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router_status = endpoint2(
@@ -425,6 +433,7 @@ impl<W: WorldTrait> Torii<W> {
     ///
     /// # Errors
     /// Can fail due to listening to network or if http server fails
+    #[cfg(feature = "telemetry")]
     fn start_telemetry(self: Arc<Self>) -> eyre::Result<Vec<tokio::task::JoinHandle<()>>> {
         let telemetry_url = &self.iroha_cfg.torii.telemetry_url;
 
@@ -486,6 +495,7 @@ impl<W: WorldTrait> Torii<W> {
         let mut handles = vec![];
 
         let torii = Arc::new(self);
+        #[cfg(feature = "telemetry")]
         handles.extend(Arc::clone(&torii).start_telemetry()?);
         handles.extend(Arc::clone(&torii).start_api()?);
 

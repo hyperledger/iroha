@@ -4,9 +4,11 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::client::{self, Client};
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {

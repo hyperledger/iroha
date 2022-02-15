@@ -7,22 +7,26 @@
 use std::{path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
+use config::Configuration;
 use iroha_actor::{broker::*, prelude::*};
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
-    config::Configuration,
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     kura::{Kura, KuraTrait},
     prelude::{World, WorldStateView},
     queue::Queue,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{Sumeragi, SumeragiTrait},
-    torii::Torii,
     tx::{PeerId, TransactionValidator},
     wsv::WorldTrait,
     IrohaNetwork,
 };
 use tokio::{sync::broadcast, task::JoinHandle};
+use torii::Torii;
+
+pub mod config;
+pub mod samples;
+pub mod torii;
 
 /// Arguments for Iroha2 - usually parsed from cli.
 #[derive(Debug)]
@@ -85,7 +89,6 @@ where
     S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
-    // TODO: This should be a builder instead.
     /// To make `Iroha` peer work all actors should be started first.
     /// After that moment it you can start it with listening to torii events.
     ///
@@ -93,49 +96,16 @@ where
     /// - Reading genesis from disk
     /// - Reading telemetry configs
     /// - telemetry setup
-    /// - Initialization of sumeragi
+    /// - Initialisation of [`sumeragi`]
     pub async fn new(
         args: &Arguments,
         instruction_validator: IsInstructionAllowedBoxed<K::World>,
         query_validator: IsQueryAllowedBoxed<K::World>,
     ) -> Result<Self> {
         let broker = Broker::new();
-        Self::with_broker(args, instruction_validator, query_validator, broker).await
-    }
-
-    /// Create Iroha with specified broker.
-    ///
-    /// # Errors
-    /// - Reading genesis from disk
-    /// - Reading telemetry configs
-    /// - telemetry setup
-    /// - Initialization of sumeragi
-    pub async fn with_broker(
-        args: &Arguments,
-        instruction_validator: IsInstructionAllowedBoxed<K::World>,
-        query_validator: IsQueryAllowedBoxed<K::World>,
-        broker: Broker,
-    ) -> Result<Self> {
         let mut config = Configuration::from_path(&args.config_path)?;
         config.load_environment()?;
-        Self::with_broker_and_config(args, config, instruction_validator, query_validator, broker)
-            .await
-    }
 
-    /// Creates Iroha with specified broker and custom config that overrides `args`
-    ///
-    /// # Errors
-    /// - Reading genesis from disk
-    /// - Reading telemetry configs
-    /// - telemetry setup
-    /// - Initialization of [`sumeragi`]
-    pub async fn with_broker_and_config(
-        args: &Arguments,
-        config: Configuration,
-        instruction_validator: IsInstructionAllowedBoxed<K::World>,
-        query_validator: IsQueryAllowedBoxed<K::World>,
-        broker: Broker,
-    ) -> Result<Self> {
         let genesis = G::from_configuration(
             args.submit_genesis,
             RawGenesisBlock::from_path(&args.genesis_path)?,
@@ -171,14 +141,11 @@ where
         if !config.disable_panic_terminal_colors {
             color_eyre::install()?;
         }
-        // TODO: use channel for prometheus/telemetry endpoint
-        #[allow(unused)]
         let telemetry = iroha_logger::init(&config.logger)?;
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");
 
         let listen_addr = config.torii.p2p_addr.clone();
         iroha_logger::info!(%listen_addr, "Starting peer");
-        #[allow(clippy::expect_used)]
         let network = IrohaNetwork::new(
             broker.clone(),
             listen_addr,
@@ -214,6 +181,7 @@ where
         let kura = K::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())
             .await?
             .preinit();
+
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
             &config.sumeragi,
             events_sender.clone(),
@@ -230,6 +198,7 @@ where
         .start()
         .await
         .expect_running();
+
         let kura = kura.start().await.expect_running();
         let block_sync = B::from_configuration(
             &config.block_sync,
@@ -250,6 +219,7 @@ where
             events_sender,
             network_addr.clone(),
         );
+
         let torii = Some(torii);
         Ok(Self {
             wsv,
@@ -331,20 +301,19 @@ use std::collections::BTreeMap;
 
 use iroha_data_model::prelude::*;
 
-/// Returns the a map of a form `domain_name -> domain`, for initial domains.
+/// Returns the `domain_name: domain` mapping, for initial domains.
 ///
 /// # Errors
 /// - Genesis account public key not specified.
-pub fn domains(
-    configuration: &iroha_core::config::Configuration,
-) -> Result<BTreeMap<DomainId, Domain>> {
+pub fn domains(configuration: &config::Configuration) -> Result<BTreeMap<DomainId, Domain>> {
     let key = configuration
         .genesis
         .account_public_key
         .clone()
         .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
+    #[allow(clippy::expect_used)]
     Ok(std::iter::once((
-        DomainId::test(GENESIS_DOMAIN_NAME),
+        DomainId::new(GENESIS_DOMAIN_NAME).expect("valid name"),
         Domain::from(GenesisDomain::new(key)),
     ))
     .collect())

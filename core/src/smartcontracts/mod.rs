@@ -1,6 +1,7 @@
-//! Module that opts different smartcontract runtime
-//!
-//! Currently supported only Iroha instructions
+//! Iroha smart contract functionality. Most of the traits mentioned
+//! [`isi`] or Iroha Special Instructions are the main way of
+//! interacting with the [`wsv`], even [`wasm`] based smart-contracts
+//! can only interact with the `world`, via instructions.
 
 pub mod isi;
 pub mod wasm;
@@ -11,12 +12,14 @@ pub use isi::*;
 use crate::wsv::{WorldStateView, WorldTrait};
 
 /// Trait implementations should provide actions to apply changes on [`WorldStateView`].
-#[allow(clippy::missing_errors_doc)]
 pub trait Execute<W: WorldTrait> {
     /// Error type returned by execute function
     type Error: std::error::Error;
 
     /// Apply actions to `wsv` on behalf of `authority`.
+    ///
+    /// # Errors
+    /// Concrete to each implementer.
     fn execute(
         self,
         authority: AccountId,
@@ -25,14 +28,16 @@ pub trait Execute<W: WorldTrait> {
 }
 
 /// Calculate the result of the expression without mutating the state.
-#[allow(clippy::missing_errors_doc)]
 pub trait Evaluate<W: WorldTrait> {
     /// The resulting type of the expression.
     type Value;
     /// Error type returned if the evaluation fails. Typically just [`isi::error::Error`].
     type Error: std::error::Error;
 
-    /// Calculates result.
+    /// Calculate result.
+    ///
+    /// # Errors
+    /// Concrete to each implementer.
     fn evaluate(
         &self,
         wsv: &WorldStateView<W>,
@@ -41,15 +46,20 @@ pub trait Evaluate<W: WorldTrait> {
 }
 
 /// This trait should be implemented for all Iroha Queries.
-#[allow(clippy::missing_errors_doc)]
 pub trait ValidQuery<W: WorldTrait>: Query {
     /// Execute query on the [`WorldStateView`].
     /// Should not mutate [`WorldStateView`]!
     ///
     /// Returns Ok(QueryResult) if succeeded and Err(String) if failed.
+    ///
+    /// # Errors
+    /// Concrete to each implementer
     fn execute(&self, wsv: &WorldStateView<W>) -> eyre::Result<Self::Output, query::Error>;
 
     /// Executes query and maps it into value
+    ///
+    /// # Errors
+    /// Concrete to each implementer
     fn execute_into_value(&self, wsv: &WorldStateView<W>) -> eyre::Result<Value, query::Error> {
         self.execute(wsv).map(Into::into)
     }

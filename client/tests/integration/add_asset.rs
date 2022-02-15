@@ -4,9 +4,10 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_core::config::Configuration;
 use iroha_data_model::{fixed::Fixed, prelude::*};
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {

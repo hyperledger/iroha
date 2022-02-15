@@ -420,6 +420,7 @@ impl DefinitionId {
 
     /// Instantly construct [`Id`] from an asset definition `name` and a `domain_name` assuming these names are valid.
     #[inline]
+    #[cfg(any(test, feature = "cross_crate_testing"))]
     pub fn test(name: &str, domain_name: &str) -> Self {
         Self {
             name: Name::test(name),
@@ -438,8 +439,11 @@ impl Id {
         }
     }
 
-    /// Instantly construct [`Id`] from names which constitute [`DefinitionId`] and [`AccountId`] assuming these names are valid.
+    /// Instantly construct [`Id`] from names which constitute
+    /// [`DefinitionId`] and [`AccountId`] assuming these names are
+    /// valid.
     #[inline]
+    #[cfg(any(test, feature = "cross_crate_testing"))]
     pub fn test(
         asset_definition_name: &str,
         asset_definition_domain_name: &str,

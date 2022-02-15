@@ -106,7 +106,6 @@ pub trait Txn {
     }
 }
 
-// TODO: Reduce after 1858 is closed.
 /// Either ISI or Wasm binary
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum Executable {
@@ -624,7 +623,6 @@ impl std::error::Error for NotPermittedFail {}
 #[display(fmt = "Block was rejected during consensus")]
 pub enum BlockRejectionReason {
     /// Block was rejected during consensus.
-    //TODO: store rejection reasons for blocks?
     ConsensusBlockRejection,
 }
 

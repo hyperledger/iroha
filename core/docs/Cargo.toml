@@ -8,6 +8,7 @@ edition = "2021"
 
 [dependencies]
 iroha_core = { path = "../../core" }
+iroha = { path = "../../cli" }
 iroha_config = { path = "../../config" }
 color-eyre = "0.5.11"
 serde_json = "1"

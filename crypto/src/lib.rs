@@ -145,7 +145,7 @@ impl KeyGenConfiguration {
     }
 
     /// With algorithm
-    pub fn with_algorithm(mut self, algorithm: Algorithm) -> Self {
+    pub const fn with_algorithm(mut self, algorithm: Algorithm) -> Self {
         self.algorithm = algorithm;
         self
     }

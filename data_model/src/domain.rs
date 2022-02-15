@@ -37,8 +37,9 @@ impl GenesisDomain {
 
 impl From<GenesisDomain> for Domain {
     fn from(domain: GenesisDomain) -> Self {
+        #[allow(clippy::expect_used)]
         Self {
-            id: Id::test(GENESIS_DOMAIN_NAME),
+            id: Id::new(GENESIS_DOMAIN_NAME).expect("Programmer error. Should pass verification"),
             accounts: core::iter::once((
                 <Account as Identifiable>::Id::genesis(),
                 GenesisAccount::new(domain.genesis_key).into(),
@@ -93,6 +94,7 @@ impl Domain {
     }
 
     /// Instantly construct [`Domain`] assuming `name` is valid.
+    #[cfg(any(test, feature = "cross_crate_testing"))]
     pub fn test(name: &str) -> Self {
         Self {
             id: Id::test(name),
@@ -104,6 +106,7 @@ impl Domain {
     }
 
     /// Domain constructor with pre-setup accounts. Useful for testing purposes.
+    #[cfg(any(test, feature = "cross_crate_testing"))]
     pub fn with_accounts(name: &str, accounts: impl IntoIterator<Item = Account>) -> Self {
         let accounts_map = accounts
             .into_iter()
@@ -199,13 +202,13 @@ impl AsRef<str> for IpfsPath {
 impl IpfsPath {
     /// Instantly construct [`IpfsPath`] assuming the given `path` is valid.
     #[inline]
-    pub fn test(path: String) -> Self {
+    pub const fn test(path: String) -> Self {
         Self(path)
     }
 
     /// Superficially checks IPFS `cid` (Content Identifier)
     #[inline]
-    fn check_cid(cid: &str) -> Result<(), ParseError> {
+    const fn check_cid(cid: &str) -> Result<(), ParseError> {
         if cid.len() < 2 {
             return Err(ParseError {
                 reason: "IPFS cid is too short",
@@ -250,6 +253,7 @@ impl Id {
 
     /// Instantly construct [`Id`] assuming the given domain `name` is valid.
     #[inline]
+    #[cfg(any(test, feature = "cross_crate_testing"))]
     pub fn test(name: &str) -> Self {
         Self {
             name: Name::test(name),

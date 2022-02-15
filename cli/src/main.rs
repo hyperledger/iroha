@@ -9,13 +9,20 @@ use iroha_permissions_validators::public_blockchain::default_permissions;
 #[tokio::main]
 async fn main() -> Result<(), color_eyre::Report> {
     let mut args = Arguments::default();
-    if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
+    if std::env::args().any(|a| is_help(&a)) {
         print_help();
         return Ok(());
     }
 
-    if std::env::args().any(|arg| arg == "--submit" || arg == "--submit-genesis" || arg == "-s") {
+    if std::env::args().any(|a| is_submit(&a)) {
         args.submit_genesis = true;
+    }
+
+    for arg in std::env::args().skip(1) {
+        if !is_help(&arg) && !is_submit(&arg) {
+            print_help();
+            return Err(eyre::eyre!("Unrecognised command-line flag `{}`", arg));
+        }
     }
 
     if let Ok(config_path) = std::env::var("IROHA2_CONFIG_PATH") {
@@ -33,6 +40,14 @@ async fn main() -> Result<(), color_eyre::Report> {
     Ok(())
 }
 
+fn is_help(arg: &str) -> bool {
+    arg == "--help" || arg == "-h"
+}
+
+fn is_submit(arg: &str) -> bool {
+    arg == "--submit" || arg == "--submit-genesis" || arg == "-s"
+}
+
 #[allow(clippy::print_stdout)]
 fn print_help() {
     println!("Iroha 2");
@@ -43,5 +58,4 @@ fn print_help() {
     println!("    IROHA2_CONFIG_PATH is the location of your `config.json`");
     println!("    IROHA2_GENESIS_PATH is the location of `genesis.json`");
     println!("If either of these is not provided, Iroha checks the current directory.");
-    // TODO: would be nice to be able to provide the configuration environment variables as well.
 }

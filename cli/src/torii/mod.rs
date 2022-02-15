@@ -5,21 +5,9 @@ use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 
 use eyre::{eyre, Context};
 use futures::{stream::FuturesUnordered, StreamExt};
+use iroha_actor::Addr;
 use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
-use iroha_data_model::prelude::*;
-use iroha_telemetry::metrics::Status;
-use serde::Serialize;
-use thiserror::Error;
-use utils::*;
-use warp::{
-    http::StatusCode,
-    reject::Rejection,
-    reply::{self, Json, Response},
-    ws::{WebSocket, Ws},
-    Filter, Reply,
-};
-
-use crate::{
+use iroha_core::{
     block::stream::{
         BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
         VersionedBlockSubscriberMessage,
@@ -33,7 +21,18 @@ use crate::{
     },
     stream::{Sink, Stream},
     wsv::WorldTrait,
-    Addr, Configuration, IrohaNetwork,
+    IrohaNetwork,
+};
+use iroha_data_model::prelude::*;
+use serde::Serialize;
+use thiserror::Error;
+use utils::*;
+use warp::{
+    http::StatusCode,
+    reject::Rejection,
+    reply::{self, Json, Response},
+    ws::{WebSocket, Ws},
+    Filter, Reply,
 };
 
 #[macro_use]
@@ -43,11 +42,12 @@ pub mod routing;
 
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii<W: WorldTrait> {
-    iroha_cfg: Configuration,
+    iroha_cfg: super::Configuration,
     wsv: Arc<WorldStateView<W>>,
     queue: Arc<Queue<W>>,
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
+    #[allow(dead_code)] // False positive with `telemetry` disabled.
     network: Addr<IrohaNetwork>,
 }
 
@@ -81,12 +81,14 @@ pub enum Error {
     /// Failed to push into queue
     #[error("Failed to push into queue")]
     PushIntoQueue(#[source] Box<queue::Error>),
+    #[cfg(feature = "telemetry")]
     /// Error while getting status
     #[error("Failed to get status")]
     Status(#[source] iroha_actor::Error),
     /// Configuration change error.
     #[error("Attempt to change configuration failed. {0}")]
     ConfigurationReload(#[source] iroha_config::runtime_upgrades::ReloadError),
+    #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
     #[error("Failed to produce Prometheus metrics")]
     Prometheus(#[source] eyre::Report),
@@ -96,7 +98,6 @@ impl Reply for Error {
     fn into_response(self) -> Response {
         const fn status_code(err: &Error) -> StatusCode {
             use Error::*;
-
             match err {
                 Query(e) => e.status_code(),
                 VersionedTransaction(_)
@@ -112,6 +113,7 @@ impl Reply for Error {
                     queue::Error::SignatureCondition(_) => StatusCode::UNAUTHORIZED,
                     _ => StatusCode::BAD_REQUEST,
                 },
+                #[cfg(feature = "telemetry")]
                 Prometheus(_) | Status(_) => StatusCode::INTERNAL_SERVER_ERROR,
             }
         }

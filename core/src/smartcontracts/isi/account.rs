@@ -4,7 +4,7 @@
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics;
 
-use crate::prelude::*;
+use crate::{ValidQuery, WorldStateView};
 
 /// All instructions related to accounts:
 /// - minting/burning public key into account signatories

@@ -83,8 +83,9 @@ pub mod isi {
         ) -> Result<Vec<DataEvent>, Self::Error> {
             let domain_id = self.object_id;
 
-            // TODO: Should we fail if no domain found?
-            wsv.domains().remove(&domain_id);
+            if wsv.domains().remove(&domain_id).is_none() {
+                return Err(FindError::Domain(domain_id).into());
+            }
             wsv.metrics.domains.dec();
 
             Ok(vec![DataEvent::new(domain_id, DataStatus::Deleted)])

@@ -3,9 +3,11 @@
 use std::thread;
 
 use iroha_client::client::{account, transaction, Client};
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 fn submit_and_get(
     client: &mut Client,

@@ -26,20 +26,27 @@ const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
 
 fn build_test_transaction(keys: KeyPair) -> Transaction {
     let domain_name = "domain";
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
+        Domain::new(DomainId::new(domain_name).expect("does not panic")).into(),
+    ));
     let account_name = "account";
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(
-            AccountId::test(account_name, domain_name),
+            AccountId::new(account_name, domain_name).expect("does not panic"),
             KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
                 .public_key,
         )
         .into(),
     ));
-    let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true).into(),
+        AssetDefinition::new(
+            asset_definition_id.expect("valid definition id"),
+            AssetValueType::Quantity,
+            true,
+        )
+        .into(),
     ));
     let instructions: Vec<Instruction> = vec![
         create_domain.into(),
@@ -47,7 +54,7 @@ fn build_test_transaction(keys: KeyPair) -> Transaction {
         create_asset.into(),
     ];
     Transaction::new(
-        AccountId::test(START_ACCOUNT, START_DOMAIN),
+        AccountId::new(START_ACCOUNT, START_DOMAIN).expect("valid START ACCOUNT and START_DOMAIN"),
         instructions.into(),
         TRANSACTION_TIME_TO_LIVE_MS,
     )
@@ -113,7 +120,7 @@ fn validate_transaction(criterion: &mut Criterion) {
     )
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
-    let mut failures_count = 0;
+    let mut failure_count = 0;
     let _ = criterion.bench_function("validate", move |b| {
         let transaction_validator = TransactionValidator::new(
             TRANSACTION_LIMITS,
@@ -124,13 +131,13 @@ fn validate_transaction(criterion: &mut Criterion) {
         b.iter(
             || match transaction_validator.validate(transaction.clone(), false) {
                 Ok(_) => success_count += 1,
-                Err(_) => failures_count += 1,
+                Err(_) => failure_count += 1,
             },
         );
     });
     println!(
-        "Success count: {}, Failures count: {}",
-        success_count, failures_count
+        "Success count: {}, Failure count: {}",
+        success_count, failure_count
     );
 }
 

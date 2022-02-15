@@ -6,7 +6,7 @@ use test_network::{wait_for_genesis_committed, Peer as TestPeer};
 
 fn create_million_accounts_directly() {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![test_client.clone()], 0);
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
     for i in 0_u32..1_000_000_u32 {
         let domain_name = format!("wonderland-{}", i);
         let normal_account_id = AccountId::test(&format!("bob-{}", i), &domain_name);

@@ -6,7 +6,6 @@ use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics;
 
 use super::super::isi::prelude::*;
-use crate::prelude::*;
 
 /// ISI module contains all instructions related to domains:
 /// - creating/changing assets

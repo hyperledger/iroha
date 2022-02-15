@@ -59,13 +59,13 @@ pub enum Error {
 struct Validator<'a, W: WorldTrait> {
     /// Number of instructions in the smartcontract
     instruction_count: u64,
-
     /// Max allowed number of instructions in the smartcontract
     max_instruction_count: u64,
-
+    /// If this particular instruction is allowed
     is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
+    /// If this particular query is allowed
     is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
-
+    /// Current [`WorldStateview`]
     wsv: &'a WorldStateView<W>,
 }
 

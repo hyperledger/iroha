@@ -3,9 +3,11 @@
 use std::thread;
 
 use iroha_client::client;
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn client_can_transfer_asset_to_another_account() {

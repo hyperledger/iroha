@@ -3,9 +3,10 @@
 use std::thread;
 
 use iroha_client::client::transaction;
-use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn client_has_rejected_and_acepted_txs_should_return_tx_history() {

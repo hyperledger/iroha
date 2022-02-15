@@ -108,7 +108,7 @@ impl<'a> ChainIterator<'a> {
         }
     }
 
-    fn is_exhausted(&self) -> bool {
+    const fn is_exhausted(&self) -> bool {
         self.pos_front > self.pos_back
     }
 }

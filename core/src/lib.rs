@@ -2,29 +2,25 @@
 
 pub mod block;
 pub mod block_sync;
-pub mod config;
 pub mod event;
 pub mod genesis;
 pub mod kura;
 pub mod modules;
 pub mod queue;
-pub mod samples;
 pub mod smartcontracts;
 pub mod stream;
 pub mod sumeragi;
-pub mod torii;
 pub mod triggers;
 pub mod tx;
 pub mod wsv;
 
 use std::time::Duration;
 
-use iroha_actor::prelude::*;
 use iroha_data_model::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 
 use crate::{
-    block_sync::message::VersionedMessage as BlockSyncMessage, config::Configuration, prelude::*,
+    block_sync::message::VersionedMessage as BlockSyncMessage, prelude::*,
     sumeragi::message::VersionedMessage as SumeragiMessage, wsv::WorldTrait,
 };
 

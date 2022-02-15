@@ -8,12 +8,17 @@ pub mod transfer;
 pub mod unregister;
 
 /// Origin asset id param used in permission tokens.
-pub static ASSET_ID_TOKEN_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::test("asset_id"));
+#[allow(clippy::expect_used)]
+pub static ASSET_ID_TOKEN_PARAM_NAME: Lazy<Name> =
+    Lazy::new(|| Name::new("asset_id").expect("This must never panic"));
+#[allow(clippy::expect_used)]
 /// Origin account id param used in permission tokens.
-pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::test("account_id"));
+pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> =
+    Lazy::new(|| Name::new("account_id").expect("This shall never panic"));
+#[allow(clippy::expect_used)]
 /// Origin asset definition param used in permission tokens.
 pub static ASSET_DEFINITION_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::test("asset_definition_id"));
+    Lazy::new(|| Name::new("asset_definition_id").expect("This should never panic"));
 
 /// A preconfigured set of permissions for simple use cases.
 pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {

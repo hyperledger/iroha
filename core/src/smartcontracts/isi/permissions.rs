@@ -7,10 +7,9 @@ use std::{iter, sync::Arc};
 use eyre::Result;
 use iroha_data_model::{isi::RevokeBox, prelude::*};
 
-use super::prelude::WorldTrait;
 #[cfg(feature = "roles")]
 use super::Evaluate;
-use crate::prelude::*;
+use crate::wsv::{WorldStateView, WorldTrait};
 
 /// Operation for which the permission should be checked.
 pub trait NeedsPermission {}
@@ -504,7 +503,8 @@ impl AllowAll {
     }
 }
 
-/// Disallows all operations to be executed for all possible values. Mostly for tests and simple cases.
+/// Disallows all operations to be executed for all possible
+/// values. Mostly for tests and simple cases.
 #[derive(Debug, Clone, Copy)]
 pub struct DenyAll;
 
@@ -558,12 +558,15 @@ pub type HasTokenBoxed<W> = Box<dyn HasToken<W> + Send + Sync>;
 
 /// Trait that should be implemented by validator that checks the need to have permission token for a certain action.
 pub trait HasToken<W: WorldTrait> {
-    /// This function should return the token that `authority` should possess, given the `instruction`
-    /// they are planning to execute on the current state of `wsv`
+    /// This function should return the token that `authority` should
+    /// possess, given the `instruction` they are planning to execute
+    /// on the current state of `wsv`
     ///
     /// # Errors
-    /// In the case when it is impossible to deduce the required token given current data
-    /// (e.g. unexistent account or unaplicable instruction).
+    ///
+    /// In the case when it is impossible to deduce the required token
+    /// given current data (e.g. unexistent account or unaplicable
+    /// instruction).
     fn token(
         &self,
         authority: &AccountId,

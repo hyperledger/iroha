@@ -1633,14 +1633,26 @@ version = "2.0.0-pre.1"
 dependencies = [
  "color-eyre",
  "eyre",
+ "futures",
+ "hex",
  "iroha_actor",
+ "iroha_config",
  "iroha_core",
+ "iroha_crypto",
  "iroha_data_model",
  "iroha_futures",
  "iroha_logger",
+ "iroha_p2p",
  "iroha_permissions_validators",
  "iroha_telemetry",
+ "iroha_version",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "thiserror",
  "tokio",
+ "unique_port",
+ "warp",
 ]
 
 [[package]]
@@ -1682,6 +1694,7 @@ dependencies = [
  "eyre",
  "hex",
  "http",
+ "iroha",
  "iroha_config",
  "iroha_core",
  "iroha_crypto",
@@ -1811,6 +1824,7 @@ version = "2.0.0-pre.1"
 dependencies = [
  "derive_more",
  "hex-literal",
+ "iroha",
  "iroha_client",
  "iroha_core",
  "iroha_crypto",
@@ -1860,6 +1874,7 @@ name = "iroha_docs"
 version = "2.0.0-pre.1"
 dependencies = [
  "color-eyre",
+ "iroha",
  "iroha_config",
  "iroha_core",
  "serde_json",

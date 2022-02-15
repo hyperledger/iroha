@@ -4,9 +4,10 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()>

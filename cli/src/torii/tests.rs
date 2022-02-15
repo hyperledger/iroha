@@ -1,21 +1,22 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
-use std::time::Duration;
+use std::{collections::BTreeSet, time::Duration};
 
 use futures::future::FutureExt;
 use iroha_actor::{broker::Broker, Actor};
+use iroha_core::{
+    block::{BlockHeader, EmptyChainHash},
+    queue::Queue,
+    smartcontracts::permissions::DenyAll,
+    sumeragi::view_change::ProofChain,
+    wsv::World,
+};
 use iroha_version::prelude::*;
 use tokio::time;
 use warp::test::WsClient;
 
 use super::{routing::*, *};
-use crate::{
-    queue::Queue,
-    samples::{get_config, get_trusted_peers},
-    smartcontracts::permissions::DenyAll,
-    stream::{Sink, Stream},
-    wsv::World,
-};
+use crate::samples::{get_config, get_trusted_peers};
 
 async fn create_torii() -> (Torii<World>, KeyPair) {
     let mut config = get_config(get_trusted_peers(None), None);
@@ -173,7 +174,7 @@ impl AssertReady {
         self
     }
     async fn assert(self) {
-        use crate::smartcontracts::Execute;
+        use iroha_core::smartcontracts::Execute;
 
         let (mut torii, keys) = create_torii().await;
         if self.deny_all {
@@ -237,23 +238,27 @@ const DOMAIN: &str = "desert";
 fn register_domain() -> Instruction {
     Instruction::Register(RegisterBox::new(Domain::test(DOMAIN)))
 }
+
 fn register_account(name: &str) -> Instruction {
     Instruction::Register(RegisterBox::new(NewAccount::with_signatory(
         AccountId::test(name, DOMAIN),
         KeyPair::generate().unwrap().public_key,
     )))
 }
+
 fn register_asset_definition(name: &str) -> Instruction {
     Instruction::Register(RegisterBox::new(AssetDefinition::new_quantity(
         AssetDefinitionId::test(name, DOMAIN),
     )))
 }
+
 fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
     Instruction::Mint(MintBox::new(
         Value::U32(quantity),
         AssetId::test(asset, DOMAIN, account, DOMAIN),
     ))
 }
+
 #[tokio::test]
 async fn find_asset() {
     AssertSet::new()
@@ -270,6 +275,7 @@ async fn find_asset() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn find_asset_with_no_mint() {
     AssertSet::new()
@@ -284,6 +290,7 @@ async fn find_asset_with_no_mint() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn find_asset_with_no_asset_definition() {
     AssertSet::new()
@@ -299,6 +306,7 @@ async fn find_asset_with_no_asset_definition() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn find_asset_with_no_account() {
     AssertSet::new()
@@ -314,6 +322,7 @@ async fn find_asset_with_no_account() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn find_asset_with_no_domain() {
     AssertSet::new()
@@ -329,6 +338,7 @@ async fn find_asset_with_no_domain() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn find_asset_definition() {
     AssertSet::new()
@@ -341,6 +351,7 @@ async fn find_asset_definition() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn find_account() {
     AssertSet::new()
@@ -353,6 +364,7 @@ async fn find_account() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn find_account_with_no_account() {
     AssertSet::new()
@@ -365,6 +377,7 @@ async fn find_account_with_no_account() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn find_account_with_no_domain() {
     AssertSet::new()
@@ -378,6 +391,7 @@ async fn find_account_with_no_domain() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn find_domain() {
     AssertSet::new()
@@ -389,6 +403,7 @@ async fn find_domain() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn find_domain_with_no_domain() {
     AssertSet::new()
@@ -400,9 +415,11 @@ async fn find_domain_with_no_domain() {
         .assert()
         .await
 }
+
 fn query() -> QueryBox {
     QueryBox::FindAccountById(FindAccountById::new(AccountId::test("alice", DOMAIN)))
 }
+
 #[tokio::test]
 async fn query_with_wrong_signatory() {
     AssertSet::new()
@@ -415,6 +432,7 @@ async fn query_with_wrong_signatory() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn query_with_wrong_signature() {
     AssertSet::new()
@@ -427,6 +445,7 @@ async fn query_with_wrong_signature() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn query_with_wrong_signature_and_no_permission() {
     AssertSet::new()
@@ -439,6 +458,7 @@ async fn query_with_wrong_signature_and_no_permission() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn query_with_no_permission() {
     AssertSet::new()
@@ -451,6 +471,7 @@ async fn query_with_no_permission() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn query_with_no_permission_and_no_find() {
     AssertSet::new()
@@ -463,6 +484,7 @@ async fn query_with_no_permission_and_no_find() {
         .assert()
         .await
 }
+
 #[tokio::test]
 async fn query_with_no_find() {
     AssertSet::new()
@@ -475,6 +497,29 @@ async fn query_with_no_find() {
         .assert()
         .await
 }
+
+// THIS SHOULD NOT BE POSSIBLE!!!
+pub fn new_dummy() -> ValidBlock {
+    ValidBlock {
+        header: BlockHeader {
+            timestamp: 0,
+            height: 1,
+            previous_block_hash: EmptyChainHash::default().into(),
+            transactions_hash: EmptyChainHash::default().into(),
+            rejected_transactions_hash: EmptyChainHash::default().into(),
+            view_change_proofs: ProofChain::empty(),
+            invalidated_blocks_hashes: Vec::new(),
+            genesis_topology: None,
+        },
+        rejected_transactions: vec![],
+        transactions: vec![],
+        trigger_recommendations: vec![],
+        signatures: BTreeSet::default(),
+    }
+    .sign(KeyPair::generate().unwrap())
+    .unwrap()
+}
+
 #[tokio::test]
 async fn blocks_stream() {
     const BLOCK_COUNT: usize = 4;
@@ -483,7 +528,7 @@ async fn blocks_stream() {
     let router = torii.create_api_router();
 
     // Initialize blockchain
-    let mut block = ValidBlock::new_dummy().commit();
+    let mut block = new_dummy().commit();
     for i in 1..=BLOCK_COUNT {
         block.header.height = i as u64;
         let block: VersionedCommittedBlock = block.clone().into();
@@ -536,13 +581,9 @@ async fn blocks_stream() {
 
 #[tokio::test]
 async fn test_subscription_websocket_clean_closing() {
-    use iroha_data_model::events::pipeline;
+    use iroha_core::stream::{Sink, Stream};
+    use iroha_data_model::events::{pipeline, EventFilter};
     use warp::filters::ws;
-
-    use crate::{
-        stream::{Sink, Stream},
-        EventFilter,
-    };
 
     let (torii, _) = create_torii().await;
     let router = torii.create_api_router();

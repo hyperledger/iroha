@@ -137,7 +137,7 @@ impl UnsupportedVersion {
     /// Constructs [`UnsupportedVersion`].
     #[must_use]
     #[inline]
-    pub fn new(version: u8, raw: RawVersioned) -> Self {
+    pub const fn new(version: u8, raw: RawVersioned) -> Self {
         Self { version, raw }
     }
 }

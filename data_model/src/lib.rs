@@ -94,13 +94,16 @@ impl Name {
     /// Fails if parsing fails
     #[inline]
     pub fn new(name: &str) -> Result<Self, ParseError> {
-        name.parse::<Self>()
+        Self::from_str(name)
     }
 
     /// Instantly construct [`Name`] assuming `name` is valid.
     #[inline]
     #[allow(clippy::expect_used)]
+    #[cfg(any(test, feature = "cross_crate_testing"))]
     pub fn test(name: &str) -> Self {
+        // I'm not convinced we need these even for testing. Ideally
+        // we should *just* make `Name::new` `const`.
         name.parse::<Self>()
             .expect("Valid names never fail to parse")
     }
@@ -135,15 +138,20 @@ impl AsRef<str> for Name {
 impl FromStr for Name {
     type Err = ParseError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // TODO: This should also prevent '@' and '#' from being added to names.
-        if s.chars().any(char::is_whitespace) {
+    // TODO: This can be made into a constant function eventually.
+    fn from_str(candidate: &str) -> Result<Self, Self::Err> {
+        if candidate.chars().any(char::is_whitespace) {
             return Err(ParseError {
-                reason: "Name must have no white-space",
+                reason: "White space not allowed in `Name` constructs",
             });
         }
-
-        Ok(Self(String::from(s)))
+        if candidate.chars().any(|ch| ch == '@' || ch == '#') {
+            #[allow(clippy::non_ascii_literal)]
+            return Err(ParseError {
+                reason: "The `@` character is reserved for `account@domain` constructs, `#` — for `asset#domain`",
+            });
+        }
+        Ok(Self(String::from(candidate)))
     }
 }
 
@@ -191,7 +199,7 @@ pub struct EnumTryAsError<EXPECTED, GOT> {
 }
 
 impl<EXPECTED, GOT> EnumTryAsError<EXPECTED, GOT> {
-    fn got(got: GOT) -> Self {
+    const fn got(got: GOT) -> Self {
         Self {
             expected: core::marker::PhantomData,
             got,
@@ -767,6 +775,8 @@ pub mod trigger {
         }
 
         /// Unchecked variant of [`Self::new`]. Does not panic on error.
+        #[inline]
+        #[cfg(any(feature = "cross_crate_testing", test))]
         pub fn test(name: &str) -> Self {
             Self {
                 name: Name::test(name),

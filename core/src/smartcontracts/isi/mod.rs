@@ -17,7 +17,10 @@ use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_logger::prelude::*;
 
 use super::{Evaluate, Execute};
-use crate::{prelude::*, wsv::WorldTrait};
+use crate::{
+    prelude::*,
+    wsv::{WorldStateView, WorldTrait},
+};
 
 pub mod error {
     //! Errors used in Iroha special instructions and

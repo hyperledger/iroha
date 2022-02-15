@@ -3,17 +3,18 @@ use std::{fmt::Debug, fs::File, io::BufReader, path::Path};
 
 use eyre::{Result, WrapErr};
 use iroha_config::derive::Configurable;
+use iroha_core::{
+    block_sync::config::BlockSyncConfiguration, genesis::config::GenesisConfiguration,
+    kura::config::KuraConfiguration, queue::Configuration as QueueConfiguration,
+    sumeragi::config::SumeragiConfiguration,
+    wsv::config::Configuration as WorldStateViewConfiguration,
+};
 use iroha_crypto::{PrivateKey, PublicKey};
 use iroha_data_model::prelude::*;
 use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    block_sync::config::BlockSyncConfiguration, genesis::config::GenesisConfiguration,
-    kura::config::KuraConfiguration, queue::Configuration as QueueConfiguration,
-    sumeragi::config::SumeragiConfiguration, torii::config::ToriiConfiguration,
-    wsv::config::Configuration as WorldStateViewConfiguration,
-};
+use super::torii::config::ToriiConfiguration;
 
 /// Configuration parameters container.
 #[derive(Clone, Deserialize, Serialize, Debug, Configurable, Default)]
@@ -130,8 +131,9 @@ mod tests {
 
     use std::collections::HashSet;
 
+    use iroha_core::sumeragi::config::TrustedPeers;
+
     use super::*;
-    use crate::sumeragi::config::TrustedPeers;
 
     const CONFIGURATION_PATH: &str = "../configs/peer/config.json";
 

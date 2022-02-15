@@ -2,9 +2,11 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::*;
+
+use super::Configuration;
 
 #[test]
 fn network_stable_after_add_and_after_remove_peer() -> Result<()> {

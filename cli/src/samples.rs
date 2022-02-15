@@ -2,16 +2,18 @@
 //! This module contains the sample configurations used for testing and benchmarking throghout Iroha.
 use std::{collections::HashSet, str::FromStr};
 
-use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::peer::Id as PeerId;
-
-use crate::{
+use iroha_core::{
     block_sync::config::BlockSyncConfiguration,
-    config::Configuration,
     genesis::config::GenesisConfiguration,
     kura::config::KuraConfiguration,
     queue::Configuration as QueueConfiguration,
     sumeragi::config::{SumeragiConfiguration, TrustedPeers},
+};
+use iroha_crypto::{KeyPair, PublicKey};
+use iroha_data_model::peer::Id as PeerId;
+
+use crate::{
+    config::Configuration,
     torii::config::{ToriiConfiguration, DEFAULT_TORII_P2P_ADDR},
 };
 
@@ -68,7 +70,7 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
         public_key: public_key.clone(),
         private_key: private_key.clone(),
         kura: KuraConfiguration {
-            init_mode: crate::kura::Mode::Strict,
+            init_mode: iroha_core::kura::Mode::Strict,
             block_store_path: "./blocks".into(),
             ..KuraConfiguration::default()
         },

@@ -370,83 +370,51 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::pedantic, clippy::restriction)]
-    pub mod init {
-        use std::collections::BTreeMap;
-
-        use color_eyre::eyre::{eyre, Result};
-        use iroha_data_model::prelude::*;
-
-        /// Returns the a map of a form `domain_name -> domain`, for initial domains.
-        pub fn domains(
-            configuration: &crate::config::Configuration,
-        ) -> Result<BTreeMap<DomainId, Domain>> {
-            let key = configuration
-                .genesis
-                .account_public_key
-                .clone()
-                .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
-            Ok(std::iter::once((
-                DomainId::test(GENESIS_DOMAIN_NAME),
-                Domain::from(GenesisDomain::new(key)),
-            ))
-            .collect())
-        }
-    }
-
-    use std::collections::BTreeSet;
 
     use eyre::Result;
-    use iroha_data_model::{
-        account::GENESIS_ACCOUNT_NAME, domain::GENESIS_DOMAIN_NAME,
-        transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
-    };
+    use iroha_data_model::transaction::DEFAULT_MAX_INSTRUCTION_NUMBER;
 
     use super::*;
-    use crate::{
-        samples::{get_config, get_trusted_peers},
-        smartcontracts::permissions::AllowAll,
-        wsv::World,
-    };
 
-    #[test]
-    fn hash_should_be_the_same() {
-        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
-        let mut config = get_config(
-            get_trusted_peers(Some(&key_pair.public_key)),
-            Some(key_pair.clone()),
-        );
-        config.genesis.account_private_key = Some(key_pair.private_key.clone());
-        config.genesis.account_public_key = Some(key_pair.public_key.clone());
+    // #[test]
+    // fn hash_should_be_the_same() {
+    //     let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
+    //     let mut config = get_config(
+    //         get_trusted_peers(Some(&key_pair.public_key)),
+    //         Some(key_pair.clone()),
+    //     );
+    //     config.genesis.account_private_key = Some(key_pair.private_key.clone());
+    //     config.genesis.account_public_key = Some(key_pair.public_key.clone());
 
-        let tx = Transaction::new(
-            AccountId::test(GENESIS_ACCOUNT_NAME, GENESIS_DOMAIN_NAME),
-            Vec::<Instruction>::new().into(),
-            1000,
-        );
-        let tx_hash = tx.hash();
+    //     let tx = Transaction::new(
+    //         AccountId::test(GENESIS_ACCOUNT_NAME, GENESIS_DOMAIN_NAME),
+    //         Vec::<Instruction>::new().into(),
+    //         1000,
+    //     );
+    //     let tx_hash = tx.hash();
 
-        let signed_tx = tx.sign(key_pair).expect("Failed to sign.");
-        let signed_tx_hash = signed_tx.hash();
-        let tx_limits = TransactionLimits {
-            max_instruction_number: 4096,
-            max_wasm_size_bytes: 0,
-        };
-        let accepted_tx = AcceptedTransaction::from_transaction(signed_tx, &tx_limits)
-            .expect("Failed to accept.");
-        let accepted_tx_hash = accepted_tx.hash();
-        let wsv = Arc::new(WorldStateView::new(World::with(
-            init::domains(&config).unwrap(),
-            BTreeSet::new(),
-        )));
-        let valid_tx_hash =
-            TransactionValidator::new(tx_limits, AllowAll::new(), AllowAll::new(), wsv)
-                .validate(accepted_tx, true)
-                .expect("Failed to validate.")
-                .hash();
-        assert_eq!(tx_hash, signed_tx_hash);
-        assert_eq!(tx_hash, accepted_tx_hash);
-        assert_eq!(tx_hash, valid_tx_hash.transmute());
-    }
+    //     let signed_tx = tx.sign(key_pair).expect("Failed to sign.");
+    //     let signed_tx_hash = signed_tx.hash();
+    //     let tx_limits = TransactionLimits {
+    //         max_instruction_number: 4096,
+    //         max_wasm_size_bytes: 0,
+    //     };
+    //     let accepted_tx = AcceptedTransaction::from_transaction(signed_tx, &tx_limits)
+    //         .expect("Failed to accept.");
+    //     let accepted_tx_hash = accepted_tx.hash();
+    //     let wsv = Arc::new(WorldStateView::new(World::with(
+    //         domains(&config).unwrap(),
+    //         BTreeSet::new(),
+    //     )));
+    //     let valid_tx_hash =
+    //         TransactionValidator::new(tx_limits, AllowAll::new(), AllowAll::new(), wsv)
+    //             .validate(accepted_tx, true)
+    //             .expect("Failed to validate.")
+    //             .hash();
+    //     assert_eq!(tx_hash, signed_tx_hash);
+    //     assert_eq!(tx_hash, accepted_tx_hash);
+    //     assert_eq!(tx_hash, valid_tx_hash.transmute());
+    // }
 
     #[test]
     fn transaction_not_accepted_max_instruction_number() {

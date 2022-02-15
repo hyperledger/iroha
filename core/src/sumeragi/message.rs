@@ -238,7 +238,10 @@ pub struct ViewChangeSuggested {
 
 impl ViewChangeSuggested {
     /// Constructor.
-    pub fn new(proof: view_change::Proof, chain: view_change::ProofChain) -> ViewChangeSuggested {
+    pub const fn new(
+        proof: view_change::Proof,
+        chain: view_change::ProofChain,
+    ) -> ViewChangeSuggested {
         Self { proof, chain }
     }
 

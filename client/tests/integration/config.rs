@@ -1,7 +1,8 @@
 #![allow(clippy::restriction)]
 
-use iroha_core::config::Configuration;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn get_config() {

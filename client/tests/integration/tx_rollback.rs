@@ -3,9 +3,10 @@
 use std::thread;
 
 use iroha_client::client;
-use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() {

@@ -43,17 +43,19 @@ const ID: &str = "id";
 const NAME: &str = "name";
 const DURATION: &str = "duration";
 
-/// Error which happends during conversion from telemetry
+/// Telemetry conversion error
 #[derive(Debug, Clone, Copy)]
-pub struct FromTelemetryError;
+pub struct TelemetryConversionError;
 
 impl TryFrom<&Telemetry> for FuturePollTelemetry {
-    type Error = FromTelemetryError;
+    type Error = TelemetryConversionError;
 
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
-    fn try_from(Telemetry { target, fields }: &Telemetry) -> Result<Self, FromTelemetryError> {
+    fn try_from(
+        Telemetry { target, fields }: &Telemetry,
+    ) -> Result<Self, TelemetryConversionError> {
         if target != &"iroha_futures" && fields.len() != 3 {
-            return Err(FromTelemetryError);
+            return Err(TelemetryConversionError);
         }
 
         let TelemetryFields(fields) = fields;
@@ -68,7 +70,7 @@ impl TryFrom<&Telemetry> for FuturePollTelemetry {
                 (DURATION, Value::Number(duration_value)) if duration.is_none() => {
                     duration = Some(Duration::from_nanos(duration_value.as_u64().unwrap()))
                 }
-                _ => return Err(FromTelemetryError),
+                _ => return Err(TelemetryConversionError),
             }
         }
 
@@ -81,12 +83,12 @@ impl TryFrom<&Telemetry> for FuturePollTelemetry {
 }
 
 impl TryFrom<Telemetry> for FuturePollTelemetry {
-    type Error = FromTelemetryError;
+    type Error = TelemetryConversionError;
 
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
-    fn try_from(Telemetry { target, fields }: Telemetry) -> Result<Self, FromTelemetryError> {
+    fn try_from(Telemetry { target, fields }: Telemetry) -> Result<Self, TelemetryConversionError> {
         if target != "iroha_futures" && fields.len() != 3 {
-            return Err(FromTelemetryError);
+            return Err(TelemetryConversionError);
         }
 
         let TelemetryFields(fields) = fields;
@@ -101,7 +103,7 @@ impl TryFrom<Telemetry> for FuturePollTelemetry {
                 (DURATION, Value::Number(duration_value)) if duration.is_none() => {
                     duration = Some(Duration::from_nanos(duration_value.as_u64().unwrap()))
                 }
-                _ => return Err(FromTelemetryError),
+                _ => return Err(TelemetryConversionError),
             }
         }
 

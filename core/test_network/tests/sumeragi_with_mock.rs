@@ -42,6 +42,7 @@ pub mod utils {
 
         impl Deref for NoGenesis {
             type Target = Vec<VersionedAcceptedTransaction>;
+
             fn deref(&self) -> &Self::Target {
                 unreachable!()
             }
@@ -239,15 +240,17 @@ pub mod utils {
             }
         }
 
-        pub static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
-        pub static ALICE_ID: Lazy<AccountId> = Lazy::new(|| AccountId::test("alice", "wonderland"));
+        pub static ALICE_KEYS: Lazy<KeyPair> =
+            Lazy::new(|| KeyPair::generate().expect("doesn't fail"));
+        pub static ALICE_ID: Lazy<AccountId> =
+            Lazy::new(|| AccountId::new("alice", "wonderland").expect("valid account name."));
         pub static ALICE: Lazy<Account> = Lazy::new(|| {
             let mut account = Account::new(ALICE_ID.clone());
             account.signatories.push(ALICE_KEYS.public_key.clone());
             account
         });
         pub static WONDERLAND: Lazy<Domain> = Lazy::new(|| {
-            let mut domain = Domain::test("wonderland");
+            let mut domain = Domain::new(DomainId::new("wonderland").expect("valid domain name"));
             domain.accounts.insert(ALICE_ID.clone(), ALICE.clone());
             domain
         });
@@ -271,12 +274,12 @@ pub mod utils {
             let instructions: Vec<_> = isi.into_iter().collect();
             let tx = Transaction::new(ALICE_ID.clone(), instructions.into(), 100_000)
                 .sign(ALICE_KEYS.clone())
-                .unwrap();
+                .expect("Sign shall not fail");
             let tx_limits = TransactionLimits {
                 max_instruction_number: 4096,
                 max_wasm_size_bytes: 0,
             };
-            VersionedAcceptedTransaction::from_transaction(tx, &tx_limits).unwrap()
+            VersionedAcceptedTransaction::from_transaction(tx, &tx_limits).expect("is valid")
         }
     }
 }
@@ -291,7 +294,10 @@ where
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
     for peer in network.peers() {
-        assert_eq!(peer.iroha.as_ref().unwrap().wsv.height(), n_blocks as u64)
+        assert_eq!(
+            peer.iroha.as_ref().expect("Iroha initialised").wsv.height(),
+            n_blocks as u64
+        )
     }
 }
 
@@ -310,9 +316,14 @@ where
     let (_, peer) = leader
         .into_iter()
         .find(|(leader, _)| if to_leader { *leader } else { !*leader })
-        .unwrap();
-    let peer = network.peer_by_id(&peer).unwrap();
-    peer.iroha.as_ref().unwrap().queue.push(tx).unwrap();
+        .expect("guaranteed one leader");
+    let peer = network.peer_by_id(&peer).expect("guaranteed, leader");
+    peer.iroha
+        .as_ref()
+        .expect("Iroha initialised")
+        .queue
+        .push(tx)
+        .expect("queue is not full, and tx is correctly formed");
 }
 
 async fn put_tx_in_queue_to_all<W, G, S, K, B>(network: &Network<W, G, K, S, B>)
@@ -325,7 +336,12 @@ where
 {
     let tx = world::sign_tx(vec![]);
     for peer in network.peers() {
-        peer.iroha.as_ref().unwrap().queue.push(tx.clone()).unwrap();
+        peer.iroha
+            .as_ref()
+            .expect("Iroha initialised")
+            .queue
+            .push(tx.clone())
+            .expect("queue is not full, and tx is correctly formed");
     }
 }
 
@@ -340,7 +356,7 @@ where
     for peer in network.peers() {
         peer.iroha
             .as_ref()
-            .unwrap()
+            .expect("Iroha initialised")
             .sumeragi
             .do_send(RetrieveTransactions)
             .await;
@@ -350,7 +366,7 @@ where
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn all_peers_commit_block() {
-    iroha_logger::install_panic_hook().unwrap();
+    iroha_logger::install_panic_hook().expect("first installation");
     let (network, _) = <Network<
         world::WithAlice,
         genesis::NoGenesis,
@@ -371,7 +387,7 @@ async fn all_peers_commit_block() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn change_view_on_commit_timeout() {
-    iroha_logger::install_panic_hook().unwrap();
+    iroha_logger::install_panic_hook().expect("first installation");
     let (network, _) = <Network<
         world::WithAlice,
         genesis::NoGenesis,
@@ -412,7 +428,7 @@ async fn change_view_on_commit_timeout() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn change_view_on_tx_receipt_timeout() {
-    iroha_logger::install_panic_hook().unwrap();
+    iroha_logger::install_panic_hook().expect("first installation");
     let (network, _) = <Network<
         world::WithAlice,
         genesis::NoGenesis,
@@ -427,7 +443,12 @@ async fn change_view_on_tx_receipt_timeout() {
 
     // Let peers gossip tx.
     for peer in network.peers() {
-        peer.iroha.as_ref().unwrap().sumeragi.do_send(Gossip).await;
+        peer.iroha
+            .as_ref()
+            .expect("Iroha initialised")
+            .sumeragi
+            .do_send(Gossip)
+            .await;
     }
 
     // Wait while tx is gossiped
@@ -437,7 +458,7 @@ async fn change_view_on_tx_receipt_timeout() {
     for peer in network.peers() {
         peer.iroha
             .as_ref()
-            .unwrap()
+            .expect("Iroha initialised")
             .sumeragi
             .do_send(RetrieveTransactions)
             .await;
@@ -461,7 +482,7 @@ async fn change_view_on_tx_receipt_timeout() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn change_view_on_block_creation_timeout() {
-    iroha_logger::install_panic_hook().unwrap();
+    iroha_logger::install_panic_hook().expect("first installation");
     let (network, _) = <Network<
         world::WithAlice,
         genesis::NoGenesis,
@@ -493,7 +514,7 @@ async fn change_view_on_block_creation_timeout() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "mock"]
 async fn not_enough_votes() {
-    iroha_logger::install_panic_hook().unwrap();
+    iroha_logger::install_panic_hook().expect("first installation");
     let (network, _) = <Network<
         world::WithAlice,
         genesis::NoGenesis,

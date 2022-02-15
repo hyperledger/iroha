@@ -7,9 +7,10 @@ use std::{
 
 use eyre::Result;
 use iroha_client::client::Client;
-use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
 use test_network::*;
+
+use super::Configuration;
 
 const PEER_COUNT: usize = 7;
 

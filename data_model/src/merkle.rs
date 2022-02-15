@@ -151,7 +151,7 @@ impl<T> Node<T> {
     }
 
     /// Return the `Hash` of the root node.
-    pub fn hash(&self) -> HashOf<Self> {
+    pub const fn hash(&self) -> HashOf<Self> {
         match self {
             Node::Subtree(Subtree { hash, .. }) => *hash,
             Node::Leaf(Leaf { hash }) => (*hash).transmute(),

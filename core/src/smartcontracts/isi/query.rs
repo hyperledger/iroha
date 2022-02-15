@@ -1,4 +1,7 @@
-//! Query related Iroha functionality.
+//! Query functionality. This module defines the
+//! `VerifiedQueryRequest`, which is the only kind of query that is
+//! permitted to execute.  The common error type is also defined here,
+//! alongside functions for converting them into HTTP responses.
 
 use std::{error::Error as StdError, fmt};
 
@@ -16,7 +19,7 @@ use warp::{
 };
 
 use super::{permissions::IsQueryAllowedBoxed, FindError};
-use crate::{prelude::*, WorldTrait};
+use crate::{prelude::ValidQuery, WorldStateView, WorldTrait};
 
 /// Query Request verified on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
@@ -28,7 +31,7 @@ pub struct VerifiedQueryRequest {
 }
 
 impl VerifiedQueryRequest {
-    /// Statefully validate query.
+    /// Validate query.
     ///
     /// # Errors
     /// if:
@@ -166,10 +169,12 @@ impl Reply for Error {
         reply::with_status(self.to_string(), self.status_code()).into_response()
     }
 }
+
 impl warp::reject::Reject for Error {}
 
 impl TryFrom<&Bytes> for VerifiedQueryRequest {
     type Error = Error;
+
     fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
         let query = VersionedSignedQueryRequest::decode_versioned(body.as_ref())
             .map_err(|e| Error::Decode(Box::new(e)))?;
@@ -221,12 +226,15 @@ mod tests {
 
     use std::sync::Arc;
 
-    use iroha_crypto::KeyPair;
+    use iroha_crypto::{Hash, KeyPair};
     use iroha_data_model::transaction::TransactionLimits;
     use once_cell::sync::Lazy;
 
     use super::*;
-    use crate::{tx::TransactionValidator, wsv::World, DomainsMap, PeersIds};
+    use crate::{
+        block::PendingBlock, prelude::AllowAll, tx::TransactionValidator, wsv::World, DomainsMap,
+        PeersIds,
+    };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> = Lazy::new(|| AccountId::test("alice", "wonderland"));
@@ -305,7 +313,8 @@ mod tests {
             max_wasm_size_bytes: 0,
         };
 
-        let va_tx = VersionedAcceptedTransaction::from_transaction(signed_tx.clone(), &tx_limits)?;
+        let va_tx =
+            crate::VersionedAcceptedTransaction::from_transaction(signed_tx.clone(), &tx_limits)?;
 
         let mut block = PendingBlock::new(Vec::new(), Vec::new());
         block.transactions.push(va_tx.clone());

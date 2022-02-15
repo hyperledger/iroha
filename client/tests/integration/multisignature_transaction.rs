@@ -6,9 +6,11 @@ use iroha_client::{
     client::{self, Client},
     config::Configuration as ClientConfiguration,
 };
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::{account::TRANSACTION_SIGNATORIES_VALUE, prelude::*};
 use test_network::*;
+
+use super::Configuration;
 
 #[allow(clippy::too_many_lines)]
 #[test]
