@@ -323,11 +323,9 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
                 .map_err(|error| Trap::new(error.to_string()))?;
         }
 
-        let events = instruction
+        instruction
             .execute(account_id, caller.data().wsv)
             .map_err(|error| Trap::new(error.to_string()))?;
-
-        caller.data().wsv.produce_events(events);
 
         Ok(())
     }

@@ -1,5 +1,4 @@
 //! This module contains [`Domain`] structure and related implementations and trait implementations.
-use std::collections::btree_map::Entry;
 
 use eyre::Result;
 use iroha_data_model::prelude::*;
@@ -23,35 +22,11 @@ pub mod isi {
         #[metrics(+"register_account")]
         fn execute(
             self,
-            _authority: <NewAccount as Identifiable>::Id,
+            authority: <NewAccount as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let account = self.object;
-            let account_id = account.id.clone();
-
-            account
-                .id
-                .name
-                .validate_len(wsv.config.ident_length_limits)
-                .map_err(Error::Validate)?;
-
-            match wsv
-                .domain_mut(&account_id.domain_id)?
-                .accounts
-                .entry(account_id.clone())
-            {
-                Entry::Occupied(_) => {
-                    return Err(Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::AccountId(account_id),
-                    ))
-                }
-                Entry::Vacant(entry) => {
-                    let _ = entry.insert(account.into());
-                }
-            }
-
-            Ok(vec![DataEvent::new(account_id, DataStatus::Created)])
+            wsv.register(account, authority)
         }
     }
 
@@ -63,14 +38,9 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let account_id = self.object_id;
-
-            wsv.domain_mut(&account_id.domain_id)?
-                .accounts
-                .remove(&account_id);
-
-            Ok(vec![DataEvent::new(account_id, DataStatus::Deleted)])
+            wsv.unregister::<NewAccount>(account_id)
         }
     }
 
@@ -82,31 +52,9 @@ pub mod isi {
             self,
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            let asset_definition = self.object.clone();
-            asset_definition
-                .id
-                .name
-                .validate_len(wsv.config.ident_length_limits)
-                .map_err(Error::Validate)?;
-            let domain_id = asset_definition.id.domain_id.clone();
-            let mut domain = wsv.domain_mut(&domain_id)?;
-            match domain.asset_definitions.entry(asset_definition.id.clone()) {
-                Entry::Vacant(entry) => {
-                    let _ = entry.insert(AssetDefinitionEntry {
-                        definition: asset_definition,
-                        registered_by: authority,
-                    });
-                }
-                Entry::Occupied(entry) => {
-                    return Err(Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::AccountId(entry.get().registered_by.clone()),
-                    ))
-                }
-            }
-
-            Ok(vec![DataEvent::new(self.object.id, DataStatus::Created)])
+        ) -> Result<(), Self::Error> {
+            let asset_definition = self.object;
+            wsv.register(asset_definition, authority)
         }
     }
 
@@ -118,30 +66,9 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
-
-            wsv.domain_mut(&asset_definition_id.domain_id)?
-                .asset_definitions
-                .remove(&asset_definition_id);
-            for mut domain in wsv.domains().iter_mut() {
-                for account in domain.accounts.values_mut() {
-                    let keys = account
-                        .assets
-                        .iter()
-                        .filter(|(asset_id, _asset)| asset_id.definition_id == asset_definition_id)
-                        .map(|(asset_id, _asset)| asset_id.clone())
-                        .collect::<Vec<_>>();
-                    for id in &keys {
-                        account.assets.remove(id);
-                    }
-                }
-            }
-
-            Ok(vec![DataEvent::new(
-                asset_definition_id,
-                DataStatus::Deleted,
-            )])
+            wsv.unregister::<AssetDefinition>(asset_definition_id)
         }
     }
 
@@ -153,22 +80,24 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
             let metadata_limits = wsv.config.asset_definition_metadata_limits;
             wsv.modify_asset_definition_entry(&asset_definition_id, |asset_definition_entry| {
-                asset_definition_entry
-                    .definition
-                    .metadata
-                    .insert_with_limits(self.key, self.value, metadata_limits)?;
-                Ok(())
-            })?;
+                let asset_definition = &mut asset_definition_entry.definition;
 
-            Ok(vec![DataEvent::new(
-                asset_definition_id,
-                MetadataUpdated::Inserted,
-            )])
+                asset_definition.metadata.insert_with_limits(
+                    self.key,
+                    self.value,
+                    metadata_limits,
+                )?;
+
+                Ok(DataEvent::new(
+                    asset_definition_id.clone(),
+                    MetadataUpdated::Inserted,
+                ))
+            })
         }
     }
 
@@ -180,22 +109,22 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
 
             wsv.modify_asset_definition_entry(&asset_definition_id, |asset_definition_entry| {
-                asset_definition_entry
-                    .definition
+                let asset_definition = &mut asset_definition_entry.definition;
+
+                asset_definition
                     .metadata
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                asset_definition_id,
-                MetadataUpdated::Removed,
-            )])
+                Ok(DataEvent::new(
+                    asset_definition_id.clone(),
+                    MetadataUpdated::Removed,
+                ))
+            })
         }
     }
 
@@ -207,18 +136,18 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
 
-            let limits = wsv.config.domain_metadata_limits;
             wsv.modify_domain(&domain_id, |domain| {
+                let limits = wsv.config.domain_metadata_limits;
+
                 domain
                     .metadata
                     .insert_with_limits(self.key, self.value, limits)?;
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(domain_id, MetadataUpdated::Inserted)])
+                Ok(DataEvent::new(domain_id.clone(), MetadataUpdated::Inserted))
+            })
         }
     }
 
@@ -230,7 +159,7 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
 
             wsv.modify_domain(&domain_id, |domain| {
@@ -238,10 +167,9 @@ pub mod isi {
                     .metadata
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(domain_id, MetadataUpdated::Removed)])
+                Ok(DataEvent::new(domain_id.clone(), MetadataUpdated::Removed))
+            })
         }
     }
 }

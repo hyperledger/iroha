@@ -23,18 +23,18 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
+            let account_id = self.destination_id;
             let public_key = self.object;
 
-            wsv.modify_account(&self.destination_id, |account| {
+            wsv.modify_account(&account_id, |account| {
                 account.signatories.push(public_key);
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                Updated::Authentication,
-            )])
+                Ok(Some(DataEvent::new(
+                    account_id.clone(),
+                    Updated::Authentication,
+                )))
+            })
         }
     }
 
@@ -46,18 +46,18 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
+            let account_id = self.destination_id;
             let signature_check_condition = self.object;
 
-            wsv.modify_account(&self.destination_id, |account| {
+            wsv.modify_account(&account_id, |account| {
                 account.signature_check_condition = signature_check_condition;
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                Updated::Authentication,
-            )])
+                Ok(Some(DataEvent::new(
+                    account_id.clone(),
+                    Updated::Authentication,
+                )))
+            })
         }
     }
 
@@ -69,10 +69,11 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
+            let account_id = self.destination_id;
             let public_key = &self.object;
 
-            wsv.modify_account(&self.destination_id, |account| {
+            wsv.modify_account(&account_id, |account| {
                 if account.signatories.len() < 2 {
                     return Err(Self::Error::Validate(ValidationError::new(
                         "Public keys cannot be burned to nothing. If you want to delete the account, please use an unregister instruction.",
@@ -85,13 +86,12 @@ pub mod isi {
                 {
                     account.signatories.remove(index);
                 }
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                Updated::Authentication,
-            )])
+                Ok(Some(DataEvent::new(
+                    account_id.clone(),
+                    Updated::Authentication,
+                )))
+            })
         }
     }
 
@@ -103,22 +103,23 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            let account_metadata_limits = wsv.config.account_metadata_limits;
+        ) -> Result<(), Self::Error> {
+            let account_id = self.object_id;
 
-            wsv.modify_account(&self.object_id, |account| {
+            wsv.modify_account(&account_id, |account| {
+                let account_metadata_limits = wsv.config.account_metadata_limits;
+
                 account.metadata.insert_with_limits(
                     self.key,
                     self.value,
                     account_metadata_limits,
                 )?;
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.object_id,
-                MetadataUpdated::Inserted,
-            )])
+                Ok(Some(DataEvent::new(
+                    account_id.clone(),
+                    MetadataUpdated::Inserted,
+                )))
+            })
         }
     }
 
@@ -130,19 +131,20 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            wsv.modify_account(&self.object_id, |account| {
+        ) -> Result<(), Self::Error> {
+            let account_id = self.object_id;
+
+            wsv.modify_account(&account_id, |account| {
                 account
                     .metadata
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.object_id,
-                MetadataUpdated::Removed,
-            )])
+                Ok(Some(DataEvent::new(
+                    account_id.clone(),
+                    MetadataUpdated::Removed,
+                )))
+            })
         }
     }
 
@@ -154,18 +156,18 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
+            let account_id = self.destination_id;
             let permission = self.object;
 
-            wsv.modify_account(&self.destination_id, |account| {
+            wsv.modify_account(&account_id, |account| {
                 let _ = account.permission_tokens.insert(permission);
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                Updated::Permission,
-            )])
+                Ok(Some(DataEvent::new(
+                    account_id.clone(),
+                    Updated::Permission,
+                )))
+            })
         }
     }
 
@@ -177,18 +179,18 @@ pub mod isi {
             self,
             _authority: AccountId,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
+            let account_id = self.destination_id;
             let permission = &self.object;
 
-            wsv.modify_account(&self.destination_id, |account| {
+            wsv.modify_account(&account_id, |account| {
                 let _ = account.permission_tokens.remove(permission);
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                Updated::Permission,
-            )])
+                Ok(Some(DataEvent::new(
+                    account_id.clone(),
+                    Updated::Permission,
+                )))
+            })
         }
     }
 
@@ -201,7 +203,7 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let role = self.object;
 
             wsv.world()
@@ -211,13 +213,12 @@ pub mod isi {
 
             wsv.modify_account(&self.destination_id, |account| {
                 let _ = account.roles.insert(role);
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                Updated::Permission,
-            )])
+                Ok(Some(DataEvent::new(
+                    self.destination_id,
+                    Updated::Permission,
+                )))
+            })
         }
     }
 
@@ -230,7 +231,7 @@ pub mod isi {
             self,
             _authority: AccountId,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let role = self.object;
 
             wsv.world()
@@ -240,13 +241,12 @@ pub mod isi {
 
             wsv.modify_account(&self.destination_id, |account| {
                 let _ = account.roles.remove(&role);
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                Updated::Permission,
-            )])
+                Ok(Some(DataEvent::new(
+                    self.destination_id,
+                    Updated::Permission,
+                )))
+            })
         }
     }
 }

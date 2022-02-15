@@ -17,17 +17,11 @@ pub mod isi {
         #[metrics(+"register_peer")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            if wsv.trusted_peers_ids().insert(self.object.id.clone()) {
-                Ok(vec![DataEvent::new(self.object.id, DataStatus::Created)])
-            } else {
-                Err(Error::Repetition(
-                    InstructionType::Register,
-                    IdBox::PeerId(self.object.id),
-                ))
-            }
+        ) -> Result<(), Self::Error> {
+            let peer = self.object;
+            wsv.register(peer, authority)
         }
     }
 
@@ -39,12 +33,9 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            if wsv.trusted_peers_ids().remove(&self.object_id).is_some() {
-                Ok(vec![DataEvent::new(self.object_id, DataStatus::Deleted)])
-            } else {
-                Err(FindError::Peer(self.object_id).into())
-            }
+        ) -> Result<(), Self::Error> {
+            let peer_id = self.object_id;
+            wsv.unregister::<Peer>(peer_id)
         }
     }
 
@@ -54,21 +45,11 @@ pub mod isi {
         #[metrics("register_domain")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            let domain_id = self.object.id.clone();
+        ) -> Result<(), Self::Error> {
             let domain = self.object;
-
-            domain
-                .id
-                .name
-                .validate_len(wsv.config.ident_length_limits)
-                .map_err(Error::Validate)?;
-            wsv.domains().insert(domain_id.clone(), domain);
-            wsv.metrics.domains.inc();
-
-            Ok(vec![DataEvent::new(domain_id, DataStatus::Created)])
+            wsv.register(domain, authority)
         }
     }
 
@@ -80,14 +61,9 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
-
-            // TODO: Should we fail if no domain found?
-            wsv.domains().remove(&domain_id);
-            wsv.metrics.domains.dec();
-
-            Ok(vec![DataEvent::new(domain_id, DataStatus::Deleted)])
+            wsv.unregister::<Domain>(domain_id)
         }
     }
 
@@ -98,14 +74,11 @@ pub mod isi {
         #[metrics(+"register_role")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let role = self.object;
-            let role_id = role.id.clone();
-
-            wsv.world.roles.insert(role_id.clone(), role);
-            Ok(vec![DataEvent::new(role_id, DataStatus::Created)])
+            wsv.register(role.authority)
         }
     }
 
@@ -118,17 +91,9 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let role_id = self.object_id;
-
-            wsv.world.roles.remove(&role_id);
-            for mut domain in wsv.domains().iter_mut() {
-                for account in domain.accounts.values_mut() {
-                    let _ = account.roles.remove(&role_id);
-                }
-            }
-
-            Ok(vec![DataEvent::new(role_id, DataStatus::Deleted)])
+            wsv.unregister::<Role>(role_id)
         }
     }
 }

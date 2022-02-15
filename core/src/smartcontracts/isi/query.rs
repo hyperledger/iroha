@@ -266,7 +266,15 @@ mod tests {
                 MetadataLimits::new(10, 100),
             )
             .unwrap();
-        wsv.add_asset(Asset::new(asset_id.clone(), AssetValue::Store(store)))?;
+
+        let asset = Asset::new(asset_id.clone(), AssetValue::Store(store));
+        let id = asset.id.account_id.clone();
+        wsv.modify_account(&id, move |account| {
+            account.assets.insert(asset.id.clone(), asset);
+            Ok(None)
+        })
+        .unwrap();
+
         let bytes =
             FindAssetKeyValueByIdAndKey::new(asset_id, Name::test("Bytes")).execute(&wsv)?;
         assert_eq!(
@@ -285,7 +293,10 @@ mod tests {
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             )?;
-            Ok(())
+            Ok(Some(DataEvent::new(
+                account.id.clone(),
+                MetadataUpdated::Inserted,
+            )))
         })?;
         let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::test("Bytes"))
             .execute(&wsv)?;
@@ -350,7 +361,7 @@ mod tests {
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             )?;
-            Ok(())
+            Ok(DataEvent::new(domain_id.clone(), MetadataUpdated::Inserted))
         })?;
         let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&wsv)?;
         assert_eq!(
