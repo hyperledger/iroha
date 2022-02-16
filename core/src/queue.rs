@@ -363,16 +363,19 @@ mod tests {
     fn push_tx_signature_condition_failure() {
         let max_txs_in_queue = 10;
 
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            KeyPair::generate().unwrap().public_key,
-        )));
+        let wsv = {
+            let public_key = KeyPair::generate().unwrap().public_key;
+            let domains = DomainsMap::new();
+            let mut domain = Domain::test("wonderland");
+            let account_id = AccountId::test("alice", "wonderland");
+            let mut account = Account::new(account_id.clone());
+            account.signatories.push(public_key);
+            account.signature_check_condition = SignatureCheckCondition(0_u32.into());
+            domain.accounts.insert(account_id, account);
+            domains.insert(DomainId::test("wonderland"), domain);
 
-        wsv.domain_mut(&DomainId::test("wonderland"))
-            .unwrap()
-            .accounts
-            .get_mut(&AccountId::test("alice", "wonderland"))
-            .unwrap()
-            .signature_check_condition = SignatureCheckCondition(0_u32.into());
+            Arc::new(WorldStateView::new(World::with(domains, PeersIds::new())))
+        };
 
         let queue = Queue::from_configuration(
             &Configuration {
