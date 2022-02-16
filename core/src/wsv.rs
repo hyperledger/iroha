@@ -531,7 +531,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             .map(Clone::clone)
     }
 
-    /// Get `AssetDefinitionEntry` with an ability to modify it.
+    /// Get `AssetDefinitionEntry` and pass it to closure to modify it
     ///
     /// # Errors
     /// Fails if asset definition entry does not exist
@@ -540,14 +540,13 @@ impl<W: WorldTrait> WorldStateView<W> {
         id: &<AssetDefinition as Identifiable>::Id,
         f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<DataEvent, Error>,
     ) -> Result<(), Error> {
-        let mut domain = self.domain_mut(&id.domain_id)?;
-        let asset_definition_entry = domain
-            .asset_definitions
-            .get_mut(id)
-            .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
-        let events = f(asset_definition_entry)?;
-        self.produce_event(events);
-        Ok(())
+        self.modify_domain(&id.domain_id, |domain| {
+            let asset_definition_entry = domain
+                .asset_definitions
+                .get_mut(id)
+                .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
+            f(asset_definition_entry)
+        })
     }
 
     /// Get `Domain` and pass it to closure to modify it
