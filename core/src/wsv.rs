@@ -344,11 +344,6 @@ impl<W: WorldTrait> WorldStateView<W> {
             .map(|block_entry| block_entry.value().clone())
     }
 
-    /// Get an immutable view of the `World`.
-    pub fn world(&self) -> &W {
-        &self.world
-    }
-
     /// Get `World` and pass it to closure to modify it
     ///
     /// # Errors
