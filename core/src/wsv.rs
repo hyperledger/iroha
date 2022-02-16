@@ -451,20 +451,15 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_account(
         &self,
         id: &AccountId,
-        f: impl FnOnce(&mut Account) -> Result<Option<DataEvent>, Error>,
+        f: impl FnOnce(&mut Account) -> Result<DataEvent, Error>,
     ) -> Result<(), Error> {
-        let mut domain = self.domain_mut(&id.domain_id)?;
-        let account = domain
-            .accounts
-            .get_mut(id)
-            .ok_or_else(|| FindError::Account(id.clone()))?;
-        let event_opt = f(account)?;
-
-        if let Some(event) = event_opt {
-            self.produce_event(event);
-        }
-
-        Ok(())
+        self.modify_domain(&id.domain_id, |domain| {
+            let account = domain
+                .accounts
+                .get_mut(id)
+                .ok_or_else(|| FindError::Account(id.clone()))?;
+            f(account)
+        })
     }
 
     /// Get `Asset` by its id
@@ -481,13 +476,11 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .assets
                 .get_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
-            let events = f(asset)?;
-            self.produce_event(events);
+            let event = f(asset);
             if asset.value.is_zero_value() {
                 account.assets.remove(id);
             }
-
-            Ok(None)
+            event
         })
     }
 
@@ -501,19 +494,20 @@ impl<W: WorldTrait> WorldStateView<W> {
         default_asset_value: impl Into<AssetValue>,
     ) -> Result<Asset, Error> {
         // This function is strictly infallible.
-        self.modify_account(&id.account_id, |account| {
-            let _ = account
-                .assets
-                .entry(id.clone())
-                .or_insert_with(|| Asset::new(id.clone(), default_asset_value.into()));
-
-            Ok(None)
+        self.asset(id).or_else(|_| {
+            self.modify_account(&id.account_id, |account| {
+                account.assets.insert(
+                    id.clone(),
+                    Asset::new(id.clone(), default_asset_value.into()),
+                );
+                Ok(DataEvent::new(id.clone(), DataStatus::Created))
+            })
+            .map_err(|err| {
+                iroha_logger::warn!(?err);
+                err
+            })?;
+            self.asset(id).map_err(Into::into)
         })
-        .map_err(|err| {
-            iroha_logger::warn!(?err);
-            err
-        })?;
-        self.asset(id).map_err(Into::into)
     }
 
     /// Get `AssetDefinitionEntry` without an ability to modify it.

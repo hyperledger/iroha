@@ -270,8 +270,9 @@ mod tests {
         let asset = Asset::new(asset_id.clone(), AssetValue::Store(store));
         let id = asset.id.account_id.clone();
         wsv.modify_account(&id, move |account| {
-            account.assets.insert(asset.id.clone(), asset);
-            Ok(None)
+            let asset_id = asset.id.clone();
+            account.assets.insert(asset_id.clone(), asset);
+            Ok(DataEvent::new(asset_id, DataStatus::Created))
         })
         .unwrap();
 
@@ -293,10 +294,10 @@ mod tests {
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             )?;
-            Ok(Some(DataEvent::new(
+            Ok(DataEvent::new(
                 account.id.clone(),
                 MetadataUpdated::Inserted,
-            )))
+            ))
         })?;
         let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::test("Bytes"))
             .execute(&wsv)?;

@@ -30,10 +30,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 account.signatories.push(public_key);
 
-                Ok(Some(DataEvent::new(
-                    account_id.clone(),
-                    Updated::Authentication,
-                )))
+                Ok(DataEvent::new(account_id.clone(), Updated::Authentication))
             })
         }
     }
@@ -53,10 +50,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 account.signature_check_condition = signature_check_condition;
 
-                Ok(Some(DataEvent::new(
-                    account_id.clone(),
-                    Updated::Authentication,
-                )))
+                Ok(DataEvent::new(account_id.clone(), Updated::Authentication))
             })
         }
     }
@@ -87,10 +81,10 @@ pub mod isi {
                     account.signatories.remove(index);
                 }
 
-                Ok(Some(DataEvent::new(
+                Ok(DataEvent::new(
                     account_id.clone(),
                     Updated::Authentication,
-                )))
+                ))
             })
         }
     }
@@ -115,10 +109,10 @@ pub mod isi {
                     account_metadata_limits,
                 )?;
 
-                Ok(Some(DataEvent::new(
+                Ok(DataEvent::new(
                     account_id.clone(),
                     MetadataUpdated::Inserted,
-                )))
+                ))
             })
         }
     }
@@ -140,10 +134,7 @@ pub mod isi {
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
-                Ok(Some(DataEvent::new(
-                    account_id.clone(),
-                    MetadataUpdated::Removed,
-                )))
+                Ok(DataEvent::new(account_id.clone(), MetadataUpdated::Removed))
             })
         }
     }
@@ -163,10 +154,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 let _ = account.permission_tokens.insert(permission);
 
-                Ok(Some(DataEvent::new(
-                    account_id.clone(),
-                    Updated::Permission,
-                )))
+                Ok(DataEvent::new(account_id.clone(), Updated::Permission))
             })
         }
     }
@@ -186,10 +174,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 let _ = account.permission_tokens.remove(permission);
 
-                Ok(Some(DataEvent::new(
-                    account_id.clone(),
-                    Updated::Permission,
-                )))
+                Ok(DataEvent::new(account_id.clone(), Updated::Permission))
             })
         }
     }
