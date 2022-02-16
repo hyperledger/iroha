@@ -43,6 +43,10 @@ namespace shared_model {
         return proto_->peer_key();
       }
 
+      bool isSyncingPeer() const override {
+        return proto_->syncing_peer();
+      }
+
      private:
       detail::ReferenceHolder<iroha::protocol::Peer> proto_;
       std::optional<std::string> tls_certificate_;

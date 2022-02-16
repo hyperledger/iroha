@@ -61,6 +61,7 @@ namespace iroha::ametsuchi {
                 signatories.emplace_back(signatory.ToStringView());
                 return true;
               },
+              RocksDBPort::ColumnFamilyType::kWsv,
               fmtstrings::kPathSignatories,
               domain_id,
               account_name);
@@ -76,28 +77,39 @@ namespace iroha::ametsuchi {
   }
 
   boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
-  RocksDBWsvQuery::getPeers() {
+  RocksDBWsvQuery::getPeers(bool syncing_peers) {
     using RetType = std::vector<std::shared_ptr<shared_model::interface::Peer>>;
     return execute<RetType>(
         db_context_,
         log_,
         [&](auto &common) -> expected::Result<RetType, DbError> {
           RetType peers;
-          auto status = enumerateKeysAndValues(
-              common,
-              [&](auto pubkey, auto address) {
-                if (!pubkey.empty())
-                  peers.emplace_back(
-                      std::make_shared<shared_model::plain::Peer>(
-                          address.ToStringView(),
-                          std::string{pubkey.ToStringView()},
-                          std::nullopt));
-                else
-                  assert(!"Pubkey can not be empty!");
 
-                return true;
-              },
-              fmtstrings::kPathPeers);
+          auto callback = [&](auto pubkey, auto address) {
+            if (!pubkey.empty())
+              peers.emplace_back(std::make_shared<shared_model::plain::Peer>(
+                  address.ToStringView(),
+                  std::string{pubkey.ToStringView()},
+                  std::nullopt,
+                  syncing_peers));
+            else
+              assert(!"Pubkey can not be empty!");
+
+            return true;
+          };
+
+          rocksdb::Status status;
+          if (syncing_peers)
+            status = enumerateKeysAndValues(common,
+                                            std::move(callback),
+                                            RocksDBPort::ColumnFamilyType::kWsv,
+                                            fmtstrings::kPathSPeers);
+          else
+            status = enumerateKeysAndValues(common,
+                                            std::move(callback),
+                                            RocksDBPort::ColumnFamilyType::kWsv,
+                                            fmtstrings::kPathPeers);
+
           RDB_ERROR_CHECK(canExist(
               status, [&]() { return fmt::format("Enumerate peers"); }));
 
@@ -105,7 +117,7 @@ namespace iroha::ametsuchi {
             RDB_TRY_GET_VALUE(
                 opt_tls,
                 forPeerTLS<kDbOperation::kGet, kDbEntry::kCanExist>(
-                    common, peer->pubkey()));
+                    common, peer->pubkey(), syncing_peers));
 
             if (opt_tls)
               utils::reinterpret_pointer_cast<shared_model::plain::Peer>(peer)
@@ -135,16 +147,26 @@ namespace iroha::ametsuchi {
                          std::back_inserter(result),
                          [](auto c) { return std::tolower(c); });
 
-          RDB_TRY_GET_VALUE(
-              opt_addr,
-              forPeerAddress<kDbOperation::kGet, kDbEntry::kMustExist>(common,
-                                                                       result));
+          bool syncing_node = false;
+          auto res = forPeerAddress<kDbOperation::kGet, kDbEntry::kMustExist>(
+              common, result, syncing_node);
+          if (expected::hasError(res)) {
+            syncing_node = true;
+            if (res = forPeerAddress<kDbOperation::kGet, kDbEntry::kMustExist>(
+                    common, result, syncing_node);
+                expected::hasError(res))
+              return res.assumeError();
+          }
+
           auto peer = std::make_shared<shared_model::plain::Peer>(
-              std::move(*opt_addr), std::string(pubkey), std::nullopt);
+              std::move(*res.assumeValue()),
+              std::string(pubkey),
+              std::nullopt,
+              syncing_node);
 
           RDB_TRY_GET_VALUE(opt_tls,
                             forPeerTLS<kDbOperation::kGet, kDbEntry::kCanExist>(
-                                common, result));
+                                common, result, syncing_node));
           if (opt_tls)
             peer->setTlsCertificate(*opt_tls);
 
@@ -177,20 +199,27 @@ namespace iroha::ametsuchi {
       assert(!hash_str.empty());
 
       uint64_t number;
-      std::from_chars(
-          height_str.data(), height_str.data() + height_str.size(), number);
-      return iroha::TopBlockInfo(
-          number,
-          shared_model::crypto::Hash(shared_model::crypto::Blob::fromHexString(
-              std::string{hash_str})));
+      auto [ptr, ec]{std::from_chars(
+          height_str.data(), height_str.data() + height_str.size(), number)};
+      if (ec == std::errc())
+        return iroha::TopBlockInfo(
+            number,
+            shared_model::crypto::Hash(
+                shared_model::crypto::Blob::fromHexString(
+                    std::string{hash_str})));
+      else
+        return expected::makeError(
+            "Height in top block info is not a valid number.");
     }
   }
 
-  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers() {
+  iroha::expected::Result<size_t, std::string> RocksDBWsvQuery::countPeers(
+      bool syncing_peers) {
     RocksDbCommon common(db_context_);
     RDB_TRY_GET_VALUE_OR_STR_ERR(
         opt_count,
-        forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common));
+        forPeersCount<kDbOperation::kGet, kDbEntry::kMustExist>(common,
+                                                                syncing_peers));
 
     return *opt_count;
   }

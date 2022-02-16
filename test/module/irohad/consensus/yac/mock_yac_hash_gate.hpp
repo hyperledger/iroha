@@ -24,6 +24,7 @@ namespace iroha {
         MOCK_METHOD((std::optional<Answer>),
                     processRoundSwitch,
                     (consensus::Round const &,
+                     shared_model::interface::types::PeerList const &,
                      shared_model::interface::types::PeerList const &),
                     (override));
 

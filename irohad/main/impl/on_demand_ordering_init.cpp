@@ -5,10 +5,12 @@
 
 #include "main/impl/on_demand_ordering_init.hpp"
 
+#include "common/mem_operations.hpp"
 #include "common/permutation_generator.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/iroha_status.hpp"
 #include "main/subscription.hpp"
 #include "network/impl/client_factory_impl.hpp"
 #include "ordering/impl/on_demand_common.hpp"
@@ -83,14 +85,16 @@ auto OnDemandOrderingInit::createGate(
         proposal_factory,
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     size_t max_number_of_transactions,
-    const logger::LoggerManagerTreePtr &ordering_log_manager) {
+    const logger::LoggerManagerTreePtr &ordering_log_manager,
+    bool syncing_mode) {
   return std::make_shared<OnDemandOrderingGate>(
       std::move(ordering_service),
       std::move(network_client),
       std::move(proposal_factory),
       std::move(tx_cache),
       max_number_of_transactions,
-      ordering_log_manager->getChild("Gate")->getLogger());
+      ordering_log_manager->getChild("Gate")->getLogger(),
+      syncing_mode);
 }
 
 auto OnDemandOrderingInit::createService(
@@ -123,18 +127,23 @@ OnDemandOrderingInit::initOrderingGate(
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     logger::LoggerManagerTreePtr ordering_log_manager,
     std::shared_ptr<iroha::network::GenericClientFactory> client_factory,
-    std::chrono::milliseconds proposal_creation_timeout) {
-  auto ordering_service = createService(max_number_of_transactions,
-                                        proposal_factory,
-                                        tx_cache,
-                                        ordering_log_manager);
-  service = std::make_shared<transport::OnDemandOsServerGrpc>(
-      ordering_service,
-      std::move(transaction_factory),
-      std::move(batch_parser),
-      std::move(transaction_batch_factory),
-      ordering_log_manager->getChild("Server")->getLogger(),
-      proposal_creation_timeout);
+    std::chrono::milliseconds proposal_creation_timeout,
+    bool syncing_mode) {
+  std::shared_ptr<OnDemandOrderingService> ordering_service;
+  if (!syncing_mode) {
+    ordering_service = createService(max_number_of_transactions,
+                                     proposal_factory,
+                                     tx_cache,
+                                     ordering_log_manager);
+    service = std::make_shared<transport::OnDemandOsServerGrpc>(
+        ordering_service,
+        std::move(transaction_factory),
+        std::move(batch_parser),
+        std::move(transaction_batch_factory),
+        ordering_log_manager->getChild("Server")->getLogger(),
+        proposal_creation_timeout);
+  }
+
   ordering_gate_ =
       createGate(ordering_service,
                  createConnectionManager(std::move(proposal_transport_factory),
@@ -144,7 +153,37 @@ OnDemandOrderingInit::initOrderingGate(
                  std::move(proposal_factory),
                  std::move(tx_cache),
                  max_number_of_transactions,
-                 ordering_log_manager);
+                 ordering_log_manager,
+                 syncing_mode);
+
+  getSubscription()->dispatcher()->repeat(
+      iroha::SubscriptionEngineHandlers::kMetrics,
+      std::max(delay * 4, std::chrono::milliseconds(1000ull)),
+      [round(consensus::Round(0ull, 0ull)),
+       wgate(utils::make_weak(ordering_gate_))]() mutable {
+        if (auto gate = wgate.lock()) {
+          auto const new_round = gate->getRound();
+          iroha::IrohaStatus status;
+          status.is_healthy = (new_round != round);
+          status.last_round = new_round;
+          iroha::getSubscription()->notify(iroha::EventTypes::kOnIrohaStatus,
+                                           status);
+          round = new_round;
+        }
+      },
+      [wgate(utils::make_weak(ordering_gate_))]() { return !wgate.expired(); });
+
+  getSubscription()->dispatcher()->repeat(
+      iroha::SubscriptionEngineHandlers::kMetrics,
+      std::chrono::minutes(1ull),
+      []() {
+        iroha::IrohaStatus status;
+        status.memory_consumption = getMemoryUsage();
+        iroha::getSubscription()->notify(iroha::EventTypes::kOnIrohaStatus,
+                                         status);
+      },
+      []() { return true; });
+
   return ordering_gate_;
 }
 
@@ -238,6 +277,9 @@ void OnDemandOrderingInit::processCommittedBlock(
 
   // take committed & rejected transaction hashes from committed block
   log_->debug("Committed block handle: height {}.", block->height());
+  if (!ordering_service_)
+    return;
+
   auto hashes = std::make_shared<OnDemandOrderingService::HashesSetType>();
   for (shared_model::interface::Transaction const &tx : block->transactions()) {
     hashes->insert(tx.hash());

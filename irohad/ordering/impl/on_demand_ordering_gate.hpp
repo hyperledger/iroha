@@ -39,7 +39,8 @@ namespace iroha {
               factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           size_t transaction_limit,
-          logger::LoggerPtr log);
+          logger::LoggerPtr log,
+          bool syncing_mode);
 
       ~OnDemandOrderingGate() override;
 
@@ -57,8 +58,24 @@ namespace iroha {
 
       void stop() override;
 
+      consensus::Round getRound() const {
+        return current_round_;
+      }
+
      private:
       void sendCachedTransactions();
+
+      template <typename Func, typename... Args>
+      void forLocalOS(Func func, Args &&... args) {
+        if (ordering_service_)
+          (ordering_service_.get()->*func)(std::forward<Args>(args)...);
+      }
+
+      template <typename Func, typename... Args>
+      void forLocalOS(Func func, Args &&... args) const {
+        if (ordering_service_)
+          (ordering_service_.get()->*func)(std::forward<Args>(args)...);
+      }
 
       /**
        * remove already processed transactions from proposal
@@ -82,6 +99,7 @@ namespace iroha {
 
       std::shared_timed_mutex stop_mutex_;
       bool stop_requested_{false};
+      bool syncing_mode_;
     };
 
   }  // namespace ordering

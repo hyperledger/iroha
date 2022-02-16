@@ -5,9 +5,8 @@
 
 #include "ametsuchi/impl/rocksdb_query_executor.hpp"
 
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/size.hpp>
 #include "ametsuchi/impl/rocksdb_specific_query_executor.hpp"
+#include "common/to_lower.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"
@@ -42,16 +41,20 @@ namespace iroha::ametsuchi {
     auto const &[account, domain] = staticSplitId<2>(query.creatorAccountId());
     RocksDbCommon common(tx_context_);
 
-    for (auto &signatory : query.signatures())
+    std::string pk;
+    for (auto &signatory : query.signatures()) {
+      pk.clear();
+      toLowerAppend(signatory.publicKey(), pk);
       if (auto result =
               forSignatory<kDbOperation::kCheck, kDbEntry::kMustExist>(
-                  common, account, domain, signatory.publicKey());
+                  common, account, domain, pk);
           expected::hasError(result)) {
         log_->error("code:{}, description:{}",
                     result.assumeError().code,
                     result.assumeError().description);
         return false;
       }
+    }
 
     return true;
   }

@@ -155,7 +155,9 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
   setNetworkOrderCheckerSingleVote(
       my_order.value(), testing::AnyOf(next_reject_hash), kFixedRandomNumber);
 
-  yac->processRoundSwitch(next_reject_hash.vote_round, my_order->getPeers());
+  yac->processRoundSwitch(next_reject_hash.vote_round,
+                          my_order->getPeers(),
+                          shared_model::interface::types::PeerList{});
   yac->vote(next_reject_hash, my_order.value());
 
   // -- now yac receives a vote from another peer when we already have a reject

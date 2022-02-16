@@ -7,8 +7,8 @@
 
 #include "ametsuchi/impl/rocksdb_command_executor.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
-#include "ametsuchi/impl/rocksdb_db_transaction.hpp"
 #include "ametsuchi/tx_executor.hpp"
+#include "common/to_lower.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "interfaces/transaction.hpp"
@@ -42,16 +42,20 @@ namespace iroha::ametsuchi {
     else
       quorum = *result.assumeValue();
 
-    for (auto &signatory : transaction.signatures())
+    std::string pk;
+    for (auto &signatory : transaction.signatures()) {
+      pk.clear();
+      toLowerAppend(signatory.publicKey(), pk);
       if (auto result =
               forSignatory<kDbOperation::kCheck, kDbEntry::kMustExist>(
-                  common, account, domain, signatory.publicKey());
+                  common, account, domain, pk);
           expected::hasError(result))
         return expected::makeError(
             validation::CommandError{"signatures validation",
                                      1,
                                      result.assumeError().description,
                                      false});
+    }
 
     if (boost::size(transaction.signatures()) < quorum) {
       auto error_str = "Transaction " + transaction.toString()

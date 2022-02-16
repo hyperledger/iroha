@@ -83,7 +83,7 @@ TEST_P(RemovePeerTest, FakePeerIsRemoved) {
                        ->getStorage()
                        ->createPeerQuery()
                        .value()
-                       ->getLedgerPeers();
+                       ->getLedgerPeers(false);
 
   // check only one peer is there
   ASSERT_TRUE(opt_peers);
@@ -144,7 +144,7 @@ TEST_P(RemovePeerTest, RealPeerIsRemoved) {
                        ->getStorage()
                        ->createPeerQuery()
                        .value()
-                       ->getLedgerPeers();
+                       ->getLedgerPeers(false);
 
   // check only one peer is there
   ASSERT_TRUE(opt_peers);
