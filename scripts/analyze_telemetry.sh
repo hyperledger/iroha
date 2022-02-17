@@ -18,7 +18,7 @@ top() {
 
 get_func() { jq -r "select(.name == \"$1\")"; }
 
-mean() { jq -sr '[.[].duration] | add/length'; }
+mean() { jq -sr '[.[].duration] | select(length > 0) | add/length'; }
 max()  { jq -sr '[.[].duration] | max'; }
 min()  { jq -sr '[.[].duration] | min'; }
 
