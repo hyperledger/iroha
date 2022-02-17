@@ -256,6 +256,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Send event to known subscribers.
+    #[allow(dead_code)]
     fn produce_event(&self, event: DataEvent) {
         let events_sender = if let Some(sender) = &self.events_sender {
             sender
@@ -350,10 +351,10 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Fails is `f` fails
     pub fn modify_world(
         &self,
-        f: impl FnOnce(&World) -> Result<DataEvent, Error>,
+        f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
-        let event = f(&self.world)?;
-        self.produce_event(event);
+        let _event = f(&self.world)?;
+        // self.produce_event(event);
         Ok(())
     }
 
@@ -403,14 +404,14 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_domain(
         &self,
         id: &<Domain as Identifiable>::Id,
-        f: impl FnOnce(&mut Domain) -> Result<DataEvent, Error>,
+        f: impl FnOnce(&mut Domain) -> Result<DomainEvent, Error>,
     ) -> Result<(), Error> {
         self.modify_world(|world| {
             let mut domain = world
                 .domains
                 .get_mut(id)
                 .ok_or_else(|| FindError::Domain(id.clone()))?;
-            f(domain.value_mut())
+            f(domain.value_mut()).map(Into::into)
         })
     }
 
@@ -451,14 +452,14 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_account(
         &self,
         id: &AccountId,
-        f: impl FnOnce(&mut Account) -> Result<DataEvent, Error>,
+        f: impl FnOnce(&mut Account) -> Result<AccountEvent, Error>,
     ) -> Result<(), Error> {
         self.modify_domain(&id.domain_id, |domain| {
             let account = domain
                 .accounts
                 .get_mut(id)
                 .ok_or_else(|| FindError::Account(id.clone()))?;
-            f(account)
+            f(account).map(Into::into)
         })
     }
 
@@ -503,18 +504,18 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_asset(
         &self,
         id: &<Asset as Identifiable>::Id,
-        f: impl FnOnce(&mut Asset) -> Result<DataEvent, Error>,
+        f: impl FnOnce(&mut Asset) -> Result<AssetEvent, Error>,
     ) -> Result<(), Error> {
         self.modify_account(&id.account_id, |account| {
             let asset = account
                 .assets
                 .get_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
-            let event = f(asset);
+            let event_res = f(asset);
             if asset.value.is_zero_value() {
                 account.assets.remove(id);
             }
-            event
+            event_res.map(Into::into)
         })
     }
 
@@ -534,7 +535,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                     id.clone(),
                     Asset::new(id.clone(), default_asset_value.into()),
                 );
-                Ok(DataEvent::new(id.clone(), DataStatus::Created))
+                Ok(AssetEvent::new(id.clone(), DataStatus::Created).into())
             })
             .map_err(|err| {
                 iroha_logger::warn!(?err);
@@ -566,14 +567,14 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_asset_definition_entry(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
-        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<DataEvent, Error>,
+        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<AssetDefinitionEvent, Error>,
     ) -> Result<(), Error> {
         self.modify_domain(&id.domain_id, |domain| {
             let asset_definition_entry = domain
                 .asset_definitions
                 .get_mut(id)
                 .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
-            f(asset_definition_entry)
+            f(asset_definition_entry).map(Into::into)
         })
     }
 
@@ -744,7 +745,7 @@ impl<W: WorldTrait> RegisterTrait<W> for Peer {
                     IdBox::PeerId(peer_id),
                 ));
             }
-            Ok(DataEvent::new(peer_id, DataStatus::Created))
+            Ok(PeerEvent::new(peer_id, DataStatus::Created).into())
         })
     }
 
@@ -754,7 +755,7 @@ impl<W: WorldTrait> RegisterTrait<W> for Peer {
                 return Err(FindError::Peer(peer_id).into());
             }
 
-            Ok(DataEvent::new(peer_id, DataStatus::Deleted))
+            Ok(PeerEvent::new(peer_id, DataStatus::Deleted).into())
         })
     }
 }
@@ -770,7 +771,11 @@ impl<W: WorldTrait> RegisterTrait<W> for Domain {
 
         wsv.modify_world(|world| {
             world.domains.insert(domain_id.clone(), self);
-            Ok(DataEvent::new(domain_id, DataStatus::Created))
+            Ok(DomainEvent::OtherDomainChange(OtherDomainChangeEvent::new(
+                domain_id,
+                DataStatus::Created,
+            ))
+            .into())
         })?;
 
         wsv.metrics.domains.inc();
@@ -781,7 +786,11 @@ impl<W: WorldTrait> RegisterTrait<W> for Domain {
         wsv.modify_world(|world| {
             // TODO: Should we fail if no domain found?
             world.domains.remove(&domain_id);
-            Ok(DataEvent::new(domain_id, DataStatus::Deleted))
+            Ok(DomainEvent::OtherDomainChange(OtherDomainChangeEvent::new(
+                domain_id,
+                DataStatus::Deleted,
+            ))
+            .into())
         })?;
 
         wsv.metrics.domains.dec();
@@ -796,7 +805,7 @@ impl<W: WorldTrait> RegisterTrait<W> for Role {
 
         wsv.modify_world(|world| {
             world.roles.insert(role_id.clone(), role);
-            Ok(DataEvent::new(role_id, DataStatus::Created))
+            Ok(RoleEvent::new(role_id, DataStatus::Created).into())
         })
     }
     fn unregister(role_id: Self::Id, wsv: &WorldStateView<W>) -> Result<(), Error> {
@@ -808,7 +817,7 @@ impl<W: WorldTrait> RegisterTrait<W> for Role {
                 }
             }
 
-            Ok(DataEvent::new(role_id, DataStatus::Deleted))
+            Ok(RoleEvent::new(role_id, DataStatus::Deleted).into())
         })
     }
 }
@@ -830,7 +839,13 @@ impl<W: WorldTrait> RegisterTrait<W> for NewAccount {
                 )),
                 Entry::Vacant(entry) => {
                     let _ = entry.insert(self.into());
-                    Ok(DataEvent::new(account_id.clone(), DataStatus::Created))
+                    Ok(
+                        AccountEvent::OtherAccountChange(OtherAccountChangeEvent::new(
+                            account_id.clone(),
+                            DataStatus::Created,
+                        ))
+                        .into(),
+                    )
                 }
             }
         })
@@ -839,7 +854,13 @@ impl<W: WorldTrait> RegisterTrait<W> for NewAccount {
     fn unregister(account_id: Self::Id, wsv: &WorldStateView<W>) -> Result<(), Error> {
         wsv.modify_domain(&account_id.domain_id, |domain| {
             domain.accounts.remove(&account_id);
-            Ok(DataEvent::new(account_id.clone(), DataStatus::Deleted))
+            Ok(
+                AccountEvent::OtherAccountChange(OtherAccountChangeEvent::new(
+                    account_id.clone(),
+                    DataStatus::Deleted,
+                ))
+                .into(),
+            )
         })
     }
 }
@@ -861,7 +882,7 @@ impl<W: WorldTrait> RegisterTrait<W> for AssetDefinition {
                         definition: self,
                         registered_by: authority,
                     });
-                    Ok(DataEvent::new(asset_id, DataStatus::Created))
+                    Ok(AssetDefinitionEvent::new(asset_id, DataStatus::Created).into())
                 }
                 Entry::Occupied(entry) => Err(Error::Repetition(
                     InstructionType::Register,
@@ -873,10 +894,7 @@ impl<W: WorldTrait> RegisterTrait<W> for AssetDefinition {
     fn unregister(asset_definition_id: Self::Id, wsv: &WorldStateView<W>) -> Result<(), Error> {
         wsv.modify_domain(&asset_definition_id.domain_id, |domain| {
             domain.asset_definitions.remove(&asset_definition_id);
-            Ok(DataEvent::new(
-                asset_definition_id.clone(),
-                DataStatus::Deleted,
-            ))
+            Ok(AssetDefinitionEvent::new(asset_definition_id.clone(), DataStatus::Deleted).into())
         })?;
 
         for domain in wsv.domains() {
@@ -890,7 +908,7 @@ impl<W: WorldTrait> RegisterTrait<W> for AssetDefinition {
                 for id in &keys {
                     wsv.modify_account(account_id, |account_mut| {
                         account_mut.assets.remove(id);
-                        Ok(DataEvent::new(id.clone(), DataStatus::Deleted))
+                        Ok(AssetEvent::new(id.clone(), DataStatus::Deleted).into())
                     })?;
                 }
             }

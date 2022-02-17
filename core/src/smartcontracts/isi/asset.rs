@@ -69,7 +69,7 @@ pub mod isi {
                     .ok_or(Error::Math(MathError::Overflow))?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
 
-                Ok(DataEvent::new(asset_id.clone(), DataStatus::Created))
+                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Created))
             })
         }
     }
@@ -99,7 +99,7 @@ pub mod isi {
                 #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
 
-                Ok(DataEvent::new(asset_id.clone(), DataStatus::Created))
+                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Created))
             })
         }
     }
@@ -125,7 +125,7 @@ pub mod isi {
                 *quantity = quantity.checked_add(self.object)?;
                 wsv.metrics.tx_amounts.observe((*quantity).into());
 
-                Ok(DataEvent::new(asset_id.clone(), DataStatus::Created))
+                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Created))
             })
         }
     }
@@ -152,7 +152,7 @@ pub mod isi {
                     .map_err(|e| Error::Conversion(e.to_string()))?;
                 store.insert_with_limits(self.key, self.value, asset_metadata_limits)?;
 
-                Ok(DataEvent::new(asset_id.clone(), MetadataUpdated::Inserted))
+                Ok(AssetEvent::new(asset_id.clone(), MetadataUpdated::Inserted))
             })
         }
     }
@@ -179,7 +179,7 @@ pub mod isi {
                     .ok_or(MathError::NotEnoughQuantity)?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
 
-                Ok(DataEvent::new(asset_id.clone(), DataStatus::Deleted))
+                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Deleted))
             })
         }
     }
@@ -207,7 +207,7 @@ pub mod isi {
                 #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
 
-                Ok(DataEvent::new(asset_id.clone(), DataStatus::Deleted))
+                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Deleted))
             })
         }
     }
@@ -233,7 +233,7 @@ pub mod isi {
                 // Careful if `Fixed` stops being `Copy`.
                 wsv.metrics.tx_amounts.observe((*quantity).into());
 
-                Ok(DataEvent::new(asset_id.clone(), DataStatus::Deleted))
+                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Deleted))
             })
         }
     }
@@ -259,7 +259,7 @@ pub mod isi {
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
-                Ok(DataEvent::new(asset_id.clone(), MetadataUpdated::Removed))
+                Ok(AssetEvent::new(asset_id.clone(), MetadataUpdated::Removed))
             })
         }
     }
@@ -312,7 +312,7 @@ pub mod isi {
                     .checked_sub(self.object)
                     .ok_or(Error::Math(MathError::NotEnoughQuantity))?;
 
-                Ok(DataEvent::new(source_asset_id.clone(), AssetUpdated::Sent))
+                Ok(AssetEvent::new(source_asset_id.clone(), AssetUpdated::Sent))
             })?;
             wsv.modify_asset(&destination_asset_id, |asset| {
                 let quantity: &mut u32 = asset
@@ -324,7 +324,7 @@ pub mod isi {
                     .ok_or(MathError::Overflow)?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
 
-                Ok(DataEvent::new(
+                Ok(AssetEvent::new(
                     destination_asset_id.clone(),
                     AssetUpdated::Received,
                 ))

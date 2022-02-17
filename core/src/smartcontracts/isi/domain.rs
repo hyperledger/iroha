@@ -93,7 +93,7 @@ pub mod isi {
                     metadata_limits,
                 )?;
 
-                Ok(DataEvent::new(
+                Ok(AssetDefinitionEvent::new(
                     asset_definition_id.clone(),
                     MetadataUpdated::Inserted,
                 ))
@@ -120,7 +120,7 @@ pub mod isi {
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
-                Ok(DataEvent::new(
+                Ok(AssetDefinitionEvent::new(
                     asset_definition_id.clone(),
                     MetadataUpdated::Removed,
                 ))
@@ -146,7 +146,10 @@ pub mod isi {
                     .metadata
                     .insert_with_limits(self.key, self.value, limits)?;
 
-                Ok(DataEvent::new(domain_id.clone(), MetadataUpdated::Inserted))
+                Ok(
+                    OtherDomainChangeEvent::new(domain_id.clone(), MetadataUpdated::Inserted)
+                        .into(),
+                )
             })
         }
     }
@@ -168,7 +171,7 @@ pub mod isi {
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
-                Ok(DataEvent::new(domain_id.clone(), MetadataUpdated::Removed))
+                Ok(OtherDomainChangeEvent::new(domain_id.clone(), MetadataUpdated::Removed).into())
             })
         }
     }
