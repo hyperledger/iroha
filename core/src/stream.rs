@@ -2,9 +2,9 @@
 //! Adds support for sending custom Iroha messages over the stream, taking care
 //! of encoding/decoding as well as timeouts
 
+use core::result::Result;
 use std::time::Duration;
 
-use eyre::{eyre, Context, Result};
 use futures::{SinkExt, StreamExt};
 use iroha_version::prelude::*;
 
@@ -13,14 +13,50 @@ const TIMEOUT: Duration = Duration::from_millis(10_000);
 #[cfg(not(test))]
 const TIMEOUT: Duration = Duration::from_millis(1000);
 
-/// Represents messsage used by the stream
+/// Error type with generic for actual Stream/Sink error type
+#[derive(thiserror::Error, Debug)]
+pub enum Error<InternalStreamError>
+where
+    InternalStreamError: std::error::Error + Send + Sync + 'static,
+{
+    /// `recv()` timeout exceeded
+    #[error("Read message timeout")]
+    ReadTimeout,
+    /// `send()` timeout exceeded
+    #[error("Send message timeout")]
+    SendTimeout,
+    /// Error, indicating that empty message was received
+    #[error("No message")]
+    NoMessage,
+    /// Error in internal stream representation (typically WebSocket)
+    ///
+    /// Made without `from` macro because it will break `IrohaVersion` variant conversion
+    #[error("Internal stream error: {0}")]
+    InternalStream(InternalStreamError),
+    /// Error, indicating that `Close` message was received
+    #[error("`Close` message received")]
+    CloseMessage,
+    /// Error, indicating that only binary messages are expected, but non-binary was received
+    #[error("Non binary message received")]
+    NonBinaryMessage,
+    /// Error message during versioned message decoding
+    #[error("Iroha version error: {0}")]
+    IrohaVersion(#[from] iroha_version::error::Error),
+}
+
+/// Represents message used by the stream
 pub trait StreamMessage {
-    /// Constructs new binary message
+    /// Construct new binary message
     fn binary(source: Vec<u8>) -> Self;
+
     /// Decodes the message into byte slice
     fn as_bytes(&self) -> &[u8];
+
     /// Returns `true` if the message is binary
     fn is_binary(&self) -> bool;
+
+    /// Returns `true` if it's a closing message
+    fn is_close(&self) -> bool;
 }
 
 /// Trait for writing custom messages into stream
@@ -36,8 +72,8 @@ where
     type Message: StreamMessage + Send;
 
     /// Encoded message and sends it to the stream
-    async fn send(&mut self, message: S) -> Result<()> {
-        Ok(tokio::time::timeout(
+    async fn send(&mut self, message: S) -> Result<(), Error<Self::Err>> {
+        tokio::time::timeout(
             TIMEOUT,
             <Self as SinkExt<Self::Message>>::send(
                 self,
@@ -45,7 +81,8 @@ where
             ),
         )
         .await
-        .wrap_err("Send message timeout")??)
+        .map_err(|_err| Error::SendTimeout)?
+        .map_err(Error::InternalStream)
     }
 }
 
@@ -61,14 +98,19 @@ pub trait Stream<R: DecodeVersioned>:
     type Message: StreamMessage;
 
     /// Receives and decodes message from the stream
-    async fn recv(&mut self) -> Result<R> {
+    async fn recv(&mut self) -> Result<R, Error<Self::Err>> {
         let subscription_request_message = tokio::time::timeout(TIMEOUT, self.next())
             .await
-            .wrap_err("Read message timeout")?
-            .ok_or_else(|| eyre!("No message"))??;
+            .map_err(|_err| Error::ReadTimeout)?
+            .ok_or(Error::NoMessage)?
+            .map_err(Error::InternalStream)?;
+
+        if subscription_request_message.is_close() {
+            return Err(Error::CloseMessage);
+        }
 
         if !subscription_request_message.is_binary() {
-            return Err(eyre!("Expected binary message"));
+            return Err(Error::NonBinaryMessage);
         }
 
         Ok(R::decode_versioned(
@@ -81,11 +123,17 @@ impl StreamMessage for warp::ws::Message {
     fn binary(source: Vec<u8>) -> Self {
         Self::binary(source)
     }
+
     fn as_bytes(&self) -> &[u8] {
         self.as_bytes()
     }
+
     fn is_binary(&self) -> bool {
         self.is_binary()
+    }
+
+    fn is_close(&self) -> bool {
+        self.is_close()
     }
 }
 

@@ -269,44 +269,40 @@ pub mod error {
 
 impl<W: WorldTrait> Execute<W> for Instruction {
     type Error = Error;
-    type Diff = Vec<DataEvent>;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         use Instruction::*;
         match self {
-            Register(register_box) => Ok(register_box.execute(authority, wsv)?.into()),
-            Unregister(unregister_box) => Ok(unregister_box.execute(authority, wsv)?.into()),
-            Mint(mint_box) => Ok(mint_box.execute(authority, wsv)?.into()),
-            Burn(burn_box) => Ok(burn_box.execute(authority, wsv)?.into()),
+            Register(register_box) => Ok(register_box.execute(authority, wsv)?),
+            Unregister(unregister_box) => Ok(unregister_box.execute(authority, wsv)?),
+            Mint(mint_box) => Ok(mint_box.execute(authority, wsv)?),
+            Burn(burn_box) => Ok(burn_box.execute(authority, wsv)?),
             Transfer(transfer_box) => transfer_box.execute(authority, wsv),
             If(if_box) => if_box.execute(authority, wsv),
             Pair(pair_box) => pair_box.execute(authority, wsv),
             Sequence(sequence) => sequence.execute(authority, wsv),
-            Fail(fail_box) => Ok(fail_box.execute(authority, wsv)?.into()),
-            SetKeyValue(set_key_value) => Ok(set_key_value.execute(authority, wsv)?.into()),
-            RemoveKeyValue(remove_key_value) => {
-                Ok(remove_key_value.execute(authority, wsv)?.into())
-            }
-            Grant(grant_box) => Ok(grant_box.execute(authority, wsv)?.into()),
-            Revoke(revoke_box) => Ok(revoke_box.execute(authority, wsv)?.into()),
+            Fail(fail_box) => Ok(fail_box.execute(authority, wsv)?),
+            SetKeyValue(set_key_value) => Ok(set_key_value.execute(authority, wsv)?),
+            RemoveKeyValue(remove_key_value) => Ok(remove_key_value.execute(authority, wsv)?),
+            Grant(grant_box) => Ok(grant_box.execute(authority, wsv)?),
+            Revoke(revoke_box) => Ok(revoke_box.execute(authority, wsv)?),
         }
     }
 }
 
 impl<W: WorldTrait> Execute<W> for RegisterBox {
     type Error = Error;
-    type Diff = DataEvent;
 
     #[log]
     fn execute(
         self,
         authority: AccountId,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let context = Context::new();
         match self.object.evaluate(wsv, &context)? {
             IdentifiableBox::NewAccount(account) => {
@@ -326,14 +322,13 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
 
 impl<W: WorldTrait> Execute<W> for UnregisterBox {
     type Error = Error;
-    type Diff = DataEvent;
 
     #[log]
     fn execute(
         self,
         authority: AccountId,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let context = Context::new();
         match self.object_id.evaluate(wsv, &context)? {
             IdBox::AccountId(account_id) => {
@@ -353,14 +348,13 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
 
 impl<W: WorldTrait> Execute<W> for MintBox {
     type Error = Error;
-    type Diff = DataEvent;
 
     #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let context = Context::new();
         match (
             self.destination_id.evaluate(wsv, &context)?,
@@ -389,14 +383,13 @@ impl<W: WorldTrait> Execute<W> for MintBox {
 
 impl<W: WorldTrait> Execute<W> for BurnBox {
     type Error = Error;
-    type Diff = DataEvent;
 
     #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let context = Context::new();
         match (
             self.destination_id.evaluate(wsv, &context)?,
@@ -418,14 +411,13 @@ impl<W: WorldTrait> Execute<W> for BurnBox {
 
 impl<W: WorldTrait> Execute<W> for TransferBox {
     type Error = Error;
-    type Diff = Vec<DataEvent>;
 
     #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let context = Context::new();
         let source_asset_id = match self.source_id.evaluate(wsv, &context)? {
             IdBox::AssetId(source_asset_id) => source_asset_id,
@@ -449,14 +441,13 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
 
 impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
     type Error = Error;
-    type Diff = DataEvent;
 
     #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let context = Context::new();
         let key = self.key.evaluate(wsv, &context)?;
         let value = self.value.evaluate(wsv, &context)?;
@@ -482,14 +473,13 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
 
 impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
     type Error = Error;
-    type Diff = DataEvent;
 
     #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let context = Context::new();
         let key = self.key.evaluate(wsv, &context)?;
         match self.object_id.evaluate(wsv, &context)? {
@@ -510,14 +500,13 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
 
 impl<W: WorldTrait> Execute<W> for If {
     type Error = Error;
-    type Diff = Vec<DataEvent>;
 
     #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let context = Context::new();
         if self.condition.evaluate(wsv, &context)? {
             self.then.execute(authority, wsv)
@@ -530,14 +519,13 @@ impl<W: WorldTrait> Execute<W> for If {
 
 impl<W: WorldTrait> Execute<W> for Pair {
     type Error = Error;
-    type Diff = Vec<DataEvent>;
 
     #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let mut left = self.left_instruction.execute(authority.clone(), wsv)?;
         let mut right = self.right_instruction.execute(authority, wsv)?;
         left.append(&mut right);
@@ -547,14 +535,13 @@ impl<W: WorldTrait> Execute<W> for Pair {
 
 impl<W: WorldTrait> Execute<W> for SequenceBox {
     type Error = Error;
-    type Diff = Vec<DataEvent>;
 
     #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let mut diff = Vec::new();
         for instruction in self.instructions {
             diff.append(&mut instruction.execute(authority.clone(), wsv)?);
@@ -565,28 +552,26 @@ impl<W: WorldTrait> Execute<W> for SequenceBox {
 
 impl<W: WorldTrait> Execute<W> for FailBox {
     type Error = Error;
-    type Diff = DataEvent;
 
     #[log(skip(_authority, _wsv))]
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
         _wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         Err(Error::FailBox(self.message))
     }
 }
 
 impl<W: WorldTrait> Execute<W> for GrantBox {
     type Error = Error;
-    type Diff = DataEvent;
 
     #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let context = Context::new();
         match (
             self.destination_id.evaluate(wsv, &context)?,
@@ -607,14 +592,13 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
 
 impl<W: WorldTrait> Execute<W> for RevokeBox {
     type Error = Error;
-    type Diff = DataEvent;
 
     #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
-    ) -> Result<Self::Diff, Self::Error> {
+    ) -> Result<Vec<DataEvent>, Self::Error> {
         let context = Context::new();
         match (
             self.destination_id.evaluate(wsv, &context)?,
