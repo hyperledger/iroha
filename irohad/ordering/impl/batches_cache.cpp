@@ -12,6 +12,26 @@
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
 
+namespace {
+  shared_model::interface::types::TimestampType oldestTimestamp(
+      std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
+    const bool batch_is_empty = boost::empty(batch->transactions());
+    assert(not batch_is_empty);
+    if (batch_is_empty) {
+      return 0;
+    }
+    auto timestamps =
+        batch->transactions()
+        | boost::adaptors::transformed(
+              +[](const std::shared_ptr<shared_model::interface::Transaction>
+                      &tx) { return tx->createdTime(); });
+    const auto min_it =
+        boost::first_min_element(timestamps.begin(), timestamps.end());
+    assert(min_it != timestamps.end());
+    return min_it == timestamps.end() ? 0 : *min_it;
+  }
+}  // namespace
+
 namespace iroha::ordering {
 
   BatchesContext::BatchesContext() : tx_count_(0ull) {}
@@ -68,6 +88,25 @@ namespace iroha::ordering {
 
     assert(count(batches_) == tx_count_);
     assert(count(from.batches_) == from.tx_count_);
+  }
+
+  void BatchesCache::insertMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
+    assert(!batch->hasAllSignatures());
+    mst_state_.exclusiveAccess([&](auto &mst_state) {
+      assert(mst_pending_.size() == mst_expirations_.size());
+      auto const result = mst_pending_.emplace(batch);
+      if (result.second) {
+        /// insert new one
+        auto ts = oldestTimestamp(batch);
+        while (!mst_expirations_.emplace(ts++, batch).second);
+      } else {
+        /// merge signatures
+      }
+    });
+  }
+
+  void BatchesCache::removeMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
+
   }
 
   uint64_t BatchesCache::insert(

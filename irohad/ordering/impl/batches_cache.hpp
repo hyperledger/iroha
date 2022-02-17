@@ -12,7 +12,9 @@
 #include <numeric>
 #include <shared_mutex>
 #include <unordered_set>
+#include <unordered_map>
 
+#include "common/common.hpp"
 #include "consensus/round.hpp"
 
 namespace shared_model::interface {
@@ -80,11 +82,30 @@ namespace iroha::ordering {
    */
   class BatchesCache {
    public:
+    using MSTBatchesSetType = std::unordered_set<
+        std::shared_ptr<shared_model::interface::TransactionBatch>,
+        OnDemandOrderingService::BatchPointerHasher,
+        shared_model::interface::BatchHashEquality>;
+    using MSTExpirationSetType = std::unordered_map<shared_model::interface::types::TimestampType, 
+        std::shared_ptr<shared_model::interface::TransactionBatch>>;
+
     using BatchesSetType = BatchesContext::BatchesSetType;
 
    private:
+    struct MSTState {
+      MSTBatchesSetType mst_pending_;
+      MSTExpirationSetType mst_expirations_;
+    };
+
     mutable std::shared_mutex batches_cache_cs_;
     BatchesContext batches_cache_, used_batches_cache_;
+    utils::ReadWriteObject<MSTState, std::mutex> mst_state_;
+
+    /**
+     * MST functions
+     */
+    void insertMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch);
+    void removeMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch);
 
    public:
     BatchesCache(BatchesCache const &) = delete;
@@ -94,11 +115,8 @@ namespace iroha::ordering {
     uint64_t insert(
         std::shared_ptr<shared_model::interface::TransactionBatch> const
             &batch);
-
     void remove(const OnDemandOrderingService::HashesSetType &hashes);
-
     bool isEmpty();
-
     uint64_t txsCount() const;
     uint64_t availableTxsCount() const;
 
