@@ -10,6 +10,115 @@ use serde::{Deserialize, Serialize};
 
 use crate::prelude::*;
 
+pub mod typed {
+    //! This module contains typed events
+
+    use super::*;
+
+    /// Asset event
+    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct Asset {
+        id: AssetId,
+        status: Status,
+    }
+
+    /// Asset definition event
+    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct AssetDefinition {
+        id: AssetDefinitionId,
+        status: Status,
+    }
+
+    /// Peer event
+    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct Peer {
+        id: PeerId,
+        status: Status,
+    }
+
+    /// Account event
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    )]
+    pub enum Account {
+        /// Account change without asset changing
+        OtherAccountChange(OtherAccountChange),
+        /// Asset change
+        Asset(Asset),
+    }
+
+    /// Account change without asset changing
+    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct OtherAccountChange {
+        id: AccountId,
+        status: Status,
+    }
+
+    /// Role event
+    #[cfg(feature = "roles")]
+    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct Role {
+        id: RoleId,
+        status: Status,
+    }
+
+    /// Domain Event
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    )]
+    pub enum Domain {
+        /// Domain change without account or asset definition change
+        OtherDomainChange(OtherDomainChange),
+        /// Account change
+        Account(Account),
+        /// Asset definition change
+        AssetDefinition(AssetDefinition),
+    }
+
+    /// Domain change without account or asset definition change
+    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct OtherDomainChange {
+        id: DomainId,
+        status: Status,
+    }
+
+    /// World event
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    )]
+    pub enum World {
+        /// Domain change
+        Domain(Domain),
+        /// Peer change
+        Peer(Peer),
+        /// Role change
+        #[cfg(feature = "roles")]
+        Role(Role),
+    }
+
+    /// New Event
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    )]
+    pub enum NewEvent {
+        /// World event
+        World(World),
+        /// Domain event
+        Domain(Domain),
+        /// Peer event
+        Peer(Peer),
+        /// Role event
+        #[cfg(feature = "roles")]
+        Role(Role),
+        /// Account event
+        Account(Account),
+        /// Asset definition event
+        AssetDefinition(AssetDefinition),
+        /// Asset event
+        Asset(Asset),
+    }
+}
+
 /// Event.
 #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Event {
@@ -409,7 +518,7 @@ mod tests {
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
-        AssetUpdated, Entity as DataEntity, Event as DataEvent, EventFilter as DataEventFilter,
-        MetadataUpdated, Status as DataStatus, TriggerUpdated, Updated,
+        typed, AssetUpdated, Entity as DataEntity, Event as DataEvent,
+        EventFilter as DataEventFilter, MetadataUpdated, Status as DataStatus, Updated,
     };
 }
