@@ -15,26 +15,44 @@ pub mod typed {
 
     use super::*;
 
-    /// Asset event
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct Asset {
-        id: AssetId,
-        status: Status,
+    macro_rules! typed_event_struct_definition {
+        ($i:ident, id: $id_type:ty) => {
+            typed_event_struct_definition! {
+                $i,
+                $id_type,
+                concat!(" ", stringify!($i), " event"),
+                concat!(" Create new ", stringify!($i), " event")
+            }
+        };
+        ($i:ident, $id_type:ty, $struct_doc:expr, $new_doc:expr) => {
+            #[doc = $struct_doc]
+            #[derive(
+                Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema,
+            )]
+            pub struct $i {
+                id: $id_type,
+                status: Status,
+            }
+
+            impl $i {
+                #[doc = $new_doc]
+                pub fn new(id: $id_type, status: impl Into<Status>) -> Self {
+                    $i {
+                        id,
+                        status: status.into(),
+                    }
+                }
+            }
+        };
     }
 
-    /// Asset definition event
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct AssetDefinition {
-        id: AssetDefinitionId,
-        status: Status,
-    }
-
-    /// Peer event
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct Peer {
-        id: PeerId,
-        status: Status,
-    }
+    typed_event_struct_definition!(Asset, id: AssetId);
+    typed_event_struct_definition!(AssetDefinition, id: AssetDefinitionId);
+    typed_event_struct_definition!(Peer, id: PeerId);
+    typed_event_struct_definition!(OtherAccountChange, id: AccountId);
+    typed_event_struct_definition!(OtherDomainChange, id: DomainId);
+    #[cfg(feature = "roles")]
+    typed_event_struct_definition!(Role, id: RoleId);
 
     /// Account event
     #[derive(
@@ -45,21 +63,6 @@ pub mod typed {
         OtherAccountChange(OtherAccountChange),
         /// Asset change
         Asset(Asset),
-    }
-
-    /// Account change without asset changing
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct OtherAccountChange {
-        id: AccountId,
-        status: Status,
-    }
-
-    /// Role event
-    #[cfg(feature = "roles")]
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct Role {
-        id: RoleId,
-        status: Status,
     }
 
     /// Domain Event
@@ -73,13 +76,6 @@ pub mod typed {
         Account(Account),
         /// Asset definition change
         AssetDefinition(AssetDefinition),
-    }
-
-    /// Domain change without account or asset definition change
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct OtherDomainChange {
-        id: DomainId,
-        status: Status,
     }
 
     /// World event
@@ -100,7 +96,7 @@ pub mod typed {
     #[derive(
         Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
     )]
-    pub enum NewEvent {
+    pub enum Event {
         /// World event
         World(World),
         /// Domain event
@@ -116,6 +112,18 @@ pub mod typed {
         AssetDefinition(AssetDefinition),
         /// Asset event
         Asset(Asset),
+    }
+
+    pub mod prelude {
+        //! Exports common structs and enums from this module.
+
+        #[cfg(feature = "roles")]
+        pub use super::Role as RoleEvent;
+        pub use super::{
+            Account as AccountEvent, Asset as AssetEvent, AssetDefinition as AssetDefinitionEvent,
+            Domain as DomainEvent, OtherAccountChange as OtherAccountChangeEvent,
+            OtherDomainChange as OtherDomainChangeEvent, Peer as PeerEvent, World as WorldEvent,
+        };
     }
 }
 
@@ -518,7 +526,7 @@ mod tests {
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
-        typed, AssetUpdated, Entity as DataEntity, Event as DataEvent,
+        typed::prelude::*, AssetUpdated, Entity as DataEntity, Event as DataEvent,
         EventFilter as DataEventFilter, MetadataUpdated, Status as DataStatus, Updated,
     };
 }
