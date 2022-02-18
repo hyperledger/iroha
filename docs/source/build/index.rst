@@ -133,7 +133,8 @@ Use this code to install environment dependencies on Debian-based Linux distro.
   apt-get update; \
   apt-get -y --no-install-recommends install \
   build-essential ninja-build \
-  git ca-certificates tar curl unzip cmake
+  git ca-certificates tar curl unzip cmake \
+  pkg-config zip
 
 .. Important:: If you would like to use `Burrow integration <../integrations/burrow.html>`_ you will also need GO. Install it following the instructions on `the official website <https://golang.org/doc/install>`_ and then use the following command:
 

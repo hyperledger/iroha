@@ -22,8 +22,8 @@ void RocksDBIndexer::txHashStatus(const TxPosition &position,
                                   const HashType &tx_hash,
                                   bool is_committed) {
   RocksDbCommon common(db_context_);
-  common.valueBuffer() =
-      is_committed ? "TRUE" : "FALSE";  // TODO USE ONLY ONE BYTE T OR F
+  if (is_committed)
+    common.valueBuffer() = 'T';
   common.valueBuffer() += '#';
   common.valueBuffer() += std::to_string(position.height);
   common.valueBuffer() += '#';

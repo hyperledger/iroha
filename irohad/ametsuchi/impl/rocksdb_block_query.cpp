@@ -33,7 +33,7 @@ namespace iroha::ametsuchi {
       return std::nullopt;
     } else if (status.assumeValue()) {
       auto const &[tx_status] = staticSplitId<1ull>(*status.assumeValue(), "#");
-      res = tx_status == "TRUE" ? 1 : 0;
+      res = (!tx_status.empty() && tx_status[0] == 'T') ? 1 : 0;
     }
 
     return res;
