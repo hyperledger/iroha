@@ -47,7 +47,7 @@ name: Iroha1
 ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
 on:
   push:
-    branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha, feature/DOPS-1585/* ]
+    branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
     tags: '**'
   pull_request:
     branches: [ main, support/1.*, edge, develop ]  ## target branches
@@ -58,10 +58,6 @@ on:
         description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
         required: false
         default: '/build'
-      testing_required:
-        description: 'Put to OFF if you are QA and need to build without tests'
-        required: false
-        default: 'ON'
   # issue_comment:
   #   types: [created, edited]
   schedule:
@@ -576,7 +572,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ env.BuildType }}
           -GNinja
           $CMAKE_USE
-          -DTESTING=${{ github.event.inputs.testing_required }}
+          -DTESTING=ON
           -DBENCHMARKING=ON
           -DPACKAGE_DEB=ON
           #-DCMAKE_VERBOSE_MAKEFILE=ON  ## Note: use for debug
@@ -638,7 +634,6 @@ jobs:
             build/test_bin/**
             build/test_data/**
       - &step_ctest
-        if: ${{ github.event.inputs.testing_required == ON }}
         timeout-minutes: 40
         name: CTest
         run: |
