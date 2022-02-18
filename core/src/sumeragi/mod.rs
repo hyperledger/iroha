@@ -366,7 +366,9 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             return;
         }
         let txs = self.queue.get_transactions_for_block();
-        if let Err(error) = self.round(txs, ctx).await {
+        // TODO: This should properly process triggers
+        let trigger_recommendations = Vec::new();
+        if let Err(error) = self.round(txs, trigger_recommendations, ctx).await {
             error!(%error, "Round failed");
         }
     }
@@ -633,13 +635,13 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         self.topology.sorted_peers().iter().cloned().collect()
     }
 
-    /// Assumes this peer is a leader and starts the round with the given `genesis_topology`.
+    /// Assumes this peer is a leader and starts the round with the
+    /// given `genesis_topology`.
     ///
     /// # Errors
-    /// Can fail if:
-    /// * transactions are empty
-    /// * peer is not leader
-    /// * there are already some blocks in blockchain
+    /// - transactions are empty
+    /// - peer is not leader
+    /// - there are already blocks in the blockchain
     #[iroha_futures::telemetry_future]
     #[log(skip(self, transactions, genesis_topology, ctx))]
     pub async fn start_genesis_round(
@@ -652,18 +654,20 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             Err(eyre!("Genesis transactions set is empty."))
         } else if genesis_topology.leader() != &self.peer_id {
             Err(eyre!(
-                "Incorrect network topology this peer should be {:?} but is {:?}",
+                "Incorrect network topology. Expect this peer to be {:?},  actual: {:?}",
                 Role::Leader,
                 genesis_topology.role(&self.peer_id)
             ))
         } else if self.block_height > 0 {
             Err(eyre!(
-                "Block height should be 0 for genesis round. But it is: {}",
+                "Expect Block height to be 0 in the genesis round. Actual: {}",
                 self.block_height
             ))
         } else {
+            // TODO: See if we need to process triggers before this point.
             self.validate_and_publish_created_block(
-                PendingBlock::new(transactions).chain_first_with_genesis_topology(genesis_topology),
+                PendingBlock::new(transactions, Vec::new())
+                    .chain_first_with_genesis_topology(genesis_topology),
                 ctx,
             )
             .await
@@ -678,6 +682,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
     pub async fn round(
         &mut self,
         transactions: Vec<VersionedAcceptedTransaction>,
+        trigger_recommendations: crate::block::Triggers,
         ctx: &mut Context<Self>,
     ) -> Result<()> {
         if transactions.is_empty() {
@@ -685,7 +690,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         }
 
         if Role::Leader == self.topology.role(&self.peer_id) {
-            let block = PendingBlock::new(transactions).chain(
+            let block = PendingBlock::new(transactions, trigger_recommendations).chain(
                 self.block_height,
                 *self.latest_block_hash(),
                 self.view_change_proofs().clone(),

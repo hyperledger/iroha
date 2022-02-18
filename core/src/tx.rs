@@ -1,6 +1,12 @@
-//! This module contains Transaction related functionality of the Iroha.
+//! `Transaction`-related functionality of Iroha.
 //!
-//! `Transaction` is the start of the Transaction lifecycle.
+//! Types represent various stages of a `Transaction`'s lifecycle. For
+//! example, `Transaction` is the start, when a transaction had been
+//! received by Torii.
+//!
+//! This is also where the actual execution of instructions, as well
+//! as various forms of validation are performed.
+// TODO: Add full lifecycle docs.
 
 use std::sync::Arc;
 
@@ -50,8 +56,8 @@ impl<W: WorldTrait> TransactionValidator<W> {
         }
     }
 
-    /// Move transaction lifecycle forward by checking an ability to
-    /// apply instructions to the `WorldStateView<W>`.
+    /// Move transaction lifecycle forward by checking if the
+    /// instructions can be applied to the `WorldStateView`.
     ///
     /// # Errors
     /// Fails if validation of instruction fails (e.g. permissions mismatch).
@@ -220,7 +226,7 @@ impl Txn for VersionedAcceptedTransaction {
     }
 }
 
-/// `AcceptedTransaction` represents a transaction accepted by iroha peer.
+/// `AcceptedTransaction` — a transaction accepted by iroha peer.
 #[version_with_scale(n = 1, versioned = "VersionedAcceptedTransaction")]
 #[derive(Debug, Clone, Decode, Encode)]
 #[non_exhaustive]
@@ -257,7 +263,8 @@ impl AcceptedTransaction {
     /// Checks that the signatures of this transaction satisfy the signature condition specified in the account.
     ///
     /// # Errors
-    /// Can fail if signature conditionon account fails or if account is not found
+    /// - Account not found
+    /// - Signature verification fails
     pub fn check_signature_condition<W: WorldTrait>(
         &self,
         wsv: &WorldStateView<W>,
@@ -280,6 +287,7 @@ impl AcceptedTransaction {
         .wrap_err("Failed to find the account")
     }
 }
+
 impl Txn for AcceptedTransaction {
     type HashOf = Transaction;
 

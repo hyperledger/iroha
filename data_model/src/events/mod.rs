@@ -7,6 +7,7 @@ use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 pub mod data;
 pub mod pipeline;
@@ -95,7 +96,21 @@ pub enum Event {
 
 /// Event filter.
 #[allow(variant_size_differences)]
-#[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    FromVariant,
+    IntoSchema,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 pub enum EventFilter {
     /// Listen to pipeline events with filter.
     Pipeline(pipeline::EventFilter),

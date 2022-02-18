@@ -204,7 +204,7 @@ pub mod isi {
 
             Ok(vec![DataEvent::new(
                 self.destination_id,
-                DataStatus::Deleted,
+                Updated::Asset(AssetUpdated::Sent),
             )])
         }
     }

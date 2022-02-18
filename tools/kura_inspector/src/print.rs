@@ -130,8 +130,9 @@ mod tests {
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,
             },
-            rejected_transactions: vec![],
-            transactions: vec![],
+            rejected_transactions: Vec::new(),
+            transactions: Vec::new(),
+            trigger_recommendations: Vec::new(),
             signatures: std::collections::BTreeSet::default(),
         }
         .sign(iroha_core::prelude::KeyPair::generate().unwrap())

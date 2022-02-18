@@ -1,5 +1,8 @@
-//! This module contains `Block` structures for each state, it's transitions, implementations and related traits
-//! implementations.
+//! This module contains `Block` structures for each state, it's
+//! transitions, implementations and related traits
+//! implementations. `Block`s are organised into a linear sequence
+//! over time (also known as the block chain).  A Block's life-cycle
+//! starts from `PendingBlock`.
 
 #![allow(clippy::module_name_repetitions)]
 
@@ -9,7 +12,7 @@ use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{eyre, Context, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
 use iroha_data_model::{
-    current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*,
+    current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*, trigger::Action,
 };
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
@@ -25,7 +28,11 @@ use crate::{
     wsv::WorldTrait,
 };
 
-/// The chain of the previous block hash if there is no previous block - the blockchain is empty.
+/// Collection of actions, that is not a [`TriggerSet`]
+pub type Triggers = Vec<Action>;
+
+/// The chain of the previous block hash. If there is no previous
+/// block - the blockchain is empty.
 #[derive(Debug, Clone, Copy)]
 pub struct EmptyChainHash<T>(PhantomData<T>);
 
@@ -158,9 +165,8 @@ impl<'a> DoubleEndedIterator for ChainIterator<'a> {
 
 declare_versioned_with_scale!(VersionedPendingBlock 1..2, Debug, Clone, iroha_macro::FromVariant);
 
-/// Transaction data is permanently recorded in files called blocks. Blocks are organized into
-/// a linear sequence over time (also known as the block chain).
-/// Blocks lifecycle starts from "Pending" state which is represented by `PendingBlock` struct.
+/// Transaction data is permanently recorded in files called
+/// blocks.  This is the first stage of a `Block`s life-cycle.
 #[version_with_scale(n = 1, versioned = "VersionedPendingBlock")]
 #[derive(Debug, Clone, Decode, Encode)]
 pub struct PendingBlock {
@@ -168,17 +174,28 @@ pub struct PendingBlock {
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedAcceptedTransaction>,
+    /// Vector of trigger recommendations.
+    pub trigger_recommendations: Triggers,
 }
+
+// TODO: I strongly believe that we shouldn't be moving parts of a
+// PendingBlock, but instead move the PendingBlock wholesale. This
+// refactor could improve memory performance.
 
 impl PendingBlock {
     /// Create a new `PendingBlock` from transactions.
     #[inline]
-    pub fn new(transactions: Vec<VersionedAcceptedTransaction>) -> PendingBlock {
+    pub fn new(
+        transactions: Vec<VersionedAcceptedTransaction>,
+        trigger_recommendations: Triggers,
+    ) -> PendingBlock {
         #[allow(clippy::expect_used)]
         let timestamp = current_time().as_millis();
+        // TODO: Need to check if the `transactions` vector is empty. It shouldn't be allowed.
         PendingBlock {
             timestamp,
             transactions,
+            trigger_recommendations,
         }
     }
 
@@ -192,6 +209,7 @@ impl PendingBlock {
     ) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
+            trigger_recommendations: self.trigger_recommendations,
             header: BlockHeader {
                 timestamp: self.timestamp,
                 height: height + 1,
@@ -209,6 +227,7 @@ impl PendingBlock {
     pub fn chain_first_with_genesis_topology(self, genesis_topology: Topology) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
+            trigger_recommendations: self.trigger_recommendations,
             header: BlockHeader {
                 timestamp: self.timestamp,
                 height: 1,
@@ -226,6 +245,7 @@ impl PendingBlock {
     pub fn chain_first(self) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
+            trigger_recommendations: self.trigger_recommendations,
             header: BlockHeader {
                 timestamp: self.timestamp,
                 height: 1,
@@ -247,6 +267,8 @@ pub struct ChainedBlock {
     pub header: BlockHeader,
     /// Array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedAcceptedTransaction>,
+    /// Vector of trigger recommendations.
+    pub trigger_recommendations: Triggers,
 }
 
 /// Header of the block. The hash should be taken from its byte representation.
@@ -312,11 +334,14 @@ impl ChainedBlock {
             .map(VersionedRejectedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .root_hash();
+        let trigger_recommendations = self.trigger_recommendations;
+        // TODO: Validate trigger recommendations somehow?
         ValidBlock {
             header,
             rejected_transactions: rejected,
             transactions: txs,
             signatures: BTreeSet::default(),
+            trigger_recommendations,
         }
         .into()
     }
@@ -463,6 +488,8 @@ pub struct ValidBlock {
     pub transactions: Vec<VersionedValidTransaction>,
     /// Signatures of peers which approved this block.
     pub signatures: BTreeSet<SignatureOf<Self>>,
+    /// Vector of trigger recommendations.
+    pub trigger_recommendations: Triggers,
 }
 
 impl ValidBlock {
@@ -474,6 +501,7 @@ impl ValidBlock {
             .map(|tx| tx.check_limits(tx_limits))
             .collect::<Result<Vec<_>, _>>()
             .map(drop)?;
+        // TODO: Check trigger recommendations.
         self.rejected_transactions
             .iter()
             .map(|tx| tx.check_limits(tx_limits))
@@ -485,16 +513,24 @@ impl ValidBlock {
     /// Commit block to the store.
     //TODO: pass block store and block sender as parameters?
     pub fn commit(self) -> CommittedBlock {
+        let Self {
+            header,
+            rejected_transactions,
+            transactions,
+            trigger_recommendations,
+            signatures,
+        } = self;
+
         #[allow(clippy::expect_used)]
-        let signatures: SignaturesOf<_> = self
-            .signatures
+        let signatures: SignaturesOf<ValidBlock> = signatures
             .try_into()
             .expect("Expected at least one signature");
 
         CommittedBlock {
-            header: self.header,
-            rejected_transactions: self.rejected_transactions,
-            transactions: self.transactions,
+            trigger_recommendations,
+            header,
+            rejected_transactions,
+            transactions,
             signatures: signatures.transmute(),
         }
     }
@@ -508,6 +544,7 @@ impl ValidBlock {
             signatures: self.signatures,
             ..ChainedBlock {
                 header: self.header,
+                trigger_recommendations: self.trigger_recommendations,
                 transactions: self
                     .transactions
                     .into_iter()
@@ -578,9 +615,10 @@ impl ValidBlock {
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,
             },
-            rejected_transactions: vec![],
-            transactions: vec![],
+            rejected_transactions: Vec::new(),
+            transactions: Vec::new(),
             signatures: BTreeSet::default(),
+            trigger_recommendations: Vec::new(),
         }
         .sign(KeyPair::generate().unwrap())
         .unwrap()
@@ -598,7 +636,6 @@ impl From<&ValidBlock> for Vec<Event> {
         block
             .transactions
             .iter()
-            .cloned()
             .map(|transaction| {
                 PipelineEvent::new(
                     PipelineEntityType::Transaction,
@@ -607,20 +644,14 @@ impl From<&ValidBlock> for Vec<Event> {
                 )
                 .into()
             })
-            .chain(
-                block
-                    .rejected_transactions
-                    .iter()
-                    .cloned()
-                    .map(|transaction| {
-                        PipelineEvent::new(
-                            PipelineEntityType::Transaction,
-                            PipelineStatus::Validating,
-                            transaction.hash().into(),
-                        )
-                        .into()
-                    }),
-            )
+            .chain(block.rejected_transactions.iter().map(|transaction| {
+                PipelineEvent::new(
+                    PipelineEntityType::Transaction,
+                    PipelineStatus::Validating,
+                    transaction.hash().into(),
+                )
+                .into()
+            }))
             .chain(iter::once(
                 PipelineEvent::new(
                     PipelineEntityType::Block,
@@ -687,6 +718,8 @@ pub struct CommittedBlock {
     pub rejected_transactions: Vec<VersionedRejectedTransaction>,
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedValidTransaction>,
+    /// Vector of trigger recommendations.
+    pub trigger_recommendations: Triggers,
     /// Signatures of peers which approved this block
     pub signatures: SignaturesOf<Self>,
 }
@@ -711,12 +744,14 @@ impl From<CommittedBlock> for ValidBlock {
             rejected_transactions,
             transactions,
             signatures,
+            trigger_recommendations,
         }: CommittedBlock,
     ) -> Self {
         Self {
             header,
             rejected_transactions,
             transactions,
+            trigger_recommendations,
             signatures: signatures.transmute().into(),
         }
     }
