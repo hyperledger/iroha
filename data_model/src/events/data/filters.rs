@@ -1,6 +1,6 @@
 //! This module contains `EventFilter` and entities for filter
 
-use super::{detail::*, *};
+use super::*;
 
 #[cfg(feature = "roles")]
 pub type RoleEntityFilter = SimpleEntityFilter<RoleId>;
@@ -13,6 +13,9 @@ pub type DomainEntityFilter = detail::ComplexEntityFilter<DomainEvent, DomainEve
 pub type AccountEntityFilter = detail::ComplexEntityFilter<AccountEvent, AccountEventFilter>;
 
 mod detail {
+    //! This module contains *sealed* structs, that is used in public API, but should
+    //! not be accessed from nowhere except parent module
+
     use super::*;
 
     #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]

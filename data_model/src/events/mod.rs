@@ -115,7 +115,7 @@ pub enum EventFilter {
     /// Listen to pipeline events with filter.
     Pipeline(pipeline::EventFilter),
     /// Listen to data events with filter.
-    Data(data::filters::EventFilter),
+    Data(data::EventFilter),
 }
 
 impl EventFilter {
