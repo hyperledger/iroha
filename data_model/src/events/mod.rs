@@ -115,7 +115,7 @@ pub enum EventFilter {
     /// Listen to pipeline events with filter.
     Pipeline(pipeline::EventFilter),
     /// Listen to data events with filter.
-    Data(data::EventFilter),
+    Data(data::filters::EventFilter),
 }
 
 impl EventFilter {
@@ -123,7 +123,7 @@ impl EventFilter {
     pub fn apply(&self, event: &Event) -> bool {
         match (event, self) {
             (Event::Pipeline(event), EventFilter::Pipeline(filter)) => filter.apply(event),
-            (Event::Data(event), EventFilter::Data(filter)) => filter.apply(event),
+            (Event::Data(event), EventFilter::Data(filter)) => filter.filter(event),
             _ => false,
         }
     }
