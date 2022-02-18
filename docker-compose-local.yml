@@ -1,8 +1,10 @@
-version: "3.3"
+version: "3.8"
 services:
   iroha0:
     build: .
     image: iroha0:debug
+    volumes:
+      - './:/root/soramitsu/iroha'
     environment:
       TORII_P2P_ADDR: iroha0:1337
       TORII_API_URL: iroha0:8080
@@ -14,12 +16,15 @@ services:
       - "1337:1337"
       - "8080:8080"
       - "8180:8180"
+    init: true
     command: ./iroha --submit-genesis
 
   iroha1:
     depends_on:
       - iroha0
     image: iroha0:debug
+    volumes:
+      - './:/root/soramitsu/iroha'
     environment:
       TORII_P2P_ADDR: iroha1:1338
       TORII_API_URL: iroha1:8081
@@ -31,11 +36,14 @@ services:
       - "1338:1338"
       - "8081:8081"
       - "8181:8181"
+    init: true
 
   iroha2:
     depends_on:
       - iroha0
     image: iroha0:debug
+    volumes:
+      - './:/root/soramitsu/iroha'
     environment:
       TORII_P2P_ADDR: iroha2:1339
       TORII_API_URL: iroha2:8082
@@ -47,11 +55,14 @@ services:
       - "1339:1339"
       - "8082:8082"
       - "8182:8182"
+    init: true
 
   iroha3:
     depends_on:
       - iroha0
     image: iroha0:debug
+    volumes:
+      - './:/root/soramitsu/iroha'
     environment:
       TORII_P2P_ADDR: iroha3:1340
       TORII_API_URL: iroha3:8083
@@ -63,3 +74,4 @@ services:
       - "1340:1340"
       - "8083:8083"
       - "8183:8183"
+    init: true
