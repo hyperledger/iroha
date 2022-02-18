@@ -130,7 +130,8 @@ expected::Result<void> initialize() try {
               FLAGS_pg_opt,
               "iroha_default",
               log_manager->getChild("PostgresOptions")->getLogger()),
-          log_manager));
+          log_manager,
+          true));
   pg_pool_wrapper_ = std::move(pool_wrapper);
 
   IROHA_EXPECTED_TRY_GET_VALUE(
@@ -650,7 +651,7 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
         if (key_starts_with_and_drop(RDB_F_VERSION)) {
           assert(key.empty());
           schema_version = std::string{val};
-          assert(schema_version == "1#2#0" &&
+          assert(schema_version == "1#4#0" &&
                   "This version of iroha_wsv_diff can check WSV in RocksDB of version 1.2.0 only");
         } else if (key_starts_with_and_drop(RDB_NETWORK)) {
           if (key_starts_with_and_drop(RDB_PEERS)) {
@@ -838,6 +839,7 @@ bool Wsv::from_rocksdb(RocksDbCommon &rdbc) {
         assert(key.empty());
         return true;
       },
+      iroha::ametsuchi::RocksDBPort::ColumnFamilyType::kWsv,
       RDB_ROOT RDB_WSV);
   for (auto &[permaccid, gp_set] : grant_perms_map) {
     auto &acc = find_account_by_id(permaccid);
@@ -1064,7 +1066,9 @@ int wsv_check() try {
     return 0;
   } else {
     cout << "~~~ WSV-s DIFFER!!! ~~~" << endl;
-    cout << "For future investigation use difftool on files rocksdb.wsv and postgres.wsv. Just like:" << endl;
+    cout << "For future investigation use difftool on files rocksdb.wsv and "
+            "postgres.wsv. Just like:"
+         << endl;
     cout << "   diff <(tail -n+2 postgres.wsv) <(tail -n+2 rockdb.wsv)" << endl;
     cout << "(Here command tail is to drop first line.)" << endl;
     return 1;

@@ -39,6 +39,8 @@ END
    cat <<END
 USAGE:
    $(basename $0) --help
+   $(basename $0) /build ubuntu clang
+   $(basename $0) '/build ubuntu clang; /build macos release ursa'
    echo /build [build_spec...] | $(basename $0)
 END
    --help-buildspec
@@ -68,11 +70,11 @@ handle_user_line(){
       return
    fi
    if [[ "${1:-}" != '/build' ]] ;then
-      echowarn "Line skipped, should start with '/build'"
+      echowarn "Line skipped, should start with '/build' : '${1:-}'"
       return
    fi
    shift
-   local oses compilers cmake_opts build_types
+   local oses compilers cmake_opts build_types skip_testing=
 
    while [[ $# > 0 ]] ;do
       case "$1" in
@@ -90,6 +92,7 @@ handle_user_line(){
          clang|clang-10|clang10)    compilers+=" clang clang-10"  ;;
          llvm)                      compilers+=" $1 " ;;
          msvc)                      compilers+=" $1 " ;;
+         skip-testing|skip_testing) skip_testing='skip_testing' ;;
          all|everything|beforemerge|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge)
             oses=${oses:-"$ALL_oses"}
             build_types=${build_types:-"$ALL_build_types"}
@@ -125,13 +128,13 @@ handle_user_line(){
             for co in $cmake_opts ;do
                if test $os = macos -a $co = burrow; then continue; fi  ##Reduce macos load on CI
                if test $os = macos -a $co = ursa;   then continue; fi  ##Reduce macos load on CI
-               MATRIX+="$os $cc $bt $co"$'\n'
+               MATRIX+="$os $cc $bt $co $skip_testing"$'\n'
             done
          done
       done
-      if test "$used_compilers" = ''; then
-         echowarn "No available compilers for '$os' among '$compilers', available: '$AVAILABLE_compilers'"
-      fi
+      # if test "$used_compilers" = ''; then
+      #    echowarn "No available compilers for '$os' among '$compilers', available: '$AVAILABLE_compilers'"
+      # fi
    done
 }
 
@@ -160,12 +163,6 @@ rm -f $ignored
 
 
 to_json(){
-   # echo "{
-   #       os:\"$1\",
-   #       cc:\"$2\",
-   #       BuildType:\"$3\",
-   #       CMAKE_USE:\"$( [[ "$4" = normal ]] || echo "-DUSE_${4^^}=ON" )\"
-   #    }"
    echo "{buildspec:\"$@\"}"
 }
 to_json_multiline(){
@@ -184,16 +181,6 @@ json_include(){
 
 MATRIX="$(echo "$MATRIX" | sed '/^$/d' | sort -uV)"
 echo "$MATRIX"
-
-echo "$MATRIX"                                                          >buildspec
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'                         >buildspec_ubuntu
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/'            >buildspec_ubuntu_release
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/'              >buildspec_ubuntu_debug
-echo "$MATRIX" | awk -v IGNORECASE=1 '/macos/'                          >buildspec_macos
-echo "$MATRIX" | awk -v IGNORECASE=1 '/windows/'                        >buildspec_windows
-## Build Docker images only with GCC-9 (mainstream compiler)
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /release/ && /gcc-9/' >buildspec_dockerimage_release
-echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/ && /debug/   && /gcc-9/' >buildspec_dockerimage_debug
 
 echo "$MATRIX"                                                          | json_include >matrix
 echo "$MATRIX" | awk -v IGNORECASE=1 '/ubuntu/'                         | json_include >matrix_ubuntu
