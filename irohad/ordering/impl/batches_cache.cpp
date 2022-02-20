@@ -6,16 +6,7 @@
 #include "ordering/impl/batches_cache.hpp"
 
 #include <fmt/core.h>
-#include <iostream>
 #include <mutex>
-
-#include <boost/algorithm/cxx11/all_of.hpp>
-#include <boost/algorithm/minmax_element.hpp>
-#include <boost/range/adaptor/indirected.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/algorithm/equal.hpp>
-#include <boost/range/algorithm/find.hpp>
-#include <boost/range/combine.hpp>
 
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
@@ -29,24 +20,28 @@ namespace {
     return ts;
   }
 
-  bool mergeSignaturesInBatch(std::shared_ptr<shared_model::interface::TransactionBatch> &target, std::shared_ptr<shared_model::interface::TransactionBatch> const &donor) {
+  bool mergeSignaturesInBatch(
+      std::shared_ptr<shared_model::interface::TransactionBatch> &target,
+      std::shared_ptr<shared_model::interface::TransactionBatch> const &donor) {
+    assert(target->transactions().size() == donor->transactions().size());
     auto inserted_new_signatures = false;
-    for (auto zip :
-         boost::combine(target->transactions(), donor->transactions())) {
-      const auto &target_tx = zip.get<0>();
-      const auto &donor_tx = zip.get<1>();
-      inserted_new_signatures = std::accumulate(
-          std::begin(donor_tx->signatures()),
-          std::end(donor_tx->signatures()),
-          inserted_new_signatures,
-          [&target_tx](bool accumulator, const auto &signature) {
-            return target_tx->addSignature(
-                       shared_model::interface::types::SignedHexStringView{
-                           signature.signedData()},
-                       shared_model::interface::types::PublicKeyHexStringView{
-                           signature.publicKey()})
-                or accumulator;
-          });
+
+    auto it_target = target->transactions().begin();
+    auto it_donor = donor->transactions().begin();
+    while (it_target != target->transactions().end()
+           && it_donor != donor->transactions().end()) {
+      const auto &target_tx = *it_target;
+      const auto &donor_tx = *it_donor;
+
+      for (auto &signature : donor_tx->signatures())
+        inserted_new_signatures |= target_tx->addSignature(
+            shared_model::interface::types::SignedHexStringView{
+                signature.signedData()},
+            shared_model::interface::types::PublicKeyHexStringView{
+                signature.publicKey()});
+
+      ++it_target;
+      ++it_donor;
     }
     return inserted_new_signatures;
   }
@@ -201,6 +196,7 @@ namespace iroha::ordering {
 
   void BatchesCache::processReceivedProposal(
       OnDemandOrderingService::CollectionType batches) {
+    /// TODO(iceseer): batches push by reference
     std::unique_lock lock(batches_cache_cs_);
     for (auto &batch : batches) {
       batches_cache_.removeBatch(batch);
