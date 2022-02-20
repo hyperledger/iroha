@@ -9,6 +9,14 @@
 #include <iostream>
 #include <mutex>
 
+#include <boost/algorithm/cxx11/all_of.hpp>
+#include <boost/algorithm/minmax_element.hpp>
+#include <boost/range/adaptor/indirected.hpp>
+#include <boost/range/adaptor/transformed.hpp>
+#include <boost/range/algorithm/equal.hpp>
+#include <boost/range/algorithm/find.hpp>
+#include <boost/range/combine.hpp>
+
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
 
@@ -30,6 +38,29 @@ namespace {
     assert(min_it != timestamps.end());
     return min_it == timestamps.end() ? 0 : *min_it;
   }
+
+  bool mergeSignaturesInBatch(std::shared_ptr<shared_model::interface::TransactionBatch> &target, std::shared_ptr<shared_model::interface::TransactionBatch> const &donor) {
+    auto inserted_new_signatures = false;
+    for (auto zip :
+         boost::combine(target->transactions(), donor->transactions())) {
+      const auto &target_tx = zip.get<0>();
+      const auto &donor_tx = zip.get<1>();
+      inserted_new_signatures = std::accumulate(
+          std::begin(donor_tx->signatures()),
+          std::end(donor_tx->signatures()),
+          inserted_new_signatures,
+          [&target_tx](bool accumulator, const auto &signature) {
+            return target_tx->addSignature(
+                       shared_model::interface::types::SignedHexStringView{
+                           signature.signedData()},
+                       shared_model::interface::types::PublicKeyHexStringView{
+                           signature.publicKey()})
+                or accumulator;
+          });
+    }
+    return inserted_new_signatures;
+  }
+
 }  // namespace
 
 namespace iroha::ordering {
@@ -93,20 +124,37 @@ namespace iroha::ordering {
   void BatchesCache::insertMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
     assert(!batch->hasAllSignatures());
     mst_state_.exclusiveAccess([&](auto &mst_state) {
-      assert(mst_pending_.size() == mst_expirations_.size());
-      auto const result = mst_pending_.emplace(batch);
-      if (result.second) {
-        /// insert new one
+      auto ins_res =
+          mst_state.mst_pending_.emplace(batch->reducedHash(), batch);
+      auto &it_batch = ins_res.first;
+      if (ins_res.second) {
         auto ts = oldestTimestamp(batch);
-        while (!mst_expirations_.emplace(ts++, batch).second);
+        while (!mst_state.mst_expirations_.emplace(ts, batch).second) ++ts;
+        it_batch->second.timestamp = ts;
       } else {
-        /// merge signatures
+        if (mergeSignaturesInBatch(it_batch->second.batch, batch)
+            && it_batch->second.batch->hasAllSignatures()) {
+          {
+            std::unique_lock lock(batches_cache_cs_);
+            batches_cache_.insert(it_batch->second.batch);
+          }
+          mst_state.mst_expirations_.erase(it_batch->second.timestamp);
+          mst_state.mst_pending_.erase(it_batch);
+        }
       }
+      assert(mst_state.mst_pending_.size()
+             == mst_state.mst_expirations_.size());
     });
   }
 
   void BatchesCache::removeMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
-
+    mst_state_.exclusiveAccess([&](auto &mst_state) {
+      if (auto it = mst_state.mst_pending_.find(batch->reducedHash()); it != mst_state.mst_pending_.end()) {
+        mst_state.mst_expirations_.erase(it->second.timestamp);
+        mst_state.mst_pending_.erase(it);
+        assert(mst_state.mst_pending_.size() == mst_state.mst_expirations_.size()); 
+      }
+    });
   }
 
   uint64_t BatchesCache::insert(

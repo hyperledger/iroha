@@ -82,16 +82,22 @@ namespace iroha::ordering {
    */
   class BatchesCache {
    public:
-    using MSTBatchesSetType = std::unordered_set<
-        std::shared_ptr<shared_model::interface::TransactionBatch>,
-        OnDemandOrderingService::BatchPointerHasher,
-        shared_model::interface::BatchHashEquality>;
-    using MSTExpirationSetType = std::unordered_map<shared_model::interface::types::TimestampType, 
-        std::shared_ptr<shared_model::interface::TransactionBatch>>;
-
     using BatchesSetType = BatchesContext::BatchesSetType;
 
    private:
+    struct BatchInfo {
+      std::shared_ptr<shared_model::interface::TransactionBatch> batch;
+      shared_model::interface::types::TimestampType timestamp;
+
+      BatchInfo(std::shared_ptr<shared_model::interface::TransactionBatch> const &b, shared_model::interface::types::TimestampType const &t = 0ull)
+      : batch(b), timestamp(t) { }
+    };
+
+    using MSTBatchesSetType = std::unordered_map<shared_model::interface::types::HashType,
+        BatchInfo, shared_model::crypto::Hash::Hasher>;
+    using MSTExpirationSetType = std::unordered_map<shared_model::interface::types::TimestampType, 
+        std::shared_ptr<shared_model::interface::TransactionBatch>>;
+
     struct MSTState {
       MSTBatchesSetType mst_pending_;
       MSTExpirationSetType mst_expirations_;
