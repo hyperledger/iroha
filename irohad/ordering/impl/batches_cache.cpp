@@ -23,20 +23,10 @@
 namespace {
   shared_model::interface::types::TimestampType oldestTimestamp(
       std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
-    const bool batch_is_empty = boost::empty(batch->transactions());
-    assert(not batch_is_empty);
-    if (batch_is_empty) {
-      return 0;
-    }
-    auto timestamps =
-        batch->transactions()
-        | boost::adaptors::transformed(
-              +[](const std::shared_ptr<shared_model::interface::Transaction>
-                      &tx) { return tx->createdTime(); });
-    const auto min_it =
-        boost::first_min_element(timestamps.begin(), timestamps.end());
-    assert(min_it != timestamps.end());
-    return min_it == timestamps.end() ? 0 : *min_it;
+    assert(!batch->transactions().empty());
+    shared_model::interface::types::TimestampType ts = 0ull;
+    for (auto &tx : batch->transactions()) ts = std::min(ts, tx->createdTime());
+    return ts;
   }
 
   bool mergeSignaturesInBatch(std::shared_ptr<shared_model::interface::TransactionBatch> &target, std::shared_ptr<shared_model::interface::TransactionBatch> const &donor) {
