@@ -226,28 +226,3 @@ impl From<AssetUpdated> for Status {
         Self::Updated(src.into())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn entity_scope() {
-        const DOMAIN: &str = "wonderland";
-        const ACCOUNT: &str = "alice";
-        const ASSET: &str = "rose";
-        let domain = DomainId::test(DOMAIN);
-        let account = AccountId::test(ACCOUNT, DOMAIN);
-        let asset = AssetId::test(ASSET, DOMAIN, ACCOUNT, DOMAIN);
-
-        let entity_created = |entity: Entity| Event::new(entity, Status::Created);
-        let domain_created = entity_created(Entity::Domain(domain));
-        let account_created = entity_created(Entity::Account(account.clone()));
-        let asset_created = entity_created(Entity::Asset(asset));
-
-        let account_filter = EventFilter::new(Some(EntityFilter::Account(Some(account))), None);
-        assert!(!account_filter.apply(&domain_created));
-        assert!(account_filter.apply(&account_created));
-        assert!(account_filter.apply(&asset_created));
-    }
-}

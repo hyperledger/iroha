@@ -49,7 +49,7 @@ mod detail {
         EventFilter: Filter<Item = Entity>,
         for<'a> <Entity as Identifiable>::Id: IntoSchema + Deserialize<'a> + Serialize,
     {
-        id_filter: IdFilter<<Entity as Identifiable>::Id>,
+        id_filter: FilterOpt<IdFilter<<Entity as Identifiable>::Id>>,
         event_filter: FilterOpt<EventFilter>,
     }
 
@@ -60,7 +60,7 @@ mod detail {
         for<'a> <Entity as Identifiable>::Id: IntoSchema + Deserialize<'a> + Serialize,
     {
         pub fn new(
-            id_filter: IdFilter<<Entity as Identifiable>::Id>,
+            id_filter: FilterOpt<IdFilter<<Entity as Identifiable>::Id>>,
             event_filter: FilterOpt<EventFilter>,
         ) -> Self {
             Self {
@@ -151,7 +151,6 @@ impl Filter for EntityFilter {
     }
 }
 
-/// DomainFilter for `EntityFilter`
 #[derive(
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
@@ -249,5 +248,38 @@ impl Filter for UpdatedFilter {
 
     fn filter(&self, item: &Updated) -> bool {
         item == &self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entity_scope() {
+        const DOMAIN: &str = "wonderland";
+        const ACCOUNT: &str = "alice";
+        const ASSET: &str = "rose";
+        let domain_id = DomainId::test(DOMAIN);
+        let account_id = AccountId::test(ACCOUNT, DOMAIN);
+        let asset_id = AssetId::test(ASSET, DOMAIN, ACCOUNT, DOMAIN);
+
+        let domain_created =
+            DomainEvent::OtherDomainChange(OtherDomainChangeEvent::new(domain_id, Status::Created));
+        let account_created = AccountEvent::OtherAccountChange(OtherAccountChangeEvent::new(
+            account_id.clone(),
+            Status::Created,
+        ));
+        let asset_created = AssetEvent::new(asset_id, Status::Created);
+        let account_asset_created = AccountEvent::Asset(asset_created.clone());
+
+        let account_filter = BySome(EntityFilter::ByAccount(BySome(AccountEntityFilter::new(
+            BySome(IdFilter(account_id)),
+            AcceptAll,
+        ))));
+        assert!(!account_filter.filter(&domain_created.into()));
+        assert!(!account_filter.filter(&asset_created.into()));
+        assert!(account_filter.filter(&account_created.into()));
+        assert!(account_filter.filter(&account_asset_created.into()));
     }
 }

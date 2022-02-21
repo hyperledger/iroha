@@ -101,7 +101,7 @@ fn transaction_execution_should_produce_events(executable: Executable) -> Result
     let mut listener = client.clone();
     let (init_sender, init_receiver) = mpsc::channel();
     let (event_sender, event_receiver) = mpsc::channel();
-    let event_filter = DataEventFilter::default().into();
+    let event_filter = DataEventFilter::AcceptAll.into();
     thread::spawn(move || -> Result<()> {
         let event_iterator = listener.listen_for_events(event_filter)?;
         init_sender.send(())?;
@@ -121,7 +121,12 @@ fn transaction_execution_should_produce_events(executable: Executable) -> Result
 
     // assertion
     for i in 0..4_usize {
-        let expected_event = DataEvent::new(DomainId::test(&i.to_string()), DataStatus::Created);
+        let domain_id = DomainId::test(&i.to_string());
+        let expected_event = DomainEvent::OtherDomainChange(OtherDomainChangeEvent::new(
+            domain_id,
+            DataStatus::Created,
+        ))
+        .into();
         let event: DataEvent = event_receiver.recv()??.try_into()?;
         assert_eq!(event, expected_event);
     }
