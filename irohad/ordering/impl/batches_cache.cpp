@@ -10,6 +10,7 @@
 
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
+#include "main/subscription.hpp"
 
 namespace {
   shared_model::interface::types::TimestampType oldestTimestamp(
@@ -106,6 +107,15 @@ namespace iroha::ordering {
     assert(count(from.batches_) == from.tx_count_);
   }
 
+/*    getSubscription()->notify(
+              EventTypes::kOnRdbStats,
+              RocksDbStatus{common.propGetBlockCacheCapacity(),
+                            common.propGetBlockCacheUsage(),
+                            common.propGetCurSzAllMemTables(),
+                            common.propGetNumSnapshots(),
+                            common.propGetTotalSSTFilesSize()});*/
+
+
   void BatchesCache::insertMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
     assert(!batch->hasAllSignatures());
     mst_state_.exclusiveAccess([&](auto &mst_state) {
@@ -144,18 +154,18 @@ namespace iroha::ordering {
 
   void BatchesCache::removeMSTCache(OnDemandOrderingService::HashesSetType const &hashes) {
     mst_state_.exclusiveAccess([&](auto &mst_state) {
-      std::erase_if(mst_state.mst_pending_, [&hashes](auto const &val) {
-        auto const &[_, batch_info] = val;
+      for (auto it = mst_state.mst_pending_.begin(); it != mst_state.mst_pending_.end();) {
+        auto const &batch_info = it->second;
         auto const need_remove = std::any_of(batch_info.batch->transactions().begin(),
                          batch_info.batch->transactions().end(),
                          [&hashes](auto const &tx) {
                            return hashes.find(tx->hash()) != hashes.end();
                          });
-
-        if (need_remove)
+        if (need_remove) {
           mst_state.mst_expirations_.erase(batch_info.timestamp);  
-        return need_remove;
-      });
+          it = mst_state.mst_pending_.erase(it);
+        } else ++it;
+      }
       assert(mst_state.mst_pending_.size() == mst_state.mst_expirations_.size()); 
     });
   }
