@@ -1,5 +1,7 @@
 //! This module contains [`Domain`] structure and related implementations and trait implementations.
 
+use std::collections::btree_map::Entry;
+
 use eyre::Result;
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics;
@@ -22,11 +24,33 @@ pub mod isi {
         #[metrics(+"register_account")]
         fn execute(
             self,
-            authority: <NewAccount as Identifiable>::Id,
+            _authority: <NewAccount as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let account = self.object;
-            wsv.register(account, authority)
+            let account_id = account.id.clone();
+
+            account_id
+                .name
+                .validate_len(wsv.config.ident_length_limits)
+                .map_err(Error::Validate)?;
+
+            wsv.modify_domain(&account_id.domain_id, |domain| {
+                match domain.accounts.entry(account_id.clone()) {
+                    Entry::Occupied(_) => Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::AccountId(account_id.clone()),
+                    )),
+                    Entry::Vacant(entry) => {
+                        let _ = entry.insert(account.into());
+                        Ok(AccountEvent::StatusUpdated(AccountStatusUpdated::new(
+                            account_id.clone(),
+                            DataStatus::Created,
+                        ))
+                        .into())
+                    }
+                }
+            })
         }
     }
 
@@ -40,7 +64,14 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let account_id = self.object_id;
-            wsv.unregister::<NewAccount>(account_id)
+            wsv.modify_domain(&account_id.domain_id, |domain| {
+                domain.accounts.remove(&account_id);
+                Ok(AccountEvent::StatusUpdated(AccountStatusUpdated::new(
+                    account_id.clone(),
+                    DataStatus::Deleted,
+                ))
+                .into())
+            })
         }
     }
 
@@ -54,7 +85,28 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let asset_definition = self.object;
-            wsv.register(asset_definition, authority)
+            let asset_id = asset_definition.id.clone();
+            asset_id
+                .name
+                .validate_len(wsv.config.ident_length_limits)
+                .map_err(Error::Validate)?;
+            let domain_id = asset_id.domain_id.clone();
+
+            wsv.modify_domain(&domain_id, |domain| {
+                match domain.asset_definitions.entry(asset_id.clone()) {
+                    Entry::Vacant(entry) => {
+                        let _ = entry.insert(AssetDefinitionEntry {
+                            definition: asset_definition,
+                            registered_by: authority,
+                        });
+                        Ok(AssetDefinitionEvent::new(asset_id, DataStatus::Created).into())
+                    }
+                    Entry::Occupied(entry) => Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::AccountId(entry.get().registered_by.clone()),
+                    )),
+                }
+            })
         }
     }
 
@@ -68,7 +120,32 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
-            wsv.unregister::<AssetDefinition>(asset_definition_id)
+            wsv.modify_domain(&asset_definition_id.domain_id, |domain| {
+                domain.asset_definitions.remove(&asset_definition_id);
+                Ok(
+                    AssetDefinitionEvent::new(asset_definition_id.clone(), DataStatus::Deleted)
+                        .into(),
+                )
+            })?;
+
+            for domain in wsv.domains() {
+                for (account_id, account) in &domain.accounts {
+                    let keys = account
+                        .assets
+                        .iter()
+                        .filter(|(asset_id, _asset)| asset_id.definition_id == asset_definition_id)
+                        .map(|(asset_id, _asset)| asset_id.clone())
+                        .collect::<Vec<_>>();
+                    for id in &keys {
+                        wsv.modify_account(account_id, |account_mut| {
+                            account_mut.assets.remove(id);
+                            Ok(AssetEvent::new(id.clone(), DataStatus::Deleted).into())
+                        })?;
+                    }
+                }
+            }
+
+            Ok(())
         }
     }
 
@@ -146,10 +223,7 @@ pub mod isi {
                     .metadata
                     .insert_with_limits(self.key, self.value, limits)?;
 
-                Ok(
-                    OtherDomainChangeEvent::new(domain_id.clone(), MetadataUpdated::Inserted)
-                        .into(),
-                )
+                Ok(DomainStatusUpdated::new(domain_id.clone(), MetadataUpdated::Inserted).into())
             })
         }
     }
@@ -171,7 +245,7 @@ pub mod isi {
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
-                Ok(OtherDomainChangeEvent::new(domain_id.clone(), MetadataUpdated::Removed).into())
+                Ok(DomainStatusUpdated::new(domain_id.clone(), MetadataUpdated::Removed).into())
             })
         }
     }

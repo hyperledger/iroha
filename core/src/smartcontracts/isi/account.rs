@@ -30,10 +30,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 account.signatories.push(public_key);
 
-                Ok(
-                    OtherAccountChangeEvent::new(account_id.clone(), Updated::Authentication)
-                        .into(),
-                )
+                Ok(AccountStatusUpdated::new(account_id.clone(), Updated::Authentication).into())
             })
         }
     }
@@ -53,10 +50,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 account.signature_check_condition = signature_check_condition;
 
-                Ok(
-                    OtherAccountChangeEvent::new(account_id.clone(), Updated::Authentication)
-                        .into(),
-                )
+                Ok(AccountStatusUpdated::new(account_id.clone(), Updated::Authentication).into())
             })
         }
     }
@@ -87,7 +81,7 @@ pub mod isi {
                     account.signatories.remove(index);
                 }
 
-                Ok(OtherAccountChangeEvent::new(
+                Ok(AccountStatusUpdated::new(
                     account_id.clone(),
                     Updated::Authentication,
                 ).into())
@@ -115,10 +109,7 @@ pub mod isi {
                     account_metadata_limits,
                 )?;
 
-                Ok(
-                    OtherAccountChangeEvent::new(account_id.clone(), MetadataUpdated::Inserted)
-                        .into(),
-                )
+                Ok(AccountStatusUpdated::new(account_id.clone(), MetadataUpdated::Inserted).into())
             })
         }
     }
@@ -140,10 +131,7 @@ pub mod isi {
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
-                Ok(
-                    OtherAccountChangeEvent::new(account_id.clone(), MetadataUpdated::Removed)
-                        .into(),
-                )
+                Ok(AccountStatusUpdated::new(account_id.clone(), MetadataUpdated::Removed).into())
             })
         }
     }
@@ -163,7 +151,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 let _ = account.permission_tokens.insert(permission);
 
-                Ok(OtherAccountChangeEvent::new(account_id.clone(), Updated::Permission).into())
+                Ok(AccountStatusUpdated::new(account_id.clone(), Updated::Permission).into())
             })
         }
     }
@@ -183,7 +171,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 let _ = account.permission_tokens.remove(permission);
 
-                Ok(OtherAccountChangeEvent::new(account_id.clone(), Updated::Permission).into())
+                Ok(AccountStatusUpdated::new(account_id.clone(), Updated::Permission).into())
             })
         }
     }
@@ -208,7 +196,7 @@ pub mod isi {
             wsv.modify_account(&self.destination_id, |account| {
                 let _ = account.roles.insert(role);
 
-                Ok(OtherAccountChangeEvent::new(self.destination_id, Updated::Permission).into())
+                Ok(AccountStatusUpdated::new(self.destination_id, Updated::Permission).into())
             })
         }
     }
@@ -233,7 +221,7 @@ pub mod isi {
             wsv.modify_account(&self.destination_id, |account| {
                 let _ = account.roles.remove(&role);
 
-                Ok(OtherAccountChangeEvent::new(self.destination_id, Updated::Permission).into())
+                Ok(AccountStatusUpdated::new(self.destination_id, Updated::Permission).into())
             })
         }
     }

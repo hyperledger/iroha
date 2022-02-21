@@ -5,8 +5,8 @@ use super::*;
 pub type AssetEvent = SimpleEvent<AssetId>;
 pub type AssetDefinitionEvent = SimpleEvent<AssetDefinitionId>;
 pub type PeerEvent = SimpleEvent<PeerId>;
-pub type OtherAccountChangeEvent = SimpleEvent<AccountId>;
-pub type OtherDomainChangeEvent = SimpleEvent<DomainId>;
+pub type AccountStatusUpdated = SimpleEvent<AccountId>;
+pub type DomainStatusUpdated = SimpleEvent<DomainId>;
 #[cfg(feature = "roles")]
 pub type Role = SimpleEvent<RoleId>;
 
@@ -49,7 +49,7 @@ impl<Id: Into<IdBox> + Debug + Clone + Eq + Ord> IdTrait for SimpleEvent<Id> {
 )]
 pub enum AccountEvent {
     /// Account change without asset changing
-    OtherAccountChange(OtherAccountChangeEvent),
+    StatusUpdated(AccountStatusUpdated),
     /// Asset change
     Asset(AssetEvent),
 }
@@ -61,7 +61,7 @@ impl Identifiable for AccountEvent {
 impl IdTrait for AccountEvent {
     fn id(&self) -> &AccountId {
         match self {
-            Self::OtherAccountChange(change) => change.id(),
+            Self::StatusUpdated(change) => change.id(),
             Self::Asset(asset) => &asset.id().account_id,
         }
     }
@@ -73,7 +73,7 @@ impl IdTrait for AccountEvent {
 )]
 pub enum DomainEvent {
     /// Domain change without account or asset definition change
-    OtherDomainChange(OtherDomainChangeEvent),
+    StatusUpdated(DomainStatusUpdated),
     /// Account change
     Account(AccountEvent),
     /// Asset definition change
@@ -87,7 +87,7 @@ impl Identifiable for DomainEvent {
 impl IdTrait for DomainEvent {
     fn id(&self) -> &DomainId {
         match self {
-            Self::OtherDomainChange(change) => change.id(),
+            Self::StatusUpdated(change) => change.id(),
             Self::Account(account) => &account.id().domain_id,
             Self::AssetDefinition(asset_definition) => &asset_definition.id().domain_id,
         }
@@ -143,10 +143,10 @@ pub enum Event {
     IntoSchema,
 )]
 pub enum Status {
-    /// Entity was added, registered, minted or another action was made to make entity appear on
+    /// Entity was added, registered or another action was made to make entity appear on
     /// the blockchain for the first time.
     Created,
-    /// Entity's state was changed, any parameter updated it's value.
+    /// Entity's state was minted, burned, changed, any parameter updated it's value.
     Updated(Updated),
     /// Entity was archived or by any other way was put into state that guarantees absence of
     /// [`Updated`](`Status::Updated`) events for this entity.
@@ -213,6 +213,8 @@ pub enum MetadataUpdated {
 pub enum AssetUpdated {
     Received,
     Sent,
+    Minted,
+    Burned,
 }
 
 impl From<MetadataUpdated> for Status {

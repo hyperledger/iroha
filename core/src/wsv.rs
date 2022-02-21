@@ -2,7 +2,6 @@
 //! state.
 
 use std::{
-    collections::btree_map::Entry,
     fmt::Debug,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -22,7 +21,7 @@ use crate::{
     block::Chain,
     event::EventsSender,
     prelude::*,
-    smartcontracts::{isi::Error, wasm, Execute, FindError, InstructionType},
+    smartcontracts::{isi::Error, wasm, Execute, FindError},
     DomainsMap, PeersIds,
 };
 
@@ -371,14 +370,14 @@ impl<W: WorldTrait> WorldStateView<W> {
                             AccountEvent::Asset(asset_event) => {
                                 events.push(DataEvent::Asset(asset_event.clone()))
                             }
-                            AccountEvent::OtherAccountChange(_) => (),
+                            AccountEvent::StatusUpdated(_) => (),
                         }
                         events.push(DataEvent::Account(account_event.clone()));
                     }
                     DomainEvent::AssetDefinition(asset_definition_event) => {
                         events.push(DataEvent::AssetDefinition(asset_definition_event.clone()))
                     }
-                    DomainEvent::OtherDomainChange(_) => (),
+                    DomainEvent::StatusUpdated(_) => (),
                 }
                 events.push(DataEvent::Domain(domain_event.clone()));
             }
@@ -544,11 +543,11 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .assets
                 .get_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
-            let event_res = f(asset);
+            let event_result = f(asset);
             if asset.value.is_zero_value() {
                 account.assets.remove(id);
             }
-            event_res.map(Into::into)
+            event_result.map(Into::into)
         })
     }
 
@@ -729,225 +728,6 @@ impl<W: WorldTrait> WorldStateView<W> {
             .collect::<Vec<_>>();
         transactions.sort();
         transactions
-    }
-
-    /// Register `elem` on behalf of `authority`.
-    ///
-    /// # Errors
-    /// Any error during `elem.register()` call
-    pub fn register<T: RegisterTrait<W>>(
-        &self,
-        elem: T,
-        authority: AccountId,
-    ) -> Result<(), Error> {
-        elem.register(authority, self)
-    }
-
-    /// Unregister object by `id`
-    ///
-    /// # Errors
-    /// Any error during `T::unregister()` call
-    pub fn unregister<T: RegisterTrait<W>>(&self, id: T::Id) -> Result<(), Error> {
-        T::unregister(id, self)
-    }
-}
-
-/// Trait for objects that can be registered and unregistered
-pub trait RegisterTrait<W: WorldTrait>: Identifiable {
-    /// Register object on behalf of `authority`.
-    ///
-    /// # Errors
-    /// Any error during registration
-    fn register(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Error>;
-
-    /// Unregister object by `id`
-    ///
-    /// # Errors
-    /// Any error during unregistering
-    fn unregister(id: Self::Id, wsv: &WorldStateView<W>) -> Result<(), Error>;
-}
-
-impl<W: WorldTrait> RegisterTrait<W> for Peer {
-    fn register(self, _authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Error> {
-        let peer_id = self.id;
-
-        wsv.modify_world(|world| {
-            if !world.trusted_peers_ids.insert(peer_id.clone()) {
-                return Err(Error::Repetition(
-                    InstructionType::Register,
-                    IdBox::PeerId(peer_id),
-                ));
-            }
-            Ok(PeerEvent::new(peer_id, DataStatus::Created).into())
-        })
-    }
-
-    fn unregister(peer_id: Self::Id, wsv: &WorldStateView<W>) -> Result<(), Error> {
-        wsv.modify_world(|world| {
-            if world.trusted_peers_ids.remove(&peer_id).is_none() {
-                return Err(FindError::Peer(peer_id).into());
-            }
-
-            Ok(PeerEvent::new(peer_id, DataStatus::Deleted).into())
-        })
-    }
-}
-
-impl<W: WorldTrait> RegisterTrait<W> for Domain {
-    fn register(self, _authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Error> {
-        let domain_id = self.id.clone();
-
-        domain_id
-            .name
-            .validate_len(wsv.config.ident_length_limits)
-            .map_err(Error::Validate)?;
-
-        wsv.modify_world(|world| {
-            world.domains.insert(domain_id.clone(), self);
-            Ok(DomainEvent::OtherDomainChange(OtherDomainChangeEvent::new(
-                domain_id,
-                DataStatus::Created,
-            ))
-            .into())
-        })?;
-
-        wsv.metrics.domains.inc();
-        Ok(())
-    }
-
-    fn unregister(domain_id: Self::Id, wsv: &WorldStateView<W>) -> Result<(), Error> {
-        wsv.modify_world(|world| {
-            // TODO: Should we fail if no domain found?
-            world.domains.remove(&domain_id);
-            Ok(DomainEvent::OtherDomainChange(OtherDomainChangeEvent::new(
-                domain_id,
-                DataStatus::Deleted,
-            ))
-            .into())
-        })?;
-
-        wsv.metrics.domains.dec();
-        Ok(())
-    }
-}
-
-#[cfg(feature = "roles")]
-impl<W: WorldTrait> RegisterTrait<W> for Role {
-    fn register(self, _authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Error> {
-        let role_id = role.id.clone();
-
-        wsv.modify_world(|world| {
-            world.roles.insert(role_id.clone(), role);
-            Ok(RoleEvent::new(role_id, DataStatus::Created).into())
-        })
-    }
-    fn unregister(role_id: Self::Id, wsv: &WorldStateView<W>) -> Result<(), Error> {
-        wsv.modify_world(|world| {
-            world.roles.remove(&role_id);
-            for mut domain in world.domains.iter_mut() {
-                for account in domain.accounts.values_mut() {
-                    let _ = account.roles.remove(&role_id);
-                }
-            }
-
-            Ok(RoleEvent::new(role_id, DataStatus::Deleted).into())
-        })
-    }
-}
-
-impl<W: WorldTrait> RegisterTrait<W> for NewAccount {
-    fn register(self, _authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Error> {
-        let account_id = self.id.clone();
-
-        self.id
-            .name
-            .validate_len(wsv.config.ident_length_limits)
-            .map_err(Error::Validate)?;
-
-        wsv.modify_domain(&account_id.domain_id, |domain| {
-            match domain.accounts.entry(account_id.clone()) {
-                Entry::Occupied(_) => Err(Error::Repetition(
-                    InstructionType::Register,
-                    IdBox::AccountId(account_id.clone()),
-                )),
-                Entry::Vacant(entry) => {
-                    let _ = entry.insert(self.into());
-                    Ok(
-                        AccountEvent::OtherAccountChange(OtherAccountChangeEvent::new(
-                            account_id.clone(),
-                            DataStatus::Created,
-                        ))
-                        .into(),
-                    )
-                }
-            }
-        })
-    }
-
-    fn unregister(account_id: Self::Id, wsv: &WorldStateView<W>) -> Result<(), Error> {
-        wsv.modify_domain(&account_id.domain_id, |domain| {
-            domain.accounts.remove(&account_id);
-            Ok(
-                AccountEvent::OtherAccountChange(OtherAccountChangeEvent::new(
-                    account_id.clone(),
-                    DataStatus::Deleted,
-                ))
-                .into(),
-            )
-        })
-    }
-}
-
-impl<W: WorldTrait> RegisterTrait<W> for AssetDefinition {
-    fn register(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Error> {
-        let asset_id = self.id.clone();
-
-        asset_id
-            .name
-            .validate_len(wsv.config.ident_length_limits)
-            .map_err(Error::Validate)?;
-        let domain_id = asset_id.domain_id.clone();
-
-        wsv.modify_domain(&domain_id, |domain| {
-            match domain.asset_definitions.entry(asset_id.clone()) {
-                Entry::Vacant(entry) => {
-                    let _ = entry.insert(AssetDefinitionEntry {
-                        definition: self,
-                        registered_by: authority,
-                    });
-                    Ok(AssetDefinitionEvent::new(asset_id, DataStatus::Created).into())
-                }
-                Entry::Occupied(entry) => Err(Error::Repetition(
-                    InstructionType::Register,
-                    IdBox::AccountId(entry.get().registered_by.clone()),
-                )),
-            }
-        })
-    }
-    fn unregister(asset_definition_id: Self::Id, wsv: &WorldStateView<W>) -> Result<(), Error> {
-        wsv.modify_domain(&asset_definition_id.domain_id, |domain| {
-            domain.asset_definitions.remove(&asset_definition_id);
-            Ok(AssetDefinitionEvent::new(asset_definition_id.clone(), DataStatus::Deleted).into())
-        })?;
-
-        for domain in wsv.domains() {
-            for (account_id, account) in &domain.accounts {
-                let keys = account
-                    .assets
-                    .iter()
-                    .filter(|(asset_id, _asset)| asset_id.definition_id == asset_definition_id)
-                    .map(|(asset_id, _asset)| asset_id.clone())
-                    .collect::<Vec<_>>();
-                for id in &keys {
-                    wsv.modify_account(account_id, |account_mut| {
-                        account_mut.assets.remove(id);
-                        Ok(AssetEvent::new(id.clone(), DataStatus::Deleted).into())
-                    })?;
-                }
-            }
-        }
-
-        Ok(())
     }
 }
 

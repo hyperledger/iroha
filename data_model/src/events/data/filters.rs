@@ -174,7 +174,7 @@ impl Filter for DomainEventFilter {
             ) => filter_opt.filter(asset_definition),
             (
                 &Self::ByOtherDomainChange(ref filter_opt),
-                &DomainEvent::OtherDomainChange(ref change),
+                &DomainEvent::StatusUpdated(ref change),
             ) => filter_opt.filter(change),
             _ => false,
         }
@@ -200,7 +200,7 @@ impl Filter for AccountEventFilter {
             }
             (
                 &Self::ByOtherAccountChange(ref filter_opt),
-                &AccountEvent::OtherAccountChange(ref change),
+                &AccountEvent::StatusUpdated(ref change),
             ) => filter_opt.filter(change),
             _ => false,
         }
@@ -265,8 +265,8 @@ mod tests {
         let asset_id = AssetId::test(ASSET, DOMAIN, ACCOUNT, DOMAIN);
 
         let domain_created =
-            DomainEvent::OtherDomainChange(OtherDomainChangeEvent::new(domain_id, Status::Created));
-        let account_created = AccountEvent::OtherAccountChange(OtherAccountChangeEvent::new(
+            DomainEvent::StatusUpdated(DomainStatusUpdated::new(domain_id, Status::Created));
+        let account_created = AccountEvent::StatusUpdated(AccountStatusUpdated::new(
             account_id.clone(),
             Status::Created,
         ));

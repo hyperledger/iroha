@@ -69,7 +69,10 @@ pub mod isi {
                     .ok_or(Error::Math(MathError::Overflow))?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
 
-                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Created))
+                Ok(AssetEvent::new(
+                    asset_id.clone(),
+                    DataStatus::Updated(Updated::Asset(AssetUpdated::Minted)),
+                ))
             })
         }
     }
@@ -99,7 +102,10 @@ pub mod isi {
                 #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
 
-                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Created))
+                Ok(AssetEvent::new(
+                    asset_id.clone(),
+                    DataStatus::Updated(Updated::Asset(AssetUpdated::Minted)),
+                ))
             })
         }
     }
@@ -125,7 +131,10 @@ pub mod isi {
                 *quantity = quantity.checked_add(self.object)?;
                 wsv.metrics.tx_amounts.observe((*quantity).into());
 
-                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Created))
+                Ok(AssetEvent::new(
+                    asset_id.clone(),
+                    DataStatus::Updated(Updated::Asset(AssetUpdated::Minted)),
+                ))
             })
         }
     }
@@ -179,7 +188,10 @@ pub mod isi {
                     .ok_or(MathError::NotEnoughQuantity)?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
 
-                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Deleted))
+                Ok(AssetEvent::new(
+                    asset_id.clone(),
+                    DataStatus::Updated(Updated::Asset(AssetUpdated::Burned)),
+                ))
             })
         }
     }
@@ -207,7 +219,10 @@ pub mod isi {
                 #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
 
-                Ok(AssetEvent::new(asset_id.clone(), DataStatus::Deleted))
+                Ok(AssetEvent::new(
+                    asset_id.clone(),
+                    DataStatus::Updated(Updated::Asset(AssetUpdated::Burned)),
+                ))
             })
         }
     }

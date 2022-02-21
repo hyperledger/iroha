@@ -17,11 +17,20 @@ pub mod isi {
         #[metrics(+"register_peer")]
         fn execute(
             self,
-            authority: <Account as Identifiable>::Id,
+            _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let peer = self.object;
-            wsv.register(peer, authority)
+            let peer_id = self.object.id;
+
+            wsv.modify_world(|world| {
+                if !world.trusted_peers_ids.insert(peer_id.clone()) {
+                    return Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::PeerId(peer_id),
+                    ));
+                }
+                Ok(PeerEvent::new(peer_id, DataStatus::Created).into())
+            })
         }
     }
 
@@ -35,7 +44,13 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let peer_id = self.object_id;
-            wsv.unregister::<Peer>(peer_id)
+            wsv.modify_world(|world| {
+                if world.trusted_peers_ids.remove(&peer_id).is_none() {
+                    return Err(FindError::Peer(peer_id).into());
+                }
+
+                Ok(PeerEvent::new(peer_id, DataStatus::Deleted).into())
+            })
         }
     }
 
@@ -45,11 +60,27 @@ pub mod isi {
         #[metrics("register_domain")]
         fn execute(
             self,
-            authority: <Account as Identifiable>::Id,
+            _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let domain = self.object;
-            wsv.register(domain, authority)
+            let domain_id = domain.id.clone();
+            domain_id
+                .name
+                .validate_len(wsv.config.ident_length_limits)
+                .map_err(Error::Validate)?;
+
+            wsv.modify_world(|world| {
+                world.domains.insert(domain_id.clone(), domain);
+                Ok(DomainEvent::StatusUpdated(DomainStatusUpdated::new(
+                    domain_id,
+                    DataStatus::Created,
+                ))
+                .into())
+            })?;
+
+            wsv.metrics.domains.inc();
+            Ok(())
         }
     }
 
@@ -63,7 +94,18 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
-            wsv.unregister::<Domain>(domain_id)
+            wsv.modify_world(|world| {
+                // TODO: Should we fail if no domain found?
+                world.domains.remove(&domain_id);
+                Ok(DomainEvent::StatusUpdated(DomainStatusUpdated::new(
+                    domain_id,
+                    DataStatus::Deleted,
+                ))
+                .into())
+            })?;
+
+            wsv.metrics.domains.dec();
+            Ok(())
         }
     }
 
@@ -77,8 +119,12 @@ pub mod isi {
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let role = self.object;
-            wsv.register(role.authority)
+            let role_id = role.object.id;
+
+            wsv.modify_world(|world| {
+                world.roles.insert(role_id.clone(), role);
+                Ok(RoleEvent::new(role_id, DataStatus::Created).into())
+            })
         }
     }
 
@@ -93,7 +139,16 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let role_id = self.object_id;
-            wsv.unregister::<Role>(role_id)
+            wsv.modify_world(|world| {
+                world.roles.remove(&role_id);
+                for mut domain in world.domains.iter_mut() {
+                    for account in domain.accounts.values_mut() {
+                        let _ = account.roles.remove(&role_id);
+                    }
+                }
+
+                Ok(RoleEvent::new(role_id, DataStatus::Deleted).into())
+            })
         }
     }
 }
