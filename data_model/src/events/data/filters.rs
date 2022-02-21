@@ -1,7 +1,5 @@
 //! This module contains `EventFilter` and entities for filter
 
-use detail::Filter;
-
 use super::*;
 
 #[cfg(feature = "roles")]
@@ -13,18 +11,13 @@ pub type OtherDomainChangeFilter = detail::SimpleEntityFilter<DomainId>;
 pub type OtherAccountChangeFilter = detail::SimpleEntityFilter<AccountId>;
 pub type DomainEntityFilter = detail::ComplexEntityFilter<DomainEvent, DomainEventFilter>;
 pub type AccountEntityFilter = detail::ComplexEntityFilter<AccountEvent, AccountEventFilter>;
+pub type EventFilter = FilterOpt<EntityFilter>;
 
 mod detail {
     //! This module contains *sealed* structs, that is used in public API, but should
     //! not be accessed from nowhere except parent module
 
     use super::*;
-
-    pub trait Filter {
-        type Item;
-
-        fn filter(&self, item: &Self::Item) -> bool;
-    }
 
     #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct SimpleEntityFilter<Id: Eq> {
@@ -57,7 +50,7 @@ mod detail {
         for<'a> <Entity as Identifiable>::Id: IntoSchema + Deserialize<'a> + Serialize,
     {
         id_filter: IdFilter<<Entity as Identifiable>::Id>,
-        event_filter: Option<EventFilter>,
+        event_filter: FilterOpt<EventFilter>,
     }
 
     impl<Entity, EventFilter> ComplexEntityFilter<Entity, EventFilter>
@@ -68,7 +61,7 @@ mod detail {
     {
         pub fn new(
             id_filter: IdFilter<<Entity as Identifiable>::Id>,
-            event_filter: Option<EventFilter>,
+            event_filter: FilterOpt<EventFilter>,
         ) -> Self {
             Self {
                 id_filter,
@@ -86,31 +79,30 @@ mod detail {
         type Item = Entity;
 
         fn filter(&self, entity: &Entity) -> bool {
-            self.id_filter.filter(entity.id())
-                && self
-                    .event_filter
-                    .as_ref()
-                    .map_or(true, |filter| filter.filter(entity))
+            self.id_filter.filter(entity.id()) && self.event_filter.filter(entity)
         }
     }
 }
 
-/// Event filter
-#[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
-)]
-pub enum EventFilter {
-    /// Accept all events
-    AcceptAll,
-    /// Accept events if they matches entity
-    ByEntity(EntityFilter),
+pub trait Filter {
+    type Item;
+
+    fn filter(&self, item: &Self::Item) -> bool;
 }
 
-impl EventFilter {
-    pub fn filter(&self, event: &Event) -> bool {
+#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub enum FilterOpt<F: Filter> {
+    AcceptAll,
+    BySome(F),
+}
+
+impl<F: Filter> Filter for FilterOpt<F> {
+    type Item = F::Item;
+
+    fn filter(&self, item: &Self::Item) -> bool {
         match self {
             Self::AcceptAll => true,
-            Self::ByEntity(filter) => filter.filter(event),
+            Self::BySome(filter) => filter.filter(item),
         }
     }
 }
@@ -121,45 +113,39 @@ impl EventFilter {
 )]
 pub enum EntityFilter {
     /// Domain entity. `None` value will accept all `Domain` events
-    ByDomain(Option<DomainEntityFilter>),
+    ByDomain(FilterOpt<DomainEntityFilter>),
     /// Peer entity. `None` value will accept all `Domain` events
-    ByPeer(Option<PeerEntityFilter>),
+    ByPeer(FilterOpt<PeerEntityFilter>),
     /// Role entity. `None` value will accept all `Role` events
     #[cfg(feature = "roles")]
-    ByRole(Option<RoleEntityFilter>),
+    ByRole(FilterOpt<RoleEntityFilter>),
     /// Account entity. `None` value will accept all `Account` events
-    ByAccount(Option<AccountEntityFilter>),
+    ByAccount(FilterOpt<AccountEntityFilter>),
     /// Asset entity. `None` value will accept all `AssetDefinition` events
-    ByAssetDefinition(Option<AssetDefinitionEntityFilter>),
+    ByAssetDefinition(FilterOpt<AssetDefinitionEntityFilter>),
     /// Asset entity. `None` value will accept all `Asset` events
-    ByAsset(Option<AssetEntityFilter>),
+    ByAsset(FilterOpt<AssetEntityFilter>),
 }
 
-impl EntityFilter {
+impl Filter for EntityFilter {
+    type Item = Event;
+
     fn filter(&self, event: &Event) -> bool {
         match (self, event) {
-            (&Self::ByDomain(ref filter_opt), &Event::Domain(ref domain)) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(domain)),
-            (&Self::ByPeer(ref filter_opt), &Event::Peer(ref peer)) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(peer)),
+            (&Self::ByDomain(ref filter_opt), &Event::Domain(ref domain)) => {
+                filter_opt.filter(domain)
+            }
+            (&Self::ByPeer(ref filter_opt), &Event::Peer(ref peer)) => filter_opt.filter(peer),
             #[cfg(feature = "roles")]
-            (&Self::ByRole(ref filter_opt), &Event::Role(ref role)) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(role)),
-            (&Self::ByAccount(ref filter_opt), &Event::Account(ref account)) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(account)),
+            (&Self::ByRole(ref filter_opt), &Event::Role(ref role)) => filter_opt.filter(role),
+            (&Self::ByAccount(ref filter_opt), &Event::Account(ref account)) => {
+                filter_opt.filter(account)
+            }
             (
                 &Self::ByAssetDefinition(ref filter_opt),
                 &Event::AssetDefinition(ref asset_definition),
-            ) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(asset_definition)),
-            (&Self::ByAsset(ref filter_opt), &Event::Asset(ref asset)) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(asset)),
+            ) => filter_opt.filter(asset_definition),
+            (&Self::ByAsset(ref filter_opt), &Event::Asset(ref asset)) => filter_opt.filter(asset),
             _ => false,
         }
     }
@@ -170,9 +156,9 @@ impl EntityFilter {
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum DomainEventFilter {
-    ByAccount(Option<AccountEntityFilter>),
-    ByAssetDefinition(Option<AssetDefinitionEntityFilter>),
-    ByOtherDomainChange(Option<OtherDomainChangeFilter>),
+    ByAccount(FilterOpt<AccountEntityFilter>),
+    ByAssetDefinition(FilterOpt<AssetDefinitionEntityFilter>),
+    ByOtherDomainChange(FilterOpt<OtherDomainChangeFilter>),
 }
 
 impl Filter for DomainEventFilter {
@@ -180,21 +166,17 @@ impl Filter for DomainEventFilter {
 
     fn filter(&self, event: &DomainEvent) -> bool {
         match (self, event) {
-            (&Self::ByAccount(ref filter_opt), &DomainEvent::Account(ref account)) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(account)),
+            (&Self::ByAccount(ref filter_opt), &DomainEvent::Account(ref account)) => {
+                filter_opt.filter(account)
+            }
             (
                 &Self::ByAssetDefinition(ref filter_opt),
                 &DomainEvent::AssetDefinition(ref asset_definition),
-            ) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(asset_definition)),
+            ) => filter_opt.filter(asset_definition),
             (
                 &Self::ByOtherDomainChange(ref filter_opt),
                 &DomainEvent::OtherDomainChange(ref change),
-            ) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(change)),
+            ) => filter_opt.filter(change),
             _ => false,
         }
     }
@@ -205,8 +187,8 @@ impl Filter for DomainEventFilter {
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum AccountEventFilter {
-    ByAsset(Option<AssetEntityFilter>),
-    ByOtherAccountChange(Option<OtherAccountChangeFilter>),
+    ByAsset(FilterOpt<AssetEntityFilter>),
+    ByOtherAccountChange(FilterOpt<OtherAccountChangeFilter>),
 }
 
 impl Filter for AccountEventFilter {
@@ -214,15 +196,13 @@ impl Filter for AccountEventFilter {
 
     fn filter(&self, event: &AccountEvent) -> bool {
         match (self, event) {
-            (&Self::ByAsset(ref filter_opt), &AccountEvent::Asset(ref asset)) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(asset)),
+            (&Self::ByAsset(ref filter_opt), &AccountEvent::Asset(ref asset)) => {
+                filter_opt.filter(asset)
+            }
             (
                 &Self::ByOtherAccountChange(ref filter_opt),
                 &AccountEvent::OtherAccountChange(ref change),
-            ) => filter_opt
-                .as_ref()
-                .map_or(true, |filter| filter.filter(change)),
+            ) => filter_opt.filter(change),
             _ => false,
         }
     }
@@ -244,11 +224,8 @@ impl<Id: Eq> Filter for IdFilter<Id> {
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum StatusFilter {
-    /// Select [`Status::Created`].
     Created,
-    /// Select [`Status::Updated`] or more detailed status in option.
-    Updated(Option<Updated>),
-    /// Select [`Status::Deleted`].
+    Updated(FilterOpt<UpdatedFilter>),
     Deleted,
 }
 
@@ -258,10 +235,19 @@ impl Filter for StatusFilter {
     fn filter(&self, status: &Status) -> bool {
         match (self, status) {
             (Self::Created, Status::Created) | (Self::Deleted, Status::Deleted) => true,
-            (Self::Updated(opt), Status::Updated(detail)) => {
-                opt.map_or(true, |filter_detail| detail == &filter_detail)
-            }
+            (Self::Updated(filter_opt), Status::Updated(detail)) => filter_opt.filter(detail),
             _ => false,
         }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct UpdatedFilter(Updated);
+
+impl Filter for UpdatedFilter {
+    type Item = Updated;
+
+    fn filter(&self, item: &Updated) -> bool {
+        item == &self.0
     }
 }

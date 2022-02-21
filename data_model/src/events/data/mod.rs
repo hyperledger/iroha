@@ -6,7 +6,7 @@ use std::fmt::Debug;
 
 pub use events::Event;
 use events::{IdTrait, SimpleEvent, Status};
-pub use filters::EventFilter;
+pub use filters::{EventFilter, Filter};
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -27,6 +27,6 @@ pub mod prelude {
             Event as DataEvent, MetadataUpdated, OtherAccountChangeEvent, OtherDomainChangeEvent,
             PeerEvent, Status as DataStatus, Updated, WorldEvent,
         },
-        filters::{EventFilter as DataEventFilter, *},
+        filters::{EventFilter as DataEventFilter, FilterOpt::*, *},
     };
 }
