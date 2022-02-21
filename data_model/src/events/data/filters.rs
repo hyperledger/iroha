@@ -1,5 +1,7 @@
 //! This module contains `EventFilter` and entities for filter
 
+use detail::Filter;
+
 use super::*;
 
 #[cfg(feature = "roles")]
@@ -18,6 +20,12 @@ mod detail {
 
     use super::*;
 
+    pub trait Filter {
+        type Item;
+
+        fn filter(&self, item: &Self::Item) -> bool;
+    }
+
     #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct SimpleEntityFilter<Id: Eq> {
         id_filter: IdFilter<Id>,
@@ -33,25 +41,29 @@ mod detail {
         }
     }
 
-    impl<Id: Into<IdBox> + Debug + Clone + Eq + Ord> Filter<SimpleEvent<Id>>
-        for SimpleEntityFilter<Id>
-    {
+    impl<Id: Into<IdBox> + Debug + Clone + Eq + Ord> Filter for SimpleEntityFilter<Id> {
+        type Item = SimpleEvent<Id>;
+
         fn filter(&self, entity: &SimpleEvent<Id>) -> bool {
             self.id_filter.filter(entity.id()) && self.status_filter.filter(entity.status())
         }
     }
 
     #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct ComplexEntityFilter<Entity: IdTrait, EventFilter: Filter<Entity>>
+    pub struct ComplexEntityFilter<Entity, EventFilter>
     where
+        Entity: IdTrait,
+        EventFilter: Filter<Item = Entity>,
         for<'a> <Entity as Identifiable>::Id: IntoSchema + Deserialize<'a> + Serialize,
     {
         id_filter: IdFilter<<Entity as Identifiable>::Id>,
         event_filter: Option<EventFilter>,
     }
 
-    impl<Entity: IdTrait, EventFilter: Filter<Entity>> ComplexEntityFilter<Entity, EventFilter>
+    impl<Entity, EventFilter> ComplexEntityFilter<Entity, EventFilter>
     where
+        Entity: IdTrait,
+        EventFilter: Filter<Item = Entity>,
         for<'a> <Entity as Identifiable>::Id: IntoSchema + Deserialize<'a> + Serialize,
     {
         pub fn new(
@@ -65,11 +77,14 @@ mod detail {
         }
     }
 
-    impl<Entity: IdTrait, EventFilter: Filter<Entity>> Filter<Entity>
-        for ComplexEntityFilter<Entity, EventFilter>
+    impl<Entity, EventFilter> Filter for ComplexEntityFilter<Entity, EventFilter>
     where
+        Entity: IdTrait,
+        EventFilter: Filter<Item = Entity>,
         for<'a> <Entity as Identifiable>::Id: IntoSchema + Deserialize<'a> + Serialize,
     {
+        type Item = Entity;
+
         fn filter(&self, entity: &Entity) -> bool {
             self.id_filter.filter(entity.id())
                 && self
@@ -78,9 +93,6 @@ mod detail {
                     .map_or(true, |filter| filter.filter(entity))
         }
     }
-}
-pub trait Filter<T> {
-    fn filter(&self, object: &T) -> bool;
 }
 
 /// Event filter
@@ -163,7 +175,9 @@ pub enum DomainEventFilter {
     ByOtherDomainChange(Option<OtherDomainChangeFilter>),
 }
 
-impl Filter<DomainEvent> for DomainEventFilter {
+impl Filter for DomainEventFilter {
+    type Item = DomainEvent;
+
     fn filter(&self, event: &DomainEvent) -> bool {
         match (self, event) {
             (&Self::ByAccount(ref filter_opt), &DomainEvent::Account(ref account)) => filter_opt
@@ -195,7 +209,9 @@ pub enum AccountEventFilter {
     ByOtherAccountChange(Option<OtherAccountChangeFilter>),
 }
 
-impl Filter<AccountEvent> for AccountEventFilter {
+impl Filter for AccountEventFilter {
+    type Item = AccountEvent;
+
     fn filter(&self, event: &AccountEvent) -> bool {
         match (self, event) {
             (&Self::ByAsset(ref filter_opt), &AccountEvent::Asset(ref asset)) => filter_opt
@@ -215,7 +231,9 @@ impl Filter<AccountEvent> for AccountEventFilter {
 #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct IdFilter<Id: Eq>(Id);
 
-impl<Id: Eq> Filter<Id> for IdFilter<Id> {
+impl<Id: Eq> Filter for IdFilter<Id> {
+    type Item = Id;
+
     fn filter(&self, id: &Id) -> bool {
         id == &self.0
     }
@@ -234,7 +252,9 @@ pub enum StatusFilter {
     Deleted,
 }
 
-impl Filter<Status> for StatusFilter {
+impl Filter for StatusFilter {
+    type Item = Status;
+
     fn filter(&self, status: &Status) -> bool {
         match (self, status) {
             (Self::Created, Status::Created) | (Self::Deleted, Status::Deleted) => true,
