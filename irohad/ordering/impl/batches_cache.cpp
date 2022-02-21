@@ -142,6 +142,24 @@ namespace iroha::ordering {
     });
   }
 
+  void BatchesCache::removeMSTCache(OnDemandOrderingService::HashesSetType const &hashes) {
+    mst_state_.exclusiveAccess([&](auto &mst_state) {
+      std::erase_if(mst_state.mst_pending_, [&hashes](auto const &val) {
+        auto const &[_, batch_info] = val;
+        auto const need_remove = std::any_of(batch_info.batch->transactions().begin(),
+                         batch_info.batch->transactions().end(),
+                         [&hashes](auto const &tx) {
+                           return hashes.find(tx->hash()) != hashes.end();
+                         });
+
+        if (need_remove)
+          mst_state.mst_expirations_.erase(batch_info.timestamp);  
+        return need_remove;
+      });
+      assert(mst_state.mst_pending_.size() == mst_state.mst_expirations_.size()); 
+    });
+  }
+
   uint64_t BatchesCache::insert(
       std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
     std::unique_lock lock(batches_cache_cs_);
@@ -159,8 +177,9 @@ namespace iroha::ordering {
 
   void BatchesCache::remove(
       const OnDemandOrderingService::HashesSetType &hashes) {
-    std::unique_lock lock(batches_cache_cs_);
+    removeMSTCache(hashes);
 
+    std::unique_lock lock(batches_cache_cs_);
     batches_cache_.merge(used_batches_cache_);
     assert(used_batches_cache_.getTxsCount() == 0ull);
 

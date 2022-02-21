@@ -112,6 +112,7 @@ namespace iroha::ordering {
      */
     void insertMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch);
     void removeMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch);
+    void removeMSTCache(OnDemandOrderingService::HashesSetType const &hashes);
 
    public:
     BatchesCache(BatchesCache const &) = delete;
