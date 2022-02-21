@@ -15,6 +15,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{prelude::*, trigger::Action};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
+use small::SmallVec;
 use tokio::task;
 
 use crate::{
@@ -255,16 +256,20 @@ impl<W: WorldTrait> WorldStateView<W> {
         })?
     }
 
-    /// Send event to known subscribers.
-    #[allow(dead_code)]
-    fn produce_event(&self, event: DataEvent) {
+    /// Send `events` to known subscribers.
+    fn produce_events<Events>(&self, events: Events)
+    where
+        Events: IntoIterator<Item = DataEvent>,
+    {
         let events_sender = if let Some(sender) = &self.events_sender {
             sender
         } else {
             return warn!("wsv does not equip an events sender");
         };
 
-        drop(events_sender.send(Event::from(event)))
+        for event in events {
+            drop(events_sender.send(Event::from(event)))
+        }
     }
 
     /// Tries to get asset or inserts new with `default_asset_value`.
@@ -347,14 +352,42 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Get `World` and pass it to closure to modify it
     ///
+    /// Produces events after `f` finishes. Events are emitted from the lowest to the highest
+    ///
     /// # Errors
-    /// Fails is `f` fails
+    /// Fails if `f` fails
     pub fn modify_world(
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
-        let _event = f(&self.world)?;
-        // self.produce_event(event);
+        let mut events: SmallVec<[DataEvent; 3]> = SmallVec(smallvec::smallvec![]);
+        let event = f(&self.world)?;
+
+        match &event {
+            WorldEvent::Domain(domain_event) => {
+                match domain_event {
+                    DomainEvent::Account(account_event) => {
+                        match account_event {
+                            AccountEvent::Asset(asset_event) => {
+                                events.push(DataEvent::Asset(asset_event.clone()))
+                            }
+                            AccountEvent::OtherAccountChange(_) => (),
+                        }
+                        events.push(DataEvent::Account(account_event.clone()));
+                    }
+                    DomainEvent::AssetDefinition(asset_definition_event) => {
+                        events.push(DataEvent::AssetDefinition(asset_definition_event.clone()))
+                    }
+                    DomainEvent::OtherDomainChange(_) => (),
+                }
+                events.push(DataEvent::Domain(domain_event.clone()));
+            }
+            WorldEvent::Peer(peer_event) => events.push(DataEvent::Peer(peer_event.clone())),
+            #[cfg(feature = "roles")]
+            WorldEvent::Role(role_event) => events.push(DataEvent::Role(role_event.clone())),
+        }
+
+        self.produce_events(events);
         Ok(())
     }
 
