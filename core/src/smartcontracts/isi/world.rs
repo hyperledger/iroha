@@ -72,11 +72,7 @@ pub mod isi {
 
             wsv.modify_world(|world| {
                 world.domains.insert(domain_id.clone(), domain);
-                Ok(DomainEvent::StatusUpdated(DomainStatusUpdated::new(
-                    domain_id,
-                    DataStatus::Created,
-                ))
-                .into())
+                Ok(DomainEvent::Created(domain_id).into())
             })?;
 
             wsv.metrics.domains.inc();
@@ -97,11 +93,7 @@ pub mod isi {
             wsv.modify_world(|world| {
                 // TODO: Should we fail if no domain found?
                 world.domains.remove(&domain_id);
-                Ok(DomainEvent::StatusUpdated(DomainStatusUpdated::new(
-                    domain_id,
-                    DataStatus::Deleted,
-                ))
-                .into())
+                Ok(DomainEvent::Deleted(domain_id).into())
             })?;
 
             wsv.metrics.domains.dec();

@@ -5,8 +5,6 @@ use super::*;
 pub type AssetEvent = SimpleEvent<AssetId>;
 pub type AssetDefinitionEvent = SimpleEvent<AssetDefinitionId>;
 pub type PeerEvent = SimpleEvent<PeerId>;
-pub type AccountStatusUpdated = SimpleEvent<AccountId>;
-pub type DomainStatusUpdated = SimpleEvent<DomainId>;
 #[cfg(feature = "roles")]
 pub type Role = SimpleEvent<RoleId>;
 
@@ -20,7 +18,7 @@ pub struct SimpleEvent<Id> {
     status: Status,
 }
 
-impl<Id> SimpleEvent<Id> {
+impl<Id: Into<IdBox> + Debug + Clone + Eq + Ord> SimpleEvent<Id> {
     pub fn new(id: Id, status: impl Into<Status>) -> Self {
         Self {
             id,
@@ -44,14 +42,23 @@ impl<Id: Into<IdBox> + Debug + Clone + Eq + Ord> IdTrait for SimpleEvent<Id> {
 }
 
 /// Account event
-#[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
-)]
+#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[non_exhaustive]
 pub enum AccountEvent {
-    /// Account change without asset changing
-    StatusUpdated(AccountStatusUpdated),
     /// Asset change
     Asset(AssetEvent),
+    /// Account registration
+    Created(AccountId),
+    /// Account deleting
+    Deleted(AccountId),
+    /// Authentication event
+    Authentication(AccountId),
+    /// Permission update
+    Permission(AccountId),
+    /// Metadata was inserted
+    MetadataInserted(AccountId),
+    /// Metadata was removed
+    MetadataRemoved(AccountId),
 }
 
 impl Identifiable for AccountEvent {
@@ -61,23 +68,33 @@ impl Identifiable for AccountEvent {
 impl IdTrait for AccountEvent {
     fn id(&self) -> &AccountId {
         match self {
-            Self::StatusUpdated(change) => change.id(),
             Self::Asset(asset) => &asset.id().account_id,
+            Self::Created(id) => &id,
+            Self::Deleted(id) => &id,
+            Self::Authentication(id) => &id,
+            Self::Permission(id) => &id,
+            Self::MetadataInserted(id) => &id,
+            Self::MetadataRemoved(id) => &id,
         }
     }
 }
 
 /// Domain Event
-#[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
-)]
+#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[non_exhaustive]
 pub enum DomainEvent {
-    /// Domain change without account or asset definition change
-    StatusUpdated(DomainStatusUpdated),
     /// Account change
     Account(AccountEvent),
     /// Asset definition change
     AssetDefinition(AssetDefinitionEvent),
+    /// Domain registration
+    Created(DomainId),
+    /// Domain deleting
+    Deleted(DomainId),
+    /// Metadata was inserted
+    MetadataInserted(DomainId),
+    /// Metadata was removed
+    MetadataRemoved(DomainId),
 }
 
 impl Identifiable for DomainEvent {
@@ -87,9 +104,12 @@ impl Identifiable for DomainEvent {
 impl IdTrait for DomainEvent {
     fn id(&self) -> &DomainId {
         match self {
-            Self::StatusUpdated(change) => change.id(),
             Self::Account(account) => &account.id().domain_id,
             Self::AssetDefinition(asset_definition) => &asset_definition.id().domain_id,
+            Self::Created(id) => &id,
+            Self::Deleted(id) => &id,
+            Self::MetadataInserted(id) => &id,
+            Self::MetadataRemoved(id) => &id,
         }
     }
 }

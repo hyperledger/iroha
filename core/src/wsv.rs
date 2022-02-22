@@ -370,14 +370,14 @@ impl<W: WorldTrait> WorldStateView<W> {
                             AccountEvent::Asset(asset_event) => {
                                 events.push(DataEvent::Asset(asset_event.clone()))
                             }
-                            AccountEvent::StatusUpdated(_) => (),
+                            _ => (),
                         }
                         events.push(DataEvent::Account(account_event.clone()));
                     }
                     DomainEvent::AssetDefinition(asset_definition_event) => {
                         events.push(DataEvent::AssetDefinition(asset_definition_event.clone()))
                     }
-                    DomainEvent::StatusUpdated(_) => (),
+                    _ => (),
                 }
                 events.push(DataEvent::Domain(domain_event.clone()));
             }
@@ -491,7 +491,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .accounts
                 .get_mut(id)
                 .ok_or_else(|| FindError::Account(id.clone()))?;
-            f(account).map(Into::into)
+            f(account).map(DomainEvent::Account)
         })
     }
 
@@ -547,7 +547,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             if asset.value.is_zero_value() {
                 account.assets.remove(id);
             }
-            event_result.map(Into::into)
+            event_result.map(AccountEvent::Asset)
         })
     }
 
@@ -567,7 +567,10 @@ impl<W: WorldTrait> WorldStateView<W> {
                     id.clone(),
                     Asset::new(id.clone(), default_asset_value.into()),
                 );
-                Ok(AssetEvent::new(id.clone(), DataStatus::Created).into())
+                Ok(AccountEvent::Asset(AssetEvent::new(
+                    id.clone(),
+                    DataStatus::Created,
+                )))
             })
             .map_err(|err| {
                 iroha_logger::warn!(?err);
@@ -606,7 +609,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .asset_definitions
                 .get_mut(id)
                 .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
-            f(asset_definition_entry).map(Into::into)
+            f(asset_definition_entry).map(DomainEvent::AssetDefinition)
         })
     }
 

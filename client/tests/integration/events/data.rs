@@ -122,9 +122,7 @@ fn transaction_execution_should_produce_events(executable: Executable) -> Result
     // assertion
     for i in 0..4_usize {
         let domain_id = DomainId::test(&i.to_string());
-        let expected_event =
-            DomainEvent::StatusUpdated(DomainStatusUpdated::new(domain_id, DataStatus::Created))
-                .into();
+        let expected_event = DomainEvent::Created(domain_id).into();
         let event: DataEvent = event_receiver.recv()??.try_into()?;
         assert_eq!(event, expected_event);
     }

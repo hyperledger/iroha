@@ -43,11 +43,9 @@ pub mod isi {
                     )),
                     Entry::Vacant(entry) => {
                         let _ = entry.insert(account.into());
-                        Ok(AccountEvent::StatusUpdated(AccountStatusUpdated::new(
+                        Ok(DomainEvent::Account(AccountEvent::Created(
                             account_id.clone(),
-                            DataStatus::Created,
-                        ))
-                        .into())
+                        )))
                     }
                 }
             })
@@ -66,11 +64,9 @@ pub mod isi {
             let account_id = self.object_id;
             wsv.modify_domain(&account_id.domain_id, |domain| {
                 domain.accounts.remove(&account_id);
-                Ok(AccountEvent::StatusUpdated(AccountStatusUpdated::new(
+                Ok(DomainEvent::Account(AccountEvent::Deleted(
                     account_id.clone(),
-                    DataStatus::Deleted,
-                ))
-                .into())
+                )))
             })
         }
     }
@@ -85,21 +81,24 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let asset_definition = self.object;
-            let asset_id = asset_definition.id.clone();
-            asset_id
+            let asset_definition_id = asset_definition.id.clone();
+            asset_definition_id
                 .name
                 .validate_len(wsv.config.ident_length_limits)
                 .map_err(Error::Validate)?;
-            let domain_id = asset_id.domain_id.clone();
+            let domain_id = asset_definition_id.domain_id.clone();
 
             wsv.modify_domain(&domain_id, |domain| {
-                match domain.asset_definitions.entry(asset_id.clone()) {
+                match domain.asset_definitions.entry(asset_definition_id.clone()) {
                     Entry::Vacant(entry) => {
                         let _ = entry.insert(AssetDefinitionEntry {
                             definition: asset_definition,
                             registered_by: authority,
                         });
-                        Ok(AssetDefinitionEvent::new(asset_id, DataStatus::Created).into())
+                        Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::new(
+                            asset_definition_id,
+                            DataStatus::Created,
+                        )))
                     }
                     Entry::Occupied(entry) => Err(Error::Repetition(
                         InstructionType::Register,
@@ -122,10 +121,10 @@ pub mod isi {
             let asset_definition_id = self.object_id;
             wsv.modify_domain(&asset_definition_id.domain_id, |domain| {
                 domain.asset_definitions.remove(&asset_definition_id);
-                Ok(
-                    AssetDefinitionEvent::new(asset_definition_id.clone(), DataStatus::Deleted)
-                        .into(),
-                )
+                Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::new(
+                    asset_definition_id.clone(),
+                    DataStatus::Deleted,
+                )))
             })?;
 
             for domain in wsv.domains() {
@@ -139,7 +138,10 @@ pub mod isi {
                     for id in &keys {
                         wsv.modify_account(account_id, |account_mut| {
                             account_mut.assets.remove(id);
-                            Ok(AssetEvent::new(id.clone(), DataStatus::Deleted).into())
+                            Ok(AccountEvent::Asset(AssetEvent::new(
+                                id.clone(),
+                                DataStatus::Deleted,
+                            )))
                         })?;
                     }
                 }
@@ -223,7 +225,7 @@ pub mod isi {
                     .metadata
                     .insert_with_limits(self.key, self.value, limits)?;
 
-                Ok(DomainStatusUpdated::new(domain_id.clone(), MetadataUpdated::Inserted).into())
+                Ok(DomainEvent::MetadataInserted(domain_id.clone()))
             })
         }
     }
@@ -245,7 +247,7 @@ pub mod isi {
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
-                Ok(DomainStatusUpdated::new(domain_id.clone(), MetadataUpdated::Removed).into())
+                Ok(DomainEvent::MetadataRemoved(domain_id.clone()))
             })
         }
     }

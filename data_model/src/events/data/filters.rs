@@ -35,20 +35,18 @@ macro_rules! complex_entity_filter {
 }
 
 #[cfg(feature = "roles")]
-pub type RoleEntityFilter = SimpleEntityFilter<RoleId>;
-pub type PeerEntityFilter = detail::SimpleEntityFilter<PeerId>;
-pub type AssetEntityFilter = detail::SimpleEntityFilter<AssetId>;
-pub type AssetDefinitionEntityFilter = detail::SimpleEntityFilter<AssetDefinitionId>;
-pub type OtherDomainChangeFilter = detail::SimpleEntityFilter<DomainId>;
-pub type OtherAccountChangeFilter = detail::SimpleEntityFilter<AccountId>;
+pub type RoleFilter = SimpleEntityFilter<RoleId>;
+pub type PeerFilter = detail::SimpleEntityFilter<PeerId>;
+pub type AssetFilter = detail::SimpleEntityFilter<AssetId>;
+pub type AssetDefinitionFilter = detail::SimpleEntityFilter<AssetDefinitionId>;
 complex_entity_filter!(
-    pub struct DomainEntityFilter {
+    pub struct DomainFilter {
         event: DomainEvent,
         filter: DomainEventFilter,
     }
 );
 complex_entity_filter!(
-    pub struct AccountEntityFilter {
+    pub struct AccountFilter {
         event: AccountEvent,
         filter: AccountEventFilter,
     }
@@ -114,18 +112,18 @@ impl<F: Filter> Filter for FilterOpt<F> {
 )]
 pub enum EntityFilter {
     /// Domain entity. `None` value will accept all `Domain` events
-    ByDomain(FilterOpt<DomainEntityFilter>),
+    ByDomain(FilterOpt<DomainFilter>),
     /// Peer entity. `None` value will accept all `Domain` events
-    ByPeer(FilterOpt<PeerEntityFilter>),
+    ByPeer(FilterOpt<PeerFilter>),
     /// Role entity. `None` value will accept all `Role` events
     #[cfg(feature = "roles")]
-    ByRole(FilterOpt<RoleEntityFilter>),
+    ByRole(FilterOpt<RoleFilter>),
     /// Account entity. `None` value will accept all `Account` events
-    ByAccount(FilterOpt<AccountEntityFilter>),
+    ByAccount(FilterOpt<AccountFilter>),
     /// Asset entity. `None` value will accept all `AssetDefinition` events
-    ByAssetDefinition(FilterOpt<AssetDefinitionEntityFilter>),
+    ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
     /// Asset entity. `None` value will accept all `Asset` events
-    ByAsset(FilterOpt<AssetEntityFilter>),
+    ByAsset(FilterOpt<AssetFilter>),
 }
 
 impl Filter for EntityFilter {
@@ -156,9 +154,12 @@ impl Filter for EntityFilter {
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum DomainEventFilter {
-    ByAccount(FilterOpt<AccountEntityFilter>),
-    ByAssetDefinition(FilterOpt<AssetDefinitionEntityFilter>),
-    ByOtherDomainChange(FilterOpt<OtherDomainChangeFilter>),
+    ByAccount(FilterOpt<AccountFilter>),
+    ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
+    ByCreated,
+    ByDeleted,
+    ByMetadataInserted,
+    ByMetadataRemoved,
 }
 
 impl Filter for DomainEventFilter {
@@ -166,17 +167,17 @@ impl Filter for DomainEventFilter {
 
     fn filter(&self, event: &DomainEvent) -> bool {
         match (self, event) {
-            (&Self::ByAccount(ref filter_opt), &DomainEvent::Account(ref account)) => {
+            (Self::ByAccount(filter_opt), DomainEvent::Account(account)) => {
                 filter_opt.filter(account)
             }
             (
-                &Self::ByAssetDefinition(ref filter_opt),
-                &DomainEvent::AssetDefinition(ref asset_definition),
+                Self::ByAssetDefinition(filter_opt),
+                DomainEvent::AssetDefinition(asset_definition),
             ) => filter_opt.filter(asset_definition),
-            (
-                &Self::ByOtherDomainChange(ref filter_opt),
-                &DomainEvent::StatusUpdated(ref change),
-            ) => filter_opt.filter(change),
+            (Self::ByCreated, DomainEvent::Created(_)) => true,
+            (Self::ByDeleted, DomainEvent::Deleted(_)) => true,
+            (Self::ByMetadataInserted, DomainEvent::MetadataInserted(_)) => true,
+            (Self::ByMetadataRemoved, DomainEvent::MetadataRemoved(_)) => true,
             _ => false,
         }
     }
@@ -187,8 +188,13 @@ impl Filter for DomainEventFilter {
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum AccountEventFilter {
-    ByAsset(FilterOpt<AssetEntityFilter>),
-    ByOtherAccountChange(FilterOpt<OtherAccountChangeFilter>),
+    ByAsset(FilterOpt<AssetFilter>),
+    ByCreated,
+    ByDeleted,
+    ByAuthentication,
+    ByPermission,
+    ByMetadataInserted,
+    ByMetadataRemoved,
 }
 
 impl Filter for AccountEventFilter {
@@ -196,13 +202,13 @@ impl Filter for AccountEventFilter {
 
     fn filter(&self, event: &AccountEvent) -> bool {
         match (self, event) {
-            (&Self::ByAsset(ref filter_opt), &AccountEvent::Asset(ref asset)) => {
-                filter_opt.filter(asset)
-            }
-            (
-                &Self::ByOtherAccountChange(ref filter_opt),
-                &AccountEvent::StatusUpdated(ref change),
-            ) => filter_opt.filter(change),
+            (Self::ByAsset(filter_opt), AccountEvent::Asset(asset)) => filter_opt.filter(asset),
+            (Self::ByCreated, AccountEvent::Created(_)) => true,
+            (Self::ByDeleted, AccountEvent::Deleted(_)) => true,
+            (Self::ByAuthentication, AccountEvent::Authentication(_)) => true,
+            (Self::ByPermission, AccountEvent::Permission(_)) => true,
+            (Self::ByMetadataInserted, AccountEvent::MetadataInserted(_)) => true,
+            (Self::ByMetadataRemoved, AccountEvent::MetadataRemoved(_)) => true,
             _ => false,
         }
     }
@@ -265,16 +271,11 @@ mod tests {
         let account_id = AccountId::test(ACCOUNT, DOMAIN);
         let asset_id = AssetId::test(ASSET, DOMAIN, ACCOUNT, DOMAIN);
 
-        let domain_created =
-            DomainEvent::StatusUpdated(DomainStatusUpdated::new(domain_id, Status::Created));
-        let account_created = AccountEvent::StatusUpdated(AccountStatusUpdated::new(
-            account_id.clone(),
-            Status::Created,
-        ));
+        let domain_created = DomainEvent::Created(domain_id);
+        let account_created = AccountEvent::Created(account_id.clone());
         let asset_created = AssetEvent::new(asset_id, Status::Created);
         let account_asset_created = AccountEvent::Asset(asset_created.clone());
-
-        let account_filter = BySome(EntityFilter::ByAccount(BySome(AccountEntityFilter::new(
+        let account_filter = BySome(EntityFilter::ByAccount(BySome(AccountFilter::new(
             BySome(IdFilter(account_id)),
             AcceptAll,
         ))));
