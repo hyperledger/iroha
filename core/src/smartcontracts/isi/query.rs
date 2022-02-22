@@ -252,25 +252,33 @@ mod tests {
         World::with(domains, PeersIds::new())
     }
 
-    fn world_with_test_domain_with_metadata() -> Result<World> {
+    fn world_with_test_asset_with_metadata() -> Result<World> {
         let domains = DomainsMap::new();
         let mut domain = Domain::test("wonderland");
         let mut account = Account::new(ALICE_ID.clone());
         account.signatories.push(ALICE_KEYS.public_key.clone());
-        account.metadata.insert_with_limits(
-            Name::test("Bytes"),
-            Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
-            MetadataLimits::new(10, 100),
-        )?;
-        domain.accounts.insert(ALICE_ID.clone(), account);
         let asset_definition_id = AssetDefinitionId::test("rose", "wonderland");
         domain.asset_definitions.insert(
             asset_definition_id.clone(),
             AssetDefinitionEntry::new(
-                AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
+                AssetDefinition::new(asset_definition_id.clone(), AssetValueType::Quantity, true),
                 ALICE_ID.clone(),
             ),
         );
+
+        let mut store = Metadata::new();
+        store
+            .insert_with_limits(
+                Name::test("Bytes"),
+                Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
+                MetadataLimits::new(10, 100),
+            )
+            .unwrap();
+        let asset_id = AssetId::new(asset_definition_id, account.id.clone());
+        let asset = Asset::new(asset_id, AssetValue::Store(store));
+        account.assets.insert(asset.id.clone(), asset);
+
+        domain.accounts.insert(ALICE_ID.clone(), account);
         domains.insert(DomainId::test("wonderland"), domain);
         Ok(World::with(domains, PeersIds::new()))
     }
@@ -300,7 +308,7 @@ mod tests {
 
     #[test]
     fn asset_store() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_domain_with_metadata()?);
+        let wsv = WorldStateView::new(world_with_test_asset_with_metadata()?);
 
         let asset_definition_id = AssetDefinitionId::test("rose", "wonderland");
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
