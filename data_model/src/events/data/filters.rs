@@ -2,6 +2,38 @@
 
 use super::*;
 
+macro_rules! complex_entity_filter {
+    (pub struct $name: ident { event: $entity_type:ty, filter: $event_filter_type:ty, }) => {
+        #[derive(
+            Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema,
+        )]
+        pub struct $name {
+            id_filter: FilterOpt<IdFilter<<$entity_type as Identifiable>::Id>>,
+            event_filter: FilterOpt<$event_filter_type>,
+        }
+
+        impl $name {
+            pub fn new(
+                id_filter: FilterOpt<IdFilter<<$entity_type as Identifiable>::Id>>,
+                event_filter: FilterOpt<$event_filter_type>,
+            ) -> Self {
+                Self {
+                    id_filter,
+                    event_filter,
+                }
+            }
+        }
+
+        impl Filter for $name {
+            type Item = $entity_type;
+
+            fn filter(&self, entity: &Self::Item) -> bool {
+                self.id_filter.filter(entity.id()) && self.event_filter.filter(entity)
+            }
+        }
+    };
+}
+
 #[cfg(feature = "roles")]
 pub type RoleEntityFilter = SimpleEntityFilter<RoleId>;
 pub type PeerEntityFilter = detail::SimpleEntityFilter<PeerId>;
@@ -9,8 +41,18 @@ pub type AssetEntityFilter = detail::SimpleEntityFilter<AssetId>;
 pub type AssetDefinitionEntityFilter = detail::SimpleEntityFilter<AssetDefinitionId>;
 pub type OtherDomainChangeFilter = detail::SimpleEntityFilter<DomainId>;
 pub type OtherAccountChangeFilter = detail::SimpleEntityFilter<AccountId>;
-pub type DomainEntityFilter = detail::ComplexEntityFilter<DomainEvent, DomainEventFilter>;
-pub type AccountEntityFilter = detail::ComplexEntityFilter<AccountEvent, AccountEventFilter>;
+complex_entity_filter!(
+    pub struct DomainEntityFilter {
+        event: DomainEvent,
+        filter: DomainEventFilter,
+    }
+);
+complex_entity_filter!(
+    pub struct AccountEntityFilter {
+        event: AccountEvent,
+        filter: AccountEventFilter,
+    }
+);
 pub type EventFilter = FilterOpt<EntityFilter>;
 
 mod detail {
@@ -39,47 +81,6 @@ mod detail {
 
         fn filter(&self, entity: &SimpleEvent<Id>) -> bool {
             self.id_filter.filter(entity.id()) && self.status_filter.filter(entity.status())
-        }
-    }
-
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct ComplexEntityFilter<Entity, EventFilter>
-    where
-        Entity: IdTrait,
-        EventFilter: Filter<Item = Entity>,
-        for<'a> <Entity as Identifiable>::Id: IntoSchema + Deserialize<'a> + Serialize,
-    {
-        id_filter: FilterOpt<IdFilter<<Entity as Identifiable>::Id>>,
-        event_filter: FilterOpt<EventFilter>,
-    }
-
-    impl<Entity, EventFilter> ComplexEntityFilter<Entity, EventFilter>
-    where
-        Entity: IdTrait,
-        EventFilter: Filter<Item = Entity>,
-        for<'a> <Entity as Identifiable>::Id: IntoSchema + Deserialize<'a> + Serialize,
-    {
-        pub fn new(
-            id_filter: FilterOpt<IdFilter<<Entity as Identifiable>::Id>>,
-            event_filter: FilterOpt<EventFilter>,
-        ) -> Self {
-            Self {
-                id_filter,
-                event_filter,
-            }
-        }
-    }
-
-    impl<Entity, EventFilter> Filter for ComplexEntityFilter<Entity, EventFilter>
-    where
-        Entity: IdTrait,
-        EventFilter: Filter<Item = Entity>,
-        for<'a> <Entity as Identifiable>::Id: IntoSchema + Deserialize<'a> + Serialize,
-    {
-        type Item = Entity;
-
-        fn filter(&self, entity: &Entity) -> bool {
-            self.id_filter.filter(entity.id()) && self.event_filter.filter(entity)
         }
     }
 }
