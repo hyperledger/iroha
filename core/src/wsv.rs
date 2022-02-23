@@ -338,11 +338,8 @@ impl<W: WorldTrait> WorldStateView<W> {
             WorldEvent::Domain(domain_event) => {
                 match domain_event {
                     DomainEvent::Account(account_event) => {
-                        match account_event {
-                            AccountEvent::Asset(asset_event) => {
-                                events.push(DataEvent::Asset(asset_event.clone()))
-                            }
-                            _ => (),
+                        if let AccountEvent::Asset(asset_event) = account_event {
+                            events.push(DataEvent::Asset(asset_event.clone()))
                         }
                         events.push(DataEvent::Account(account_event.clone()));
                     }
@@ -699,6 +696,9 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Get triggers set and modify it with `f`
     ///
     /// Produces trigger event from `f`
+    ///
+    /// # Errors
+    /// Throws up `f` errors
     pub fn modify_triggers<F>(&self, f: F) -> Result<(), Error>
     where
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,

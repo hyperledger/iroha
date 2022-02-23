@@ -2,12 +2,14 @@
 
 use super::*;
 
+/// Trait for retreiving id from events
 pub trait IdTrait: Identifiable {
     fn id(&self) -> &Self::Id;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 #[non_exhaustive]
+#[allow(missing_docs)]
 pub enum AssetEvent {
     Created(AssetId),
     Deleted(AssetId),
@@ -24,18 +26,19 @@ impl Identifiable for AssetEvent {
 impl IdTrait for AssetEvent {
     fn id(&self) -> &AssetId {
         match self {
-            Self::Created(id) => &id,
-            Self::Deleted(id) => &id,
-            Self::Increased(id) => &id,
-            Self::Decreased(id) => &id,
-            Self::MetadataInserted(id) => &id,
-            Self::MetadataRemoved(id) => &id,
+            Self::Created(id)
+            | Self::Deleted(id)
+            | Self::Increased(id)
+            | Self::Decreased(id)
+            | Self::MetadataInserted(id)
+            | Self::MetadataRemoved(id) => id,
         }
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 #[non_exhaustive]
+#[allow(missing_docs)]
 pub enum AssetDefinitionEvent {
     Created(AssetDefinitionId),
     Deleted(AssetDefinitionId),
@@ -50,16 +53,17 @@ impl Identifiable for AssetDefinitionEvent {
 impl IdTrait for AssetDefinitionEvent {
     fn id(&self) -> &AssetDefinitionId {
         match self {
-            Self::Created(id) => &id,
-            Self::Deleted(id) => &id,
-            Self::MetadataInserted(id) => &id,
-            Self::MetadataRemoved(id) => &id,
+            Self::Created(id)
+            | Self::Deleted(id)
+            | Self::MetadataInserted(id)
+            | Self::MetadataRemoved(id) => id,
         }
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 #[non_exhaustive]
+#[allow(missing_docs)]
 pub enum PeerEvent {
     Created(PeerId),
     Deleted(PeerId),
@@ -72,8 +76,7 @@ impl Identifiable for PeerEvent {
 impl IdTrait for PeerEvent {
     fn id(&self) -> &PeerId {
         match self {
-            Self::Created(id) => &id,
-            Self::Deleted(id) => &id,
+            Self::Created(id) | Self::Deleted(id) => id,
         }
     }
 }
@@ -81,6 +84,7 @@ impl IdTrait for PeerEvent {
 #[cfg(feature = "roles")]
 #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 #[non_exhaustive]
+#[allow(missing_docs)]
 pub enum RoleEvent {
     Created(RoleId),
     Deleted(RoleId),
@@ -95,8 +99,7 @@ impl Identifiable for RoleEvent {
 impl IdTrait for RoleEvent {
     fn id(&self) -> &RoleId {
         match self {
-            Self::Created(id) => &id,
-            Self::Deleted(id) => &id,
+            Self::Created(id) | Self::Deleted(id) => id,
         }
     }
 }
@@ -104,20 +107,14 @@ impl IdTrait for RoleEvent {
 /// Account event
 #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 #[non_exhaustive]
+#[allow(missing_docs)]
 pub enum AccountEvent {
-    /// Asset change
     Asset(AssetEvent),
-    /// Account registration
     Created(AccountId),
-    /// Account deleting
     Deleted(AccountId),
-    /// Authentication event
     Authentication(AccountId),
-    /// Permission update
     Permission(AccountId),
-    /// Metadata was inserted
     MetadataInserted(AccountId),
-    /// Metadata was removed
     MetadataRemoved(AccountId),
 }
 
@@ -129,12 +126,12 @@ impl IdTrait for AccountEvent {
     fn id(&self) -> &AccountId {
         match self {
             Self::Asset(asset) => &asset.id().account_id,
-            Self::Created(id) => &id,
-            Self::Deleted(id) => &id,
-            Self::Authentication(id) => &id,
-            Self::Permission(id) => &id,
-            Self::MetadataInserted(id) => &id,
-            Self::MetadataRemoved(id) => &id,
+            Self::Created(id)
+            | Self::Deleted(id)
+            | Self::Authentication(id)
+            | Self::Permission(id)
+            | Self::MetadataInserted(id)
+            | Self::MetadataRemoved(id) => id,
         }
     }
 }
@@ -142,18 +139,13 @@ impl IdTrait for AccountEvent {
 /// Domain Event
 #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 #[non_exhaustive]
+#[allow(missing_docs)]
 pub enum DomainEvent {
-    /// Account change
     Account(AccountEvent),
-    /// Asset definition change
     AssetDefinition(AssetDefinitionEvent),
-    /// Domain registration
     Created(DomainId),
-    /// Domain deleting
     Deleted(DomainId),
-    /// Metadata was inserted
     MetadataInserted(DomainId),
-    /// Metadata was removed
     MetadataRemoved(DomainId),
 }
 
@@ -166,10 +158,10 @@ impl IdTrait for DomainEvent {
         match self {
             Self::Account(account) => &account.id().domain_id,
             Self::AssetDefinition(asset_definition) => &asset_definition.id().domain_id,
-            Self::Created(id) => &id,
-            Self::Deleted(id) => &id,
-            Self::MetadataInserted(id) => &id,
-            Self::MetadataRemoved(id) => &id,
+            Self::Created(id)
+            | Self::Deleted(id)
+            | Self::MetadataInserted(id)
+            | Self::MetadataRemoved(id) => id,
         }
     }
 }
@@ -186,6 +178,8 @@ pub enum TriggerEvent {
 }
 
 /// World event
+///
+/// Does not participate in `Event`, but useful for events warranties when modifying `wsv`
 #[derive(
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]

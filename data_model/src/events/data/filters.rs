@@ -2,8 +2,21 @@
 
 use super::*;
 
+/// Create entity filter type. See usage below
+///
+/// This could be implemented with generic struct, but it's bad to have nested generics in filters
+/// public API (especially for schemas)
 macro_rules! entity_filter {
-    (pub struct $name: ident { event: $entity_type:ty, filter: $event_filter_type:ty, }) => {
+    (pub struct $name:ident { event: $entity_type:ty, filter: $event_filter_type:ty, }) => {
+        entity_filter! {
+            $name,
+            $entity_type,
+            $event_filter_type,
+            concat!("Filter for ", stringify!($event_filter_type), " entity"),
+            concat!("Construct new ", stringify!($name))
+        }
+    };
+    ($name:ident, $entity_type:ty, $event_filter_type:ty, $struct_doc:expr, $new_doc:expr) => {
         #[derive(
             Clone,
             PartialOrd,
@@ -18,12 +31,14 @@ macro_rules! entity_filter {
             IntoSchema,
             Hash,
         )]
+        #[doc = $struct_doc]
         pub struct $name {
             id_filter: FilterOpt<IdFilter<<$entity_type as Identifiable>::Id>>,
             event_filter: FilterOpt<$event_filter_type>,
         }
 
         impl $name {
+            #[doc = $new_doc]
             pub fn new(
                 id_filter: FilterOpt<IdFilter<<$entity_type as Identifiable>::Id>>,
                 event_filter: FilterOpt<$event_filter_type>,
@@ -82,11 +97,18 @@ entity_filter!(
         filter: AccountEventFilter,
     }
 );
+
+/// Filter for all events
 pub type EventFilter = FilterOpt<EntityFilter>;
 
+/// Trait for filters
 pub trait Filter {
+    /// Type of item that can be filtered
     type Item;
 
+    /// Check if `item` passes filter
+    ///
+    /// Returns `true`, if `item` passes filter and `false` if not
     fn filter(&self, item: &Self::Item) -> bool;
 }
 
@@ -104,8 +126,15 @@ pub trait Filter {
     IntoSchema,
     Hash,
 )]
+/// Optional filter. May pass all items or may filter them by `F`
+///
+/// It's better than `Optional<F>` because `Optional` already has its own `filter` method and it
+/// would be ugly to use fully qualified syntax to call `Filter::filter()` method on it.
+/// Also `FilterOpt` variant names look better for filter needs
 pub enum FilterOpt<F: Filter> {
+    /// Accept all items that will be passed to `filter()` method
     AcceptAll,
+    /// Use filter `F` to choose acceptable items passed to `filter()` method
     BySome(F),
 }
 
@@ -120,7 +149,6 @@ impl<F: Filter> Filter for FilterOpt<F> {
     }
 }
 
-/// EntityFilter for `EventFilter`
 #[derive(
     Clone,
     PartialEq,
@@ -136,20 +164,23 @@ impl<F: Filter> Filter for FilterOpt<F> {
     IntoSchema,
     Hash,
 )]
+#[allow(clippy::enum_variant_names)]
+/// Filters event by entity
 pub enum EntityFilter {
-    /// Domain entity. `None` value will accept all `Domain` events
+    /// Filter by Domain entity. `AcceptAll` value will accept all `Domain` events
     ByDomain(FilterOpt<DomainFilter>),
-    /// Peer entity. `None` value will accept all `Domain` events
+    /// Filter by Peer entity. `AcceptAll` value will accept all `Peer` events
     ByPeer(FilterOpt<PeerFilter>),
-    /// Role entity. `None` value will accept all `Role` events
+    /// Filter by Role entity. `AcceptAll` value will accept all `Role` events
     #[cfg(feature = "roles")]
     ByRole(FilterOpt<RoleFilter>),
-    /// Account entity. `None` value will accept all `Account` events
+    /// Filter by Account entity. `AcceptAll` value will accept all `Account` events
     ByAccount(FilterOpt<AccountFilter>),
-    /// Asset entity. `None` value will accept all `AssetDefinition` events
+    /// Filter by AssetDefinition entity. `AcceptAll` value will accept all `AssetDefinition` events
     ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
-    /// Asset entity. `None` value will accept all `Asset` events
+    /// Filter by Asset entity. `AcceptAll` value will accept all `Asset` events
     ByAsset(FilterOpt<AssetFilter>),
+    /// Filter by Trigger entity. `AcceptAll` value will accept all `Trigger` events
     ByTrigger(FilterOpt<TriggerFilter>),
 }
 
@@ -192,6 +223,7 @@ impl Filter for EntityFilter {
     IntoSchema,
     Hash,
 )]
+#[allow(missing_docs)]
 pub enum RoleEventFilter {
     ByCreated,
     ByDeleted,
@@ -203,14 +235,16 @@ impl Filter for RoleEventFilter {
 
     fn filter(&self, event: &RoleEvent) -> bool {
         match (self, event) {
-            (Self::ByCreated, RoleEvent::Created(_)) => true,
-            (Self::ByDeleted, RoleEvent::Deleted(_)) => true,
+            (Self::ByCreated, RoleEvent::Created(_)) | (Self::ByDeleted, RoleEvent::Deleted(_)) => {
+                true
+            }
             _ => false,
         }
     }
 }
 
 #[derive(
+    Copy,
     Clone,
     PartialEq,
     PartialOrd,
@@ -224,6 +258,7 @@ impl Filter for RoleEventFilter {
     IntoSchema,
     Hash,
 )]
+#[allow(missing_docs)]
 pub enum PeerEventFilter {
     ByCreated,
     ByDeleted,
@@ -233,15 +268,15 @@ impl Filter for PeerEventFilter {
     type Item = PeerEvent;
 
     fn filter(&self, event: &PeerEvent) -> bool {
-        match (self, event) {
-            (Self::ByCreated, PeerEvent::Created(_)) => true,
-            (Self::ByDeleted, PeerEvent::Deleted(_)) => true,
-            _ => false,
-        }
+        matches!(
+            (self, event),
+            (Self::ByCreated, PeerEvent::Created(_)) | (Self::ByDeleted, PeerEvent::Deleted(_))
+        )
     }
 }
 
 #[derive(
+    Copy,
     Clone,
     PartialEq,
     PartialOrd,
@@ -255,6 +290,7 @@ impl Filter for PeerEventFilter {
     IntoSchema,
     Hash,
 )]
+#[allow(missing_docs, clippy::enum_variant_names)]
 pub enum AssetEventFilter {
     ByCreated,
     ByDeleted,
@@ -268,19 +304,20 @@ impl Filter for AssetEventFilter {
     type Item = AssetEvent;
 
     fn filter(&self, event: &AssetEvent) -> bool {
-        match (self, event) {
-            (Self::ByCreated, AssetEvent::Created(_)) => true,
-            (Self::ByDeleted, AssetEvent::Deleted(_)) => true,
-            (Self::ByIncreased, AssetEvent::Increased(_)) => true,
-            (Self::ByDecreased, AssetEvent::Decreased(_)) => true,
-            (Self::ByMetadataInserted, AssetEvent::MetadataInserted(_)) => true,
-            (Self::ByMetadataRemoved, AssetEvent::MetadataRemoved(_)) => true,
-            _ => false,
-        }
+        matches!(
+            (self, event),
+            (Self::ByCreated, AssetEvent::Created(_))
+                | (Self::ByDeleted, AssetEvent::Deleted(_))
+                | (Self::ByIncreased, AssetEvent::Increased(_))
+                | (Self::ByDecreased, AssetEvent::Decreased(_))
+                | (Self::ByMetadataInserted, AssetEvent::MetadataInserted(_))
+                | (Self::ByMetadataRemoved, AssetEvent::MetadataRemoved(_))
+        )
     }
 }
 
 #[derive(
+    Copy,
     Clone,
     PartialEq,
     PartialOrd,
@@ -294,6 +331,7 @@ impl Filter for AssetEventFilter {
     IntoSchema,
     Hash,
 )]
+#[allow(missing_docs, clippy::enum_variant_names)]
 pub enum AssetDefinitionEventFilter {
     ByCreated,
     ByDeleted,
@@ -305,13 +343,19 @@ impl Filter for AssetDefinitionEventFilter {
     type Item = AssetDefinitionEvent;
 
     fn filter(&self, event: &AssetDefinitionEvent) -> bool {
-        match (self, event) {
-            (Self::ByCreated, AssetDefinitionEvent::Created(_)) => true,
-            (Self::ByDeleted, AssetDefinitionEvent::Deleted(_)) => true,
-            (Self::ByMetadataInserted, AssetDefinitionEvent::MetadataInserted(_)) => true,
-            (Self::ByMetadataRemoved, AssetDefinitionEvent::MetadataRemoved(_)) => true,
-            _ => false,
-        }
+        matches!(
+            (self, event),
+            (Self::ByCreated, AssetDefinitionEvent::Created(_))
+                | (Self::ByDeleted, AssetDefinitionEvent::Deleted(_))
+                | (
+                    Self::ByMetadataInserted,
+                    AssetDefinitionEvent::MetadataInserted(_)
+                )
+                | (
+                    Self::ByMetadataRemoved,
+                    AssetDefinitionEvent::MetadataRemoved(_)
+                )
+        )
     }
 }
 
@@ -330,12 +374,22 @@ impl Filter for AssetDefinitionEventFilter {
     IntoSchema,
     Hash,
 )]
+#[allow(clippy::enum_variant_names)]
+/// Filter for Domain events
 pub enum DomainEventFilter {
+    /// Filter by Account event.
+    /// `AcceptAll` value will accept all `Account` events that are related to Domain
     ByAccount(FilterOpt<AccountFilter>),
+    /// Filter by AssetDefinition event.
+    /// `AcceptAll` value will accept all `AssetDefinition` events that are related to Domain
     ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
+    /// Filter by Created event
     ByCreated,
+    /// Filter by Deleted event
     ByDeleted,
+    /// Filter by MetadataInserted event
     ByMetadataInserted,
+    /// Filter by MetadataRemoved event
     ByMetadataRemoved,
 }
 
@@ -351,16 +405,15 @@ impl Filter for DomainEventFilter {
                 Self::ByAssetDefinition(filter_opt),
                 DomainEvent::AssetDefinition(asset_definition),
             ) => filter_opt.filter(asset_definition),
-            (Self::ByCreated, DomainEvent::Created(_)) => true,
-            (Self::ByDeleted, DomainEvent::Deleted(_)) => true,
-            (Self::ByMetadataInserted, DomainEvent::MetadataInserted(_)) => true,
-            (Self::ByMetadataRemoved, DomainEvent::MetadataRemoved(_)) => true,
+            (Self::ByCreated, DomainEvent::Created(_))
+            | (Self::ByDeleted, DomainEvent::Deleted(_))
+            | (Self::ByMetadataInserted, DomainEvent::MetadataInserted(_))
+            | (Self::ByMetadataRemoved, DomainEvent::MetadataRemoved(_)) => true,
             _ => false,
         }
     }
 }
 
-/// AccountFilter for `EntityFilter`
 #[derive(
     Clone,
     PartialEq,
@@ -376,13 +429,23 @@ impl Filter for DomainEventFilter {
     IntoSchema,
     Hash,
 )]
+#[allow(clippy::enum_variant_names)]
+/// Filter for Account events
 pub enum AccountEventFilter {
+    /// Filter by Asset event.
+    /// `AcceptAll` value will accept all `Asset` events that are related to Account
     ByAsset(FilterOpt<AssetFilter>),
+    /// Filter by Created event
     ByCreated,
+    /// Filter by Deleted event
     ByDeleted,
+    /// Filter by Authentication event
     ByAuthentication,
+    /// Filter by Permission event
     ByPermission,
+    /// Filter by MetadataInserted event
     ByMetadataInserted,
+    /// Filter by MetadataRemoved event
     ByMetadataRemoved,
 }
 
@@ -392,18 +455,19 @@ impl Filter for AccountEventFilter {
     fn filter(&self, event: &AccountEvent) -> bool {
         match (self, event) {
             (Self::ByAsset(filter_opt), AccountEvent::Asset(asset)) => filter_opt.filter(asset),
-            (Self::ByCreated, AccountEvent::Created(_)) => true,
-            (Self::ByDeleted, AccountEvent::Deleted(_)) => true,
-            (Self::ByAuthentication, AccountEvent::Authentication(_)) => true,
-            (Self::ByPermission, AccountEvent::Permission(_)) => true,
-            (Self::ByMetadataInserted, AccountEvent::MetadataInserted(_)) => true,
-            (Self::ByMetadataRemoved, AccountEvent::MetadataRemoved(_)) => true,
+            (Self::ByCreated, AccountEvent::Created(_))
+            | (Self::ByDeleted, AccountEvent::Deleted(_))
+            | (Self::ByAuthentication, AccountEvent::Authentication(_))
+            | (Self::ByPermission, AccountEvent::Permission(_))
+            | (Self::ByMetadataInserted, AccountEvent::MetadataInserted(_))
+            | (Self::ByMetadataRemoved, AccountEvent::MetadataRemoved(_)) => true,
             _ => false,
         }
     }
 }
 
 #[derive(
+    Copy,
     Clone,
     PartialOrd,
     Ord,
@@ -418,6 +482,7 @@ impl Filter for AccountEventFilter {
     IntoSchema,
     Hash,
 )]
+#[allow(missing_docs, clippy::enum_variant_names)]
 pub enum TriggerFilter {
     ByCreated,
     ByDeleted,
@@ -429,13 +494,13 @@ impl Filter for TriggerFilter {
     type Item = TriggerEvent;
 
     fn filter(&self, event: &TriggerEvent) -> bool {
-        match (self, event) {
-            (Self::ByCreated, TriggerEvent::Created(_)) => true,
-            (Self::ByDeleted, TriggerEvent::Deleted(_)) => true,
-            (Self::ByExtended, TriggerEvent::Extended(_)) => true,
-            (Self::ByShortened, TriggerEvent::Shortened(_)) => true,
-            _ => false,
-        }
+        matches!(
+            (self, event),
+            (Self::ByCreated, TriggerEvent::Created(_))
+                | (Self::ByDeleted, TriggerEvent::Deleted(_))
+                | (Self::ByExtended, TriggerEvent::Extended(_))
+                | (Self::ByShortened, TriggerEvent::Shortened(_))
+        )
     }
 }
 
@@ -453,6 +518,9 @@ impl Filter for TriggerFilter {
     IntoSchema,
     Hash,
 )]
+/// Filter for identifiers
+///
+/// Passes id trough filter, if it equals to the one provided in construction
 pub struct IdFilter<Id: Eq>(Id);
 
 impl<Id: Eq> Filter for IdFilter<Id> {

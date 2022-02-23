@@ -252,7 +252,7 @@ mod tests {
         World::with(domains, PeersIds::new())
     }
 
-    fn world_with_test_asset_with_metadata() -> Result<World> {
+    fn world_with_test_asset_with_metadata() -> World {
         let domains = DomainsMap::new();
         let mut domain = Domain::test("wonderland");
         let mut account = Account::new(ALICE_ID.clone());
@@ -280,7 +280,7 @@ mod tests {
 
         domain.accounts.insert(ALICE_ID.clone(), account);
         domains.insert(DomainId::test("wonderland"), domain);
-        Ok(World::with(domains, PeersIds::new()))
+        World::with(domains, PeersIds::new())
     }
 
     fn world_with_test_account_with_metadata() -> Result<World> {
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn asset_store() -> Result<()> {
-        let wsv = WorldStateView::new(world_with_test_asset_with_metadata()?);
+        let wsv = WorldStateView::new(world_with_test_asset_with_metadata());
 
         let asset_definition_id = AssetDefinitionId::test("rose", "wonderland");
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
