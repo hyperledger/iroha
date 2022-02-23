@@ -1,8 +1,7 @@
 //! Data events.
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec, vec::Vec};
-use std::fmt::Debug;
+use alloc::{format, string::String, vec::Vec};
 
 pub use events::Event;
 use events::IdTrait;
