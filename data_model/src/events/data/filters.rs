@@ -189,20 +189,15 @@ impl Filter for EntityFilter {
 
     fn filter(&self, event: &Event) -> bool {
         match (self, event) {
-            (&Self::ByDomain(ref filter_opt), &Event::Domain(ref domain)) => {
-                filter_opt.filter(domain)
-            }
-            (&Self::ByPeer(ref filter_opt), &Event::Peer(ref peer)) => filter_opt.filter(peer),
+            (Self::ByDomain(filter_opt), Event::Domain(domain)) => filter_opt.filter(domain),
+            (Self::ByPeer(filter_opt), Event::Peer(peer)) => filter_opt.filter(peer),
             #[cfg(feature = "roles")]
-            (&Self::ByRole(ref filter_opt), &Event::Role(ref role)) => filter_opt.filter(role),
-            (&Self::ByAccount(ref filter_opt), &Event::Account(ref account)) => {
-                filter_opt.filter(account)
+            (Self::ByRole(filter_opt), Event::Role(role)) => filter_opt.filter(role),
+            (Self::ByAccount(filter_opt), Event::Account(account)) => filter_opt.filter(account),
+            (Self::ByAssetDefinition(filter_opt), Event::AssetDefinition(asset_definition)) => {
+                filter_opt.filter(asset_definition)
             }
-            (
-                &Self::ByAssetDefinition(ref filter_opt),
-                &Event::AssetDefinition(ref asset_definition),
-            ) => filter_opt.filter(asset_definition),
-            (&Self::ByAsset(ref filter_opt), &Event::Asset(ref asset)) => filter_opt.filter(asset),
+            (Self::ByAsset(filter_opt), Event::Asset(asset)) => filter_opt.filter(asset),
             _ => false,
         }
     }

@@ -189,7 +189,7 @@ pub enum WorldEvent {
     Peer(PeerEvent),
 
     #[cfg(feature = "roles")]
-    Role(Role),
+    Role(RoleEvent),
 }
 
 /// Event
@@ -203,7 +203,7 @@ pub enum Event {
     Peer(PeerEvent),
     /// Role event
     #[cfg(feature = "roles")]
-    Role(Role),
+    Role(RoleEvent),
     /// Account event
     Account(AccountEvent),
     /// Asset definition event

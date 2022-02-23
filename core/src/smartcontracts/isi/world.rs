@@ -107,13 +107,13 @@ pub mod isi {
         #[metrics(+"register_role")]
         fn execute(
             self,
-            authority: <Account as Identifiable>::Id,
+            _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let role_id = role.object.id;
+            let role_id = self.object.id.clone();
 
             wsv.modify_world(|world| {
-                world.roles.insert(role_id.clone(), role);
+                world.roles.insert(role_id.clone(), self.object);
                 Ok(RoleEvent::Created(role_id).into())
             })
         }
