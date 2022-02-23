@@ -205,6 +205,7 @@ impl Filter for EntityFilter {
 
 #[cfg(feature = "roles")]
 #[derive(
+    Copy,
     Clone,
     PartialEq,
     PartialOrd,
