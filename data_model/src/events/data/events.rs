@@ -114,16 +114,26 @@ impl IdTrait for DomainEvent {
     }
 }
 
+/// Trigger Event
+#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[non_exhaustive]
+#[allow(missing_docs)]
+pub enum TriggerEvent {
+    Created(TriggerId),
+    Deleted(TriggerId),
+    Extended(TriggerId),
+    Shortened(TriggerId),
+}
+
 /// World event
 #[derive(
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
+#[allow(missing_docs)]
 pub enum WorldEvent {
-    /// Domain change
     Domain(DomainEvent),
-    /// Peer change
     Peer(PeerEvent),
-    /// Role change
+
     #[cfg(feature = "roles")]
     Role(Role),
 }
@@ -146,6 +156,8 @@ pub enum Event {
     AssetDefinition(AssetDefinitionEvent),
     /// Asset event
     Asset(AssetEvent),
+    /// Trigger event
+    Trigger(TriggerEvent),
 }
 
 /// Entity status.
@@ -177,6 +189,8 @@ pub enum Status {
 #[derive(
     Copy,
     Clone,
+    PartialOrd,
+    Ord,
     PartialEq,
     Eq,
     Debug,
@@ -186,6 +200,7 @@ pub enum Status {
     Serialize,
     FromVariant,
     IntoSchema,
+    Hash,
 )]
 #[allow(missing_docs)]
 pub enum Updated {
@@ -199,6 +214,8 @@ pub enum Updated {
 #[derive(
     Copy,
     Clone,
+    PartialOrd,
+    Ord,
     PartialEq,
     Eq,
     Debug,
@@ -208,6 +225,7 @@ pub enum Updated {
     Serialize,
     FromVariant,
     IntoSchema,
+    Hash,
 )]
 #[allow(missing_docs)]
 pub enum MetadataUpdated {
@@ -219,6 +237,8 @@ pub enum MetadataUpdated {
 #[derive(
     Copy,
     Clone,
+    PartialOrd,
+    Ord,
     PartialEq,
     Eq,
     Debug,
@@ -228,6 +248,7 @@ pub enum MetadataUpdated {
     Serialize,
     FromVariant,
     IntoSchema,
+    Hash,
 )]
 #[allow(missing_docs)]
 pub enum AssetUpdated {
@@ -246,5 +267,33 @@ impl From<MetadataUpdated> for Status {
 impl From<AssetUpdated> for Status {
     fn from(src: AssetUpdated) -> Self {
         Self::Updated(src.into())
+    }
+}
+
+mod trigger {
+    use crate::prelude::*;
+
+    impl From<Register<Trigger>> for DataEvent {
+        fn from(src: Register<Trigger>) -> Self {
+            Self::Trigger(TriggerEvent::Created(src.object.id))
+        }
+    }
+
+    impl From<Unregister<Trigger>> for DataEvent {
+        fn from(src: Unregister<Trigger>) -> Self {
+            Self::Trigger(TriggerEvent::Deleted(src.object_id))
+        }
+    }
+
+    impl From<Mint<Trigger, u32>> for DataEvent {
+        fn from(src: Mint<Trigger, u32>) -> Self {
+            Self::Trigger(TriggerEvent::Extended(src.destination_id))
+        }
+    }
+
+    impl From<Burn<Trigger, u32>> for DataEvent {
+        fn from(src: Burn<Trigger, u32>) -> Self {
+            Self::Trigger(TriggerEvent::Shortened(src.destination_id))
+        }
     }
 }

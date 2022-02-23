@@ -190,7 +190,7 @@ pub mod isi {
 
                 Ok(AssetEvent::new(
                     asset_id.clone(),
-                    DataStatus::Updated(Updated::Asset(AssetUpdated::Burned)),
+                    DataStatus::Updated(Updated::Asset(AssetUpdated::Sent)),
                 ))
             })
         }

@@ -8,7 +8,10 @@ use std::{
 };
 
 use config::Configuration;
-use dashmap::{mapref::one::Ref as DashMapRef, DashSet};
+use dashmap::{
+    mapref::one::{Ref as DashMapRef, RefMut as DashMapRefMut},
+    DashSet,
+};
 use eyre::Result;
 use iroha_crypto::HashOf;
 use iroha_data_model::{prelude::*, trigger::Action};
@@ -22,6 +25,7 @@ use crate::{
     event::EventsSender,
     prelude::*,
     smartcontracts::{isi::Error, wasm, Execute, FindError},
+    triggers::TriggerSet,
     DomainsMap, PeersIds,
 };
 
@@ -153,30 +157,11 @@ impl<W: WorldTrait> WorldStateView<W> {
         tokens
     }
 
-    /// Add new `Asset` entity.
-    ///
-    /// # Errors
-    /// Fails if there is no account for asset
-    pub fn add_asset(&self, asset: Asset) -> Result<(), Error> {
-        let id = asset.id.account_id.clone();
-        self.modify_account(&id, move |account| {
-            account.assets.insert(asset.id.clone(), asset);
-            Ok(())
-        })
-    }
-
-    /// Add new `Domain` entity.
-    pub fn add_domain(&mut self, domain: Domain) {
-        self.world.domains.insert(domain.id.clone(), domain);
-    }
-
     fn process_executable(&self, executable: &Executable, authority: &AccountId) -> Result<()> {
         match executable {
             Executable::Instructions(instructions) => {
                 instructions.iter().cloned().try_for_each(|instruction| {
-                    let events = instruction.execute(authority.clone(), self)?;
-
-                    self.produce_events(events);
+                    instruction.execute(authority.clone(), self)?;
                     Ok::<_, eyre::Report>(())
                 })?;
             }
@@ -214,20 +199,7 @@ impl<W: WorldTrait> WorldStateView<W> {
 
         // TODO: Should this block panic instead?
         for tx in &block.as_v1().transactions {
-            let account_id = &tx.payload().account_id;
-
-            match &tx.as_v1().payload.instructions {
-                Executable::Instructions(instructions) => {
-                    instructions.iter().cloned().try_for_each(|instruction| {
-                        instruction.execute(account_id.clone(), self)
-                    })?;
-                }
-                Executable::Wasm(bytes) => {
-                    let mut wasm_runtime = wasm::Runtime::new()?;
-                    wasm_runtime.execute(self, account_id, bytes)?;
-                }
-            }
-
+            self.process_executable(&tx.as_v1().payload.instructions, &tx.payload().account_id)?;
             self.transactions.insert(tx.hash());
             task::yield_now().await;
         }
@@ -286,7 +258,10 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .assets
                 .entry(id.clone())
                 .or_insert_with(|| Asset::new(id.clone(), default_asset_value.into()));
-            Ok(())
+            Ok(AccountEvent::Asset(AssetEvent::new(
+                id.clone(),
+                DataStatus::Created,
+            )))
         })
         .map_err(|err| {
             iroha_logger::warn!(?err);
@@ -390,14 +365,20 @@ impl<W: WorldTrait> WorldStateView<W> {
         Ok(())
     }
 
-    /// Returns reference for domains map
-    pub fn domains(&self) -> &DomainsMap {
-        &self.world.domains
-    }
-
     /// Returns reference for trusted peer ids
     pub fn trusted_peers_ids(&self) -> &PeersIds {
         &self.world.trusted_peers_ids
+    }
+
+    /// Returns iterator over blockchain blocks starting with the block of the given `height`
+    pub fn blocks_from_height(
+        &self,
+        height: usize,
+    ) -> impl Iterator<Item = VersionedCommittedBlock> + '_ {
+        self.blocks
+            .iter()
+            .skip(height.saturating_sub(1))
+            .map(|block_entry| block_entry.value().clone())
     }
 
     /// Get `Domain` without an ability to modify it.
@@ -414,6 +395,27 @@ impl<W: WorldTrait> WorldStateView<W> {
             .get(id)
             .ok_or_else(|| FindError::Domain(id.clone()))?;
         Ok(domain)
+    }
+
+    /// Get `Domain` with an ability to modify it.
+    ///
+    /// # Errors
+    /// Fails if there is no domain
+    pub fn domain_mut(
+        &self,
+        id: &<Domain as Identifiable>::Id,
+    ) -> Result<DashMapRefMut<DomainId, Domain>, FindError> {
+        let domain = self
+            .world
+            .domains
+            .get_mut(id)
+            .ok_or_else(|| FindError::Domain(id.clone()))?;
+        Ok(domain)
+    }
+
+    /// Returns reference for domains map
+    pub fn domains(&self) -> &DomainsMap {
+        &self.world.domains
     }
 
     /// Get `Domain` and pass it to closure.
@@ -447,6 +449,63 @@ impl<W: WorldTrait> WorldStateView<W> {
         })
     }
 
+    /// Construct [`WorldStateView`] with specific [`Configuration`].
+    pub fn from_configuration(config: Configuration, world: W) -> Self {
+        let (new_block_notifier, _) = tokio::sync::watch::channel(());
+
+        Self {
+            world,
+            config,
+            transactions: DashSet::new(),
+            blocks: Arc::new(Chain::new()),
+            metrics: Arc::new(Metrics::default()),
+            new_block_notifier: Arc::new(new_block_notifier),
+            triggers: Arc::new(TriggerSet::default()),
+            events_sender: None,
+        }
+    }
+
+    /// Returns [`Some`] milliseconds since the genesis block was
+    /// committed, or [`None`] if it wasn't.
+    pub fn genesis_timestamp(&self) -> Option<u128> {
+        self.blocks
+            .iter()
+            .next()
+            .map(|val| val.as_v1().header.timestamp)
+    }
+
+    /// Check if this [`VersionedTransaction`] is already committed or rejected.
+    pub fn has_transaction(&self, hash: &HashOf<VersionedTransaction>) -> bool {
+        self.transactions.contains(hash)
+    }
+
+    /// Height of blockchain
+    #[inline]
+    pub fn height(&self) -> u64 {
+        self.metrics.block_height.get()
+    }
+
+    /// Initializes WSV with the blocks from block storage.
+    #[iroha_futures::telemetry_future]
+    pub async fn init(&self, blocks: Vec<VersionedCommittedBlock>) {
+        for block in blocks {
+            #[allow(clippy::panic)]
+            if let Err(error) = self.apply(block).await {
+                error!(%error, "Initialization of WSV failed");
+                panic!("WSV initialization failed");
+            }
+        }
+    }
+
+    /// Hash of latest block
+    pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
+        self.blocks
+            .latest_block()
+            .map_or(HashOf::from_hash(Hash([0_u8; 32])), |block| {
+                block.value().hash()
+            })
+    }
+
     /// Get `Account` and pass it to closure.
     ///
     /// # Errors
@@ -462,19 +521,6 @@ impl<W: WorldTrait> WorldStateView<W> {
             .get(id)
             .ok_or_else(|| FindError::Account(id.clone()))?;
         Ok(f(account))
-    }
-
-    /// Get `Domain` and pass it to closure.
-    ///
-    /// # Errors
-    /// Fails if there is no domain
-    pub fn map_domain<T>(
-        &self,
-        id: &<Domain as Identifiable>::Id,
-        f: impl FnOnce(&Domain) -> T,
-    ) -> Result<T, FindError> {
-        let domain = self.domain(id)?;
-        Ok(f(domain.value()))
     }
 
     /// Get `Account` and pass it to closure to modify it
@@ -495,41 +541,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         })
     }
 
-    /// Get `Account`'s `Asset`s and pass it to closure
-    ///
-    /// # Errors
-    /// Fails if account finding fails
-    pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, FindError> {
-        self.map_account(id, |account| account.assets.values().cloned().collect())
-    }
-
-    /// Get all `PeerId`s without an ability to modify them.
-    pub fn peers(&self) -> Vec<Peer> {
-        let mut vec = self
-            .world
-            .trusted_peers_ids
-            .iter()
-            .map(|peer| Peer::new((&*peer).clone()))
-            .collect::<Vec<Peer>>();
-        vec.sort();
-        vec
-    }
-
     /// Get `Asset` by its id
-    ///
-    /// # Errors
-    /// Fails if there are no such asset or account
-    pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, FindError> {
-        self.map_account(&id.account_id, |account| -> Result<Asset, FindError> {
-            account
-                .assets
-                .get(id)
-                .ok_or_else(|| FindError::Asset(id.clone()))
-                .map(Clone::clone)
-        })?
-    }
-
-    /// Get `Asset` by its id and pass it to closure to modify it
     ///
     /// # Errors
     /// Fails if there are no such asset or account
@@ -551,51 +563,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         })
     }
 
-    /// Tries to get asset or inserts new with `default_asset_value`.
-    ///
-    /// # Errors
-    /// Fails if there is no account with such name.
-    pub fn asset_or_insert(
-        &self,
-        id: &<Asset as Identifiable>::Id,
-        default_asset_value: impl Into<AssetValue>,
-    ) -> Result<Asset, Error> {
-        // This function is strictly infallible.
-        self.asset(id).or_else(|_| {
-            self.modify_account(&id.account_id, |account| {
-                account.assets.insert(
-                    id.clone(),
-                    Asset::new(id.clone(), default_asset_value.into()),
-                );
-                Ok(AccountEvent::Asset(AssetEvent::new(
-                    id.clone(),
-                    DataStatus::Created,
-                )))
-            })
-            .map_err(|err| {
-                iroha_logger::warn!(?err);
-                err
-            })?;
-            self.asset(id).map_err(Into::into)
-        })
-    }
-
-    /// Get `AssetDefinitionEntry` without an ability to modify it.
-    ///
-    /// # Errors
-    /// Fails if asset definition entry does not exist
-    pub fn asset_definition_entry(
-        &self,
-        id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Result<AssetDefinitionEntry, FindError> {
-        self.domain(&id.domain_id)?
-            .asset_definitions
-            .get(id)
-            .ok_or_else(|| FindError::AssetDefinition(id.clone()))
-            .map(Clone::clone)
-    }
-
-    /// Get `AssetDefinitionEntry` and pass it to closure to modify it
+    /// Get `AssetDefinitionEntry` with an ability to modify it.
     ///
     /// # Errors
     /// Fails if asset definition entry does not exist
@@ -611,19 +579,6 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
             f(asset_definition_entry).map(DomainEvent::AssetDefinition)
         })
-    }
-
-    /// Get `Domain` and pass it to closure to modify it
-    ///
-    /// # Errors
-    /// Fails if there is no domain
-    pub fn modify_domain(
-        &self,
-        id: &<Domain as Identifiable>::Id,
-        f: impl FnOnce(&mut Domain) -> Result<(), Error>,
-    ) -> Result<(), Error> {
-        let mut domain = self.domain_mut(id)?;
-        f(domain.value_mut())
     }
 
     /// Construct [`WorldStateView`] with given [`World`].
@@ -731,6 +686,30 @@ impl<W: WorldTrait> WorldStateView<W> {
             .collect::<Vec<_>>();
         transactions.sort();
         transactions
+    }
+
+    /// Add the ability of emitting events to [`WorldStateView`].
+    pub fn with_events(mut self, events_sender: EventsSender) -> Self {
+        self.events_sender = Some(events_sender);
+        self
+    }
+
+    /// Get an immutable view of the `World`.
+    pub fn world(&self) -> &W {
+        &self.world
+    }
+
+    /// Get triggers set and modify it with `f`
+    ///
+    /// Produces trigger event from `f`
+    pub fn modify_triggers<F>(&self, f: F) -> Result<(), Error>
+    where
+        F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
+    {
+        let event = f(&self.triggers).map(Into::into)?;
+        let events: SmallVec<[DataEvent; 1]> = SmallVec(smallvec::smallvec![event]);
+        self.produce_events(events);
+        Ok(())
     }
 }
 

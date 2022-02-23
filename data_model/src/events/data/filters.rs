@@ -5,7 +5,18 @@ use super::*;
 macro_rules! complex_entity_filter {
     (pub struct $name: ident { event: $entity_type:ty, filter: $event_filter_type:ty, }) => {
         #[derive(
-            Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema,
+            Clone,
+            PartialOrd,
+            Ord,
+            PartialEq,
+            Eq,
+            Debug,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+            Hash,
         )]
         pub struct $name {
             id_filter: FilterOpt<IdFilter<<$entity_type as Identifiable>::Id>>,
@@ -59,7 +70,20 @@ mod detail {
 
     use super::*;
 
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Clone,
+        PartialOrd,
+        Ord,
+        PartialEq,
+        Eq,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Hash,
+    )]
     pub struct SimpleEntityFilter<Id: Eq> {
         id_filter: IdFilter<Id>,
         status_filter: StatusFilter,
@@ -89,7 +113,20 @@ pub trait Filter {
     fn filter(&self, item: &Self::Item) -> bool;
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Hash,
+)]
 pub enum FilterOpt<F: Filter> {
     AcceptAll,
     BySome(F),
@@ -108,7 +145,19 @@ impl<F: Filter> Filter for FilterOpt<F> {
 
 /// EntityFilter for `EventFilter`
 #[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    Hash,
 )]
 pub enum EntityFilter {
     /// Domain entity. `None` value will accept all `Domain` events
@@ -124,6 +173,7 @@ pub enum EntityFilter {
     ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
     /// Asset entity. `None` value will accept all `Asset` events
     ByAsset(FilterOpt<AssetFilter>),
+    ByTrigger(FilterOpt<TriggerFilter>),
 }
 
 impl Filter for EntityFilter {
@@ -151,7 +201,19 @@ impl Filter for EntityFilter {
 }
 
 #[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    Hash,
 )]
 pub enum DomainEventFilter {
     ByAccount(FilterOpt<AccountFilter>),
@@ -185,7 +247,19 @@ impl Filter for DomainEventFilter {
 
 /// AccountFilter for `EntityFilter`
 #[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    Hash,
 )]
 pub enum AccountEventFilter {
     ByAsset(FilterOpt<AssetFilter>),
@@ -214,7 +288,56 @@ impl Filter for AccountEventFilter {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Clone,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    Hash,
+)]
+pub enum TriggerFilter {
+    ByCreated,
+    ByDeleted,
+    ByExtended,
+    ByShortened,
+}
+
+impl Filter for TriggerFilter {
+    type Item = TriggerEvent;
+
+    fn filter(&self, event: &TriggerEvent) -> bool {
+        match (self, event) {
+            (Self::ByCreated, TriggerEvent::Created(_)) => true,
+            (Self::ByDeleted, TriggerEvent::Deleted(_)) => true,
+            (Self::ByExtended, TriggerEvent::Extended(_)) => true,
+            (Self::ByShortened, TriggerEvent::Shortened(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(
+    Clone,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Hash,
+)]
 pub struct IdFilter<Id: Eq>(Id);
 
 impl<Id: Eq> Filter for IdFilter<Id> {
@@ -227,7 +350,19 @@ impl<Id: Eq> Filter for IdFilter<Id> {
 
 /// Filter to select a status.
 #[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Clone,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    Hash,
 )]
 pub enum StatusFilter {
     Created,
@@ -247,7 +382,20 @@ impl Filter for StatusFilter {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Clone,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Hash,
+)]
 pub struct UpdatedFilter(Updated);
 
 impl Filter for UpdatedFilter {

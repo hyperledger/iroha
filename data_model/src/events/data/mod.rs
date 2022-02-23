@@ -24,8 +24,8 @@ pub mod prelude {
     pub use super::{
         events::{
             AccountEvent, AssetDefinitionEvent, AssetEvent, AssetUpdated, DomainEvent,
-            Event as DataEvent, MetadataUpdated, PeerEvent, Status as DataStatus, Updated,
-            WorldEvent,
+            Event as DataEvent, MetadataUpdated, PeerEvent, Status as DataStatus, TriggerEvent,
+            Updated, WorldEvent,
         },
         filters::{EventFilter as DataEventFilter, FilterOpt::*, *},
     };
