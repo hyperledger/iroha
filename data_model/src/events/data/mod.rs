@@ -5,7 +5,7 @@ use alloc::{format, string::String, vec, vec::Vec};
 use std::fmt::Debug;
 
 pub use events::Event;
-use events::{IdTrait, SimpleEvent, Status};
+use events::IdTrait;
 pub use filters::{EventFilter, Filter};
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
@@ -23,9 +23,8 @@ pub mod prelude {
     pub use super::RoleEvent;
     pub use super::{
         events::{
-            AccountEvent, AssetDefinitionEvent, AssetEvent, AssetUpdated, DomainEvent,
-            Event as DataEvent, MetadataUpdated, PeerEvent, Status as DataStatus, TriggerEvent,
-            Updated, WorldEvent,
+            AccountEvent, AssetDefinitionEvent, AssetEvent, DomainEvent, Event as DataEvent,
+            PeerEvent, TriggerEvent, WorldEvent,
         },
         filters::{EventFilter as DataEventFilter, FilterOpt::*, *},
     };

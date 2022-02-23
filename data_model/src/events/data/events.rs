@@ -2,42 +2,102 @@
 
 use super::*;
 
-pub type AssetEvent = SimpleEvent<AssetId>;
-pub type AssetDefinitionEvent = SimpleEvent<AssetDefinitionId>;
-pub type PeerEvent = SimpleEvent<PeerId>;
-#[cfg(feature = "roles")]
-pub type Role = SimpleEvent<RoleId>;
-
 pub trait IdTrait: Identifiable {
     fn id(&self) -> &Self::Id;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct SimpleEvent<Id> {
-    id: Id,
-    status: Status,
+#[non_exhaustive]
+pub enum AssetEvent {
+    Created(AssetId),
+    Deleted(AssetId),
+    Increased(AssetId),
+    Decreased(AssetId),
+    MetadataInserted(AssetId),
+    MetadataRemoved(AssetId),
 }
 
-impl<Id: Into<IdBox> + Debug + Clone + Eq + Ord> SimpleEvent<Id> {
-    pub fn new(id: Id, status: impl Into<Status>) -> Self {
-        Self {
-            id,
-            status: status.into(),
+impl Identifiable for AssetEvent {
+    type Id = AssetId;
+}
+
+impl IdTrait for AssetEvent {
+    fn id(&self) -> &AssetId {
+        match self {
+            Self::Created(id) => &id,
+            Self::Deleted(id) => &id,
+            Self::Increased(id) => &id,
+            Self::Decreased(id) => &id,
+            Self::MetadataInserted(id) => &id,
+            Self::MetadataRemoved(id) => &id,
         }
     }
+}
 
-    pub fn status(&self) -> &Status {
-        &self.status
+#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[non_exhaustive]
+pub enum AssetDefinitionEvent {
+    Created(AssetDefinitionId),
+    Deleted(AssetDefinitionId),
+    MetadataInserted(AssetDefinitionId),
+    MetadataRemoved(AssetDefinitionId),
+}
+
+impl Identifiable for AssetDefinitionEvent {
+    type Id = AssetDefinitionId;
+}
+
+impl IdTrait for AssetDefinitionEvent {
+    fn id(&self) -> &AssetDefinitionId {
+        match self {
+            Self::Created(id) => &id,
+            Self::Deleted(id) => &id,
+            Self::MetadataInserted(id) => &id,
+            Self::MetadataRemoved(id) => &id,
+        }
     }
 }
 
-impl<Id: Into<IdBox> + Debug + Clone + Eq + Ord> Identifiable for SimpleEvent<Id> {
-    type Id = Id;
+#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[non_exhaustive]
+pub enum PeerEvent {
+    Created(PeerId),
+    Deleted(PeerId),
 }
 
-impl<Id: Into<IdBox> + Debug + Clone + Eq + Ord> IdTrait for SimpleEvent<Id> {
-    fn id(&self) -> &Id {
-        &self.id
+impl Identifiable for PeerEvent {
+    type Id = PeerId;
+}
+
+impl IdTrait for PeerEvent {
+    fn id(&self) -> &PeerId {
+        match self {
+            Self::Created(id) => &id,
+            Self::Deleted(id) => &id,
+        }
+    }
+}
+
+#[cfg(feature = "roles")]
+#[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[non_exhaustive]
+pub enum RoleEvent {
+    Created(RoleId),
+    Deleted(RoleId),
+}
+
+#[cfg(feature = "roles")]
+impl Identifiable for RoleEvent {
+    type Id = RoleId;
+}
+
+#[cfg(feature = "roles")]
+impl IdTrait for RoleEvent {
+    fn id(&self) -> &RoleId {
+        match self {
+            Self::Created(id) => &id,
+            Self::Deleted(id) => &id,
+        }
     }
 }
 
@@ -158,116 +218,6 @@ pub enum Event {
     Asset(AssetEvent),
     /// Trigger event
     Trigger(TriggerEvent),
-}
-
-/// Entity status.
-#[derive(
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-)]
-pub enum Status {
-    /// Entity was added, registered or another action was made to make entity appear on
-    /// the blockchain for the first time.
-    Created,
-    /// Entity's state was minted, burned, changed, any parameter updated it's value.
-    Updated(Updated),
-    /// Entity was archived or by any other way was put into state that guarantees absence of
-    /// [`Updated`](`Status::Updated`) events for this entity.
-    Deleted,
-}
-
-/// Description for [`Status::Updated`].
-#[derive(
-    Copy,
-    Clone,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-    Hash,
-)]
-#[allow(missing_docs)]
-pub enum Updated {
-    Metadata(MetadataUpdated),
-    Authentication,
-    Permission,
-    Asset(AssetUpdated),
-}
-
-/// Description for [`Updated::Metadata`].
-#[derive(
-    Copy,
-    Clone,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-    Hash,
-)]
-#[allow(missing_docs)]
-pub enum MetadataUpdated {
-    Inserted,
-    Removed,
-}
-
-/// Description for [`Updated::Asset`].
-#[derive(
-    Copy,
-    Clone,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-    Hash,
-)]
-#[allow(missing_docs)]
-pub enum AssetUpdated {
-    Received,
-    Sent,
-    Minted,
-    Burned,
-}
-
-impl From<MetadataUpdated> for Status {
-    fn from(src: MetadataUpdated) -> Self {
-        Self::Updated(src.into())
-    }
-}
-
-impl From<AssetUpdated> for Status {
-    fn from(src: AssetUpdated) -> Self {
-        Self::Updated(src.into())
-    }
 }
 
 mod trigger {

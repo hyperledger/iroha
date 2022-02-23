@@ -2,7 +2,7 @@
 
 use super::*;
 
-macro_rules! complex_entity_filter {
+macro_rules! entity_filter {
     (pub struct $name: ident { event: $entity_type:ty, filter: $event_filter_type:ty, }) => {
         #[derive(
             Clone,
@@ -46,66 +46,43 @@ macro_rules! complex_entity_filter {
 }
 
 #[cfg(feature = "roles")]
-pub type RoleFilter = SimpleEntityFilter<RoleId>;
-pub type PeerFilter = detail::SimpleEntityFilter<PeerId>;
-pub type AssetFilter = detail::SimpleEntityFilter<AssetId>;
-pub type AssetDefinitionFilter = detail::SimpleEntityFilter<AssetDefinitionId>;
-complex_entity_filter!(
+entity_filter!(
+    pub struct RoleFilter {
+        event: RoleEvent,
+        filter: RoleEventFilter,
+    }
+);
+entity_filter!(
+    pub struct PeerFilter {
+        event: PeerEvent,
+        filter: PeerEventFilter,
+    }
+);
+entity_filter!(
+    pub struct AssetFilter {
+        event: AssetEvent,
+        filter: AssetEventFilter,
+    }
+);
+entity_filter!(
+    pub struct AssetDefinitionFilter {
+        event: AssetDefinitionEvent,
+        filter: AssetDefinitionEventFilter,
+    }
+);
+entity_filter!(
     pub struct DomainFilter {
         event: DomainEvent,
         filter: DomainEventFilter,
     }
 );
-complex_entity_filter!(
+entity_filter!(
     pub struct AccountFilter {
         event: AccountEvent,
         filter: AccountEventFilter,
     }
 );
 pub type EventFilter = FilterOpt<EntityFilter>;
-
-mod detail {
-    //! This module contains *sealed* structs, that is used in public API, but should
-    //! not be accessed from nowhere except parent module
-
-    use super::*;
-
-    #[derive(
-        Clone,
-        PartialOrd,
-        Ord,
-        PartialEq,
-        Eq,
-        Debug,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        Hash,
-    )]
-    pub struct SimpleEntityFilter<Id: Eq> {
-        id_filter: IdFilter<Id>,
-        status_filter: StatusFilter,
-    }
-
-    impl<Id: Eq> SimpleEntityFilter<Id> {
-        pub fn new(id_filter: IdFilter<Id>, status_filter: StatusFilter) -> Self {
-            Self {
-                id_filter,
-                status_filter,
-            }
-        }
-    }
-
-    impl<Id: Into<IdBox> + Debug + Clone + Eq + Ord> Filter for SimpleEntityFilter<Id> {
-        type Item = SimpleEvent<Id>;
-
-        fn filter(&self, entity: &SimpleEvent<Id>) -> bool {
-            self.id_filter.filter(entity.id()) && self.status_filter.filter(entity.status())
-        }
-    }
-}
 
 pub trait Filter {
     type Item;
@@ -195,6 +172,144 @@ impl Filter for EntityFilter {
                 &Event::AssetDefinition(ref asset_definition),
             ) => filter_opt.filter(asset_definition),
             (&Self::ByAsset(ref filter_opt), &Event::Asset(ref asset)) => filter_opt.filter(asset),
+            _ => false,
+        }
+    }
+}
+
+#[cfg(feature = "roles")]
+#[derive(
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Hash,
+)]
+pub enum RoleEventFilter {
+    ByCreated,
+    ByDeleted,
+}
+
+#[cfg(feature = "roles")]
+impl Filter for RoleEventFilter {
+    type Item = RoleEvent;
+
+    fn filter(&self, event: &RoleEvent) -> bool {
+        match (self, event) {
+            (Self::ByCreated, RoleEvent::Created(_)) => true,
+            (Self::ByDeleted, RoleEvent::Deleted(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Hash,
+)]
+pub enum PeerEventFilter {
+    ByCreated,
+    ByDeleted,
+}
+
+impl Filter for PeerEventFilter {
+    type Item = PeerEvent;
+
+    fn filter(&self, event: &PeerEvent) -> bool {
+        match (self, event) {
+            (Self::ByCreated, PeerEvent::Created(_)) => true,
+            (Self::ByDeleted, PeerEvent::Deleted(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Hash,
+)]
+pub enum AssetEventFilter {
+    ByCreated,
+    ByDeleted,
+    ByIncreased,
+    ByDecreased,
+    ByMetadataInserted,
+    ByMetadataRemoved,
+}
+
+impl Filter for AssetEventFilter {
+    type Item = AssetEvent;
+
+    fn filter(&self, event: &AssetEvent) -> bool {
+        match (self, event) {
+            (Self::ByCreated, AssetEvent::Created(_)) => true,
+            (Self::ByDeleted, AssetEvent::Deleted(_)) => true,
+            (Self::ByIncreased, AssetEvent::Increased(_)) => true,
+            (Self::ByDecreased, AssetEvent::Decreased(_)) => true,
+            (Self::ByMetadataInserted, AssetEvent::MetadataInserted(_)) => true,
+            (Self::ByMetadataRemoved, AssetEvent::MetadataRemoved(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Hash,
+)]
+pub enum AssetDefinitionEventFilter {
+    ByCreated,
+    ByDeleted,
+    ByMetadataInserted,
+    ByMetadataRemoved,
+}
+
+impl Filter for AssetDefinitionEventFilter {
+    type Item = AssetDefinitionEvent;
+
+    fn filter(&self, event: &AssetDefinitionEvent) -> bool {
+        match (self, event) {
+            (Self::ByCreated, AssetDefinitionEvent::Created(_)) => true,
+            (Self::ByDeleted, AssetDefinitionEvent::Deleted(_)) => true,
+            (Self::ByMetadataInserted, AssetDefinitionEvent::MetadataInserted(_)) => true,
+            (Self::ByMetadataRemoved, AssetDefinitionEvent::MetadataRemoved(_)) => true,
             _ => false,
         }
     }
@@ -348,64 +463,6 @@ impl<Id: Eq> Filter for IdFilter<Id> {
     }
 }
 
-/// Filter to select a status.
-#[derive(
-    Clone,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-    Hash,
-)]
-pub enum StatusFilter {
-    Created,
-    Updated(FilterOpt<UpdatedFilter>),
-    Deleted,
-}
-
-impl Filter for StatusFilter {
-    type Item = Status;
-
-    fn filter(&self, status: &Status) -> bool {
-        match (self, status) {
-            (Self::Created, Status::Created) | (Self::Deleted, Status::Deleted) => true,
-            (Self::Updated(filter_opt), Status::Updated(detail)) => filter_opt.filter(detail),
-            _ => false,
-        }
-    }
-}
-
-#[derive(
-    Clone,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Hash,
-)]
-pub struct UpdatedFilter(Updated);
-
-impl Filter for UpdatedFilter {
-    type Item = Updated;
-
-    fn filter(&self, item: &Updated) -> bool {
-        item == &self.0
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,7 +478,7 @@ mod tests {
 
         let domain_created = DomainEvent::Created(domain_id);
         let account_created = AccountEvent::Created(account_id.clone());
-        let asset_created = AssetEvent::new(asset_id, Status::Created);
+        let asset_created = AssetEvent::Created(asset_id);
         let account_asset_created = AccountEvent::Asset(asset_created.clone());
         let account_filter = BySome(EntityFilter::ByAccount(BySome(AccountFilter::new(
             BySome(IdFilter(account_id)),

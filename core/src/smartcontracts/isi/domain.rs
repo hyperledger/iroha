@@ -95,9 +95,8 @@ pub mod isi {
                             definition: asset_definition,
                             registered_by: authority,
                         });
-                        Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::new(
+                        Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Created(
                             asset_definition_id,
-                            DataStatus::Created,
                         )))
                     }
                     Entry::Occupied(entry) => Err(Error::Repetition(
@@ -121,9 +120,8 @@ pub mod isi {
             let asset_definition_id = self.object_id;
             wsv.modify_domain(&asset_definition_id.domain_id, |domain| {
                 domain.asset_definitions.remove(&asset_definition_id);
-                Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::new(
+                Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Deleted(
                     asset_definition_id.clone(),
-                    DataStatus::Deleted,
                 )))
             })?;
 
@@ -138,10 +136,7 @@ pub mod isi {
                     for id in &keys {
                         wsv.modify_account(account_id, |account_mut| {
                             account_mut.assets.remove(id);
-                            Ok(AccountEvent::Asset(AssetEvent::new(
-                                id.clone(),
-                                DataStatus::Deleted,
-                            )))
+                            Ok(AccountEvent::Asset(AssetEvent::Deleted(id.clone())))
                         })?;
                     }
                 }
@@ -172,9 +167,8 @@ pub mod isi {
                     metadata_limits,
                 )?;
 
-                Ok(AssetDefinitionEvent::new(
+                Ok(AssetDefinitionEvent::MetadataInserted(
                     asset_definition_id.clone(),
-                    MetadataUpdated::Inserted,
                 ))
             })
         }
@@ -199,9 +193,8 @@ pub mod isi {
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
-                Ok(AssetDefinitionEvent::new(
+                Ok(AssetDefinitionEvent::MetadataRemoved(
                     asset_definition_id.clone(),
-                    MetadataUpdated::Removed,
                 ))
             })
         }

@@ -258,10 +258,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .assets
                 .entry(id.clone())
                 .or_insert_with(|| Asset::new(id.clone(), default_asset_value.into()));
-            Ok(AccountEvent::Asset(AssetEvent::new(
-                id.clone(),
-                DataStatus::Created,
-            )))
+            Ok(AccountEvent::Asset(AssetEvent::Created(id.clone())))
         })
         .map_err(|err| {
             iroha_logger::warn!(?err);

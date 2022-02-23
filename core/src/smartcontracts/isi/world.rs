@@ -29,7 +29,7 @@ pub mod isi {
                         IdBox::PeerId(peer_id),
                     ));
                 }
-                Ok(PeerEvent::new(peer_id, DataStatus::Created).into())
+                Ok(PeerEvent::Created(peer_id).into())
             })
         }
     }
@@ -48,8 +48,7 @@ pub mod isi {
                 if world.trusted_peers_ids.remove(&peer_id).is_none() {
                     return Err(FindError::Peer(peer_id).into());
                 }
-
-                Ok(PeerEvent::new(peer_id, DataStatus::Deleted).into())
+                Ok(PeerEvent::Deleted(peer_id).into())
             })
         }
     }
@@ -115,7 +114,7 @@ pub mod isi {
 
             wsv.modify_world(|world| {
                 world.roles.insert(role_id.clone(), role);
-                Ok(RoleEvent::new(role_id, DataStatus::Created).into())
+                Ok(RoleEvent::Created(role_id).into())
             })
         }
     }
@@ -139,7 +138,7 @@ pub mod isi {
                     }
                 }
 
-                Ok(RoleEvent::new(role_id, DataStatus::Deleted).into())
+                Ok(RoleEvent::Deleted(role_id).into())
             })
         }
     }
