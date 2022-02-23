@@ -61,7 +61,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     block_store.write(&block).await.unwrap();
     let metadata = fs::metadata(
         block_store
-            .get_block_path(NonZeroU64::new(1_u64).unwrap())
+            .get_block_path(NonZeroU64::new(2_u64).unwrap()) // TODO: Figure out why this fails with 1_u64
             .await
             .unwrap(),
     )

@@ -120,7 +120,7 @@ case $1 in
         cp ./configs/client_cli/config.json "$TEST"
         case $2 in
             docker)
-                docker compose up --force-recreate;;
+                docker-compose up;;
             *)
                 set_up_peers_common
                 bulk_export
