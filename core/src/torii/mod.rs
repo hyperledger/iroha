@@ -37,7 +37,7 @@ use crate::{
 };
 
 #[macro_use]
-pub mod utils;
+pub(crate) mod utils;
 pub mod config;
 pub mod routing;
 

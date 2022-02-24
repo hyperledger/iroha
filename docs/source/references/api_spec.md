@@ -39,12 +39,30 @@
 
 | Response        | Status | Body [*](#iroha-structures) |
 | --------------- | ------ | ---- |
-| Decode err.     |    400 | `QueryError::Decode` |
-| Version err.    |    400 | `QueryError::Version` |
-| Signature err.  |    401 | `QueryError::Signature` |
-| Permission err. |    403 | `QueryError::Permission` |
-| Find err.       |    404 | `QueryError::Find` |
+| Decode err.     |    400 | `QueryError::Decode(_)` |
+| Version err.    |    400 | `QueryError::Version(_)` |
+| Signature err.  |    401 | `QueryError::Signature(_)` |
+| Permission err. |    403 | `QueryError::Permission(_)` |
+| Evaluate err.   |    400 | `QueryError::Evaluate(_)` |
+| Find err.       |    404 | `QueryError::Find(Box<FindError>)` |
+| Conversion err. |    400 | `QueryError::Conversion(_)` |
 | Success         |    200 | `VersionedQueryResult` |
+
+#### Asset Not Found 404
+Whether each prerequisite object was found and `FindError`:
+| Domain | Account | Asset Definition | Asset | `FindError` |
+| -- | -- | -- | -- | -- |
+| N | - | - | - | `FindError::Domain(DomainId)` |
+| Y | N | - | - | `FindError::Account(AccountId)` |
+| Y | - | N | - | `FindError::AssetDefinition(AssetDefinitionId)` |
+| Y | Y | Y | N | `FindError::Asset(AssetId)` |
+
+#### Account Not Found 404
+Whether each prerequisite object was found and `FindError`:
+| Domain | Account | `FindError` |
+| -- | -- | -- |
+| N | - | `FindError::Domain(DomainId)` |
+| Y | N | `FindError::Account(AccountId)` |
 
 ### Events
 
@@ -225,9 +243,10 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 
 - `VersionedTransaction` - `iroha_data_model::transaction::VersionedTransaction`
 - `VersionedSignedQueryRequest` - `iroha_data_model::query::VersionedSignedQueryRequest`
+
 - `VersionedQueryResult` - `iroha_data_model::query::VersionedQueryResult`
-<!-- SATO -->
-- `QueryError` - 
+- `QueryError` - `iroha_core::smartcontracts::isi::query::Error`
+- `FindError` - `iroha_core::smartcontracts::isi::error::FindError`
 
 - `EventStreamSubscriptionRequest` - `iroha_data_model::events::EventSubscriberMessage::SubscriptionRequest`
 - `EventStreamSubscriptionAccepted` - `iroha_data_model::events::EventPublisherMessage::SubscriptionAccepted`

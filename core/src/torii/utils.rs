@@ -1,5 +1,3 @@
-//! // SATO
-
 use std::convert::Infallible;
 
 use iroha_version::scale::DecodeVersioned;
@@ -37,7 +35,6 @@ macro_rules! add_state {
     }
 }
 
-/// SATO
 pub mod body {
     use super::*;
 

@@ -298,7 +298,7 @@ pub(crate) async fn handle_rejection(rejection: Rejection) -> Result<Response, R
     let err = if let Some(err) = rejection.find::<Error>() {
         err
     } else {
-        iroha_logger::error!(?rejection, "unhandled rejection");
+        iroha_logger::warn!(?rejection, "unhandled rejection");
         return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
     };
 
@@ -329,7 +329,7 @@ pub(crate) async fn handle_rejection(rejection: Rejection) -> Result<Response, R
 
 // TODO: Remove this. Handle all the `Error` cases in `handle_rejection`
 fn unhandled(rejection: Rejection) -> Result<Response, Rejection> {
-    iroha_logger::error!(?rejection, "unhandled rejection");
+    iroha_logger::warn!(?rejection, "unhandled rejection");
     Err(rejection)
 }
 
