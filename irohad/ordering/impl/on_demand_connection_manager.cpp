@@ -9,6 +9,7 @@
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "logger/logger.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "interfaces/common_objects/peer.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -85,23 +86,24 @@ void OnDemandConnectionManager::initializeConnections(
     // Object was destroyed and `this' is no longer valid.
     return;
   }
+
+  connections_.all_connections.clear();
+  for (auto &p : all_peers) {
+    if (auto maybe_connection = factory_->create(*p);
+        expected::hasValue(maybe_connection))
+      connections_.all_connections.emplace_back(
+          std::move(maybe_connection).assumeValue());
+    else
+      connections_.all_connections.emplace_back(std::nullopt);
+  }
+
   auto create_assign = [&](auto target) {
-    auto maybe_connection = factory_->create(*peers.peers[target]);
-    if (expected::hasError(maybe_connection)) {
-      connections_.peers[target] = std::nullopt;
-      return;
-    }
-    connections_.peers[target] = std::move(maybe_connection).assumeValue();
+    for (size_t ix = 0; ix < all_peers.size(); ++ix)
+      if (all_peers[ix]->address() == peers.peers[target]->address() && all_peers[ix]->pubkey() == peers.peers[target]->pubkey())
+        connections_.peers[target] = connections_.all_connections[ix];
   };
 
   create_assign(kIssuer);
   create_assign(kRejectConsumer);
   create_assign(kCommitConsumer);
-
-  connections_.all_connections.clear();
-  for (auto &p : all_peers)
-    if (auto maybe_connection = factory_->create(*p);
-        expected::hasValue(maybe_connection))
-      connections_.all_connections.emplace_back(
-          std::move(maybe_connection).assumeValue());
 }

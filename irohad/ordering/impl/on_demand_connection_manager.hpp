@@ -72,10 +72,9 @@ namespace iroha {
        */
       struct CurrentConnections {
         PeerCollectionType<
-            std::optional<std::unique_ptr<transport::OdOsNotification>>>
+            std::optional<std::shared_ptr<transport::OdOsNotification>>>
             peers;
-
-        std::vector<std::optional<std::unique_ptr<transport::OdOsNotification>>>
+        std::vector<std::optional<std::shared_ptr<transport::OdOsNotification>>>
             all_connections;
       };
 
