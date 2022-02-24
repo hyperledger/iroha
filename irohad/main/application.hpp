@@ -110,6 +110,7 @@ namespace shared_model {
     class QueryResponseFactory;
     class TransactionBatchFactory;
     class TransactionBatchParser;
+    class TransactionBatch;
   }  // namespace interface
   namespace validation {
     struct Settings;

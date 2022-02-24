@@ -115,7 +115,7 @@ namespace iroha {
     }
 
     void TransactionProcessorImpl::processPreparedBatch(
-        shared_model::interface::types::SharedTxsCollectionType const &txs) {
+        std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
       log_->info("MST batch prepared");
       for (const auto &tx : batch->transactions())
         publishStatus(TxStatusType::kEnoughSignaturesCollected, tx->hash());
@@ -123,7 +123,7 @@ namespace iroha {
     }
 
     void TransactionProcessorImpl::processExpiredBatch(
-        shared_model::interface::types::SharedTxsCollectionType const &txs) {
+        std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
       log_->info("MST batch {} is expired", batch->reducedHash());
       for (auto &&tx : batch->transactions()) {
         publishStatus(TxStatusType::kMstExpired, tx->hash());

@@ -48,8 +48,8 @@ namespace iroha {
           override;
 
       void processStateUpdate(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) override;
-      void processPreparedBatch(shared_model::interface::types::SharedTxsCollectionType const &txs) override;
-      void processExpiredBatch(shared_model::interface::types::SharedTxsCollectionType const &txs) override;
+      void processPreparedBatch(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) override;
+      void processExpiredBatch(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) override;
 
      private:
       // connections

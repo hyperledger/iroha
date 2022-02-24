@@ -101,7 +101,6 @@ namespace iroha::ordering {
     struct MSTState {
       MSTBatchesSetType mst_pending_;
       MSTExpirationSetType mst_expirations_;
-      types::SharedTxsCollectionType mst_diff;
     };
 
     mutable std::shared_mutex batches_cache_cs_;

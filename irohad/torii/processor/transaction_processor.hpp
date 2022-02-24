@@ -8,6 +8,8 @@
 
 #include <memory>
 
+#include "interfaces/common_objects/transaction_sequence_common.hpp"
+
 namespace shared_model {
   namespace interface {
     class Block;
@@ -46,10 +48,10 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) = 0;
 
       virtual void processPreparedBatch(
-          shared_model::interface::types::SharedTxsCollectionType const &txs) = 0;
+          std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) = 0;
 
       virtual void processExpiredBatch(
-          shared_model::interface::types::SharedTxsCollectionType const &txs) = 0;
+          std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) = 0;
 
       virtual ~TransactionProcessor() = default;
     };

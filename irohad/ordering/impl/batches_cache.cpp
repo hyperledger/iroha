@@ -23,8 +23,7 @@ namespace {
 
   bool mergeSignaturesInBatch(
       std::shared_ptr<shared_model::interface::TransactionBatch> &target,
-      std::shared_ptr<shared_model::interface::TransactionBatch> const &donor,
-      types::SharedTxsCollectionType &diff) {
+      std::shared_ptr<shared_model::interface::TransactionBatch> const &donor) {
     assert(target->transactions().size() == donor->transactions().size());
     auto inserted_new_signatures = false;
 
@@ -36,14 +35,11 @@ namespace {
       const auto &donor_tx = *it_donor;
 
       for (auto &signature : donor_tx->signatures())
-        if (target_tx->addSignature(
+        inserted_new_signatures |= target_tx->addSignature(
             shared_model::interface::types::SignedHexStringView{
                 signature.signedData()},
             shared_model::interface::types::PublicKeyHexStringView{
-                signature.publicKey()})) {
-          inserted_new_signatures |= true;
-          diff.emplace_back(target_tx);
-        }
+                signature.publicKey()});
 
       ++it_target;
       ++it_donor;
@@ -123,8 +119,7 @@ namespace iroha::ordering {
         it_batch->second.timestamp = ts;
         getSubscription()->notify(EventTypes::kOnMstStateUpdate, batch);
       } else {
-        mst_state.mst_diff.clear();
-        if (mergeSignaturesInBatch(it_batch->second.batch, batch, mst_state.mst_diff)) {
+        if (mergeSignaturesInBatch(it_batch->second.batch, batch)) {
           if (it_batch->second.batch->hasAllSignatures()) {
             {
               std::unique_lock lock(batches_cache_cs_);
@@ -180,7 +175,7 @@ namespace iroha::ordering {
           == used_batches_cache_.getBatchesSet().end())
         batches_cache_.insert(batch);
       removeMSTCache(batch);
-      getSubscription()->notify(EventTypes::kOnMstPreparedBatches, it_batch->second.batch);
+      getSubscription()->notify(EventTypes::kOnMstPreparedBatches, batch);
     } else
       insertMSTCache(batch);
 
