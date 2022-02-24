@@ -60,7 +60,7 @@ namespace iroha {
           (override));
       MOCK_METHOD(void,
                   processStateUpdate,
-                  (std::shared_ptr<MstState> const &),
+                  (std::shared_ptr<shared_model::interface::TransactionBatch> const &),
                   (override));
       MOCK_METHOD(
           void,
