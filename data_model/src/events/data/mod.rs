@@ -18,13 +18,5 @@ mod filters;
 
 /// Exports common structs and enums from this module.
 pub mod prelude {
-    #[cfg(feature = "roles")]
-    pub use super::events::RoleEvent;
-    pub use super::{
-        events::{
-            AccountEvent, AssetDefinitionEvent, AssetEvent, DomainEvent, Event as DataEvent,
-            PeerEvent, TriggerEvent, WorldEvent,
-        },
-        filters::{EventFilter as DataEventFilter, FilterOpt::*, *},
-    };
+    pub use super::{events::prelude::*, filters::prelude::*};
 }

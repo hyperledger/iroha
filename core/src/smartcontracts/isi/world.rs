@@ -29,7 +29,7 @@ pub mod isi {
                         IdBox::PeerId(peer_id),
                     ));
                 }
-                Ok(PeerEvent::Created(peer_id).into())
+                Ok(PeerEvent::Trusted(peer_id).into())
             })
         }
     }
@@ -48,7 +48,7 @@ pub mod isi {
                 if world.trusted_peers_ids.remove(&peer_id).is_none() {
                     return Err(FindError::Peer(peer_id).into());
                 }
-                Ok(PeerEvent::Deleted(peer_id).into())
+                Ok(PeerEvent::Untrusted(peer_id).into())
             })
         }
     }
@@ -90,7 +90,6 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
             wsv.modify_world(|world| {
-                // TODO: Should we fail if no domain found?
                 world.domains.remove(&domain_id);
                 Ok(DomainEvent::Deleted(domain_id).into())
             })?;

@@ -2,6 +2,7 @@
 //! state.
 
 use std::{
+    convert::Infallible,
     fmt::Debug,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -416,13 +417,18 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if there is no domain
+    #[allow(clippy::panic_in_result_fn)]
     pub fn map_domain<T>(
         &self,
         id: &<Domain as Identifiable>::Id,
-        f: impl FnOnce(&Domain) -> T,
+        f: impl FnOnce(&Domain) -> Result<T, Infallible>,
     ) -> Result<T, FindError> {
         let domain = self.domain(id)?;
-        Ok(f(domain.value()))
+        let value = match f(domain.value()) {
+            Ok(value) => value,
+            Err(_) => unreachable!("Returning `Infallible` should not be possible"),
+        };
+        Ok(value)
     }
 
     /// Get `Domain` and pass it to closure to modify it
@@ -704,8 +710,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
     {
         let event = f(&self.triggers).map(Into::into)?;
-        let events: SmallVec<[DataEvent; 1]> = SmallVec(smallvec::smallvec![event]);
-        self.produce_events(events);
+        self.produce_events([event]);
         Ok(())
     }
 }

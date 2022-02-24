@@ -291,9 +291,11 @@ pub mod query {
                 .key
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")
-                .map_err(|e| Error::Evaluate(e.to_string()))?;
-            wsv.map_domain(&id, |domain| domain.metadata.get(&key).map(Clone::clone))?
-                .ok_or_else(|| FindError::MetadataKey(key).into())
+                .map_err(Error::Evaluate)?;
+            wsv.map_domain(&id, |domain| {
+                Ok(domain.metadata.get(&key).map(Clone::clone))
+            })?
+            .ok_or_else(|| FindError::MetadataKey(key).into())
         }
     }
 

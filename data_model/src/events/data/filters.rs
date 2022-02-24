@@ -61,42 +61,384 @@ macro_rules! entity_filter {
 }
 
 #[cfg(feature = "roles")]
-entity_filter!(
-    pub struct RoleFilter {
-        event: RoleEvent,
-        filter: RoleEventFilter,
+mod role {
+    //! This module contains filters related to `RoleEvent`
+
+    use super::*;
+
+    entity_filter!(
+        pub struct RoleFilter {
+            event: RoleEvent,
+            filter: RoleEventFilter,
+        }
+    );
+
+    #[derive(
+        Copy,
+        Clone,
+        PartialEq,
+        PartialOrd,
+        Ord,
+        Eq,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Hash,
+    )]
+    #[allow(missing_docs)]
+    pub enum RoleEventFilter {
+        ByCreated,
+        ByDeleted,
     }
-);
-entity_filter!(
-    pub struct PeerFilter {
-        event: PeerEvent,
-        filter: PeerEventFilter,
+
+    impl Filter for RoleEventFilter {
+        type Item = RoleEvent;
+
+        fn filter(&self, event: &RoleEvent) -> bool {
+            matches!(
+                (self, event),
+                (Self::ByCreated, RoleEvent::Created(_)) | (Self::ByDeleted, RoleEvent::Deleted(_))
+            )
+        }
     }
-);
-entity_filter!(
-    pub struct AssetFilter {
-        event: AssetEvent,
-        filter: AssetEventFilter,
+}
+
+mod peer {
+    //! This module contains filters related to `PeerEvent`
+
+    use super::*;
+
+    entity_filter!(
+        pub struct PeerFilter {
+            event: PeerEvent,
+            filter: PeerEventFilter,
+        }
+    );
+
+    #[derive(
+        Copy,
+        Clone,
+        PartialEq,
+        PartialOrd,
+        Ord,
+        Eq,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Hash,
+    )]
+    #[allow(missing_docs)]
+    pub enum PeerEventFilter {
+        ByCreated,
+        ByDeleted,
     }
-);
-entity_filter!(
-    pub struct AssetDefinitionFilter {
-        event: AssetDefinitionEvent,
-        filter: AssetDefinitionEventFilter,
+
+    impl Filter for PeerEventFilter {
+        type Item = PeerEvent;
+
+        fn filter(&self, event: &PeerEvent) -> bool {
+            matches!(
+                (self, event),
+                (Self::ByCreated, PeerEvent::Trusted(_))
+                    | (Self::ByDeleted, PeerEvent::Untrusted(_))
+            )
+        }
     }
-);
-entity_filter!(
-    pub struct DomainFilter {
-        event: DomainEvent,
-        filter: DomainEventFilter,
+}
+
+mod asset {
+    //! This module contains filters related to `AssetEvent` and `AssetDefinitionEvent`
+
+    use super::*;
+
+    entity_filter!(
+        pub struct AssetFilter {
+            event: AssetEvent,
+            filter: AssetEventFilter,
+        }
+    );
+
+    entity_filter!(
+        pub struct AssetDefinitionFilter {
+            event: AssetDefinitionEvent,
+            filter: AssetDefinitionEventFilter,
+        }
+    );
+
+    #[derive(
+        Copy,
+        Clone,
+        PartialEq,
+        PartialOrd,
+        Ord,
+        Eq,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Hash,
+    )]
+    #[allow(missing_docs, clippy::enum_variant_names)]
+    pub enum AssetEventFilter {
+        ByCreated,
+        ByDeleted,
+        ByIncreased,
+        ByDecreased,
+        ByMetadataInserted,
+        ByMetadataRemoved,
     }
-);
-entity_filter!(
-    pub struct AccountFilter {
-        event: AccountEvent,
-        filter: AccountEventFilter,
+
+    impl Filter for AssetEventFilter {
+        type Item = AssetEvent;
+
+        fn filter(&self, event: &AssetEvent) -> bool {
+            matches!(
+                (self, event),
+                (Self::ByCreated, AssetEvent::Created(_))
+                    | (Self::ByDeleted, AssetEvent::Deleted(_))
+                    | (Self::ByIncreased, AssetEvent::Increased(_))
+                    | (Self::ByDecreased, AssetEvent::Decreased(_))
+                    | (Self::ByMetadataInserted, AssetEvent::MetadataInserted(_))
+                    | (Self::ByMetadataRemoved, AssetEvent::MetadataRemoved(_))
+            )
+        }
     }
-);
+
+    #[derive(
+        Copy,
+        Clone,
+        PartialEq,
+        PartialOrd,
+        Ord,
+        Eq,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+        Hash,
+    )]
+    #[allow(missing_docs, clippy::enum_variant_names)]
+    pub enum AssetDefinitionEventFilter {
+        ByCreated,
+        ByDeleted,
+        ByMetadataInserted,
+        ByMetadataRemoved,
+    }
+
+    impl Filter for AssetDefinitionEventFilter {
+        type Item = AssetDefinitionEvent;
+
+        fn filter(&self, event: &AssetDefinitionEvent) -> bool {
+            matches!(
+                (self, event),
+                (Self::ByCreated, AssetDefinitionEvent::Created(_))
+                    | (Self::ByDeleted, AssetDefinitionEvent::Deleted(_))
+                    | (
+                        Self::ByMetadataInserted,
+                        AssetDefinitionEvent::MetadataInserted(_)
+                    )
+                    | (
+                        Self::ByMetadataRemoved,
+                        AssetDefinitionEvent::MetadataRemoved(_)
+                    )
+            )
+        }
+    }
+}
+
+mod domain {
+    //! This module contains filters related to `DomainEvent`
+
+    use super::*;
+
+    entity_filter!(
+        pub struct DomainFilter {
+            event: DomainEvent,
+            filter: DomainEventFilter,
+        }
+    );
+
+    #[derive(
+        Clone,
+        PartialEq,
+        PartialOrd,
+        Ord,
+        Eq,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        FromVariant,
+        IntoSchema,
+        Hash,
+    )]
+    #[allow(clippy::enum_variant_names)]
+    /// Filter for Domain events
+    pub enum DomainEventFilter {
+        /// Filter by Account event.
+        /// `AcceptAll` value will accept all `Account` events that are related to Domain
+        ByAccount(FilterOpt<AccountFilter>),
+        /// Filter by AssetDefinition event.
+        /// `AcceptAll` value will accept all `AssetDefinition` events that are related to Domain
+        ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
+        /// Filter by Created event
+        ByCreated,
+        /// Filter by Deleted event
+        ByDeleted,
+        /// Filter by MetadataInserted event
+        ByMetadataInserted,
+        /// Filter by MetadataRemoved event
+        ByMetadataRemoved,
+    }
+
+    impl Filter for DomainEventFilter {
+        type Item = DomainEvent;
+
+        fn filter(&self, event: &DomainEvent) -> bool {
+            match (self, event) {
+                (Self::ByAccount(filter_opt), DomainEvent::Account(account)) => {
+                    filter_opt.filter(account)
+                }
+                (
+                    Self::ByAssetDefinition(filter_opt),
+                    DomainEvent::AssetDefinition(asset_definition),
+                ) => filter_opt.filter(asset_definition),
+                (Self::ByCreated, DomainEvent::Created(_))
+                | (Self::ByDeleted, DomainEvent::Deleted(_))
+                | (Self::ByMetadataInserted, DomainEvent::MetadataInserted(_))
+                | (Self::ByMetadataRemoved, DomainEvent::MetadataRemoved(_)) => true,
+                _ => false,
+            }
+        }
+    }
+}
+
+mod account {
+    //! This module contains filters related to `AccountEvent`
+
+    use super::*;
+
+    entity_filter!(
+        pub struct AccountFilter {
+            event: AccountEvent,
+            filter: AccountEventFilter,
+        }
+    );
+
+    #[derive(
+        Clone,
+        PartialEq,
+        PartialOrd,
+        Ord,
+        Eq,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        FromVariant,
+        IntoSchema,
+        Hash,
+    )]
+    #[allow(clippy::enum_variant_names)]
+    /// Filter for Account events
+    pub enum AccountEventFilter {
+        /// Filter by Asset event.
+        /// `AcceptAll` value will accept all `Asset` events that are related to Account
+        ByAsset(FilterOpt<AssetFilter>),
+        /// Filter by Created event
+        ByCreated,
+        /// Filter by Deleted event
+        ByDeleted,
+        /// Filter by Authentication event
+        ByAuthentication,
+        /// Filter by Permission event
+        ByPermission,
+        /// Filter by MetadataInserted event
+        ByMetadataInserted,
+        /// Filter by MetadataRemoved event
+        ByMetadataRemoved,
+    }
+
+    impl Filter for AccountEventFilter {
+        type Item = AccountEvent;
+
+        fn filter(&self, event: &AccountEvent) -> bool {
+            match (self, event) {
+                (Self::ByAsset(filter_opt), AccountEvent::Asset(asset)) => filter_opt.filter(asset),
+                (Self::ByCreated, AccountEvent::Created(_))
+                | (Self::ByDeleted, AccountEvent::Deleted(_))
+                | (Self::ByAuthentication, AccountEvent::Authentication(_))
+                | (Self::ByPermission, AccountEvent::Permission(_))
+                | (Self::ByMetadataInserted, AccountEvent::MetadataInserted(_))
+                | (Self::ByMetadataRemoved, AccountEvent::MetadataRemoved(_)) => true,
+                _ => false,
+            }
+        }
+    }
+}
+
+mod trigger {
+    //! This module contains filters related to `TriggerEvent`
+
+    use super::*;
+
+    entity_filter!(
+        pub struct TriggerFilter {
+            event: TriggerEvent,
+            filter: TriggerEventFilter,
+        }
+    );
+
+    #[derive(
+        Copy,
+        Clone,
+        PartialOrd,
+        Ord,
+        PartialEq,
+        Eq,
+        Debug,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        FromVariant,
+        IntoSchema,
+        Hash,
+    )]
+    #[allow(missing_docs, clippy::enum_variant_names)]
+    pub enum TriggerEventFilter {
+        ByCreated,
+        ByDeleted,
+        ByExtended,
+        ByShortened,
+    }
+
+    impl Filter for TriggerEventFilter {
+        type Item = TriggerEvent;
+
+        fn filter(&self, event: &TriggerEvent) -> bool {
+            matches!(
+                (self, event),
+                (Self::ByCreated, TriggerEvent::Created(_))
+                    | (Self::ByDeleted, TriggerEvent::Deleted(_))
+                    | (Self::ByExtended, TriggerEvent::Extended(_))
+                    | (Self::ByShortened, TriggerEvent::Shortened(_))
+            )
+        }
+    }
+}
 
 /// Filter for all events
 pub type EventFilter = FilterOpt<EntityFilter>;
@@ -203,303 +545,6 @@ impl Filter for EntityFilter {
     }
 }
 
-#[cfg(feature = "roles")]
-#[derive(
-    Copy,
-    Clone,
-    PartialEq,
-    PartialOrd,
-    Ord,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Hash,
-)]
-#[allow(missing_docs)]
-pub enum RoleEventFilter {
-    ByCreated,
-    ByDeleted,
-}
-
-#[cfg(feature = "roles")]
-impl Filter for RoleEventFilter {
-    type Item = RoleEvent;
-
-    fn filter(&self, event: &RoleEvent) -> bool {
-        match (self, event) {
-            (Self::ByCreated, RoleEvent::Created(_)) | (Self::ByDeleted, RoleEvent::Deleted(_)) => {
-                true
-            }
-            _ => false,
-        }
-    }
-}
-
-#[derive(
-    Copy,
-    Clone,
-    PartialEq,
-    PartialOrd,
-    Ord,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Hash,
-)]
-#[allow(missing_docs)]
-pub enum PeerEventFilter {
-    ByCreated,
-    ByDeleted,
-}
-
-impl Filter for PeerEventFilter {
-    type Item = PeerEvent;
-
-    fn filter(&self, event: &PeerEvent) -> bool {
-        matches!(
-            (self, event),
-            (Self::ByCreated, PeerEvent::Created(_)) | (Self::ByDeleted, PeerEvent::Deleted(_))
-        )
-    }
-}
-
-#[derive(
-    Copy,
-    Clone,
-    PartialEq,
-    PartialOrd,
-    Ord,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Hash,
-)]
-#[allow(missing_docs, clippy::enum_variant_names)]
-pub enum AssetEventFilter {
-    ByCreated,
-    ByDeleted,
-    ByIncreased,
-    ByDecreased,
-    ByMetadataInserted,
-    ByMetadataRemoved,
-}
-
-impl Filter for AssetEventFilter {
-    type Item = AssetEvent;
-
-    fn filter(&self, event: &AssetEvent) -> bool {
-        matches!(
-            (self, event),
-            (Self::ByCreated, AssetEvent::Created(_))
-                | (Self::ByDeleted, AssetEvent::Deleted(_))
-                | (Self::ByIncreased, AssetEvent::Increased(_))
-                | (Self::ByDecreased, AssetEvent::Decreased(_))
-                | (Self::ByMetadataInserted, AssetEvent::MetadataInserted(_))
-                | (Self::ByMetadataRemoved, AssetEvent::MetadataRemoved(_))
-        )
-    }
-}
-
-#[derive(
-    Copy,
-    Clone,
-    PartialEq,
-    PartialOrd,
-    Ord,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    Hash,
-)]
-#[allow(missing_docs, clippy::enum_variant_names)]
-pub enum AssetDefinitionEventFilter {
-    ByCreated,
-    ByDeleted,
-    ByMetadataInserted,
-    ByMetadataRemoved,
-}
-
-impl Filter for AssetDefinitionEventFilter {
-    type Item = AssetDefinitionEvent;
-
-    fn filter(&self, event: &AssetDefinitionEvent) -> bool {
-        matches!(
-            (self, event),
-            (Self::ByCreated, AssetDefinitionEvent::Created(_))
-                | (Self::ByDeleted, AssetDefinitionEvent::Deleted(_))
-                | (
-                    Self::ByMetadataInserted,
-                    AssetDefinitionEvent::MetadataInserted(_)
-                )
-                | (
-                    Self::ByMetadataRemoved,
-                    AssetDefinitionEvent::MetadataRemoved(_)
-                )
-        )
-    }
-}
-
-#[derive(
-    Clone,
-    PartialEq,
-    PartialOrd,
-    Ord,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-    Hash,
-)]
-#[allow(clippy::enum_variant_names)]
-/// Filter for Domain events
-pub enum DomainEventFilter {
-    /// Filter by Account event.
-    /// `AcceptAll` value will accept all `Account` events that are related to Domain
-    ByAccount(FilterOpt<AccountFilter>),
-    /// Filter by AssetDefinition event.
-    /// `AcceptAll` value will accept all `AssetDefinition` events that are related to Domain
-    ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
-    /// Filter by Created event
-    ByCreated,
-    /// Filter by Deleted event
-    ByDeleted,
-    /// Filter by MetadataInserted event
-    ByMetadataInserted,
-    /// Filter by MetadataRemoved event
-    ByMetadataRemoved,
-}
-
-impl Filter for DomainEventFilter {
-    type Item = DomainEvent;
-
-    fn filter(&self, event: &DomainEvent) -> bool {
-        match (self, event) {
-            (Self::ByAccount(filter_opt), DomainEvent::Account(account)) => {
-                filter_opt.filter(account)
-            }
-            (
-                Self::ByAssetDefinition(filter_opt),
-                DomainEvent::AssetDefinition(asset_definition),
-            ) => filter_opt.filter(asset_definition),
-            (Self::ByCreated, DomainEvent::Created(_))
-            | (Self::ByDeleted, DomainEvent::Deleted(_))
-            | (Self::ByMetadataInserted, DomainEvent::MetadataInserted(_))
-            | (Self::ByMetadataRemoved, DomainEvent::MetadataRemoved(_)) => true,
-            _ => false,
-        }
-    }
-}
-
-#[derive(
-    Clone,
-    PartialEq,
-    PartialOrd,
-    Ord,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-    Hash,
-)]
-#[allow(clippy::enum_variant_names)]
-/// Filter for Account events
-pub enum AccountEventFilter {
-    /// Filter by Asset event.
-    /// `AcceptAll` value will accept all `Asset` events that are related to Account
-    ByAsset(FilterOpt<AssetFilter>),
-    /// Filter by Created event
-    ByCreated,
-    /// Filter by Deleted event
-    ByDeleted,
-    /// Filter by Authentication event
-    ByAuthentication,
-    /// Filter by Permission event
-    ByPermission,
-    /// Filter by MetadataInserted event
-    ByMetadataInserted,
-    /// Filter by MetadataRemoved event
-    ByMetadataRemoved,
-}
-
-impl Filter for AccountEventFilter {
-    type Item = AccountEvent;
-
-    fn filter(&self, event: &AccountEvent) -> bool {
-        match (self, event) {
-            (Self::ByAsset(filter_opt), AccountEvent::Asset(asset)) => filter_opt.filter(asset),
-            (Self::ByCreated, AccountEvent::Created(_))
-            | (Self::ByDeleted, AccountEvent::Deleted(_))
-            | (Self::ByAuthentication, AccountEvent::Authentication(_))
-            | (Self::ByPermission, AccountEvent::Permission(_))
-            | (Self::ByMetadataInserted, AccountEvent::MetadataInserted(_))
-            | (Self::ByMetadataRemoved, AccountEvent::MetadataRemoved(_)) => true,
-            _ => false,
-        }
-    }
-}
-
-#[derive(
-    Copy,
-    Clone,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Debug,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
-    Hash,
-)]
-#[allow(missing_docs, clippy::enum_variant_names)]
-pub enum TriggerFilter {
-    ByCreated,
-    ByDeleted,
-    ByExtended,
-    ByShortened,
-}
-
-impl Filter for TriggerFilter {
-    type Item = TriggerEvent;
-
-    fn filter(&self, event: &TriggerEvent) -> bool {
-        matches!(
-            (self, event),
-            (Self::ByCreated, TriggerEvent::Created(_))
-                | (Self::ByDeleted, TriggerEvent::Deleted(_))
-                | (Self::ByExtended, TriggerEvent::Extended(_))
-                | (Self::ByShortened, TriggerEvent::Shortened(_))
-        )
-    }
-}
-
 #[derive(
     Clone,
     PartialOrd,
@@ -525,6 +570,21 @@ impl<Id: Eq> Filter for IdFilter<Id> {
     fn filter(&self, id: &Id) -> bool {
         id == &self.0
     }
+}
+
+pub mod prelude {
+    #[cfg(feature = "roles")]
+    pub use super::role::{RoleEventFilter, RoleFilter};
+    pub use super::{
+        account::{AccountEventFilter, AccountFilter},
+        asset::{AssetDefinitionEventFilter, AssetDefinitionFilter, AssetEventFilter, AssetFilter},
+        domain::{DomainEventFilter, DomainFilter},
+        peer::{PeerEventFilter, PeerFilter},
+        trigger::{TriggerEventFilter, TriggerFilter},
+        EntityFilter, EventFilter as DataEventFilter,
+        FilterOpt::*,
+        IdFilter,
+    };
 }
 
 #[cfg(test)]
