@@ -47,15 +47,9 @@ namespace iroha {
           std::shared_ptr<const shared_model::interface::Block> const &block)
           override;
 
-      void processStateUpdate(std::shared_ptr<MstState> const &state) override;
-
-      void processPreparedBatch(
-          std::shared_ptr<shared_model::interface::TransactionBatch> const
-              &batch) override;
-
-      void processExpiredBatch(
-          std::shared_ptr<shared_model::interface::TransactionBatch> const
-              &batch) override;
+      void processStateUpdate(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) override;
+      void processPreparedBatch(shared_model::interface::types::SharedTxsCollectionType const &txs) override;
+      void processExpiredBatch(shared_model::interface::types::SharedTxsCollectionType const &txs) override;
 
      private:
       // connections
@@ -100,15 +94,6 @@ namespace iroha {
                          const shared_model::crypto::Hash &hash,
                          const validation::CommandError &cmd_error =
                              validation::CommandError{}) const;
-
-      /**
-       * Publish kEnoughSignaturesCollected status for each transaction in
-       * collection
-       * @param txs - collection of those transactions
-       */
-      void publishEnoughSignaturesStatus(
-          const shared_model::interface::types::SharedTxsCollectionType &txs)
-          const;
     };
   }  // namespace torii
 }  // namespace iroha

@@ -23,7 +23,8 @@ namespace {
 
   bool mergeSignaturesInBatch(
       std::shared_ptr<shared_model::interface::TransactionBatch> &target,
-      std::shared_ptr<shared_model::interface::TransactionBatch> const &donor) {
+      std::shared_ptr<shared_model::interface::TransactionBatch> const &donor,
+      types::SharedTxsCollectionType &diff) {
     assert(target->transactions().size() == donor->transactions().size());
     auto inserted_new_signatures = false;
 
@@ -35,11 +36,14 @@ namespace {
       const auto &donor_tx = *it_donor;
 
       for (auto &signature : donor_tx->signatures())
-        inserted_new_signatures |= target_tx->addSignature(
+        if (target_tx->addSignature(
             shared_model::interface::types::SignedHexStringView{
                 signature.signedData()},
             shared_model::interface::types::PublicKeyHexStringView{
-                signature.publicKey()});
+                signature.publicKey()})) {
+          inserted_new_signatures |= true;
+          diff.emplace_back(target_tx);
+        }
 
       ++it_target;
       ++it_donor;
@@ -107,15 +111,6 @@ namespace iroha::ordering {
     assert(count(from.batches_) == from.tx_count_);
   }
 
-/*    getSubscription()->notify(
-              EventTypes::kOnRdbStats,
-              RocksDbStatus{common.propGetBlockCacheCapacity(),
-                            common.propGetBlockCacheUsage(),
-                            common.propGetCurSzAllMemTables(),
-                            common.propGetNumSnapshots(),
-                            common.propGetTotalSSTFilesSize()});*/
-
-
   void BatchesCache::insertMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
     assert(!batch->hasAllSignatures());
     mst_state_.exclusiveAccess([&](auto &mst_state) {
@@ -126,15 +121,21 @@ namespace iroha::ordering {
         auto ts = oldestTimestamp(batch);
         while (!mst_state.mst_expirations_.emplace(ts, batch).second) ++ts;
         it_batch->second.timestamp = ts;
+        getSubscription()->notify(EventTypes::kOnMstStateUpdate, batch);
       } else {
-        if (mergeSignaturesInBatch(it_batch->second.batch, batch)
-            && it_batch->second.batch->hasAllSignatures()) {
-          {
-            std::unique_lock lock(batches_cache_cs_);
-            batches_cache_.insert(it_batch->second.batch);
+        mst_state.mst_diff.clear();
+        if (mergeSignaturesInBatch(it_batch->second.batch, batch, mst_state.mst_diff)) {
+          if (it_batch->second.batch->hasAllSignatures()) {
+            {
+              std::unique_lock lock(batches_cache_cs_);
+              batches_cache_.insert(it_batch->second.batch);
+            }
+            mst_state.mst_expirations_.erase(it_batch->second.timestamp);
+            mst_state.mst_pending_.erase(it_batch);
+            getSubscription()->notify(EventTypes::kOnMstPreparedBatches, it_batch->second.batch);
+          } else {
+            getSubscription()->notify(EventTypes::kOnMstStateUpdate, it_batch->second.batch);
           }
-          mst_state.mst_expirations_.erase(it_batch->second.timestamp);
-          mst_state.mst_pending_.erase(it_batch);
         }
       }
       assert(mst_state.mst_pending_.size()
@@ -179,6 +180,7 @@ namespace iroha::ordering {
           == used_batches_cache_.getBatchesSet().end())
         batches_cache_.insert(batch);
       removeMSTCache(batch);
+      getSubscription()->notify(EventTypes::kOnMstPreparedBatches, it_batch->second.batch);
     } else
       insertMSTCache(batch);
 

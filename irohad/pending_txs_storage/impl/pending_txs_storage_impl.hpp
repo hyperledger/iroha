@@ -50,7 +50,7 @@ namespace iroha {
 
     void removeTransaction(HashType const &hash) override;
 
-    void updatedBatchesHandler(const SharedState &updated_batches) override;
+    void updatedBatchesHandler(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) override;
 
     void removeBatch(const SharedBatch &batch) override;
 

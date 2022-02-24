@@ -94,7 +94,7 @@ namespace iroha {
         shared_model::interface::types::HashType const &hash) = 0;
 
     virtual void updatedBatchesHandler(
-        std::shared_ptr<MstState> const &updated_batches) = 0;
+        std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) = 0;
 
     virtual void removeBatch(
         std::shared_ptr<shared_model::interface::TransactionBatch> const

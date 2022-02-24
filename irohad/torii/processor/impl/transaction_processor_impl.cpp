@@ -105,24 +105,25 @@ namespace iroha {
     }
 
     void TransactionProcessorImpl::processStateUpdate(
-        std::shared_ptr<MstState> const &state) {
+        std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
       log_->info("MST state updated");
-      state->iterateTransactions([this](const auto &tx) {
-        publishStatus(TxStatusType::kMstPending, tx->hash());
-      });
+      std::for_each(batch->transactions().begin(),
+                    batch->transactions().end(),
+                    [this](const auto &tx) {
+                      publishStatus(TxStatusType::kMstPending, tx->hash());
+                    });
     }
 
     void TransactionProcessorImpl::processPreparedBatch(
-        std::shared_ptr<shared_model::interface::TransactionBatch> const
-            &batch) {
+        shared_model::interface::types::SharedTxsCollectionType const &txs) {
       log_->info("MST batch prepared");
-      publishEnoughSignaturesStatus(batch->transactions());
+      for (const auto &tx : batch->transactions())
+        publishStatus(TxStatusType::kEnoughSignaturesCollected, tx->hash());
       pcs_->propagate_batch(batch);
     }
 
     void TransactionProcessorImpl::processExpiredBatch(
-        std::shared_ptr<shared_model::interface::TransactionBatch> const
-            &batch) {
+        shared_model::interface::types::SharedTxsCollectionType const &txs) {
       log_->info("MST batch {} is expired", batch->reducedHash());
       for (auto &&tx : batch->transactions()) {
         publishStatus(TxStatusType::kMstExpired, tx->hash());
@@ -184,14 +185,6 @@ namespace iroha {
               status_factory_->makeEnoughSignaturesCollected(hash, tx_error));
           return;
         };
-      }
-    }
-
-    void TransactionProcessorImpl::publishEnoughSignaturesStatus(
-        const shared_model::interface::types::SharedTxsCollectionType &txs)
-        const {
-      for (const auto &tx : txs) {
-        publishStatus(TxStatusType::kEnoughSignaturesCollected, tx->hash());
       }
     }
   }  // namespace torii

@@ -102,10 +102,9 @@ PendingTransactionStorageImpl::batchCreators(const TransactionBatch &batch) {
 }
 
 void PendingTransactionStorageImpl::updatedBatchesHandler(
-    const SharedState &updated_batches) {
+    std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
   // need to test performance somehow - where to put the lock
   std::unique_lock<std::shared_timed_mutex> lock(mutex_);
-  updated_batches->iterateBatches([this](const auto &batch) {
     if (isReplay(*batch)) {
       return;
     }
@@ -139,7 +138,6 @@ void PendingTransactionStorageImpl::updatedBatchesHandler(
         *account_batch = batch;
       }
     }
-  });
 }
 
 bool PendingTransactionStorageImpl::isReplay(
