@@ -9,7 +9,6 @@ add_library(processors
 target_link_libraries(processors PUBLIC
     logger
     endpoint
-    mst_processor
     common
     verified_proposal_creator_common
     )

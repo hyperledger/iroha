@@ -12,7 +12,6 @@
 #include "interfaces/iroha_internal/tx_status_factory.hpp"
 #include "interfaces/transaction_responses/tx_response.hpp"
 #include "logger/logger_fwd.hpp"
-#include "multi_sig_transactions/mst_processor.hpp"
 #include "network/peer_communication_service.hpp"
 #include "torii/status_bus.hpp"
 #include "validation/stateful_validator_common.hpp"
@@ -30,7 +29,6 @@ namespace iroha {
        */
       TransactionProcessorImpl(
           std::shared_ptr<network::PeerCommunicationService> pcs,
-          std::shared_ptr<MstProcessor> mst_processor,
           std::shared_ptr<iroha::torii::StatusBus> status_bus,
           std::shared_ptr<shared_model::interface::TxStatusFactory>
               status_factory,
@@ -54,9 +52,6 @@ namespace iroha {
      private:
       // connections
       std::shared_ptr<network::PeerCommunicationService> pcs_;
-
-      // processing
-      std::shared_ptr<MstProcessor> mst_processor_;
 
       std::shared_ptr<iroha::torii::StatusBus> status_bus_;
 

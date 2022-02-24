@@ -34,18 +34,9 @@ namespace iroha {
        */
       using ProposalType = shared_model::interface::Proposal;
 
-      struct BatchPointerHasher {
-        shared_model::crypto::Hash::Hasher hasher_;
-        size_t operator()(
-            const std::shared_ptr<shared_model::interface::TransactionBatch> &a)
-            const {
-          return hasher_(a->reducedHash());
-        }
-      };
-
       using BatchesSetType = std::unordered_set<
           std::shared_ptr<shared_model::interface::TransactionBatch>,
-          BatchPointerHasher,
+          shared_model::interface::BatchPointerHasher,
           shared_model::interface::BatchHashEquality>;
 
       /**

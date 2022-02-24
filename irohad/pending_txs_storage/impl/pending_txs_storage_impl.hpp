@@ -19,7 +19,6 @@
 #include <boost/bimap/unordered_set_of.hpp>
 #include "cryptography/hash.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
-#include "multi_sig_transactions/hash.hpp"
 
 namespace iroha {
   class PendingTransactionStorageImpl : public PendingTransactionStorage {
@@ -91,7 +90,7 @@ namespace iroha {
                                           shared_model::crypto::Hash::Hasher>,
           boost::bimaps::unordered_multiset_of<
               BatchPtr,
-              iroha::model::PointerBatchHasher,
+              shared_model::interface::BatchPointerHasher,
               shared_model::interface::BatchHashEquality>>;
 
       std::list<BatchPtr> batches;

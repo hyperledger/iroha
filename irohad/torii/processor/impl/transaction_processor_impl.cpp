@@ -10,7 +10,6 @@
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
 #include "logger/logger.hpp"
-#include "multi_sig_transactions/state/mst_state.hpp"
 #include "simulator/verified_proposal_creator_common.hpp"
 #include "validation/stateful_validator_common.hpp"
 
@@ -48,13 +47,11 @@ namespace iroha {
 
     TransactionProcessorImpl::TransactionProcessorImpl(
         std::shared_ptr<PeerCommunicationService> pcs,
-        std::shared_ptr<MstProcessor> mst_processor,
         std::shared_ptr<iroha::torii::StatusBus> status_bus,
         std::shared_ptr<shared_model::interface::TxStatusFactory>
             status_factory,
         logger::LoggerPtr log)
         : pcs_(std::move(pcs)),
-          mst_processor_(std::move(mst_processor)),
           status_bus_(std::move(status_bus)),
           status_factory_(std::move(status_factory)),
           log_(std::move(log)) {}

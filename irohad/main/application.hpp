@@ -23,7 +23,6 @@
 #include "main/server_runner.hpp"
 #include "main/startup_params.hpp"
 #include "main/subscription_fwd.hpp"
-#include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 
 namespace google::protobuf {
@@ -147,8 +146,6 @@ class Irohad {
          iroha::StartupWsvSynchronizationPolicy startup_wsv_sync_policy,
          std::optional<std::shared_ptr<const iroha::network::GrpcChannelParams>>
              maybe_grpc_channel_params,
-         const boost::optional<iroha::GossipPropagationStrategyParams>
-             &opt_mst_gossip_params,
          boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config =
              boost::none);
 
@@ -227,8 +224,6 @@ class Irohad {
 
   virtual RunResult initStatusBus();
 
-  virtual RunResult initMstProcessor();
-
   virtual RunResult initPendingTxsStorage();
 
   virtual RunResult initTransactionCommandService();
@@ -255,8 +250,6 @@ class Irohad {
   iroha::StartupWsvSynchronizationPolicy startup_wsv_sync_policy_;
   std::optional<std::shared_ptr<const iroha::network::GrpcChannelParams>>
       maybe_grpc_channel_params_;
-  boost::optional<iroha::GossipPropagationStrategyParams>
-      opt_mst_gossip_params_;
   boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config_;
 
   boost::optional<std::shared_ptr<const iroha::network::TlsCredentials>>

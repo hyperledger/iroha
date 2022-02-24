@@ -12,6 +12,7 @@
 #include <boost/filesystem.hpp>
 #include <optional>
 
+#include "network/impl/async_grpc_client.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "ametsuchi/impl/rocksdb_storage_impl.hpp"
@@ -47,13 +48,6 @@
 #include "main/iroha_status.hpp"
 #include "main/server_runner.hpp"
 #include "main/subscription.hpp"
-#include "multi_sig_transactions/gossip_propagation_strategy.hpp"
-#include "multi_sig_transactions/mst_processor_impl.hpp"
-#include "multi_sig_transactions/mst_propagation_strategy_stub.hpp"
-#include "multi_sig_transactions/mst_time_provider_impl.hpp"
-#include "multi_sig_transactions/storage/mst_storage_impl.hpp"
-#include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
-#include "multi_sig_transactions/transport/mst_transport_stub.hpp"
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/channel_factory.hpp"
 #include "network/impl/channel_pool.hpp"
@@ -121,15 +115,12 @@ Irohad::Irohad(
     StartupWsvSynchronizationPolicy startup_wsv_sync_policy,
     std::optional<std::shared_ptr<const GrpcChannelParams>>
         maybe_grpc_channel_params,
-    const boost::optional<GossipPropagationStrategyParams>
-        &opt_mst_gossip_params,
     boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
     : config_(config),
       listen_ip_(listen_ip),
       keypair_(keypair),
       startup_wsv_sync_policy_(startup_wsv_sync_policy),
       maybe_grpc_channel_params_(std::move(maybe_grpc_channel_params)),
-      opt_mst_gossip_params_(opt_mst_gossip_params),
       inter_peer_tls_config_(std::move(inter_peer_tls_config)),
       pg_opt_(std::move(pg_opt)),
       rdb_opt_(std::move(rdb_opt)),
@@ -207,7 +198,6 @@ Irohad::RunResult Irohad::init() {
   IROHA_EXPECTED_ERROR_CHECK(initSynchronizer());
   IROHA_EXPECTED_ERROR_CHECK(initPeerCommunicationService());
   IROHA_EXPECTED_ERROR_CHECK(initStatusBus());
-  IROHA_EXPECTED_ERROR_CHECK(initMstProcessor());
   IROHA_EXPECTED_ERROR_CHECK(initPendingTxsStorageWithCache());
   // Torii
   IROHA_EXPECTED_ERROR_CHECK(initTransactionCommandService());
@@ -401,12 +391,10 @@ Irohad::RunResult Irohad::initStorage(
             tx_processor->processCommit(block);
             for (auto const &completed_tx : block->transactions()) {
               pending_txs_storage_->removeTransaction(completed_tx.hash());
-              mst_storage->processFinalizedTransaction(completed_tx.hash());
             }
             for (auto const &rejected_tx_hash :
                  block->rejected_transactions_hashes()) {
               pending_txs_storage_->removeTransaction(rejected_tx_hash);
-              mst_storage->processFinalizedTransaction(rejected_tx_hash);
             }
           }
         };
@@ -921,52 +909,6 @@ Irohad::RunResult Irohad::initStatusBus() {
   return {};
 }
 
-Irohad::RunResult Irohad::initMstProcessor() {
-  auto mst_logger_manager =
-      log_manager_->getChild("MultiSignatureTransactions");
-  auto mst_state_logger = mst_logger_manager->getChild("State")->getLogger();
-  auto mst_completer = std::make_shared<DefaultCompleter>(std::chrono::minutes(
-      config_.mst_expiration_time.value_or(kMstExpirationTimeDefault)));
-  mst_storage = std::make_shared<MstStorageStateImpl>(
-      mst_completer,
-      mst_state_logger,
-      mst_logger_manager->getChild("Storage")->getLogger());
-  std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
-  if (config_.mst_support) {
-    mst_transport = std::make_shared<iroha::network::MstTransportGrpc>(
-        async_call_,
-        transaction_factory,
-        batch_parser,
-        transaction_batch_factory_,
-        persistent_cache,
-        mst_completer,
-        PublicKeyHexStringView{keypair_->publicKey()},
-        std::move(mst_state_logger),
-        mst_logger_manager->getChild("Transport")->getLogger(),
-        std::make_unique<iroha::network::ClientFactoryImpl<
-            iroha::network::MstTransportGrpc::Service>>(
-            inter_peer_client_factory_));
-    mst_propagation = std::make_shared<GossipPropagationStrategy>(
-        storage, rxcpp::observe_on_new_thread(), *opt_mst_gossip_params_);
-  } else {
-    mst_transport = std::make_shared<iroha::network::MstTransportStub>();
-    mst_propagation = std::make_shared<iroha::PropagationStrategyStub>();
-  }
-
-  auto mst_time = std::make_shared<MstTimeProviderImpl>();
-  auto fair_mst_processor = std::make_shared<FairMstProcessor>(
-      mst_transport,
-      mst_storage,
-      mst_propagation,
-      mst_time,
-      mst_logger_manager->getChild("Processor")->getLogger());
-  mst_processor = fair_mst_processor;
-  mst_transport->subscribe(fair_mst_processor);
-
-  log_->info("[Init] => MST processor");
-  return {};
-}
-
 Irohad::RunResult Irohad::initPendingTxsStorage() {
   pending_txs_storage_ = std::make_shared<PendingTransactionStorageImpl>();
   log_->info("[Init] => pending transactions storage");
@@ -983,7 +925,6 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
   auto cs_cache = std::make_shared<::torii::CommandServiceImpl::CacheType>();
   tx_processor = std::make_shared<TransactionProcessorImpl>(
       pcs,
-      mst_processor,
       status_bus_,
       status_factory,
       command_service_log_manager->getChild("Processor")->getLogger());
@@ -1218,10 +1159,6 @@ Irohad::RunResult Irohad::run() {
   }
 
   // Run internal server
-  if (config_.mst_support) {
-    internal_server->append(
-        std::static_pointer_cast<MstTransportGrpc>(mst_transport));
-  }
   IROHA_EXPECTED_TRY_GET_VALUE(internal_port,
                                internal_server->append(ordering_init->service)
                                    .append(yac_init->getConsensusNetwork())
