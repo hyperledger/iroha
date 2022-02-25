@@ -116,7 +116,6 @@ namespace iroha {
       log_->info("MST batch prepared");
       for (const auto &tx : batch->transactions())
         publishStatus(TxStatusType::kEnoughSignaturesCollected, tx->hash());
-      pcs_->propagate_batch(batch);
     }
 
     void TransactionProcessorImpl::processExpiredBatch(
