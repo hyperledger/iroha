@@ -152,7 +152,7 @@ impl Error {
     /// Status code for query error response.
     pub const fn status_code(&self) -> StatusCode {
         use Error::*;
-        match *self {
+        match self {
             Decode(_) | Version(_) | Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
             Signature(_) => StatusCode::UNAUTHORIZED,
             Permission(_) => StatusCode::FORBIDDEN,
