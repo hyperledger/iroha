@@ -1,10 +1,10 @@
 # How to optimize your binary size?
 
-Smartcontracts should be optimized for because they are stored directly on the blockchain. By
+Smartcontracts' size should be optimized because they are stored directly on the blockchain. By
 following this list of optimization steps your binary's size can be reduced by an order of magnitude
 (e.g. from 1.1MB to 100KB):
 
-1. Create a `Cargo.toml` akin to the following template:
+1. Create a `Cargo.toml` following this template:
 
 ```toml
   [package]
@@ -13,10 +13,13 @@ following this list of optimization steps your binary's size can be reduced by a
   edition = "2021"
 
   [lib]
-  crate-type = ['cdylib']    # Crate has to be linked dynamically
+    # Smartcontract should be linked dynamically so that it may link to functions exported
+    # from the host environment. Also, host environment executes the smartcontract by
+    # calling the function which smartcontract exports(entry point of execution)
+  crate-type = ['cdylib']
 
   [profile.release]
-  strip = "debug"     # Remove debugging info from the binary
+  strip = "debuginfo" # Remove debugging info from the binary
   panic = "abort"     # Panics are transcribed to Traps when compiling for wasm anyways
   lto = true          # Link-time-optimization produces notable decrease in binary size
   opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
@@ -38,5 +41,6 @@ following this list of optimization steps your binary's size can be reduced by a
 $ wasm-opt -Os -o output.wasm input.wasm
 ```
 
-While these settings will certainly result in a whooping size reduction of a binary,
-users are encouraged to profile their releases for size and modify parameters accordingly.
+Following these steps is the bare minimum that can be done to all WASM smartcontracts.
+Users are encouraged to further reduce the sizes of their binaries by profiling using
+[twiggy](https://rustwasm.github.io/twiggy/) and avoid usage of large libraries.
