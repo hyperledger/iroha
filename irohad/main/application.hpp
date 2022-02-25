@@ -62,7 +62,6 @@ namespace iroha {
     class ChannelPool;
     class GenericClientFactory;
     class ConsensusGate;
-    class MstTransport;
     class OrderingGate;
     class PeerCommunicationService;
     class PeerTlsCertificatesProvider;
@@ -373,7 +372,6 @@ class Irohad {
 
   // mst
   std::shared_ptr<iroha::MstStorage> mst_storage;
-  std::shared_ptr<iroha::network::MstTransport> mst_transport;
   std::shared_ptr<iroha::MstProcessor> mst_processor;
 
   // transaction service

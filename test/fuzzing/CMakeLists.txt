@@ -103,16 +103,6 @@ target_link_libraries(consensus_fuzz
   ${fuzzing_engine}
   )
 
-add_executable(mst_fuzz mst_fuzz.cpp)
-target_link_libraries(mst_fuzz
-  protobuf-mutator
-  GTest::gtest
-  GTest::gmock
-  mst_transport
-  ametsuchi
-  ${fuzzing_engine}
-  )
-
 add_custom_target(fuzzing DEPENDS
   torii_fuzz
   status_fuzz
@@ -122,5 +112,4 @@ add_custom_target(fuzzing DEPENDS
   retrieve_block_fuzz
   retrieve_blocks_fuzz
   consensus_fuzz
-  mst_fuzz
   )

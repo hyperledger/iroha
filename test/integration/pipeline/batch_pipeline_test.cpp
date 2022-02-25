@@ -16,7 +16,6 @@
 #include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
-#include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace shared_model;
@@ -33,6 +32,30 @@ using ::testing::Values;
 using ::testing::WithParamInterface;
 
 using shared_model::interface::types::PublicKeyHexStringView;
+
+template <typename Batch, typename... KeyPairs>
+auto addSignaturesFromKeyPairs(Batch &&batch,
+                               int tx_number,
+                               KeyPairs... keypairs) {
+  auto create_signature = [&](auto &&key_pair) {
+    auto &payload = batch->transactions().at(tx_number)->payload();
+    auto signed_blob = shared_model::crypto::CryptoSigner::sign(
+        shared_model::crypto::Blob(payload), key_pair);
+    using namespace shared_model::interface::types;
+    batch->addSignature(tx_number,
+                        SignedHexStringView{signed_blob},
+                        PublicKeyHexStringView{key_pair.publicKey()});
+  };
+
+  // pack expansion trick:
+  // an ellipsis operator applies insert_signatures to each signature, operator
+  // comma returns the rightmost argument, which is 0
+  int temp[] = {(create_signature(std::forward<KeyPairs>(keypairs)), 0)...};
+  // use unused variable
+  (void)temp;
+
+  return std::forward<Batch>(batch);
+}
 
 struct BatchPipelineTestBase : AcceptanceFixture {
   /**

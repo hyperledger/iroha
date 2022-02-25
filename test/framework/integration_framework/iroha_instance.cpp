@@ -37,13 +37,6 @@ namespace integration_framework {
                 ? config_.database_config->path
                 : (fs::temp_directory_path() / fs::unique_path()).string()),
         listen_ip_(listen_ip),
-        opt_mst_gossip_params_(boost::make_optional(
-            config_.mst_support,
-            [] {
-              iroha::GossipPropagationStrategyParams params;
-              params.emission_period = kMstEmissionPeriod;
-              return params;
-            }())),
         irohad_log_manager_(std::move(irohad_log_manager)),
         log_(std::move(log)),
         startup_wsv_data_policy_(startup_wsv_data_policy) {}
@@ -76,18 +69,6 @@ namespace integration_framework {
     }
   }
 
-  void IrohaInstance::setMstGossipParams(
-      std::chrono::milliseconds mst_gossip_emitting_period,
-      uint32_t mst_gossip_amount_per_once) {
-    BOOST_ASSERT_MSG(
-        not test_irohad_,
-        "Gossip propagation params must be set before Irohad is started!");
-    iroha::GossipPropagationStrategyParams gossip_params;
-    gossip_params.emission_period = mst_gossip_emitting_period;
-    gossip_params.amount_per_once = mst_gossip_amount_per_once;
-    opt_mst_gossip_params_ = gossip_params;
-  }
-
   void IrohaInstance::printDbStatus() {
     test_irohad_->printDbStatus();
   }
@@ -104,8 +85,7 @@ namespace integration_framework {
         key_pair,
         irohad_log_manager_,
         log_,
-        startup_wsv_data_policy_,
-        opt_mst_gossip_params_);
+        startup_wsv_data_policy_);
   }
 
   void IrohaInstance::run() {
