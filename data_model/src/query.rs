@@ -162,7 +162,7 @@ impl QueryRequest {
         }
     }
 
-    /// Consumes self and returns a signed `QueryReuest`.
+    /// Consumes self and returns a signed `QueryRequest`.
     ///
     /// # Errors
     /// Fails if signature creation fails.

@@ -12,7 +12,7 @@ use super::{routing::*, *};
 use crate::{
     queue::Queue,
     samples::{get_config, get_trusted_peers},
-    smartcontracts::permissions::DenyAll,
+    smartcontracts::{isi::error::FindError, permissions::DenyAll},
     stream::{Sink, Stream},
     wsv::World,
 };
@@ -107,14 +107,14 @@ async fn torii_pagination() {
 }
 
 #[derive(Default)]
-struct AssertSet {
+struct QuerySet {
     instructions: Vec<Instruction>,
     account: Option<AccountId>,
     keys: Option<KeyPair>,
     deny_all: bool,
 }
 
-impl AssertSet {
+impl QuerySet {
     fn new() -> Self {
         Self::default()
     }
@@ -134,45 +134,7 @@ impl AssertSet {
         self.deny_all = true;
         self
     }
-    fn query(self, query: QueryBox) -> AssertReady {
-        let Self {
-            instructions,
-            account,
-            keys,
-            deny_all,
-        } = self;
-        AssertReady {
-            instructions,
-            account,
-            keys,
-            deny_all,
-            query,
-            status: None,
-            hints: Vec::new(),
-        }
-    }
-}
-
-struct AssertReady {
-    instructions: Vec<Instruction>,
-    account: Option<AccountId>,
-    keys: Option<KeyPair>,
-    deny_all: bool,
-    query: QueryBox,
-    status: Option<StatusCode>,
-    hints: Vec<&'static str>,
-}
-
-impl AssertReady {
-    fn status(mut self, status: StatusCode) -> Self {
-        self.status = Some(status);
-        self
-    }
-    fn hint(mut self, hint: &'static str) -> Self {
-        self.hints.push(hint);
-        self
-    }
-    async fn assert(self) {
+    async fn query(self, query: QueryBox) -> QueryResponseTest {
         use crate::smartcontracts::Execute;
 
         let (mut torii, keys) = create_torii().await;
@@ -187,20 +149,10 @@ impl AssertReady {
                 .expect("Given instructions disorder");
         }
 
-        let post_router = endpoint4(
-            handle_queries,
-            warp::path(uri::QUERY)
-                .and(add_state!(torii.wsv, torii.query_validator))
-                .and(paginate())
-                .and(body::query()),
-        );
-        let router = warp::post()
-            .and(post_router)
-            .with(warp::trace::request())
-            .recover(Torii::<World>::recover_arg_parse);
+        let router = torii.create_api_router();
 
         let request: VersionedSignedQueryRequest =
-            QueryRequest::new(self.query, self.account.unwrap_or(authority))
+            QueryRequest::new(query, self.account.unwrap_or(authority))
                 .sign(self.keys.unwrap_or(keys))
                 .expect("Failed to sign query with keys")
                 .into();
@@ -212,22 +164,69 @@ impl AssertReady {
             .reply(&router)
             .await;
 
-        let response_body = match response.status() {
-            StatusCode::OK => {
-                let response = VersionedQueryResult::decode_versioned(response.body()).unwrap();
-                let VersionedQueryResult::V1(QueryResult(value)) = response;
-                format!("{:?}", value)
-            }
-            _ => String::from_utf8(response.body().to_vec()).unwrap_or_default(),
-        };
-        dbg!(&response_body);
-
-        if let Some(status) = self.status {
-            assert_eq!(response.status(), status)
+        QueryResponseTest {
+            response_status: response.status(),
+            response_body: response.into(),
+            status: None,
+            body_matches: None,
         }
-        for hint in self.hints {
-            dbg!(hint);
-            assert!(response_body.contains(hint))
+    }
+}
+
+impl From<warp::http::Response<warp::hyper::body::Bytes>> for QueryResponseBody {
+    fn from(src: warp::http::Response<warp::hyper::body::Bytes>) -> Self {
+        if StatusCode::OK == src.status() {
+            let body = VersionedQueryResult::decode_versioned(src.body())
+                .expect("The response body failed to be decoded to VersionedQueryResult even though the status is Ok 200");
+            Self::Ok(body)
+        } else {
+            let body = query::Error::decode(&mut src.body().as_ref())
+                .expect("The response body failed to be decoded to query::Error even though the status is not Ok 200");
+            Self::Err(body)
+        }
+    }
+}
+
+struct QueryResponseTest {
+    response_status: StatusCode,
+    response_body: QueryResponseBody,
+    status: Option<StatusCode>,
+    body_matches: Option<bool>,
+}
+
+#[allow(variant_size_differences)]
+enum QueryResponseBody {
+    Ok(VersionedQueryResult),
+    Err(query::Error),
+}
+
+impl QueryResponseTest {
+    fn status(mut self, status: StatusCode) -> Self {
+        self.status = Some(status);
+        self
+    }
+    fn body_matches_ok(mut self, predicate: impl Fn(&VersionedQueryResult) -> bool) -> Self {
+        self.body_matches = if let QueryResponseBody::Ok(body) = &self.response_body {
+            Some(predicate(body))
+        } else {
+            Some(false)
+        };
+        self
+    }
+    fn body_matches_err(mut self, predicate: impl Fn(&query::Error) -> bool) -> Self {
+        self.body_matches = if let QueryResponseBody::Err(body) = &self.response_body {
+            Some(predicate(body))
+        } else {
+            Some(false)
+        };
+        self
+    }
+    fn assert(self) {
+        if let Some(status) = self.status {
+            assert_eq!(self.response_status, status)
+        }
+        if let Some(body_matches) = self.body_matches {
+            assert!(body_matches)
         }
     }
 }
@@ -256,7 +255,7 @@ fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
 }
 #[tokio::test]
 async fn find_asset() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
         .given(register_asset_definition("rose"))
@@ -264,15 +263,23 @@ async fn find_asset() {
         .query(QueryBox::FindAssetById(FindAssetById::new(AssetId::test(
             "rose", DOMAIN, "alice", DOMAIN,
         ))))
-        .status(StatusCode::OK)
-        .hint("Quantity")
-        .hint("99")
-        .assert()
         .await
+        .status(StatusCode::OK)
+        .body_matches_ok(|body| {
+            if let VersionedQueryResult::V1(QueryResult(Value::Identifiable(
+                IdentifiableBox::Asset(asset),
+            ))) = body
+            {
+                asset.value == AssetValue::Quantity(99)
+            } else {
+                false
+            }
+        })
+        .assert()
 }
 #[tokio::test]
 async fn find_asset_with_no_mint() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
         .given(register_asset_definition("rose"))
@@ -280,13 +287,20 @@ async fn find_asset_with_no_mint() {
         .query(QueryBox::FindAssetById(FindAssetById::new(
             AssetId::test("rose", DOMAIN, "alice", DOMAIN),
         )))
-        .status(StatusCode::NOT_FOUND)
-        .assert()
         .await
+        .status(StatusCode::NOT_FOUND)
+        .body_matches_err(|body| {
+            if let query::Error::Find(err) = body {
+                matches!(**err, FindError::Asset(_))
+            } else {
+                false
+            }
+        })
+        .assert()
 }
 #[tokio::test]
 async fn find_asset_with_no_asset_definition() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
     // .given(register_asset_definition("rose"))
@@ -294,14 +308,20 @@ async fn find_asset_with_no_asset_definition() {
         .query(QueryBox::FindAssetById(FindAssetById::new(
             AssetId::test("rose", DOMAIN, "alice", DOMAIN),
         )))
-        .status(StatusCode::NOT_FOUND)
-        .hint("definition")
-        .assert()
         .await
+        .status(StatusCode::NOT_FOUND)
+        .body_matches_err(|body| {
+            if let query::Error::Find(err) = body {
+                matches!(**err, FindError::AssetDefinition(_))
+            } else {
+                false
+            }
+        })
+        .assert()
 }
 #[tokio::test]
 async fn find_asset_with_no_account() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
     // .given(register_account("alice"))
         .given(register_asset_definition("rose"))
@@ -309,14 +329,20 @@ async fn find_asset_with_no_account() {
         .query(QueryBox::FindAssetById(FindAssetById::new(
             AssetId::test("rose", DOMAIN, "alice", DOMAIN),
         )))
-        .status(StatusCode::NOT_FOUND)
-        .hint("account")
-        .assert()
         .await
+        .status(StatusCode::NOT_FOUND)
+        .body_matches_err(|body| {
+            if let query::Error::Find(err) = body {
+                matches!(**err, FindError::Account(_))
+            } else {
+                false
+            }
+        })
+        .assert()
 }
 #[tokio::test]
 async fn find_asset_with_no_domain() {
-    AssertSet::new()
+    QuerySet::new()
     // .given(register_domain())
     // .given(register_account("alice"))
     // .given(register_asset_definition("rose"))
@@ -324,157 +350,203 @@ async fn find_asset_with_no_domain() {
         .query(QueryBox::FindAssetById(FindAssetById::new(
             AssetId::test("rose", DOMAIN, "alice", DOMAIN),
         )))
-        .status(StatusCode::NOT_FOUND)
-        .hint("domain")
-        .assert()
         .await
+        .status(StatusCode::NOT_FOUND)
+        .body_matches_err(|body| {
+            if let query::Error::Find(err) = body {
+                matches!(**err, FindError::Domain(_))
+            } else {
+                false
+            }
+        })
+        .assert()
 }
 #[tokio::test]
 async fn find_asset_definition() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
         .given(register_asset_definition("rose"))
         .query(QueryBox::FindAllAssetsDefinitions(Default::default()))
-        .status(StatusCode::OK)
-        .hint("rose")
-        .hint(DOMAIN)
-        .assert()
         .await
+        .status(StatusCode::OK)
+        .body_matches_ok(|body| {
+            if let VersionedQueryResult::V1(QueryResult(Value::Vec(vec))) = body {
+                vec.iter().any(|value| {
+                    if let Value::Identifiable(IdentifiableBox::AssetDefinition(asset_definition)) =
+                        value
+                    {
+                        asset_definition.id.name.as_ref() == "rose"
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                false
+            }
+        })
+        .assert()
 }
 #[tokio::test]
 async fn find_account() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
             AccountId::test("alice", DOMAIN),
         )))
+        .await
         .status(StatusCode::OK)
         .assert()
-        .await
 }
 #[tokio::test]
 async fn find_account_with_no_account() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
     // .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
             AccountId::test("alice", DOMAIN),
         )))
-        .status(StatusCode::NOT_FOUND)
-        .assert()
         .await
+        .status(StatusCode::NOT_FOUND)
+        .body_matches_err(|body| {
+            if let query::Error::Find(err) = body {
+                matches!(**err, FindError::Account(_))
+            } else {
+                false
+            }
+        })
+        .assert()
 }
 #[tokio::test]
 async fn find_account_with_no_domain() {
-    AssertSet::new()
+    QuerySet::new()
     // .given(register_domain())
     // .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
             AccountId::test("alice", DOMAIN),
         )))
-        .status(StatusCode::NOT_FOUND)
-        .hint("domain")
-        .assert()
         .await
+        .status(StatusCode::NOT_FOUND)
+        .body_matches_err(|body| {
+            if let query::Error::Find(err) = body {
+                matches!(**err, FindError::Domain(_))
+            } else {
+                false
+            }
+        })
+        .assert()
 }
 #[tokio::test]
 async fn find_domain() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
         .query(QueryBox::FindDomainById(FindDomainById::new(
             DomainId::test(DOMAIN),
         )))
+        .await
         .status(StatusCode::OK)
         .assert()
-        .await
 }
 #[tokio::test]
 async fn find_domain_with_no_domain() {
-    AssertSet::new()
+    QuerySet::new()
     // .given(register_domain())
         .query(QueryBox::FindDomainById(FindDomainById::new(
-            DOMAIN.to_string(),
+            DomainId::test(DOMAIN),
         )))
-        .status(StatusCode::NOT_FOUND)
-        .assert()
         .await
+        .status(StatusCode::NOT_FOUND)
+        .body_matches_err(|body| {
+            if let query::Error::Find(err) = body {
+                matches!(**err, FindError::Domain(_))
+            } else {
+                false
+            }
+        })
+        .assert()
 }
 fn query() -> QueryBox {
     QueryBox::FindAccountById(FindAccountById::new(AccountId::test("alice", DOMAIN)))
 }
 #[tokio::test]
 async fn query_with_wrong_signatory() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
         .account(AccountId::test("alice", DOMAIN))
     // .deny_all()
         .query(query())
-        .status(StatusCode::UNAUTHORIZED)
-        .assert()
         .await
+        .status(StatusCode::UNAUTHORIZED)
+        .body_matches_err(|body| matches!(*body, query::Error::Signature(_)))
+        .assert()
 }
 #[tokio::test]
 async fn query_with_wrong_signature() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
         .keys(KeyPair::generate().unwrap())
     // .deny_all()
         .query(query())
-        .status(StatusCode::UNAUTHORIZED)
-        .assert()
         .await
+        .status(StatusCode::UNAUTHORIZED)
+        .body_matches_err(|body| matches!(*body, query::Error::Signature(_)))
+        .assert()
 }
 #[tokio::test]
 async fn query_with_wrong_signature_and_no_permission() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
         .keys(KeyPair::generate().unwrap())
         .deny_all()
         .query(query())
-        .status(StatusCode::UNAUTHORIZED)
-        .assert()
         .await
+        .status(StatusCode::UNAUTHORIZED)
+        .body_matches_err(|body| matches!(*body, query::Error::Signature(_)))
+        .assert()
 }
 #[tokio::test]
 async fn query_with_no_permission() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
     // .keys(KeyPair::generate().unwrap())
         .deny_all()
         .query(query())
-        .status(StatusCode::NOT_FOUND)
-        .assert()
         .await
+        .status(StatusCode::FORBIDDEN)
+        .body_matches_err(|body| matches!(*body, query::Error::Permission(_)))
+        .assert()
 }
 #[tokio::test]
 async fn query_with_no_permission_and_no_find() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
     // .given(register_account("alice"))
     // .keys(KeyPair::generate().unwrap())
         .deny_all()
         .query(query())
-        .status(StatusCode::NOT_FOUND)
-        .assert()
         .await
+        .status(StatusCode::FORBIDDEN)
+        .body_matches_err(|body| matches!(*body, query::Error::Permission(_)))
+        .assert()
 }
 #[tokio::test]
 async fn query_with_no_find() {
-    AssertSet::new()
+    QuerySet::new()
         .given(register_domain())
     // .given(register_account("alice"))
     // .keys(KeyPair::generate().unwrap())
     // .deny_all()
         .query(query())
-        .status(StatusCode::NOT_FOUND)
-        .assert()
         .await
+        .status(StatusCode::NOT_FOUND)
+        .body_matches_err(|body| matches!(*body, query::Error::Find(_)))
+        .assert()
 }
+
 #[tokio::test]
 async fn blocks_stream() {
     const BLOCK_COUNT: usize = 4;

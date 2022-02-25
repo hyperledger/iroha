@@ -40,7 +40,7 @@ pub trait GenesisNetworkTrait:
     /// Construct [`GenesisNetwork`] from configuration.
     ///
     /// # Errors
-    /// Fails if genesis block is not found or cannot be deserialised.
+    /// Fails if genesis block is not found or cannot be deserialized.
     fn from_configuration(
         submit_genesis: bool,
         raw_block: RawGenesisBlock,

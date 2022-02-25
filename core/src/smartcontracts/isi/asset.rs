@@ -66,7 +66,7 @@ pub mod isi {
                 let quantity: &mut u32 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
-                    .map_err(Error::Conversion)?;
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(Error::Math(MathError::Overflow))?;
@@ -101,7 +101,7 @@ pub mod isi {
                 let quantity: &mut u128 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
-                    .map_err(Error::Conversion)?;
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(Error::Math(MathError::Overflow))?;
@@ -136,7 +136,7 @@ pub mod isi {
                 let quantity: &mut Fixed = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
-                    .map_err(Error::Conversion)?;
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity.checked_add(self.object)?;
                 wsv.metrics.tx_amounts.observe((*quantity).into());
                 Ok(())
@@ -167,7 +167,7 @@ pub mod isi {
                 let store: &mut Metadata = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
-                    .map_err(Error::Conversion)?;
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
                 store.insert_with_limits(self.key, self.value, asset_metadata_limits)?;
                 Ok(())
             })?;
@@ -194,7 +194,7 @@ pub mod isi {
                 let quantity: &mut u32 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
-                    .map_err(Error::Conversion)?;
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
@@ -227,7 +227,7 @@ pub mod isi {
                 let quantity: &mut u128 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
-                    .map_err(Error::Conversion)?;
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
@@ -261,7 +261,7 @@ pub mod isi {
                 let quantity: &mut Fixed = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
-                    .map_err(Error::Conversion)?;
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity.checked_sub(self.object)?;
                 // Careful if `Fixed` stops being `Copy`.
                 wsv.metrics.tx_amounts.observe((*quantity).into());
@@ -291,7 +291,7 @@ pub mod isi {
                 let store: &mut Metadata = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
-                    .map_err(Error::Conversion)?;
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
                 store
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
@@ -336,7 +336,7 @@ pub mod isi {
                 let quantity: &mut u32 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
-                    .map_err(Error::Conversion)?;
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(Error::Math(MathError::NotEnoughQuantity))?;
@@ -347,7 +347,7 @@ pub mod isi {
                 let quantity: &mut u32 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
-                    .map_err(Error::Conversion)?;
+                    .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
                     .checked_add(self.object)
                     .ok_or(MathError::Overflow)?;
@@ -409,7 +409,7 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             wsv.asset(&id)
                 .map_err(
                     |asset_err| match wsv.asset_definition_entry(&id.definition_id) {
@@ -429,7 +429,7 @@ pub mod query {
                 .name
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset name")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
                 for account in domain.accounts.values() {
@@ -452,7 +452,7 @@ pub mod query {
                 .account_id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get account id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             wsv.account_assets(&id).map_err(Into::into)
         }
     }
@@ -465,7 +465,7 @@ pub mod query {
                 .asset_definition_id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset definition id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
                 for account in domain.accounts.values() {
@@ -488,7 +488,7 @@ pub mod query {
                 .domain_id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for account in wsv.domain(&id)?.accounts.values() {
                 for asset in account.assets.values() {
@@ -507,12 +507,12 @@ pub mod query {
                 .domain_id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let asset_definition_id = self
                 .asset_definition_id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset definition id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let domain = wsv.domain(&domain_id)?;
             let _definition = domain
                 .asset_definitions
@@ -540,7 +540,7 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             wsv.asset(&id)
                 .map_err(
                     |asset_err| match wsv.asset_definition_entry(&id.definition_id) {
@@ -551,7 +551,7 @@ pub mod query {
                 .value
                 .try_as_ref()
                 .map_err(eyre::Error::from)
-                .map_err(Error::Conversion)
+                .map_err(|e| Error::Conversion(e.to_string()))
                 .map(Clone::clone)
         }
     }
@@ -564,12 +564,12 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let key = self
                 .key
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let asset = wsv.asset(&id).map_err(|asset_err| {
                 match wsv.asset_definition_entry(&id.definition_id) {
                     Ok(_) => asset_err,
@@ -580,7 +580,7 @@ pub mod query {
                 .value
                 .try_as_ref()
                 .map_err(eyre::Error::from)
-                .map_err(Error::Conversion)?;
+                .map_err(|e| Error::Conversion(e.to_string()))?;
             Ok(store
                 .get(&key)
                 .ok_or_else(|| Error::Find(Box::new(FindError::MetadataKey(key))))?

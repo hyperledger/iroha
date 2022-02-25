@@ -36,34 +36,33 @@
   + `limit` - Optional parameter in queries where results can be indexed. Use to return specific number of results.
 
 **Responses**:
-- 200 OK - Query Executed Successfully and Found Value
-  + Body: `VersionedQueryResult` [*](#iroha-structures)
-- 4xx - Query Rejected or Found Nothing
 
-Status and whether each step succeeded:
-| Status | Decode & Versioning | Signature | Permission | Find |
-| -- | -- | -- | -- | -- |
-| 400 | N | - | - | - |
-| 401 | Y | N | - | - |
-| 404 | Y | Y | N | - |
-| 404 | Y | Y | Y | N |
-| 200 | Y | Y | Y | Y |
+| Response        | Status | Body [*](#iroha-structures) |
+| --------------- | ------ | ---- |
+| Decode err.     |    400 | `QueryError::Decode(_)` |
+| Version err.    |    400 | `QueryError::Version(_)` |
+| Signature err.  |    401 | `QueryError::Signature(_)` |
+| Permission err. |    403 | `QueryError::Permission(_)` |
+| Evaluate err.   |    400 | `QueryError::Evaluate(_)` |
+| Find err.       |    404 | `QueryError::Find(Box<FindError>)` |
+| Conversion err. |    400 | `QueryError::Conversion(_)` |
+| Success         |    200 | `VersionedQueryResult` |
 
 #### Asset Not Found 404
-Hint and whether each object exists:
-| Hint | Domain | Account | Asset Definition | Asset |
+Whether each prerequisite object was found and `FindError`:
+| Domain | Account | Asset Definition | Asset | `FindError` |
 | -- | -- | -- | -- | -- |
-| "domain" | N | - | - | - |
-| "account" | Y | N | - | - |
-| "definition" | Y | - | N | - |
-| - | Y | Y | Y | N |
+| N | - | - | - | `FindError::Domain(DomainId)` |
+| Y | N | - | - | `FindError::Account(AccountId)` |
+| Y | - | N | - | `FindError::AssetDefinition(AssetDefinitionId)` |
+| Y | Y | Y | N | `FindError::Asset(AssetId)` |
 
 #### Account Not Found 404
-Hint and whether each object exists:
-| Hint | Domain | Account |
+Whether each prerequisite object was found and `FindError`:
+| Domain | Account | `FindError` |
 | -- | -- | -- |
-| "domain" | N | - |
-| - | Y | N |
+| N | - | `FindError::Domain(DomainId)` |
+| Y | N | `FindError::Account(AccountId)` |
 
 ### Events
 
@@ -244,7 +243,10 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 
 - `VersionedTransaction` - `iroha_data_model::transaction::VersionedTransaction`
 - `VersionedSignedQueryRequest` - `iroha_data_model::query::VersionedSignedQueryRequest`
+
 - `VersionedQueryResult` - `iroha_data_model::query::VersionedQueryResult`
+- `QueryError` - `iroha_core::smartcontracts::isi::query::Error`
+- `FindError` - `iroha_core::smartcontracts::isi::error::FindError`
 
 - `EventStreamSubscriptionRequest` - `iroha_data_model::events::EventSubscriberMessage::SubscriptionRequest`
 - `EventStreamSubscriptionAccepted` - `iroha_data_model::events::EventPublisherMessage::SubscriptionAccepted`

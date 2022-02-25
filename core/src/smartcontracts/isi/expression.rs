@@ -25,7 +25,7 @@ where
 
         V::try_from(expr)
             .map_err(Into::into)
-            .map_err(Error::Conversion)
+            .map_err(|e| Error::Conversion(e.to_string()))
     }
 }
 
@@ -618,7 +618,7 @@ mod tests {
         let serialized_expression =
             serde_json::to_string(&expression).expect("Failed to serialize.");
         let deserialized_expression: ExpressionBox =
-            serde_json::from_str(&serialized_expression).expect("Failed to de-serialise.");
+            serde_json::from_str(&serialized_expression).expect("Failed to de-serialize.");
         let wsv = WorldStateView::<World>::new(World::new());
         assert_eq!(
             expression

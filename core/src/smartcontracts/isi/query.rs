@@ -2,7 +2,7 @@
 
 use std::{error::Error as StdError, fmt};
 
-use eyre::{eyre, Result};
+use eyre::Result;
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{prelude::*, query};
 use iroha_version::scale::DecodeVersioned;
@@ -44,8 +44,8 @@ impl VerifiedQueryRequest {
             account.signatories.contains(&self.signature.public_key)
         })?;
         if !account_has_public_key {
-            return Err(Error::Signature(eyre!(
-                "Signature public key doesn't correspond to the account."
+            return Err(Error::Signature(String::from(
+                "Signature public key doesn't correspond to the account.",
             )));
         }
         query_validator
@@ -68,7 +68,7 @@ impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
                 payload: query.payload,
                 signature: query.signature,
             })
-            .map_err(|e| Error::Signature(eyre!(e)))
+            .map_err(|e| Error::Signature(e.to_string()))
     }
 }
 
@@ -90,7 +90,7 @@ impl ValidQueryRequest {
 }
 
 /// Unsupported version error
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Decode, Encode)]
 pub struct UnsupportedVersionError {
     /// Version that we got
     pub version: u8,
@@ -117,7 +117,7 @@ impl fmt::Display for UnsupportedVersionError {
 }
 
 /// Query errors.
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone, Decode, Encode)]
 pub enum Error {
     /// Query can not be decoded.
     #[error("Query can not be decoded")]
@@ -127,19 +127,19 @@ pub enum Error {
     Version(#[source] UnsupportedVersionError),
     /// Query has wrong signature.
     #[error("Query has wrong signature: {0}")]
-    Signature(eyre::Error),
+    Signature(String),
     /// Query is not allowed.
     #[error("Query is not allowed: {0}")]
     Permission(String),
+    /// Query has wrong expression.
+    #[error("Query has wrong expression: {0}")]
+    Evaluate(String),
     /// Query found nothing.
     #[error("Query found nothing: {0}")]
     Find(#[source] Box<FindError>),
-    /// Evaluate
-    #[error("Evaluation failed. {0}")]
-    Evaluate(#[source] eyre::Report),
-    /// Conversion failures
-    #[error("Conversion failed")]
-    Conversion(#[source] eyre::Report),
+    /// Query found wrong type of asset.
+    #[error("Query found wrong type of asset: {0}")]
+    Conversion(String),
 }
 
 impl From<FindError> for Error {
@@ -153,9 +153,10 @@ impl Error {
     pub const fn status_code(&self) -> StatusCode {
         use Error::*;
         match *self {
-            Conversion(_) | Decode(_) | Version(_) => StatusCode::BAD_REQUEST,
+            Decode(_) | Version(_) | Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
             Signature(_) => StatusCode::UNAUTHORIZED,
-            Evaluate(_) | Permission(_) | Find(_) => StatusCode::NOT_FOUND,
+            Permission(_) => StatusCode::FORBIDDEN,
+            Find(_) => StatusCode::NOT_FOUND,
         }
     }
 }
@@ -163,9 +164,11 @@ impl Error {
 impl Reply for Error {
     #[inline]
     fn into_response(self) -> Response {
-        reply::with_status(self.to_string(), self.status_code()).into_response()
+        let status_code = self.status_code();
+        reply::with_status(crate::torii::utils::Scale(self), status_code).into_response()
     }
 }
+
 impl warp::reject::Reject for Error {}
 
 impl TryFrom<&Bytes> for VerifiedQueryRequest {

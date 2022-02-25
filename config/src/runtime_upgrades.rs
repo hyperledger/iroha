@@ -22,10 +22,10 @@ pub enum ReloadError {
     #[error("Resource dropped.")]
     Dropped,
 
-    /// If the reload handle wasn't properly initialised (using
+    /// If the reload handle wasn't properly initialized (using
     /// [`handle::Singleton::set`]), there's nothing to reload with.
-    #[error("Cannot reload an uninitialised handle.")]
-    NotInitialised,
+    #[error("Cannot reload an uninitialized handle.")]
+    NotInitialized,
 
     /// Error not specified by the implementer of the [`Reload`]
     /// traits. Use as last resort.
@@ -188,9 +188,9 @@ pub mod handle {
     }
 
     impl<T: Send + Sync> Singleton<T> {
-        /// Set and/or initialise the [`Self`] to a non-empty value.
+        /// Set and/or initialize the [`Self`] to a non-empty value.
         /// Reloading before calling this `fn` should cause
-        /// [`ReloadError::NotInitialised`].
+        /// [`ReloadError::NotInitialized`].
         ///
         /// # Errors
         /// [`ReloadError::Poisoned`] When the [`Mutex`] storing the reload handle is poisoned.
@@ -213,7 +213,7 @@ pub mod handle {
                     handle.reload(item)?;
                     Ok(())
                 }
-                None => Err(ReloadError::NotInitialised),
+                None => Err(ReloadError::NotInitialized),
             }
         }
     }

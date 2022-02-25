@@ -7,6 +7,7 @@ use warp::{hyper::body::Bytes, reply::Response, Filter, Rejection, Reply};
 use super::VerifiedQueryRequest;
 
 /// Structure for empty response body
+#[derive(Clone, Copy)]
 pub struct Empty;
 
 impl Reply for Empty {
@@ -84,7 +85,7 @@ macro_rules! impl_custom_and_then {
     }
 }
 
-//impl_custom_and_then!(endpoint1(a: A));
+// impl_custom_and_then!(endpoint1(a: A));
 impl_custom_and_then!(endpoint2(a: A, b: B));
 impl_custom_and_then!(endpoint3(a: A, b: B, c: C));
 impl_custom_and_then!(endpoint4(a: A, b: B, c: C, d: D));

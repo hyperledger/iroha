@@ -273,7 +273,7 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             Ok(wsv.domain(&id)?.clone())
         }
     }
@@ -286,12 +286,12 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let key = self
                 .key
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             wsv.map_domain(&id, |domain| domain.metadata.get(&key).map(Clone::clone))?
                 .ok_or_else(|| FindError::MetadataKey(key).into())
         }
@@ -304,12 +304,12 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset definition id")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             let key = self
                 .key
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")
-                .map_err(Error::Evaluate)?;
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
             Ok(wsv
                 .asset_definition_entry(&id)?
                 .definition
