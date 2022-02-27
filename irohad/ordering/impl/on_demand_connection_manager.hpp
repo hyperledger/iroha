@@ -70,11 +70,21 @@ namespace iroha {
        * Corresponding connections created by OdOsNotificationFactory
        * @see PeerType for individual descriptions
        */
+       struct ConnectionData {
+        std::optional<std::shared_ptr<transport::OdOsNotification>> connection;
+        std::shared_ptr<shared_model::interface::Peer> peer;
+
+        ConnectionData(
+            std::optional<std::shared_ptr<transport::OdOsNotification>> const
+                &c,
+            std::shared_ptr<shared_model::interface::Peer> const &p)
+            : connection(c), peer(p) {}
+      };
       struct CurrentConnections {
         PeerCollectionType<
             std::optional<std::shared_ptr<transport::OdOsNotification>>>
             peers;
-        std::vector<std::optional<std::shared_ptr<transport::OdOsNotification>>>
+        std::vector<ConnectionData>
             all_connections;
       };
 
