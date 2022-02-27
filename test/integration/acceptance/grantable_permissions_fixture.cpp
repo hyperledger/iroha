@@ -30,14 +30,8 @@ GrantablePermissionsFixture::createTwoAccounts(
     integration_framework::IntegrationTestFramework &itf,
     const shared_model::interface::RolePermissionSet &perm1,
     const shared_model::interface::RolePermissionSet &perm2) {
-  itf.sendTx(makeAccountWithPerms(kAccount1, kAccount1Keypair, perm1, kRole1))
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(makeAccountWithPerms(kAccount2, kAccount2Keypair, perm2, kRole2))
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock();
+  itf.sendTxAwait(makeAccountWithPerms(kAccount1, kAccount1Keypair, perm1, kRole1), [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+      .sendTxAwait(makeAccountWithPerms(kAccount2, kAccount2Keypair, perm2, kRole2), [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
   return itf;
 }
 

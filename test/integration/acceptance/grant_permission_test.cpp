@@ -301,20 +301,12 @@ TEST_P(GrantPermissionFx, GrantMoreThanOnce) {
   IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf, {kCanGrantAll}, {Role::kReceive})
-      .sendTx(grantPermission(kAccount1,
-                              kAccount1Keypair,
-                              kAccount2,
-                              permissions::Grantable::kAddMySignatory))
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(grantPermission(kAccount1,
-                              kAccount1Keypair,
-                              kAccount2,
-                              permissions::Grantable::kAddMySignatory))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+      .sendTxAwait(grantPermission(kAccount1,
+                                   kAccount1Keypair,
+                                   kAccount2,
+                                   permissions::Grantable::kAddMySignatory), [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+      .sendTxAwait(grantPermission(kAccount1,
+                                   kAccount1Keypair,
+                                   kAccount2,
+                                   permissions::Grantable::kAddMySignatory), [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
 }
