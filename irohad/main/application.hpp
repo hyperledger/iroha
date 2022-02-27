@@ -370,10 +370,6 @@ class Irohad {
   // status bus
   std::shared_ptr<iroha::torii::StatusBus> status_bus_;
 
-  // mst
-  std::shared_ptr<iroha::MstStorage> mst_storage;
-  std::shared_ptr<iroha::MstProcessor> mst_processor;
-
   // transaction service
   std::shared_ptr<iroha::torii::TransactionProcessor> tx_processor;
   std::shared_ptr<iroha::torii::CommandService> command_service;

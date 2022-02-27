@@ -385,8 +385,7 @@ Irohad::RunResult Irohad::initStorage(
     auto process_block =
         [this](std::shared_ptr<shared_model::interface::Block const> block) {
           iroha::getSubscription()->notify(EventTypes::kOnBlock, block);
-          if (ordering_init and tx_processor and pending_txs_storage_
-              and mst_storage) {
+          if (ordering_init and tx_processor and pending_txs_storage_) {
             ordering_init->processCommittedBlock(block);
             tx_processor->processCommit(block);
             for (auto const &completed_tx : block->transactions()) {
