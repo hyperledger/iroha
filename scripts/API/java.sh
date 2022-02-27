@@ -1,16 +1,20 @@
 #!/bin/bash
 
+JAVA_DIR=${JAVA_DIR:-"iroha-java"}
+JAVA_REPO=${JAVA_REPO:-"https://github.com/hyperledger/iroha-java.git"}
+JAVA_BRANCH=${JAVA_BRANCH:-"iroha2-dev"}
+
 case $1 in
     setup)
-        git clone https://github.com/hyperledger/iroha-java.git
-        cd iroha-java || exit
-        git checkout iroha2-dev # TODO: chagnge this to main after release.
+        git clone "$JAVA_REPO"
+        cd "$JAVA_DIR" || exit 1
+        git checkout "$JAVA_BRANCH" # TODO: change this to main after release.
     ;;
     run)
-        cd iroha-java || exit
+        cd "$JAVA_DIR" || exit 1
         ./gradlew build
         ;;
     cleanup)
-        rm -rf iroha_api_test
+        rm -rf "$JAVA_DIR"
         ;;
 esac

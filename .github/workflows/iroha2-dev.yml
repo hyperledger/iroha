@@ -154,7 +154,6 @@ jobs:
           cat target/telemetry/release.md
       - name: Create telemetry comment
         uses: actions-ecosystem/action-create-comment@v1
-        if: ${{ false }}
         with:
           body: |
             \# Telemetry info
