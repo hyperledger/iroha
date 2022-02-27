@@ -53,6 +53,7 @@ void OnDemandOrderingGate::propagateBatch(
     return;
   }
 
+  log_->info("Propagated for network batch: {}", *batch);
   network_client_->onBatchesToWholeNetwork(
       transport::OdOsNotification::CollectionType{batch});
 }

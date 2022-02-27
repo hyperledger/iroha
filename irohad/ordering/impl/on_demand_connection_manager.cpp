@@ -61,9 +61,12 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
 
 void OnDemandConnectionManager::onBatchesToWholeNetwork(CollectionType batches) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
+  log_->info("Propagate to {} peers.", connections_.all_connections.size());
   if (not stop_requested_.load(std::memory_order_relaxed))
     for (auto &connection : connections_.all_connections)
       (*connection)->onBatches(batches);
+
+  log_->info("Propagation complete.");
 }
 
 void OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
