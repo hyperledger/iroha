@@ -57,11 +57,8 @@ pub struct World {
     pub roles: crate::RolesMap,
     /// Registered domains.
     pub domains: DomainsMap,
-
     /// Iroha parameters.
     pub parameters: Vec<Parameter>,
-    /// Iroha `Triggers` registered on the peer.
-    pub triggers: Vec<Instruction>,
 }
 
 impl Deref for World {
@@ -228,10 +225,10 @@ impl<W: WorldTrait> WorldStateView<W> {
         })?
     }
 
-    /// Send `events` to known subscribers.
-    fn produce_events<Events>(&self, events: Events)
+    /// Send [`Event`]s to known subscribers.
+    fn produce_events<E>(&self, events: E)
     where
-        Events: IntoIterator<Item = DataEvent>,
+        E: IntoIterator<Item = DataEvent>,
     {
         let events_sender = if let Some(sender) = &self.events_sender {
             sender
@@ -324,7 +321,9 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Get `World` and pass it to closure to modify it
     ///
-    /// Produces events after `f` finishes. Events are emitted from the lowest to the highest
+    /// Produces events in the `WSV` that are produced by `f` during execution.
+    /// Events are produced in the order of expanding scope: from specific to general.
+    /// Example: account events before domain events.
     ///
     /// # Errors
     /// Fails if `f` fails
@@ -335,9 +334,9 @@ impl<W: WorldTrait> WorldStateView<W> {
         let mut events: SmallVec<[DataEvent; 3]> = SmallVec(smallvec::smallvec![]);
         let event = f(&self.world)?;
 
-        match &event {
+        match event {
             WorldEvent::Domain(domain_event) => {
-                match domain_event {
+                match &domain_event {
                     DomainEvent::Account(account_event) => {
                         if let AccountEvent::Asset(asset_event) = account_event {
                             events.push(DataEvent::Asset(asset_event.clone()))
@@ -349,11 +348,11 @@ impl<W: WorldTrait> WorldStateView<W> {
                     }
                     _ => (),
                 }
-                events.push(DataEvent::Domain(domain_event.clone()));
+                events.push(DataEvent::Domain(domain_event));
             }
-            WorldEvent::Peer(peer_event) => events.push(DataEvent::Peer(peer_event.clone())),
+            WorldEvent::Peer(peer_event) => events.push(DataEvent::Peer(peer_event)),
             #[cfg(feature = "roles")]
-            WorldEvent::Role(role_event) => events.push(DataEvent::Role(role_event.clone())),
+            WorldEvent::Role(role_event) => events.push(DataEvent::Role(role_event)),
         }
 
         self.produce_events(events);

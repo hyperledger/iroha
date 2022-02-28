@@ -3,7 +3,9 @@
 use super::*;
 
 /// Trait for retrieving id from events
-pub trait IdTrait: Identifiable {
+pub trait IdTrait {
+    type Id;
+
     fn id(&self) -> &Self::Id;
 }
 
@@ -18,23 +20,21 @@ mod asset {
     pub enum AssetEvent {
         Created(AssetId),
         Deleted(AssetId),
-        Increased(AssetId),
-        Decreased(AssetId),
+        Added(AssetId),
+        Removed(AssetId),
         MetadataInserted(AssetId),
         MetadataRemoved(AssetId),
     }
 
-    impl Identifiable for AssetEvent {
-        type Id = AssetId;
-    }
-
     impl IdTrait for AssetEvent {
+        type Id = AssetId;
+
         fn id(&self) -> &AssetId {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
-                | Self::Increased(id)
-                | Self::Decreased(id)
+                | Self::Added(id)
+                | Self::Removed(id)
                 | Self::MetadataInserted(id)
                 | Self::MetadataRemoved(id) => id,
             }
@@ -51,11 +51,9 @@ mod asset {
         MetadataRemoved(AssetDefinitionId),
     }
 
-    impl Identifiable for AssetDefinitionEvent {
-        type Id = AssetDefinitionId;
-    }
-
     impl IdTrait for AssetDefinitionEvent {
+        type Id = AssetDefinitionId;
+
         fn id(&self) -> &AssetDefinitionId {
             match self {
                 Self::Created(id)
@@ -76,18 +74,16 @@ mod peer {
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum PeerEvent {
-        Trusted(PeerId),
-        Untrusted(PeerId),
-    }
-
-    impl Identifiable for PeerEvent {
-        type Id = PeerId;
+        Added(PeerId),
+        Removed(PeerId),
     }
 
     impl IdTrait for PeerEvent {
+        type Id = PeerId;
+
         fn id(&self) -> &PeerId {
             match self {
-                Self::Trusted(id) | Self::Untrusted(id) => id,
+                Self::Added(id) | Self::Removed(id) => id,
             }
         }
     }
@@ -107,11 +103,9 @@ mod role {
         Deleted(RoleId),
     }
 
-    impl Identifiable for RoleEvent {
-        type Id = RoleId;
-    }
-
     impl IdTrait for RoleEvent {
+        type Id = RoleId;
+
         fn id(&self) -> &RoleId {
             match self {
                 Self::Created(id) | Self::Deleted(id) => id,
@@ -133,24 +127,26 @@ mod account {
         Asset(AssetEvent),
         Created(AccountId),
         Deleted(AccountId),
-        Authentication(AccountId),
-        Permission(AccountId),
+        AuthenticationAdded(AccountId),
+        AuthenticationRemoved(AccountId),
+        PermissionAdded(AccountId),
+        PermissionRemoved(AccountId),
         MetadataInserted(AccountId),
         MetadataRemoved(AccountId),
     }
 
-    impl Identifiable for AccountEvent {
-        type Id = AccountId;
-    }
-
     impl IdTrait for AccountEvent {
+        type Id = AccountId;
+
         fn id(&self) -> &AccountId {
             match self {
                 Self::Asset(asset) => &asset.id().account_id,
                 Self::Created(id)
                 | Self::Deleted(id)
-                | Self::Authentication(id)
-                | Self::Permission(id)
+                | Self::AuthenticationAdded(id)
+                | Self::AuthenticationRemoved(id)
+                | Self::PermissionAdded(id)
+                | Self::PermissionRemoved(id)
                 | Self::MetadataInserted(id)
                 | Self::MetadataRemoved(id) => id,
             }
@@ -176,11 +172,9 @@ mod domain {
         MetadataRemoved(DomainId),
     }
 
-    impl Identifiable for DomainEvent {
-        type Id = DomainId;
-    }
-
     impl IdTrait for DomainEvent {
+        type Id = DomainId;
+
         fn id(&self) -> &DomainId {
             match self {
                 Self::Account(account) => &account.id().domain_id,
@@ -210,11 +204,9 @@ mod trigger {
         Shortened(TriggerId),
     }
 
-    impl Identifiable for TriggerEvent {
-        type Id = TriggerId;
-    }
-
     impl IdTrait for TriggerEvent {
+        type Id = TriggerId;
+
         fn id(&self) -> &TriggerId {
             match self {
                 Self::Created(id)
@@ -222,30 +214,6 @@ mod trigger {
                 | Self::Extended(id)
                 | Self::Shortened(id) => id,
             }
-        }
-    }
-
-    impl From<Register<Trigger>> for DataEvent {
-        fn from(src: Register<Trigger>) -> Self {
-            Self::Trigger(TriggerEvent::Created(src.object.id))
-        }
-    }
-
-    impl From<Unregister<Trigger>> for DataEvent {
-        fn from(src: Unregister<Trigger>) -> Self {
-            Self::Trigger(TriggerEvent::Deleted(src.object_id))
-        }
-    }
-
-    impl From<Mint<Trigger, u32>> for DataEvent {
-        fn from(src: Mint<Trigger, u32>) -> Self {
-            Self::Trigger(TriggerEvent::Extended(src.destination_id))
-        }
-    }
-
-    impl From<Burn<Trigger, u32>> for DataEvent {
-        fn from(src: Burn<Trigger, u32>) -> Self {
-            Self::Trigger(TriggerEvent::Shortened(src.destination_id))
         }
     }
 }

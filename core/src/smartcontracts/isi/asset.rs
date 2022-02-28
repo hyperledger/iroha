@@ -69,7 +69,7 @@ pub mod isi {
                     .ok_or(Error::Math(MathError::Overflow))?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
 
-                Ok(AssetEvent::Increased(asset_id.clone()))
+                Ok(AssetEvent::Added(asset_id.clone()))
             })
         }
     }
@@ -99,7 +99,7 @@ pub mod isi {
                 #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
 
-                Ok(AssetEvent::Increased(asset_id.clone()))
+                Ok(AssetEvent::Added(asset_id.clone()))
             })
         }
     }
@@ -125,7 +125,7 @@ pub mod isi {
                 *quantity = quantity.checked_add(self.object)?;
                 wsv.metrics.tx_amounts.observe((*quantity).into());
 
-                Ok(AssetEvent::Increased(asset_id.clone()))
+                Ok(AssetEvent::Added(asset_id.clone()))
             })
         }
     }
@@ -179,7 +179,7 @@ pub mod isi {
                     .ok_or(MathError::NotEnoughQuantity)?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
 
-                Ok(AssetEvent::Decreased(asset_id.clone()))
+                Ok(AssetEvent::Removed(asset_id.clone()))
             })
         }
     }
@@ -207,7 +207,7 @@ pub mod isi {
                 #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
 
-                Ok(AssetEvent::Decreased(asset_id.clone()))
+                Ok(AssetEvent::Removed(asset_id.clone()))
             })
         }
     }
@@ -233,7 +233,7 @@ pub mod isi {
                 // Careful if `Fixed` stops being `Copy`.
                 wsv.metrics.tx_amounts.observe((*quantity).into());
 
-                Ok(AssetEvent::Decreased(asset_id.clone()))
+                Ok(AssetEvent::Removed(asset_id.clone()))
             })
         }
     }
@@ -312,7 +312,7 @@ pub mod isi {
                     .checked_sub(self.object)
                     .ok_or(Error::Math(MathError::NotEnoughQuantity))?;
 
-                Ok(AssetEvent::Decreased(source_asset_id.clone()))
+                Ok(AssetEvent::Removed(source_asset_id.clone()))
             })?;
             wsv.modify_asset(&destination_asset_id, |asset| {
                 let quantity: &mut u32 = asset
@@ -324,7 +324,7 @@ pub mod isi {
                     .ok_or(MathError::Overflow)?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
 
-                Ok(AssetEvent::Increased(destination_asset_id.clone()))
+                Ok(AssetEvent::Added(destination_asset_id.clone()))
             })
         }
     }

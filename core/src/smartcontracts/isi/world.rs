@@ -29,7 +29,7 @@ pub mod isi {
                         IdBox::PeerId(peer_id),
                     ));
                 }
-                Ok(PeerEvent::Trusted(peer_id).into())
+                Ok(PeerEvent::Added(peer_id).into())
             })
         }
     }
@@ -48,7 +48,7 @@ pub mod isi {
                 if world.trusted_peers_ids.remove(&peer_id).is_none() {
                     return Err(FindError::Peer(peer_id).into());
                 }
-                Ok(PeerEvent::Untrusted(peer_id).into())
+                Ok(PeerEvent::Removed(peer_id).into())
             })
         }
     }

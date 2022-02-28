@@ -30,7 +30,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 account.signatories.push(public_key);
 
-                Ok(AccountEvent::Authentication(account_id.clone()))
+                Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
             })
         }
     }
@@ -50,7 +50,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 account.signature_check_condition = signature_check_condition;
 
-                Ok(AccountEvent::Authentication(account_id.clone()))
+                Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
             })
         }
     }
@@ -81,7 +81,7 @@ pub mod isi {
                     account.signatories.remove(index);
                 }
 
-                Ok(AccountEvent::Authentication(account_id.clone()))
+                Ok(AccountEvent::AuthenticationRemoved(account_id.clone()))
             })
         }
     }
@@ -148,7 +148,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 let _ = account.permission_tokens.insert(permission);
 
-                Ok(AccountEvent::Permission(account_id.clone()))
+                Ok(AccountEvent::PermissionAdded(account_id.clone()))
             })
         }
     }
@@ -168,7 +168,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 let _ = account.permission_tokens.remove(permission);
 
-                Ok(AccountEvent::Permission(account_id.clone()))
+                Ok(AccountEvent::PermissionRemoved(account_id.clone()))
             })
         }
     }
@@ -193,7 +193,7 @@ pub mod isi {
             wsv.modify_account(&self.destination_id, |account| {
                 let _ = account.roles.insert(role);
 
-                Ok(AccountEvent::Permission(self.destination_id.clone()))
+                Ok(AccountEvent::PermissionAdded(self.destination_id.clone()))
             })
         }
     }
@@ -218,7 +218,7 @@ pub mod isi {
             wsv.modify_account(&self.destination_id, |account| {
                 let _ = account.roles.remove(&role);
 
-                Ok(AccountEvent::Permission(self.destination_id.clone()))
+                Ok(AccountEvent::PermissionRemoved(self.destination_id.clone()))
             })
         }
     }

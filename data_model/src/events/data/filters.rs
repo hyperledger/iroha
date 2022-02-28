@@ -7,8 +7,11 @@ use super::*;
 /// This could be implemented with generic struct, but it's bad to have nested generics in filters
 /// public API (especially for schemas)
 macro_rules! entity_filter {
-    (pub struct $name:ident { event: $entity_type:ty, filter: $event_filter_type:ty, }) => {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident { type EventType = $entity_type:ty; type EventFilter = $event_filter_type:ty; }) => {
         entity_filter! {
+            @define_and_impl
+            $(#[$meta])*,
+            $vis,
             $name,
             $entity_type,
             $event_filter_type,
@@ -16,7 +19,44 @@ macro_rules! entity_filter {
             concat!("Construct new ", stringify!($name))
         }
     };
-    ($name:ident, $entity_type:ty, $event_filter_type:ty, $struct_doc:expr, $new_doc:expr) => {
+    (@define_and_impl  $(#[$meta:meta])*, $vis:vis, $name:ident, $entity_type:ty, $event_filter_type:ty, $struct_doc:expr, $new_doc:expr) => {
+        $(#[$meta])*
+        #[doc = $struct_doc]
+        $vis struct $name {
+            id_filter: FilterOpt<IdFilter<<$entity_type as IdTrait>::Id>>,
+            event_filter: FilterOpt<$event_filter_type>,
+        }
+
+        impl $name {
+            #[doc = $new_doc]
+            pub fn new(
+                id_filter: FilterOpt<IdFilter<<$entity_type as IdTrait>::Id>>,
+                event_filter: FilterOpt<$event_filter_type>,
+            ) -> Self {
+                Self {
+                    id_filter,
+                    event_filter,
+                }
+            }
+        }
+
+        impl Filter for $name {
+            type EventType = $entity_type;
+
+            fn matches(&self, entity: &Self::EventType) -> bool {
+                self.id_filter.matches(entity.id()) && self.event_filter.matches(entity)
+            }
+        }
+    };
+}
+
+#[cfg(feature = "roles")]
+mod role {
+    //! This module contains filters related to `RoleEvent`
+
+    use super::*;
+
+    entity_filter!(
         #[derive(
             Clone,
             PartialOrd,
@@ -31,45 +71,9 @@ macro_rules! entity_filter {
             IntoSchema,
             Hash,
         )]
-        #[doc = $struct_doc]
-        pub struct $name {
-            id_filter: FilterOpt<IdFilter<<$entity_type as Identifiable>::Id>>,
-            event_filter: FilterOpt<$event_filter_type>,
-        }
-
-        impl $name {
-            #[doc = $new_doc]
-            pub fn new(
-                id_filter: FilterOpt<IdFilter<<$entity_type as Identifiable>::Id>>,
-                event_filter: FilterOpt<$event_filter_type>,
-            ) -> Self {
-                Self {
-                    id_filter,
-                    event_filter,
-                }
-            }
-        }
-
-        impl Filter for $name {
-            type Item = $entity_type;
-
-            fn filter(&self, entity: &Self::Item) -> bool {
-                self.id_filter.filter(entity.id()) && self.event_filter.filter(entity)
-            }
-        }
-    };
-}
-
-#[cfg(feature = "roles")]
-mod role {
-    //! This module contains filters related to `RoleEvent`
-
-    use super::*;
-
-    entity_filter!(
         pub struct RoleFilter {
-            event: RoleEvent,
-            filter: RoleEventFilter,
+            type EventType = RoleEvent;
+            type EventFilter = RoleEventFilter;
         }
     );
 
@@ -95,9 +99,9 @@ mod role {
     }
 
     impl Filter for RoleEventFilter {
-        type Item = RoleEvent;
+        type EventType = RoleEvent;
 
-        fn filter(&self, event: &RoleEvent) -> bool {
+        fn matches(&self, event: &RoleEvent) -> bool {
             matches!(
                 (self, event),
                 (Self::ByCreated, RoleEvent::Created(_)) | (Self::ByDeleted, RoleEvent::Deleted(_))
@@ -112,9 +116,23 @@ mod peer {
     use super::*;
 
     entity_filter!(
+        #[derive(
+            Clone,
+            PartialOrd,
+            Ord,
+            PartialEq,
+            Eq,
+            Debug,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+            Hash,
+        )]
         pub struct PeerFilter {
-            event: PeerEvent,
-            filter: PeerEventFilter,
+            type EventType = PeerEvent;
+            type EventFilter = PeerEventFilter;
         }
     );
 
@@ -135,18 +153,17 @@ mod peer {
     )]
     #[allow(missing_docs)]
     pub enum PeerEventFilter {
-        ByCreated,
-        ByDeleted,
+        ByAdded,
+        ByRemoved,
     }
 
     impl Filter for PeerEventFilter {
-        type Item = PeerEvent;
+        type EventType = PeerEvent;
 
-        fn filter(&self, event: &PeerEvent) -> bool {
+        fn matches(&self, event: &PeerEvent) -> bool {
             matches!(
                 (self, event),
-                (Self::ByCreated, PeerEvent::Trusted(_))
-                    | (Self::ByDeleted, PeerEvent::Untrusted(_))
+                (Self::ByAdded, PeerEvent::Added(_)) | (Self::ByRemoved, PeerEvent::Removed(_))
             )
         }
     }
@@ -158,16 +175,44 @@ mod asset {
     use super::*;
 
     entity_filter!(
+        #[derive(
+            Clone,
+            PartialOrd,
+            Ord,
+            PartialEq,
+            Eq,
+            Debug,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+            Hash,
+        )]
         pub struct AssetFilter {
-            event: AssetEvent,
-            filter: AssetEventFilter,
+            type EventType = AssetEvent;
+            type EventFilter = AssetEventFilter;
         }
     );
 
     entity_filter!(
+        #[derive(
+            Clone,
+            PartialOrd,
+            Ord,
+            PartialEq,
+            Eq,
+            Debug,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+            Hash,
+        )]
         pub struct AssetDefinitionFilter {
-            event: AssetDefinitionEvent,
-            filter: AssetDefinitionEventFilter,
+            type EventType = AssetDefinitionEvent;
+            type EventFilter = AssetDefinitionEventFilter;
         }
     );
 
@@ -190,22 +235,22 @@ mod asset {
     pub enum AssetEventFilter {
         ByCreated,
         ByDeleted,
-        ByIncreased,
-        ByDecreased,
+        ByAdded,
+        ByRemoved,
         ByMetadataInserted,
         ByMetadataRemoved,
     }
 
     impl Filter for AssetEventFilter {
-        type Item = AssetEvent;
+        type EventType = AssetEvent;
 
-        fn filter(&self, event: &AssetEvent) -> bool {
+        fn matches(&self, event: &AssetEvent) -> bool {
             matches!(
                 (self, event),
                 (Self::ByCreated, AssetEvent::Created(_))
                     | (Self::ByDeleted, AssetEvent::Deleted(_))
-                    | (Self::ByIncreased, AssetEvent::Increased(_))
-                    | (Self::ByDecreased, AssetEvent::Decreased(_))
+                    | (Self::ByAdded, AssetEvent::Added(_))
+                    | (Self::ByRemoved, AssetEvent::Removed(_))
                     | (Self::ByMetadataInserted, AssetEvent::MetadataInserted(_))
                     | (Self::ByMetadataRemoved, AssetEvent::MetadataRemoved(_))
             )
@@ -236,9 +281,9 @@ mod asset {
     }
 
     impl Filter for AssetDefinitionEventFilter {
-        type Item = AssetDefinitionEvent;
+        type EventType = AssetDefinitionEvent;
 
-        fn filter(&self, event: &AssetDefinitionEvent) -> bool {
+        fn matches(&self, event: &AssetDefinitionEvent) -> bool {
             matches!(
                 (self, event),
                 (Self::ByCreated, AssetDefinitionEvent::Created(_))
@@ -262,9 +307,23 @@ mod domain {
     use super::*;
 
     entity_filter!(
+        #[derive(
+            Clone,
+            PartialOrd,
+            Ord,
+            PartialEq,
+            Eq,
+            Debug,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+            Hash,
+        )]
         pub struct DomainFilter {
-            event: DomainEvent,
-            filter: DomainEventFilter,
+            type EventType = DomainEvent;
+            type EventFilter = DomainEventFilter;
         }
     );
 
@@ -303,17 +362,17 @@ mod domain {
     }
 
     impl Filter for DomainEventFilter {
-        type Item = DomainEvent;
+        type EventType = DomainEvent;
 
-        fn filter(&self, event: &DomainEvent) -> bool {
+        fn matches(&self, event: &DomainEvent) -> bool {
             match (self, event) {
                 (Self::ByAccount(filter_opt), DomainEvent::Account(account)) => {
-                    filter_opt.filter(account)
+                    filter_opt.matches(account)
                 }
                 (
                     Self::ByAssetDefinition(filter_opt),
                     DomainEvent::AssetDefinition(asset_definition),
-                ) => filter_opt.filter(asset_definition),
+                ) => filter_opt.matches(asset_definition),
                 (Self::ByCreated, DomainEvent::Created(_))
                 | (Self::ByDeleted, DomainEvent::Deleted(_))
                 | (Self::ByMetadataInserted, DomainEvent::MetadataInserted(_))
@@ -330,9 +389,23 @@ mod account {
     use super::*;
 
     entity_filter!(
+        #[derive(
+            Clone,
+            PartialOrd,
+            Ord,
+            PartialEq,
+            Eq,
+            Debug,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+            Hash,
+        )]
         pub struct AccountFilter {
-            event: AccountEvent,
-            filter: AccountEventFilter,
+            type EventType = AccountEvent;
+            type EventFilter = AccountEventFilter;
         }
     );
 
@@ -361,10 +434,14 @@ mod account {
         ByCreated,
         /// Filter by Deleted event
         ByDeleted,
-        /// Filter by Authentication event
-        ByAuthentication,
-        /// Filter by Permission event
-        ByPermission,
+        /// Filter by AuthenticationAdded event
+        ByAuthenticationAdded,
+        /// Filter by AuthenticationRemoved event
+        ByAuthenticationRemoved,
+        /// Filter by PermissionAdded event
+        ByPermissionAdded,
+        /// Filter by PermissionRemoved event
+        ByPermissionRemoved,
         /// Filter by MetadataInserted event
         ByMetadataInserted,
         /// Filter by MetadataRemoved event
@@ -372,15 +449,19 @@ mod account {
     }
 
     impl Filter for AccountEventFilter {
-        type Item = AccountEvent;
+        type EventType = AccountEvent;
 
-        fn filter(&self, event: &AccountEvent) -> bool {
+        fn matches(&self, event: &AccountEvent) -> bool {
             match (self, event) {
-                (Self::ByAsset(filter_opt), AccountEvent::Asset(asset)) => filter_opt.filter(asset),
+                (Self::ByAsset(filter_opt), AccountEvent::Asset(asset)) => {
+                    filter_opt.matches(asset)
+                }
                 (Self::ByCreated, AccountEvent::Created(_))
                 | (Self::ByDeleted, AccountEvent::Deleted(_))
-                | (Self::ByAuthentication, AccountEvent::Authentication(_))
-                | (Self::ByPermission, AccountEvent::Permission(_))
+                | (Self::ByAuthenticationAdded, AccountEvent::AuthenticationAdded(_))
+                | (Self::ByAuthenticationRemoved, AccountEvent::AuthenticationRemoved(_))
+                | (Self::ByPermissionAdded, AccountEvent::PermissionAdded(_))
+                | (Self::ByPermissionRemoved, AccountEvent::PermissionRemoved(_))
                 | (Self::ByMetadataInserted, AccountEvent::MetadataInserted(_))
                 | (Self::ByMetadataRemoved, AccountEvent::MetadataRemoved(_)) => true,
                 _ => false,
@@ -395,9 +476,23 @@ mod trigger {
     use super::*;
 
     entity_filter!(
+        #[derive(
+            Clone,
+            PartialOrd,
+            Ord,
+            PartialEq,
+            Eq,
+            Debug,
+            Decode,
+            Encode,
+            Deserialize,
+            Serialize,
+            IntoSchema,
+            Hash,
+        )]
         pub struct TriggerFilter {
-            event: TriggerEvent,
-            filter: TriggerEventFilter,
+            type EventType = TriggerEvent;
+            type EventFilter = TriggerEventFilter;
         }
     );
 
@@ -426,9 +521,9 @@ mod trigger {
     }
 
     impl Filter for TriggerEventFilter {
-        type Item = TriggerEvent;
+        type EventType = TriggerEvent;
 
-        fn filter(&self, event: &TriggerEvent) -> bool {
+        fn matches(&self, event: &TriggerEvent) -> bool {
             matches!(
                 (self, event),
                 (Self::ByCreated, TriggerEvent::Created(_))
@@ -445,13 +540,13 @@ pub type EventFilter = FilterOpt<EntityFilter>;
 
 /// Trait for filters
 pub trait Filter {
-    /// Type of item that can be filtered
-    type Item;
+    /// Type of event that can be filtered
+    type EventType;
 
-    /// Check if `item` passes filter
+    /// Check if `item` matches filter
     ///
-    /// Returns `true`, if `item` passes filter and `false` if not
-    fn filter(&self, item: &Self::Item) -> bool;
+    /// Returns `true`, if `item` matches filter and `false` if not
+    fn matches(&self, item: &Self::EventType) -> bool;
 }
 
 #[derive(
@@ -481,12 +576,12 @@ pub enum FilterOpt<F: Filter> {
 }
 
 impl<F: Filter> Filter for FilterOpt<F> {
-    type Item = F::Item;
+    type EventType = F::EventType;
 
-    fn filter(&self, item: &Self::Item) -> bool {
+    fn matches(&self, item: &Self::EventType) -> bool {
         match self {
             Self::AcceptAll => true,
-            Self::BySome(filter) => filter.filter(item),
+            Self::BySome(filter) => filter.matches(item),
         }
     }
 }
@@ -527,19 +622,19 @@ pub enum EntityFilter {
 }
 
 impl Filter for EntityFilter {
-    type Item = Event;
+    type EventType = Event;
 
-    fn filter(&self, event: &Event) -> bool {
+    fn matches(&self, event: &Event) -> bool {
         match (self, event) {
-            (Self::ByDomain(filter_opt), Event::Domain(domain)) => filter_opt.filter(domain),
-            (Self::ByPeer(filter_opt), Event::Peer(peer)) => filter_opt.filter(peer),
+            (Self::ByDomain(filter_opt), Event::Domain(domain)) => filter_opt.matches(domain),
+            (Self::ByPeer(filter_opt), Event::Peer(peer)) => filter_opt.matches(peer),
             #[cfg(feature = "roles")]
-            (Self::ByRole(filter_opt), Event::Role(role)) => filter_opt.filter(role),
-            (Self::ByAccount(filter_opt), Event::Account(account)) => filter_opt.filter(account),
+            (Self::ByRole(filter_opt), Event::Role(role)) => filter_opt.matches(role),
+            (Self::ByAccount(filter_opt), Event::Account(account)) => filter_opt.matches(account),
             (Self::ByAssetDefinition(filter_opt), Event::AssetDefinition(asset_definition)) => {
-                filter_opt.filter(asset_definition)
+                filter_opt.matches(asset_definition)
             }
-            (Self::ByAsset(filter_opt), Event::Asset(asset)) => filter_opt.filter(asset),
+            (Self::ByAsset(filter_opt), Event::Asset(asset)) => filter_opt.matches(asset),
             _ => false,
         }
     }
@@ -565,9 +660,9 @@ impl Filter for EntityFilter {
 pub struct IdFilter<Id: Eq>(Id);
 
 impl<Id: Eq> Filter for IdFilter<Id> {
-    type Item = Id;
+    type EventType = Id;
 
-    fn filter(&self, id: &Id) -> bool {
+    fn matches(&self, id: &Id) -> bool {
         id == &self.0
     }
 }
@@ -608,9 +703,9 @@ mod tests {
             BySome(IdFilter(account_id)),
             AcceptAll,
         ))));
-        assert!(!account_filter.filter(&domain_created.into()));
-        assert!(!account_filter.filter(&asset_created.into()));
-        assert!(account_filter.filter(&account_created.into()));
-        assert!(account_filter.filter(&account_asset_created.into()));
+        assert!(!account_filter.matches(&domain_created.into()));
+        assert!(!account_filter.matches(&asset_created.into()));
+        assert!(account_filter.matches(&account_created.into()));
+        assert!(account_filter.matches(&account_asset_created.into()));
     }
 }
