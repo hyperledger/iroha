@@ -24,10 +24,12 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let new_trigger = self.object.clone();
-            wsv.triggers.add(new_trigger)?;
-            Ok(vec![DataEvent::new(self.object.id, DataStatus::Created)])
+            wsv.modify_triggers(|triggers| {
+                triggers.add(new_trigger)?;
+                Ok(TriggerEvent::Created(self.object.id))
+            })
         }
     }
 
@@ -39,10 +41,12 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let trigger = self.object_id.clone();
-            wsv.triggers.remove(trigger)?;
-            Ok(vec![DataEvent::new(self.object_id, DataStatus::Deleted)])
+            wsv.modify_triggers(|triggers| {
+                triggers.remove(trigger)?;
+                Ok(TriggerEvent::Deleted(self.object_id))
+            })
         }
     }
 
@@ -54,15 +58,14 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let trigger = self.destination_id.clone();
-            wsv.triggers.mod_repeats(trigger, |n| {
-                n.checked_add(self.object).ok_or(MathError::Overflow)
-            })?;
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                Updated::Trigger(TriggerUpdated::Extended),
-            )])
+            wsv.modify_triggers(|triggers| {
+                triggers.mod_repeats(trigger, |n| {
+                    n.checked_add(self.object).ok_or(MathError::Overflow)
+                })?;
+                Ok(TriggerEvent::Extended(self.destination_id))
+            })
         }
     }
 
@@ -74,15 +77,14 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let trigger = self.destination_id.clone();
-            wsv.triggers.mod_repeats(trigger, |n| {
-                n.checked_sub(self.object).ok_or(MathError::Overflow)
-            })?;
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                Updated::Trigger(TriggerUpdated::Shortened),
-            )])
+            wsv.modify_triggers(|triggers| {
+                triggers.mod_repeats(trigger, |n| {
+                    n.checked_sub(self.object).ok_or(MathError::Overflow)
+                })?;
+                Ok(TriggerEvent::Shortened(self.destination_id))
+            })
         }
     }
 }

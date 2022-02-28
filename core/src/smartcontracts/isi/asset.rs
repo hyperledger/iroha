@@ -54,15 +54,12 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            assert_can_mint(
-                &self.destination_id.definition_id,
-                wsv,
-                AssetValueType::Quantity,
-            )?;
+        ) -> Result<(), Self::Error> {
+            let asset_id = self.destination_id;
 
-            wsv.asset_or_insert(&self.destination_id, 0_u32)?;
-            wsv.modify_asset(&self.destination_id, |asset| {
+            assert_can_mint(&asset_id.definition_id, wsv, AssetValueType::Quantity)?;
+            wsv.asset_or_insert(&asset_id, 0_u32)?;
+            wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut u32 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -71,13 +68,9 @@ pub mod isi {
                     .checked_add(self.object)
                     .ok_or(Error::Math(MathError::Overflow))?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                DataStatus::Created,
-            )])
+                Ok(AssetEvent::Added(asset_id.clone()))
+            })
         }
     }
 
@@ -90,14 +83,12 @@ pub mod isi {
             self,
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            assert_can_mint(
-                &self.destination_id.definition_id,
-                wsv,
-                AssetValueType::BigQuantity,
-            )?;
-            wsv.asset_or_insert(&self.destination_id, 0_u128)?;
-            wsv.modify_asset(&self.destination_id, |asset| {
+        ) -> Result<(), Self::Error> {
+            let asset_id = self.destination_id;
+
+            assert_can_mint(&asset_id.definition_id, wsv, AssetValueType::BigQuantity)?;
+            wsv.asset_or_insert(&asset_id, 0_u128)?;
+            wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut u128 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -107,13 +98,9 @@ pub mod isi {
                     .ok_or(Error::Math(MathError::Overflow))?;
                 #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                DataStatus::Created,
-            )])
+                Ok(AssetEvent::Added(asset_id.clone()))
+            })
         }
     }
 
@@ -125,27 +112,21 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            assert_can_mint(
-                &self.destination_id.definition_id,
-                wsv,
-                AssetValueType::Fixed,
-            )?;
-            wsv.asset_or_insert(&self.destination_id, Fixed::ZERO)?;
-            wsv.modify_asset(&self.destination_id, |asset| {
+        ) -> Result<(), Self::Error> {
+            let asset_id = self.destination_id;
+
+            assert_can_mint(&asset_id.definition_id, wsv, AssetValueType::Fixed)?;
+            wsv.asset_or_insert(&asset_id, Fixed::ZERO)?;
+            wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Fixed = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity.checked_add(self.object)?;
                 wsv.metrics.tx_amounts.observe((*quantity).into());
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                DataStatus::Created,
-            )])
+                Ok(AssetEvent::Added(asset_id.clone()))
+            })
         }
     }
 
@@ -157,22 +138,22 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
-            let asset_metadata_limits = wsv.config.asset_metadata_limits;
             wsv.asset_or_insert(&asset_id, Metadata::new())?;
             wsv.modify_asset(&asset_id, |asset| {
+                let asset_metadata_limits = wsv.config.asset_metadata_limits;
+
                 let store: &mut Metadata = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
                     .map_err(|e| Error::Conversion(e.to_string()))?;
                 store.insert_with_limits(self.key, self.value, asset_metadata_limits)?;
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(asset_id, MetadataUpdated::Inserted)])
+                Ok(AssetEvent::MetadataInserted(asset_id.clone()))
+            })
         }
     }
 
@@ -184,13 +165,11 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            assert_asset_type(
-                &self.destination_id.definition_id,
-                wsv,
-                AssetValueType::Quantity,
-            )?;
-            wsv.modify_asset(&self.destination_id, |asset| {
+        ) -> Result<(), Self::Error> {
+            let asset_id = self.destination_id;
+
+            assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Quantity)?;
+            wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut u32 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -199,13 +178,9 @@ pub mod isi {
                     .checked_sub(self.object)
                     .ok_or(MathError::NotEnoughQuantity)?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                Updated::Asset(AssetUpdated::Sent),
-            )])
+                Ok(AssetEvent::Removed(asset_id.clone()))
+            })
         }
     }
 
@@ -217,13 +192,11 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            assert_asset_type(
-                &self.destination_id.definition_id,
-                wsv,
-                AssetValueType::BigQuantity,
-            )?;
-            wsv.modify_asset(&self.destination_id, |asset| {
+        ) -> Result<(), Self::Error> {
+            let asset_id = self.destination_id;
+
+            assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::BigQuantity)?;
+            wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut u128 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -233,13 +206,9 @@ pub mod isi {
                     .ok_or(MathError::NotEnoughQuantity)?;
                 #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                DataStatus::Deleted,
-            )])
+                Ok(AssetEvent::Removed(asset_id.clone()))
+            })
         }
     }
 
@@ -251,13 +220,11 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            assert_asset_type(
-                &self.destination_id.definition_id,
-                wsv,
-                AssetValueType::Fixed,
-            )?;
-            wsv.modify_asset(&self.destination_id, |asset| {
+        ) -> Result<(), Self::Error> {
+            let asset_id = self.destination_id;
+
+            assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Fixed)?;
+            wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Fixed = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -265,13 +232,9 @@ pub mod isi {
                 *quantity = quantity.checked_sub(self.object)?;
                 // Careful if `Fixed` stops being `Copy`.
                 wsv.metrics.tx_amounts.observe((*quantity).into());
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(
-                self.destination_id,
-                DataStatus::Deleted,
-            )])
+                Ok(AssetEvent::Removed(asset_id.clone()))
+            })
         }
     }
 
@@ -283,7 +246,7 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
@@ -295,10 +258,9 @@ pub mod isi {
                 store
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
-                Ok(())
-            })?;
 
-            Ok(vec![DataEvent::new(asset_id, MetadataUpdated::Removed)])
+                Ok(AssetEvent::MetadataRemoved(asset_id.clone()))
+            })
         }
     }
 
@@ -311,14 +273,17 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            if self.destination_id.definition_id != self.source_id.definition_id {
+        ) -> Result<(), Self::Error> {
+            let source_asset_id = self.source_id;
+            let destination_asset_id = self.destination_id;
+
+            if destination_asset_id.definition_id != source_asset_id.definition_id {
                 let expected = wsv
-                    .asset_definition_entry(&self.destination_id.definition_id)?
+                    .asset_definition_entry(&destination_asset_id.definition_id)?
                     .definition
                     .value_type;
                 let got = wsv
-                    .asset_definition_entry(&self.source_id.definition_id)?
+                    .asset_definition_entry(&source_asset_id.definition_id)?
                     .definition
                     .value_type;
                 return Err(Error::Type(TypeError::Asset(AssetTypeError {
@@ -326,13 +291,19 @@ pub mod isi {
                     got,
                 })));
             }
-            assert_asset_type(&self.source_id.definition_id, wsv, AssetValueType::Quantity)?;
             assert_asset_type(
-                &self.destination_id.definition_id,
+                &source_asset_id.definition_id,
                 wsv,
                 AssetValueType::Quantity,
             )?;
-            wsv.modify_asset(&self.source_id, |asset| {
+            assert_asset_type(
+                &destination_asset_id.definition_id,
+                wsv,
+                AssetValueType::Quantity,
+            )?;
+
+            wsv.asset_or_insert(&destination_asset_id, 0_u32)?;
+            wsv.modify_asset(&source_asset_id, |asset| {
                 let quantity: &mut u32 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -340,10 +311,10 @@ pub mod isi {
                 *quantity = quantity
                     .checked_sub(self.object)
                     .ok_or(Error::Math(MathError::NotEnoughQuantity))?;
-                Ok(())
+
+                Ok(AssetEvent::Removed(source_asset_id.clone()))
             })?;
-            wsv.asset_or_insert(&self.destination_id, 0_u32)?;
-            wsv.modify_asset(&self.destination_id, |asset| {
+            wsv.modify_asset(&destination_asset_id, |asset| {
                 let quantity: &mut u32 = asset
                     .try_as_mut()
                     .map_err(eyre::Error::from)
@@ -352,13 +323,9 @@ pub mod isi {
                     .checked_add(self.object)
                     .ok_or(MathError::Overflow)?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
-                Ok(())
-            })?;
 
-            Ok(vec![
-                DataEvent::new(self.source_id, AssetUpdated::Sent),
-                DataEvent::new(self.destination_id, AssetUpdated::Received),
-            ])
+                Ok(AssetEvent::Added(destination_asset_id.clone()))
+            })
         }
     }
 }

@@ -19,15 +19,18 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            if wsv.trusted_peers_ids().insert(self.object.id.clone()) {
-                Ok(vec![DataEvent::new(self.object.id, DataStatus::Created)])
-            } else {
-                Err(Error::Repetition(
-                    InstructionType::Register,
-                    IdBox::PeerId(self.object.id),
-                ))
-            }
+        ) -> Result<(), Self::Error> {
+            let peer_id = self.object.id;
+
+            wsv.modify_world(|world| {
+                if !world.trusted_peers_ids.insert(peer_id.clone()) {
+                    return Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::PeerId(peer_id),
+                    ));
+                }
+                Ok(PeerEvent::Added(peer_id).into())
+            })
         }
     }
 
@@ -39,12 +42,14 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            if wsv.trusted_peers_ids().remove(&self.object_id).is_some() {
-                Ok(vec![DataEvent::new(self.object_id, DataStatus::Deleted)])
-            } else {
-                Err(FindError::Peer(self.object_id).into())
-            }
+        ) -> Result<(), Self::Error> {
+            let peer_id = self.object_id;
+            wsv.modify_world(|world| {
+                if world.trusted_peers_ids.remove(&peer_id).is_none() {
+                    return Err(FindError::Peer(peer_id).into());
+                }
+                Ok(PeerEvent::Removed(peer_id).into())
+            })
         }
     }
 
@@ -56,19 +61,21 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            let domain_id = self.object.id.clone();
+        ) -> Result<(), Self::Error> {
             let domain = self.object;
-
-            domain
-                .id
+            let domain_id = domain.id.clone();
+            domain_id
                 .name
                 .validate_len(wsv.config.ident_length_limits)
                 .map_err(Error::Validate)?;
-            wsv.domains().insert(domain_id.clone(), domain);
-            wsv.metrics.domains.inc();
 
-            Ok(vec![DataEvent::new(domain_id, DataStatus::Created)])
+            wsv.modify_world(|world| {
+                world.domains.insert(domain_id.clone(), domain);
+                Ok(DomainEvent::Created(domain_id).into())
+            })?;
+
+            wsv.metrics.domains.inc();
+            Ok(())
         }
     }
 
@@ -80,14 +87,15 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
+            wsv.modify_world(|world| {
+                world.domains.remove(&domain_id);
+                Ok(DomainEvent::Deleted(domain_id).into())
+            })?;
 
-            // TODO: Should we fail if no domain found?
-            wsv.domains().remove(&domain_id);
             wsv.metrics.domains.dec();
-
-            Ok(vec![DataEvent::new(domain_id, DataStatus::Deleted)])
+            Ok(())
         }
     }
 
@@ -100,12 +108,13 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
-            let role = self.object;
-            let role_id = role.id.clone();
+        ) -> Result<(), Self::Error> {
+            let role_id = self.object.id.clone();
 
-            wsv.world.roles.insert(role_id.clone(), role);
-            Ok(vec![DataEvent::new(role_id, DataStatus::Created)])
+            wsv.modify_world(|world| {
+                world.roles.insert(role_id.clone(), self.object);
+                Ok(RoleEvent::Created(role_id).into())
+            })
         }
     }
 
@@ -118,17 +127,18 @@ pub mod isi {
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
-        ) -> Result<Vec<DataEvent>, Self::Error> {
+        ) -> Result<(), Self::Error> {
             let role_id = self.object_id;
-
-            wsv.world.roles.remove(&role_id);
-            for mut domain in wsv.domains().iter_mut() {
-                for account in domain.accounts.values_mut() {
-                    let _ = account.roles.remove(&role_id);
+            wsv.modify_world(|world| {
+                world.roles.remove(&role_id);
+                for mut domain in world.domains.iter_mut() {
+                    for account in domain.accounts.values_mut() {
+                        let _ = account.roles.remove(&role_id);
+                    }
                 }
-            }
 
-            Ok(vec![DataEvent::new(role_id, DataStatus::Deleted)])
+                Ok(RoleEvent::Deleted(role_id).into())
+            })
         }
     }
 }

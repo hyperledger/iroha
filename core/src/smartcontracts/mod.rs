@@ -17,11 +17,7 @@ pub trait Execute<W: WorldTrait> {
     type Error: std::error::Error;
 
     /// Apply actions to `wsv` on behalf of `authority`.
-    fn execute(
-        self,
-        authority: AccountId,
-        wsv: &WorldStateView<W>,
-    ) -> Result<Vec<DataEvent>, Self::Error>;
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error>;
 }
 
 /// Calculate the result of the expression without mutating the state.

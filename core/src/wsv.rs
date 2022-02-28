@@ -2,6 +2,7 @@
 //! state.
 
 use std::{
+    convert::Infallible,
     fmt::Debug,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -17,6 +18,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{prelude::*, trigger::Action};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
+use small::SmallVec;
 use tokio::task;
 
 use crate::{
@@ -48,16 +50,30 @@ pub trait WorldTrait:
 /// For example registration of domain, will have this as an ISI target.
 #[derive(Debug, Default, Clone)]
 pub struct World {
-    /// Registered domains.
-    pub domains: DomainsMap,
     /// Identifications of discovered trusted peers.
     pub trusted_peers_ids: PeersIds,
-    /// Iroha parameters.
-    pub parameters: Vec<Parameter>,
-    /// Roles.
-    /// [`Role`] pairs.
+    /// Roles. [`Role`] pairs.
     #[cfg(feature = "roles")]
     pub roles: crate::RolesMap,
+    /// Registered domains.
+    pub domains: DomainsMap,
+    /// Iroha parameters.
+    pub parameters: Vec<Parameter>,
+}
+
+impl Deref for World {
+    type Target = Self;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self
+    }
+}
+
+impl DerefMut for World {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self
+    }
 }
 
 /// Current state of the blockchain aligned with `Iroha` module.
@@ -139,30 +155,11 @@ impl<W: WorldTrait> WorldStateView<W> {
         tokens
     }
 
-    /// Add new `Asset` entity.
-    ///
-    /// # Errors
-    /// Fails if there is no account for asset
-    pub fn add_asset(&self, asset: Asset) -> Result<(), Error> {
-        let id = asset.id.account_id.clone();
-        self.modify_account(&id, move |account| {
-            account.assets.insert(asset.id.clone(), asset);
-            Ok(())
-        })
-    }
-
-    /// Add new `Domain` entity.
-    pub fn add_domain(&mut self, domain: Domain) {
-        self.world.domains.insert(domain.id.clone(), domain);
-    }
-
     fn process_executable(&self, executable: &Executable, authority: &AccountId) -> Result<()> {
         match executable {
             Executable::Instructions(instructions) => {
                 instructions.iter().cloned().try_for_each(|instruction| {
-                    let events = instruction.execute(authority.clone(), self)?;
-
-                    self.produce_events(events);
+                    instruction.execute(authority.clone(), self)?;
                     Ok::<_, eyre::Report>(())
                 })?;
             }
@@ -228,16 +225,19 @@ impl<W: WorldTrait> WorldStateView<W> {
         })?
     }
 
-    /// Send events to known subscribers.
-    pub(crate) fn produce_events(&self, events: impl IntoIterator<Item = DataEvent>) {
-        let events = events.into_iter().map(Event::from);
+    /// Send [`Event`]s to known subscribers.
+    fn produce_events<E>(&self, events: E)
+    where
+        E: IntoIterator<Item = DataEvent>,
+    {
         let events_sender = if let Some(sender) = &self.events_sender {
             sender
         } else {
             return warn!("wsv does not equip an events sender");
         };
+
         for event in events {
-            drop(events_sender.send(event))
+            drop(events_sender.send(Event::from(event)))
         }
     }
 
@@ -256,7 +256,7 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .assets
                 .entry(id.clone())
                 .or_insert_with(|| Asset::new(id.clone(), default_asset_value.into()));
-            Ok(())
+            Ok(AccountEvent::Asset(AssetEvent::Created(id.clone())))
         })
         .map_err(|err| {
             iroha_logger::warn!(?err);
@@ -319,6 +319,51 @@ impl<W: WorldTrait> WorldStateView<W> {
             .map(|block_entry| block_entry.value().clone())
     }
 
+    /// Get `World` and pass it to closure to modify it
+    ///
+    /// Produces events in the `WSV` that are produced by `f` during execution.
+    /// Events are produced in the order of expanding scope: from specific to general.
+    /// Example: account events before domain events.
+    ///
+    /// # Errors
+    /// Fails if `f` fails
+    pub fn modify_world(
+        &self,
+        f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
+    ) -> Result<(), Error> {
+        let mut events: SmallVec<[DataEvent; 3]> = SmallVec(smallvec::smallvec![]);
+        let event = f(&self.world)?;
+
+        match event {
+            WorldEvent::Domain(domain_event) => {
+                match &domain_event {
+                    DomainEvent::Account(account_event) => {
+                        if let AccountEvent::Asset(asset_event) = account_event {
+                            events.push(DataEvent::Asset(asset_event.clone()))
+                        }
+                        events.push(DataEvent::Account(account_event.clone()));
+                    }
+                    DomainEvent::AssetDefinition(asset_definition_event) => {
+                        events.push(DataEvent::AssetDefinition(asset_definition_event.clone()))
+                    }
+                    _ => (),
+                }
+                events.push(DataEvent::Domain(domain_event));
+            }
+            WorldEvent::Peer(peer_event) => events.push(DataEvent::Peer(peer_event)),
+            #[cfg(feature = "roles")]
+            WorldEvent::Role(role_event) => events.push(DataEvent::Role(role_event)),
+        }
+
+        self.produce_events(events);
+        Ok(())
+    }
+
+    /// Returns reference for trusted peer ids
+    pub fn trusted_peers_ids(&self) -> &PeersIds {
+        &self.world.trusted_peers_ids
+    }
+
     /// Returns iterator over blockchain blocks starting with the block of the given `height`
     pub fn blocks_from_height(
         &self,
@@ -365,6 +410,42 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Returns reference for domains map
     pub fn domains(&self) -> &DomainsMap {
         &self.world.domains
+    }
+
+    /// Get `Domain` and pass it to closure.
+    ///
+    /// # Errors
+    /// Fails if there is no domain
+    #[allow(clippy::panic_in_result_fn)]
+    pub fn map_domain<T>(
+        &self,
+        id: &<Domain as Identifiable>::Id,
+        f: impl FnOnce(&Domain) -> Result<T, Infallible>,
+    ) -> Result<T, FindError> {
+        let domain = self.domain(id)?;
+        let value = match f(domain.value()) {
+            Ok(value) => value,
+            Err(_) => unreachable!("Returning `Infallible` should not be possible"),
+        };
+        Ok(value)
+    }
+
+    /// Get `Domain` and pass it to closure to modify it
+    ///
+    /// # Errors
+    /// Fails if there is no domain
+    pub fn modify_domain(
+        &self,
+        id: &<Domain as Identifiable>::Id,
+        f: impl FnOnce(&mut Domain) -> Result<DomainEvent, Error>,
+    ) -> Result<(), Error> {
+        self.modify_world(|world| {
+            let mut domain = world
+                .domains
+                .get_mut(id)
+                .ok_or_else(|| FindError::Domain(id.clone()))?;
+            f(domain.value_mut()).map(Into::into)
+        })
     }
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].
@@ -441,19 +522,6 @@ impl<W: WorldTrait> WorldStateView<W> {
         Ok(f(account))
     }
 
-    /// Get `Domain` and pass it to closure.
-    ///
-    /// # Errors
-    /// Fails if there is no domain
-    pub fn map_domain<T>(
-        &self,
-        id: &<Domain as Identifiable>::Id,
-        f: impl FnOnce(&Domain) -> T,
-    ) -> Result<T, FindError> {
-        let domain = self.domain(id)?;
-        Ok(f(domain.value()))
-    }
-
     /// Get `Account` and pass it to closure to modify it
     ///
     /// # Errors
@@ -461,14 +529,15 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_account(
         &self,
         id: &AccountId,
-        f: impl FnOnce(&mut Account) -> Result<(), Error>,
+        f: impl FnOnce(&mut Account) -> Result<AccountEvent, Error>,
     ) -> Result<(), Error> {
-        let mut domain = self.domain_mut(&id.domain_id)?;
-        let account = domain
-            .accounts
-            .get_mut(id)
-            .ok_or_else(|| FindError::Account(id.clone()))?;
-        f(account)
+        self.modify_domain(&id.domain_id, |domain| {
+            let account = domain
+                .accounts
+                .get_mut(id)
+                .ok_or_else(|| FindError::Account(id.clone()))?;
+            f(account).map(DomainEvent::Account)
+        })
     }
 
     /// Get `Asset` by its id
@@ -478,18 +547,18 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_asset(
         &self,
         id: &<Asset as Identifiable>::Id,
-        f: impl FnOnce(&mut Asset) -> Result<(), Error>,
+        f: impl FnOnce(&mut Asset) -> Result<AssetEvent, Error>,
     ) -> Result<(), Error> {
         self.modify_account(&id.account_id, |account| {
             let asset = account
                 .assets
                 .get_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
-            f(asset)?;
+            let event_result = f(asset);
             if asset.value.is_zero_value() {
                 account.assets.remove(id);
             }
-            Ok(())
+            event_result.map(AccountEvent::Asset)
         })
     }
 
@@ -500,27 +569,15 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn modify_asset_definition_entry(
         &self,
         id: &<AssetDefinition as Identifiable>::Id,
-        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<(), Error>,
+        f: impl FnOnce(&mut AssetDefinitionEntry) -> Result<AssetDefinitionEvent, Error>,
     ) -> Result<(), Error> {
-        let mut domain = self.domain_mut(&id.domain_id)?;
-        let asset_definition_entry = domain
-            .asset_definitions
-            .get_mut(id)
-            .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
-        f(asset_definition_entry)
-    }
-
-    /// Get `Domain` and pass it to closure to modify it
-    ///
-    /// # Errors
-    /// Fails if there is no domain
-    pub fn modify_domain(
-        &self,
-        id: &<Domain as Identifiable>::Id,
-        f: impl FnOnce(&mut Domain) -> Result<(), Error>,
-    ) -> Result<(), Error> {
-        let mut domain = self.domain_mut(id)?;
-        f(domain.value_mut())
+        self.modify_domain(&id.domain_id, |domain| {
+            let asset_definition_entry = domain
+                .asset_definitions
+                .get_mut(id)
+                .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
+            f(asset_definition_entry).map(DomainEvent::AssetDefinition)
+        })
     }
 
     /// Construct [`WorldStateView`] with given [`World`].
@@ -630,11 +687,6 @@ impl<W: WorldTrait> WorldStateView<W> {
         transactions
     }
 
-    /// Returns reference for trusted peer ids
-    pub fn trusted_peers_ids(&self) -> &PeersIds {
-        &self.world.trusted_peers_ids
-    }
-
     /// Add the ability of emitting events to [`WorldStateView`].
     pub fn with_events(mut self, events_sender: EventsSender) -> Self {
         self.events_sender = Some(events_sender);
@@ -645,20 +697,20 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn world(&self) -> &W {
         &self.world
     }
-}
 
-impl Deref for World {
-    type Target = Self;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self
-    }
-}
-
-impl DerefMut for World {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self
+    /// Get triggers set and modify it with `f`
+    ///
+    /// Produces trigger event from `f`
+    ///
+    /// # Errors
+    /// Throws up `f` errors
+    pub fn modify_triggers<F>(&self, f: F) -> Result<(), Error>
+    where
+        F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
+    {
+        let event = f(&self.triggers).map(Into::into)?;
+        self.produce_events([event]);
+        Ok(())
     }
 }
 

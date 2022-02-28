@@ -580,12 +580,7 @@ pub mod trigger {
     //! Structures traits and impls related to `Trigger`s.
 
     #[cfg(not(feature = "std"))]
-    use alloc::{
-        collections::{btree_map, btree_set},
-        format,
-        string::String,
-        vec::Vec,
-    };
+    use alloc::{format, string::String, vec::Vec};
     use core::cmp::Ordering;
 
     use iroha_schema::IntoSchema;

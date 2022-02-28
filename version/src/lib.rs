@@ -75,7 +75,7 @@ pub mod error {
 
     impl fmt::Display for Error {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let msg = match *self {
+            let msg = match self {
                 Self::NotVersioned => "Not a versioned object",
                 Self::UnsupportedJsonEncode => {
                     "Cannot encode unsupported version from JSON to SCALE"

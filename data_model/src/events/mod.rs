@@ -3,6 +3,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
+use data::Filter;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
@@ -123,7 +124,7 @@ impl EventFilter {
     pub fn apply(&self, event: &Event) -> bool {
         match (event, self) {
             (Event::Pipeline(event), EventFilter::Pipeline(filter)) => filter.apply(event),
-            (Event::Data(event), EventFilter::Data(filter)) => filter.apply(event),
+            (Event::Data(event), EventFilter::Data(filter)) => filter.matches(event),
             _ => false,
         }
     }
