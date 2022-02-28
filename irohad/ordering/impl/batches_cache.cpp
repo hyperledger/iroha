@@ -121,10 +121,7 @@ namespace iroha::ordering {
       } else {
         if (mergeSignaturesInBatch(it_batch->second.batch, batch)) {
           if (it_batch->second.batch->hasAllSignatures()) {
-            {
-              std::unique_lock lock(batches_cache_cs_);
-              batches_cache_.insert(it_batch->second.batch);
-            }
+            batches_cache_.insert(it_batch->second.batch);
             mst_state.mst_expirations_.erase(it_batch->second.timestamp);
             mst_state.mst_pending_.erase(it_batch);
             getSubscription()->notify(EventTypes::kOnMstPreparedBatches, it_batch->second.batch);
