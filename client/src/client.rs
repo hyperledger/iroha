@@ -11,7 +11,7 @@ use std::{
 use eyre::{eyre, Result, WrapErr};
 use http_client::WebSocketStream;
 use iroha_config::{GetConfiguration, PostConfiguration};
-use iroha_crypto::{HashOf, KeyPair};
+use iroha_crypto::{base64, HashOf, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
@@ -67,11 +67,8 @@ impl Client {
     ) -> Self {
         if configuration.use_basic_auth {
             let credentials = format!("{}:{}", configuration.account_id, configuration.password);
-            // TODO: base64 encoding
-            headers.insert(
-                String::from("Authorization"),
-                format!("Basic {}", credentials),
-            );
+            let encoded = base64::encode(credentials);
+            headers.insert(String::from("Authorization"), format!("Basic {}", encoded));
         }
 
         Self {

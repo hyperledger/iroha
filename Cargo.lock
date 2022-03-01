@@ -1779,6 +1779,7 @@ dependencies = [
 name = "iroha_crypto"
 version = "2.0.0-pre-rc.2"
 dependencies = [
+ "base64",
  "derive_more",
  "hex",
  "hex-literal",
