@@ -9,9 +9,11 @@ use serde::{Deserialize, Serialize};
 use small::SmallStr;
 
 const DEFAULT_TORII_TELEMETRY_URL: &str = "127.0.0.1:8180";
+const DEFAULT_PASSWORD: &str = "";
 const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_ADD_TRANSACTION_NONCE: bool = false;
+const DEFAULT_USE_BASIC_AUTH: bool = false;
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
 // TODO: design macro to load config from env.
@@ -27,6 +29,10 @@ pub struct Configuration {
     pub private_key: PrivateKey,
     /// User account id.
     pub account_id: AccountId,
+    /// User password, which is used for Basic Auth
+    pub password: SmallStr,
+    /// Should client use Basic Auth or not
+    pub use_basic_auth: bool,
     /// Torii URL.
     pub torii_api_url: SmallStr,
     /// Status URL.
@@ -50,6 +56,8 @@ impl Default for Configuration {
             public_key: PublicKey::default(),
             private_key: PrivateKey::default(),
             account_id: AccountId::test("", ""),
+            password: small::SmallStr::from_str(DEFAULT_PASSWORD),
+            use_basic_auth: DEFAULT_USE_BASIC_AUTH,
             torii_api_url: small::SmallStr::from_str(uri::DEFAULT_API_URL),
             torii_telemetry_url: small::SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL),
             transaction_time_to_live_ms: DEFAULT_TRANSACTION_TIME_TO_LIVE_MS,

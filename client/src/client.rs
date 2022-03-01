@@ -42,6 +42,8 @@ pub struct Client {
     pub transaction_status_timeout: Duration,
     /// Current account
     pub account_id: AccountId,
+    /// Account password
+    pub password: SmallStr,
     /// Http headers which will be appended to each request
     pub headers: http_client::Headers,
     /// If `true` add nonce, which makes different hashes for
@@ -51,28 +53,27 @@ pub struct Client {
 
 /// Representation of `Iroha` client.
 impl Client {
-    /// Constructor for client
+    /// Constructor for client from configuration
     pub fn new(configuration: &Configuration) -> Self {
-        Self {
-            torii_url: configuration.torii_api_url.clone(),
-            telemetry_url: configuration.torii_telemetry_url.clone(),
-            transaction_limits: configuration.transaction_limits,
-            key_pair: KeyPair {
-                public_key: configuration.public_key.clone(),
-                private_key: configuration.private_key.clone(),
-            },
-            proposed_transaction_ttl_ms: configuration.transaction_time_to_live_ms,
-            transaction_status_timeout: Duration::from_millis(
-                configuration.transaction_status_timeout_ms,
-            ),
-            account_id: configuration.account_id.clone(),
-            headers: HashMap::default(),
-            add_transaction_nonce: configuration.add_transaction_nonce,
-        }
+        Self::with_headers(configuration, http_client::Headers::default())
     }
 
-    /// Constructor for client
-    pub fn with_headers(configuration: &Configuration, headers: HashMap<String, String>) -> Self {
+    /// Constructor for client from configuration and headers
+    ///
+    /// *Authentication* header will be added, if `use_basic_auth` option in enabled
+    pub fn with_headers(
+        configuration: &Configuration,
+        mut headers: HashMap<String, String>,
+    ) -> Self {
+        if configuration.use_basic_auth {
+            let credentials = format!("{}:{}", configuration.account_id, configuration.password);
+            // TODO: base64 encoding
+            headers.insert(
+                String::from("Authorization"),
+                format!("Basic {}", credentials),
+            );
+        }
+
         Self {
             torii_url: configuration.torii_api_url.clone(),
             telemetry_url: configuration.torii_telemetry_url.clone(),
@@ -86,6 +87,7 @@ impl Client {
                 configuration.transaction_status_timeout_ms,
             ),
             account_id: configuration.account_id.clone(),
+            password: configuration.password.clone(),
             headers,
             add_transaction_nonce: configuration.add_transaction_nonce,
         }
