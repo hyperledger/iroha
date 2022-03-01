@@ -29,26 +29,24 @@ use crate::{
 #[derive(Clone)]
 pub struct Client {
     /// Url for accessing iroha node
-    pub torii_url: SmallStr,
+    torii_url: SmallStr,
     /// Url to report status for administration
-    pub telemetry_url: SmallStr,
+    telemetry_url: SmallStr,
     /// Limits to which transactions must adhere to
-    pub transaction_limits: TransactionLimits,
+    transaction_limits: TransactionLimits,
     /// Accounts keypair
-    pub key_pair: KeyPair,
+    key_pair: KeyPair,
     /// Transaction time to live in milliseconds
-    pub proposed_transaction_ttl_ms: u64,
+    proposed_transaction_ttl_ms: u64,
     /// Transaction status timeout
-    pub transaction_status_timeout: Duration,
+    transaction_status_timeout: Duration,
     /// Current account
-    pub account_id: AccountId,
-    /// Account password
-    pub password: SmallStr,
+    account_id: AccountId,
     /// Http headers which will be appended to each request
-    pub headers: http_client::Headers,
+    headers: http_client::Headers,
     /// If `true` add nonce, which makes different hashes for
     /// transactions which occur repeatedly and/or simultaneously
-    pub add_transaction_nonce: bool,
+    add_transaction_nonce: bool,
 }
 
 /// Representation of `Iroha` client.
@@ -84,7 +82,6 @@ impl Client {
                 configuration.transaction_status_timeout_ms,
             ),
             account_id: configuration.account_id.clone(),
-            password: configuration.password.clone(),
             headers,
             add_transaction_nonce: configuration.add_transaction_nonce,
         }
@@ -724,5 +721,31 @@ mod tests {
         assert_ne!(tx1.hash(), tx2.hash());
         tx2.payload.nonce = tx1.payload.nonce;
         assert_eq!(tx1.hash(), tx2.hash());
+    }
+
+    #[test]
+    fn basic_auth_header() {
+        const ACCOUNT_NAME: &str = "alice";
+        const DOMAIN_NAME: &str = "wonderland";
+        const PASSWORD: &str = "cheshirecat";
+        // `alice@wonderland:cheshirecat` encoded with base64
+        const ENCRYPTED_CREDENTIALS: &str = "YWxpY2VAd29uZGVybGFuZDpjaGVzaGlyZWNhdA==";
+
+        let account_id = AccountId::new(ACCOUNT_NAME, DOMAIN_NAME)
+            .expect("alice@wonderland should be valid AccountId");
+        let cfg = Configuration {
+            use_basic_auth: true,
+            account_id,
+            password: SmallStr::from_str(PASSWORD),
+            ..Configuration::default()
+        };
+        let client = Client::new(&cfg);
+
+        let value = client
+            .headers
+            .get("Authorization")
+            .expect("Expected `Authorization` header");
+        let expected_value = format!("Basic {}", ENCRYPTED_CREDENTIALS);
+        assert_eq!(value, &expected_value);
     }
 }
