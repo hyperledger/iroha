@@ -1,4 +1,4 @@
-name: Add Iroha2 label
+name: I2::Label
 
 on:
   pull_request_target:

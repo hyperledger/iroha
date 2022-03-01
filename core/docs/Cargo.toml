@@ -1,13 +1,14 @@
 [package]
 name = "iroha_docs"
-version = "2.0.0-pre.1"
+version = "2.0.0-pre-rc.2"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-iroha_core = { path = "../../core" }
-iroha_config = { path = "../../config" }
+iroha_core = { version = "=2.0.0-pre-rc.2", path = "../../core" }
+iroha_config = { version = "=2.0.0-pre-rc.2", path = "../../config" }
+
 color-eyre = "0.5.11"
 serde_json = "1"

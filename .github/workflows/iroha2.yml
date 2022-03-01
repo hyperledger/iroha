@@ -1,4 +1,4 @@
-name: Iroha 2 main branch workflow
+name: I2::Release::Deploy
 
 on:
   push:
@@ -10,72 +10,36 @@ env:
 jobs:
   coverage:
     runs-on: ubuntu-latest
-    container: rust:1.56-buster
+    container:
+      image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
-      - name: Set nightly toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly-2021-02-20
-          override: true
-      - name: Cargo clean
-        uses: actions-rs/cargo@v1
-        with:
-          command: clean
-      - name: Cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --workspace -- --test-threads=1
+      - uses: Swatinem/rust-cache@v1
+      - name: Run tests
+        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2 || true
         env:
-          CARGO_INCREMENTAL: "0"
-          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests"
-          RUSTDOCFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
-      - name: Generate coverage report
-        id: coverage
-        uses: actions-rs/grcov@v0.1
-      - name: Archive code coverage results
-        uses: actions/upload-artifact@v2
-        with:
-          name: code-coverage-report
-          path: ${{ steps.coverage.outputs.report }}
+          RUSTFLAGS: "-Zinstrument-coverage"
+          LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
+      - name: Generate a grcov coverage report
+        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
         with:
-          file: ${{ steps.coverage.outputs.report }}
+          file: lcov.info
 
-  bench:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run benchmarks
-        run: cargo bench --workspace --verbose
 
   deploy:
-    needs: [coverage, bench]
     runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
-      - name: Test
-        run: cargo test --workspace --release --verbose -- --test-threads=1
-      - name: Build
-        run: cargo build --release --verbose
-      - name: Archive build
-        uses: actions/upload-artifact@v2
+      - uses: Swatinem/rust-cache@v1
+      - name: set up buildx
+        uses: docker/setup-buildx-action@v1
+        id: buildx
         with:
-          name: cargo-build-release
-          path: target/release/iroha_core
-      - name: Archive Client CLI build
-        uses: actions/upload-artifact@v2
-        with:
-          name: cargo-client-cli-build-release
-          path: target/release/iroha_client_cli
-      - name: Archive Crypto CLI build
-        uses: actions/upload-artifact@v2
-        with:
-          name: cargo-crypto-cli-build-release
-          path: target/release/iroha_crypto_cli
-
+          install: true
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
@@ -86,7 +50,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2
+          tags: hyperledger/iroha2:dev
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
@@ -110,3 +74,4 @@ jobs:
             TARGET_DIR=release
             PROFILE=--release
             BIN=iroha_crypto_cli
+
