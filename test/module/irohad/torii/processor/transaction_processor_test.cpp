@@ -389,7 +389,6 @@ TEST_F(TransactionProcessorTest, MultisigTransactionFromMst) {
   auto &&after_mst = framework::batch::createBatchFromSingleTransaction(
       std::shared_ptr<shared_model::interface::Transaction>(clone(tx)));
 
-  EXPECT_CALL(*pcs, propagate_batch(_)).Times(1);
   tp->processPreparedBatch(after_mst);
 }
 
