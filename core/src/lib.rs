@@ -318,6 +318,7 @@ where
         telemetry: Option<(SubstrateTelemetry, FutureTelemetry)>,
         config: &Configuration,
     ) -> Result<bool> {
+        #[allow(unused)]
         if let Some((substrate_telemetry, telemetry_future)) = telemetry {
             #[cfg(feature = "dev-telemetry")]
             {

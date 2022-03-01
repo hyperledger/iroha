@@ -25,13 +25,15 @@ pub mod error {
     use core::fmt;
 
     use iroha_macro::FromVariant;
+    #[cfg(feature = "scale")]
     use parity_scale_codec::{Decode, Encode};
 
     use super::UnsupportedVersion;
 
     /// Versioning errors
-    #[derive(Debug, Clone, Decode, Encode, FromVariant)]
+    #[derive(Debug, Clone, FromVariant)]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
+    #[cfg_attr(feature = "scale", derive(Encode, Decode))]
     pub enum Error {
         /// This is not a versioned object
         NotVersioned,

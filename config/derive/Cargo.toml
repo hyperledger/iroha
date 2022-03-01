@@ -8,7 +8,8 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-syn = { version = "1.0", default-features = false }
+syn = { version = "1.0", default-features = false, features = ["derive", "parsing", "proc-macro", "clone-impls", "printing"] }
+# This is the maximally compressed set of features. Yes we also need "printing". 
 quote = "1.0"
 proc-macro2 = "1.0"
 proc-macro-error = "1.0"
