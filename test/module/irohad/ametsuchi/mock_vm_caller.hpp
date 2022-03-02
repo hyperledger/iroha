@@ -14,12 +14,12 @@
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/specific_query_executor.hpp"
 #include "common/result.hpp"
-
+#include "ametsuchi/impl/postgres_burrow_storage.hpp"
 namespace iroha::ametsuchi {
   class MockVmCaller : public VmCaller {
    public:
     virtual ~MockVmCaller() = default;
-    
+
     MOCK_CONST_METHOD1(
         exportBurrow,
         void(PostgresBurrowStorage &burrowStorage));
