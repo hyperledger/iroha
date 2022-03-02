@@ -187,32 +187,12 @@ namespace iroha {
         log_->info("votingStep got vote: {}, attempt {}", vote, attempt);
         std::unique_lock<std::mutex> lock(mutex_);
 
-        auto committed = vote_storage_.isCommitted(vote.hash.vote_round);
-        if (committed) {
+        auto const committed = vote_storage_.isCommitted(vote.hash.vote_round);
+        if (committed)
           return;
-        }
-
-        enum { kRotatePeriod = 10 };
-
-        if (0 != attempt && 0 == (attempt % kRotatePeriod)) {
-          vote_storage_.remove(vote.hash.vote_round);
-        }
-
-        /**
-         * 3 attempts to build and commit block before we think that round is
-         * freezed
-         */
-        if (attempt == kRotatePeriod) {
-          vote.hash.vote_hashes.proposal_hash.clear();
-          vote.hash.vote_hashes.block_hash.clear();
-          vote.hash.block_signature.reset();
-          vote = crypto_->getVote(vote.hash);
-        }
 
         auto &cluster_order = getCurrentOrder();
-
         const auto &current_leader = cluster_order.currentLeader();
-
         log_->info("Vote {} to peer {}", vote, current_leader);
 
         propagateStateDirectly(current_leader, {vote});
