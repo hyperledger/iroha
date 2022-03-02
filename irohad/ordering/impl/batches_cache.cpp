@@ -129,6 +129,7 @@ namespace iroha::ordering {
               auto batch = it->second;
               mst_state.mst_pending_.erase(batch->reducedHash());
               it = mst_state.mst_expirations_.erase(it);
+              mst_state -= batch;
               getSubscription()->notify(EventTypes::kOnMstExpiredBatches, batch);
             }
             assert(mst_state.mst_pending_.size()
@@ -149,11 +150,13 @@ namespace iroha::ordering {
         auto ts = oldestTimestamp(batch);
         while (!mst_state.mst_expirations_.emplace(ts, batch).second) ++ts;
         it_batch->second.timestamp = ts;
+        mst_state += batch;
         getSubscription()->notify(EventTypes::kOnMstStateUpdate, batch);
       } else {
         if (mergeSignaturesInBatch(it_batch->second.batch, batch)) {
           if (it_batch->second.batch->hasAllSignatures()) {
             batches_cache_.insert(it_batch->second.batch);
+            mst_state -= it_batch->second.batch;
             mst_state.mst_expirations_.erase(it_batch->second.timestamp);
             mst_state.mst_pending_.erase(it_batch);
             getSubscription()->notify(EventTypes::kOnMstPreparedBatches, it_batch->second.batch);
@@ -170,6 +173,7 @@ namespace iroha::ordering {
   void BatchesCache::removeMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
     mst_state_->exclusiveAccess([&](auto &mst_state) {
       if (auto it = mst_state.mst_pending_.find(batch->reducedHash()); it != mst_state.mst_pending_.end()) {
+        mst_state -= it->second.batch;
         mst_state.mst_expirations_.erase(it->second.timestamp);
         mst_state.mst_pending_.erase(it);
         assert(mst_state.mst_pending_.size() == mst_state.mst_expirations_.size()); 
@@ -187,6 +191,7 @@ namespace iroha::ordering {
                            return hashes.find(tx->hash()) != hashes.end();
                          });
         if (need_remove) {
+          mst_state -= batch_info.batch;
           mst_state.mst_expirations_.erase(batch_info.timestamp);  
           it = mst_state.mst_pending_.erase(it);
         } else ++it;
