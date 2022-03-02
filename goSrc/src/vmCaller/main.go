@@ -10,7 +10,6 @@ import (
 	vm "vmCaller/evm"
 	"vmCaller/iroha"
 	server "vmCaller/web3_service"
-
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/crypto"
@@ -27,6 +26,7 @@ var (
 	burrowEVM = evm.New(evm.Options{
 		Natives: vm.MustCreateNatives(),
 	})
+
 )
 
 func init() {

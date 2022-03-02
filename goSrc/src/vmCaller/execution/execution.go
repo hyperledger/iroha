@@ -6,7 +6,7 @@ import (
 
 	vm "vmCaller/evm"
 	"vmCaller/iroha"
-
+	"sync"	
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/bcm"
@@ -23,10 +23,7 @@ import (
 )
 
 var (
-	// Create EVM instance
-	burrowEVM = evm.New(evm.Options{
-		Natives: vm.MustCreateQueryNatives(),
-	})
+	ExecutionMutex sync.Mutex
 )
 
 type Engine interface {
@@ -42,8 +39,12 @@ type EngineWrapper struct {
 
 // Run a contract's code on an isolated and unpersisted state
 // Cannot be used to create new contracts
-func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress string, address crypto.Address, data []byte,
+func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, from string, address crypto.Address, data []byte,
 	logger *logging.Logger) (*exec.TxExecution, error) {
+	
+	burrowEVM := evm.New(evm.Options{
+		Natives: vm.MustCreateQueryNatives(),
+	})
 	worldState := vm.NewIrohaState(iroha.StoragePointer)
 	if err := worldState.UpdateAccount(&acm.Account{
 		Address:     acm.GlobalPermissionsAddress,
@@ -52,10 +53,10 @@ func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress 
 	}); err != nil {
 		return nil, fmt.Errorf("Internal error occured while trying to update account")
 	}
-	evmCaller := native.AddressFromName(fromAddress)
+	evmCaller := native.AddressFromName(from)
 	callerAccount, err := worldState.GetAccount(evmCaller)
 	if err != nil {
-		return nil,fmt.Errorf("Error while getting iroha account of %s", fromAddress)
+		return nil,fmt.Errorf("Error while getting iroha account of %s", from)
 	}
 	if callerAccount == nil {
 		return nil, fmt.Errorf("Sender account must be an existing iroha account")

@@ -19,6 +19,14 @@ namespace iroha::ametsuchi {
   class MockVmCaller : public VmCaller {
    public:
     virtual ~MockVmCaller() = default;
+    
+    MOCK_CONST_METHOD1(
+        exportBurrow,
+        void(PostgresBurrowStorage &burrowStorage));
+
+    MOCK_CONST_METHOD0(
+      stopBurrow,
+      void());
 
     MOCK_CONST_METHOD8(
         call,

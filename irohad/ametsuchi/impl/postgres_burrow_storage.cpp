@@ -16,6 +16,8 @@
 using namespace iroha::ametsuchi;
 using namespace iroha::expected;
 
+
+
 PostgresBurrowStorage::PostgresBurrowStorage(
     soci::session &sql,
     std::string const &tx_hash,
