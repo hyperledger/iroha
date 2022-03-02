@@ -11,8 +11,8 @@
 #include <memory>
 #include <numeric>
 #include <shared_mutex>
-#include <unordered_set>
 #include <unordered_map>
+#include <map>
 
 #include "common/common.hpp"
 #include "consensus/round.hpp"
@@ -83,7 +83,8 @@ namespace iroha::ordering {
   class BatchesCache {
    public:
     using BatchesSetType = BatchesContext::BatchesSetType;
-
+    using TimeType = shared_model::interface::types::TimestampType;
+  
    private:
     struct BatchInfo {
       std::shared_ptr<shared_model::interface::TransactionBatch> batch;
@@ -95,7 +96,7 @@ namespace iroha::ordering {
 
     using MSTBatchesSetType = std::unordered_map<shared_model::interface::types::HashType,
         BatchInfo, shared_model::crypto::Hash::Hasher>;
-    using MSTExpirationSetType = std::unordered_map<shared_model::interface::types::TimestampType, 
+    using MSTExpirationSetType = std::map<shared_model::interface::types::TimestampType, 
         std::shared_ptr<shared_model::interface::TransactionBatch>>;
 
     struct MSTState {
@@ -105,7 +106,9 @@ namespace iroha::ordering {
 
     mutable std::shared_mutex batches_cache_cs_;
     BatchesContext batches_cache_, used_batches_cache_;
-    utils::ReadWriteObject<MSTState, std::mutex> mst_state_;
+
+    std::shared_ptr<
+    utils::ReadWriteObject<MSTState, std::mutex>> mst_state_;
 
     /**
      * MST functions
@@ -117,7 +120,7 @@ namespace iroha::ordering {
    public:
     BatchesCache(BatchesCache const &) = delete;
     BatchesCache &operator=(BatchesCache const &) = delete;
-    BatchesCache() = default;
+    BatchesCache(std::chrono::minutes const &expiration_range = std::chrono::minutes(24 * 60));
 
     uint64_t insert(
         std::shared_ptr<shared_model::interface::TransactionBatch> const

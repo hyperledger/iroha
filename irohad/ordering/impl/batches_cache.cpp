@@ -47,6 +47,13 @@ namespace {
     return inserted_new_signatures;
   }
 
+  bool isExpired(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch,
+                  std::chrono::minutes const &expiration_range,
+                                   const iroha::ordering::BatchesCache::TimeType &current_time) {
+    return oldestTimestamp(batch)
+        + expiration_range / std::chrono::milliseconds(1)
+        < current_time;
+  }
 }  // namespace
 
 namespace iroha::ordering {
@@ -107,9 +114,34 @@ namespace iroha::ordering {
     assert(count(from.batches_) == from.tx_count_);
   }
 
+  BatchesCache::BatchesCache(std::chrono::minutes const &expiration_range) : mst_state_(std::make_shared<utils::ReadWriteObject<MSTState, std::mutex>>()) {
+  getSubscription()->dispatcher()->repeat(
+      SubscriptionEngineHandlers::kNotifications,
+      std::chrono::seconds(10ull),  /// repeat task execution period
+      [expiration_range, w_mst_state(utils::make_weak(mst_state_))]() {
+        if (auto s_mst_state = w_mst_state.lock()) {
+          auto const now = std::chrono::system_clock::now().time_since_epoch()
+              / std::chrono::milliseconds(1);
+
+          s_mst_state->exclusiveAccess([now, expiration_range](auto &mst_state) {
+            auto it = mst_state.mst_expirations_.begin();
+            while (it != mst_state.mst_expirations_.end() && isExpired(it->second, expiration_range, now)) {
+              auto batch = it->second;
+              mst_state.mst_pending_.erase(batch->reducedHash());
+              it = mst_state.mst_expirations_.erase(it);
+              getSubscription()->notify(EventTypes::kOnMstExpiredBatches, batch);
+            }
+            assert(mst_state.mst_pending_.size()
+                   == mst_state.mst_expirations_.size());
+          });
+        }
+      },
+      [w_mst_state(utils::make_weak(mst_state_))]() { return !w_mst_state.expired(); });
+  }
+
   void BatchesCache::insertMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
     assert(!batch->hasAllSignatures());
-    mst_state_.exclusiveAccess([&](auto &mst_state) {
+    mst_state_->exclusiveAccess([&](auto &mst_state) {
       auto ins_res =
           mst_state.mst_pending_.emplace(batch->reducedHash(), batch);
       auto &it_batch = ins_res.first;
@@ -136,7 +168,7 @@ namespace iroha::ordering {
   }
 
   void BatchesCache::removeMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
-    mst_state_.exclusiveAccess([&](auto &mst_state) {
+    mst_state_->exclusiveAccess([&](auto &mst_state) {
       if (auto it = mst_state.mst_pending_.find(batch->reducedHash()); it != mst_state.mst_pending_.end()) {
         mst_state.mst_expirations_.erase(it->second.timestamp);
         mst_state.mst_pending_.erase(it);
@@ -146,7 +178,7 @@ namespace iroha::ordering {
   }
 
   void BatchesCache::removeMSTCache(OnDemandOrderingService::HashesSetType const &hashes) {
-    mst_state_.exclusiveAccess([&](auto &mst_state) {
+    mst_state_->exclusiveAccess([&](auto &mst_state) {
       for (auto it = mst_state.mst_pending_.begin(); it != mst_state.mst_pending_.end();) {
         auto const &batch_info = it->second;
         auto const need_remove = std::any_of(batch_info.batch->transactions().begin(),
