@@ -94,6 +94,22 @@ However, due to the distributed nature of the network, some peers might receive 
 It's possible that some peers in the network are offline for the validation round. If the client connects to them while they are offline, the peers might not respond with the `Validating` status.
 But when the offline peers come back online they will synchronize the blocks. They are then guaranteed to respond with the `Committed` (or `Rejected`) status depending on the information found in the block.
 
+### Pending transactions
+
+**Protocol**: HTTP
+
+**Encoding**: [Parity Scale Codec](#parity-scale-codec)
+
+**Endpoint**: `/pending_transactions`
+
+**Method**: `GET`
+
+**Expects**:
+
+_Internal use only_. Returns the transactions pending at the moment.
+
+
+
 ### Blocks stream
 
 **Protocol**: HTTP
@@ -147,6 +163,30 @@ curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configurat
 **Responses**:
 - 200 OK - Field was found and either doc or value is returned in json body.
 - 404 Not Found - Field wasn't found
+
+### Configuration
+
+**Protocol**: HTTP
+
+**Encoding**: JSON
+
+**Endpoint**: `/configuration`
+
+**Method**: `POST`
+
+**Expects**:
+One configuration option is currently supported: `LogLevel`. It is set to the log-level in uppercase.
+```json
+{
+    "LogLevel":"WARN"
+}
+```
+Acceptable values are `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, corresponding to the [respective configuration options](./config.md#logger.max_log_level).
+
+**Responses**:
+- 200 OK - Log level has changed successfully. The confirmed new log level is returned in the body.
+- 400 Bad Request - request body malformed.
+- 500 Internal Server Error - Request body valid, but changing the log level failed (lock contention).
 
 ### Health
 
