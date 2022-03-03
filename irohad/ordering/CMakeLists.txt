@@ -9,12 +9,18 @@ target_link_libraries(on_demand_common
     consensus_round
     )
 
-add_library(on_demand_ordering_service
-    impl/on_demand_ordering_service_impl.cpp
+add_library(batches_cache
     impl/batches_cache.cpp
     )
+target_link_libraries(batches_cache
+    Boost::boost
+    )
 
+add_library(on_demand_ordering_service
+    impl/on_demand_ordering_service_impl.cpp
+    )
 target_link_libraries(on_demand_ordering_service
+    batches_cache
     on_demand_common
     shared_model_interfaces
     consensus_round
