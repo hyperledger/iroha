@@ -39,13 +39,13 @@
 
 | Response        | Status | Body [*](#iroha-structures) |
 | --------------- | ------ | ---- |
-| Decode err.     |    400 | `QueryError::Decode(_)` |
-| Version err.    |    400 | `QueryError::Version(_)` |
-| Signature err.  |    401 | `QueryError::Signature(_)` |
-| Permission err. |    403 | `QueryError::Permission(_)` |
-| Evaluate err.   |    400 | `QueryError::Evaluate(_)` |
+| Decode err.     |    400 | `QueryError::Decode(Box<iroha_version::error::Error>)` |
+| Version err.    |    400 | `QueryError::Version(UnsupportedVersionError)` |
+| Signature err.  |    401 | `QueryError::Signature(String)` |
+| Permission err. |    403 | `QueryError::Permission(String)` |
+| Evaluate err.   |    400 | `QueryError::Evaluate(String)` |
 | Find err.       |    404 | `QueryError::Find(Box<FindError>)` |
-| Conversion err. |    400 | `QueryError::Conversion(_)` |
+| Conversion err. |    400 | `QueryError::Conversion(String)` |
 | Success         |    200 | `VersionedQueryResult` |
 
 #### Asset Not Found 404
@@ -286,6 +286,7 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 
 - `VersionedQueryResult` - `iroha_data_model::query::VersionedQueryResult`
 - `QueryError` - `iroha_core::smartcontracts::isi::query::Error`
+- `UnsupportedVersionError` - `iroha_core::smartcontracts::isi::query::UnsupportedVersionError`
 - `FindError` - `iroha_core::smartcontracts::isi::error::FindError`
 
 - `EventStreamSubscriptionRequest` - `iroha_data_model::events::EventSubscriberMessage::SubscriptionRequest`

@@ -5,6 +5,7 @@ use std::{error::Error as StdError, fmt};
 use eyre::Result;
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{prelude::*, query};
+use iroha_schema::IntoSchema;
 use iroha_version::scale::DecodeVersioned;
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
@@ -90,7 +91,7 @@ impl ValidQueryRequest {
 }
 
 /// Unsupported version error
-#[derive(Clone, Copy, Eq, PartialEq, Debug, Decode, Encode)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Decode, Encode, IntoSchema)]
 pub struct UnsupportedVersionError {
     /// Version that we got
     pub version: u8,
@@ -117,7 +118,7 @@ impl fmt::Display for UnsupportedVersionError {
 }
 
 /// Query errors.
-#[derive(Error, Debug, Clone, Decode, Encode)]
+#[derive(Error, Debug, Clone, Decode, Encode, IntoSchema)]
 pub enum Error {
     /// Query can not be decoded.
     #[error("Query can not be decoded")]
