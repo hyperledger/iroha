@@ -8,11 +8,11 @@
 
 #include "ordering/on_demand_ordering_service.hpp"
 
+#include <map>
 #include <memory>
 #include <numeric>
 #include <shared_mutex>
 #include <unordered_map>
-#include <map>
 
 #include "common/common.hpp"
 #include "consensus/round.hpp"
@@ -84,34 +84,44 @@ namespace iroha::ordering {
    public:
     using BatchesSetType = BatchesContext::BatchesSetType;
     using TimeType = shared_model::interface::types::TimestampType;
-  
+
    private:
     struct BatchInfo {
       std::shared_ptr<shared_model::interface::TransactionBatch> batch;
       shared_model::interface::types::TimestampType timestamp;
 
-      BatchInfo(std::shared_ptr<shared_model::interface::TransactionBatch> const &b, shared_model::interface::types::TimestampType const &t = 0ull)
-      : batch(b), timestamp(t) { }
+      BatchInfo(
+          std::shared_ptr<shared_model::interface::TransactionBatch> const &b,
+          shared_model::interface::types::TimestampType const &t = 0ull)
+          : batch(b), timestamp(t) {}
     };
 
-    using MSTBatchesSetType = std::unordered_map<shared_model::interface::types::HashType,
-        BatchInfo, shared_model::crypto::Hash::Hasher>;
-    using MSTExpirationSetType = std::map<shared_model::interface::types::TimestampType, 
-        std::shared_ptr<shared_model::interface::TransactionBatch>>;
+    using MSTBatchesSetType =
+        std::unordered_map<shared_model::interface::types::HashType,
+                           BatchInfo,
+                           shared_model::crypto::Hash::Hasher>;
+    using MSTExpirationSetType =
+        std::map<shared_model::interface::types::TimestampType,
+                 std::shared_ptr<shared_model::interface::TransactionBatch>>;
 
     struct MSTState {
       MSTBatchesSetType mst_pending_;
       MSTExpirationSetType mst_expirations_;
       std::tuple<size_t, size_t> batches_and_txs_counter;
 
-      void operator-=(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
+      void operator-=(
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) {
         assert(std::get<0>(batches_and_txs_counter) >= 1ull);
-        assert(std::get<1>(batches_and_txs_counter) >= batch->transactions().size());
+        assert(std::get<1>(batches_and_txs_counter)
+               >= batch->transactions().size());
 
         std::get<0>(batches_and_txs_counter) -= 1ull;
         std::get<1>(batches_and_txs_counter) -= batch->transactions().size();
       }
-      void operator+=(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
+      void operator+=(
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) {
         std::get<0>(batches_and_txs_counter) += 1ull;
         std::get<1>(batches_and_txs_counter) += batch->transactions().size();
       }
@@ -120,20 +130,24 @@ namespace iroha::ordering {
     mutable std::shared_mutex batches_cache_cs_;
     BatchesContext batches_cache_, used_batches_cache_;
 
-    std::shared_ptr<
-    utils::ReadWriteObject<MSTState, std::mutex>> mst_state_;
+    std::shared_ptr<utils::ReadWriteObject<MSTState, std::mutex>> mst_state_;
 
     /**
      * MST functions
      */
-    void insertMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch);
-    void removeMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch);
+    void insertMSTCache(
+        std::shared_ptr<shared_model::interface::TransactionBatch> const
+            &batch);
+    void removeMSTCache(
+        std::shared_ptr<shared_model::interface::TransactionBatch> const
+            &batch);
     void removeMSTCache(OnDemandOrderingService::HashesSetType const &hashes);
 
    public:
     BatchesCache(BatchesCache const &) = delete;
     BatchesCache &operator=(BatchesCache const &) = delete;
-    BatchesCache(std::chrono::minutes const &expiration_range = std::chrono::minutes(24 * 60));
+    BatchesCache(std::chrono::minutes const &expiration_range =
+                     std::chrono::minutes(24 * 60));
 
     uint64_t insert(
         std::shared_ptr<shared_model::interface::TransactionBatch> const

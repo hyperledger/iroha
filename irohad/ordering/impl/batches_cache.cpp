@@ -47,9 +47,10 @@ namespace {
     return inserted_new_signatures;
   }
 
-  bool isExpired(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch,
-                  std::chrono::minutes const &expiration_range,
-                                   const iroha::ordering::BatchesCache::TimeType &current_time) {
+  bool isExpired(
+      std::shared_ptr<shared_model::interface::TransactionBatch> const &batch,
+      std::chrono::minutes const &expiration_range,
+      const iroha::ordering::BatchesCache::TimeType &current_time) {
     return oldestTimestamp(batch)
         + expiration_range / std::chrono::milliseconds(1)
         < current_time;
@@ -114,35 +115,44 @@ namespace iroha::ordering {
     assert(count(from.batches_) == from.tx_count_);
   }
 
-  BatchesCache::BatchesCache(std::chrono::minutes const &expiration_range) : mst_state_(std::make_shared<utils::ReadWriteObject<MSTState, std::mutex>>()) {
-  getSubscription()->dispatcher()->repeat(
-      SubscriptionEngineHandlers::kNotifications,
-      std::chrono::seconds(10ull),  /// repeat task execution period
-      [expiration_range, w_mst_state(utils::make_weak(mst_state_))]() {
-        if (auto s_mst_state = w_mst_state.lock()) {
-          auto const now = std::chrono::system_clock::now().time_since_epoch()
-              / std::chrono::milliseconds(1);
+  BatchesCache::BatchesCache(std::chrono::minutes const &expiration_range)
+      : mst_state_(
+            std::make_shared<utils::ReadWriteObject<MSTState, std::mutex>>()) {
+    getSubscription()->dispatcher()->repeat(
+        SubscriptionEngineHandlers::kNotifications,
+        std::chrono::seconds(10ull),  /// repeat task execution period
+        [expiration_range, w_mst_state(utils::make_weak(mst_state_))]() {
+          if (auto s_mst_state = w_mst_state.lock()) {
+            auto const now = std::chrono::system_clock::now().time_since_epoch()
+                / std::chrono::milliseconds(1);
 
-          s_mst_state->exclusiveAccess([now, expiration_range](auto &mst_state) {
-            auto it = mst_state.mst_expirations_.begin();
-            while (it != mst_state.mst_expirations_.end() && isExpired(it->second, expiration_range, now)) {
-              auto batch = it->second;
-              mst_state.mst_pending_.erase(batch->reducedHash());
-              it = mst_state.mst_expirations_.erase(it);
-              mst_state -= batch;
+            s_mst_state->exclusiveAccess(
+                [now, expiration_range](auto &mst_state) {
+                  auto it = mst_state.mst_expirations_.begin();
+                  while (it != mst_state.mst_expirations_.end()
+                         && isExpired(it->second, expiration_range, now)) {
+                    auto batch = it->second;
+                    mst_state.mst_pending_.erase(batch->reducedHash());
+                    it = mst_state.mst_expirations_.erase(it);
+                    mst_state -= batch;
 
-              getSubscription()->notify(EventTypes::kOnMstExpiredBatches, batch);
-            }
-            getSubscription()->notify(EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter);
-            assert(mst_state.mst_pending_.size()
-                   == mst_state.mst_expirations_.size());
-          });
-        }
-      },
-      [w_mst_state(utils::make_weak(mst_state_))]() { return !w_mst_state.expired(); });
+                    getSubscription()->notify(EventTypes::kOnMstExpiredBatches,
+                                              batch);
+                  }
+                  getSubscription()->notify(EventTypes::kOnMstMetrics,
+                                            mst_state.batches_and_txs_counter);
+                  assert(mst_state.mst_pending_.size()
+                         == mst_state.mst_expirations_.size());
+                });
+          }
+        },
+        [w_mst_state(utils::make_weak(mst_state_))]() {
+          return !w_mst_state.expired();
+        });
   }
 
-  void BatchesCache::insertMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
+  void BatchesCache::insertMSTCache(
+      std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
     assert(!batch->hasAllSignatures());
     mst_state_->exclusiveAccess([&](auto &mst_state) {
       auto ins_res =
@@ -154,7 +164,8 @@ namespace iroha::ordering {
         it_batch->second.timestamp = ts;
         mst_state += batch;
         getSubscription()->notify(EventTypes::kOnMstStateUpdate, batch);
-        getSubscription()->notify(EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter);
+        getSubscription()->notify(EventTypes::kOnMstMetrics,
+                                  mst_state.batches_and_txs_counter);
       } else {
         if (mergeSignaturesInBatch(it_batch->second.batch, batch)) {
           if (it_batch->second.batch->hasAllSignatures()) {
@@ -162,10 +173,13 @@ namespace iroha::ordering {
             mst_state -= it_batch->second.batch;
             mst_state.mst_expirations_.erase(it_batch->second.timestamp);
             mst_state.mst_pending_.erase(it_batch);
-            getSubscription()->notify(EventTypes::kOnMstPreparedBatches, it_batch->second.batch);
-            getSubscription()->notify(EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter);
+            getSubscription()->notify(EventTypes::kOnMstPreparedBatches,
+                                      it_batch->second.batch);
+            getSubscription()->notify(EventTypes::kOnMstMetrics,
+                                      mst_state.batches_and_txs_counter);
           } else {
-            getSubscription()->notify(EventTypes::kOnMstStateUpdate, it_batch->second.batch);
+            getSubscription()->notify(EventTypes::kOnMstStateUpdate,
+                                      it_batch->second.batch);
           }
         }
       }
@@ -174,36 +188,46 @@ namespace iroha::ordering {
     });
   }
 
-  void BatchesCache::removeMSTCache(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
+  void BatchesCache::removeMSTCache(
+      std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
     mst_state_->exclusiveAccess([&](auto &mst_state) {
-      if (auto it = mst_state.mst_pending_.find(batch->reducedHash()); it != mst_state.mst_pending_.end()) {
+      if (auto it = mst_state.mst_pending_.find(batch->reducedHash());
+          it != mst_state.mst_pending_.end()) {
         mst_state -= it->second.batch;
         mst_state.mst_expirations_.erase(it->second.timestamp);
         mst_state.mst_pending_.erase(it);
 
-        getSubscription()->notify(EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter);
-        assert(mst_state.mst_pending_.size() == mst_state.mst_expirations_.size()); 
+        getSubscription()->notify(EventTypes::kOnMstMetrics,
+                                  mst_state.batches_and_txs_counter);
+        assert(mst_state.mst_pending_.size()
+               == mst_state.mst_expirations_.size());
       }
     });
   }
 
-  void BatchesCache::removeMSTCache(OnDemandOrderingService::HashesSetType const &hashes) {
+  void BatchesCache::removeMSTCache(
+      OnDemandOrderingService::HashesSetType const &hashes) {
     mst_state_->exclusiveAccess([&](auto &mst_state) {
-      for (auto it = mst_state.mst_pending_.begin(); it != mst_state.mst_pending_.end();) {
+      for (auto it = mst_state.mst_pending_.begin();
+           it != mst_state.mst_pending_.end();) {
         auto const &batch_info = it->second;
-        auto const need_remove = std::any_of(batch_info.batch->transactions().begin(),
-                         batch_info.batch->transactions().end(),
-                         [&hashes](auto const &tx) {
-                           return hashes.find(tx->hash()) != hashes.end();
-                         });
+        auto const need_remove =
+            std::any_of(batch_info.batch->transactions().begin(),
+                        batch_info.batch->transactions().end(),
+                        [&hashes](auto const &tx) {
+                          return hashes.find(tx->hash()) != hashes.end();
+                        });
         if (need_remove) {
           mst_state -= batch_info.batch;
-          mst_state.mst_expirations_.erase(batch_info.timestamp);  
+          mst_state.mst_expirations_.erase(batch_info.timestamp);
           it = mst_state.mst_pending_.erase(it);
-        } else ++it;
+        } else
+          ++it;
       }
-      getSubscription()->notify(EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter);
-      assert(mst_state.mst_pending_.size() == mst_state.mst_expirations_.size()); 
+      getSubscription()->notify(EventTypes::kOnMstMetrics,
+                                mst_state.batches_and_txs_counter);
+      assert(mst_state.mst_pending_.size()
+             == mst_state.mst_expirations_.size());
     });
   }
 
