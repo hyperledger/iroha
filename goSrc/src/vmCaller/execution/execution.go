@@ -3,7 +3,7 @@ package execution
 import "C"
 import (
 	"fmt"
-
+	"sync"
 	vm "vmCaller/evm"
 	"vmCaller/iroha"
 
@@ -26,8 +26,9 @@ import (
 var (
 	// Create EVM instance
 	burrowEVM = evm.New(evm.Options{
-		Natives: vm.MustCreateNatives(),
+		Natives: vm.MustCreateQueryNatives(),
 	})
+	m sync.Mutex
 )
 
 type Engine interface {
@@ -43,21 +44,23 @@ type EngineWrapper struct {
 
 // Run a contract's code on an isolated and unpersisted state
 // Cannot be used to create new contracts
-func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress string, address crypto.Address, data []byte,
+func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, from string, address crypto.Address, data []byte,
 	logger *logging.Logger) (*exec.TxExecution, error) {
+	m.Lock()
+	defer m.Unlock()
 	worldState := vm.NewIrohaState(iroha.StoragePointer)
 	if err := worldState.UpdateAccount(&acm.Account{
 		Address:     acm.GlobalPermissionsAddress,
 		Balance:     999999,
 		Permissions: permission.DefaultAccountPermissions,
 	}); err != nil {
-		fmt.Println("unable to update account")
+		return nil, fmt.Errorf("unable to update account ")
 	}
-	evmCaller := native.AddressFromName(fromAddress)
-	// callerAccount, err := worldState.GetAccount(evmCaller)
-	// if err != nil {
-	// 	fmt.Println("Unable to get account")
-	// }
+	evmCaller := native.AddressFromName(from)
+	callerAccount, err := worldState.GetAccount(evmCaller)
+	if err != nil {
+		return nil, fmt.Errorf("Passed account does not exist: %s", callerAccount)
+	}
 
 	engine := EngineWrapper{
 		engine:    burrowEVM,
@@ -66,15 +69,12 @@ func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress 
 	}
 	evmCallee := address
 	if vm.IsNative(evmCallee.String()) {
-		fmt.Println("address is reserved for native")
+		return nil, fmt.Errorf("The callee address %s is reserved for a native contract and cannot be called directly", evmCallee.String())
 	}
 
 	output, err := engine.Execute(evmCaller, evmCallee, data)
 	if err != nil {
 		return nil, err
-	}
-	if output == nil {
-		return nil, nil
 	}
 	// create object encapsulating response
 	txe := exec.TxExecution{}
@@ -123,7 +123,7 @@ func addressFromNonce(nonce string) (address crypto.Address) {
 
 // Run the given code on an isolated and unpersisted state
 // Cannot be used to create new contracts.
-func CallCodeSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress string, address crypto.Address, code, data []byte,
+func CallCodeSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, from string, address crypto.Address, code, data []byte,
 	logger *logging.Logger) (*exec.TxExecution, error) {
 
 	// Attach code to target account (overwriting target)
@@ -136,5 +136,5 @@ func CallCodeSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddr
 	if err != nil {
 		return nil, err
 	}
-	return CallSim(cache, blockchain, fromAddress, address, data, logger)
+	return CallSim(cache, blockchain, from, address, data, logger)
 }

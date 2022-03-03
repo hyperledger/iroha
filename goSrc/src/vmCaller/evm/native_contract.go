@@ -242,7 +242,7 @@ var (
 			F:        getRolePermissions,
 		},
 	)
-		QueryServiceContract = native.New().MustContract("QueryServiceContract",
+	QueryServiceContract = native.New().MustContract("QueryServiceContract",
 		`* acmstate.ReaderWriter for bridging EVM state and Iroha state.
 			* @dev This interface describes the functions exposed by the native service contracts layer in burrow.
 			`,
@@ -355,7 +355,7 @@ var (
 				* @notice Get Transactions
 				* @param tx hashes`,
 			PermFlag: permission.Call,
-			F:       getTransactions,
+			F:        getTransactions,
 		},
 		native.Function{
 			Comment: `
@@ -363,7 +363,7 @@ var (
 				* @param role name
 				* @param permissions`,
 			PermFlag: permission.Call,
-			F:       createRole,
+			F:        createRole,
 		},
 	)
 )
@@ -902,5 +902,5 @@ func createNatives() (*native.Natives, error) {
 }
 
 func IsNative(acc string) bool {
-	return strings.ToLower(acc) == "a6abc17819738299b3b2c1ce46d55c74f04e290c"
+	return strings.ToLower(acc) == "a6abc17819738299b3b2c1ce46d55c74f04e290c" || strings.ToLower(acc) == "1fdcc92ffac72c169cceacfb6de7959f1de98694"
 }
