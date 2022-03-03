@@ -17,6 +17,15 @@ namespace iroha {
   std::shared_ptr<Dispatcher> getDispatcher();
   std::shared_ptr<Subscription> getSubscription();
 
+  template <typename... T>
+  constexpr void notifyEngine(std::tuple<T...> &&data) {
+    std::apply(
+        [](auto &... x) {
+          (..., getSubscription()->notify(x.first, x.second));
+        },
+        data);
+  }
+
   template <typename ObjectType, typename EventData>
   struct SubscriberCreator {
     template <EventTypes key, typename F, typename... Args>

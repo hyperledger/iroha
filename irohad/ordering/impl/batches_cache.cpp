@@ -16,9 +16,14 @@ namespace {
   shared_model::interface::types::TimestampType oldestTimestamp(
       std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
     assert(!batch->transactions().empty());
-    shared_model::interface::types::TimestampType ts = 0ull;
-    for (auto &tx : batch->transactions()) ts = std::min(ts, tx->createdTime());
-    return ts;
+    if (!batch->transactions().empty()) {
+      auto it = batch->transactions().begin();
+      shared_model::interface::types::TimestampType ts = (*it)->createdTime();
+      while (++it != batch->transactions().end())
+        ts = std::min(ts, (*it)->createdTime());
+      return ts;
+    }
+    return 0ull;
   }
 
   bool mergeSignaturesInBatch(
@@ -31,8 +36,8 @@ namespace {
     auto it_donor = donor->transactions().begin();
     while (it_target != target->transactions().end()
            && it_donor != donor->transactions().end()) {
-      const auto &target_tx = *it_target;
-      const auto &donor_tx = *it_donor;
+      const auto &target_tx = *it_target++;
+      const auto &donor_tx = *it_donor++;
 
       for (auto &signature : donor_tx->signatures())
         inserted_new_signatures |= target_tx->addSignature(
@@ -40,9 +45,6 @@ namespace {
                 signature.signedData()},
             shared_model::interface::types::PublicKeyHexStringView{
                 signature.publicKey()});
-
-      ++it_target;
-      ++it_donor;
     }
     return inserted_new_signatures;
   }
@@ -133,11 +135,12 @@ namespace iroha::ordering {
                          && isExpired(it->second, expiration_range, now)) {
                     auto batch = it->second;
                     it = (mst_state -= it);
-                    getSubscription()->notify(EventTypes::kOnMstExpiredBatches,
-                                              batch);
+                    notifyEngine(std::make_tuple(std::make_pair(
+                        EventTypes::kOnMstExpiredBatches, batch)));
                   }
-                  getSubscription()->notify(EventTypes::kOnMstMetrics,
-                                            mst_state.batches_and_txs_counter);
+                  notifyEngine(std::make_tuple(
+                      std::make_pair(EventTypes::kOnMstMetrics,
+                                     mst_state.batches_and_txs_counter)));
                   assert(mst_state.mst_pending_.size()
                          == mst_state.mst_expirations_.size());
                 });
@@ -160,21 +163,23 @@ namespace iroha::ordering {
         while (!mst_state.mst_expirations_.emplace(ts, batch).second) ++ts;
         it_batch->second.timestamp = ts;
         mst_state += batch;
-        getSubscription()->notify(EventTypes::kOnMstStateUpdate, batch);
-        getSubscription()->notify(EventTypes::kOnMstMetrics,
-                                  mst_state.batches_and_txs_counter);
+        notifyEngine(std::make_tuple(
+            std::make_pair(EventTypes::kOnMstStateUpdate, batch),
+            std::make_pair(EventTypes::kOnMstMetrics,
+                           mst_state.batches_and_txs_counter)));
       } else {
         if (mergeSignaturesInBatch(it_batch->second.batch, batch)) {
           if (it_batch->second.batch->hasAllSignatures()) {
             batches_cache_.insert(it_batch->second.batch);
             mst_state -= it_batch;
-            getSubscription()->notify(EventTypes::kOnMstPreparedBatches,
-                                      it_batch->second.batch);
-            getSubscription()->notify(EventTypes::kOnMstMetrics,
-                                      mst_state.batches_and_txs_counter);
+            notifyEngine(std::make_tuple(
+                std::make_pair(EventTypes::kOnMstPreparedBatches,
+                               it_batch->second.batch),
+                std::make_pair(EventTypes::kOnMstMetrics,
+                               mst_state.batches_and_txs_counter)));
           } else {
-            getSubscription()->notify(EventTypes::kOnMstStateUpdate,
-                                      it_batch->second.batch);
+            notifyEngine(std::make_tuple(std::make_pair(
+                EventTypes::kOnMstStateUpdate, it_batch->second.batch)));
           }
         }
       }
@@ -189,8 +194,8 @@ namespace iroha::ordering {
       if (auto it = mst_state.mst_pending_.find(batch->reducedHash());
           it != mst_state.mst_pending_.end()) {
         mst_state -= it;
-        getSubscription()->notify(EventTypes::kOnMstMetrics,
-                                  mst_state.batches_and_txs_counter);
+        notifyEngine(std::make_tuple(std::make_pair(
+            EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter)));
         assert(mst_state.mst_pending_.size()
                == mst_state.mst_expirations_.size());
       }
@@ -214,8 +219,8 @@ namespace iroha::ordering {
         } else
           ++it;
       }
-      getSubscription()->notify(EventTypes::kOnMstMetrics,
-                                mst_state.batches_and_txs_counter);
+      notifyEngine(std::make_tuple(std::make_pair(
+          EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter)));
       assert(mst_state.mst_pending_.size()
              == mst_state.mst_expirations_.size());
     });
@@ -230,7 +235,8 @@ namespace iroha::ordering {
           == used_batches_cache_.getBatchesSet().end())
         batches_cache_.insert(batch);
       removeMSTCache(batch);
-      getSubscription()->notify(EventTypes::kOnMstPreparedBatches, batch);
+      notifyEngine(std::make_tuple(
+          std::make_pair(EventTypes::kOnMstPreparedBatches, batch)));
     } else
       insertMSTCache(batch);
 

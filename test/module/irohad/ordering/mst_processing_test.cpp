@@ -150,6 +150,20 @@ TEST_F(MSTProcessingTest, StepByStepNotSubscribed) {
   ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
 }
 
+TEST_F(MSTProcessingTest, DoublicateSignature) {
+  auto get_batch = [ts{iroha::time::now()}]() {
+    return makeTestBatch(txBuilder(1, ts, 2));
+  };
+
+  auto key = makeKey();
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(get_batch(), 0, key));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(get_batch(), 0, key));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+}
+
 TEST_F(MSTProcessingTest, DoubleTxs) {
   auto get_batch = [ts{iroha::time::now()}]() {
     return makeTestBatch(txBuilder(1, ts, 2));
