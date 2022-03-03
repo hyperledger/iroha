@@ -186,8 +186,12 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Apply `CommittedBlock` with changes in form of **Iroha Special
-    /// Instructions** to `self`. `trigger_recommendations` are
-    /// applied first.
+    /// Instructions** to `self`.
+    ///
+    /// Order of execution:
+    /// 1) Event Based Triggers from `trigger_recommendations.event_triggers`
+    /// 2) Transactions
+    /// 3) Time Based Triggers from `trigger_recommendations.time_triggers`
     ///
     /// # Errors
     ///
@@ -198,16 +202,8 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[iroha_futures::telemetry_future]
     #[log(skip(self, block))]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
-        // TODO: Validate the trigger executables as well as the technical account.
-        for Action {
-            technical_account,
-            executable,
-            ..
-        } in &block.as_v1().trigger_recommendations.event_triggers
-        {
-            self.process_executable(executable, technical_account)?;
-            task::yield_now().await;
-        }
+        self.execute_triggers(&block.as_v1().trigger_recommendations.event_triggers)
+            .await?;
 
         // TODO: Should this block panic instead?
         for tx in &block.as_v1().transactions {
@@ -218,9 +214,33 @@ impl<W: WorldTrait> WorldStateView<W> {
         for tx in &block.as_v1().rejected_transactions {
             self.transactions.insert(tx.hash());
         }
+
+        // TODO: Should we check timestamps here?
+        self.execute_triggers(&block.as_v1().trigger_recommendations.time_triggers)
+            .await?;
+
         self.blocks.push(block);
         self.block_commit_metrics_update_callback();
         self.new_block_notifier.send_replace(());
+        Ok(())
+    }
+
+    /// Execute `triggers` and apply them to `self`
+    ///
+    /// # Errors
+    /// Fails if trigger execution fails
+    async fn execute_triggers(&self, triggers: &[Action]) -> Result<()> {
+        // TODO: Validate the trigger executables as well as the technical account.
+        for Action {
+            technical_account,
+            executable,
+            ..
+        } in triggers
+        {
+            self.process_executable(executable, technical_account)?;
+            task::yield_now().await;
+        }
+
         Ok(())
     }
 
