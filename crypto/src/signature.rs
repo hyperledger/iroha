@@ -560,6 +560,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn decode_signatures_of() {
         let no_signatures: SignaturesOf<i32> = SignaturesOf {
             signatures: btree_map::BTreeMap::new(),
@@ -571,6 +572,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn deserialize_signatures_of() -> Result<(), serde_json::Error> {
         use serde_json;
 

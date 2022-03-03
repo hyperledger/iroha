@@ -180,7 +180,7 @@ pub struct Account {
     pub signature_check_condition: SignatureCheckCondition,
     /// Metadata of this account as a key-value store.
     pub metadata: Metadata,
-    /// Roles of this account, they are tags for sets of permissions stored in [`World`].
+    /// Roles of this account, they are tags for sets of permissions stored in `World`.
     #[cfg(feature = "roles")]
     pub roles: btree_set::BTreeSet<RoleId>,
 }

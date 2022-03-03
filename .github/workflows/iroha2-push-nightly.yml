@@ -1,4 +1,4 @@
-name: Push Iroha2 to DockerHub as nightly
+name: I2::Dev::Nightly
 
 on: workflow_dispatch
 
@@ -14,7 +14,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Build and push Iroha Docker image
         uses: docker/build-push-action@v2
         with:
@@ -24,7 +23,6 @@ jobs:
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
-
       - name: Build and push Iroha client cli Docker image
         uses: docker/build-push-action@v2
         with:
@@ -35,7 +33,6 @@ jobs:
             TARGET_DIR=release
             PROFILE=--release
             BIN=iroha_client_cli
-
       - name: Build and push Iroha Crypto CLI Docker image
         uses: docker/build-push-action@v2
         with:
