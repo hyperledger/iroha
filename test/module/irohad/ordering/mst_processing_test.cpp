@@ -20,7 +20,6 @@ struct MSTProcessingTest : public ::testing::Test {
   void SetUp() override {
     batches_cache_ = std::make_shared<iroha::ordering::BatchesCache>();
   }
-
   std::shared_ptr<iroha::ordering::BatchesCache> batches_cache_;
 };
 
@@ -89,5 +88,74 @@ TEST_F(MSTProcessingTest, FullySubscribed) {
 
   auto batch2 =  addSignatures(base_tx, 1, second_signature);
   batches_cache_->insert(batch2);
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 2);
+}
+
+TEST_F(MSTProcessingTest, StepByStepSubscribed) {
+  auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
+  auto second_signature = makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey);
+
+  auto base_tx = [ts{iroha::time::now()}](){
+    return makeTestBatch(txBuilder(1, ts, 2), txBuilder(2, ts, 2));
+  };
+
+  batches_cache_->insert(addSignatures(base_tx(), 0, first_signature));
   ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  batches_cache_->insert(addSignatures(base_tx(), 1, second_signature));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  batches_cache_->insert(addSignatures(base_tx(), 0, second_signature));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  batches_cache_->insert(addSignatures(base_tx(), 1, first_signature));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 2);
+}
+
+TEST_F(MSTProcessingTest, StepByStepSubscribed2) {
+  auto base_tx = [ts{iroha::time::now()}](){
+    return makeTestBatch(txBuilder(1, ts, 3));
+  };
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(base_tx(), 0, makeKey()));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(base_tx(), 0, makeKey()));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(base_tx(), 0, makeKey()));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 1);
+}
+
+TEST_F(MSTProcessingTest, StepByStepNotSubscribed) {
+  auto get_batch = [ts{iroha::time::now()}](){
+    return makeTestBatch(txBuilder(1, ts, 3), txBuilder(2, ts, 1));
+  };
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(get_batch(), 1, makeKey()));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(get_batch(), 0, makeKey()));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(get_batch(), 0, makeKey()));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+}
+
+TEST_F(MSTProcessingTest, DoubleTxs) {
+  auto get_batch = [ts{iroha::time::now()}](){
+    return makeTestBatch(txBuilder(1, ts, 2));
+  };
+  auto get_batch_2 = [ts{iroha::time::now()}](){
+    return makeTestBatch(txBuilder(1, ts, 1));
+  };
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(get_batch(), 0, makeKey()));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(get_batch(), 0, makeKey()));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 1);
+
+  batches_cache_->insert(addSignaturesFromKeyPairs(get_batch_2(), 0, makeKey()));
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 2);
 }

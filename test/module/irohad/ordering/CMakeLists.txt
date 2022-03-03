@@ -56,5 +56,5 @@ target_link_libraries(mst_notification_test
     shared_model_default_builders
     shared_model_stateless_validation
     shared_model_interfaces_factories
-    async_subscription
+    sync_subscription
     )
