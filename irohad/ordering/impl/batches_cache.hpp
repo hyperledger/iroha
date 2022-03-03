@@ -13,6 +13,7 @@
 #include <numeric>
 #include <shared_mutex>
 #include <unordered_map>
+#include <type_traits>
 
 #include "common/common.hpp"
 #include "consensus/round.hpp"
@@ -119,11 +120,26 @@ namespace iroha::ordering {
         std::get<0>(batches_and_txs_counter) -= 1ull;
         std::get<1>(batches_and_txs_counter) -= batch->transactions().size();
       }
+
       void operator+=(
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) {
         std::get<0>(batches_and_txs_counter) += 1ull;
         std::get<1>(batches_and_txs_counter) += batch->transactions().size();
+      }
+
+      template <typename Iterator, std::enable_if_t<std::is_same<Iterator, MSTBatchesSetType::iterator>::value, bool> = true >
+      MSTBatchesSetType::iterator operator-=(Iterator const &it) {
+        *this -= it->second.batch;
+        mst_expirations_.erase(it->second.timestamp);
+        return mst_pending_.erase(it);
+      }
+
+      template <typename Iterator, std::enable_if_t<std::is_same<Iterator, MSTExpirationSetType::iterator>::value, bool> = true >
+      MSTExpirationSetType::iterator operator-=(Iterator const &it) {
+        *this -= it->second;
+        mst_pending_.erase(it->second->reducedHash());
+        return mst_expirations_.erase(it);
       }
     };
 

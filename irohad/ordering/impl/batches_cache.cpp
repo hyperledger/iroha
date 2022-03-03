@@ -132,10 +132,7 @@ namespace iroha::ordering {
                   while (it != mst_state.mst_expirations_.end()
                          && isExpired(it->second, expiration_range, now)) {
                     auto batch = it->second;
-                    mst_state.mst_pending_.erase(batch->reducedHash());
-                    it = mst_state.mst_expirations_.erase(it);
-                    mst_state -= batch;
-
+                    it = (mst_state -= it);
                     getSubscription()->notify(EventTypes::kOnMstExpiredBatches,
                                               batch);
                   }
@@ -170,9 +167,7 @@ namespace iroha::ordering {
         if (mergeSignaturesInBatch(it_batch->second.batch, batch)) {
           if (it_batch->second.batch->hasAllSignatures()) {
             batches_cache_.insert(it_batch->second.batch);
-            mst_state -= it_batch->second.batch;
-            mst_state.mst_expirations_.erase(it_batch->second.timestamp);
-            mst_state.mst_pending_.erase(it_batch);
+            mst_state -= it_batch;
             getSubscription()->notify(EventTypes::kOnMstPreparedBatches,
                                       it_batch->second.batch);
             getSubscription()->notify(EventTypes::kOnMstMetrics,
@@ -193,10 +188,7 @@ namespace iroha::ordering {
     mst_state_->exclusiveAccess([&](auto &mst_state) {
       if (auto it = mst_state.mst_pending_.find(batch->reducedHash());
           it != mst_state.mst_pending_.end()) {
-        mst_state -= it->second.batch;
-        mst_state.mst_expirations_.erase(it->second.timestamp);
-        mst_state.mst_pending_.erase(it);
-
+        mst_state -= it;
         getSubscription()->notify(EventTypes::kOnMstMetrics,
                                   mst_state.batches_and_txs_counter);
         assert(mst_state.mst_pending_.size()
@@ -218,9 +210,7 @@ namespace iroha::ordering {
                           return hashes.find(tx->hash()) != hashes.end();
                         });
         if (need_remove) {
-          mst_state -= batch_info.batch;
-          mst_state.mst_expirations_.erase(batch_info.timestamp);
-          it = mst_state.mst_pending_.erase(it);
+          it = (mst_state -= it);
         } else
           ++it;
       }
