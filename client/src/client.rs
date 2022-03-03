@@ -11,7 +11,7 @@ use std::{
 use eyre::{eyre, Result, WrapErr};
 use http_client::WebSocketStream;
 use iroha_config::{GetConfiguration, PostConfiguration};
-use iroha_crypto::{base64, HashOf, KeyPair};
+use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
