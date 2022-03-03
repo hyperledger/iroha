@@ -102,7 +102,7 @@ namespace iroha::ordering {
     struct MSTState {
       MSTBatchesSetType mst_pending_;
       MSTExpirationSetType mst_expirations_;
-      std::tuple<uint64_t, uint64_t> batches_and_txs_counter;
+      std::tuple<size_t, size_t> batches_and_txs_counter;
 
       void operator-=(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
         assert(std::get<0>(batches_and_txs_counter) >= 1ull);

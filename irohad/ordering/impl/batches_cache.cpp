@@ -130,8 +130,10 @@ namespace iroha::ordering {
               mst_state.mst_pending_.erase(batch->reducedHash());
               it = mst_state.mst_expirations_.erase(it);
               mst_state -= batch;
+
               getSubscription()->notify(EventTypes::kOnMstExpiredBatches, batch);
             }
+            getSubscription()->notify(EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter);
             assert(mst_state.mst_pending_.size()
                    == mst_state.mst_expirations_.size());
           });
@@ -152,6 +154,7 @@ namespace iroha::ordering {
         it_batch->second.timestamp = ts;
         mst_state += batch;
         getSubscription()->notify(EventTypes::kOnMstStateUpdate, batch);
+        getSubscription()->notify(EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter);
       } else {
         if (mergeSignaturesInBatch(it_batch->second.batch, batch)) {
           if (it_batch->second.batch->hasAllSignatures()) {
@@ -160,6 +163,7 @@ namespace iroha::ordering {
             mst_state.mst_expirations_.erase(it_batch->second.timestamp);
             mst_state.mst_pending_.erase(it_batch);
             getSubscription()->notify(EventTypes::kOnMstPreparedBatches, it_batch->second.batch);
+            getSubscription()->notify(EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter);
           } else {
             getSubscription()->notify(EventTypes::kOnMstStateUpdate, it_batch->second.batch);
           }
@@ -176,6 +180,8 @@ namespace iroha::ordering {
         mst_state -= it->second.batch;
         mst_state.mst_expirations_.erase(it->second.timestamp);
         mst_state.mst_pending_.erase(it);
+
+        getSubscription()->notify(EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter);
         assert(mst_state.mst_pending_.size() == mst_state.mst_expirations_.size()); 
       }
     });
@@ -196,6 +202,7 @@ namespace iroha::ordering {
           it = mst_state.mst_pending_.erase(it);
         } else ++it;
       }
+      getSubscription()->notify(EventTypes::kOnMstMetrics, mst_state.batches_and_txs_counter);
       assert(mst_state.mst_pending_.size() == mst_state.mst_expirations_.size()); 
     });
   }
