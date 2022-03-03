@@ -10,9 +10,10 @@ extern crate alloc;
 
 // TODO: #1854, CI doesn't catch errors with unused imports in this block.
 #[cfg(not(feature = "std"))]
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::{fmt, ops::Range};
 
+use iroha_schema::IntoSchema;
 #[cfg(feature = "derive")]
 pub use iroha_version_derive::*;
 #[cfg(feature = "scale")]
@@ -22,16 +23,19 @@ use serde::{Deserialize, Serialize};
 
 /// Module which contains error and result for versioning
 pub mod error {
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
     use core::fmt;
 
     use iroha_macro::FromVariant;
+    use iroha_schema::IntoSchema;
     #[cfg(feature = "scale")]
     use parity_scale_codec::{Decode, Encode};
 
     use super::UnsupportedVersion;
 
     /// Versioning errors
-    #[derive(Debug, Clone, FromVariant)]
+    #[derive(Debug, Clone, FromVariant, IntoSchema)]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
     #[cfg_attr(feature = "scale", derive(Encode, Decode))]
     pub enum Error {
@@ -137,7 +141,7 @@ pub trait Version {
 }
 
 /// Structure describing a container content which version is not supported.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, IntoSchema)]
 #[cfg_attr(feature = "scale", derive(Encode, Decode))]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 pub struct UnsupportedVersion {
@@ -166,7 +170,7 @@ impl UnsupportedVersion {
 }
 
 /// Raw versioned content, serialized.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, IntoSchema)]
 #[cfg_attr(feature = "scale", derive(Encode, Decode))]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 pub enum RawVersioned {

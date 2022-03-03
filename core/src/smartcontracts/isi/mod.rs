@@ -33,6 +33,7 @@ pub mod error {
 
     use iroha_crypto::HashOf;
     use iroha_data_model::{fixed::FixedPointOperationError, metadata, prelude::*};
+    use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use thiserror::Error;
 
@@ -129,7 +130,7 @@ pub mod error {
     }
 
     /// Type assertion error
-    #[derive(Debug, Clone, Error, Decode, Encode)]
+    #[derive(Debug, Clone, Error, Decode, Encode, IntoSchema)]
     pub enum FindError {
         /// Failed to find asset
         #[error("Failed to find asset: `{0}`")]
@@ -260,7 +261,7 @@ pub mod error {
     }
 
     /// Block with parent hash not found struct
-    #[derive(Debug, Clone, Copy, Decode, Encode)]
+    #[derive(Debug, Clone, Copy, Decode, Encode, IntoSchema)]
     pub struct ParentHashNotFound(pub HashOf<VersionedCommittedBlock>);
 
     impl Display for ParentHashNotFound {
