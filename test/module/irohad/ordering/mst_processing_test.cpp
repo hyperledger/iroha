@@ -51,3 +51,43 @@ TEST_F(MSTProcessingTest, SubscribedAdd) {
   batches_cache_->insert(second_tx);
   ASSERT_EQ(batches_cache_->availableTxsCount(), 1);
 }
+
+TEST_F(MSTProcessingTest, SubscribeDifferentTx) {
+  auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
+  auto second_signature = makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey);
+
+  auto base_tx_1 = makeTestBatch(txBuilder(1, iroha::time::now(), 2));
+  auto base_tx_2 = makeTestBatch(txBuilder(2, iroha::time::now(), 2));
+
+  auto first_tx = addSignatures(base_tx_1, 0, first_signature);
+  batches_cache_->insert(first_tx);
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  auto second_tx = addSignatures(base_tx_2, 0, second_signature);
+  batches_cache_->insert(second_tx);
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+}
+
+TEST_F(MSTProcessingTest, NotFullySubscribed) {
+  auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
+  auto second_signature = makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey);
+  auto base_tx = makeTestBatch(txBuilder(1, iroha::time::now(), 2), txBuilder(2, iroha::time::now(), 2));
+
+auto batch =  addSignatures(addSignatures(base_tx, 0, first_signature, second_signature), 1, first_signature);
+  batches_cache_->insert(batch);
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+}
+
+TEST_F(MSTProcessingTest, FullySubscribed) {
+  auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
+  auto second_signature = makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey);
+  auto base_tx = makeTestBatch(txBuilder(1, iroha::time::now(), 2), txBuilder(2, iroha::time::now(), 2));
+
+  auto batch =  addSignatures(addSignatures(base_tx, 0, first_signature, second_signature), 1, first_signature);
+  batches_cache_->insert(batch);
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+
+  auto batch2 =  addSignatures(base_tx, 1, second_signature);
+  batches_cache_->insert(batch2);
+  ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
+}
