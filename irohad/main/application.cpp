@@ -152,6 +152,7 @@ Irohad::Irohad(
       })) {
     log_->error("Storage initialization failed: {}", e.value());
   }
+  
 }
 
 Irohad::~Irohad() {
