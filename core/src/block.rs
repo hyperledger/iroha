@@ -31,6 +31,22 @@ use crate::{
 /// Collection of actions, that is not a `TriggerSet`
 pub type Triggers = Vec<Action>;
 
+/// Recommendations for different types of triggers
+#[derive(Default, Debug, Clone, Decode, Encode, IntoSchema)]
+pub struct TriggerRecommendations {
+    /// Event based trigger recommendations. Should be executed before transactions.
+    pub event_triggers: Triggers,
+    /// Time based trigger recommendations. Should be executed after transactions.
+    pub time_triggers: Triggers,
+}
+
+impl TriggerRecommendations {
+    /// Create new empty recommendations
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// The chain of the previous block hash. If there is no previous
 /// block - the blockchain is empty.
 #[derive(Debug, Clone, Copy)]
@@ -174,8 +190,8 @@ pub struct PendingBlock {
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedAcceptedTransaction>,
-    /// Vector of trigger recommendations.
-    pub trigger_recommendations: Triggers,
+    /// Trigger recommendations.
+    pub trigger_recommendations: TriggerRecommendations,
 }
 
 // TODO: I strongly believe that we shouldn't be moving parts of a
@@ -187,7 +203,7 @@ impl PendingBlock {
     #[inline]
     pub fn new(
         transactions: Vec<VersionedAcceptedTransaction>,
-        trigger_recommendations: Triggers,
+        trigger_recommendations: TriggerRecommendations,
     ) -> PendingBlock {
         #[allow(clippy::expect_used)]
         let timestamp = current_time().as_millis();
@@ -267,8 +283,8 @@ pub struct ChainedBlock {
     pub header: BlockHeader,
     /// Array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedAcceptedTransaction>,
-    /// Vector of trigger recommendations.
-    pub trigger_recommendations: Triggers,
+    /// Trigger recommendations.
+    pub trigger_recommendations: TriggerRecommendations,
 }
 
 /// Header of the block. The hash should be taken from its byte representation.
@@ -489,8 +505,8 @@ pub struct ValidBlock {
     pub transactions: Vec<VersionedValidTransaction>,
     /// Signatures of peers which approved this block.
     pub signatures: BTreeSet<SignatureOf<Self>>,
-    /// Vector of trigger recommendations.
-    pub trigger_recommendations: Triggers,
+    /// Trigger recommendations.
+    pub trigger_recommendations: TriggerRecommendations,
 }
 
 impl ValidBlock {
@@ -620,7 +636,7 @@ impl ValidBlock {
             rejected_transactions: Vec::new(),
             transactions: Vec::new(),
             signatures: BTreeSet::default(),
-            trigger_recommendations: Vec::new(),
+            trigger_recommendations: TriggerRecommendations::new(),
         }
         .sign(KeyPair::generate().unwrap())
         .unwrap()
@@ -720,8 +736,8 @@ pub struct CommittedBlock {
     pub rejected_transactions: Vec<VersionedRejectedTransaction>,
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedValidTransaction>,
-    /// Vector of trigger recommendations.
-    pub trigger_recommendations: Triggers,
+    /// Trigger recommendations.
+    pub trigger_recommendations: TriggerRecommendations,
     /// Signatures of peers which approved this block
     pub signatures: SignaturesOf<Self>,
 }

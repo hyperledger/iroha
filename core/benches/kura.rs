@@ -5,6 +5,7 @@ use std::{num::NonZeroU64, sync::Arc};
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
+    block::TriggerRecommendations,
     kura::{config::KuraConfiguration, BlockStore},
     prelude::*,
     tx::TransactionValidator,
@@ -40,7 +41,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     };
     let tx = VersionedAcceptedTransaction::from_transaction(tx, &transaction_limits)
         .expect("Failed to accept Transaction.");
-    let mut block = PendingBlock::new(vec![tx], Vec::new())
+    let mut block = PendingBlock::new(vec![tx], TriggerRecommendations::new())
         .chain_first()
         .validate(&TransactionValidator::new(
             transaction_limits,

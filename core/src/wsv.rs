@@ -203,7 +203,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             technical_account,
             executable,
             ..
-        } in &block.as_v1().trigger_recommendations
+        } in &block.as_v1().trigger_recommendations.event_triggers
         {
             self.process_executable(executable, technical_account)?;
             task::yield_now().await;

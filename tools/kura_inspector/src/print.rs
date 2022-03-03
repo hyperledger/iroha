@@ -92,6 +92,8 @@ pub enum Error {
 mod tests {
     use std::io::Write;
 
+    use iroha_core::block::TriggerRecommendations;
+
     use super::*;
 
     type TestOutput = Output<Vec<u8>, Vec<u8>>;
@@ -132,7 +134,7 @@ mod tests {
             },
             rejected_transactions: Vec::new(),
             transactions: Vec::new(),
-            trigger_recommendations: Vec::new(),
+            trigger_recommendations: TriggerRecommendations::new(),
             signatures: std::collections::BTreeSet::default(),
         }
         .sign(iroha_core::prelude::KeyPair::generate().unwrap())

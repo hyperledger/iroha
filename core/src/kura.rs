@@ -608,7 +608,9 @@ mod tests {
     use tokio::io;
 
     use super::*;
-    use crate::{sumeragi::view_change, tx::TransactionValidator, wsv::World};
+    use crate::{
+        block::TriggerRecommendations, sumeragi::view_change, tx::TransactionValidator, wsv::World,
+    };
 
     const TEST_STORAGE_FILE_SIZE: u64 = 3_u64;
 
@@ -648,7 +650,7 @@ mod tests {
     async fn write_block_to_block_store() {
         let dir = tempfile::tempdir().unwrap();
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new(), Vec::new())
+        let block = PendingBlock::new(Vec::new(), TriggerRecommendations::new())
             .chain_first()
             .validate(&get_transaction_validator())
             .sign(keypair)
@@ -678,7 +680,7 @@ mod tests {
         .unwrap();
         let n = 10;
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let mut block = PendingBlock::new(Vec::new(), Vec::new())
+        let mut block = PendingBlock::new(Vec::new(), TriggerRecommendations::new())
             .chain_first()
             .validate(&get_transaction_validator())
             .sign(keypair.clone())
@@ -689,7 +691,7 @@ mod tests {
                 .write(&block)
                 .await
                 .expect("Failed to write block to file.");
-            block = PendingBlock::new(Vec::new(), Vec::new())
+            block = PendingBlock::new(Vec::new(), TriggerRecommendations::new())
                 .chain(height, hash, view_change::ProofChain::empty(), Vec::new())
                 .validate(&get_transaction_validator())
                 .sign(keypair.clone())
@@ -715,7 +717,7 @@ mod tests {
     #[tokio::test]
     async fn store_block() {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new(), Vec::new())
+        let block = PendingBlock::new(Vec::new(), TriggerRecommendations::new())
             .chain_first()
             .validate(&get_transaction_validator())
             .sign(keypair)
@@ -752,7 +754,7 @@ mod tests {
         .await
         .unwrap();
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new(), Vec::new())
+        let block = PendingBlock::new(Vec::new(), TriggerRecommendations::new())
             .chain_first()
             .validate(&get_transaction_validator())
             .sign(keypair.clone())
@@ -762,7 +764,7 @@ mod tests {
             .write(&block)
             .await
             .expect("Failed to write block to file.");
-        let _gap_block = PendingBlock::new(Vec::new(), Vec::new())
+        let _gap_block = PendingBlock::new(Vec::new(), TriggerRecommendations::new())
             .chain(
                 tests::TEST_STORAGE_FILE_SIZE * 2,
                 hash,
@@ -793,7 +795,7 @@ mod tests {
         .await
         .unwrap();
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new(), Vec::new())
+        let block = PendingBlock::new(Vec::new(), TriggerRecommendations::new())
             .chain_first()
             .validate(&get_transaction_validator())
             .sign(keypair.clone())
@@ -803,7 +805,7 @@ mod tests {
             .write(&block)
             .await
             .expect("Failed to write block to file.");
-        let _gap_block = PendingBlock::new(Vec::new(), Vec::new())
+        let _gap_block = PendingBlock::new(Vec::new(), TriggerRecommendations::new())
             .chain(3_u64, hash, view_change::ProofChain::empty(), Vec::new())
             .validate(&get_transaction_validator())
             .sign(keypair)

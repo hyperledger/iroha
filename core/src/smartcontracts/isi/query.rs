@@ -222,8 +222,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        block::PendingBlock, prelude::AllowAll, tx::TransactionValidator, wsv::World, DomainsMap,
-        PeersIds,
+        block::TriggerRecommendations, tx::TransactionValidator, wsv::World, DomainsMap, PeersIds,
     };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
@@ -346,7 +345,7 @@ mod tests {
         let va_tx =
             crate::VersionedAcceptedTransaction::from_transaction(signed_tx.clone(), &tx_limits)?;
 
-        let mut block = PendingBlock::new(Vec::new(), Vec::new());
+        let mut block = PendingBlock::new(Vec::new(), TriggerRecommendations::new());
         block.transactions.push(va_tx.clone());
         let vcb = block
             .chain_first()
