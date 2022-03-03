@@ -74,7 +74,7 @@ namespace shared_model {
       shared_model::crypto::Hash::Hasher hasher_;
       size_t operator()(
           const std::shared_ptr<shared_model::interface::TransactionBatch> &a)
-          const ;
+          const;
     };
   }  // namespace interface
 }  // namespace shared_model

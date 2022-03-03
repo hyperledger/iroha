@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <memory>
 
 #include "framework/crypto_literals.hpp"
@@ -70,9 +70,13 @@ TEST_F(MSTProcessingTest, SubscribeDifferentTx) {
 TEST_F(MSTProcessingTest, NotFullySubscribed) {
   auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
   auto second_signature = makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey);
-  auto base_tx = makeTestBatch(txBuilder(1, iroha::time::now(), 2), txBuilder(2, iroha::time::now(), 2));
+  auto base_tx = makeTestBatch(txBuilder(1, iroha::time::now(), 2),
+                               txBuilder(2, iroha::time::now(), 2));
 
-auto batch =  addSignatures(addSignatures(base_tx, 0, first_signature, second_signature), 1, first_signature);
+  auto batch = addSignatures(
+      addSignatures(base_tx, 0, first_signature, second_signature),
+      1,
+      first_signature);
   batches_cache_->insert(batch);
   ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
 }
@@ -80,13 +84,17 @@ auto batch =  addSignatures(addSignatures(base_tx, 0, first_signature, second_si
 TEST_F(MSTProcessingTest, FullySubscribed) {
   auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
   auto second_signature = makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey);
-  auto base_tx = makeTestBatch(txBuilder(1, iroha::time::now(), 2), txBuilder(2, iroha::time::now(), 2));
+  auto base_tx = makeTestBatch(txBuilder(1, iroha::time::now(), 2),
+                               txBuilder(2, iroha::time::now(), 2));
 
-  auto batch =  addSignatures(addSignatures(base_tx, 0, first_signature, second_signature), 1, first_signature);
+  auto batch = addSignatures(
+      addSignatures(base_tx, 0, first_signature, second_signature),
+      1,
+      first_signature);
   batches_cache_->insert(batch);
   ASSERT_EQ(batches_cache_->availableTxsCount(), 0);
 
-  auto batch2 =  addSignatures(base_tx, 1, second_signature);
+  auto batch2 = addSignatures(base_tx, 1, second_signature);
   batches_cache_->insert(batch2);
   ASSERT_EQ(batches_cache_->availableTxsCount(), 2);
 }
@@ -95,7 +103,7 @@ TEST_F(MSTProcessingTest, StepByStepSubscribed) {
   auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
   auto second_signature = makeSignature("2"_hex_sig, "pub_key_2"_hex_pubkey);
 
-  auto base_tx = [ts{iroha::time::now()}](){
+  auto base_tx = [ts{iroha::time::now()}]() {
     return makeTestBatch(txBuilder(1, ts, 2), txBuilder(2, ts, 2));
   };
 
@@ -113,7 +121,7 @@ TEST_F(MSTProcessingTest, StepByStepSubscribed) {
 }
 
 TEST_F(MSTProcessingTest, StepByStepSubscribed2) {
-  auto base_tx = [ts{iroha::time::now()}](){
+  auto base_tx = [ts{iroha::time::now()}]() {
     return makeTestBatch(txBuilder(1, ts, 3));
   };
 
@@ -128,7 +136,7 @@ TEST_F(MSTProcessingTest, StepByStepSubscribed2) {
 }
 
 TEST_F(MSTProcessingTest, StepByStepNotSubscribed) {
-  auto get_batch = [ts{iroha::time::now()}](){
+  auto get_batch = [ts{iroha::time::now()}]() {
     return makeTestBatch(txBuilder(1, ts, 3), txBuilder(2, ts, 1));
   };
 
@@ -143,10 +151,10 @@ TEST_F(MSTProcessingTest, StepByStepNotSubscribed) {
 }
 
 TEST_F(MSTProcessingTest, DoubleTxs) {
-  auto get_batch = [ts{iroha::time::now()}](){
+  auto get_batch = [ts{iroha::time::now()}]() {
     return makeTestBatch(txBuilder(1, ts, 2));
   };
-  auto get_batch_2 = [ts{iroha::time::now()}](){
+  auto get_batch_2 = [ts{iroha::time::now()}]() {
     return makeTestBatch(txBuilder(1, ts, 1));
   };
 
@@ -156,6 +164,7 @@ TEST_F(MSTProcessingTest, DoubleTxs) {
   batches_cache_->insert(addSignaturesFromKeyPairs(get_batch(), 0, makeKey()));
   ASSERT_EQ(batches_cache_->availableTxsCount(), 1);
 
-  batches_cache_->insert(addSignaturesFromKeyPairs(get_batch_2(), 0, makeKey()));
+  batches_cache_->insert(
+      addSignaturesFromKeyPairs(get_batch_2(), 0, makeKey()));
   ASSERT_EQ(batches_cache_->availableTxsCount(), 2);
 }

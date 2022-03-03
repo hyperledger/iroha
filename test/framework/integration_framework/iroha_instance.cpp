@@ -92,7 +92,7 @@ namespace integration_framework {
     test_irohad_->run().match(
         [](const auto &) {},
         [this](const auto &error) {
-          log_->error("{}",error.error);
+          log_->error("{}", error.error);
           BOOST_THROW_EXCEPTION(std::runtime_error(error.error));
         });
   }

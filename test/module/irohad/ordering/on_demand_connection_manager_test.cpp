@@ -43,7 +43,8 @@ struct OnDemandConnectionManagerTest : public ::testing::Test {
           .WillRepeatedly(ReturnRefOfCopy(
               iroha::bytestringToHexstring(std::string(32, '0'))));
       EXPECT_CALL(*peer, address())
-          .WillRepeatedly(testing::ReturnRefOfCopy(std::string{"address"} + std::to_string(ix)));
+          .WillRepeatedly(testing::ReturnRefOfCopy(std::string{"address"}
+                                                   + std::to_string(ix)));
 
       field = peer;
       EXPECT_CALL(*factory, create(Ref(*field)))
@@ -56,8 +57,7 @@ struct OnDemandConnectionManagerTest : public ::testing::Test {
     }
 
     std::vector<std::shared_ptr<shared_model::interface::Peer>> all_peers;
-    for (auto const &p : cpeers.peers)
-      all_peers.push_back(p);
+    for (auto const &p : cpeers.peers) all_peers.push_back(p);
     manager = std::make_shared<OnDemandConnectionManager>(
         factory, cpeers, all_peers, getTestLogger("OsConnectionManager"));
   }

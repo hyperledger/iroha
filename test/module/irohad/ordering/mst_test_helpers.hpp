@@ -25,7 +25,8 @@ inline auto makeKey() {
 
 inline auto txBuilder(
     const shared_model::interface::types::CounterType &counter,
-    shared_model::interface::types::TimestampType created_time = iroha::time::now(),
+    shared_model::interface::types::TimestampType created_time =
+        iroha::time::now(),
     shared_model::interface::types::QuorumType quorum = 3,
     shared_model::interface::types::AccountIdType account_id = "user@test") {
   return TestTransactionBuilder()
@@ -97,7 +98,8 @@ inline auto makeSignature(
 }
 
 inline auto makeTx(const shared_model::interface::types::CounterType &counter,
-                   shared_model::interface::types::TimestampType created_time = iroha::time::now(),
+                   shared_model::interface::types::TimestampType created_time =
+                       iroha::time::now(),
                    shared_model::crypto::Keypair keypair = makeKey(),
                    uint8_t quorum = 3) {
   return std::make_shared<shared_model::proto::Transaction>(

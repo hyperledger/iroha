@@ -63,14 +63,16 @@ namespace iroha {
        * Initialize corresponding peers in connections_ using factory_
        * @param peers to initialize connections with
        */
-      void initializeConnections(const CurrentPeers &peers, shared_model::interface::types::PeerList const &all_peers);
+      void initializeConnections(
+          const CurrentPeers &peers,
+          shared_model::interface::types::PeerList const &all_peers);
 
      private:
       /**
        * Corresponding connections created by OdOsNotificationFactory
        * @see PeerType for individual descriptions
        */
-       struct ConnectionData {
+      struct ConnectionData {
         std::optional<std::shared_ptr<transport::OdOsNotification>> connection;
         std::shared_ptr<shared_model::interface::Peer> peer;
 
@@ -84,8 +86,7 @@ namespace iroha {
         PeerCollectionType<
             std::optional<std::shared_ptr<transport::OdOsNotification>>>
             peers;
-        std::vector<ConnectionData>
-            all_connections;
+        std::vector<ConnectionData> all_connections;
       };
 
       logger::LoggerPtr log_;

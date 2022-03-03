@@ -18,7 +18,6 @@
 #include "logger/logger.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
-#include "interfaces/common_objects/types.hpp"
 
 template <typename... TxBuilders>
 auto makeTestBatch(TxBuilders... builders) {
@@ -34,7 +33,8 @@ inline auto makeSignature(
 
 inline auto txBuilder(
     const shared_model::interface::types::CounterType &counter,
-    shared_model::interface::types::TimestampType created_time = iroha::time::now(),
+    shared_model::interface::types::TimestampType created_time =
+        iroha::time::now(),
     shared_model::interface::types::QuorumType quorum = 3,
     shared_model::interface::types::AccountIdType account_id = "user@test") {
   return TestTransactionBuilder()

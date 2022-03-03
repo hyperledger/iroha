@@ -4,9 +4,9 @@
  */
 
 #include <gtest/gtest.h>
+#include <chrono>
 #include <iostream>
 #include <thread>
-#include <chrono>
 #include <utility>
 
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
@@ -54,14 +54,14 @@ class MstPipelineTest : public AcceptanceFixture {
           kUserId, PublicKeyHexStringView{signatories[i].publicKey()});
     }
     add_signatories_tx.setAccountQuorum(kUserId, sigs + 1);
-    itf.sendTxAwait(create_user_tx, [](auto &block) {
-          ASSERT_EQ(block->transactions().size(), 1);
-        })
-        .sendTxAwait(add_signatories_tx.build()
-                    .signAndAddSignature(kUserKeypair)
-                    .finish(), [](auto &block) {
-          ASSERT_EQ(block->transactions().size(), 1);
-        });
+    itf.sendTxAwait(
+           create_user_tx,
+           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+        .sendTxAwait(
+            add_signatories_tx.build()
+                .signAndAddSignature(kUserKeypair)
+                .finish(),
+            [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
     return itf;
   }
 
@@ -247,8 +247,8 @@ TEST_F(MstPipelineTest, OldGetPendingTxsAwaitingForThisPeer) {
     // send pending transaction, signing it only with one signatory
     mst_itf.sendTx(signed_tx);
     std::this_thread::sleep_for(std::chrono::seconds(3));
-    mst_itf.sendQuery(
-        makeGetPendingTxsQuery(kUserId, kUserKeypair), pending_tx_check);
+    mst_itf.sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair),
+                      pending_tx_check);
   });
 }
 
@@ -368,9 +368,8 @@ TEST_F(MstPipelineTest, GetPendingTxsAwaitingForThisPeer) {
     // send pending transaction, signing it only with one signatory
     mst_itf.sendTx(signed_tx);
     std::this_thread::sleep_for(std::chrono::seconds(3));
-    mst_itf.sendQuery(
-        makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
-        pending_tx_check);
+    mst_itf.sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
+                      pending_tx_check);
   });
 }
 
@@ -394,10 +393,10 @@ TEST_F(MstPipelineTest, GetPendingTxsLatestSignatures) {
   executeForItf([&](auto &mst_itf) {
     mst_itf.sendTx(complete(pending_tx, signatories[0]));
     std::this_thread::sleep_for(std::chrono::seconds(1));
-        mst_itf.sendQuery(q1, signatoryCheck(1))
+    mst_itf.sendQuery(q1, signatoryCheck(1))
         .sendTx(complete(pending_tx, signatories[1]));
     std::this_thread::sleep_for(std::chrono::seconds(1));
-        mst_itf.sendQuery(q2, signatoryCheck(2));
+    mst_itf.sendQuery(q2, signatoryCheck(2));
   });
 }
 
@@ -425,8 +424,8 @@ TEST_F(MstPipelineTest, GetPendingTxsNoSignedTxs) {
         .skipVerifiedProposal()
         .skipBlock();
     std::this_thread::sleep_for(std::chrono::seconds(1));
-        mst_itf.sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
-                   noTxsCheck);
+    mst_itf.sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
+                      noTxsCheck);
   });
 }
 
@@ -458,7 +457,7 @@ TEST_F(MstPipelineTest, ReplayViaFullySignedTransaction) {
         .skipVerifiedProposal()
         .skipBlock();
     std::this_thread::sleep_for(std::chrono::seconds(1));
-        mst_itf.sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
-                   noTxsCheck);
+    mst_itf.sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
+                      noTxsCheck);
   });
 }

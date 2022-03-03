@@ -377,7 +377,9 @@ class Irohad {
       command_service_transport;
 
   // subscriptions
-  using MstStateSubscriber = iroha::BaseSubscriber<bool, std::shared_ptr<shared_model::interface::TransactionBatch>>;
+  using MstStateSubscriber = iroha::BaseSubscriber<
+      bool,
+      std::shared_ptr<shared_model::interface::TransactionBatch>>;
   std::shared_ptr<MstStateSubscriber> mst_state_update_;
   std::shared_ptr<MstStateSubscriber> mst_state_prepared_;
   std::shared_ptr<MstStateSubscriber> mst_state_expired_;

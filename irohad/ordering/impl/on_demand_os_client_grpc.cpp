@@ -189,7 +189,8 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
           callback({std::nullopt, round});
           return;
         } else {
-          maybe_log->info("RPC succeeded(RequestingProposal): {}", context->peer());
+          maybe_log->info("RPC succeeded(RequestingProposal): {}",
+                          context->peer());
         }
         if (not response.has_proposal()) {
           callback({std::nullopt, round});

@@ -6,10 +6,10 @@
 #include "ordering/impl/on_demand_connection_manager.hpp"
 
 #include "common/result.hpp"
+#include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "logger/logger.hpp"
 #include "ordering/impl/on_demand_common.hpp"
-#include "interfaces/common_objects/peer.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -59,7 +59,8 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
   propagate(kCommitConsumer);
 }
 
-void OnDemandConnectionManager::onBatchesToWholeNetwork(CollectionType batches) {
+void OnDemandConnectionManager::onBatchesToWholeNetwork(
+    CollectionType batches) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   log_->info("Propagate to {} peers.", connections_.all_connections.size());
   if (not stop_requested_.load(std::memory_order_relaxed))
@@ -84,14 +85,15 @@ void OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
 }
 
 void OnDemandConnectionManager::initializeConnections(
-    const CurrentPeers &peers, shared_model::interface::types::PeerList const &all_peers) {
+    const CurrentPeers &peers,
+    shared_model::interface::types::PeerList const &all_peers) {
   std::lock_guard<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed)) {
     // Object was destroyed and `this' is no longer valid.
     return;
   }
 
-  //connections_.all_connections.clear();
+  // connections_.all_connections.clear();
   std::vector<ConnectionData> tmp;
   for (auto &p : all_peers) {
     bool found = false;
@@ -109,8 +111,7 @@ void OnDemandConnectionManager::initializeConnections(
 
     if (auto maybe_connection = factory_->create(*p);
         expected::hasValue(maybe_connection))
-      tmp.emplace_back(
-          std::move(maybe_connection).assumeValue(), p);
+      tmp.emplace_back(std::move(maybe_connection).assumeValue(), p);
     else
       tmp.emplace_back(std::nullopt, p);
   }
@@ -118,8 +119,10 @@ void OnDemandConnectionManager::initializeConnections(
 
   auto create_assign = [&](auto target) {
     for (size_t ix = 0; ix < all_peers.size(); ++ix)
-      if (all_peers[ix]->address() == peers.peers[target]->address() && all_peers[ix]->pubkey() == peers.peers[target]->pubkey())
-        connections_.peers[target] = connections_.all_connections[ix].connection;
+      if (all_peers[ix]->address() == peers.peers[target]->address()
+          && all_peers[ix]->pubkey() == peers.peers[target]->pubkey())
+        connections_.peers[target] =
+            connections_.all_connections[ix].connection;
   };
 
   create_assign(kIssuer);

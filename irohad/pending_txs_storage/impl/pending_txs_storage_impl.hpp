@@ -40,16 +40,18 @@ namespace iroha {
         const std::optional<shared_model::interface::types::HashType>
             &first_tx_hash,
         const std::optional<shared_model::interface::types::TimestampType>
-            &first_tx_time=std::nullopt,
+            &first_tx_time = std::nullopt,
         const std::optional<shared_model::interface::types::TimestampType>
-            &last_tx_time=std::nullopt) const override;
+            &last_tx_time = std::nullopt) const override;
 
     void insertPresenceCache(
         std::shared_ptr<ametsuchi::TxPresenceCache> &cache) override;
 
     void removeTransaction(HashType const &hash) override;
 
-    void updatedBatchesHandler(std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) override;
+    void updatedBatchesHandler(
+        std::shared_ptr<shared_model::interface::TransactionBatch> const &batch)
+        override;
 
     void removeBatch(const SharedBatch &batch) override;
 

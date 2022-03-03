@@ -7,7 +7,6 @@
 
 #include <boost/variant.hpp>
 
-#include "test/integration/acceptance/instantiate_test_suite.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
@@ -17,6 +16,7 @@
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "test/integration/acceptance/instantiate_test_suite.hpp"
 
 using namespace shared_model;
 using namespace common_constants;

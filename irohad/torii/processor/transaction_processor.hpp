@@ -45,13 +45,16 @@ namespace iroha {
               &block) = 0;
 
       virtual void processStateUpdate(
-          std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) = 0;
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) = 0;
 
       virtual void processPreparedBatch(
-          std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) = 0;
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) = 0;
 
       virtual void processExpiredBatch(
-          std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) = 0;
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) = 0;
 
       virtual ~TransactionProcessor() = default;
     };

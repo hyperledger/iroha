@@ -21,7 +21,6 @@
 #include "logger/logger.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
-#include "interfaces/common_objects/types.hpp"
 
 template <typename... TxBuilders>
 auto makeTestBatch(TxBuilders... builders) {
@@ -37,7 +36,8 @@ inline auto makeSignature(
 
 inline auto txBuilder(
     const shared_model::interface::types::CounterType &counter,
-    shared_model::interface::types::TimestampType created_time = iroha::time::now(),
+    shared_model::interface::types::TimestampType created_time =
+        iroha::time::now(),
     shared_model::interface::types::QuorumType quorum = 3,
     shared_model::interface::types::AccountIdType account_id = "user@test") {
   return TestTransactionBuilder()
@@ -190,20 +190,23 @@ TEST_F(PendingTxsStorageFixture, TxPaginationTestFirsTimeLastTimeSpecified) {
   storage_->updatedBatchesHandler(transactions);
   storage_->updatedBatchesHandler(transactions1);
   const auto &creator = "alice@iroha";
-  auto pending = storage_->getPendingTransactions(creator, kPageSize, std::nullopt, first_time, last_time);
+  auto pending = storage_->getPendingTransactions(
+      creator, kPageSize, std::nullopt, first_time, last_time);
 
   IROHA_ASSERT_RESULT_VALUE(pending);
-  ASSERT_EQ(expected.all_transactions_size, pending.assumeValue().transactions.size() );
+  ASSERT_EQ(expected.all_transactions_size,
+            pending.assumeValue().transactions.size());
 }
 
 /**
  * Timestamp in PaginationMeta works in PendingTxsStorage
  * @given two batches of two transactions and storage
  * @when storage receives updated mst state with the batch
- * @then list of pending transactions starting from specified timestamp can be obtained
+ * @then list of pending transactions starting from specified timestamp can be
+ * obtained
  */
 TEST_F(PendingTxsStorageFixture, TxPaginationTestFirstTimeSpecified) {
-  auto transactions = twoTransactionsBatch(1000020,1000030);
+  auto transactions = twoTransactionsBatch(1000020, 1000030);
   auto first_time = 1000040;
   auto transactions1 = twoTransactionsBatch(1000050, 1000060);
   const auto kPageSize = 100u;
@@ -243,8 +246,8 @@ TEST_F(PendingTxsStorageFixture, TxPaginationTestLastTimeSpecified) {
   expected.transactions.insert(expected.transactions.end(),
                                transactions1->transactions().begin(),
                                transactions1->transactions().end());
-  expected.all_transactions_size =
-      transactions->transactions().size() + transactions1->transactions().size();
+  expected.all_transactions_size = transactions->transactions().size()
+      + transactions1->transactions().size();
 
   storage_->updatedBatchesHandler(transactions);
   storage_->updatedBatchesHandler(transactions1);
@@ -264,7 +267,8 @@ TEST_F(PendingTxsStorageFixture, TxPaginationTestLastTimeSpecified) {
  * @then list of pending transactions up to specified timestamp can be
  * obtained
  */
-TEST_F(PendingTxsStorageFixture, TxPaginationTestFirstTimeAfterLastTransactionSpecified) {
+TEST_F(PendingTxsStorageFixture,
+       TxPaginationTestFirstTimeAfterLastTransactionSpecified) {
   auto transactions = twoTransactionsBatch(1000030, 1000040);
   auto first_time = 1000050;
   const auto kPageSize = 100u;

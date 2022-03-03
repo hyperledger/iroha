@@ -12,7 +12,6 @@
 #include <boost/filesystem.hpp>
 #include <optional>
 
-#include "network/impl/async_grpc_client.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "ametsuchi/impl/rocksdb_storage_impl.hpp"
@@ -48,6 +47,7 @@
 #include "main/iroha_status.hpp"
 #include "main/server_runner.hpp"
 #include "main/subscription.hpp"
+#include "network/impl/async_grpc_client.hpp"
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/channel_factory.hpp"
 #include "network/impl/channel_pool.hpp"
@@ -928,48 +928,59 @@ Irohad::RunResult Irohad::initTransactionCommandService() {
       status_factory,
       command_service_log_manager->getChild("Processor")->getLogger());
 
-  mst_state_update_ = SubscriberCreator<bool, std::shared_ptr<shared_model::interface::TransactionBatch>>::template create<
-      EventTypes::kOnMstStateUpdate>(
-      SubscriptionEngineHandlers::kNotifications,
-      [tx_processor(utils::make_weak(tx_processor)),
-       pending_txs_storage(utils::make_weak(pending_txs_storage_))](auto &,
-                                                          std::shared_ptr<shared_model::interface::TransactionBatch> batch) {
-        auto maybe_tx_processor = tx_processor.lock();
-        auto maybe_pending_txs_storage = pending_txs_storage.lock();
-        if (maybe_tx_processor && maybe_pending_txs_storage) {
-          maybe_tx_processor->processStateUpdate(batch);
-          maybe_pending_txs_storage->updatedBatchesHandler(batch);
-        }
-      });
+  mst_state_update_ = SubscriberCreator<
+      bool,
+      std::shared_ptr<shared_model::interface::TransactionBatch>>::
+      template create<EventTypes::kOnMstStateUpdate>(
+          SubscriptionEngineHandlers::kNotifications,
+          [tx_processor(utils::make_weak(tx_processor)),
+           pending_txs_storage(utils::make_weak(pending_txs_storage_))](
+              auto &,
+              std::shared_ptr<shared_model::interface::TransactionBatch>
+                  batch) {
+            auto maybe_tx_processor = tx_processor.lock();
+            auto maybe_pending_txs_storage = pending_txs_storage.lock();
+            if (maybe_tx_processor && maybe_pending_txs_storage) {
+              maybe_tx_processor->processStateUpdate(batch);
+              maybe_pending_txs_storage->updatedBatchesHandler(batch);
+            }
+          });
 
+  mst_state_prepared_ = SubscriberCreator<
+      bool,
+      std::shared_ptr<shared_model::interface::TransactionBatch>>::
+      template create<EventTypes::kOnMstPreparedBatches>(
+          SubscriptionEngineHandlers::kNotifications,
+          [tx_processor(utils::make_weak(tx_processor)),
+           pending_txs_storage(utils::make_weak(pending_txs_storage_))](
+              auto &,
+              std::shared_ptr<shared_model::interface::TransactionBatch>
+                  batch) {
+            auto maybe_tx_processor = tx_processor.lock();
+            auto maybe_pending_txs_storage = pending_txs_storage.lock();
+            if (maybe_tx_processor && maybe_pending_txs_storage) {
+              maybe_tx_processor->processPreparedBatch(batch);
+              maybe_pending_txs_storage->removeBatch(batch);
+            }
+          });
 
-  mst_state_prepared_ = SubscriberCreator<bool, std::shared_ptr<shared_model::interface::TransactionBatch>>::template create<
-      EventTypes::kOnMstPreparedBatches>(
-      SubscriptionEngineHandlers::kNotifications,
-      [tx_processor(utils::make_weak(tx_processor)),
-       pending_txs_storage(utils::make_weak(pending_txs_storage_))](auto &,
-                                                          std::shared_ptr<shared_model::interface::TransactionBatch> batch) {
-        auto maybe_tx_processor = tx_processor.lock();
-        auto maybe_pending_txs_storage = pending_txs_storage.lock();
-        if (maybe_tx_processor && maybe_pending_txs_storage) {
-          maybe_tx_processor->processPreparedBatch(batch);
-          maybe_pending_txs_storage->removeBatch(batch);
-        }
-      });
-
-  mst_state_expired_ = SubscriberCreator<bool, std::shared_ptr<shared_model::interface::TransactionBatch>>::template create<
-      EventTypes::kOnMstExpiredBatches>(
-      SubscriptionEngineHandlers::kNotifications,
-      [tx_processor(utils::make_weak(tx_processor)),
-       pending_txs_storage(utils::make_weak(pending_txs_storage_))](auto &,
-                                                          std::shared_ptr<shared_model::interface::TransactionBatch> batch) {
-        auto maybe_tx_processor = tx_processor.lock();
-        auto maybe_pending_txs_storage = pending_txs_storage.lock();
-        if (maybe_tx_processor && maybe_pending_txs_storage) {
-          maybe_tx_processor->processExpiredBatch(batch);
-          maybe_pending_txs_storage->removeBatch(batch);
-        }
-      });
+  mst_state_expired_ = SubscriberCreator<
+      bool,
+      std::shared_ptr<shared_model::interface::TransactionBatch>>::
+      template create<EventTypes::kOnMstExpiredBatches>(
+          SubscriptionEngineHandlers::kNotifications,
+          [tx_processor(utils::make_weak(tx_processor)),
+           pending_txs_storage(utils::make_weak(pending_txs_storage_))](
+              auto &,
+              std::shared_ptr<shared_model::interface::TransactionBatch>
+                  batch) {
+            auto maybe_tx_processor = tx_processor.lock();
+            auto maybe_pending_txs_storage = pending_txs_storage.lock();
+            if (maybe_tx_processor && maybe_pending_txs_storage) {
+              maybe_tx_processor->processExpiredBatch(batch);
+              maybe_pending_txs_storage->removeBatch(batch);
+            }
+          });
 
   command_service = std::make_shared<::torii::CommandServiceImpl>(
       tx_processor,
