@@ -6,7 +6,7 @@ import (
 
 	vm "vmCaller/evm"
 	"vmCaller/iroha"
-	"sync"	
+
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/bcm"
@@ -20,10 +20,14 @@ import (
 	"vmCaller/blockchain"
 
 	"github.com/hyperledger/burrow/execution/engine"
+	"github.com/tmthrgd/go-hex"
 )
 
 var (
-	ExecutionMutex sync.Mutex
+	// Create EVM instance
+	burrowEVM = evm.New(evm.Options{
+		Natives: vm.MustCreateNatives(),
+	})
 )
 
 type Engine interface {
@@ -39,28 +43,21 @@ type EngineWrapper struct {
 
 // Run a contract's code on an isolated and unpersisted state
 // Cannot be used to create new contracts
-func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, from string, address crypto.Address, data []byte,
+func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress string, address crypto.Address, data []byte,
 	logger *logging.Logger) (*exec.TxExecution, error) {
-	
-	burrowEVM := evm.New(evm.Options{
-		Natives: vm.MustCreateQueryNatives(),
-	})
 	worldState := vm.NewIrohaState(iroha.StoragePointer)
 	if err := worldState.UpdateAccount(&acm.Account{
 		Address:     acm.GlobalPermissionsAddress,
 		Balance:     999999,
 		Permissions: permission.DefaultAccountPermissions,
 	}); err != nil {
-		return nil, fmt.Errorf("Internal error occured while trying to update account")
+		fmt.Println("unable to update account")
 	}
-	evmCaller := native.AddressFromName(from)
-	callerAccount, err := worldState.GetAccount(evmCaller)
-	if err != nil {
-		return nil,fmt.Errorf("Error while getting iroha account of %s", from)
-	}
-	if callerAccount == nil {
-		return nil, fmt.Errorf("Sender account must be an existing iroha account")
-	}
+	evmCaller := native.AddressFromName(fromAddress)
+	// callerAccount, err := worldState.GetAccount(evmCaller)
+	// if err != nil {
+	// 	fmt.Println("Unable to get account")
+	// }
 
 	engine := EngineWrapper{
 		engine:    burrowEVM,
@@ -69,7 +66,7 @@ func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, from string,
 	}
 	evmCallee := address
 	if vm.IsNative(evmCallee.String()) {
-		return nil, fmt.Errorf("Address is native")
+		fmt.Println("address is reserved for native")
 	}
 
 	output, err := engine.Execute(evmCaller, evmCallee, data)
@@ -112,4 +109,32 @@ func (w *EngineWrapper) Execute(caller, callee crypto.Address, input []byte) ([]
 	}
 
 	return output, nil
+}
+
+func makeError(msg string) (*C.char, *C.char) {
+	return nil, C.CString(msg)
+}
+
+func addressFromNonce(nonce string) (address crypto.Address) {
+	hash := crypto.Keccak256(hex.MustDecodeString(nonce))
+	copy(address[:], hash[len(hash)-crypto.AddressLength:])
+	return
+}
+
+// Run the given code on an isolated and unpersisted state
+// Cannot be used to create new contracts.
+func CallCodeSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, fromAddress string, address crypto.Address, code, data []byte,
+	logger *logging.Logger) (*exec.TxExecution, error) {
+
+	// Attach code to target account (overwriting target)
+	cache := acmstate.NewCache(reader)
+	err := cache.UpdateAccount(&acm.Account{
+		Address: address,
+		EVMCode: code,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return CallSim(cache, blockchain, fromAddress, address, data, logger)
 }
