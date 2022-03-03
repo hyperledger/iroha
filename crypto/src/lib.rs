@@ -14,6 +14,8 @@ mod varint;
 use alloc::{format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};
 
+#[cfg(feature = "base64")]
+pub use base64;
 use derive_more::Display;
 pub use hash::*;
 use iroha_schema::IntoSchema;
