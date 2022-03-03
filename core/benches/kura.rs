@@ -18,7 +18,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     let dir = tempfile::tempdir().unwrap();
     let alice_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "alice", "test");
     let bob_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "bob", "test");
-    let transfer = Instruction::Transfer(TransferBox {
+    let transfer = InstructionBox::Transfer(TransferBox {
         source_id: IdBox::AssetId(alice_xor_id).into(),
         object: Value::U32(10).into(),
         destination_id: IdBox::AssetId(bob_xor_id).into(),

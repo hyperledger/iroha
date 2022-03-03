@@ -12,14 +12,14 @@ pub struct ProhibitRegisterDomains;
 
 impl_from_item_for_instruction_validator_box!(ProhibitRegisterDomains);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for ProhibitRegisterDomains {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for ProhibitRegisterDomains {
     fn check(
         &self,
         _authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         _wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let _register_box = if let Instruction::Register(register) = instruction {
+        let _register_box = if let InstructionBox::Register(register) = instruction {
             register
         } else {
             return Ok(());
@@ -38,7 +38,7 @@ impl<W: WorldTrait> HasToken<W> for GrantedAllowedRegisterDomains {
     fn token(
         &self,
         _authority: &AccountId,
-        _instruction: &Instruction,
+        _instruction: &InstructionBox,
         _wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
         Ok(PermissionToken::new(

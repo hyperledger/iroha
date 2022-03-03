@@ -399,7 +399,7 @@ mod tests {
 
         let tx = Transaction::new(
             AccountId::test(GENESIS_ACCOUNT_NAME, GENESIS_DOMAIN_NAME),
-            Vec::<Instruction>::new().into(),
+            Vec::<InstructionBox>::new().into(),
             1000,
         );
         let tx_hash = tx.hash();
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn transaction_not_accepted_max_instruction_number() {
-        let inst: Instruction = FailBox {
+        let inst: InstructionBox = FailBox {
             message: "Will fail".to_owned(),
         }
         .into();

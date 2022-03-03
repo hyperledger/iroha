@@ -24,7 +24,7 @@ pub fn iroha_wasm(_: TokenStream, item: TokenStream) -> TokenStream {
     block.stmts.insert(
         0,
         parse_quote!(
-            use iroha_wasm::Execute as _;
+            use iroha_wasm::{ExecuteInstruction as _, ExecuteQuery as _};
         ),
     );
 

@@ -264,7 +264,7 @@ pub mod utils {
             }
         }
 
-        pub fn sign_tx(isi: impl IntoIterator<Item = Instruction>) -> VersionedAcceptedTransaction {
+        pub fn sign_tx(isi: impl IntoIterator<Item = InstructionBox>) -> VersionedAcceptedTransaction {
             let instructions: Vec<_> = isi.into_iter().collect();
             let tx = Transaction::new(ALICE_ID.clone(), instructions.into(), 100_000)
                 .sign(ALICE_KEYS.clone())

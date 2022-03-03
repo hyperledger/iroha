@@ -32,7 +32,7 @@ pub type Context = btree_map::BTreeMap<ValueName, Value>;
 pub type ExpressionBox = Box<Expression>;
 
 /// Struct for type checking and converting expression results.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct EvaluatesTo<V: TryFrom<Value>> {
     /// Expression.

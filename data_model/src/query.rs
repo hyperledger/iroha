@@ -19,6 +19,56 @@ use self::role::*;
 use self::{account::*, asset::*, domain::*, peer::*, permissions::*, transaction::*};
 use crate::{account::Account, Identifiable, Value};
 
+pub trait QueryId {
+    const ID: u32;
+}
+
+/// Implement different [`QueryId`] for every type given
+macro_rules! impl_query_id {
+    ( $( $queries: ty ),+ $(,)? ) => {
+        impl_query_id!(0, $( $queries, )+);
+    };
+    ( $id: expr, $query: ty, $( $queries: ty ),* $(,)? ) => {
+        impl QueryId for $query {
+            const ID: u32 = $id;
+        }
+        impl_query_id!($id + 1, $( $queries, )*);
+    };
+    ( $id: expr $(,)? ) => {};
+}
+
+/// Trait for typesafe query output
+pub trait Query: QueryId + Into<QueryBox> + Encode + Decode {
+    /// Output type of query
+    type Output: Into<Value> + TryFrom<Value>;
+}
+
+impl_query_id!(
+    FindAllAccounts,
+    FindAccountById,
+    FindAccountKeyValueByIdAndKey,
+    FindAccountsByName,
+    FindAccountsByDomainId,
+    FindAllAssets,
+    FindAllAssetsDefinitions,
+    FindAssetById,
+    FindAssetsByName,
+    FindAssetsByAccountId,
+    FindAssetsByAssetDefinitionId,
+    FindAssetsByDomainId,
+    FindAssetsByDomainIdAndAssetDefinitionId,
+    FindAssetQuantityById,
+    FindAssetKeyValueByIdAndKey,
+    FindAssetDefinitionKeyValueByIdAndKey,
+    FindAllDomains,
+    FindDomainById,
+    FindDomainKeyValueByIdAndKey,
+    FindAllPeers,
+    FindTransactionsByAccountId,
+    FindTransactionByHash,
+    FindPermissionTokensByAccountId,
+);
+
 /// Sized container for all possible Queries.
 #[allow(clippy::enum_variant_names)]
 #[derive(
@@ -80,24 +130,14 @@ pub enum QueryBox {
     FindTransactionsByAccountId(FindTransactionsByAccountId),
     /// [`FindTransactionByHash`] variant.
     FindTransactionByHash(FindTransactionByHash),
+    /// [`FindPermissionTokensByAccountId`] variant.
+    FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
     /// [`FindAllRoles`] variant.
     #[cfg(feature = "roles")]
     FindAllRoles(FindAllRoles),
     /// [`FindRolesByAccountId`] variant.
     #[cfg(feature = "roles")]
     FindRolesByAccountId(FindRolesByAccountId),
-    /// [`FindPermissionTokensByAccountId`] variant.
-    FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
-}
-
-/// Trait for typesafe query output
-pub trait Query {
-    /// Output type of query
-    type Output: Into<Value> + TryFrom<Value>;
-}
-
-impl Query for QueryBox {
-    type Output = Value;
 }
 
 /// Payload of a query.
@@ -151,12 +191,12 @@ pub struct QueryResult(pub Value);
 #[cfg(all(feature = "std", feature = "warp"))]
 impl QueryRequest {
     /// Constructs a new request with the `query`.
-    pub fn new(query: QueryBox, account_id: <Account as Identifiable>::Id) -> Self {
+    pub fn new(query: impl Query, account_id: <Account as Identifiable>::Id) -> Self {
         let timestamp_ms = crate::current_time().as_millis();
         QueryRequest {
             payload: Payload {
                 timestamp_ms,
-                query,
+                query: query.into(),
                 account_id,
             },
         }
@@ -208,6 +248,13 @@ pub mod role {
 
     impl Query for FindAllRoles {
         type Output = Vec<Role>;
+    }
+
+    impl QueryId for FindAllRoles {
+        const ID: u32 = 0;
+    }
+    impl QueryId for FindRolesByAccountId {
+        const ID: u32 = 0;
     }
 
     /// `FindRolesByAccountId` Iroha Query will find an `Role`s for a specified account.
@@ -973,7 +1020,7 @@ pub mod peer {
     use serde::{Deserialize, Serialize};
 
     use super::Query;
-    use crate::{peer::Peer, Parameter};
+    use crate::peer::Peer;
 
     /// `FindAllPeers` Iroha Query will find all trusted `Peer`s presented in current Iroha `Peer`.
     #[derive(
@@ -997,44 +1044,44 @@ pub mod peer {
         type Output = Vec<Peer>;
     }
 
-    /// `FindAllParameters` Iroha Query will find all `Peer`s parameters.
-    #[derive(
-        Debug,
-        Clone,
-        Copy,
-        Default,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-    )]
-    pub struct FindAllParameters {}
+    ///// `FindAllParameters` Iroha Query will find all `Peer`s parameters.
+    //#[derive(
+    //    Debug,
+    //    Clone,
+    //    Copy,
+    //    Default,
+    //    PartialEq,
+    //    Eq,
+    //    PartialOrd,
+    //    Ord,
+    //    Decode,
+    //    Encode,
+    //    Deserialize,
+    //    Serialize,
+    //    IntoSchema,
+    //)]
+    //pub struct FindAllParameters {}
 
-    impl Query for FindAllParameters {
-        type Output = Vec<Parameter>;
-    }
+    //impl Query for FindAllParameters {
+    //    type Output = Vec<Parameter>;
+    //}
 
-    impl FindAllPeers {
-        ///Construct [`FindAllPeers`].
-        pub const fn new() -> Self {
-            FindAllPeers {}
-        }
-    }
+    //impl FindAllPeers {
+    //    ///Construct [`FindAllPeers`].
+    //    pub const fn new() -> Self {
+    //        FindAllPeers {}
+    //    }
+    //}
 
-    impl FindAllParameters {
-        /// Construct [`FindAllParameters`].
-        pub const fn new() -> Self {
-            FindAllParameters {}
-        }
-    }
+    //impl FindAllParameters {
+    //    /// Construct [`FindAllParameters`].
+    //    pub const fn new() -> Self {
+    //        FindAllParameters {}
+    //    }
+    //}
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAllParameters, FindAllPeers};
+        pub use super::FindAllPeers;
     }
 }
 
@@ -1132,8 +1179,8 @@ pub mod prelude {
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, transaction::*, Query, QueryBox, QueryResult, SignedQueryRequest,
-        VersionedQueryResult,
+        permissions::prelude::*, transaction::*, Query, QueryBox, QueryId, QueryResult,
+        SignedQueryRequest, VersionedQueryResult,
     };
     #[cfg(feature = "warp")]
     pub use super::{QueryRequest, VersionedSignedQueryRequest};

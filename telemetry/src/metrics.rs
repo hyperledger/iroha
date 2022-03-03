@@ -112,14 +112,14 @@ impl Default for Metrics {
         let registry = Registry::new();
 
         macro_rules! register {
-			($metric:expr)=> {
-				registry.register(Box::new($metric.clone())).expect("Infallible");
-			};
-			($metric:expr,$($metrics:expr),+)=>{
-				register!($metric);
-				register!($($metrics),+);
-			}
-		}
+            ($metric:expr)=> {
+                registry.register(Box::new($metric.clone())).expect("Infallible");
+            };
+            ($metric:expr,$($metrics:expr),+)=>{
+                register!($metric);
+                register!($($metrics),+);
+            }
+        }
 
         register!(
             txs,

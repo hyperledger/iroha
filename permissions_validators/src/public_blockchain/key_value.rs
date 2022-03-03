@@ -29,14 +29,14 @@ pub struct AssetSetOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AssetSetOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetSetOnlyForSignerAccount {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for AssetSetOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+        let set_kv_box = if let InstructionBox::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
             return Ok(());
@@ -66,10 +66,10 @@ impl<W: WorldTrait> HasToken<W> for SetGrantedByAssetOwner {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+        let set_kv_box = if let InstructionBox::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
             return Err("Instruction is not set.".to_owned());
@@ -126,14 +126,14 @@ pub struct AccountSetOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AccountSetOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AccountSetOnlyForSignerAccount {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for AccountSetOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+        let set_kv_box = if let InstructionBox::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
             return Ok(());
@@ -162,10 +162,10 @@ impl<W: WorldTrait> HasToken<W> for SetGrantedByAccountOwner {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+        let set_kv_box = if let InstructionBox::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
             return Err("Instruction is not set.".to_owned());
@@ -222,14 +222,14 @@ pub struct AssetRemoveOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AssetRemoveOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetRemoveOnlyForSignerAccount {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for AssetRemoveOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
+        let rem_kv_box = if let InstructionBox::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
             return Ok(());
@@ -257,10 +257,10 @@ impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAssetOwner {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
+        let rem_kv_box = if let InstructionBox::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
             return Err("Instruction is not set.".to_owned());
@@ -317,14 +317,14 @@ pub struct AccountRemoveOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AccountRemoveOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AccountRemoveOnlyForSignerAccount {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for AccountRemoveOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
+        let rem_kv_box = if let InstructionBox::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
             return Ok(());
@@ -353,10 +353,10 @@ impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAccountOwner {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
+        let rem_kv_box = if let InstructionBox::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
             return Err("Instruction is not remove.".to_owned());
@@ -473,14 +473,14 @@ pub struct AssetDefinitionSetOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AssetDefinitionSetOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetDefinitionSetOnlyForSignerAccount {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for AssetDefinitionSetOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+        let set_kv_box = if let InstructionBox::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
             return Ok(());
@@ -510,14 +510,14 @@ pub struct AssetDefinitionRemoveOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AssetDefinitionRemoveOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetDefinitionRemoveOnlyForSignerAccount {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for AssetDefinitionRemoveOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
+        let rem_kv_box = if let InstructionBox::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
         } else {
             return Ok(());
@@ -552,10 +552,10 @@ impl<W: WorldTrait> HasToken<W> for SetGrantedByAssetDefinitionOwner {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
+        let set_kv_box = if let InstructionBox::SetKeyValue(set_kv) = instruction {
             set_kv
         } else {
             return Err("Instruction is not set.".to_owned());
@@ -591,10 +591,10 @@ impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAssetDefinitionOwner {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let set_kv_box = if let Instruction::RemoveKeyValue(set_kv) = instruction {
+        let set_kv_box = if let InstructionBox::RemoveKeyValue(set_kv) = instruction {
             set_kv
         } else {
             return Err("Instruction is not remove key value.".to_owned());

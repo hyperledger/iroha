@@ -107,7 +107,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         private_key: PrivateKey {
             digest_function: "ed25519".to_string(),
             payload: hex_literal::hex!("9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0")
-				.into(),
+                .into(),
         },
     };
     let mut peer = <TestPeer>::new().expect("Failed to create peer");

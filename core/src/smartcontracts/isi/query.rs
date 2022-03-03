@@ -76,7 +76,7 @@ impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
 /// Query Request statefully validated on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
 pub struct ValidQueryRequest {
-    query: QueryBox,
+    query: iroha_data_model::query::QueryBox,
 }
 
 impl ValidQueryRequest {
@@ -86,7 +86,7 @@ impl ValidQueryRequest {
     /// Forwards `self.query.execute` error.
     #[inline]
     pub fn execute<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<Value, Error> {
-        self.query.execute(wsv)
+        QueryBoxWrapper(&self.query).execute(wsv)
     }
 }
 
@@ -182,11 +182,22 @@ impl TryFrom<&Bytes> for VerifiedQueryRequest {
     }
 }
 
-impl<W: WorldTrait> ValidQuery<W> for QueryBox {
-    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+)]
+#[repr(transparent)]
+pub struct QueryBoxWrapper<'a>(pub &'a QueryBox);
+
+impl QueryBoxWrapper<'_> {
+    pub fn execute<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<Value, Error> {
         use QueryBox::*;
 
-        match self {
+        match &self.0 {
             FindAllAccounts(query) => query.execute_into_value(wsv),
             FindAccountById(query) => query.execute_into_value(wsv),
             FindAccountsByName(query) => query.execute_into_value(wsv),
@@ -339,7 +350,7 @@ mod tests {
     async fn find_transaction() -> Result<()> {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains()));
 
-        let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
+        let tx = Transaction::new(ALICE_ID.clone(), Vec::<InstructionBox>::new().into(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
 
         let tx_limits = TransactionLimits {

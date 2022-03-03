@@ -13,14 +13,14 @@ pub struct OnlyAssetsCreatedByThisAccount;
 
 impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyAssetsCreatedByThisAccount {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for OnlyAssetsCreatedByThisAccount {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let unregister_box = if let Instruction::Unregister(unregister) = instruction {
+        let unregister_box = if let InstructionBox::Unregister(unregister) = instruction {
             unregister
         } else {
             return Ok(());
@@ -53,10 +53,10 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let unregister_box = if let Instruction::Unregister(unregister) = instruction {
+        let unregister_box = if let InstructionBox::Unregister(unregister) = instruction {
             unregister
         } else {
             return Err("Instruction is not unregister.".to_owned());

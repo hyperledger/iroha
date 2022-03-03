@@ -15,14 +15,14 @@ pub struct OnlyAssetsCreatedByThisAccount;
 
 impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyAssetsCreatedByThisAccount {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for OnlyAssetsCreatedByThisAccount {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let burn_box = if let Instruction::Burn(burn) = instruction {
+        let burn_box = if let InstructionBox::Burn(burn) = instruction {
             burn
         } else {
             return Ok(());
@@ -54,10 +54,10 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let burn_box = if let Instruction::Burn(burn) = instruction {
+        let burn_box = if let InstructionBox::Burn(burn) = instruction {
             burn
         } else {
             return Err("Instruction is not burn.".to_owned());
@@ -116,14 +116,14 @@ pub struct OnlyOwnedAssets;
 
 impl_from_item_for_instruction_validator_box!(OnlyOwnedAssets);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyOwnedAssets {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for OnlyOwnedAssets {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let burn_box = if let Instruction::Burn(burn) = instruction {
+        let burn_box = if let InstructionBox::Burn(burn) = instruction {
             burn
         } else {
             return Ok(());
@@ -150,10 +150,10 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let burn_box = if let Instruction::Burn(burn_box) = instruction {
+        let burn_box = if let InstructionBox::Burn(burn_box) = instruction {
             burn_box
         } else {
             return Err("Instruction is not burn.".to_owned());

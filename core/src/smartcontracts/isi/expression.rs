@@ -6,7 +6,7 @@ use iroha_data_model::{
     prelude::*,
 };
 
-use super::{Error, Evaluate, FindError, MathError};
+use super::{Error, Evaluate, FindError, MathError, query::QueryBoxWrapper};
 use crate::{prelude::*, wsv::WorldTrait};
 
 impl<V: TryFrom<Value>, W: WorldTrait> Evaluate<W> for EvaluatesTo<V>
@@ -50,7 +50,7 @@ impl<W: WorldTrait> Evaluate<W> for Expression {
             Or(or) => or.evaluate(wsv, context)?,
             If(if_expression) => if_expression.evaluate(wsv, context)?,
             Raw(value) => *value.clone(),
-            Query(query) => query.execute(wsv)?,
+            Query(query) => QueryBoxWrapper(query).execute(wsv)?,
             Contains(contains) => contains.evaluate(wsv, context)?,
             ContainsAll(contains_all) => contains_all.evaluate(wsv, context)?,
             ContainsAny(contains_any) => contains_any.evaluate(wsv, context)?,

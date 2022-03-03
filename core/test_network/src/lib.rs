@@ -664,7 +664,7 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery<World> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
@@ -676,14 +676,14 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery<World> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
     fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery<World> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
@@ -696,7 +696,7 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery<World> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 }
@@ -800,7 +800,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery<World> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
@@ -816,7 +816,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery<World> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
@@ -833,7 +833,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery<World> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
@@ -850,7 +850,7 @@ impl TestClient for Client {
 
     fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery<World> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {

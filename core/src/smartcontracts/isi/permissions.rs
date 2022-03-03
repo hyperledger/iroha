@@ -15,7 +15,7 @@ use crate::prelude::*;
 /// Operation for which the permission should be checked.
 pub trait NeedsPermission {}
 
-impl NeedsPermission for Instruction {}
+impl NeedsPermission for InstructionBox {}
 
 impl NeedsPermission for QueryBox {}
 
@@ -45,7 +45,7 @@ pub trait IsAllowed<W: WorldTrait, O: NeedsPermission> {
 pub type IsAllowedBoxed<W, O> = Box<dyn IsAllowed<W, O> + Send + Sync>;
 
 /// Box with permissions validator for `Instruction`.
-pub type IsInstructionAllowedBoxed<W> = IsAllowedBoxed<W, Instruction>;
+pub type IsInstructionAllowedBoxed<W> = IsAllowedBoxed<W, InstructionBox>;
 
 /// Box with permissions validator for `Query`.
 pub type IsQueryAllowedBoxed<W> = IsAllowedBoxed<W, QueryBox>;
@@ -116,35 +116,35 @@ impl<W: WorldTrait, O: NeedsPermission> CheckNested<W, O> {
     }
 }
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W, Instruction> {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for CheckNested<W, InstructionBox> {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
         match instruction {
-            Instruction::Register(_)
-            | Instruction::Unregister(_)
-            | Instruction::Mint(_)
-            | Instruction::Burn(_)
-            | Instruction::SetKeyValue(_)
-            | Instruction::RemoveKeyValue(_)
-            | Instruction::Transfer(_)
-            | Instruction::Grant(_)
-            | Instruction::Revoke(_)
-            | Instruction::Fail(_) => self.validator.check(authority, instruction, wsv),
-            Instruction::If(if_box) => {
+            InstructionBox::Register(_)
+            | InstructionBox::Unregister(_)
+            | InstructionBox::Mint(_)
+            | InstructionBox::Burn(_)
+            | InstructionBox::SetKeyValue(_)
+            | InstructionBox::RemoveKeyValue(_)
+            | InstructionBox::Transfer(_)
+            | InstructionBox::Grant(_)
+            | InstructionBox::Revoke(_)
+            | InstructionBox::Fail(_) => self.validator.check(authority, instruction, wsv),
+            InstructionBox::If(if_box) => {
                 self.check(authority, &if_box.then, wsv)
                     .and_then(|_| match &if_box.otherwise {
                         Some(this_instruction) => self.check(authority, this_instruction, wsv),
                         None => Ok(()),
                     })
             }
-            Instruction::Pair(pair_box) => self
+            InstructionBox::Pair(pair_box) => self
                 .check(authority, &pair_box.left_instruction, wsv)
                 .and(self.check(authority, &pair_box.right_instruction, wsv)),
-            Instruction::Sequence(sequence_box) => sequence_box
+            InstructionBox::Sequence(sequence_box) => sequence_box
                 .instructions
                 .iter()
                 .try_for_each(|this_instruction| self.check(authority, this_instruction, wsv)),
@@ -256,18 +256,18 @@ fn check_query_in_expression<W: WorldTrait>(
 #[allow(clippy::too_many_lines)]
 fn check_query_in_instruction<W: WorldTrait>(
     authority: &AccountId,
-    instruction: &Instruction,
+    instruction: &InstructionBox,
     wsv: &WorldStateView<W>,
     validator: &IsQueryAllowedBoxed<W>,
 ) -> Result<(), DenialReason> {
     match instruction {
-        Instruction::Register(instruction) => {
+        InstructionBox::Register(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
         }
-        Instruction::Unregister(instruction) => {
+        InstructionBox::Unregister(instruction) => {
             check_query_in_expression(authority, &instruction.object_id.expression, wsv, validator)
         }
-        Instruction::Mint(instruction) => {
+        InstructionBox::Mint(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
                 .and(check_query_in_expression(
                     authority,
@@ -276,7 +276,7 @@ fn check_query_in_instruction<W: WorldTrait>(
                     validator,
                 ))
         }
-        Instruction::Burn(instruction) => {
+        InstructionBox::Burn(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
                 .and(check_query_in_expression(
                     authority,
@@ -285,7 +285,7 @@ fn check_query_in_instruction<W: WorldTrait>(
                     validator,
                 ))
         }
-        Instruction::Transfer(instruction) => {
+        InstructionBox::Transfer(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
                 .and(check_query_in_expression(
                     authority,
@@ -300,8 +300,8 @@ fn check_query_in_instruction<W: WorldTrait>(
                     validator,
                 ))
         }
-        Instruction::Fail(_) => Ok(()),
-        Instruction::SetKeyValue(instruction) => {
+        InstructionBox::Fail(_) => Ok(()),
+        InstructionBox::SetKeyValue(instruction) => {
             check_query_in_expression(authority, &instruction.object_id.expression, wsv, validator)
                 .and(check_query_in_expression(
                     authority,
@@ -316,7 +316,7 @@ fn check_query_in_instruction<W: WorldTrait>(
                     validator,
                 ))
         }
-        Instruction::RemoveKeyValue(instruction) => {
+        InstructionBox::RemoveKeyValue(instruction) => {
             check_query_in_expression(authority, &instruction.object_id.expression, wsv, validator)
                 .and(check_query_in_expression(
                     authority,
@@ -325,7 +325,7 @@ fn check_query_in_instruction<W: WorldTrait>(
                     validator,
                 ))
         }
-        Instruction::Grant(instruction) => {
+        InstructionBox::Grant(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
                 .and(check_query_in_expression(
                     authority,
@@ -334,7 +334,7 @@ fn check_query_in_instruction<W: WorldTrait>(
                     validator,
                 ))
         }
-        Instruction::Revoke(instruction) => {
+        InstructionBox::Revoke(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
                 .and(check_query_in_expression(
                     authority,
@@ -343,7 +343,7 @@ fn check_query_in_instruction<W: WorldTrait>(
                     validator,
                 ))
         }
-        Instruction::If(if_box) => {
+        InstructionBox::If(if_box) => {
             check_query_in_instruction(authority, &if_box.then, wsv, validator).and_then(|_| {
                 match &if_box.otherwise {
                     Some(this_instruction) => {
@@ -353,12 +353,12 @@ fn check_query_in_instruction<W: WorldTrait>(
                 }
             })
         }
-        Instruction::Pair(pair_box) => {
+        InstructionBox::Pair(pair_box) => {
             check_query_in_instruction(authority, &pair_box.left_instruction, wsv, validator).and(
                 check_query_in_instruction(authority, &pair_box.right_instruction, wsv, validator),
             )
         }
-        Instruction::Sequence(sequence_box) => {
+        InstructionBox::Sequence(sequence_box) => {
             sequence_box
                 .instructions
                 .iter()
@@ -369,8 +369,8 @@ fn check_query_in_instruction<W: WorldTrait>(
     }
 }
 
-impl<W: WorldTrait> From<CheckNested<W, Instruction>> for IsAllowedBoxed<W, Instruction> {
-    fn from(validator: CheckNested<W, Instruction>) -> Self {
+impl<W: WorldTrait> From<CheckNested<W, InstructionBox>> for IsAllowedBoxed<W, InstructionBox> {
+    fn from(validator: CheckNested<W, InstructionBox>) -> Self {
         Box::new(validator)
     }
 }
@@ -479,7 +479,7 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> ValidatorBuilder<W, O> {
     }
 }
 
-impl<W: WorldTrait> ValidatorBuilder<W, Instruction> {
+impl<W: WorldTrait> ValidatorBuilder<W, InstructionBox> {
     /// Adds a validator to the list and wraps it with `CheckNested` to check nested permissions.
     pub fn with_recursive_validator(
         self,
@@ -567,16 +567,16 @@ pub trait HasToken<W: WorldTrait> {
     fn token(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String>;
 }
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for HasTokenBoxed<W> {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for HasTokenBoxed<W> {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
         let permission_token = self
@@ -637,14 +637,14 @@ pub trait IsRevokeAllowed<W: WorldTrait> {
     ) -> Result<(), DenialReason>;
 }
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for IsGrantAllowedBoxed<W> {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for IsGrantAllowedBoxed<W> {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        if let Instruction::Grant(isi) = instruction {
+        if let InstructionBox::Grant(isi) = instruction {
             self.check_grant(authority, isi, wsv)
         } else {
             Ok(())
@@ -652,14 +652,14 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for IsGrantAllowedBoxed<W> {
     }
 }
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for IsRevokeAllowedBoxed<W> {
+impl<W: WorldTrait> IsAllowed<W, InstructionBox> for IsRevokeAllowedBoxed<W> {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &Instruction,
+        instruction: &InstructionBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        if let Instruction::Revoke(isi) = instruction {
+        if let InstructionBox::Revoke(isi) = instruction {
             self.check_revoke(authority, isi, wsv)
         } else {
             Ok(())
@@ -691,10 +691,10 @@ impl<W: WorldTrait> From<IsRevokeAllowedBoxed<W>> for IsInstructionAllowedBoxed<
 /// Evaluation failure of instruction fields.
 #[cfg(feature = "roles")]
 fn unpack_if_role_grant<W: WorldTrait>(
-    instruction: Instruction,
+    instruction: InstructionBox,
     wsv: &WorldStateView<W>,
-) -> Result<Vec<Instruction>> {
-    let grant = if let Instruction::Grant(grant) = &instruction {
+) -> Result<Vec<InstructionBox>> {
+    let grant = if let InstructionBox::Grant(grant) = &instruction {
         grant
     } else {
         return Ok(vec![instruction]);
@@ -733,10 +733,10 @@ fn unpack_if_role_grant<W: WorldTrait>(
 /// Evaluation failure of each of the instruction fields.
 #[cfg(feature = "roles")]
 pub fn unpack_if_role_revoke<W: WorldTrait>(
-    instruction: Instruction,
+    instruction: InstructionBox,
     wsv: &WorldStateView<W>,
-) -> Result<Vec<Instruction>> {
-    let revoke = if let Instruction::Revoke(revoke) = &instruction {
+) -> Result<Vec<InstructionBox>> {
+    let revoke = if let InstructionBox::Revoke(revoke) = &instruction {
         revoke
     } else {
         return Ok(vec![instruction]);
@@ -768,7 +768,7 @@ pub fn unpack_if_role_revoke<W: WorldTrait>(
 #[allow(clippy::expect_used)]
 pub fn check_instruction_permissions<W: WorldTrait>(
     account_id: &AccountId,
-    instruction: &Instruction,
+    instruction: &InstructionBox,
     is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
     is_query_allowed: &IsQueryAllowedBoxed<W>,
     wsv: &WorldStateView<W>,
@@ -820,15 +820,15 @@ mod tests {
         }
     }
 
-    impl<W: WorldTrait> IsAllowed<W, Instruction> for DenyBurn {
+    impl<W: WorldTrait> IsAllowed<W, InstructionBox> for DenyBurn {
         fn check(
             &self,
             _authority: &AccountId,
-            instruction: &Instruction,
+            instruction: &InstructionBox,
             _wsv: &WorldStateView<W>,
         ) -> Result<(), super::DenialReason> {
             match instruction {
-                Instruction::Burn(_) => Err("Denying sequence isi.".to_owned()),
+                InstructionBox::Burn(_) => Err("Denying sequence isi.".to_owned()),
                 _ => Ok(()),
             }
         }
@@ -842,11 +842,11 @@ mod tests {
         }
     }
 
-    impl<W: WorldTrait> IsAllowed<W, Instruction> for DenyAlice {
+    impl<W: WorldTrait> IsAllowed<W, InstructionBox> for DenyAlice {
         fn check(
             &self,
             authority: &AccountId,
-            _instruction: &Instruction,
+            _instruction: &InstructionBox,
             _wsv: &WorldStateView<W>,
         ) -> Result<(), super::DenialReason> {
             if authority.name.as_ref() == "alice" {
@@ -865,7 +865,7 @@ mod tests {
         fn token(
             &self,
             _authority: &AccountId,
-            _instruction: &Instruction,
+            _instruction: &InstructionBox,
             _wsv: &WorldStateView<W>,
         ) -> Result<PermissionToken, String> {
             Ok(PermissionToken::new(Name::test("token"), BTreeMap::new()))
@@ -878,12 +878,12 @@ mod tests {
             .with_validator(DenyBurn)
             .with_validator(DenyAlice)
             .all_should_succeed();
-        let instruction_burn: Instruction = BurnBox::new(
+        let instruction_burn: InstructionBox = BurnBox::new(
             Value::U32(10),
             IdBox::AssetId(AssetId::test("xor", "test", "alice", "test")),
         )
         .into();
-        let instruction_fail = Instruction::Fail(FailBox {
+        let instruction_fail = InstructionBox::Fail(FailBox {
             message: "fail message".to_owned(),
         });
         let account_bob = <Account as Identifiable>::Id::test("bob", "test");
@@ -908,16 +908,16 @@ mod tests {
         let permissions_validator = ValidatorBuilder::new()
             .with_recursive_validator(DenyBurn)
             .all_should_succeed();
-        let instruction_burn: Instruction = BurnBox::new(
+        let instruction_burn: InstructionBox = BurnBox::new(
             Value::U32(10),
             IdBox::AssetId(AssetId::test("xor", "test", "alice", "test")),
         )
         .into();
-        let instruction_fail = Instruction::Fail(FailBox {
+        let instruction_fail = InstructionBox::Fail(FailBox {
             message: "fail message".to_owned(),
         });
         let nested_instruction_sequence =
-            Instruction::If(If::new(true, instruction_burn.clone()).into());
+            InstructionBox::If(If::new(true, instruction_burn.clone()).into());
         let account_alice = <Account as Identifiable>::Id::test("alice", "test");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
@@ -936,7 +936,7 @@ mod tests {
         let alice_id = <Account as Identifiable>::Id::test("alice", "test");
         let bob_id = <Account as Identifiable>::Id::test("bob", "test");
         let alice_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "alice", "test");
-        let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
+        let instruction_burn: InstructionBox = BurnBox::new(Value::U32(10), alice_xor_id).into();
         let mut domain = Domain::test("test");
         let mut bob_account = Account::new(bob_id.clone());
         let _ = bob_account.permission_tokens.insert(PermissionToken::new(
@@ -953,7 +953,7 @@ mod tests {
 
     #[test]
     pub fn check_query_permissions_nested() {
-        let instruction: Instruction = Pair::new(
+        let instruction: InstructionBox = Pair::new(
             TransferBox::new(
                 IdBox::AssetId(AssetId::test("btc", "crypto", "seller", "company")),
                 Expression::Add(Add::new(

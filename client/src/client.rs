@@ -141,7 +141,7 @@ impl Client {
     #[log]
     pub fn submit(
         &mut self,
-        instruction: impl Into<Instruction> + Debug,
+        instruction: impl Into<InstructionBox> + Debug,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all(vec![instruction.into()])
     }
@@ -153,7 +153,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all(
         &mut self,
-        instructions: impl IntoIterator<Item = Instruction>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
     }
@@ -167,7 +167,7 @@ impl Client {
     #[log]
     pub fn submit_with_metadata(
         &mut self,
-        instruction: Instruction,
+        instruction: InstructionBox,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_with_metadata(vec![instruction], metadata)
@@ -181,7 +181,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_with_metadata(
         &mut self,
-        instructions: impl IntoIterator<Item = Instruction>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_transaction(self.build_transaction(instructions.into(), metadata)?)
@@ -230,7 +230,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking(
         &mut self,
-        instruction: impl Into<Instruction>,
+        instruction: impl Into<InstructionBox>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking(vec![instruction.into()])
     }
@@ -242,7 +242,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking(
         &mut self,
-        instructions: impl IntoIterator<Item = Instruction>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
     }
@@ -255,7 +255,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking_with_metadata(
         &mut self,
-        instruction: impl Into<Instruction>,
+        instruction: impl Into<InstructionBox>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
@@ -269,7 +269,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking_with_metadata(
         &mut self,
-        instructions: impl IntoIterator<Item = Instruction>,
+        instructions: impl IntoIterator<Item = InstructionBox>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         struct EventListenerInitialized;
@@ -324,11 +324,11 @@ impl Client {
         pagination: Pagination,
     ) -> Result<R::Output>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         let pagination: Vec<_> = pagination.into();
-        let request = QueryRequest::new(request.into(), self.account_id.clone());
+        let request = QueryRequest::new(request, self.account_id.clone());
         let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
         let response = http_client::post(
             format!("{}/{}", &self.torii_url, uri::QUERY),
@@ -357,7 +357,7 @@ impl Client {
     #[log]
     pub fn request<R>(&mut self, request: R) -> Result<R::Output>
     where
-        R: Query + Into<QueryBox> + Debug,
+        R: Query + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination(request, Pagination::default())
@@ -719,7 +719,7 @@ mod tests {
 
         let build_transaction = || {
             client
-                .build_transaction(Vec::<Instruction>::new().into(), UnlimitedMetadata::new())
+                .build_transaction(Vec::<InstructionBox>::new().into(), UnlimitedMetadata::new())
                 .unwrap()
         };
         let tx1 = build_transaction();

@@ -9,7 +9,7 @@ use test_network::{Peer as TestPeer, *};
 
 fn submit_and_get(
     client: &mut Client,
-    instructions: impl IntoIterator<Item = Instruction>,
+    instructions: impl IntoIterator<Item = InstructionBox>,
 ) -> TransactionValue {
     let hash = client.submit_all(instructions).unwrap();
     thread::sleep(Configuration::pipeline_time() * 2);
@@ -48,7 +48,7 @@ fn public_keys_cannot_be_burned_to_nothing() {
 
     let bob = client.request(account::by_id(bob_id.clone())).unwrap();
     let mut keys = bob.signatories.into_iter();
-    let burn = |key: PublicKey| Instruction::from(BurnBox::new(key, bob_id.clone()));
+    let burn = |key: PublicKey| InstructionBox::from(BurnBox::new(key, bob_id.clone()));
     let burn_keys_leaving_one = keys.by_ref().take(KEYS_COUNT - 1).map(burn);
 
     committed_txn = submit_and_get(&mut client, burn_keys_leaving_one);

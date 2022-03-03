@@ -144,7 +144,7 @@ fn main() -> Result<()> {
 /// Fails if submitting over network fails
 #[allow(clippy::shadow_unrelated)]
 pub fn submit(
-    instruction: impl Into<Instruction>,
+    instruction: impl Into<InstructionBox>,
     cfg: &ClientConfiguration,
     metadata: UnlimitedMetadata,
 ) -> Result<()> {

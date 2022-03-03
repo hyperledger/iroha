@@ -280,7 +280,7 @@ mod tests {
         let message = std::iter::repeat_with(rand::random::<char>)
             .take(16)
             .collect();
-        let instructions: Vec<Instruction> = vec![FailBox { message }.into()];
+        let instructions: Vec<InstructionBox> = vec![FailBox { message }.into()];
         let tx = Transaction::new(
             AccountId::test(account, domain),
             instructions.into(),
@@ -410,7 +410,7 @@ mod tests {
         );
         let tx = Transaction::new(
             AccountId::test("alice", "wonderland"),
-            Vec::<Instruction>::new().into(),
+            Vec::<InstructionBox>::new().into(),
             100_000,
         );
         let get_tx = || {

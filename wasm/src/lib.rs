@@ -13,7 +13,7 @@ compile_error!("Targets other then wasm32-unknown-unknown are not supported");
 
 extern crate alloc;
 
-use alloc::{boxed::Box, format, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use core::ops::RangeFrom;
 
 use data_model::prelude::*;
@@ -174,7 +174,7 @@ unsafe fn _decode_from_raw_in_range<T: Decode>(
 
     #[allow(clippy::expect_used, clippy::expect_fun_call)]
     T::decode(&mut &bytes[range]).expect(
-        format!(
+        alloc::format!(
             "Decoding of {} failed. This is a bug",
             core::any::type_name::<T>()
         )
