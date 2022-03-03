@@ -58,13 +58,13 @@ impl Client {
 
     /// Constructor for client from configuration and headers
     ///
-    /// *Authentication* header will be added, if `use_basic_auth` option in enabled
+    /// *Authentication* header will be added, if `login` and `password` fields are presented
     pub fn with_headers(
         configuration: &Configuration,
         mut headers: HashMap<String, String>,
     ) -> Self {
-        if configuration.use_basic_auth {
-            let credentials = format!("{}:{}", configuration.account_id, configuration.password);
+        if let Some(basic_auth) = &configuration.basic_auth {
+            let credentials = format!("{}:{}", basic_auth.web_login, basic_auth.password);
             let encoded = base64::encode(credentials);
             headers.insert(String::from("Authorization"), format!("Basic {}", encoded));
         }
@@ -696,7 +696,15 @@ pub mod transaction {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
+    use std::str::FromStr;
+
     use super::*;
+    use crate::config::{BasicAuth, WebLogin};
+
+    const LOGIN: &str = "mad_hatter";
+    const PASSWORD: &str = "ilovetea";
+    // `mad_hatter:ilovetea` encoded with base64
+    const ENCRYPTED_CREDENTIALS: &str = "bWFkX2hhdHRlcjppbG92ZXRlYQ==";
 
     #[test]
     fn txs_same_except_for_nonce_have_different_hashes() {
@@ -724,19 +732,14 @@ mod tests {
     }
 
     #[test]
-    fn basic_auth_header() {
-        const ACCOUNT_NAME: &str = "alice";
-        const DOMAIN_NAME: &str = "wonderland";
-        const PASSWORD: &str = "cheshirecat";
-        // `alice@wonderland:cheshirecat` encoded with base64
-        const ENCRYPTED_CREDENTIALS: &str = "YWxpY2VAd29uZGVybGFuZDpjaGVzaGlyZWNhdA==";
-
-        let account_id = AccountId::new(ACCOUNT_NAME, DOMAIN_NAME)
-            .expect("alice@wonderland should be valid AccountId");
-        let cfg = Configuration {
-            use_basic_auth: true,
-            account_id,
+    fn authorization_header() {
+        let basic_auth = BasicAuth {
+            web_login: WebLogin::from_str(LOGIN).expect("Failed to create valid `WebLogin`"),
             password: SmallStr::from_str(PASSWORD),
+        };
+
+        let cfg = Configuration {
+            basic_auth: Some(basic_auth),
             ..Configuration::default()
         };
         let client = Client::new(&cfg);
