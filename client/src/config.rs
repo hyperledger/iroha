@@ -14,7 +14,7 @@ const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_ADD_TRANSACTION_NONCE: bool = false;
 
 /// Wrapper over `SmallStr` to provide basic auth login checking
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, Serialize, Debug)]
 pub struct WebLogin(SmallStr);
 
 impl WebLogin {
@@ -41,6 +41,17 @@ impl FromStr for WebLogin {
 impl fmt::Display for WebLogin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+/// Deserializing `WebLogin` with `FromStr` implementation
+impl<'de> Deserialize<'de> for WebLogin {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        FromStr::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
 
