@@ -1,15 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
-	"testing"
-
+	"fmt"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/crypto"
 	"github.com/hyperledger/burrow/execution/engine"
 	"github.com/hyperledger/burrow/execution/exec"
 	"github.com/stretchr/testify/suite"
 	"github.com/tmthrgd/go-hex"
+	"io/ioutil"
+	"net/http"
+	"sync"
+	"testing"
 )
 
 type engineSuccess struct {
@@ -91,4 +96,36 @@ func (s *VmCallerTestSuite) TestCheck() {
 
 func TestVmCallerTestSuite(t *testing.T) {
 	suite.Run(t, new(VmCallerTestSuite))
+}
+
+func TestCallSim(t *testing.T) {
+	address := "http://0.0.0.0:28660"
+	data := `{"jsonrpc":"2.0","method":"eth_call","params":[{"from": "admin@test", "to" :"6A26161FAEC585CD038268D656E2E19DA63FCF04", "data": "2c74aaaf00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000a61646D696E407465737400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a77747223656E6572677900000000000000000000000000000000000000000000" }, "latest"],"id":1}`
+	var wg sync.WaitGroup
+	for i := 0; i < 1; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			req, err := http.NewRequest("POST", address, bytes.NewBuffer([]byte(data)))
+			if err != nil {
+				fmt.Println(err.Error())
+				fmt.Println("creating req failed", err)
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			client := http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				return
+			}
+			var result jsonrpcResult
+			body, err := ioutil.ReadAll(resp.Body)
+			json.Unmarshal(body, &result)
+			if result.Result != "0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000043235303000000000000000000000000000000000000000000000000000000000" {
+				return
+			}
+			defer resp.Body.Close()
+		}()
+	}
+	wg.Wait()
 }
