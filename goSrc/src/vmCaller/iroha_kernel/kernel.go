@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	myRpc "vmCaller/rpc"
+	irohaRpc "vmCaller/rpc"
 
 	"github.com/hyperledger/burrow/bcm"
 	"github.com/hyperledger/burrow/consensus/tendermint"
@@ -47,7 +47,7 @@ type Kernel struct {
 	// Expose these public-facing interfaces to allow programmatic extension of the Kernel by other projects
 	Emitter        *event.Emitter
 	Service        *rpc.Service
-	EthService     *myRpc.EthService
+	EthService     *irohaRpc.EthService
 	Launchers      []process.Launcher
 	State          *state.State
 	Blockchain     *bcm.Blockchain
@@ -84,7 +84,6 @@ func NewKernel(dbDir string) (*Kernel, error) {
 		listeners:      make(map[string]net.Listener),
 		shutdownNotify: make(chan struct{}),
 		txCodec:        txs.NewProtobufCodec(),
-		database:       dbm.NewDB(BurrowDBName, dbm.GoLevelDBBackend, dbDir),
 	}, err
 }
 
