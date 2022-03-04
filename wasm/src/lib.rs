@@ -66,7 +66,7 @@ impl Execute for data_model::isi::Instruction {
     }
 }
 impl Execute for data_model::query::QueryBox {
-    type Result = QueryResult;
+    type Result = Value;
 
     /// Executes the given query on the host environment
     fn execute(&self) -> Self::Result {
@@ -225,9 +225,9 @@ mod tests {
 
     use super::*;
 
-    const QUERY_RESULT: QueryResult = QueryResult(Value::U32(1234));
+    const QUERY_RESULT: Value = Value::U32(1234);
 
-    fn encode_query_result(res: QueryResult) -> Vec<u8> {
+    fn encode_query_result(res: Value) -> Vec<u8> {
         let len_size_bytes = core::mem::size_of::<WasmUsize>();
 
         let mut r = Vec::with_capacity(len_size_bytes + res.size_hint());
