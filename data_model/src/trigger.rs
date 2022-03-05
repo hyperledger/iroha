@@ -162,10 +162,6 @@ impl ExecutionInfo for EventAction {
 pub struct TimeAction {
     /// The executable linked to this action
     pub executable: Executable,
-    /// The repeating scheme of the action. It's kept as part of the
-    /// action and not inside the [`Trigger`] type, so that further
-    /// sanity checking can be done.
-    pub repeats: Repeats,
     /// Technical account linked to this trigger. The technical
     /// account must already exist in order for `Register<Trigger>` to
     /// work.
@@ -178,13 +174,11 @@ impl TimeAction {
     /// Construct an action given `executable`, `repeats`, `technical_account` and `appears`.
     pub fn new(
         executable: Executable,
-        repeats: Repeats,
         technical_account: super::account::Id,
         appears: Appears,
     ) -> Self {
         Self {
             executable,
-            repeats,
             technical_account,
             appears,
         }
@@ -236,9 +230,45 @@ impl ExecutionInfo for TimeAction {
 )]
 pub enum Appears {
     /// Appear every set time
-    Every(Duration),
+    Every(Interval),
     /// Appear once exactly on set time
     ExactlyAt(Duration),
+}
+
+/// Time interval in which `TimeAction` should appear
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Encode,
+    Decode,
+    Serialize,
+    Deserialize,
+    IntoSchema,
+)]
+pub struct Interval {
+    /// Since which time interval is measured. Initially should be action registration time.
+    /// Updated every action execution.
+    pub since: Duration,
+    /// Step of interval or interval length
+    pub step: Duration,
+    /// How much time to repeat interval
+    pub repeats: Repeats,
+}
+
+impl Interval {
+    /// Construct `Interval` with `since`, `step` and `repeats`
+    pub fn new(since: Duration, step: Duration, repeats: Repeats) -> Self {
+        Self {
+            since,
+            step,
+            repeats,
+        }
+    }
 }
 
 /// Enumeration of possible repetitions schemes.

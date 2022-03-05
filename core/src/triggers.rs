@@ -8,12 +8,12 @@
 //! search trees (common lisp) or hash tables (racket) to quickly
 //! trigger hooks.
 
-use std::sync::RwLock;
+use std::{sync::RwLock, time::Duration};
 
 use dashmap::DashMap;
 use iroha_data_model::{
     prelude::*,
-    trigger::{self, Action, Repeats, Trigger},
+    trigger::{self, Action, Appears, Repeats, Trigger},
 };
 
 use crate::smartcontracts::{self, FindError, InstructionType, MathError};
@@ -106,8 +106,8 @@ impl TriggerSet {
     /// # Errors
     /// - if trigger not found.
     /// - if addition to remaining current trigger repeats
-    /// overflows. Indefinitely repeating triggers always cause an
-    /// overflow.
+    /// overflows. Indefinitely repeating triggers and triggers set for
+    /// exact time always cause an overflow.
     pub fn mod_repeats(
         &self,
         key: trigger::Id,
@@ -118,7 +118,12 @@ impl TriggerSet {
         }
 
         if let Some(mut time_entry) = self.time_hooks.get_mut(&key) {
-            return Self::mod_repeats_directly(&mut time_entry.value_mut().repeats, f);
+            return match time_entry.value_mut().appears {
+                Appears::Every(mut interval) => {
+                    Self::mod_repeats_directly(&mut interval.repeats, f)
+                }
+                _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
+            };
         }
 
         Err(smartcontracts::Error::Find(Box::new(FindError::Trigger(
@@ -147,9 +152,9 @@ impl TriggerSet {
     ///
     /// # Panics
     /// (RARE) If locking recommendations for writing fails.
-    pub fn produce_recommendations(&self, events: &[Event]) {
-        let event_actions = self.actions_matching(events);
-        let time_actions: Vec<TimeAction> = vec![]; // TODO
+    pub fn produce_recommendations(&self, events: &[Event], cur_time: &Duration) {
+        let event_actions = self.event_actions_matching(events);
+        let time_actions = self.time_actions_matching(cur_time);
 
         #[allow(clippy::expect_used)]
         let mut recommendations = self
@@ -163,9 +168,10 @@ impl TriggerSet {
             .collect();
     }
 
-    /// Find all actions which match the current events.
-    fn actions_matching(&self, events: &[Event]) -> Vec<EventAction> {
+    /// Find all event based actions which match the current events.
+    fn event_actions_matching(&self, events: &[Event]) -> Vec<EventAction> {
         let mut result = Vec::new();
+
         for event in events {
             for mut trigger in self.event_hooks.iter_mut() {
                 if trigger.filter.apply(event) {
@@ -188,6 +194,41 @@ impl TriggerSet {
 
         self.event_hooks
             .retain(|_, action| !matches!(action.repeats, Repeats::Exactly(0)));
+        result
+    }
+
+    /// Find all time based actions which match the current time
+    fn time_actions_matching(&self, cur_time: &Duration) -> Vec<TimeAction> {
+        let mut result = Vec::new();
+
+        for mut trigger in self.time_hooks.iter_mut() {
+            match &mut trigger.appears {
+                Appears::Every(interval) => {
+                    if interval.since + interval.step < *cur_time {
+                        continue;
+                    }
+
+                    match &mut interval.repeats {
+                        Repeats::Indefinitely => {}
+                        Repeats::Exactly(n) if *n > 0_u32 => {
+                            *n -= 1;
+                        }
+                        _ => continue,
+                    };
+                    interval.since = *cur_time;
+                    result.push(trigger.clone());
+                }
+                Appears::ExactlyAt(time) if *time <= *cur_time => result.push(trigger.clone()),
+                _ => continue,
+            }
+        }
+
+        self.time_hooks.retain(|_, action| match action.appears {
+            Appears::Every(interval) => !matches!(interval.repeats, Repeats::Exactly(0)),
+            Appears::ExactlyAt(time) if time >= *cur_time => true,
+            _ => false,
+        });
+
         result
     }
 }
