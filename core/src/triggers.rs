@@ -21,14 +21,16 @@ use crate::smartcontracts::{self, FindError, InstructionType, MathError};
 /// Specialised structure that maps event filters to Triggers.
 #[derive(Debug)]
 pub struct TriggerSet {
-    hooks: DashMap<trigger::Id, Action>, // TODO: Consider tree structures.
+    event_hooks: DashMap<trigger::Id, EventAction>, // TODO: Consider tree structures.
+    time_hooks: DashMap<trigger::Id, TimeAction>,   // TODO: Consider tree structures.
     recommendations: RwLock<Vec<Action>>,
 }
 
 impl Default for TriggerSet {
     fn default() -> Self {
         Self {
-            hooks: DashMap::new(),
+            event_hooks: DashMap::new(),
+            time_hooks: DashMap::new(),
             recommendations: RwLock::new(Vec::new()),
         }
     }
@@ -41,23 +43,36 @@ impl TriggerSet {
     /// - If [`TriggerSet`] already contains a trigger with the same [`EventFilter`].
     /// It's the user's responsibility to first `Unregister` the `Trigger`.
     pub fn add(&self, trigger: Trigger) -> Result<(), smartcontracts::Error> {
-        let action = trigger.action;
-        if self.hooks.contains_key(&trigger.id) {
-            Err(smartcontracts::Error::Repetition(
+        if self.event_hooks.contains_key(&trigger.id) || self.time_hooks.contains_key(&trigger.id) {
+            return Err(smartcontracts::Error::Repetition(
                 InstructionType::Register,
                 IdBox::TriggerId(trigger.id),
-            ))
-        } else {
-            self.hooks.insert(trigger.id.clone(), action).map_or_else(
-                || Ok(()),
-                |_| {
-                    Err(smartcontracts::Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::TriggerId(trigger.id),
-                    ))
-                },
-            )
+            ));
         }
+
+        match trigger.action {
+            Action::EventBased(action) => Self::insert(&self.event_hooks, trigger.id, action),
+            Action::TimeBased(action) => Self::insert(&self.time_hooks, trigger.id, action),
+        }
+    }
+
+    fn insert<A>(
+        hooks: &DashMap<trigger::Id, A>,
+        id: trigger::Id,
+        action: A,
+    ) -> Result<(), smartcontracts::Error>
+    where
+        A: Into<Action>,
+    {
+        hooks.insert(id.clone(), action).map_or_else(
+            || Ok(()),
+            |_| {
+                Err(smartcontracts::Error::Repetition(
+                    InstructionType::Register,
+                    IdBox::TriggerId(id),
+                ))
+            },
+        )
     }
 
     /// Remove a trigger from the [`TriggerSet`].
@@ -66,23 +81,27 @@ impl TriggerSet {
     /// - If [`TriggerSet`] doesn't contain the trigger with the given [`EventFilter`].
     /// Note that the [`EventFilter`] must be specified exactly.
     pub fn remove(&self, id: trigger::Id) -> Result<(), smartcontracts::Error> {
-        self.hooks.remove(&id).map_or_else(
-            || {
-                Err(smartcontracts::Error::Repetition(
-                    InstructionType::Unregister,
-                    IdBox::TriggerId(id),
-                ))
-            },
-            |_| Ok(()),
-        )
+        self.event_hooks
+            .remove(&id)
+            .map(|key_val| key_val.0)
+            .or_else(|| self.time_hooks.remove(&id).map(|key_val| key_val.0))
+            .map_or_else(
+                || {
+                    Err(smartcontracts::Error::Repetition(
+                        InstructionType::Unregister,
+                        IdBox::TriggerId(id),
+                    ))
+                },
+                |_| Ok(()),
+            )
     }
 
     /// Check if `self` contains `key`.
     pub fn contains(&self, key: &trigger::Id) -> bool {
-        self.hooks.contains_key(key)
+        self.event_hooks.contains_key(key) || self.time_hooks.contains_key(key)
     }
 
-    /// Add more repetitions to the hook identified by [`trigger::Id`].
+    /// Modify repetitions of the hook identified by [`trigger::Id`].
     ///
     /// # Errors
     /// - if trigger not found.
@@ -94,19 +113,34 @@ impl TriggerSet {
         key: trigger::Id,
         f: impl Fn(u32) -> Result<u32, MathError>,
     ) -> Result<(), smartcontracts::Error> {
-        if self.hooks.contains_key(&key) {
-            let mut action = self.hooks.get_mut(&key).ok_or(FindError::Trigger(key))?;
-            let new_repeats = match action.value().repeats {
-                Repeats::Exactly(n) => f(n).map_err(Into::into),
-                _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
-            }?;
-            action.value_mut().repeats = Repeats::Exactly(new_repeats);
-            Ok(())
-        } else {
-            Err(smartcontracts::Error::Find(Box::new(FindError::Trigger(
-                key,
-            ))))
+        if let Some(mut event_entry) = self.event_hooks.get_mut(&key) {
+            return Self::mod_repeats_directly(&mut event_entry.value_mut().repeats, f);
         }
+
+        if let Some(mut time_entry) = self.time_hooks.get_mut(&key) {
+            return Self::mod_repeats_directly(&mut time_entry.value_mut().repeats, f);
+        }
+
+        Err(smartcontracts::Error::Find(Box::new(FindError::Trigger(
+            key,
+        ))))
+    }
+
+    /// Modify `repeats` with `f`
+    ///
+    /// # Errors
+    /// - if `repeats` is not `Exactly` variant
+    /// - throws `f` errors
+    fn mod_repeats_directly(
+        repeats: &mut Repeats,
+        f: impl Fn(u32) -> Result<u32, MathError>,
+    ) -> Result<(), smartcontracts::Error> {
+        let new_repeats = match repeats {
+            Repeats::Exactly(n) => f(*n).map_err(Into::into),
+            _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
+        }?;
+        *repeats = Repeats::Exactly(new_repeats);
+        Ok(())
     }
 
     /// Produce and store recommendations for next block execution.
@@ -114,29 +148,34 @@ impl TriggerSet {
     /// # Panics
     /// (RARE) If locking recommendations for writing fails.
     pub fn produce_recommendations(&self, events: &[Event]) {
-        let actions = self.actions_matching(events);
+        let event_actions = self.actions_matching(events);
+        let time_actions: Vec<TimeAction> = vec![]; // TODO
+
         #[allow(clippy::expect_used)]
         let mut recommendations = self
             .recommendations
             .write()
             .expect("Failed to lock recommendations, when updating triggers.");
-        *recommendations = actions;
+        *recommendations = event_actions
+            .into_iter()
+            .map(Into::into)
+            .chain(time_actions.into_iter().map(Into::into))
+            .collect();
     }
 
     /// Find all actions which match the current events.
-    fn actions_matching(&self, events: &[Event]) -> Vec<Action> {
+    fn actions_matching(&self, events: &[Event]) -> Vec<EventAction> {
         let mut result = Vec::new();
         for event in events {
-            for mut trigger in self.hooks.iter_mut() {
-                if trigger.value().filter.apply(event) {
-                    match trigger.value().repeats {
+            for mut trigger in self.event_hooks.iter_mut() {
+                if trigger.filter.apply(event) {
+                    match trigger.repeats {
                         Repeats::Indefinitely => {
-                            result.push(trigger.value().clone());
+                            result.push(trigger.clone());
                         }
                         Repeats::Exactly(n) if n > 0_u32 => {
-                            let value = trigger.value_mut();
-                            value.repeats = Repeats::Exactly(n - 1);
-                            result.push(value.clone());
+                            trigger.repeats = Repeats::Exactly(n - 1);
+                            result.push(trigger.clone());
                         }
                         _ => {
                             // n == 0
@@ -146,7 +185,8 @@ impl TriggerSet {
                 }
             }
         }
-        self.hooks
+
+        self.event_hooks
             .retain(|_, action| !matches!(action.repeats, Repeats::Exactly(0)));
         result
     }

@@ -12,7 +12,11 @@ use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{eyre, Context, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
 use iroha_data_model::{
-    current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*, trigger::Action,
+    current_time,
+    events::prelude::*,
+    merkle::MerkleTree,
+    transaction::prelude::*,
+    trigger::{EventAction, TimeAction},
 };
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
@@ -28,16 +32,13 @@ use crate::{
     wsv::WorldTrait,
 };
 
-/// Collection of actions, that is not a `TriggerSet`
-pub type Triggers = Vec<Action>;
-
 /// Recommendations for different types of triggers
 #[derive(Default, Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct TriggerRecommendations {
     /// Event based trigger recommendations. Should be executed before transactions.
-    pub event_triggers: Triggers,
+    pub event_triggers: Vec<EventAction>,
     /// Time based trigger recommendations. Should be executed after transactions.
-    pub time_triggers: Triggers,
+    pub time_triggers: Vec<TimeAction>,
 }
 
 impl TriggerRecommendations {

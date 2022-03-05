@@ -15,7 +15,7 @@ use dashmap::{
 };
 use eyre::Result;
 use iroha_crypto::HashOf;
-use iroha_data_model::{prelude::*, trigger::Action};
+use iroha_data_model::{prelude::*, trigger};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
 use small::SmallVec;
@@ -229,15 +229,13 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if trigger execution fails
-    async fn execute_triggers(&self, triggers: &[Action]) -> Result<()> {
+    async fn execute_triggers<A>(&self, triggers: &[A]) -> Result<()>
+    where
+        A: trigger::ExecutionInfo + Sync,
+    {
         // TODO: Validate the trigger executables as well as the technical account.
-        for Action {
-            technical_account,
-            executable,
-            ..
-        } in triggers
-        {
-            self.process_executable(executable, technical_account)?;
+        for trigger in triggers {
+            self.process_executable(trigger.executable(), trigger.technical_account())?;
             task::yield_now().await;
         }
 
