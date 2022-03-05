@@ -1,0 +1,19 @@
+[package]
+name = "iroha_schema_derive"
+version = "2.0.0-pre-rc.2"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1.0.72", default-features = false, features = ["full"] }
+proc-macro2 = "1.0.33"
+quote = "1.0"
+
+[dev-dependencies]
+iroha_schema = { path = "../"}
+
+trybuild = "1.0.53"

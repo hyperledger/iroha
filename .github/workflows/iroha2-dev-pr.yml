@@ -1,296 +1,63 @@
-name: Iroha 2 dev branch pull requests workflow
+name: I2::Dev::Tests
+
 on:
   pull_request:
     branches: [iroha2-dev]
+    paths:
+      - "**.rs"
+      - "**.json"
+      - "**.toml"
+      - "**.yml"
+
+      # Not part of the workspace
+      - "!wasm/**"
+
 env:
-  CACHE_PATHS: |
-    ~/.cargo/registry
-    ~/.cargo/git
-    ~/.rustup
-    target
-    iroha/target
-    iroha_client/target
+  CARGO_TERM_COLOR: always
+  RUSTC_BOOTSTRAP: 1
 
 jobs:
-  check:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Install clippy
-        run: rustup component add clippy
-      - name: Print all info
-        run: |
-          cargo version
-          lscpu
-          free -h
-      - name: Install cargo-lints
-        run: cargo install cargo-lints
-      - name: Install nightly for rustfmt
-        run: rustup install --profile default nightly-2021-03-24
-      - name: Format check
-        run: cargo +nightly-2021-03-24 fmt --all -- --check
-      - name: Static analysis without features
-        run: cargo lints clippy --workspace --benches --tests
-      - name: Static analysis with all features enabled
-        run: cargo lints clippy --workspace --benches --tests --all-features
-      - name: Documentation check
-        run: |
-          cargo doc --no-deps
-          ./scripts/check_docs.sh
-
   test:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Run tests
-        run: cargo test --workspace
-
-  test-iroha_network-mock:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Run iroha_network mock tests
-        run: cargo test --features mock
-        working-directory: iroha_network
-      - name: Run iroha tests with network mock
-        run: cargo test --features network-mock
-        working-directory: iroha
-
-  test-deadlock_detection:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Run iroha_actor deadlock detection tests
-        run: cargo test --features deadlock_detection
-        working-directory: iroha_actor
-
-  test-docker:
-    #runs-on: [ self-hosted, Linux ] #ubuntu-latest
     runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install latest rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - name: Install dependencies
-        if: ${{ false }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Build Client CLI
-        run: cargo build
-        working-directory: iroha_client_cli
-      - name: Setup docker test environment
-        run: ./scripts/setup_docker_test_env.sh
-      - name: Docker compose genesis test
-        run: bash -c './scripts/test_genesis_docker_compose.sh || ( docker-compose logs; false )'
-      - name: Docker compose test
-        run: bash -c './scripts/test_docker_compose.sh || ( docker-compose logs; false )'
-      - name: Cleanup docker test environment
-        run: ./scripts/cleanup_docker_test_env.sh
-
-  print-telemetry:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Run debug tests and save telemetry
+      - uses: Swatinem/rust-cache@v1
+      - name: Run tests
+        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2
+      - name: Run iroha tests with network mock
+        run: mold -run cargo test --quiet --features mock -- --ignored --skip unstable_network --test-threads 2
+        working-directory: core/test_network
+      - name: Run iroha_actor deadlock detection tests
+        run: mold -run cargo test --quiet --features deadlock_detection -- --skip unstable_network --test-threads 2
+        working-directory: actor
+        if: always()
+      - name: Verify wasm smartcontracts are able to build
+        run: mold -run cargo build --target wasm32-unknown-unknown --quiet
+        working-directory: wasm
         env:
-          TELEMETRY_FILE: ../target/telemetry/debug.json.lz4
-        run: |
-          mkdir -p target/telemetry
-          cargo test -p iroha_client --all-features --test unstable_network || true
-      - name: Run release tests and save telemetry
-        env:
-          TELEMETRY_FILE: ../target/telemetry/release.json.lz4
-        run: cargo test -p iroha_client --all-features --test unstable_network --release || true
-      - name: Install script dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends lz4 jq
-      - name: Print debug telemetry info
-        run: ./scripts/analyze_telemetry.sh target/telemetry/debug.json.lz4 >target/telemetry/debug.md
-      - name: Print release telemetry info
-        run: ./scripts/analyze_telemetry.sh target/telemetry/release.json.lz4 >target/telemetry/release.md
-      - name: Print debug telemetry info
-        run: |
-          echo '## Debug build'
-          cat target/telemetry/debug.md
-      - name: Print release telemetry info
-        run: |
-          echo '## Release build'
-          cat target/telemetry/release.md
-      - name: Create telemetry comment
-        uses: actions-ecosystem/action-create-comment@v1
-        if: ${{ false }}
-        with:
-          body: |
-            \# Telemetry info
-            \## Debug build
-            ${{ steps.debug-telemetry.outputs.body }}
-            \## Release build
-            ${{ steps.release-telemetry.outputs.body }}
-          github_token: ${{ secrets.github_token }}
-      - name: Archive telemetry
-        uses: actions/upload-artifact@v2
-        with:
-          name: telemetry
-          path: target/telemetry
-
-  test-api:
-    runs-on: [self-hosted, Linux] #ubuntu-latest
-    if: ${{ false }}
-    steps:
-      - uses: actions/checkout@v2
-      - name: Set up JDK 11
-        uses: actions/setup-java@v1
-        with:
-          java-version: 1.11
-      - name: Cache Gradle packages
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-      - name: Setup docker test environment
-        run: ./scripts/setup_docker_test_env.sh
-      - name: Test iroha2-java api
-        run: ./scripts/test_iroha2_java_api.sh
-      - name: Cleanup test iroha2-java api
-        run: ./scripts/cleanup_iroha2_java_api.sh
-      - name: Cleanup docker test environment
-        run: ./scripts/cleanup_docker_test_env.sh
-      - name: Cleanup Gradle Cache
-        # Remove some files from the Gradle cache, so they aren't cached by GitHub Actions.
-        # Restoring these files from a GitHub Actions cache might cause problems for future builds.
-        run: |
-          rm -f ~/.gradle/caches/modules-2/modules-2.lock
-          rm -f ~/.gradle/caches/modules-2/gc.properties
+          RUSTC_BOOTSTRAP: 1
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
-  # 2  Coverage bot can have results from `iroha2-dev` to report accurate coverage changes.
+  # 2. Coverage bot can have results from `iroha2-dev` to report coverage changes.
   coverage:
-    runs-on: [self-hosted, Linux]
-    container: rust:1.52-buster
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Install grcov
-        run: cargo install grcov
-      - name: Cargo clean
-        run: cargo clean
-      - name: Install llvm-tools-preview
-        run: rustup component add llvm-tools-preview
-      - name: Cargo build
-        run: cargo build
-        env:
-          RUSTFLAGS: "-Zinstrument-coverage"
-          RUSTC_BOOTSTRAP: 1
+      - uses: Swatinem/rust-cache@v1
       - name: Run tests
-        run: cargo test --workspace -- --test-threads=1
+        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2 || true
         env:
           RUSTFLAGS: "-Zinstrument-coverage"
-          RUSTC_BOOTSTRAP: 1
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
-      - name: Generate coverage report
+      - name: Generate a grcov coverage report
         run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
         with:
           file: lcov.info
-
-  bench:
-    runs-on: [self-hosted, Linux]
-    container: rust:1.52-buster
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: ${{ env.CACHE_PATHS }}
-          key: ${{ hashFiles('Cargo.toml') }}
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            clang \
-            llvm-dev
-      - name: Run benchmarks
-        run: cargo bench --workspace --verbose

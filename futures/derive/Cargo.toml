@@ -1,0 +1,18 @@
+[package]
+name = "iroha_futures_derive"
+version = "2.0.0-pre-rc.2"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
+
+[features]
+default = ["telemetry"]
+telemetry = []
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1.0", features = ["full"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+proc-macro-error = "1.0"

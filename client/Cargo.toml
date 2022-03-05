@@ -1,0 +1,53 @@
+[package]
+name = "iroha_client"
+version = "2.0.0-pre-rc.2"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
+description = "Iroha Client is a Rust Library which encapsulates network related logic and gives users an ability to interact with Iroha Peers like they are non-distributed application."
+readme = "README.md"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger", "iroha", "client"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
+
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+iroha_config = { version = "=2.0.0-pre-rc.2", path = "../config" }
+iroha_crypto = { version = "=2.0.0-pre-rc.2", path = "../crypto"}
+iroha_data_model = { version = "=2.0.0-pre-rc.2", path = "../data_model", features = ["warp"] }
+iroha_logger = { version = "=2.0.0-pre-rc.2", path = "../logger"}
+iroha_telemetry = { version ="=2.0.0-pre-rc.2", path = "../telemetry" }
+iroha_version = { version = "=2.0.0-pre-rc.2", path = "../version" }
+
+attohttpc = "0.18"
+eyre = "0.6.5"
+http = "0.2.1"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tungstenite = { version = "0.16" }
+smallvec = { version = "1.8.0", features = ["serde", "union"] }
+smallstr = { version = "0.2.0", features = ["serde", "union"] }
+base64 = "0.13.0"
+
+
+[dev-dependencies]
+iroha_core = { version = "=2.0.0-pre-rc.2", path = "../core", features = ["dev-telemetry", "telemetry"] }
+iroha_permissions_validators = { version = "=2.0.0-pre-rc.2", path = "../permissions_validators" }
+test_network = { version = "=2.0.0-pre-rc.2", path = "../core/test_network" }
+
+parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
+tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
+criterion = { version = "0.3", features = ["html_reports"] }
+color-eyre = "0.5.11"
+tempfile = "3"
+hex = "0.4.0"
+
+[[bench]]
+name = "torii"
+harness = false

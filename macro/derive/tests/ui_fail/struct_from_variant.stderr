@@ -1,0 +1,7 @@
+error: proc-macro derive panicked
+ --> tests/ui_fail/struct_from_variant.rs:1:10
+  |
+1 | #[derive(iroha_derive::FromVariant)]
+  |          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: message: Only enums are supported

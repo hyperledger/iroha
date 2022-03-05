@@ -1,0 +1,35 @@
+[package]
+name = "iroha_telemetry"
+version = "2.0.0-pre-rc.2"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
+build = "build.rs"
+
+[features]
+dev-telemetry = []
+metric-instrumentation = []
+
+[dependencies]
+iroha_config = { version = "=2.0.0-pre-rc.2", path = "../config" }
+iroha_logger = { version = "=2.0.0-pre-rc.2", path = "../logger" }
+iroha_futures = { version = "=2.0.0-pre-rc.2", path = "../futures", features = ["telemetry"] }
+iroha_telemetry_derive = { version = "=2.0.0-pre-rc.2", path = "derive" }
+
+
+async-trait = "0.1"
+chrono = "0.4"
+eyre = "0.6.5"
+futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
+serde_json = "1"
+streaming-stats = "0.2"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
+tokio-stream = { version = "0.1.6", features = ["fs"]}
+tokio-tungstenite = { version = "0.16" }
+url = { version = "2.2.2", features = ["serde"] }
+prometheus = { version = "0.13.0", default-features = false }
+
+
+[build-dependencies]
+anyhow = "1.0"
+vergen = { version = "5", default-features = false, features = ["cargo", "git"] }

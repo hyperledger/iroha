@@ -16,7 +16,7 @@ Use this tutorial to master Iroha Special Instructions in general and `MintAsset
 Inside `path_to_your_project/Cargo.toml` add a new dependency:
 
 ```toml
-iroha = "2.0.0"
+iroha_core = "2.0.0"
 ```
 
 ### 2. Find a place where you need to mint an asset
@@ -37,7 +37,7 @@ Iroha Special Instructions executed on behalf of an authority - Account.
 If you already has an account to store assets on - feel free to skip these step.
 If not - you will need to receive Account's Key Pair with permissions to Register an Account.
 
-TL;DR - after [configuration of Iroha CLI](https://github.com/hyperledger/iroha/blob/iroha2-dev/iroha_client_cli/README.md)
+TL;DR - after [configuration of Iroha CLI](https://github.com/hyperledger/iroha/blob/iroha2-dev/client_cli/README.md)
 run this command:
 
 ```bash

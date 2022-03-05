@@ -1,0 +1,24 @@
+[package]
+name = "iroha_crypto"
+version = "2.0.0-pre-rc.2"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["std"]
+std = ["ursa"]
+
+[dependencies]
+iroha_schema = { path = "../schema" }
+
+derive_more = { version = "0.99.16", default-features = false, features = ["deref", "deref_mut", "display"] }
+parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive", "full"] }
+serde = { version = "1.0.130", default-features = false, features = ["derive"] }
+hex = { version = "0.4.0", default-features = false, features = ["alloc", "serde"] }
+ursa = { version = "=0.3.7", optional = true }
+
+[dev-dependencies]
+hex-literal = "0.3.4"
+serde_json = "1.0.59"

@@ -1,0 +1,28 @@
+[package]
+name = "iroha_wasm"
+version = "0.1.0"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+
+[workspace]
+members = [
+  "derive",
+]
+
+[dependencies]
+iroha_data_model = { version = "=2.0.0-pre-rc.2", path = "../data_model", default-features = false }
+iroha_wasm_derive = { path = "derive" }
+
+parity-scale-codec = { version = "2.3.1", default-features = false }
+wee_alloc = "0.4.5"
+
+[dev-dependencies]
+webassembly-test = "0.1.0"

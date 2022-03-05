@@ -1,0 +1,7 @@
+error: `Fn` must return `Result`. Returns nothing instead.
+ --> tests/ui_fail/return_nothing.rs:4:1
+  |
+4 | #[metrics(+"test_query", "another_test_query_without_timing")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `metrics` (in Nightly builds, run with -Z macro-backtrace for more info)

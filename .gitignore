@@ -2,6 +2,7 @@
 **/blocks/
 **/*.rs.bk
 **/rusty-tags.vi
+/**/Cargo.lock
 
 config/__pycaсhe__
 **/__pycache__/*
@@ -29,14 +30,11 @@ CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles/*
 cmake-build-debu/*
-docker/build/iroha.tar
 cmake-build-debug/*
 external/*
 core/infra/protobuf
-docker/tiny/iroha/
 include/generated/*
 .scannerwork/
-iroha.conf
 peers.list
 cmake-build*
 
@@ -45,4 +43,6 @@ cmake-build*
 
 *.deb
 \#*
-/test_docker
+/cargo-timing*.html
+/test/
+/iroha-java/

@@ -1,0 +1,5 @@
+error: expected literal
+ --> tests/ui_fail/bare_spec.rs:4:11
+  |
+4 | #[metrics(test_query, "another_test_query_without_timing")]
+  |           ^^^^^^^^^^

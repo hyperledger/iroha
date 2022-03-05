@@ -10,10 +10,12 @@ RUN set -ex; \
     apt-get update  -yq; \
     apt-get install -y --no-install-recommends curl apt-utils; \
     apt-get install -y --no-install-recommends \
-       build-essential \
-       ca-certificates \
-       clang \
-       llvm-dev; \
+        build-essential \
+        ca-certificates \
+        libssl-dev \
+        clang \
+        pkg-config \
+        llvm-dev; \
     rm -rf /var/lib/apt/lists/*
 
 ARG TOOLCHAIN=stable
@@ -30,31 +32,22 @@ WORKDIR /iroha
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-ARG PROFILE=
-FROM cargo-chef as cacher
+FROM cargo-chef as builder
+ARG PROFILE
 WORKDIR /iroha
 COPY --from=planner /iroha/recipe.json recipe.json
 RUN cargo chef cook $PROFILE --recipe-path recipe.json
-
-FROM rust-base as builder
-ARG PROFILE
-WORKDIR /iroha
 COPY . .
-COPY --from=cacher /iroha/target .
-COPY --from=cacher $CARGO_HOME $CARGO_HOME
-RUN cargo build $PROFILE --all
+RUN cargo build $PROFILE --workspace
 
 FROM $BASE_IMAGE
-RUN set -ex; \
-    apt-get update  -yq; \
-    apt-get install -y --no-install-recommends apt-utils; \
-    apt-get install -y --no-install-recommends ca-certificates; \
-    rm -rf /var/lib/apt/lists/*
-COPY iroha/config.json .
-COPY iroha/trusted_peers.json .
-COPY iroha/genesis.json .
-ARG BIN=iroha_cli
+COPY configs/peer/config.json .
+COPY configs/peer/genesis.json .
+ARG BIN=iroha
 ARG TARGET_DIR=debug
 COPY --from=builder /iroha/target/$TARGET_DIR/$BIN .
+RUN apt-get update -yq; \
+    apt-get install -y --no-install-recommends libssl-dev; \
+    rm -rf /var/lib/apt/lists/*
 ENV IROHA_TARGET_BIN=$BIN
 CMD ./$IROHA_TARGET_BIN

@@ -1,0 +1,7 @@
+error: The end version should be higher then the start version.
+ --> tests/ui_fail/invalid_range_less.rs:5:1
+  |
+5 | declare_versioned!(VersionedMessage 2..1);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `declare_versioned` (in Nightly builds, run with -Z macro-backtrace for more info)
