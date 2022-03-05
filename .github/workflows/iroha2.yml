@@ -6,6 +6,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTC_BOOTSTRAP: 1
 
 jobs:
   coverage:
