@@ -16,14 +16,17 @@ use iroha_data_model::{
     trigger::{self, Action, Appears, Repeats, Trigger},
 };
 
-use crate::smartcontracts::{self, FindError, InstructionType, MathError};
+use crate::{
+    block::TriggerRecommendations,
+    smartcontracts::{self, FindError, InstructionType, MathError},
+};
 
 /// Specialised structure that maps event filters to Triggers.
 #[derive(Debug)]
 pub struct TriggerSet {
     event_hooks: DashMap<trigger::Id, EventAction>, // TODO: Consider tree structures.
     time_hooks: DashMap<trigger::Id, TimeAction>,   // TODO: Consider tree structures.
-    recommendations: RwLock<Vec<Action>>,
+    recommendations: RwLock<TriggerRecommendations>,
 }
 
 impl Default for TriggerSet {
@@ -31,7 +34,7 @@ impl Default for TriggerSet {
         Self {
             event_hooks: DashMap::new(),
             time_hooks: DashMap::new(),
-            recommendations: RwLock::new(Vec::new()),
+            recommendations: RwLock::new(TriggerRecommendations::new()),
         }
     }
 }
@@ -153,19 +156,14 @@ impl TriggerSet {
     /// # Panics
     /// (RARE) If locking recommendations for writing fails.
     pub fn produce_recommendations(&self, events: &[Event], cur_time: &Duration) {
-        let event_actions = self.event_actions_matching(events);
-        let time_actions = self.time_actions_matching(cur_time);
-
         #[allow(clippy::expect_used)]
         let mut recommendations = self
             .recommendations
             .write()
             .expect("Failed to lock recommendations, when updating triggers.");
-        *recommendations = event_actions
-            .into_iter()
-            .map(Into::into)
-            .chain(time_actions.into_iter().map(Into::into))
-            .collect();
+
+        recommendations.event_triggers = self.event_actions_matching(events);
+        recommendations.time_triggers = self.time_actions_matching(cur_time);
     }
 
     /// Find all event based actions which match the current events.
