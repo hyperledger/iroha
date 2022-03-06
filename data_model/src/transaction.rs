@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "warp")]
 use warp::{reply::Response, Reply};
 
-use crate::{account::Account, isi::InstructionBox, metadata::UnlimitedMetadata, Identifiable};
+use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
@@ -64,7 +64,7 @@ pub trait Txn {
     fn check_limits(&self, limits: &TransactionLimits) -> Result<(), TransactionLimitError> {
         match &self.payload().instructions {
             Executable::Instructions(instructions) => {
-                let instruction_count: usize = instructions.iter().map(InstructionBox::len).sum();
+                let instruction_count: usize = instructions.iter().map(Instruction::len).sum();
 
                 if instruction_count as u64 > limits.max_instruction_number {
                     return Err(TransactionLimitError(String::from(
@@ -111,12 +111,12 @@ pub trait Txn {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum Executable {
     /// Ordered set of instructions.
-    Instructions(Vec<InstructionBox>),
+    Instructions(Vec<Instruction>),
     /// WebAssembly smartcontract
     Wasm(WasmSmartContract),
 }
 
-impl<T: IntoIterator<Item = InstructionBox>> From<T> for Executable {
+impl<T: IntoIterator<Item = Instruction>> From<T> for Executable {
     fn from(collection: T) -> Self {
         Self::Instructions(collection.into_iter().collect())
     }
@@ -547,14 +547,14 @@ impl std::error::Error for UnsatisfiedSignatureConditionFail {}
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct InstructionExecutionFail {
     /// Instruction which execution failed
-    pub instruction: InstructionBox,
+    pub instruction: Instruction,
     /// Error which happened during execution
     pub reason: String,
 }
 
 impl Display for InstructionExecutionFail {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        use InstructionBox::*;
+        use Instruction::*;
         let kind = match self.instruction {
             Burn(_) => "burn",
             Fail(_) => "fail",

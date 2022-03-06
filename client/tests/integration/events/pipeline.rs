@@ -22,7 +22,7 @@ fn transaction_event_should_be_sent_to_all_peers_from_all_peers() -> Result<()> 
 
 #[allow(clippy::needless_range_loop, clippy::needless_pass_by_value)]
 fn test_with_instruction_and_status(
-    instruction: Option<InstructionBox>,
+    instruction: Option<Instruction>,
     should_be_committed: bool,
 ) -> Result<()> {
     let (_rt, network, _) = <Network>::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), 1);
@@ -40,7 +40,7 @@ fn test_with_instruction_and_status(
             &peers[submitting_peer].api_address,
             &peers[submitting_peer].telemetry_address,
         );
-        let instructions: Vec<InstructionBox> = instruction.clone().into_iter().collect();
+        let instructions: Vec<Instruction> = instruction.clone().into_iter().collect();
         let transaction =
             submitter_client.build_transaction(instructions.into(), UnlimitedMetadata::new())?;
         for receiving_peer in 0..PEER_COUNT {

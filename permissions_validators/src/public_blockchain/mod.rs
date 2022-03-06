@@ -180,7 +180,7 @@ mod tests {
         let alice_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "alice", "test");
         let bob_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "bob", "test");
         let wsv = WorldStateView::<World>::new(World::new());
-        let transfer = InstructionBox::Transfer(TransferBox {
+        let transfer = Instruction::Transfer(TransferBox {
             source_id: IdBox::AssetId(alice_xor_id).into(),
             object: Value::U32(10).into(),
             destination_id: IdBox::AssetId(bob_xor_id).into(),
@@ -211,7 +211,7 @@ mod tests {
         domain.accounts.insert(bob_id.clone(), bob_account);
         let domains = vec![(DomainId::test("test"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, BTreeSet::new()));
-        let transfer = InstructionBox::Transfer(TransferBox {
+        let transfer = Instruction::Transfer(TransferBox {
             source_id: IdBox::AssetId(alice_xor_id).into(),
             object: Value::U32(10).into(),
             destination_id: IdBox::AssetId(bob_xor_id).into(),
@@ -233,7 +233,7 @@ mod tests {
             [(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), alice_xor_id.into())],
         );
         let wsv = WorldStateView::<World>::new(World::new());
-        let grant = InstructionBox::Grant(GrantBox {
+        let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
@@ -269,7 +269,7 @@ mod tests {
             [],
         ));
         let unregister =
-            InstructionBox::Unregister(UnregisterBox::new(IdBox::AssetDefinitionId(xor_id)));
+            Instruction::Unregister(UnregisterBox::new(IdBox::AssetDefinitionId(xor_id)));
         assert!(unregister::OnlyAssetsCreatedByThisAccount
             .check(&alice_id, &unregister, &wsv)
             .is_ok());
@@ -300,7 +300,7 @@ mod tests {
         );
         let domains = [(DomainId::test("test"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, []));
-        let instruction = InstructionBox::Unregister(UnregisterBox::new(xor_id));
+        let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
         let validator: IsInstructionAllowedBoxed<World> =
             unregister::OnlyAssetsCreatedByThisAccount
                 .or(unregister::GrantedByAssetCreator)
@@ -330,7 +330,7 @@ mod tests {
         let domains = [(DomainId::test("test"), domain)];
 
         let wsv = WorldStateView::<World>::new(World::with(domains, []));
-        let grant = InstructionBox::Grant(GrantBox {
+        let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
@@ -367,7 +367,7 @@ mod tests {
             )],
             [],
         ));
-        let mint = InstructionBox::Mint(MintBox {
+        let mint = Instruction::Mint(MintBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
@@ -402,7 +402,7 @@ mod tests {
         );
         let domains = [(DomainId::test("test"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, []));
-        let instruction = InstructionBox::Mint(MintBox {
+        let instruction = Instruction::Mint(MintBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
@@ -433,7 +433,7 @@ mod tests {
         );
         let domains = [(DomainId::test("test"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
-        let grant = InstructionBox::Grant(GrantBox {
+        let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
@@ -469,7 +469,7 @@ mod tests {
             )],
             [],
         ));
-        let burn = InstructionBox::Burn(BurnBox {
+        let burn = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
@@ -504,7 +504,7 @@ mod tests {
         );
         let domains = [(DomainId::test("test"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
-        let instruction = InstructionBox::Burn(BurnBox {
+        let instruction = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
@@ -535,7 +535,7 @@ mod tests {
         );
         let domains = [(DomainId::test("test"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
-        let grant = InstructionBox::Grant(GrantBox {
+        let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
@@ -550,7 +550,7 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::test("bob", "test");
         let alice_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "alice", "test");
         let wsv = WorldStateView::<World>::new(World::new());
-        let burn = InstructionBox::Burn(BurnBox {
+        let burn = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
@@ -575,7 +575,7 @@ mod tests {
         domain.accounts.insert(bob_id.clone(), bob_account);
         let domains = vec![(DomainId::test("test"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
-        let transfer = InstructionBox::Burn(BurnBox {
+        let transfer = Instruction::Burn(BurnBox {
             object: Value::U32(10).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
@@ -596,7 +596,7 @@ mod tests {
             [(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), alice_xor_id.into())],
         );
         let wsv = WorldStateView::<World>::new(World::new());
-        let grant = InstructionBox::Grant(GrantBox {
+        let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
@@ -611,7 +611,7 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::test("bob", "test");
         let alice_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "alice", "test");
         let wsv = WorldStateView::<World>::new(World::new());
-        let set = InstructionBox::SetKeyValue(SetKeyValueBox::new(
+        let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AssetId(alice_xor_id),
             Value::from("key".to_owned()),
             Value::from("value".to_owned()),
@@ -630,7 +630,7 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::test("bob", "test");
         let alice_xor_id = <Asset as Identifiable>::Id::test("xor", "test", "alice", "test");
         let wsv = WorldStateView::<World>::new(World::new());
-        let set = InstructionBox::RemoveKeyValue(RemoveKeyValueBox::new(
+        let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AssetId(alice_xor_id),
             Value::from("key".to_owned()),
         ));
@@ -647,7 +647,7 @@ mod tests {
         let alice_id = <Account as Identifiable>::Id::test("alice", "test");
         let bob_id = <Account as Identifiable>::Id::test("bob", "test");
         let wsv = WorldStateView::<World>::new(World::new());
-        let set = InstructionBox::SetKeyValue(SetKeyValueBox::new(
+        let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AccountId(alice_id.clone()),
             Value::from("key".to_owned()),
             Value::from("value".to_owned()),
@@ -665,7 +665,7 @@ mod tests {
         let alice_id = <Account as Identifiable>::Id::test("alice", "test");
         let bob_id = <Account as Identifiable>::Id::test("bob", "test");
         let wsv = WorldStateView::<World>::new(World::new());
-        let set = InstructionBox::RemoveKeyValue(RemoveKeyValueBox::new(
+        let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AccountId(alice_id.clone()),
             Value::from("key".to_owned()),
         ));
@@ -703,7 +703,7 @@ mod tests {
             )],
             [],
         ));
-        let set = InstructionBox::SetKeyValue(SetKeyValueBox::new(
+        let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),
             Value::from("key".to_owned()),
             Value::from("value".to_owned()),
@@ -742,7 +742,7 @@ mod tests {
             )],
             [],
         ));
-        let set = InstructionBox::RemoveKeyValue(RemoveKeyValueBox::new(
+        let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),
             Value::from("key".to_owned()),
         ));

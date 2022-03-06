@@ -37,12 +37,6 @@ macro_rules! impl_query_id {
     ( $id: expr $(,)? ) => {};
 }
 
-/// Trait for typesafe query output
-pub trait Query: QueryId + Into<QueryBox> + Encode + Decode {
-    /// Output type of query
-    type Output: Into<Value> + TryFrom<Value>;
-}
-
 impl_query_id!(
     FindAllAccounts,
     FindAccountById,
@@ -68,6 +62,12 @@ impl_query_id!(
     FindTransactionByHash,
     FindPermissionTokensByAccountId,
 );
+
+/// Trait for typesafe query output
+pub trait Query: QueryId + Decode + Encode + Into<QueryBox> {
+    /// Output type of query
+    type Output: Into<Value> + TryFrom<Value>;
+}
 
 /// Sized container for all possible Queries.
 #[allow(clippy::enum_variant_names)]
@@ -1044,41 +1044,6 @@ pub mod peer {
         type Output = Vec<Peer>;
     }
 
-    ///// `FindAllParameters` Iroha Query will find all `Peer`s parameters.
-    //#[derive(
-    //    Debug,
-    //    Clone,
-    //    Copy,
-    //    Default,
-    //    PartialEq,
-    //    Eq,
-    //    PartialOrd,
-    //    Ord,
-    //    Decode,
-    //    Encode,
-    //    Deserialize,
-    //    Serialize,
-    //    IntoSchema,
-    //)]
-    //pub struct FindAllParameters {}
-
-    //impl Query for FindAllParameters {
-    //    type Output = Vec<Parameter>;
-    //}
-
-    //impl FindAllPeers {
-    //    ///Construct [`FindAllPeers`].
-    //    pub const fn new() -> Self {
-    //        FindAllPeers {}
-    //    }
-    //}
-
-    //impl FindAllParameters {
-    //    /// Construct [`FindAllParameters`].
-    //    pub const fn new() -> Self {
-    //        FindAllParameters {}
-    //    }
-    //}
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::FindAllPeers;

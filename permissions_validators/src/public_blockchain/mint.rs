@@ -12,14 +12,14 @@ pub struct OnlyAssetsCreatedByThisAccount;
 
 impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-impl<W: WorldTrait> IsAllowed<W, InstructionBox> for OnlyAssetsCreatedByThisAccount {
+impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyAssetsCreatedByThisAccount {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &InstructionBox,
+        instruction: &Instruction,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let mint_box = if let InstructionBox::Mint(mint) = instruction {
+        let mint_box = if let Instruction::Mint(mint) = instruction {
             mint
         } else {
             return Ok(());
@@ -51,10 +51,10 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &InstructionBox,
+        instruction: &Instruction,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let mint_box = if let InstructionBox::Mint(mint) = instruction {
+        let mint_box = if let Instruction::Mint(mint) = instruction {
             mint
         } else {
             return Err("Instruction is not mint.".to_owned());

@@ -1,0 +1,3076 @@
+pub mod account {
+    //! Structures, traits and impls related to `Account`s.
+    use core::{fmt, str::FromStr};
+    #[cfg(feature = "std")]
+    use std::collections::{btree_map, btree_set};
+    use iroha_data_primitives::small::{smallvec, SmallVec};
+    use iroha_schema::IntoSchema;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+    #[cfg(feature = "roles")]
+    use crate::role::Id as RoleId;
+    use crate::{
+        asset::AssetsMap,
+        domain::prelude::*,
+        expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
+        metadata::Metadata,
+        permissions::PermissionToken,
+        Identifiable, Name, ParseError, PublicKey, Value,
+    };
+    /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
+    /// (`Account`) pairs.
+    pub type AccountsMap = btree_map::BTreeMap<Id, Account>;
+    /// Collection of [`PermissionToken`]s
+    pub type Permissions = btree_set::BTreeSet<PermissionToken>;
+    type Signatories = SmallVec<[PublicKey; 1]>;
+    /// Genesis account name.
+    pub const GENESIS_ACCOUNT_NAME: &str = "genesis";
+    /// The context value name for transaction signatories.
+    pub const TRANSACTION_SIGNATORIES_VALUE: &str = "transaction_signatories";
+    /// The context value name for account signatories.
+    pub const ACCOUNT_SIGNATORIES_VALUE: &str = "account_signatories";
+    /// Genesis account. Used to mainly be converted to ordinary `Account` struct.
+    pub struct GenesisAccount {
+        public_key: PublicKey,
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::fmt::Debug for GenesisAccount {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            match *self {
+                GenesisAccount {
+                    public_key: ref __self_0_0,
+                } => {
+                    let debug_trait_builder =
+                        &mut ::core::fmt::Formatter::debug_struct(f, "GenesisAccount");
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "public_key",
+                        &&(*__self_0_0),
+                    );
+                    ::core::fmt::DebugStruct::finish(debug_trait_builder)
+                }
+            }
+        }
+    }
+    const _: () = {
+        impl ::parity_scale_codec::Decode for GenesisAccount {
+            fn decode<__CodecInputEdqy: ::parity_scale_codec::Input>(
+                __codec_input_edqy: &mut __CodecInputEdqy,
+            ) -> ::core::result::Result<Self, ::parity_scale_codec::Error> {
+                ::core::result::Result::Ok(GenesisAccount {
+                    public_key: {
+                        let __codec_res_edqy =
+                            <PublicKey as ::parity_scale_codec::Decode>::decode(__codec_input_edqy);
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `GenesisAccount::public_key`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                })
+            }
+        }
+    };
+    const _: () = {
+        impl ::parity_scale_codec::Encode for GenesisAccount {
+            fn encode_to<
+                __CodecOutputEdqy: ::parity_scale_codec::Output + ?::core::marker::Sized,
+            >(
+                &self,
+                __codec_dest_edqy: &mut __CodecOutputEdqy,
+            ) {
+                ::parity_scale_codec::Encode::encode_to(&&self.public_key, __codec_dest_edqy)
+            }
+            fn encode(&self) -> ::parity_scale_codec::alloc::vec::Vec<::core::primitive::u8> {
+                ::parity_scale_codec::Encode::encode(&&self.public_key)
+            }
+            fn using_encoded<R, F: ::core::ops::FnOnce(&[::core::primitive::u8]) -> R>(
+                &self,
+                f: F,
+            ) -> R {
+                ::parity_scale_codec::Encode::using_encoded(&&self.public_key, f)
+            }
+        }
+        impl ::parity_scale_codec::EncodeLike for GenesisAccount {}
+    };
+    #[doc(hidden)]
+    #[allow(non_upper_case_globals, unused_attributes, unused_qualifications)]
+    const _: () = {
+        #[allow(unused_extern_crates, clippy::useless_attribute)]
+        extern crate serde as _serde;
+        #[automatically_derived]
+        impl<'de> _serde::Deserialize<'de> for GenesisAccount {
+            fn deserialize<__D>(__deserializer: __D) -> _serde::__private::Result<Self, __D::Error>
+            where
+                __D: _serde::Deserializer<'de>,
+            {
+                #[allow(non_camel_case_types)]
+                enum __Field {
+                    __field0,
+                    __ignore,
+                }
+                struct __FieldVisitor;
+                impl<'de> _serde::de::Visitor<'de> for __FieldVisitor {
+                    type Value = __Field;
+                    fn expecting(
+                        &self,
+                        __formatter: &mut _serde::__private::Formatter,
+                    ) -> _serde::__private::fmt::Result {
+                        _serde::__private::Formatter::write_str(__formatter, "field identifier")
+                    }
+                    fn visit_u64<__E>(
+                        self,
+                        __value: u64,
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            0u64 => _serde::__private::Ok(__Field::__field0),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                    fn visit_str<__E>(
+                        self,
+                        __value: &str,
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            "public_key" => _serde::__private::Ok(__Field::__field0),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                    fn visit_bytes<__E>(
+                        self,
+                        __value: &[u8],
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            b"public_key" => _serde::__private::Ok(__Field::__field0),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                }
+                impl<'de> _serde::Deserialize<'de> for __Field {
+                    #[inline]
+                    fn deserialize<__D>(
+                        __deserializer: __D,
+                    ) -> _serde::__private::Result<Self, __D::Error>
+                    where
+                        __D: _serde::Deserializer<'de>,
+                    {
+                        _serde::Deserializer::deserialize_identifier(__deserializer, __FieldVisitor)
+                    }
+                }
+                struct __Visitor<'de> {
+                    marker: _serde::__private::PhantomData<GenesisAccount>,
+                    lifetime: _serde::__private::PhantomData<&'de ()>,
+                }
+                impl<'de> _serde::de::Visitor<'de> for __Visitor<'de> {
+                    type Value = GenesisAccount;
+                    fn expecting(
+                        &self,
+                        __formatter: &mut _serde::__private::Formatter,
+                    ) -> _serde::__private::fmt::Result {
+                        _serde::__private::Formatter::write_str(
+                            __formatter,
+                            "struct GenesisAccount",
+                        )
+                    }
+                    #[inline]
+                    fn visit_seq<__A>(
+                        self,
+                        mut __seq: __A,
+                    ) -> _serde::__private::Result<Self::Value, __A::Error>
+                    where
+                        __A: _serde::de::SeqAccess<'de>,
+                    {
+                        let __field0 = match match _serde::de::SeqAccess::next_element::<PublicKey>(
+                            &mut __seq,
+                        ) {
+                            _serde::__private::Ok(__val) => __val,
+                            _serde::__private::Err(__err) => {
+                                return _serde::__private::Err(__err);
+                            }
+                        } {
+                            _serde::__private::Some(__value) => __value,
+                            _serde::__private::None => {
+                                return _serde::__private::Err(_serde::de::Error::invalid_length(
+                                    0usize,
+                                    &"struct GenesisAccount with 1 element",
+                                ));
+                            }
+                        };
+                        _serde::__private::Ok(GenesisAccount {
+                            public_key: __field0,
+                        })
+                    }
+                    #[inline]
+                    fn visit_map<__A>(
+                        self,
+                        mut __map: __A,
+                    ) -> _serde::__private::Result<Self::Value, __A::Error>
+                    where
+                        __A: _serde::de::MapAccess<'de>,
+                    {
+                        let mut __field0: _serde::__private::Option<PublicKey> =
+                            _serde::__private::None;
+                        while let _serde::__private::Some(__key) =
+                            match _serde::de::MapAccess::next_key::<__Field>(&mut __map) {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            }
+                        {
+                            match __key {
+                                __Field::__field0 => {
+                                    if _serde::__private::Option::is_some(&__field0) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "public_key",
+                                            ),
+                                        );
+                                    }
+                                    __field0 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<PublicKey>(
+                                            &mut __map,
+                                        ) {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                _ => {
+                                    let _ = match _serde::de::MapAccess::next_value::<
+                                        _serde::de::IgnoredAny,
+                                    >(&mut __map)
+                                    {
+                                        _serde::__private::Ok(__val) => __val,
+                                        _serde::__private::Err(__err) => {
+                                            return _serde::__private::Err(__err);
+                                        }
+                                    };
+                                }
+                            }
+                        }
+                        let __field0 = match __field0 {
+                            _serde::__private::Some(__field0) => __field0,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("public_key") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        _serde::__private::Ok(GenesisAccount {
+                            public_key: __field0,
+                        })
+                    }
+                }
+                const FIELDS: &'static [&'static str] = &["public_key"];
+                _serde::Deserializer::deserialize_struct(
+                    __deserializer,
+                    "GenesisAccount",
+                    FIELDS,
+                    __Visitor {
+                        marker: _serde::__private::PhantomData::<GenesisAccount>,
+                        lifetime: _serde::__private::PhantomData,
+                    },
+                )
+            }
+        }
+    };
+    #[doc(hidden)]
+    #[allow(non_upper_case_globals, unused_attributes, unused_qualifications)]
+    const _: () = {
+        #[allow(unused_extern_crates, clippy::useless_attribute)]
+        extern crate serde as _serde;
+        #[automatically_derived]
+        impl _serde::Serialize for GenesisAccount {
+            fn serialize<__S>(
+                &self,
+                __serializer: __S,
+            ) -> _serde::__private::Result<__S::Ok, __S::Error>
+            where
+                __S: _serde::Serializer,
+            {
+                let mut __serde_state = match _serde::Serializer::serialize_struct(
+                    __serializer,
+                    "GenesisAccount",
+                    false as usize + 1,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "public_key",
+                    &self.public_key,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                _serde::ser::SerializeStruct::end(__serde_state)
+            }
+        }
+    };
+    impl iroha_schema::IntoSchema for GenesisAccount {
+        fn type_name() -> String {
+            {
+                let res = ::alloc::fmt::format(::core::fmt::Arguments::new_v1(
+                    &["", "::"],
+                    &[
+                        ::core::fmt::ArgumentV1::new_display(&"iroha_data_model::account"),
+                        ::core::fmt::ArgumentV1::new_display(&"GenesisAccount"),
+                    ],
+                ));
+                res
+            }
+        }
+        fn schema(map: &mut iroha_schema::MetaMap) {
+            let _ = map
+                .entry(<Self as iroha_schema::IntoSchema>::type_name())
+                .or_insert_with(|| {
+                    iroha_schema::Metadata::Struct(iroha_schema::NamedFieldsMeta {
+                        declarations: {
+                            let mut declarations = Vec::new();
+                            declarations.push(iroha_schema::Declaration {
+                                name: String::from("public_key"),
+                                ty: <PublicKey as iroha_schema::IntoSchema>::type_name(),
+                            });
+                            declarations
+                        },
+                    })
+                });
+            if !map.contains_key(&<PublicKey as iroha_schema::IntoSchema>::type_name()) {
+                <PublicKey as iroha_schema::IntoSchema>::schema(map);
+            }
+        }
+    }
+    impl GenesisAccount {
+        /// Returns `GenesisAccount` instance.
+        pub const fn new(public_key: PublicKey) -> Self {
+            GenesisAccount { public_key }
+        }
+    }
+    impl From<GenesisAccount> for Account {
+        #[inline]
+        fn from(account: GenesisAccount) -> Self {
+            Account::with_signatory(Id::genesis(), account.public_key)
+        }
+    }
+    /// Condition which checks if the account has the right signatures.
+    pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::fmt::Debug for SignatureCheckCondition {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            match *self {
+                SignatureCheckCondition(ref __self_0_0) => {
+                    let debug_trait_builder =
+                        &mut ::core::fmt::Formatter::debug_tuple(f, "SignatureCheckCondition");
+                    let _ = ::core::fmt::DebugTuple::field(debug_trait_builder, &&(*__self_0_0));
+                    ::core::fmt::DebugTuple::finish(debug_trait_builder)
+                }
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::clone::Clone for SignatureCheckCondition {
+        #[inline]
+        fn clone(&self) -> SignatureCheckCondition {
+            match *self {
+                SignatureCheckCondition(ref __self_0_0) => {
+                    SignatureCheckCondition(::core::clone::Clone::clone(&(*__self_0_0)))
+                }
+            }
+        }
+    }
+    impl ::core::marker::StructuralPartialEq for SignatureCheckCondition {}
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::PartialEq for SignatureCheckCondition {
+        #[inline]
+        fn eq(&self, other: &SignatureCheckCondition) -> bool {
+            match *other {
+                SignatureCheckCondition(ref __self_1_0) => match *self {
+                    SignatureCheckCondition(ref __self_0_0) => (*__self_0_0) == (*__self_1_0),
+                },
+            }
+        }
+        #[inline]
+        fn ne(&self, other: &SignatureCheckCondition) -> bool {
+            match *other {
+                SignatureCheckCondition(ref __self_1_0) => match *self {
+                    SignatureCheckCondition(ref __self_0_0) => (*__self_0_0) != (*__self_1_0),
+                },
+            }
+        }
+    }
+    impl ::core::marker::StructuralEq for SignatureCheckCondition {}
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::Eq for SignatureCheckCondition {
+        #[inline]
+        #[doc(hidden)]
+        #[no_coverage]
+        fn assert_receiver_is_total_eq(&self) -> () {
+            {
+                let _: ::core::cmp::AssertParamIsEq<EvaluatesTo<bool>>;
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::PartialOrd for SignatureCheckCondition {
+        #[inline]
+        fn partial_cmp(
+            &self,
+            other: &SignatureCheckCondition,
+        ) -> ::core::option::Option<::core::cmp::Ordering> {
+            match *other {
+                SignatureCheckCondition(ref __self_1_0) => match *self {
+                    SignatureCheckCondition(ref __self_0_0) => {
+                        match ::core::cmp::PartialOrd::partial_cmp(&(*__self_0_0), &(*__self_1_0)) {
+                            ::core::option::Option::Some(::core::cmp::Ordering::Equal) => {
+                                ::core::option::Option::Some(::core::cmp::Ordering::Equal)
+                            }
+                            cmp => cmp,
+                        }
+                    }
+                },
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::Ord for SignatureCheckCondition {
+        #[inline]
+        fn cmp(&self, other: &SignatureCheckCondition) -> ::core::cmp::Ordering {
+            match *other {
+                SignatureCheckCondition(ref __self_1_0) => match *self {
+                    SignatureCheckCondition(ref __self_0_0) => {
+                        match ::core::cmp::Ord::cmp(&(*__self_0_0), &(*__self_1_0)) {
+                            ::core::cmp::Ordering::Equal => ::core::cmp::Ordering::Equal,
+                            cmp => cmp,
+                        }
+                    }
+                },
+            }
+        }
+    }
+    const _: () = {
+        impl ::parity_scale_codec::Decode for SignatureCheckCondition {
+            fn decode<__CodecInputEdqy: ::parity_scale_codec::Input>(
+                __codec_input_edqy: &mut __CodecInputEdqy,
+            ) -> ::core::result::Result<Self, ::parity_scale_codec::Error> {
+                ::core::result::Result::Ok(SignatureCheckCondition({
+                    let __codec_res_edqy =
+                        <EvaluatesTo<bool> as ::parity_scale_codec::Decode>::decode(
+                            __codec_input_edqy,
+                        );
+                    match __codec_res_edqy {
+                        ::core::result::Result::Err(e) => {
+                            return ::core::result::Result::Err(
+                                e.chain("Could not decode `SignatureCheckCondition.0`"),
+                            )
+                        }
+                        ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                    }
+                }))
+            }
+        }
+    };
+    const _: () = {
+        impl ::parity_scale_codec::Encode for SignatureCheckCondition {
+            fn encode_to<
+                __CodecOutputEdqy: ::parity_scale_codec::Output + ?::core::marker::Sized,
+            >(
+                &self,
+                __codec_dest_edqy: &mut __CodecOutputEdqy,
+            ) {
+                ::parity_scale_codec::Encode::encode_to(&&self.0, __codec_dest_edqy)
+            }
+            fn encode(&self) -> ::parity_scale_codec::alloc::vec::Vec<::core::primitive::u8> {
+                ::parity_scale_codec::Encode::encode(&&self.0)
+            }
+            fn using_encoded<R, F: ::core::ops::FnOnce(&[::core::primitive::u8]) -> R>(
+                &self,
+                f: F,
+            ) -> R {
+                ::parity_scale_codec::Encode::using_encoded(&&self.0, f)
+            }
+        }
+        impl ::parity_scale_codec::EncodeLike for SignatureCheckCondition {}
+    };
+    #[doc(hidden)]
+    #[allow(non_upper_case_globals, unused_attributes, unused_qualifications)]
+    const _: () = {
+        #[allow(unused_extern_crates, clippy::useless_attribute)]
+        extern crate serde as _serde;
+        #[automatically_derived]
+        impl<'de> _serde::Deserialize<'de> for SignatureCheckCondition {
+            fn deserialize<__D>(__deserializer: __D) -> _serde::__private::Result<Self, __D::Error>
+            where
+                __D: _serde::Deserializer<'de>,
+            {
+                struct __Visitor<'de> {
+                    marker: _serde::__private::PhantomData<SignatureCheckCondition>,
+                    lifetime: _serde::__private::PhantomData<&'de ()>,
+                }
+                impl<'de> _serde::de::Visitor<'de> for __Visitor<'de> {
+                    type Value = SignatureCheckCondition;
+                    fn expecting(
+                        &self,
+                        __formatter: &mut _serde::__private::Formatter,
+                    ) -> _serde::__private::fmt::Result {
+                        _serde::__private::Formatter::write_str(
+                            __formatter,
+                            "tuple struct SignatureCheckCondition",
+                        )
+                    }
+                    #[inline]
+                    fn visit_newtype_struct<__E>(
+                        self,
+                        __e: __E,
+                    ) -> _serde::__private::Result<Self::Value, __E::Error>
+                    where
+                        __E: _serde::Deserializer<'de>,
+                    {
+                        let __field0: EvaluatesTo<bool> =
+                            match <EvaluatesTo<bool> as _serde::Deserialize>::deserialize(__e) {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            };
+                        _serde::__private::Ok(SignatureCheckCondition(__field0))
+                    }
+                    #[inline]
+                    fn visit_seq<__A>(
+                        self,
+                        mut __seq: __A,
+                    ) -> _serde::__private::Result<Self::Value, __A::Error>
+                    where
+                        __A: _serde::de::SeqAccess<'de>,
+                    {
+                        let __field0 = match match _serde::de::SeqAccess::next_element::<
+                            EvaluatesTo<bool>,
+                        >(&mut __seq)
+                        {
+                            _serde::__private::Ok(__val) => __val,
+                            _serde::__private::Err(__err) => {
+                                return _serde::__private::Err(__err);
+                            }
+                        } {
+                            _serde::__private::Some(__value) => __value,
+                            _serde::__private::None => {
+                                return _serde::__private::Err(_serde::de::Error::invalid_length(
+                                    0usize,
+                                    &"tuple struct SignatureCheckCondition with 1 element",
+                                ));
+                            }
+                        };
+                        _serde::__private::Ok(SignatureCheckCondition(__field0))
+                    }
+                }
+                _serde::Deserializer::deserialize_newtype_struct(
+                    __deserializer,
+                    "SignatureCheckCondition",
+                    __Visitor {
+                        marker: _serde::__private::PhantomData::<SignatureCheckCondition>,
+                        lifetime: _serde::__private::PhantomData,
+                    },
+                )
+            }
+        }
+    };
+    #[doc(hidden)]
+    #[allow(non_upper_case_globals, unused_attributes, unused_qualifications)]
+    const _: () = {
+        #[allow(unused_extern_crates, clippy::useless_attribute)]
+        extern crate serde as _serde;
+        #[automatically_derived]
+        impl _serde::Serialize for SignatureCheckCondition {
+            fn serialize<__S>(
+                &self,
+                __serializer: __S,
+            ) -> _serde::__private::Result<__S::Ok, __S::Error>
+            where
+                __S: _serde::Serializer,
+            {
+                _serde::Serializer::serialize_newtype_struct(
+                    __serializer,
+                    "SignatureCheckCondition",
+                    &self.0,
+                )
+            }
+        }
+    };
+    impl iroha_schema::IntoSchema for SignatureCheckCondition {
+        fn type_name() -> String {
+            {
+                let res = ::alloc::fmt::format(::core::fmt::Arguments::new_v1(
+                    &["", "::"],
+                    &[
+                        ::core::fmt::ArgumentV1::new_display(&"iroha_data_model::account"),
+                        ::core::fmt::ArgumentV1::new_display(&"SignatureCheckCondition"),
+                    ],
+                ));
+                res
+            }
+        }
+        fn schema(map: &mut iroha_schema::MetaMap) {
+            let _ = map
+                .entry(<Self as iroha_schema::IntoSchema>::type_name())
+                .or_insert_with(|| {
+                    iroha_schema::Metadata::TupleStruct(iroha_schema::UnnamedFieldsMeta {
+                        types: {
+                            let mut types = Vec::new();
+                            types
+                                .push(<EvaluatesTo<bool> as iroha_schema::IntoSchema>::type_name());
+                            types
+                        },
+                    })
+                });
+            if !map.contains_key(&<EvaluatesTo<bool> as iroha_schema::IntoSchema>::type_name()) {
+                <EvaluatesTo<bool> as iroha_schema::IntoSchema>::schema(map);
+            }
+        }
+    }
+    impl SignatureCheckCondition {
+        /// Gets reference to the raw `ExpressionBox`.
+        #[inline]
+        pub const fn as_expression(&self) -> &ExpressionBox {
+            let Self(condition) = self;
+            &condition.expression
+        }
+    }
+    impl From<EvaluatesTo<bool>> for SignatureCheckCondition {
+        #[inline]
+        fn from(condition: EvaluatesTo<bool>) -> Self {
+            SignatureCheckCondition(condition)
+        }
+    }
+    /// Default signature condition check for accounts. Returns true if any of the signatories have signed a transaction.
+    impl Default for SignatureCheckCondition {
+        #[inline]
+        fn default() -> Self {
+            Self(
+                ContainsAny::new(
+                    ContextValue::new(TRANSACTION_SIGNATORIES_VALUE),
+                    ContextValue::new(ACCOUNT_SIGNATORIES_VALUE),
+                )
+                .into(),
+            )
+        }
+    }
+    /// Type which is used for registering `Account`
+    pub struct NewAccount {
+        /// An Identification of the `NewAccount`.
+        pub id: Id,
+        /// `Account`'s signatories.
+        pub signatories: Signatories,
+        /// Metadata of this account as a key-value store.
+        pub metadata: Metadata,
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::fmt::Debug for NewAccount {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            match *self {
+                NewAccount {
+                    id: ref __self_0_0,
+                    signatories: ref __self_0_1,
+                    metadata: ref __self_0_2,
+                } => {
+                    let debug_trait_builder =
+                        &mut ::core::fmt::Formatter::debug_struct(f, "NewAccount");
+                    let _ =
+                        ::core::fmt::DebugStruct::field(debug_trait_builder, "id", &&(*__self_0_0));
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "signatories",
+                        &&(*__self_0_1),
+                    );
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "metadata",
+                        &&(*__self_0_2),
+                    );
+                    ::core::fmt::DebugStruct::finish(debug_trait_builder)
+                }
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::clone::Clone for NewAccount {
+        #[inline]
+        fn clone(&self) -> NewAccount {
+            match *self {
+                NewAccount {
+                    id: ref __self_0_0,
+                    signatories: ref __self_0_1,
+                    metadata: ref __self_0_2,
+                } => NewAccount {
+                    id: ::core::clone::Clone::clone(&(*__self_0_0)),
+                    signatories: ::core::clone::Clone::clone(&(*__self_0_1)),
+                    metadata: ::core::clone::Clone::clone(&(*__self_0_2)),
+                },
+            }
+        }
+    }
+    impl ::core::marker::StructuralPartialEq for NewAccount {}
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::PartialEq for NewAccount {
+        #[inline]
+        fn eq(&self, other: &NewAccount) -> bool {
+            match *other {
+                NewAccount {
+                    id: ref __self_1_0,
+                    signatories: ref __self_1_1,
+                    metadata: ref __self_1_2,
+                } => match *self {
+                    NewAccount {
+                        id: ref __self_0_0,
+                        signatories: ref __self_0_1,
+                        metadata: ref __self_0_2,
+                    } => {
+                        (*__self_0_0) == (*__self_1_0)
+                            && (*__self_0_1) == (*__self_1_1)
+                            && (*__self_0_2) == (*__self_1_2)
+                    }
+                },
+            }
+        }
+        #[inline]
+        fn ne(&self, other: &NewAccount) -> bool {
+            match *other {
+                NewAccount {
+                    id: ref __self_1_0,
+                    signatories: ref __self_1_1,
+                    metadata: ref __self_1_2,
+                } => match *self {
+                    NewAccount {
+                        id: ref __self_0_0,
+                        signatories: ref __self_0_1,
+                        metadata: ref __self_0_2,
+                    } => {
+                        (*__self_0_0) != (*__self_1_0)
+                            || (*__self_0_1) != (*__self_1_1)
+                            || (*__self_0_2) != (*__self_1_2)
+                    }
+                },
+            }
+        }
+    }
+    impl ::core::marker::StructuralEq for NewAccount {}
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::Eq for NewAccount {
+        #[inline]
+        #[doc(hidden)]
+        #[no_coverage]
+        fn assert_receiver_is_total_eq(&self) -> () {
+            {
+                let _: ::core::cmp::AssertParamIsEq<Id>;
+                let _: ::core::cmp::AssertParamIsEq<Signatories>;
+                let _: ::core::cmp::AssertParamIsEq<Metadata>;
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::PartialOrd for NewAccount {
+        #[inline]
+        fn partial_cmp(&self, other: &NewAccount) -> ::core::option::Option<::core::cmp::Ordering> {
+            match *other {
+                NewAccount {
+                    id: ref __self_1_0,
+                    signatories: ref __self_1_1,
+                    metadata: ref __self_1_2,
+                } => match *self {
+                    NewAccount {
+                        id: ref __self_0_0,
+                        signatories: ref __self_0_1,
+                        metadata: ref __self_0_2,
+                    } => match ::core::cmp::PartialOrd::partial_cmp(&(*__self_0_0), &(*__self_1_0))
+                    {
+                        ::core::option::Option::Some(::core::cmp::Ordering::Equal) => {
+                            match ::core::cmp::PartialOrd::partial_cmp(
+                                &(*__self_0_1),
+                                &(*__self_1_1),
+                            ) {
+                                ::core::option::Option::Some(::core::cmp::Ordering::Equal) => {
+                                    match ::core::cmp::PartialOrd::partial_cmp(
+                                        &(*__self_0_2),
+                                        &(*__self_1_2),
+                                    ) {
+                                        ::core::option::Option::Some(
+                                            ::core::cmp::Ordering::Equal,
+                                        ) => ::core::option::Option::Some(
+                                            ::core::cmp::Ordering::Equal,
+                                        ),
+                                        cmp => cmp,
+                                    }
+                                }
+                                cmp => cmp,
+                            }
+                        }
+                        cmp => cmp,
+                    },
+                },
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::Ord for NewAccount {
+        #[inline]
+        fn cmp(&self, other: &NewAccount) -> ::core::cmp::Ordering {
+            match *other {
+                NewAccount {
+                    id: ref __self_1_0,
+                    signatories: ref __self_1_1,
+                    metadata: ref __self_1_2,
+                } => match *self {
+                    NewAccount {
+                        id: ref __self_0_0,
+                        signatories: ref __self_0_1,
+                        metadata: ref __self_0_2,
+                    } => match ::core::cmp::Ord::cmp(&(*__self_0_0), &(*__self_1_0)) {
+                        ::core::cmp::Ordering::Equal => {
+                            match ::core::cmp::Ord::cmp(&(*__self_0_1), &(*__self_1_1)) {
+                                ::core::cmp::Ordering::Equal => {
+                                    match ::core::cmp::Ord::cmp(&(*__self_0_2), &(*__self_1_2)) {
+                                        ::core::cmp::Ordering::Equal => {
+                                            ::core::cmp::Ordering::Equal
+                                        }
+                                        cmp => cmp,
+                                    }
+                                }
+                                cmp => cmp,
+                            }
+                        }
+                        cmp => cmp,
+                    },
+                },
+            }
+        }
+    }
+    const _: () = {
+        impl ::parity_scale_codec::Decode for NewAccount {
+            fn decode<__CodecInputEdqy: ::parity_scale_codec::Input>(
+                __codec_input_edqy: &mut __CodecInputEdqy,
+            ) -> ::core::result::Result<Self, ::parity_scale_codec::Error> {
+                ::core::result::Result::Ok(NewAccount {
+                    id: {
+                        let __codec_res_edqy =
+                            <Id as ::parity_scale_codec::Decode>::decode(__codec_input_edqy);
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `NewAccount::id`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                    signatories: {
+                        let __codec_res_edqy =
+                            <Signatories as ::parity_scale_codec::Decode>::decode(
+                                __codec_input_edqy,
+                            );
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `NewAccount::signatories`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                    metadata: {
+                        let __codec_res_edqy =
+                            <Metadata as ::parity_scale_codec::Decode>::decode(__codec_input_edqy);
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `NewAccount::metadata`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                })
+            }
+        }
+    };
+    const _: () = {
+        impl ::parity_scale_codec::Encode for NewAccount {
+            fn encode_to<
+                __CodecOutputEdqy: ::parity_scale_codec::Output + ?::core::marker::Sized,
+            >(
+                &self,
+                __codec_dest_edqy: &mut __CodecOutputEdqy,
+            ) {
+                ::parity_scale_codec::Encode::encode_to(&self.id, __codec_dest_edqy);
+                ::parity_scale_codec::Encode::encode_to(&self.signatories, __codec_dest_edqy);
+                ::parity_scale_codec::Encode::encode_to(&self.metadata, __codec_dest_edqy);
+            }
+        }
+        impl ::parity_scale_codec::EncodeLike for NewAccount {}
+    };
+    #[doc(hidden)]
+    #[allow(non_upper_case_globals, unused_attributes, unused_qualifications)]
+    const _: () = {
+        #[allow(unused_extern_crates, clippy::useless_attribute)]
+        extern crate serde as _serde;
+        #[automatically_derived]
+        impl<'de> _serde::Deserialize<'de> for NewAccount {
+            fn deserialize<__D>(__deserializer: __D) -> _serde::__private::Result<Self, __D::Error>
+            where
+                __D: _serde::Deserializer<'de>,
+            {
+                #[allow(non_camel_case_types)]
+                enum __Field {
+                    __field0,
+                    __field1,
+                    __field2,
+                    __ignore,
+                }
+                struct __FieldVisitor;
+                impl<'de> _serde::de::Visitor<'de> for __FieldVisitor {
+                    type Value = __Field;
+                    fn expecting(
+                        &self,
+                        __formatter: &mut _serde::__private::Formatter,
+                    ) -> _serde::__private::fmt::Result {
+                        _serde::__private::Formatter::write_str(__formatter, "field identifier")
+                    }
+                    fn visit_u64<__E>(
+                        self,
+                        __value: u64,
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            0u64 => _serde::__private::Ok(__Field::__field0),
+                            1u64 => _serde::__private::Ok(__Field::__field1),
+                            2u64 => _serde::__private::Ok(__Field::__field2),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                    fn visit_str<__E>(
+                        self,
+                        __value: &str,
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            "id" => _serde::__private::Ok(__Field::__field0),
+                            "signatories" => _serde::__private::Ok(__Field::__field1),
+                            "metadata" => _serde::__private::Ok(__Field::__field2),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                    fn visit_bytes<__E>(
+                        self,
+                        __value: &[u8],
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            b"id" => _serde::__private::Ok(__Field::__field0),
+                            b"signatories" => _serde::__private::Ok(__Field::__field1),
+                            b"metadata" => _serde::__private::Ok(__Field::__field2),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                }
+                impl<'de> _serde::Deserialize<'de> for __Field {
+                    #[inline]
+                    fn deserialize<__D>(
+                        __deserializer: __D,
+                    ) -> _serde::__private::Result<Self, __D::Error>
+                    where
+                        __D: _serde::Deserializer<'de>,
+                    {
+                        _serde::Deserializer::deserialize_identifier(__deserializer, __FieldVisitor)
+                    }
+                }
+                struct __Visitor<'de> {
+                    marker: _serde::__private::PhantomData<NewAccount>,
+                    lifetime: _serde::__private::PhantomData<&'de ()>,
+                }
+                impl<'de> _serde::de::Visitor<'de> for __Visitor<'de> {
+                    type Value = NewAccount;
+                    fn expecting(
+                        &self,
+                        __formatter: &mut _serde::__private::Formatter,
+                    ) -> _serde::__private::fmt::Result {
+                        _serde::__private::Formatter::write_str(__formatter, "struct NewAccount")
+                    }
+                    #[inline]
+                    fn visit_seq<__A>(
+                        self,
+                        mut __seq: __A,
+                    ) -> _serde::__private::Result<Self::Value, __A::Error>
+                    where
+                        __A: _serde::de::SeqAccess<'de>,
+                    {
+                        let __field0 =
+                            match match _serde::de::SeqAccess::next_element::<Id>(&mut __seq) {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            } {
+                                _serde::__private::Some(__value) => __value,
+                                _serde::__private::None => {
+                                    return _serde::__private::Err(
+                                        _serde::de::Error::invalid_length(
+                                            0usize,
+                                            &"struct NewAccount with 3 elements",
+                                        ),
+                                    );
+                                }
+                            };
+                        let __field1 = match match _serde::de::SeqAccess::next_element::<Signatories>(
+                            &mut __seq,
+                        ) {
+                            _serde::__private::Ok(__val) => __val,
+                            _serde::__private::Err(__err) => {
+                                return _serde::__private::Err(__err);
+                            }
+                        } {
+                            _serde::__private::Some(__value) => __value,
+                            _serde::__private::None => {
+                                return _serde::__private::Err(_serde::de::Error::invalid_length(
+                                    1usize,
+                                    &"struct NewAccount with 3 elements",
+                                ));
+                            }
+                        };
+                        let __field2 =
+                            match match _serde::de::SeqAccess::next_element::<Metadata>(&mut __seq)
+                            {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            } {
+                                _serde::__private::Some(__value) => __value,
+                                _serde::__private::None => {
+                                    return _serde::__private::Err(
+                                        _serde::de::Error::invalid_length(
+                                            2usize,
+                                            &"struct NewAccount with 3 elements",
+                                        ),
+                                    );
+                                }
+                            };
+                        _serde::__private::Ok(NewAccount {
+                            id: __field0,
+                            signatories: __field1,
+                            metadata: __field2,
+                        })
+                    }
+                    #[inline]
+                    fn visit_map<__A>(
+                        self,
+                        mut __map: __A,
+                    ) -> _serde::__private::Result<Self::Value, __A::Error>
+                    where
+                        __A: _serde::de::MapAccess<'de>,
+                    {
+                        let mut __field0: _serde::__private::Option<Id> = _serde::__private::None;
+                        let mut __field1: _serde::__private::Option<Signatories> =
+                            _serde::__private::None;
+                        let mut __field2: _serde::__private::Option<Metadata> =
+                            _serde::__private::None;
+                        while let _serde::__private::Some(__key) =
+                            match _serde::de::MapAccess::next_key::<__Field>(&mut __map) {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            }
+                        {
+                            match __key {
+                                __Field::__field0 => {
+                                    if _serde::__private::Option::is_some(&__field0) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "id",
+                                            ),
+                                        );
+                                    }
+                                    __field0 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<Id>(&mut __map) {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                __Field::__field1 => {
+                                    if _serde::__private::Option::is_some(&__field1) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "signatories",
+                                            ),
+                                        );
+                                    }
+                                    __field1 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<Signatories>(
+                                            &mut __map,
+                                        ) {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                __Field::__field2 => {
+                                    if _serde::__private::Option::is_some(&__field2) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "metadata",
+                                            ),
+                                        );
+                                    }
+                                    __field2 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<Metadata>(
+                                            &mut __map,
+                                        ) {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                _ => {
+                                    let _ = match _serde::de::MapAccess::next_value::<
+                                        _serde::de::IgnoredAny,
+                                    >(&mut __map)
+                                    {
+                                        _serde::__private::Ok(__val) => __val,
+                                        _serde::__private::Err(__err) => {
+                                            return _serde::__private::Err(__err);
+                                        }
+                                    };
+                                }
+                            }
+                        }
+                        let __field0 = match __field0 {
+                            _serde::__private::Some(__field0) => __field0,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("id") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        let __field1 = match __field1 {
+                            _serde::__private::Some(__field1) => __field1,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("signatories") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        let __field2 = match __field2 {
+                            _serde::__private::Some(__field2) => __field2,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("metadata") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        _serde::__private::Ok(NewAccount {
+                            id: __field0,
+                            signatories: __field1,
+                            metadata: __field2,
+                        })
+                    }
+                }
+                const FIELDS: &'static [&'static str] = &["id", "signatories", "metadata"];
+                _serde::Deserializer::deserialize_struct(
+                    __deserializer,
+                    "NewAccount",
+                    FIELDS,
+                    __Visitor {
+                        marker: _serde::__private::PhantomData::<NewAccount>,
+                        lifetime: _serde::__private::PhantomData,
+                    },
+                )
+            }
+        }
+    };
+    #[doc(hidden)]
+    #[allow(non_upper_case_globals, unused_attributes, unused_qualifications)]
+    const _: () = {
+        #[allow(unused_extern_crates, clippy::useless_attribute)]
+        extern crate serde as _serde;
+        #[automatically_derived]
+        impl _serde::Serialize for NewAccount {
+            fn serialize<__S>(
+                &self,
+                __serializer: __S,
+            ) -> _serde::__private::Result<__S::Ok, __S::Error>
+            where
+                __S: _serde::Serializer,
+            {
+                let mut __serde_state = match _serde::Serializer::serialize_struct(
+                    __serializer,
+                    "NewAccount",
+                    false as usize + 1 + 1 + 1,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "id",
+                    &self.id,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "signatories",
+                    &self.signatories,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "metadata",
+                    &self.metadata,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                _serde::ser::SerializeStruct::end(__serde_state)
+            }
+        }
+    };
+    impl iroha_schema::IntoSchema for NewAccount {
+        fn type_name() -> String {
+            {
+                let res = ::alloc::fmt::format(::core::fmt::Arguments::new_v1(
+                    &["", "::"],
+                    &[
+                        ::core::fmt::ArgumentV1::new_display(&"iroha_data_model::account"),
+                        ::core::fmt::ArgumentV1::new_display(&"NewAccount"),
+                    ],
+                ));
+                res
+            }
+        }
+        fn schema(map: &mut iroha_schema::MetaMap) {
+            let _ = map
+                .entry(<Self as iroha_schema::IntoSchema>::type_name())
+                .or_insert_with(|| {
+                    iroha_schema::Metadata::Struct(iroha_schema::NamedFieldsMeta {
+                        declarations: {
+                            let mut declarations = Vec::new();
+                            declarations.push(iroha_schema::Declaration {
+                                name: String::from("id"),
+                                ty: <Id as iroha_schema::IntoSchema>::type_name(),
+                            });
+                            declarations.push(iroha_schema::Declaration {
+                                name: String::from("signatories"),
+                                ty: <Signatories as iroha_schema::IntoSchema>::type_name(),
+                            });
+                            declarations.push(iroha_schema::Declaration {
+                                name: String::from("metadata"),
+                                ty: <Metadata as iroha_schema::IntoSchema>::type_name(),
+                            });
+                            declarations
+                        },
+                    })
+                });
+            if !map.contains_key(&<Id as iroha_schema::IntoSchema>::type_name()) {
+                <Id as iroha_schema::IntoSchema>::schema(map);
+            }
+            if !map.contains_key(&<Signatories as iroha_schema::IntoSchema>::type_name()) {
+                <Signatories as iroha_schema::IntoSchema>::schema(map);
+            }
+            if !map.contains_key(&<Metadata as iroha_schema::IntoSchema>::type_name()) {
+                <Metadata as iroha_schema::IntoSchema>::schema(map);
+            }
+        }
+    }
+    impl From<NewAccount> for Account {
+        #[inline]
+        fn from(account: NewAccount) -> Self {
+            let NewAccount {
+                id,
+                signatories,
+                metadata,
+            } = account;
+            Self {
+                id,
+                signatories,
+                metadata,
+                assets: AssetsMap::new(),
+                permission_tokens: Permissions::default(),
+                signature_check_condition: SignatureCheckCondition::default(),
+                #[cfg(feature = "roles")]
+                roles: btree_set::BTreeSet::default(),
+            }
+        }
+    }
+    impl NewAccount {
+        /// Construct [`NewAccount`].
+        #[inline]
+        pub fn new(id: Id) -> Self {
+            Self {
+                id,
+                signatories: Signatories::new(),
+                metadata: Metadata::default(),
+            }
+        }
+        /// Account with single `signatory` constructor.
+        #[inline]
+        pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
+            let signatories = SmallVec({
+                let count = 0usize + 1usize;
+                #[allow(unused_mut)]
+                let mut vec = ::smallvec::SmallVec::new();
+                if count <= vec.inline_size() {
+                    vec.push(signatory);
+                    vec
+                } else {
+                    ::smallvec::SmallVec::from_vec(<[_]>::into_vec(box [signatory]))
+                }
+            });
+            Self {
+                id,
+                signatories,
+                metadata: Metadata::default(),
+            }
+        }
+    }
+    /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
+    pub struct Account {
+        /// An Identification of the [`Account`].
+        pub id: Id,
+        /// Asset's in this [`Account`].
+        pub assets: AssetsMap,
+        /// [`Account`]'s signatories.
+        pub signatories: Signatories,
+        /// Permissions tokens of this account
+        pub permission_tokens: Permissions,
+        /// Condition which checks if the account has the right signatures.
+        #[serde(default)]
+        pub signature_check_condition: SignatureCheckCondition,
+        /// Metadata of this account as a key-value store.
+        pub metadata: Metadata,
+        /// Roles of this account, they are tags for sets of permissions stored in `World`.
+        #[cfg(feature = "roles")]
+        pub roles: btree_set::BTreeSet<RoleId>,
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::fmt::Debug for Account {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            match *self {
+                Account {
+                    id: ref __self_0_0,
+                    assets: ref __self_0_1,
+                    signatories: ref __self_0_2,
+                    permission_tokens: ref __self_0_3,
+                    signature_check_condition: ref __self_0_4,
+                    metadata: ref __self_0_5,
+                    roles: ref __self_0_6,
+                } => {
+                    let debug_trait_builder =
+                        &mut ::core::fmt::Formatter::debug_struct(f, "Account");
+                    let _ =
+                        ::core::fmt::DebugStruct::field(debug_trait_builder, "id", &&(*__self_0_0));
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "assets",
+                        &&(*__self_0_1),
+                    );
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "signatories",
+                        &&(*__self_0_2),
+                    );
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "permission_tokens",
+                        &&(*__self_0_3),
+                    );
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "signature_check_condition",
+                        &&(*__self_0_4),
+                    );
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "metadata",
+                        &&(*__self_0_5),
+                    );
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "roles",
+                        &&(*__self_0_6),
+                    );
+                    ::core::fmt::DebugStruct::finish(debug_trait_builder)
+                }
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::clone::Clone for Account {
+        #[inline]
+        fn clone(&self) -> Account {
+            match *self {
+                Account {
+                    id: ref __self_0_0,
+                    assets: ref __self_0_1,
+                    signatories: ref __self_0_2,
+                    permission_tokens: ref __self_0_3,
+                    signature_check_condition: ref __self_0_4,
+                    metadata: ref __self_0_5,
+                    roles: ref __self_0_6,
+                } => Account {
+                    id: ::core::clone::Clone::clone(&(*__self_0_0)),
+                    assets: ::core::clone::Clone::clone(&(*__self_0_1)),
+                    signatories: ::core::clone::Clone::clone(&(*__self_0_2)),
+                    permission_tokens: ::core::clone::Clone::clone(&(*__self_0_3)),
+                    signature_check_condition: ::core::clone::Clone::clone(&(*__self_0_4)),
+                    metadata: ::core::clone::Clone::clone(&(*__self_0_5)),
+                    roles: ::core::clone::Clone::clone(&(*__self_0_6)),
+                },
+            }
+        }
+    }
+    impl ::core::marker::StructuralPartialEq for Account {}
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::PartialEq for Account {
+        #[inline]
+        fn eq(&self, other: &Account) -> bool {
+            match *other {
+                Account {
+                    id: ref __self_1_0,
+                    assets: ref __self_1_1,
+                    signatories: ref __self_1_2,
+                    permission_tokens: ref __self_1_3,
+                    signature_check_condition: ref __self_1_4,
+                    metadata: ref __self_1_5,
+                    roles: ref __self_1_6,
+                } => match *self {
+                    Account {
+                        id: ref __self_0_0,
+                        assets: ref __self_0_1,
+                        signatories: ref __self_0_2,
+                        permission_tokens: ref __self_0_3,
+                        signature_check_condition: ref __self_0_4,
+                        metadata: ref __self_0_5,
+                        roles: ref __self_0_6,
+                    } => {
+                        (*__self_0_0) == (*__self_1_0)
+                            && (*__self_0_1) == (*__self_1_1)
+                            && (*__self_0_2) == (*__self_1_2)
+                            && (*__self_0_3) == (*__self_1_3)
+                            && (*__self_0_4) == (*__self_1_4)
+                            && (*__self_0_5) == (*__self_1_5)
+                            && (*__self_0_6) == (*__self_1_6)
+                    }
+                },
+            }
+        }
+        #[inline]
+        fn ne(&self, other: &Account) -> bool {
+            match *other {
+                Account {
+                    id: ref __self_1_0,
+                    assets: ref __self_1_1,
+                    signatories: ref __self_1_2,
+                    permission_tokens: ref __self_1_3,
+                    signature_check_condition: ref __self_1_4,
+                    metadata: ref __self_1_5,
+                    roles: ref __self_1_6,
+                } => match *self {
+                    Account {
+                        id: ref __self_0_0,
+                        assets: ref __self_0_1,
+                        signatories: ref __self_0_2,
+                        permission_tokens: ref __self_0_3,
+                        signature_check_condition: ref __self_0_4,
+                        metadata: ref __self_0_5,
+                        roles: ref __self_0_6,
+                    } => {
+                        (*__self_0_0) != (*__self_1_0)
+                            || (*__self_0_1) != (*__self_1_1)
+                            || (*__self_0_2) != (*__self_1_2)
+                            || (*__self_0_3) != (*__self_1_3)
+                            || (*__self_0_4) != (*__self_1_4)
+                            || (*__self_0_5) != (*__self_1_5)
+                            || (*__self_0_6) != (*__self_1_6)
+                    }
+                },
+            }
+        }
+    }
+    impl ::core::marker::StructuralEq for Account {}
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::Eq for Account {
+        #[inline]
+        #[doc(hidden)]
+        #[no_coverage]
+        fn assert_receiver_is_total_eq(&self) -> () {
+            {
+                let _: ::core::cmp::AssertParamIsEq<Id>;
+                let _: ::core::cmp::AssertParamIsEq<AssetsMap>;
+                let _: ::core::cmp::AssertParamIsEq<Signatories>;
+                let _: ::core::cmp::AssertParamIsEq<Permissions>;
+                let _: ::core::cmp::AssertParamIsEq<SignatureCheckCondition>;
+                let _: ::core::cmp::AssertParamIsEq<Metadata>;
+                let _: ::core::cmp::AssertParamIsEq<btree_set::BTreeSet<RoleId>>;
+            }
+        }
+    }
+    const _: () = {
+        impl ::parity_scale_codec::Decode for Account {
+            fn decode<__CodecInputEdqy: ::parity_scale_codec::Input>(
+                __codec_input_edqy: &mut __CodecInputEdqy,
+            ) -> ::core::result::Result<Self, ::parity_scale_codec::Error> {
+                ::core::result::Result::Ok(Account {
+                    id: {
+                        let __codec_res_edqy =
+                            <Id as ::parity_scale_codec::Decode>::decode(__codec_input_edqy);
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `Account::id`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                    assets: {
+                        let __codec_res_edqy =
+                            <AssetsMap as ::parity_scale_codec::Decode>::decode(__codec_input_edqy);
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `Account::assets`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                    signatories: {
+                        let __codec_res_edqy =
+                            <Signatories as ::parity_scale_codec::Decode>::decode(
+                                __codec_input_edqy,
+                            );
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `Account::signatories`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                    permission_tokens: {
+                        let __codec_res_edqy =
+                            <Permissions as ::parity_scale_codec::Decode>::decode(
+                                __codec_input_edqy,
+                            );
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `Account::permission_tokens`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                    signature_check_condition: {
+                        let __codec_res_edqy =
+                            <SignatureCheckCondition as ::parity_scale_codec::Decode>::decode(
+                                __codec_input_edqy,
+                            );
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(e.chain(
+                                    "Could not decode `Account::signature_check_condition`",
+                                ))
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                    metadata: {
+                        let __codec_res_edqy =
+                            <Metadata as ::parity_scale_codec::Decode>::decode(__codec_input_edqy);
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `Account::metadata`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                    roles: {
+                        let __codec_res_edqy =
+                            <btree_set::BTreeSet<RoleId> as ::parity_scale_codec::Decode>::decode(
+                                __codec_input_edqy,
+                            );
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `Account::roles`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                })
+            }
+        }
+    };
+    const _: () = {
+        impl ::parity_scale_codec::Encode for Account {
+            fn encode_to<
+                __CodecOutputEdqy: ::parity_scale_codec::Output + ?::core::marker::Sized,
+            >(
+                &self,
+                __codec_dest_edqy: &mut __CodecOutputEdqy,
+            ) {
+                ::parity_scale_codec::Encode::encode_to(&self.id, __codec_dest_edqy);
+                ::parity_scale_codec::Encode::encode_to(&self.assets, __codec_dest_edqy);
+                ::parity_scale_codec::Encode::encode_to(&self.signatories, __codec_dest_edqy);
+                ::parity_scale_codec::Encode::encode_to(&self.permission_tokens, __codec_dest_edqy);
+                ::parity_scale_codec::Encode::encode_to(
+                    &self.signature_check_condition,
+                    __codec_dest_edqy,
+                );
+                ::parity_scale_codec::Encode::encode_to(&self.metadata, __codec_dest_edqy);
+                ::parity_scale_codec::Encode::encode_to(&self.roles, __codec_dest_edqy);
+            }
+        }
+        impl ::parity_scale_codec::EncodeLike for Account {}
+    };
+    #[doc(hidden)]
+    #[allow(non_upper_case_globals, unused_attributes, unused_qualifications)]
+    const _: () = {
+        #[allow(unused_extern_crates, clippy::useless_attribute)]
+        extern crate serde as _serde;
+        #[automatically_derived]
+        impl<'de> _serde::Deserialize<'de> for Account {
+            fn deserialize<__D>(__deserializer: __D) -> _serde::__private::Result<Self, __D::Error>
+            where
+                __D: _serde::Deserializer<'de>,
+            {
+                #[allow(non_camel_case_types)]
+                enum __Field {
+                    __field0,
+                    __field1,
+                    __field2,
+                    __field3,
+                    __field4,
+                    __field5,
+                    __field6,
+                    __ignore,
+                }
+                struct __FieldVisitor;
+                impl<'de> _serde::de::Visitor<'de> for __FieldVisitor {
+                    type Value = __Field;
+                    fn expecting(
+                        &self,
+                        __formatter: &mut _serde::__private::Formatter,
+                    ) -> _serde::__private::fmt::Result {
+                        _serde::__private::Formatter::write_str(__formatter, "field identifier")
+                    }
+                    fn visit_u64<__E>(
+                        self,
+                        __value: u64,
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            0u64 => _serde::__private::Ok(__Field::__field0),
+                            1u64 => _serde::__private::Ok(__Field::__field1),
+                            2u64 => _serde::__private::Ok(__Field::__field2),
+                            3u64 => _serde::__private::Ok(__Field::__field3),
+                            4u64 => _serde::__private::Ok(__Field::__field4),
+                            5u64 => _serde::__private::Ok(__Field::__field5),
+                            6u64 => _serde::__private::Ok(__Field::__field6),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                    fn visit_str<__E>(
+                        self,
+                        __value: &str,
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            "id" => _serde::__private::Ok(__Field::__field0),
+                            "assets" => _serde::__private::Ok(__Field::__field1),
+                            "signatories" => _serde::__private::Ok(__Field::__field2),
+                            "permission_tokens" => _serde::__private::Ok(__Field::__field3),
+                            "signature_check_condition" => _serde::__private::Ok(__Field::__field4),
+                            "metadata" => _serde::__private::Ok(__Field::__field5),
+                            "roles" => _serde::__private::Ok(__Field::__field6),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                    fn visit_bytes<__E>(
+                        self,
+                        __value: &[u8],
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            b"id" => _serde::__private::Ok(__Field::__field0),
+                            b"assets" => _serde::__private::Ok(__Field::__field1),
+                            b"signatories" => _serde::__private::Ok(__Field::__field2),
+                            b"permission_tokens" => _serde::__private::Ok(__Field::__field3),
+                            b"signature_check_condition" => {
+                                _serde::__private::Ok(__Field::__field4)
+                            }
+                            b"metadata" => _serde::__private::Ok(__Field::__field5),
+                            b"roles" => _serde::__private::Ok(__Field::__field6),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                }
+                impl<'de> _serde::Deserialize<'de> for __Field {
+                    #[inline]
+                    fn deserialize<__D>(
+                        __deserializer: __D,
+                    ) -> _serde::__private::Result<Self, __D::Error>
+                    where
+                        __D: _serde::Deserializer<'de>,
+                    {
+                        _serde::Deserializer::deserialize_identifier(__deserializer, __FieldVisitor)
+                    }
+                }
+                struct __Visitor<'de> {
+                    marker: _serde::__private::PhantomData<Account>,
+                    lifetime: _serde::__private::PhantomData<&'de ()>,
+                }
+                impl<'de> _serde::de::Visitor<'de> for __Visitor<'de> {
+                    type Value = Account;
+                    fn expecting(
+                        &self,
+                        __formatter: &mut _serde::__private::Formatter,
+                    ) -> _serde::__private::fmt::Result {
+                        _serde::__private::Formatter::write_str(__formatter, "struct Account")
+                    }
+                    #[inline]
+                    fn visit_seq<__A>(
+                        self,
+                        mut __seq: __A,
+                    ) -> _serde::__private::Result<Self::Value, __A::Error>
+                    where
+                        __A: _serde::de::SeqAccess<'de>,
+                    {
+                        let __field0 =
+                            match match _serde::de::SeqAccess::next_element::<Id>(&mut __seq) {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            } {
+                                _serde::__private::Some(__value) => __value,
+                                _serde::__private::None => {
+                                    return _serde::__private::Err(
+                                        _serde::de::Error::invalid_length(
+                                            0usize,
+                                            &"struct Account with 7 elements",
+                                        ),
+                                    );
+                                }
+                            };
+                        let __field1 = match match _serde::de::SeqAccess::next_element::<AssetsMap>(
+                            &mut __seq,
+                        ) {
+                            _serde::__private::Ok(__val) => __val,
+                            _serde::__private::Err(__err) => {
+                                return _serde::__private::Err(__err);
+                            }
+                        } {
+                            _serde::__private::Some(__value) => __value,
+                            _serde::__private::None => {
+                                return _serde::__private::Err(_serde::de::Error::invalid_length(
+                                    1usize,
+                                    &"struct Account with 7 elements",
+                                ));
+                            }
+                        };
+                        let __field2 = match match _serde::de::SeqAccess::next_element::<Signatories>(
+                            &mut __seq,
+                        ) {
+                            _serde::__private::Ok(__val) => __val,
+                            _serde::__private::Err(__err) => {
+                                return _serde::__private::Err(__err);
+                            }
+                        } {
+                            _serde::__private::Some(__value) => __value,
+                            _serde::__private::None => {
+                                return _serde::__private::Err(_serde::de::Error::invalid_length(
+                                    2usize,
+                                    &"struct Account with 7 elements",
+                                ));
+                            }
+                        };
+                        let __field3 = match match _serde::de::SeqAccess::next_element::<Permissions>(
+                            &mut __seq,
+                        ) {
+                            _serde::__private::Ok(__val) => __val,
+                            _serde::__private::Err(__err) => {
+                                return _serde::__private::Err(__err);
+                            }
+                        } {
+                            _serde::__private::Some(__value) => __value,
+                            _serde::__private::None => {
+                                return _serde::__private::Err(_serde::de::Error::invalid_length(
+                                    3usize,
+                                    &"struct Account with 7 elements",
+                                ));
+                            }
+                        };
+                        let __field4 = match match _serde::de::SeqAccess::next_element::<
+                            SignatureCheckCondition,
+                        >(&mut __seq)
+                        {
+                            _serde::__private::Ok(__val) => __val,
+                            _serde::__private::Err(__err) => {
+                                return _serde::__private::Err(__err);
+                            }
+                        } {
+                            _serde::__private::Some(__value) => __value,
+                            _serde::__private::None => _serde::__private::Default::default(),
+                        };
+                        let __field5 =
+                            match match _serde::de::SeqAccess::next_element::<Metadata>(&mut __seq)
+                            {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            } {
+                                _serde::__private::Some(__value) => __value,
+                                _serde::__private::None => {
+                                    return _serde::__private::Err(
+                                        _serde::de::Error::invalid_length(
+                                            5usize,
+                                            &"struct Account with 7 elements",
+                                        ),
+                                    );
+                                }
+                            };
+                        let __field6 = match match _serde::de::SeqAccess::next_element::<
+                            btree_set::BTreeSet<RoleId>,
+                        >(&mut __seq)
+                        {
+                            _serde::__private::Ok(__val) => __val,
+                            _serde::__private::Err(__err) => {
+                                return _serde::__private::Err(__err);
+                            }
+                        } {
+                            _serde::__private::Some(__value) => __value,
+                            _serde::__private::None => {
+                                return _serde::__private::Err(_serde::de::Error::invalid_length(
+                                    6usize,
+                                    &"struct Account with 7 elements",
+                                ));
+                            }
+                        };
+                        _serde::__private::Ok(Account {
+                            id: __field0,
+                            assets: __field1,
+                            signatories: __field2,
+                            permission_tokens: __field3,
+                            signature_check_condition: __field4,
+                            metadata: __field5,
+                            roles: __field6,
+                        })
+                    }
+                    #[inline]
+                    fn visit_map<__A>(
+                        self,
+                        mut __map: __A,
+                    ) -> _serde::__private::Result<Self::Value, __A::Error>
+                    where
+                        __A: _serde::de::MapAccess<'de>,
+                    {
+                        let mut __field0: _serde::__private::Option<Id> = _serde::__private::None;
+                        let mut __field1: _serde::__private::Option<AssetsMap> =
+                            _serde::__private::None;
+                        let mut __field2: _serde::__private::Option<Signatories> =
+                            _serde::__private::None;
+                        let mut __field3: _serde::__private::Option<Permissions> =
+                            _serde::__private::None;
+                        let mut __field4: _serde::__private::Option<SignatureCheckCondition> =
+                            _serde::__private::None;
+                        let mut __field5: _serde::__private::Option<Metadata> =
+                            _serde::__private::None;
+                        let mut __field6: _serde::__private::Option<btree_set::BTreeSet<RoleId>> =
+                            _serde::__private::None;
+                        while let _serde::__private::Some(__key) =
+                            match _serde::de::MapAccess::next_key::<__Field>(&mut __map) {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            }
+                        {
+                            match __key {
+                                __Field::__field0 => {
+                                    if _serde::__private::Option::is_some(&__field0) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "id",
+                                            ),
+                                        );
+                                    }
+                                    __field0 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<Id>(&mut __map) {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                __Field::__field1 => {
+                                    if _serde::__private::Option::is_some(&__field1) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "assets",
+                                            ),
+                                        );
+                                    }
+                                    __field1 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<AssetsMap>(
+                                            &mut __map,
+                                        ) {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                __Field::__field2 => {
+                                    if _serde::__private::Option::is_some(&__field2) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "signatories",
+                                            ),
+                                        );
+                                    }
+                                    __field2 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<Signatories>(
+                                            &mut __map,
+                                        ) {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                __Field::__field3 => {
+                                    if _serde::__private::Option::is_some(&__field3) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "permission_tokens",
+                                            ),
+                                        );
+                                    }
+                                    __field3 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<Permissions>(
+                                            &mut __map,
+                                        ) {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                __Field::__field4 => {
+                                    if _serde::__private::Option::is_some(&__field4) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "signature_check_condition",
+                                            ),
+                                        );
+                                    }
+                                    __field4 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<
+                                            SignatureCheckCondition,
+                                        >(&mut __map)
+                                        {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                __Field::__field5 => {
+                                    if _serde::__private::Option::is_some(&__field5) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "metadata",
+                                            ),
+                                        );
+                                    }
+                                    __field5 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<Metadata>(
+                                            &mut __map,
+                                        ) {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                __Field::__field6 => {
+                                    if _serde::__private::Option::is_some(&__field6) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "roles",
+                                            ),
+                                        );
+                                    }
+                                    __field6 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<
+                                            btree_set::BTreeSet<RoleId>,
+                                        >(&mut __map)
+                                        {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                _ => {
+                                    let _ = match _serde::de::MapAccess::next_value::<
+                                        _serde::de::IgnoredAny,
+                                    >(&mut __map)
+                                    {
+                                        _serde::__private::Ok(__val) => __val,
+                                        _serde::__private::Err(__err) => {
+                                            return _serde::__private::Err(__err);
+                                        }
+                                    };
+                                }
+                            }
+                        }
+                        let __field0 = match __field0 {
+                            _serde::__private::Some(__field0) => __field0,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("id") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        let __field1 = match __field1 {
+                            _serde::__private::Some(__field1) => __field1,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("assets") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        let __field2 = match __field2 {
+                            _serde::__private::Some(__field2) => __field2,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("signatories") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        let __field3 = match __field3 {
+                            _serde::__private::Some(__field3) => __field3,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("permission_tokens") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        let __field4 = match __field4 {
+                            _serde::__private::Some(__field4) => __field4,
+                            _serde::__private::None => _serde::__private::Default::default(),
+                        };
+                        let __field5 = match __field5 {
+                            _serde::__private::Some(__field5) => __field5,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("metadata") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        let __field6 = match __field6 {
+                            _serde::__private::Some(__field6) => __field6,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("roles") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        _serde::__private::Ok(Account {
+                            id: __field0,
+                            assets: __field1,
+                            signatories: __field2,
+                            permission_tokens: __field3,
+                            signature_check_condition: __field4,
+                            metadata: __field5,
+                            roles: __field6,
+                        })
+                    }
+                }
+                const FIELDS: &'static [&'static str] = &[
+                    "id",
+                    "assets",
+                    "signatories",
+                    "permission_tokens",
+                    "signature_check_condition",
+                    "metadata",
+                    "roles",
+                ];
+                _serde::Deserializer::deserialize_struct(
+                    __deserializer,
+                    "Account",
+                    FIELDS,
+                    __Visitor {
+                        marker: _serde::__private::PhantomData::<Account>,
+                        lifetime: _serde::__private::PhantomData,
+                    },
+                )
+            }
+        }
+    };
+    #[doc(hidden)]
+    #[allow(non_upper_case_globals, unused_attributes, unused_qualifications)]
+    const _: () = {
+        #[allow(unused_extern_crates, clippy::useless_attribute)]
+        extern crate serde as _serde;
+        #[automatically_derived]
+        impl _serde::Serialize for Account {
+            fn serialize<__S>(
+                &self,
+                __serializer: __S,
+            ) -> _serde::__private::Result<__S::Ok, __S::Error>
+            where
+                __S: _serde::Serializer,
+            {
+                let mut __serde_state = match _serde::Serializer::serialize_struct(
+                    __serializer,
+                    "Account",
+                    false as usize + 1 + 1 + 1 + 1 + 1 + 1 + 1,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "id",
+                    &self.id,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "assets",
+                    &self.assets,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "signatories",
+                    &self.signatories,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "permission_tokens",
+                    &self.permission_tokens,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "signature_check_condition",
+                    &self.signature_check_condition,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "metadata",
+                    &self.metadata,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "roles",
+                    &self.roles,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                _serde::ser::SerializeStruct::end(__serde_state)
+            }
+        }
+    };
+    impl iroha_schema::IntoSchema for Account {
+        fn type_name() -> String {
+            {
+                let res = ::alloc::fmt::format(::core::fmt::Arguments::new_v1(
+                    &["", "::"],
+                    &[
+                        ::core::fmt::ArgumentV1::new_display(&"iroha_data_model::account"),
+                        ::core::fmt::ArgumentV1::new_display(&"Account"),
+                    ],
+                ));
+                res
+            }
+        }
+        fn schema(map: &mut iroha_schema::MetaMap) {
+            let _ = map . entry (< Self as iroha_schema :: IntoSchema > :: type_name ()) . or_insert_with (| | iroha_schema :: Metadata :: Struct (iroha_schema :: NamedFieldsMeta { declarations : { let mut declarations = Vec :: new () ; declarations . push (iroha_schema :: Declaration { name : String :: from ("id") , ty : < Id as iroha_schema :: IntoSchema > :: type_name () , }) ; declarations . push (iroha_schema :: Declaration { name : String :: from ("assets") , ty : < AssetsMap as iroha_schema :: IntoSchema > :: type_name () , }) ; declarations . push (iroha_schema :: Declaration { name : String :: from ("signatories") , ty : < Signatories as iroha_schema :: IntoSchema > :: type_name () , }) ; declarations . push (iroha_schema :: Declaration { name : String :: from ("permission_tokens") , ty : < Permissions as iroha_schema :: IntoSchema > :: type_name () , }) ; declarations . push (iroha_schema :: Declaration { name : String :: from ("signature_check_condition") , ty : < SignatureCheckCondition as iroha_schema :: IntoSchema > :: type_name () , }) ; declarations . push (iroha_schema :: Declaration { name : String :: from ("metadata") , ty : < Metadata as iroha_schema :: IntoSchema > :: type_name () , }) ; declarations . push (iroha_schema :: Declaration { name : String :: from ("roles") , ty : < btree_set :: BTreeSet < RoleId > as iroha_schema :: IntoSchema > :: type_name () , }) ; declarations } , })) ;
+            if !map.contains_key(&<Id as iroha_schema::IntoSchema>::type_name()) {
+                <Id as iroha_schema::IntoSchema>::schema(map);
+            }
+            if !map.contains_key(&<AssetsMap as iroha_schema::IntoSchema>::type_name()) {
+                <AssetsMap as iroha_schema::IntoSchema>::schema(map);
+            }
+            if !map.contains_key(&<Signatories as iroha_schema::IntoSchema>::type_name()) {
+                <Signatories as iroha_schema::IntoSchema>::schema(map);
+            }
+            if !map.contains_key(&<Permissions as iroha_schema::IntoSchema>::type_name()) {
+                <Permissions as iroha_schema::IntoSchema>::schema(map);
+            }
+            if !map
+                .contains_key(&<SignatureCheckCondition as iroha_schema::IntoSchema>::type_name())
+            {
+                <SignatureCheckCondition as iroha_schema::IntoSchema>::schema(map);
+            }
+            if !map.contains_key(&<Metadata as iroha_schema::IntoSchema>::type_name()) {
+                <Metadata as iroha_schema::IntoSchema>::schema(map);
+            }
+            if !map.contains_key(
+                &<btree_set::BTreeSet<RoleId> as iroha_schema::IntoSchema>::type_name(),
+            ) {
+                <btree_set::BTreeSet<RoleId> as iroha_schema::IntoSchema>::schema(map);
+            }
+        }
+    }
+    impl PartialOrd for Account {
+        #[inline]
+        fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+            self.id.partial_cmp(&other.id)
+        }
+    }
+    impl Ord for Account {
+        #[inline]
+        fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+            self.id.cmp(&other.id)
+        }
+    }
+    /// Identification of an Account. Consists of Account's name and Domain's name.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use iroha_data_model::account::Id;
+    ///
+    /// let id = Id::new("user", "company");
+    /// ```
+    pub struct Id {
+        /// [`Account`]'s name.
+        pub name: Name,
+        /// [`Account`]'s [`Domain`](`crate::domain::Domain`)'s id.
+        pub domain_id: DomainId,
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::fmt::Debug for Id {
+        fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+            match *self {
+                Id {
+                    name: ref __self_0_0,
+                    domain_id: ref __self_0_1,
+                } => {
+                    let debug_trait_builder = &mut ::core::fmt::Formatter::debug_struct(f, "Id");
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "name",
+                        &&(*__self_0_0),
+                    );
+                    let _ = ::core::fmt::DebugStruct::field(
+                        debug_trait_builder,
+                        "domain_id",
+                        &&(*__self_0_1),
+                    );
+                    ::core::fmt::DebugStruct::finish(debug_trait_builder)
+                }
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::clone::Clone for Id {
+        #[inline]
+        fn clone(&self) -> Id {
+            match *self {
+                Id {
+                    name: ref __self_0_0,
+                    domain_id: ref __self_0_1,
+                } => Id {
+                    name: ::core::clone::Clone::clone(&(*__self_0_0)),
+                    domain_id: ::core::clone::Clone::clone(&(*__self_0_1)),
+                },
+            }
+        }
+    }
+    impl ::core::marker::StructuralPartialEq for Id {}
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::PartialEq for Id {
+        #[inline]
+        fn eq(&self, other: &Id) -> bool {
+            match *other {
+                Id {
+                    name: ref __self_1_0,
+                    domain_id: ref __self_1_1,
+                } => match *self {
+                    Id {
+                        name: ref __self_0_0,
+                        domain_id: ref __self_0_1,
+                    } => (*__self_0_0) == (*__self_1_0) && (*__self_0_1) == (*__self_1_1),
+                },
+            }
+        }
+        #[inline]
+        fn ne(&self, other: &Id) -> bool {
+            match *other {
+                Id {
+                    name: ref __self_1_0,
+                    domain_id: ref __self_1_1,
+                } => match *self {
+                    Id {
+                        name: ref __self_0_0,
+                        domain_id: ref __self_0_1,
+                    } => (*__self_0_0) != (*__self_1_0) || (*__self_0_1) != (*__self_1_1),
+                },
+            }
+        }
+    }
+    impl ::core::marker::StructuralEq for Id {}
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::Eq for Id {
+        #[inline]
+        #[doc(hidden)]
+        #[no_coverage]
+        fn assert_receiver_is_total_eq(&self) -> () {
+            {
+                let _: ::core::cmp::AssertParamIsEq<Name>;
+                let _: ::core::cmp::AssertParamIsEq<DomainId>;
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::PartialOrd for Id {
+        #[inline]
+        fn partial_cmp(&self, other: &Id) -> ::core::option::Option<::core::cmp::Ordering> {
+            match *other {
+                Id {
+                    name: ref __self_1_0,
+                    domain_id: ref __self_1_1,
+                } => match *self {
+                    Id {
+                        name: ref __self_0_0,
+                        domain_id: ref __self_0_1,
+                    } => match ::core::cmp::PartialOrd::partial_cmp(&(*__self_0_0), &(*__self_1_0))
+                    {
+                        ::core::option::Option::Some(::core::cmp::Ordering::Equal) => {
+                            match ::core::cmp::PartialOrd::partial_cmp(
+                                &(*__self_0_1),
+                                &(*__self_1_1),
+                            ) {
+                                ::core::option::Option::Some(::core::cmp::Ordering::Equal) => {
+                                    ::core::option::Option::Some(::core::cmp::Ordering::Equal)
+                                }
+                                cmp => cmp,
+                            }
+                        }
+                        cmp => cmp,
+                    },
+                },
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::cmp::Ord for Id {
+        #[inline]
+        fn cmp(&self, other: &Id) -> ::core::cmp::Ordering {
+            match *other {
+                Id {
+                    name: ref __self_1_0,
+                    domain_id: ref __self_1_1,
+                } => match *self {
+                    Id {
+                        name: ref __self_0_0,
+                        domain_id: ref __self_0_1,
+                    } => match ::core::cmp::Ord::cmp(&(*__self_0_0), &(*__self_1_0)) {
+                        ::core::cmp::Ordering::Equal => {
+                            match ::core::cmp::Ord::cmp(&(*__self_0_1), &(*__self_1_1)) {
+                                ::core::cmp::Ordering::Equal => ::core::cmp::Ordering::Equal,
+                                cmp => cmp,
+                            }
+                        }
+                        cmp => cmp,
+                    },
+                },
+            }
+        }
+    }
+    #[automatically_derived]
+    #[allow(unused_qualifications)]
+    impl ::core::hash::Hash for Id {
+        fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {
+            match *self {
+                Id {
+                    name: ref __self_0_0,
+                    domain_id: ref __self_0_1,
+                } => {
+                    ::core::hash::Hash::hash(&(*__self_0_0), state);
+                    ::core::hash::Hash::hash(&(*__self_0_1), state)
+                }
+            }
+        }
+    }
+    const _: () = {
+        impl ::parity_scale_codec::Decode for Id {
+            fn decode<__CodecInputEdqy: ::parity_scale_codec::Input>(
+                __codec_input_edqy: &mut __CodecInputEdqy,
+            ) -> ::core::result::Result<Self, ::parity_scale_codec::Error> {
+                ::core::result::Result::Ok(Id {
+                    name: {
+                        let __codec_res_edqy =
+                            <Name as ::parity_scale_codec::Decode>::decode(__codec_input_edqy);
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `Id::name`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                    domain_id: {
+                        let __codec_res_edqy =
+                            <DomainId as ::parity_scale_codec::Decode>::decode(__codec_input_edqy);
+                        match __codec_res_edqy {
+                            ::core::result::Result::Err(e) => {
+                                return ::core::result::Result::Err(
+                                    e.chain("Could not decode `Id::domain_id`"),
+                                )
+                            }
+                            ::core::result::Result::Ok(__codec_res_edqy) => __codec_res_edqy,
+                        }
+                    },
+                })
+            }
+        }
+    };
+    const _: () = {
+        impl ::parity_scale_codec::Encode for Id {
+            fn encode_to<
+                __CodecOutputEdqy: ::parity_scale_codec::Output + ?::core::marker::Sized,
+            >(
+                &self,
+                __codec_dest_edqy: &mut __CodecOutputEdqy,
+            ) {
+                ::parity_scale_codec::Encode::encode_to(&self.name, __codec_dest_edqy);
+                ::parity_scale_codec::Encode::encode_to(&self.domain_id, __codec_dest_edqy);
+            }
+        }
+        impl ::parity_scale_codec::EncodeLike for Id {}
+    };
+    #[doc(hidden)]
+    #[allow(non_upper_case_globals, unused_attributes, unused_qualifications)]
+    const _: () = {
+        #[allow(unused_extern_crates, clippy::useless_attribute)]
+        extern crate serde as _serde;
+        #[automatically_derived]
+        impl<'de> _serde::Deserialize<'de> for Id {
+            fn deserialize<__D>(__deserializer: __D) -> _serde::__private::Result<Self, __D::Error>
+            where
+                __D: _serde::Deserializer<'de>,
+            {
+                #[allow(non_camel_case_types)]
+                enum __Field {
+                    __field0,
+                    __field1,
+                    __ignore,
+                }
+                struct __FieldVisitor;
+                impl<'de> _serde::de::Visitor<'de> for __FieldVisitor {
+                    type Value = __Field;
+                    fn expecting(
+                        &self,
+                        __formatter: &mut _serde::__private::Formatter,
+                    ) -> _serde::__private::fmt::Result {
+                        _serde::__private::Formatter::write_str(__formatter, "field identifier")
+                    }
+                    fn visit_u64<__E>(
+                        self,
+                        __value: u64,
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            0u64 => _serde::__private::Ok(__Field::__field0),
+                            1u64 => _serde::__private::Ok(__Field::__field1),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                    fn visit_str<__E>(
+                        self,
+                        __value: &str,
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            "name" => _serde::__private::Ok(__Field::__field0),
+                            "domain_id" => _serde::__private::Ok(__Field::__field1),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                    fn visit_bytes<__E>(
+                        self,
+                        __value: &[u8],
+                    ) -> _serde::__private::Result<Self::Value, __E>
+                    where
+                        __E: _serde::de::Error,
+                    {
+                        match __value {
+                            b"name" => _serde::__private::Ok(__Field::__field0),
+                            b"domain_id" => _serde::__private::Ok(__Field::__field1),
+                            _ => _serde::__private::Ok(__Field::__ignore),
+                        }
+                    }
+                }
+                impl<'de> _serde::Deserialize<'de> for __Field {
+                    #[inline]
+                    fn deserialize<__D>(
+                        __deserializer: __D,
+                    ) -> _serde::__private::Result<Self, __D::Error>
+                    where
+                        __D: _serde::Deserializer<'de>,
+                    {
+                        _serde::Deserializer::deserialize_identifier(__deserializer, __FieldVisitor)
+                    }
+                }
+                struct __Visitor<'de> {
+                    marker: _serde::__private::PhantomData<Id>,
+                    lifetime: _serde::__private::PhantomData<&'de ()>,
+                }
+                impl<'de> _serde::de::Visitor<'de> for __Visitor<'de> {
+                    type Value = Id;
+                    fn expecting(
+                        &self,
+                        __formatter: &mut _serde::__private::Formatter,
+                    ) -> _serde::__private::fmt::Result {
+                        _serde::__private::Formatter::write_str(__formatter, "struct Id")
+                    }
+                    #[inline]
+                    fn visit_seq<__A>(
+                        self,
+                        mut __seq: __A,
+                    ) -> _serde::__private::Result<Self::Value, __A::Error>
+                    where
+                        __A: _serde::de::SeqAccess<'de>,
+                    {
+                        let __field0 =
+                            match match _serde::de::SeqAccess::next_element::<Name>(&mut __seq) {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            } {
+                                _serde::__private::Some(__value) => __value,
+                                _serde::__private::None => {
+                                    return _serde::__private::Err(
+                                        _serde::de::Error::invalid_length(
+                                            0usize,
+                                            &"struct Id with 2 elements",
+                                        ),
+                                    );
+                                }
+                            };
+                        let __field1 =
+                            match match _serde::de::SeqAccess::next_element::<DomainId>(&mut __seq)
+                            {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            } {
+                                _serde::__private::Some(__value) => __value,
+                                _serde::__private::None => {
+                                    return _serde::__private::Err(
+                                        _serde::de::Error::invalid_length(
+                                            1usize,
+                                            &"struct Id with 2 elements",
+                                        ),
+                                    );
+                                }
+                            };
+                        _serde::__private::Ok(Id {
+                            name: __field0,
+                            domain_id: __field1,
+                        })
+                    }
+                    #[inline]
+                    fn visit_map<__A>(
+                        self,
+                        mut __map: __A,
+                    ) -> _serde::__private::Result<Self::Value, __A::Error>
+                    where
+                        __A: _serde::de::MapAccess<'de>,
+                    {
+                        let mut __field0: _serde::__private::Option<Name> = _serde::__private::None;
+                        let mut __field1: _serde::__private::Option<DomainId> =
+                            _serde::__private::None;
+                        while let _serde::__private::Some(__key) =
+                            match _serde::de::MapAccess::next_key::<__Field>(&mut __map) {
+                                _serde::__private::Ok(__val) => __val,
+                                _serde::__private::Err(__err) => {
+                                    return _serde::__private::Err(__err);
+                                }
+                            }
+                        {
+                            match __key {
+                                __Field::__field0 => {
+                                    if _serde::__private::Option::is_some(&__field0) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "name",
+                                            ),
+                                        );
+                                    }
+                                    __field0 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<Name>(&mut __map)
+                                        {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                __Field::__field1 => {
+                                    if _serde::__private::Option::is_some(&__field1) {
+                                        return _serde::__private::Err(
+                                            <__A::Error as _serde::de::Error>::duplicate_field(
+                                                "domain_id",
+                                            ),
+                                        );
+                                    }
+                                    __field1 = _serde::__private::Some(
+                                        match _serde::de::MapAccess::next_value::<DomainId>(
+                                            &mut __map,
+                                        ) {
+                                            _serde::__private::Ok(__val) => __val,
+                                            _serde::__private::Err(__err) => {
+                                                return _serde::__private::Err(__err);
+                                            }
+                                        },
+                                    );
+                                }
+                                _ => {
+                                    let _ = match _serde::de::MapAccess::next_value::<
+                                        _serde::de::IgnoredAny,
+                                    >(&mut __map)
+                                    {
+                                        _serde::__private::Ok(__val) => __val,
+                                        _serde::__private::Err(__err) => {
+                                            return _serde::__private::Err(__err);
+                                        }
+                                    };
+                                }
+                            }
+                        }
+                        let __field0 = match __field0 {
+                            _serde::__private::Some(__field0) => __field0,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("name") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        let __field1 = match __field1 {
+                            _serde::__private::Some(__field1) => __field1,
+                            _serde::__private::None => {
+                                match _serde::__private::de::missing_field("domain_id") {
+                                    _serde::__private::Ok(__val) => __val,
+                                    _serde::__private::Err(__err) => {
+                                        return _serde::__private::Err(__err);
+                                    }
+                                }
+                            }
+                        };
+                        _serde::__private::Ok(Id {
+                            name: __field0,
+                            domain_id: __field1,
+                        })
+                    }
+                }
+                const FIELDS: &'static [&'static str] = &["name", "domain_id"];
+                _serde::Deserializer::deserialize_struct(
+                    __deserializer,
+                    "Id",
+                    FIELDS,
+                    __Visitor {
+                        marker: _serde::__private::PhantomData::<Id>,
+                        lifetime: _serde::__private::PhantomData,
+                    },
+                )
+            }
+        }
+    };
+    #[doc(hidden)]
+    #[allow(non_upper_case_globals, unused_attributes, unused_qualifications)]
+    const _: () = {
+        #[allow(unused_extern_crates, clippy::useless_attribute)]
+        extern crate serde as _serde;
+        #[automatically_derived]
+        impl _serde::Serialize for Id {
+            fn serialize<__S>(
+                &self,
+                __serializer: __S,
+            ) -> _serde::__private::Result<__S::Ok, __S::Error>
+            where
+                __S: _serde::Serializer,
+            {
+                let mut __serde_state = match _serde::Serializer::serialize_struct(
+                    __serializer,
+                    "Id",
+                    false as usize + 1 + 1,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "name",
+                    &self.name,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                match _serde::ser::SerializeStruct::serialize_field(
+                    &mut __serde_state,
+                    "domain_id",
+                    &self.domain_id,
+                ) {
+                    _serde::__private::Ok(__val) => __val,
+                    _serde::__private::Err(__err) => {
+                        return _serde::__private::Err(__err);
+                    }
+                };
+                _serde::ser::SerializeStruct::end(__serde_state)
+            }
+        }
+    };
+    impl iroha_schema::IntoSchema for Id {
+        fn type_name() -> String {
+            {
+                let res = ::alloc::fmt::format(::core::fmt::Arguments::new_v1(
+                    &["", "::"],
+                    &[
+                        ::core::fmt::ArgumentV1::new_display(&"iroha_data_model::account"),
+                        ::core::fmt::ArgumentV1::new_display(&"Id"),
+                    ],
+                ));
+                res
+            }
+        }
+        fn schema(map: &mut iroha_schema::MetaMap) {
+            let _ = map
+                .entry(<Self as iroha_schema::IntoSchema>::type_name())
+                .or_insert_with(|| {
+                    iroha_schema::Metadata::Struct(iroha_schema::NamedFieldsMeta {
+                        declarations: {
+                            let mut declarations = Vec::new();
+                            declarations.push(iroha_schema::Declaration {
+                                name: String::from("name"),
+                                ty: <Name as iroha_schema::IntoSchema>::type_name(),
+                            });
+                            declarations.push(iroha_schema::Declaration {
+                                name: String::from("domain_id"),
+                                ty: <DomainId as iroha_schema::IntoSchema>::type_name(),
+                            });
+                            declarations
+                        },
+                    })
+                });
+            if !map.contains_key(&<Name as iroha_schema::IntoSchema>::type_name()) {
+                <Name as iroha_schema::IntoSchema>::schema(map);
+            }
+            if !map.contains_key(&<DomainId as iroha_schema::IntoSchema>::type_name()) {
+                <DomainId as iroha_schema::IntoSchema>::schema(map);
+            }
+        }
+    }
+    impl Account {
+        /// Construct [`Account`].
+        #[inline]
+        pub fn new(id: Id) -> Self {
+            Self {
+                id,
+                assets: AssetsMap::new(),
+                signatories: SmallVec::new(),
+                permission_tokens: Permissions::new(),
+                signature_check_condition: SignatureCheckCondition::default(),
+                metadata: Metadata::new(),
+                #[cfg(feature = "roles")]
+                roles: btree_set::BTreeSet::new(),
+            }
+        }
+        /// Account with single `signatory` constructor.
+        #[inline]
+        pub fn with_signatory(id: Id, signatory: PublicKey) -> Self {
+            let signatories = SmallVec({
+                let count = 0usize + 1usize;
+                #[allow(unused_mut)]
+                let mut vec = ::smallvec::SmallVec::new();
+                if count <= vec.inline_size() {
+                    vec.push(signatory);
+                    vec
+                } else {
+                    ::smallvec::SmallVec::from_vec(<[_]>::into_vec(box [signatory]))
+                }
+            });
+            Self {
+                id,
+                assets: AssetsMap::new(),
+                signatories,
+                permission_tokens: Permissions::new(),
+                signature_check_condition: SignatureCheckCondition::default(),
+                metadata: Metadata::new(),
+                #[cfg(feature = "roles")]
+                roles: btree_set::BTreeSet::new(),
+            }
+        }
+        /// Returns a prebuilt expression that when executed
+        /// returns if the needed signatures are gathered.
+        pub fn check_signature_condition(&self, signatories: Signatories) -> EvaluatesTo<bool> {
+            let expr =
+                WhereBuilder::evaluate(self.signature_check_condition.as_expression().clone())
+                    .with_value(
+                        String::from(ACCOUNT_SIGNATORIES_VALUE),
+                        self.signatories.clone(),
+                    )
+                    .with_value(String::from(TRANSACTION_SIGNATORIES_VALUE), signatories)
+                    .build()
+                    .into();
+            expr
+        }
+        /// Inserts permission token into account.
+        #[inline]
+        pub fn insert_permission_token(&mut self, token: PermissionToken) -> bool {
+            self.permission_tokens.insert(token)
+        }
+    }
+    impl Id {
+        /// Construct [`Id`] from an account `name` and a `domain_name` if these names are valid.
+        ///
+        /// # Errors
+        /// Fails if any sub-construction fails
+        #[inline]
+        pub fn new(name: &str, domain_name: &str) -> Result<Self, ParseError> {
+            Ok(Self {
+                name: Name::new(name)?,
+                domain_id: DomainId::new(domain_name)?,
+            })
+        }
+        /// Instantly construct [`Id`] from an account `name` and a `domain_name` assuming these names are valid.
+        #[inline]
+        pub fn test(name: &str, domain_name: &str) -> Self {
+            Self {
+                name: Name::test(name),
+                domain_id: DomainId::test(domain_name),
+            }
+        }
+        /// Construct [`Id`] of the genesis account.
+        #[inline]
+        pub fn genesis() -> Self {
+            Self {
+                name: Name::test(GENESIS_ACCOUNT_NAME),
+                domain_id: DomainId::test(GENESIS_DOMAIN_NAME),
+            }
+        }
+    }
+    impl Identifiable for NewAccount {
+        type Id = Id;
+    }
+    impl Identifiable for Account {
+        type Id = Id;
+    }
+    impl FromIterator<Account> for Value {
+        fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
+            iter.into_iter()
+                .map(Into::into)
+                .collect::<Vec<Self>>()
+                .into()
+        }
+    }
+    /// Account Identification is represented by `name@domain_name` string.
+    impl FromStr for Id {
+        type Err = ParseError;
+        fn from_str(string: &str) -> Result<Self, Self::Err> {
+            let vector: Vec<&str> = string.split('@').collect();
+            if vector.len() != 2 {
+                return Err(ParseError {
+                    reason: "Id should have format `name@domain_name`",
+                });
+            }
+            Ok(Self {
+                name: Name::new(vector[0])?,
+                domain_id: DomainId::new(vector[1])?,
+            })
+        }
+    }
+    impl fmt::Display for Id {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_fmt(::core::fmt::Arguments::new_v1(
+                &["", "@"],
+                &[
+                    ::core::fmt::ArgumentV1::new_display(&self.name),
+                    ::core::fmt::ArgumentV1::new_display(&self.domain_id),
+                ],
+            ))
+        }
+    }
+    /// The prelude re-exports most commonly used traits, structs and macros from this crate.
+    pub mod prelude {
+        pub use super::{Account, Id as AccountId, NewAccount, SignatureCheckCondition};
+    }
+}

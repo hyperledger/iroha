@@ -271,7 +271,7 @@ impl RawGenesisBlock {
 #[derive(Clone, Deserialize, Debug, IntoSchema, Serialize)]
 pub struct GenesisTransaction {
     /// Instructions
-    pub isi: SmallVec<[InstructionBox; 8]>,
+    pub isi: SmallVec<[Instruction; 8]>,
 }
 
 impl GenesisTransaction {

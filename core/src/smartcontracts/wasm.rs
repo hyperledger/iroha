@@ -93,7 +93,7 @@ impl<W: WorldTrait> Validator<'_, W> {
     fn validate_instruction(
         &mut self,
         account_id: &AccountId,
-        instruction: &InstructionBox,
+        instruction: &Instruction,
     ) -> Result<(), Trap> {
         self.check_instruction_len()?;
 
@@ -236,8 +236,79 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         Ok(r)
     }
 
+    fn unpack_instructions(isi_id: u32, mut isi_bytes: &[u8]) -> Result<Instruction, Trap> {
+        macro_rules! match_instruction_id {
+            ( $isi_id: ident, $( $isi: ty ),* $(,)? ) => {
+                match isi_id {
+                    $(<$isi>::ID => <$isi>::decode(&mut isi_bytes).map(Into::into),)*
+                    _ => panic!("Unknown Instruction ID"),
+                }
+            }
+        }
+
+        match_instruction_id!(
+            isi_id,
+            RegisterBox,
+            UnregisterBox,
+            MintBox,
+            BurnBox,
+            TransferBox,
+            Box<IfInstruction>,
+            Box<Pair>,
+            SequenceBox,
+            FailBox,
+            SetKeyValueBox,
+            RemoveKeyValueBox,
+            GrantBox,
+            RevokeBox,
+        )
+        .map_err(|error| Trap::new(error.to_string()))
+    }
+
+    fn unpack_query(query_id: u32, mut query_bytes: &[u8]) -> Result<QueryBox, Trap> {
+        macro_rules! match_query_id {
+            ( $query_id: ident, $( $query: ty ),* $(,)? ) => {
+                match query_id {
+                    $(<$query>::ID => <$query>::decode(&mut query_bytes).map(Into::into),)*
+                    _ => panic!("Unknown Query ID"),
+                }
+            }
+        }
+
+        match_query_id!(
+            query_id,
+            FindAllAccounts,
+            FindAccountById,
+            FindAccountKeyValueByIdAndKey,
+            FindAccountsByName,
+            FindAccountsByDomainId,
+            FindAllAssets,
+            FindAllAssetsDefinitions,
+            FindAssetById,
+            FindAssetsByName,
+            FindAssetsByAccountId,
+            FindAssetsByAssetDefinitionId,
+            FindAssetsByDomainId,
+            FindAssetsByDomainIdAndAssetDefinitionId,
+            FindAssetQuantityById,
+            FindAssetKeyValueByIdAndKey,
+            FindAssetDefinitionKeyValueByIdAndKey,
+            FindAllDomains,
+            FindDomainById,
+            FindDomainKeyValueByIdAndKey,
+            FindAllPeers,
+            FindTransactionsByAccountId,
+            FindTransactionByHash,
+            FindPermissionTokensByAccountId,
+        )
+        .map_err(|error| Trap::new(error.to_string()))
+    }
+
     /// Host defined function which executes query. When calling this function, module
     /// serializes query to linear memory and provides offset and length as parameters
+    ///
+    /// Sending the actual query instead of [`QueryBox`] reduces `WebAssembly` binary size
+    /// because other [`QueryBox`] variants are not automatically pulled into the binary
     ///
     /// # Warning
     ///
@@ -253,41 +324,12 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         offset: WasmUsize,
         len: WasmUsize,
     ) -> Result<WasmUsize, Trap> {
-        info!("Executing query");
         let alloc_fn = Self::get_alloc_fn(&mut caller)?;
         let memory = Self::get_memory(&mut caller)?;
 
         let query_mem_range = offset as usize..(offset + len) as usize;
-        let mut query_bytes = &memory.data(&caller)[query_mem_range];
-
-        let query: QueryBox = match query_id {
-            FindAllAccounts::ID => FindAllAccounts::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAccountById::ID => FindAccountById::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAccountKeyValueByIdAndKey::ID => FindAccountKeyValueByIdAndKey::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAccountsByName::ID => FindAccountsByName::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAccountsByDomainId::ID => FindAccountsByDomainId::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAllAssets::ID => FindAllAssets::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAllAssetsDefinitions::ID => FindAllAssetsDefinitions::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAssetById::ID => FindAssetById::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAssetsByName::ID => FindAssetsByName::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAssetsByAccountId::ID => FindAssetsByAccountId::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAssetsByAssetDefinitionId::ID => FindAssetsByAssetDefinitionId::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAssetsByDomainId::ID => FindAssetsByDomainId::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAssetsByDomainIdAndAssetDefinitionId::ID => FindAssetsByDomainIdAndAssetDefinitionId::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAssetQuantityById::ID => FindAssetQuantityById::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAssetKeyValueByIdAndKey::ID => FindAssetKeyValueByIdAndKey::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAssetDefinitionKeyValueByIdAndKey::ID => FindAssetDefinitionKeyValueByIdAndKey::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAllDomains::ID => FindAllDomains::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindDomainById::ID => FindDomainById::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindDomainKeyValueByIdAndKey::ID => FindDomainKeyValueByIdAndKey::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAllPeers::ID => FindAllPeers::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindTransactionsByAccountId::ID => FindTransactionsByAccountId::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindTransactionByHash::ID => FindTransactionByHash::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindPermissionTokensByAccountId::ID => FindPermissionTokensByAccountId::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindAllRoles::ID => FindAllRoles::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            FindRolesByAccountId::ID => FindRolesByAccountId::decode(&mut query_bytes).map_err(|error| Trap::new(error.to_string()))?.into(),
-            _ => panic!()
-        };
+        let query_bytes = &memory.data(&caller)[query_mem_range];
+        let query = Self::unpack_query(query_id, query_bytes)?;
 
         if let Some(validator) = &caller.data().validator {
             validator
@@ -318,15 +360,14 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
             res_offset
         };
 
-        println!("BEFORE: {}", res_bytes_len);
-        println!("BEFORE: {}", res_offset);
-
-        info!("Query executed");
         Ok(res_offset)
     }
 
     /// Host defined function which executes ISI. When calling this function, module
     /// serializes ISI to linear memory and provides offset and length as parameters
+    ///
+    /// Sending actual instruction instead of [`InstructionBox`] reduces `WebAssembly` binary size
+    /// because other [`InstructionBox`] variants are not automatically pulled into the binary
     ///
     /// # Warning
     ///
@@ -338,6 +379,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
     /// If decoding or execution of the ISI fails
     fn execute_instruction(
         mut caller: Caller<State<W>>,
+        isi_id: u32,
         offset: WasmUsize,
         len: WasmUsize,
     ) -> Result<(), Trap> {
@@ -345,9 +387,8 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         let memory = Self::get_memory(&mut caller)?;
 
         let isi_mem_range = offset as usize..(offset + len) as usize;
-        let mut isi_bytes = &memory.data(&caller)[isi_mem_range];
-        let instruction =
-            InstructionBox::decode(&mut isi_bytes).map_err(|error| Trap::new(error.to_string()))?;
+        let isi_bytes = &memory.data(&caller)[isi_mem_range];
+        let instruction = Self::unpack_instructions(isi_id, isi_bytes)?;
 
         let account_id = caller.data().account_id.clone();
         if let Some(validator) = &mut caller.data_mut().validator {
@@ -372,17 +413,6 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
 
         linker
             .func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query)
-            .map_err(Error::Initialization)?;
-
-        linker
-            .func_wrap(
-                "iroha",
-                "dosao",
-                |caller: Caller<State<W>>, idx: WasmUsize, val: WasmUsize| {
-                    println!("IDX: {:?}", idx);
-                    println!("IDX: {:?}", val);
-                },
-            )
             .map_err(Error::Initialization)?;
 
         Ok(linker)
@@ -626,7 +656,7 @@ mod tests {
         let isi_hex = {
             let new_account_id = AccountId::test("mad_hatter", "wonderland");
             let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
-            encode_hex(InstructionBox::Register(register_isi))
+            encode_hex(Instruction::Register(register_isi))
         };
 
         let wat = format!(
@@ -705,7 +735,7 @@ mod tests {
         let isi_hex = {
             let new_account_id = AccountId::test("mad_hatter", "wonderland");
             let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
-            encode_hex(InstructionBox::Register(register_isi))
+            encode_hex(Instruction::Register(register_isi))
         };
 
         let wat = format!(
@@ -755,7 +785,7 @@ mod tests {
         let isi_hex = {
             let new_account_id = AccountId::test("mad_hatter", "wonderland");
             let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
-            encode_hex(InstructionBox::Register(register_isi))
+            encode_hex(Instruction::Register(register_isi))
         };
 
         let wat = format!(

@@ -74,7 +74,7 @@ async fn torii_pagination() {
 
     let get_domains = |start, limit| {
         let query: VerifiedQueryRequest = QueryRequest::new(
-            QueryBox::FindAllDomains(Default::default()),
+            FindAllDomains::default(),
             AccountId::test("alice", "wonderland"),
         )
         .sign(keys.clone())
@@ -108,7 +108,7 @@ async fn torii_pagination() {
 
 #[derive(Default)]
 struct QuerySet {
-    instructions: Vec<InstructionBox>,
+    instructions: Vec<Instruction>,
     account: Option<AccountId>,
     keys: Option<KeyPair>,
     deny_all: bool,
@@ -118,7 +118,7 @@ impl QuerySet {
     fn new() -> Self {
         Self::default()
     }
-    fn given(mut self, instruction: InstructionBox) -> Self {
+    fn given(mut self, instruction: Instruction) -> Self {
         self.instructions.push(instruction);
         self
     }
@@ -134,7 +134,7 @@ impl QuerySet {
         self.deny_all = true;
         self
     }
-    async fn query(self, query: Query) -> QueryResponseTest {
+    async fn query(self, query: impl Query) -> QueryResponseTest {
         use crate::smartcontracts::Execute;
 
         let (mut torii, keys) = create_torii().await;
@@ -233,22 +233,22 @@ impl QueryResponseTest {
 
 const DOMAIN: &str = "desert";
 
-fn register_domain() -> InstructionBox {
-    InstructionBox::Register(RegisterBox::new(Domain::test(DOMAIN)))
+fn register_domain() -> Instruction {
+    Instruction::Register(RegisterBox::new(Domain::test(DOMAIN)))
 }
-fn register_account(name: &str) -> InstructionBox {
-    InstructionBox::Register(RegisterBox::new(NewAccount::with_signatory(
+fn register_account(name: &str) -> Instruction {
+    Instruction::Register(RegisterBox::new(NewAccount::with_signatory(
         AccountId::test(name, DOMAIN),
         KeyPair::generate().unwrap().public_key,
     )))
 }
-fn register_asset_definition(name: &str) -> InstructionBox {
-    InstructionBox::Register(RegisterBox::new(AssetDefinition::new_quantity(
+fn register_asset_definition(name: &str) -> Instruction {
+    Instruction::Register(RegisterBox::new(AssetDefinition::new_quantity(
         AssetDefinitionId::test(name, DOMAIN),
     )))
 }
-fn mint_asset(quantity: u32, asset: &str, account: &str) -> InstructionBox {
-    InstructionBox::Mint(MintBox::new(
+fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
+    Instruction::Mint(MintBox::new(
         Value::U32(quantity),
         AssetId::test(asset, DOMAIN, account, DOMAIN),
     ))
@@ -366,7 +366,7 @@ async fn find_asset_definition() {
     QuerySet::new()
         .given(register_domain())
         .given(register_asset_definition("rose"))
-        .query(Default::default())
+        .query(FindAllDomains::default())
         .await
         .status(StatusCode::OK)
         .body_matches_ok(|body| {

@@ -12,14 +12,14 @@ pub struct OnlyOwnedAssets;
 
 impl_from_item_for_instruction_validator_box!(OnlyOwnedAssets);
 
-impl<W: WorldTrait> IsAllowed<W, InstructionBox> for OnlyOwnedAssets {
+impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyOwnedAssets {
     fn check(
         &self,
         authority: &AccountId,
-        instruction: &InstructionBox,
+        instruction: &Instruction,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let transfer_box = if let InstructionBox::Transfer(transfer) = instruction {
+        let transfer_box = if let Instruction::Transfer(transfer) = instruction {
             transfer
         } else {
             return Ok(());
@@ -48,10 +48,10 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
     fn token(
         &self,
         _authority: &AccountId,
-        instruction: &InstructionBox,
+        instruction: &Instruction,
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        let transfer_box = if let InstructionBox::Transfer(transfer_box) = instruction {
+        let transfer_box = if let Instruction::Transfer(transfer_box) = instruction {
             transfer_box
         } else {
             return Err("Instruction is not transfer.".to_owned());

@@ -17,7 +17,7 @@ pub trait InstructionId {
     const ID: u32;
 }
 
-pub trait Instruction: InstructionId + Into<InstructionBox> + Encode + Decode {}
+pub trait InstructionTrait: InstructionId + Decode + Encode + Into<Instruction> {}
 
 /// Implement different [`QueryId`] for every type given
 macro_rules! impl_instruction_id {
@@ -39,21 +39,23 @@ impl_instruction_id!(
     MintBox,
     BurnBox,
     TransferBox,
+    Box<If>,
+    Box<Pair>,
     SequenceBox,
     FailBox,
     SetKeyValueBox,
     RemoveKeyValueBox,
     GrantBox,
-    RevokeBox
+    RevokeBox,
 );
 
-impl<T: InstructionId + Into<InstructionBox> + Encode + Decode> Instruction for T {}
+impl<T: InstructionId + Decode + Encode + Into<Instruction>> InstructionTrait for T {}
 
 /// Sized structure for all possible Instructions.
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
-pub enum InstructionBox {
+pub enum Instruction {
     /// `Register` variant.
     Register(RegisterBox),
     /// `Unregister` variant.
@@ -82,10 +84,10 @@ pub enum InstructionBox {
     Revoke(RevokeBox),
 }
 
-impl InstructionBox {
+impl Instruction {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
-        use InstructionBox::*;
+        use Instruction::*;
 
         match self {
             Register(register_box) => register_box.len(),
@@ -172,16 +174,16 @@ pub struct TransferBox {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Pair {
     /// Left instruction
-    pub left_instruction: InstructionBox,
+    pub left_instruction: Instruction,
     /// Right instruction
-    pub right_instruction: InstructionBox,
+    pub right_instruction: Instruction,
 }
 
 /// Composite instruction for a sequence of instructions.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct SequenceBox {
     /// Sequence of Iroha Special Instructions to execute.
-    pub instructions: Vec<InstructionBox>,
+    pub instructions: Vec<Instruction>,
 }
 
 /// Composite instruction for a conditional execution of other instructions.
@@ -190,9 +192,9 @@ pub struct If {
     /// Condition to be checked.
     pub condition: EvaluatesTo<bool>,
     /// Instruction to be executed if condition pass.
-    pub then: InstructionBox,
+    pub then: Instruction,
     /// Optional instruction to be executed if condition fail.
-    pub otherwise: Option<InstructionBox>,
+    pub otherwise: Option<Instruction>,
 }
 
 /// Utilitary instruction to fail execution and submit an error `message`.
@@ -658,10 +660,7 @@ impl Pair {
     }
 
     /// Construct [`Pair`].
-    pub fn new<LI: Into<InstructionBox>, RI: Into<InstructionBox>>(
-        left_instruction: LI,
-        right_instruction: RI,
-    ) -> Self {
+    pub fn new(left_instruction: impl InstructionTrait, right_instruction: impl InstructionTrait) -> Self {
         Pair {
             left_instruction: left_instruction.into(),
             right_instruction: right_instruction.into(),
@@ -674,13 +673,13 @@ impl SequenceBox {
     pub fn len(&self) -> usize {
         self.instructions
             .iter()
-            .map(InstructionBox::len)
+            .map(Instruction::len)
             .sum::<usize>()
             + 1
     }
 
     /// Construct [`SequenceBox`].
-    pub fn new(instructions: Vec<InstructionBox>) -> Self {
+    pub fn new(instructions: Vec<Instruction>) -> Self {
         Self { instructions }
     }
 }
@@ -689,12 +688,12 @@ impl If {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
-        let otherwise = self.otherwise.as_ref().map_or(0, InstructionBox::len);
+        let otherwise = self.otherwise.as_ref().map_or(0, Instruction::len);
         self.condition.len() + self.then.len() + otherwise + 1
     }
 
     /// Construct [`If`].
-    pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<InstructionBox>>(condition: C, then: T) -> Self {
+    pub fn new<C: Into<EvaluatesTo<bool>>>(condition: C, then: impl InstructionTrait) -> Self {
         If {
             condition: condition.into(),
             then: then.into(),
@@ -702,14 +701,10 @@ impl If {
         }
     }
     /// [`If`] constructor with `Otherwise` instruction.
-    pub fn with_otherwise<
-        C: Into<EvaluatesTo<bool>>,
-        T: Into<InstructionBox>,
-        O: Into<InstructionBox>,
-    >(
+    pub fn with_otherwise<C: Into<EvaluatesTo<bool>>>(
         condition: C,
-        then: T,
-        otherwise: O,
+        then: impl InstructionTrait,
+        otherwise: impl InstructionTrait,
     ) -> Self {
         If {
             condition: condition.into(),
@@ -742,9 +737,9 @@ mod tests {
 
     fn if_instruction(
         c: impl Into<ExpressionBox>,
-        then: InstructionBox,
-        otherwise: Option<InstructionBox>,
-    ) -> InstructionBox {
+        then: Instruction,
+        otherwise: Option<Instruction>,
+    ) -> Instruction {
         let condition: ExpressionBox = c.into();
         let condition = condition.into();
         If {
@@ -755,7 +750,7 @@ mod tests {
         .into()
     }
 
-    fn fail() -> InstructionBox {
+    fn fail() -> Instruction {
         FailBox {
             message: String::default(),
         }
@@ -766,7 +761,7 @@ mod tests {
     fn len_empty_sequence() {
         let instructions = vec![];
 
-        let inst = InstructionBox::Sequence(SequenceBox { instructions });
+        let inst = Instruction::Sequence(SequenceBox { instructions });
         assert_eq!(inst.len(), 1);
     }
 
@@ -780,7 +775,7 @@ mod tests {
             None,
         )];
 
-        let inst = InstructionBox::Sequence(SequenceBox { instructions });
+        let inst = Instruction::Sequence(SequenceBox { instructions });
         assert_eq!(inst.len(), 4);
     }
 
@@ -798,7 +793,7 @@ mod tests {
             fail(),
         ];
 
-        let inst = InstructionBox::Sequence(SequenceBox { instructions });
+        let inst = Instruction::Sequence(SequenceBox { instructions });
         assert_eq!(inst.len(), 7);
     }
 }
@@ -806,9 +801,9 @@ mod tests {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Burn, BurnBox, FailBox, Grant, GrantBox, If as IfInstruction, Instruction, InstructionBox,
-        Mint, MintBox, Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke,
-        RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox, Transfer, TransferBox, Unregister,
-        UnregisterBox,
+        Burn, BurnBox, FailBox, Grant, GrantBox, If as IfInstruction, InstructionTrait, Instruction,
+        InstructionId, Mint, MintBox, Pair, Register, RegisterBox, RemoveKeyValue,
+        RemoveKeyValueBox, Revoke, RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox, Transfer,
+        TransferBox, Unregister, UnregisterBox,
     };
 }

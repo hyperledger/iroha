@@ -10,14 +10,14 @@ use test_network::{Peer as TestPeer, *};
 
 use crate::wasm::utils::wasm_template;
 
-fn produce_instructions() -> Vec<InstructionBox> {
+fn produce_instructions() -> Vec<Instruction> {
     let domains = (0..4).map(|domain_index: usize| Domain::test(&domain_index.to_string()));
 
-    let registers: [InstructionBox; 4] = domains
+    let registers: [Instruction; 4] = domains
         .into_iter()
         .map(IdentifiableBox::from)
         .map(RegisterBox::new)
-        .map(InstructionBox::from)
+        .map(Instruction::from)
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
@@ -30,15 +30,14 @@ fn produce_instructions() -> Vec<InstructionBox> {
         //          domain "2"
         //          domain "3"
         registers[0].clone(),
-        Pair::new::<InstructionBox, _>(
+        Instruction::from(Pair::new(
             registers[1].clone(),
-            IfInstruction::with_otherwise(
+            Instruction::from(Box::new(IfInstruction::with_otherwise(
                 false,
                 FailBox::new("unreachable"),
                 SequenceBox::new(vec![registers[2].clone(), registers[3].clone()]),
-            ),
-        )
-        .into(),
+            )),
+        ))),
     ]
 }
 

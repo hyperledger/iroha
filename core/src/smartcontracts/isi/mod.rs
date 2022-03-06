@@ -273,7 +273,7 @@ pub mod error {
     impl StdError for ParentHashNotFound {}
 }
 
-impl<W: WorldTrait> Execute<W> for InstructionBox {
+impl<W: WorldTrait> Execute<W> for Instruction {
     type Error = Error;
 
     fn execute(
@@ -281,7 +281,7 @@ impl<W: WorldTrait> Execute<W> for InstructionBox {
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
     ) -> Result<(), Self::Error> {
-        use InstructionBox::*;
+        use Instruction::*;
         match self {
             Register(register_box) => register_box.execute(authority, wsv),
             Unregister(unregister_box) => unregister_box.execute(authority, wsv),

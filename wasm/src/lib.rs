@@ -46,16 +46,18 @@ fn oom(layout: ::core::alloc::Layout) -> ! {
     panic!("Allocation({} bytes) failed", layout.size())
 }
 
-pub trait Execute {
-    type Result;
+pub trait ExecuteQuery {
+    type Result: Decode;
     fn execute(&self) -> Self::Result;
 }
 
-impl Execute for data_model::isi::Instruction {
-    type Result = ();
+pub trait ExecuteInstruction {
+    fn execute(&self) -> ();
+}
 
+impl<T: Instruction> ExecuteInstruction for T {
     /// Execute the given instruction on the host environment
-    fn execute(&self) -> Self::Result {
+    fn execute(&self) -> () {
         #[cfg(not(test))]
         use host::execute_instruction as host_execute_instruction;
         #[cfg(test)]
@@ -65,8 +67,11 @@ impl Execute for data_model::isi::Instruction {
         unsafe { encode_and_execute(self, host_execute_instruction) };
     }
 }
-impl Execute for data_model::query::QueryBox {
-    type Result = Value;
+impl<T: Query> ExecuteQuery for T
+where
+    T::Output: Decode,
+{
+    type Result = T::Output;
 
     /// Executes the given query on the host environment
     fn execute(&self) -> Self::Result {
@@ -211,7 +216,7 @@ unsafe fn encode_and_execute<T: Encode, O>(
 
 /// Most used items
 pub mod prelude {
-    pub use crate::{iroha_wasm, Execute};
+    pub use crate::{iroha_wasm, ExecuteQuery};
 }
 
 #[cfg(test)]

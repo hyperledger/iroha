@@ -141,7 +141,7 @@ impl Client {
     #[log]
     pub fn submit(
         &mut self,
-        instruction: impl Into<InstructionBox> + Debug,
+        instruction: impl InstructionTrait + Debug,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all(vec![instruction.into()])
     }
@@ -153,7 +153,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all(
         &mut self,
-        instructions: impl IntoIterator<Item = InstructionBox>,
+        instructions: impl IntoIterator<Item = Instruction>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
     }
@@ -167,10 +167,10 @@ impl Client {
     #[log]
     pub fn submit_with_metadata(
         &mut self,
-        instruction: InstructionBox,
+        instruction: impl InstructionTrait + Debug,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
-        self.submit_all_with_metadata(vec![instruction], metadata)
+        self.submit_all_with_metadata(vec![instruction.into()], metadata)
     }
 
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
@@ -181,7 +181,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_with_metadata(
         &mut self,
-        instructions: impl IntoIterator<Item = InstructionBox>,
+        instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_transaction(self.build_transaction(instructions.into(), metadata)?)
@@ -230,7 +230,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking(
         &mut self,
-        instruction: impl Into<InstructionBox>,
+        instruction: impl InstructionTrait,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking(vec![instruction.into()])
     }
@@ -242,7 +242,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking(
         &mut self,
-        instructions: impl IntoIterator<Item = InstructionBox>,
+        instructions: impl IntoIterator<Item = Instruction>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
     }
@@ -255,7 +255,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking_with_metadata(
         &mut self,
-        instruction: impl Into<InstructionBox>,
+        instruction: impl InstructionTrait,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking_with_metadata(vec![instruction.into()], metadata)
@@ -269,7 +269,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking_with_metadata(
         &mut self,
-        instructions: impl IntoIterator<Item = InstructionBox>,
+        instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         struct EventListenerInitialized;
@@ -719,7 +719,7 @@ mod tests {
 
         let build_transaction = || {
             client
-                .build_transaction(Vec::<InstructionBox>::new().into(), UnlimitedMetadata::new())
+                .build_transaction(Vec::<Instruction>::new().into(), UnlimitedMetadata::new())
                 .unwrap()
         };
         let tx1 = build_transaction();

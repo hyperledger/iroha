@@ -659,7 +659,7 @@ pub trait TestClient: Sized {
     /// Submits instruction with polling
     fn submit_till<R>(
         &mut self,
-        instruction: impl Into<Instruction> + Debug,
+        instruction: impl Instruction + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
@@ -671,7 +671,7 @@ pub trait TestClient: Sized {
     /// Submits instructions with polling
     fn submit_all_till<R>(
         &mut self,
-        instructions: Vec<Instruction>,
+        instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
@@ -795,7 +795,7 @@ impl TestClient for Client {
 
     fn submit_till<R>(
         &mut self,
-        instruction: impl Into<Instruction> + Debug,
+        instruction: impl Instruction + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output
@@ -811,7 +811,7 @@ impl TestClient for Client {
 
     fn submit_all_till<R>(
         &mut self,
-        instructions: Vec<Instruction>,
+        instructions: Vec<InstructionBox>,
         request: R,
         f: impl Fn(&R::Output) -> bool,
     ) -> R::Output

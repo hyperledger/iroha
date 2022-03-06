@@ -350,7 +350,7 @@ mod tests {
     async fn find_transaction() -> Result<()> {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains()));
 
-        let tx = Transaction::new(ALICE_ID.clone(), Vec::<InstructionBox>::new().into(), 4000);
+        let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000);
         let signed_tx = tx.sign(ALICE_KEYS.clone())?;
 
         let tx_limits = TransactionLimits {
