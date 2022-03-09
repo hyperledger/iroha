@@ -51,9 +51,12 @@ class GetTransactions : public AcceptanceFixture,
    * @param hash of the tx for querying
    * @return built query
    */
+  auto makeQuery(std::vector<crypto::Hash> const &hashes) {
+    return complete(baseQry().queryCounter(1).getTransactions(hashes));
+  }
+
   auto makeQuery(const crypto::Hash &hash) {
-    return complete(baseQry().queryCounter(1).getTransactions(
-        std::vector<crypto::Hash>{hash}));
+    return makeQuery(std::vector<crypto::Hash>{hash});
   }
 
   const std::string kNewRole = "rl";
@@ -118,6 +121,37 @@ TEST_P(GetTransactions, HaveGetAllTx) {
           dummy_tx,
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendQuery(makeQuery(dummy_tx.hash()), check);
+}
+
+TEST_P(GetTransactions, MultipleHaveGetAllTx) {
+  decltype(dummyTx()) txs[] = {dummyTx(), dummyTx(), dummyTx()};
+  auto check = [&txs](auto &status) {
+    ASSERT_NO_THROW({
+      const auto &resp =
+          boost::get<const shared_model::interface::TransactionsResponse &>(
+              status.get());
+      ASSERT_EQ(resp.transactions().size(), sizeof(txs) / sizeof(txs[0]));
+      for (size_t ix = 0; ix < resp.transactions().size(); ++ix) {
+        ASSERT_EQ(resp.transactions()[ix], txs[ix]);
+      }
+    });
+  };
+
+  IntegrationTestFramework itf(1, GetParam());
+
+  itf.setInitialState(kAdminKeypair)
+      .sendTx(makeUserWithPerms({interface::permissions::Role::kGetAllTxs}))
+      .skipProposal()
+      .skipBlock();
+
+  std::vector<crypto::Hash> hashes;
+  for (auto const &tx : txs) {
+    hashes.emplace_back(tx.hash());
+    itf.sendTxAwait(
+        tx, [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+  }
+
+  itf.sendQuery(makeQuery(hashes), check);
 }
 
 /**
@@ -258,6 +292,6 @@ INSTANTIATE_TEST_SUITE_P(DifferentStorageType,
                            return info.param == StorageType::kPostgres
                                ? "kPostgres"
                                : info.param == StorageType::kRocksDb
-                               ? "kRocksDb"
-                               : "UNKNOWN";
+                                   ? "kRocksDb"
+                                   : "UNKNOWN";
                          });

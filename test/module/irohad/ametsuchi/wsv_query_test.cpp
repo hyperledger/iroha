@@ -52,20 +52,45 @@ namespace iroha {
      * @then peer list successfully received
      */
     TEST_F(WsvQueryTest, GetPeers) {
-      ASSERT_EQ(query->countPeers().assumeValue(), 0);
+      ASSERT_EQ(query->countPeers(false).assumeValue(), 0);
 
-      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt};
+      shared_model::plain::Peer peer1{
+          "some-address", "0a", std::nullopt, false};
       command->insertPeer(peer1);
-      shared_model::plain::Peer peer2{"another-address", "0b", std::nullopt};
+      shared_model::plain::Peer peer2{
+          "another-address", "0b", std::nullopt, false};
       command->insertPeer(peer2);
 
-      auto result = query->getPeers();
+      auto result = query->getPeers(false);
       ASSERT_TRUE(result);
       ASSERT_THAT(*result,
                   testing::ElementsAre(testing::Pointee(testing::Eq(peer1)),
                                        testing::Pointee(testing::Eq(peer2))));
 
-      ASSERT_EQ(query->countPeers().assumeValue(), 2);
+      ASSERT_EQ(query->countPeers(false).assumeValue(), 2);
+    }
+
+    /**
+     * @given storage with sync peers
+     * @when trying to get existing peers
+     * @then peer list successfully received
+     */
+    TEST_F(WsvQueryTest, GetSyncPeers) {
+      ASSERT_EQ(query->countPeers(true).assumeValue(), 0);
+
+      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt, true};
+      command->insertPeer(peer1);
+      shared_model::plain::Peer peer2{
+          "another-address", "0b", std::nullopt, true};
+      command->insertPeer(peer2);
+
+      auto result = query->getPeers(true);
+      ASSERT_TRUE(result);
+      ASSERT_THAT(*result,
+                  testing::ElementsAre(testing::Pointee(testing::Eq(peer1)),
+                                       testing::Pointee(testing::Eq(peer2))));
+
+      ASSERT_EQ(query->countPeers(true).assumeValue(), 2);
     }
 
     TEST_F(WsvQueryTest, countDomains) {
@@ -79,12 +104,12 @@ namespace iroha {
     }
 
     TEST_F(WsvQueryTest, countPeers) {
-      ASSERT_EQ(query->countPeers().assumeValue(), 0);
+      ASSERT_EQ(query->countPeers(false).assumeValue(), 0);
       command->insertPeer(
-          shared_model::plain::Peer{"127.0.0.1", "111", std::nullopt});
+          shared_model::plain::Peer{"127.0.0.1", "111", std::nullopt, false});
       command->insertPeer(
-          shared_model::plain::Peer{"127.0.0.2", "222", std::nullopt});
-      ASSERT_EQ(query->countPeers().assumeValue(), 2);
+          shared_model::plain::Peer{"127.0.0.2", "222", std::nullopt, false});
+      ASSERT_EQ(query->countPeers(false).assumeValue(), 2);
     }
 
     TEST_F(WsvQueryTest, countTransactions) {

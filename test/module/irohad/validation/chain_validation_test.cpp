@@ -32,12 +32,23 @@ class ChainValidationTest : public ::testing::Test {
         supermajority_checker, getTestLogger("ChainValidator"));
     storage = std::make_shared<MockMutableStorage>();
     peers = std::vector<std::shared_ptr<shared_model::interface::Peer>>();
+    sync_peers = std::vector<std::shared_ptr<shared_model::interface::Peer>>();
 
-    auto peer = std::make_shared<MockPeer>();
-    EXPECT_CALL(*peer, pubkey())
-        .WillRepeatedly(ReturnRefOfCopy(
-            iroha::bytestringToHexstring(std::string(32, '0'))));
-    peers.push_back(peer);
+    {
+      auto peer = std::make_shared<MockPeer>();
+      EXPECT_CALL(*peer, pubkey())
+          .WillRepeatedly(ReturnRefOfCopy(
+              iroha::bytestringToHexstring(std::string(32, '0'))));
+      peers.push_back(peer);
+    }
+
+    {
+      auto peer = std::make_shared<MockPeer>();
+      EXPECT_CALL(*peer, pubkey())
+          .WillRepeatedly(ReturnRefOfCopy(
+              iroha::bytestringToHexstring(std::string(32, '1'))));
+      sync_peers.push_back(peer);
+    }
 
     auto signature = std::make_shared<MockSignature>();
     EXPECT_CALL(*signature, publicKey())
@@ -65,6 +76,7 @@ class ChainValidationTest : public ::testing::Test {
 
   std::vector<std::shared_ptr<shared_model::interface::Signature>> signatures;
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers;
+  std::vector<std::shared_ptr<shared_model::interface::Peer>> sync_peers;
   shared_model::crypto::Hash prev_hash =
       shared_model::crypto::Hash(std::string{"previous top hash"});
   shared_model::interface::types::HeightType prev_height = 1;
@@ -85,8 +97,8 @@ TEST_F(ChainValidationTest, ValidCase) {
       .WillOnce(DoAll(SaveArg<0>(&block_signatures_amount), Return(true)));
 
   EXPECT_CALL(*storage, applyIf(block, _))
-      .WillOnce(
-          InvokeArgument<1>(block, LedgerState{peers, prev_height, prev_hash}));
+      .WillOnce(InvokeArgument<1>(
+          block, LedgerState{peers, sync_peers, prev_height, prev_hash}));
 
   ASSERT_TRUE(validator->validateAndApply(block, *storage));
   ASSERT_EQ(boost::size(block->signatures()), block_signatures_amount);
@@ -107,7 +119,7 @@ TEST_F(ChainValidationTest, FailWhenDifferentPrevHash) {
 
   EXPECT_CALL(*storage, applyIf(block, _))
       .WillOnce(InvokeArgument<1>(
-          block, LedgerState{peers, prev_height, another_hash}));
+          block, LedgerState{peers, sync_peers, prev_height, another_hash}));
 
   ASSERT_FALSE(validator->validateAndApply(block, *storage));
 }
@@ -124,8 +136,8 @@ TEST_F(ChainValidationTest, FailWhenNoSupermajority) {
       .WillOnce(DoAll(SaveArg<0>(&block_signatures_amount), Return(false)));
 
   EXPECT_CALL(*storage, applyIf(block, _))
-      .WillOnce(
-          InvokeArgument<1>(block, LedgerState{peers, prev_height, prev_hash}));
+      .WillOnce(InvokeArgument<1>(
+          block, LedgerState{peers, sync_peers, prev_height, prev_hash}));
 
   ASSERT_FALSE(validator->validateAndApply(block, *storage));
   ASSERT_EQ(boost::size(block->signatures()), block_signatures_amount);

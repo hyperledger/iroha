@@ -6,9 +6,6 @@
 #ifndef IROHA_MST_STATE_HPP
 #define IROHA_MST_STATE_HPP
 
-#include <chrono>
-#include <unordered_set>
-
 #include <boost/bimap.hpp>
 #include <boost/bimap/multiset_of.hpp>
 #include <boost/bimap/unordered_multiset_of.hpp>
@@ -16,6 +13,9 @@
 #include <boost/optional/optional.hpp>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/any_range.hpp>
+#include <chrono>
+#include <unordered_set>
+
 #include "cryptography/hash.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger_fwd.hpp"
@@ -147,7 +147,7 @@ namespace iroha {
      * @param element to be checked
      * @return true, if state contains the element, false otherwise
      */
-    bool contains(const DataType &element) const;
+    bool contains(const BatchPtr &element) const;
 
     /// Apply visitor to all batches.
     template <typename Visitor>
@@ -166,6 +166,17 @@ namespace iroha {
       }
     }
 
+    size_t count_transactions() const {
+      size_t cnt = 0;
+      iterateBatches(
+          [&cnt](auto const &ba) { cnt += boost::size(ba->transactions()); });
+      return cnt;
+    }
+
+    size_t count_batches() const {
+      return boost::size(batches_);
+    }
+
    private:
     // --------------------------| private api |------------------------------
 
@@ -177,7 +188,7 @@ namespace iroha {
                          shared_model::interface::types::HashType,
                          shared_model::crypto::Hash::Hasher>,
                      boost::bimaps::unordered_multiset_of<
-                         DataType,
+                         BatchPtr,
                          iroha::model::PointerBatchHasher,
                          shared_model::interface::BatchHashEquality>>;
 
@@ -185,7 +196,7 @@ namespace iroha {
         boost::bimap<boost::bimaps::multiset_of<
                          shared_model::interface::types::TimestampType>,
                      boost::bimaps::unordered_set_of<
-                         DataType,
+                         BatchPtr,
                          iroha::model::PointerBatchHasher,
                          shared_model::interface::BatchHashEquality>>;
 

@@ -58,9 +58,11 @@ void Yac::stop() {
 
 std::optional<iroha::consensus::yac::Answer> Yac::processRoundSwitch(
     consensus::Round const &round,
-    shared_model::interface::types::PeerList const &peers) {
+    shared_model::interface::types::PeerList const &peers,
+    shared_model::interface::types::PeerList const &sync_peers) {
   round_ = round;
   cluster_order_ = peers;
+  syncing_peers_ = sync_peers;
   std::optional<iroha::consensus::yac::Answer> result;
   auto it = future_states_.lower_bound(round_);
   while (it != future_states_.end()
@@ -190,25 +192,7 @@ void Yac::votingStep(VoteMessage vote,
     return;
   }
 
-  enum { kRotatePeriod = 10 };
-
-  if (0 != attempt && 0 == (attempt % kRotatePeriod)) {
-    vote_storage_.remove(vote.hash.vote_round);
-  }
-
-  /**
-   * 3 attempts to build and commit block before we think that round is
-   * freezed
-   */
-  if (attempt == kRotatePeriod) {
-    vote.hash.vote_hashes.proposal_hash.clear();
-    vote.hash.vote_hashes.block_hash.clear();
-    vote.hash.block_signature.reset();
-    vote = crypto_->getVote(vote.hash);
-  }
-
   const auto &current_leader = order.currentLeader();
-
   log_->info("Vote {} to peer {}", vote, current_leader);
 
   propagateStateDirectly(current_leader, {vote});
@@ -315,9 +299,9 @@ void Yac::tryPropagateBack(const std::vector<VoteMessage> &state) {
 // ------|Propagation|------
 
 void Yac::propagateState(const std::vector<VoteMessage> &msg) {
-  for (const auto &peer : cluster_order_) {
-    propagateStateDirectly(*peer, msg);
-  }
+  for (const auto &peer : cluster_order_) propagateStateDirectly(*peer, msg);
+
+  for (const auto &peer : syncing_peers_) propagateStateDirectly(*peer, msg);
 }
 
 void Yac::propagateStateDirectly(const shared_model::interface::Peer &to,

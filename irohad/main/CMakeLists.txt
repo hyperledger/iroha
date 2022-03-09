@@ -96,6 +96,7 @@ target_link_libraries(application
     rdb_connection_init
     generator
     async_subscription
+    iroha_http_server
     )
 
 add_executable(irohad irohad.cpp)
@@ -116,6 +117,7 @@ target_link_libraries(irohad
     pg_connection_init
     rdb_connection_init
     maintenance
+    iroha_http_server
     )
 
 add_library(iroha_conf_loader iroha_conf_loader.cpp)

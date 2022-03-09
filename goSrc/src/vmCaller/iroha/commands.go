@@ -11,9 +11,10 @@ import (
 	"strconv"
 	"time"
 	"unsafe"
-
 	"github.com/golang/protobuf/proto"
 	pb "iroha.protocol"
+	"vmCaller/iroha_model"
+	"encoding/json"
 )
 
 var (
@@ -176,15 +177,80 @@ func DetachRole(account string, role string) error {
 	return handleErrors(commandResult, err, "DetachRole")
 }
 
+func GrantPermission(account string, permission string) error {
+	perm := pb.GrantablePermission_value[permission]
+	command := &pb.Command{Command: &pb.Command_GrantPermission{
+		GrantPermission: &pb.GrantPermission{
+			AccountId: account,
+			Permission: pb.GrantablePermission(perm),
+		}}}
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
+	return handleErrors(commandResult, err, "GrantPermission")
+}
+
+func RevokePermission(account string, permission string) error {
+	perm := pb.GrantablePermission_value[permission]
+	command := &pb.Command{Command: &pb.Command_RevokePermission{
+		RevokePermission: &pb.RevokePermission{
+			AccountId: account,
+			Permission: pb.GrantablePermission(perm),
+		}}}
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
+	return handleErrors(commandResult, err, "RevokePermission")
+}
+
+func MakeCompareAndSetAccountDetailArgs(account string, key string, value string, oldValue string, checkEmpty string) (pb.Command, error) {
+	cmd1 := &pb.CompareAndSetAccountDetail{
+		Key: key,
+		Value: value,
+		AccountId: account,
+	}
+	if len(oldValue) != 0 {
+		cmd1.OptOldValue = &pb.CompareAndSetAccountDetail_OldValue{oldValue}
+	}
+	if len(checkEmpty)!=0 {
+		val, err := strconv.ParseBool(checkEmpty)
+		if err==nil {
+			cmd1.CheckEmpty = val
+		}else {
+			return pb.Command{}, fmt.Errorf("Incorrect value passed to check_empty field")
+		}
+	}
+	cmd := pb.Command{Command:&pb.Command_CompareAndSetAccountDetail{CompareAndSetAccountDetail: cmd1}}
+	return cmd, nil
+}
+
+func CompareAndSetAccountDetail(account string, key string, value string, oldValue string, checkEmpty string) error {
+	command, err := MakeCompareAndSetAccountDetailArgs(account, key, value, oldValue, checkEmpty)
+	if err!=nil {
+		return handleErrors(nil, err, "		")
+	}
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, &command)
+	return handleErrors(commandResult, err, "CompareAndSetAccountDetail")
+}
+
+func CreateRole(roleName string, permissions string) error {
+	var perms_enc []string
+	json.Unmarshal([]byte(permissions), &perms_enc)
+	var pb_perms = make([]pb.RolePermission, len(perms_enc))
+	for i, perm := range perms_enc {
+		pb_perms[i] = pb.RolePermission(pb.RolePermission_value[perm])
+	}
+	command := &pb.Command{Command: &pb.Command_CreateRole{
+		CreateRole: &pb.CreateRole{
+			RoleName: roleName,
+			Permissions:  pb_perms,
+		}}}
+	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
+	return handleErrors(commandResult, err, "CreateRole")
+}
 // -----------------------Iroha queries---------------------------------------
 
 // Queries asset balance of an account
 func GetAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAccountAssets{
 			GetAccountAssets: &pb.GetAccountAssets{AccountId: accountID}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -207,11 +273,9 @@ func GetAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 }
 
 func GetAccountDetail() (string, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAccountDetail{
 			GetAccountDetail: &pb.GetAccountDetail{}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -234,11 +298,9 @@ func GetAccountDetail() (string, error) {
 }
 
 func GetAccount(accountID string) (*pb.Account, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAccount{
 			GetAccount: &pb.GetAccount{AccountId: accountID}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -261,11 +323,9 @@ func GetAccount(accountID string) (*pb.Account, error) {
 }
 
 func GetSignatories(accountID string) ([]string, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetSignatories{
 			GetSignatories: &pb.GetSignatories{AccountId: accountID}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -288,11 +348,9 @@ func GetSignatories(accountID string) ([]string, error) {
 }
 
 func GetAssetInfo(assetID string) (*pb.Asset, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetAssetInfo{
 			GetAssetInfo: &pb.GetAssetInfo{AssetId: assetID}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -315,11 +373,9 @@ func GetAssetInfo(assetID string) (*pb.Asset, error) {
 }
 
 func GetPeers() ([]*pb.Peer, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetPeers{
 			GetPeers: &pb.GetPeers{}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -343,11 +399,9 @@ func GetPeers() ([]*pb.Peer, error) {
 
 func GetBlock(height string) (*pb.Block, error) {
 	height_uint, err := strconv.ParseUint(height, 10, 64)
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetBlock{
 			GetBlock: &pb.GetBlock{Height: height_uint}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -370,11 +424,9 @@ func GetBlock(height string) (*pb.Block, error) {
 }
 
 func GetRoles() ([]string, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetRoles{
 			GetRoles: &pb.GetRoles{}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -397,11 +449,9 @@ func GetRoles() ([]string, error) {
 }
 
 func GetRolePermissions(role string) ([]pb.RolePermission, error) {
+	metaPayload := MakeQueryPayloadMeta()
 	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: Caller,
-			QueryCounter:     1},
+		Meta: &metaPayload,
 		Query: &pb.Query_Payload_GetRolePermissions{
 			GetRolePermissions: &pb.GetRolePermissions{RoleId: role}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
@@ -423,7 +473,132 @@ func GetRolePermissions(role string) ([]pb.RolePermission, error) {
 	}
 }
 
+
+func GetAccountTransactions(accountID string, txPaginationMeta *iroha_model.TxPaginationMeta) ([]*pb.Transaction, error) {
+	txPagination, err := iroha_model.MakeTxPaginationMeta(txPaginationMeta)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	metaPayload := MakeQueryPayloadMeta()
+	query := &pb.Query{Payload: &pb.Query_Payload{
+		Meta: &metaPayload,
+		Query: &pb.Query_Payload_GetAccountTransactions{
+			GetAccountTransactions: &pb.GetAccountTransactions{AccountId: accountID, PaginationMeta: &txPagination}}}}
+	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	switch response := queryResponse.Response.(type) {
+	case *pb.QueryResponse_ErrorResponse:
+		return []*pb.Transaction{}, fmt.Errorf(
+			"ErrorResponse in GetAccountTransactions: %d, %v",
+			response.ErrorResponse.ErrorCode,
+			response.ErrorResponse.Message,
+		)
+	case *pb.QueryResponse_TransactionsPageResponse:
+		transactionsPageResponse := queryResponse.GetTransactionsPageResponse()
+		return transactionsPageResponse.Transactions, nil
+	default:
+		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetAccountTransactions")
+	}
+}
+
+func GetPendingTransactions(txPaginationMeta *iroha_model.TxPaginationMeta) ([]*pb.Transaction, error) {
+	txPagination, err := iroha_model.MakeTxPaginationMeta(txPaginationMeta)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	metaPayload := MakeQueryPayloadMeta()
+	query := &pb.Query{Payload: &pb.Query_Payload{
+		Meta: &metaPayload,
+		Query: &pb.Query_Payload_GetPendingTransactions{
+			GetPendingTransactions: &pb.GetPendingTransactions{PaginationMeta: &txPagination}}}}
+	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	switch response := queryResponse.Response.(type) {
+	case *pb.QueryResponse_ErrorResponse:
+		return []*pb.Transaction{}, fmt.Errorf(
+			"ErrorResponse in GetPendingTransactions: %d, %v",
+			response.ErrorResponse.ErrorCode,
+			response.ErrorResponse.Message,
+		)
+	case *pb.QueryResponse_PendingTransactionsPageResponse:
+		transactionsPageResponse := queryResponse.GetPendingTransactionsPageResponse()
+		return transactionsPageResponse.Transactions, nil
+	default:
+		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetPendingTransactions")
+	}
+}
+
+func GetAccountAssetTransactions(accountId string, domainId string, txPaginationMeta *iroha_model.TxPaginationMeta) ([]*pb.Transaction, error) {
+	txPagination, err := iroha_model.MakeTxPaginationMeta(txPaginationMeta)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	metaPayload := MakeQueryPayloadMeta()
+	query := &pb.Query{Payload: &pb.Query_Payload{
+		Meta: &metaPayload,
+		Query: &pb.Query_Payload_GetAccountAssetTransactions{
+			GetAccountAssetTransactions: &pb.GetAccountAssetTransactions{AccountId: accountId, AssetId: domainId, PaginationMeta: &txPagination}}}}
+	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	switch response := queryResponse.Response.(type) {
+	case *pb.QueryResponse_ErrorResponse:
+		return []*pb.Transaction{}, fmt.Errorf(
+			"ErrorResponse in GetAccountAssetTransactions: %d, %v",
+			response.ErrorResponse.ErrorCode,
+			response.ErrorResponse.Message,
+		)
+	case *pb.QueryResponse_TransactionsPageResponse:
+		transactionsPageResponse := queryResponse.GetTransactionsPageResponse()
+		return transactionsPageResponse.Transactions, nil
+	default:
+		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetAccountAssetTransactions")
+	}
+}
+
+func GetTransactions(hashes string) ([]*pb.Transaction, error) {
+	metaPayload := MakeQueryPayloadMeta()
+	var hashes_decoded []string
+	json.Unmarshal([]byte(hashes), &hashes_decoded)
+	query := &pb.Query{Payload: &pb.Query_Payload{
+		Meta: &metaPayload,
+		Query: &pb.Query_Payload_GetTransactions{
+			GetTransactions: &pb.GetTransactions{TxHashes: hashes_decoded}}}}
+	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
+	if err != nil {
+		return []*pb.Transaction{}, err
+	}
+	switch response := queryResponse.Response.(type) {
+	case *pb.QueryResponse_ErrorResponse:
+		return []*pb.Transaction{}, fmt.Errorf(
+			"ErrorResponse in GetTransactions: %d, %v",
+			response.ErrorResponse.ErrorCode,
+			response.ErrorResponse.Message,
+		)
+	case *pb.QueryResponse_TransactionsResponse:
+		transactionsResponse := queryResponse.GetTransactionsResponse()
+		return transactionsResponse.Transactions, nil
+	default:
+		return []*pb.Transaction{}, fmt.Errorf("Wrong response type in GetTransactions")
+	}
+}
+
 // -----------------------Helper functions---------------------------------------
+
+func MakeQueryPayloadMeta() pb.QueryPayloadMeta {
+	return pb.QueryPayloadMeta{
+			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+			CreatorAccountId: Caller,
+			QueryCounter:     1}
+} 
 
 // Execute Iroha command
 func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) (res *C.Iroha_CommandError, err error) {

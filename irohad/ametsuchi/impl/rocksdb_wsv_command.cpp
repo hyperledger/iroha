@@ -337,13 +337,32 @@ namespace iroha::ametsuchi {
                          std::back_inserter(result),
                          [](auto c) { return std::tolower(c); });
 
+          RDB_ERROR_CHECK(
+              forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+                  common, result, false));
+          RDB_ERROR_CHECK(
+              forPeerAddress<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+                  common, result, true));
+
+          RDB_TRY_GET_VALUE(
+              opt_peers_count,
+              forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(
+                  common, peer.isSyncingPeer()));
+
+          common.encode((opt_peers_count ? *opt_peers_count : 0ull) + 1ull);
+          RDB_ERROR_CHECK(
+              forPeersCount<kDbOperation::kPut>(common, peer.isSyncingPeer()));
+
           common.valueBuffer().assign(peer.address());
-          RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kPut>(common, result));
+          RDB_ERROR_CHECK(forPeerAddress<kDbOperation::kPut>(
+              common, result, peer.isSyncingPeer()));
 
           if (peer.tlsCertificate()) {
             common.valueBuffer().assign(peer.tlsCertificate().value());
-            RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kPut>(common, result));
+            RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kPut>(
+                common, result, peer.isSyncingPeer()));
           }
+
           return {};
         },
         [&]() {
@@ -363,11 +382,22 @@ namespace iroha::ametsuchi {
                          std::back_inserter(result),
                          [](auto c) { return std::tolower(c); });
 
+          RDB_TRY_GET_VALUE(
+              opt_peers_count,
+              forPeersCount<kDbOperation::kGet, kDbEntry::kCanExist>(
+                  common, peer.isSyncingPeer()));
+
+          common.encode((opt_peers_count && *opt_peers_count > 0ull)
+                            ? (*opt_peers_count - 1ull)
+                            : 0ull);
           RDB_ERROR_CHECK(
-              forPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(common,
-                                                                      result));
+              forPeersCount<kDbOperation::kPut>(common, peer.isSyncingPeer()));
+
+          RDB_ERROR_CHECK(
+              forPeerAddress<kDbOperation::kDel, kDbEntry::kCanExist>(
+                  common, result, peer.isSyncingPeer()));
           RDB_ERROR_CHECK(forPeerTLS<kDbOperation::kDel, kDbEntry::kCanExist>(
-              common, result));
+              common, result, peer.isSyncingPeer()));
           return {};
         },
         [&]() {

@@ -697,6 +697,26 @@ namespace iroha {
                   AND NOT (SELECT * FROM has_root_perm) THEN 2
               WHEN NOT (SELECT * FROM has_perm) THEN 2)"});
 
+      add_sync_peer_statements_ = makeCommandStatements(
+          sql_,
+          R"(
+          WITH %s
+            inserted AS (
+                INSERT INTO sync_peer(public_key, address, tls_certificate)
+                (
+                    SELECT lower(:pubkey), :address, :tls_certificate
+                    %s
+                ) RETURNING (1)
+            )
+          SELECT CASE WHEN EXISTS (SELECT * FROM inserted) THEN 0
+              %s
+              ELSE 1 END AS result)",
+          {(boost::format(R"(has_perm AS (%s),)")
+            % checkAccountRolePermission(Role::kAddPeer, ":creator"))
+               .str(),
+           "WHERE (SELECT * FROM has_perm)",
+           "WHEN NOT (SELECT * from has_perm) THEN 2"});
+
       compare_and_set_account_detail_statements_ = makeCommandStatements(
           sql_,
           R"(
@@ -1176,6 +1196,40 @@ namespace iroha {
            R"( AND (SELECT * FROM has_perm))",
            R"( WHEN NOT (SELECT * FROM has_perm) THEN 2 )"});
 
+      remove_sync_peer_statements_ = makeCommandStatements(
+          sql_,
+          R"(
+          WITH %s
+          removed AS (
+              DELETE FROM sync_peer WHERE public_key = lower(:pubkey)
+              %s
+              RETURNING (1)
+          )
+          SELECT CASE
+            WHEN EXISTS (SELECT * FROM removed) THEN 0
+            %s
+            ELSE 1
+          END AS result)",
+          {(boost::format(R"(
+            has_perm AS (%s),
+            get_peer AS (
+              SELECT * from sync_peer WHERE public_key = lower(:pubkey) LIMIT 1
+            ),
+            check_peers AS (
+              SELECT 1 WHERE (SELECT COUNT(*) FROM sync_peer) > 0
+            ),)")
+            % checkAccountRolePermission(
+                  Role::kAddPeer, Role::kRemovePeer, ":creator"))
+               .str(),
+           R"(
+             AND (SELECT * FROM has_perm)
+             AND EXISTS (SELECT * FROM get_peer)
+             AND EXISTS (SELECT * FROM check_peers))",
+           R"(
+             WHEN NOT EXISTS (SELECT * from get_peer) THEN 3
+             WHEN NOT EXISTS (SELECT * from check_peers) THEN 4
+             WHEN NOT (SELECT * from has_perm) THEN 2)"});
+
       set_quorum_statements_ = makeCommandStatements(
           sql_,
           R"(
@@ -1499,8 +1553,12 @@ namespace iroha {
         bool do_validation) {
       auto &peer = command.peer();
 
-      StatementExecutor executor(
-          add_peer_statements_, do_validation, "AddPeer", perm_converter_);
+      StatementExecutor executor(peer.isSyncingPeer()
+                                     ? add_sync_peer_statements_
+                                     : add_peer_statements_,
+                                 do_validation,
+                                 "AddPeer",
+                                 perm_converter_);
       executor.use("creator", creator_account_id);
       executor.use("address", peer.address());
       executor.use("pubkey", peer.pubkey());
@@ -1810,6 +1868,16 @@ namespace iroha {
         shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       auto pubkey = command.pubkey();
+
+      {
+        StatementExecutor executor(remove_sync_peer_statements_,
+                                   do_validation,
+                                   "RemovePeer",
+                                   perm_converter_);
+        executor.use("creator", creator_account_id);
+        executor.use("pubkey", pubkey);
+        executor.execute();
+      }
 
       StatementExecutor executor(remove_peer_statements_,
                                  do_validation,

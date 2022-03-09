@@ -7,6 +7,8 @@
 #define IROHA_SHARED_MODEL_INTERFACE_MOCKS_HPP
 
 #include <gmock/gmock.h>
+
+#include "datetime/time.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/peer.hpp"
@@ -86,7 +88,9 @@ inline auto createMockTransactionWithHash(
 
   auto res = std::make_shared<NiceMock<MockTransaction>>();
 
+  auto now = iroha::time::now();
   ON_CALL(*res, hash()).WillByDefault(ReturnRefOfCopy(hash));
+  ON_CALL(*res, createdTime()).WillByDefault(testing::Return(now));
 
   return res;
 }
@@ -188,6 +192,7 @@ struct MockPeer : public shared_model::interface::Peer {
       const std::optional<shared_model::interface::types::TLSCertificateType>
           &());
   MOCK_CONST_METHOD0(clone, MockPeer *());
+  MOCK_CONST_METHOD0(isSyncingPeer, bool());
 };
 
 inline auto makePeer(

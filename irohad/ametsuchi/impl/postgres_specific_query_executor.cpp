@@ -813,9 +813,20 @@ namespace iroha {
           },
           query_hash,
           [&](auto range, auto &my_perm, auto &all_perm) {
-            auto range_without_nulls = resultWithoutNulls(std::move(range));
-            if (boost::size(range_without_nulls)
-                != q.transactionHashes().size()) {
+            std::map<uint64_t, std::unordered_set<std::string>> index;
+            uint64_t counter = 0ull;
+
+            for (auto const &i : range) {
+              iroha::ametsuchi::apply(i, [&](auto &height, auto &hash) {
+                if (!height || !hash)
+                  return;
+
+                if (index[*height].insert(*hash).second)
+                  ++counter;
+              });
+            }
+
+            if (counter != q.transactionHashes().size()) {
               // TODO [IR-1816] Akvinikym 03.12.18: replace magic number 4
               // with a named constant
               // at least one of the hashes in the query was invalid -
@@ -825,12 +836,6 @@ namespace iroha {
                   "At least one of the supplied hashes is incorrect",
                   4,
                   query_hash);
-            }
-            std::map<uint64_t, std::unordered_set<std::string>> index;
-            for (const auto &t : range_without_nulls) {
-              iroha::ametsuchi::apply(t, [&index](auto &height, auto &hash) {
-                index[height].insert(hash);
-              });
             }
 
             std::vector<std::unique_ptr<shared_model::interface::Transaction>>
@@ -1476,6 +1481,9 @@ namespace iroha {
           R"(WITH has_perms AS ({})
       SELECT public_key, address, tls_certificate, perm FROM peer
       RIGHT OUTER JOIN has_perms ON TRUE
+      UNION
+      SELECT public_key, address, tls_certificate, perm FROM sync_peer
+      RIGHT OUTER JOIN has_perms ON TRUE
       )",
           getAccountRolePermissionCheckSql(Role::kGetPeers));
 
@@ -1495,12 +1503,10 @@ namespace iroha {
                     if (peer_key and address) {
                       peers.push_back(
                           std::make_shared<shared_model::plain::Peer>(
-                              *address, *std::move(peer_key), tls_certificate));
-                    } else {
-                      log_->error(
-                          "Address or public key not set for some peer!");
-                      assert(peer_key);
-                      assert(address);
+                              *address,
+                              *std::move(peer_key),
+                              tls_certificate,
+                              false));
                     }
                   });
             }
