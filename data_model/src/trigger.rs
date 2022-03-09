@@ -2,7 +2,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{cmp::Ordering, time::Duration};
+use core::cmp::Ordering;
 
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -127,40 +127,6 @@ pub enum Repeats {
     Indefinitely,
     /// Repeat a set number of times
     Exactly(u32), // If you need more, use `Indefinitely`.
-    /// Repeat every set time
-    Every(Interval),
-    /// Occurs once exactly on set time
-    ExactlyAt(Duration),
-}
-
-/// Time interval in which `TimeAction` should appear
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    IntoSchema,
-)]
-pub struct Interval {
-    /// Since which time interval is measured. Initially should be action registration time.
-    /// Updated every action execution.
-    pub since: Duration,
-    /// Step of interval or interval length
-    pub step: Duration,
-}
-
-impl Interval {
-    /// Construct `Interval` with `since` and `step`
-    pub fn new(since: Duration, step: Duration) -> Self {
-        Self { since, step }
-    }
 }
 
 /// Identification of a `Trigger`.
