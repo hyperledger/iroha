@@ -35,7 +35,7 @@ func RunServer() {
 		nil,
 		nil,
 		kern.Logger)
-	if err != nil {	
+	if err != nil {
 		fmt.Errorf("Error while starting web3 server")
 	}
 	processes := []process.Launcher{myKernel.Web3Launcher(&kern, web3_config)}
