@@ -7,6 +7,7 @@
 #define IROHA_APPLICATION_HPP
 
 #include <optional>
+
 #include <soci/soci.h>
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
@@ -26,7 +27,6 @@
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
-
 
 namespace google::protobuf {
   class Empty;
@@ -185,7 +185,7 @@ class Irohad {
   RunResult run();
 
   virtual ~Irohad();
-
+  bool is_postgres;
  protected:
   // -----------------------| component initialization |------------------------
   virtual RunResult initStorage(
@@ -276,9 +276,6 @@ class Irohad {
       query_response_factory_;
 
   // ------------------------| internal dependencies |-------------------------
-  std::optional<std::shared_ptr<iroha::ametsuchi::PostgresBurrowStorage>>burrow_storage_;
-  std::optional<std::shared_ptr<soci::session>> sql_;
-  const std::string burrow_port_ = "28660";
   std::optional<std::unique_ptr<iroha::ametsuchi::VmCaller>> vm_caller_;
   std::shared_ptr<iroha::ametsuchi::RocksDBContext> db_context_;
 
@@ -286,6 +283,9 @@ class Irohad {
   std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt_;
   std::unique_ptr<iroha::ametsuchi::RocksDbOptions> rdb_opt_;
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
+  std::optional<std::shared_ptr<iroha::ametsuchi::PostgresBurrowStorage>>burrow_storage_;
+  std::optional<std::shared_ptr<soci::session>> sql_;
+  const std::string burrow_port_ = "28660";
 
  protected:
   std::shared_ptr<iroha::Subscription> subscription_engine_;
