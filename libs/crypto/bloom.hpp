@@ -8,6 +8,7 @@
 
 #include <string_view>
 #include <iostream>
+#include <type_traits>
 
 #include "cryptography/hash.hpp"
 #include "common/mem_operations.hpp"
@@ -24,7 +25,7 @@ namespace shared_model::crypto {
       auto const input = *(((uint64_t *)&hash.blob()[0]) + kIndex);
       auto const pack1 = (input >> 32) ^ input;
       auto const pack2 = (pack1 >> 16) ^ pack1;
-      return (uint8_t)((pack2 >> 8) ^ pack2);// & 0xff;
+      return (((pack2 >> 8) ^ pack2) & 0xff);
     }
     void operator()(shared_model::crypto::Hash const &hash,
                     uint8_t (&bloom)[kSize]) const {
@@ -44,8 +45,36 @@ namespace shared_model::crypto {
     static_assert((kBitsCount & 0x7) == 0, "BitsCount must be multiple of 8");
     static_assert(kBitsCount != 0, "BitsCount can not be 0");
 
+    template <typename... T>
+    struct ArgsListNE {
+      static constexpr auto value = sizeof...(T) > 0;
+    };
+
     static constexpr size_t kBytesCount = (kBitsCount >> 3);
     uint8_t filter_[kBytesCount] __attribute__((aligned(16)));
+
+    template <typename Hasher>
+    auto checkHash(DataType const &data) const {
+      auto const pack = Hasher{}(data);
+      auto const byte_position = (pack >> 3);
+      auto const bit_position = (pack & 0x7);
+
+      assert(byte_position < kBytesCount);
+      auto const &target = *(filter_ + byte_position);
+      return ((target & (1 << bit_position)) != 0);
+    };
+
+    template <typename Hasher,
+              typename... Hashers,
+              typename std::enable_if<ArgsListNE<Hashers...>::value,
+                                      bool>::type = true>
+    auto runHashers(DataType const &data) const {
+      return checkHash<Hasher>(data) && runHashers<Hashers...>(data);
+    }
+    template <typename Hasher>
+    auto runHashers(DataType const &data) const {
+      return checkHash<Hasher>(data);
+    }
 
    public:
     BloomFilter() {
@@ -57,41 +86,22 @@ namespace shared_model::crypto {
     }
 
     bool test(DataType const &data) const {
-      bool result = true;
-      auto proxy_call = [&](auto const &hasher){
-        auto const pack3 = hasher(data);
-        auto const byte_position = (pack3 >> 3);
-        auto const bit_position = (pack3 & 0x7);
-
-        assert(byte_position < kBytesCount);
-        auto const &target = *(filter_ + byte_position);
-        result &= ((target & (1 << bit_position)) != 0);
-        return true;
-      };
-      std::apply([&](auto... hashers) { std::make_tuple(proxy_call(hashers)...); },
-                 std::make_tuple(HashFunctions()...));
-      return result;
-
-      /*uint8_t filter[kBytesCount] __attribute__((aligned(16)));
-      memzero(filter);
-      ((void)HashFunctions()(data, filter), ...);
-
-      for (size_t ix = 0; ix < kBytesCount / sizeof(uint64_t); ++ix) {
-        auto const value1 = ((uint64_t *)filter_)[ix];
-        auto const value2 = ((uint64_t *)filter)[ix];
-        if ((value1 & value2) != value2)
-          return false;
-      }
-
-      return true;*/
+      return runHashers<HashFunctions...>(data);
     }
 
     void clear() {
       iroha::memzero(filter_);
     }
 
-    std::basic_string_view<uint64_t> get() {
-      return std::basic_string_view<uint64_t>(filter_, kBytesCount);
+    void store(std::string_view const &data) {
+      if (data.size() == kBytesCount)
+        memcpy(filter_, data.data(), kBytesCount);
+      else
+        throw std::runtime_error("Unexpected Bloom filter size.");
+    }
+
+    std::string_view load() {
+      return std::string_view(filter_, kBytesCount);
     }
   };
 
