@@ -314,8 +314,10 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::insertPeer(
         const shared_model::interface::Peer &peer) {
       soci::statement st = sql_.prepare
-          << "INSERT INTO peer(public_key, address, tls_certificate)"
-             " VALUES (lower(:pk), :address, :tls_certificate)";
+          << fmt::format("INSERT INTO {}(public_key, address, "
+                         "tls_certificate) VALUES (lower(:pk), :address, "
+                         ":tls_certificate)",
+                         peer.isSyncingPeer() ? "sync_peer" : "peer");
       st.exchange(soci::use(peer.pubkey()));
       st.exchange(soci::use(peer.address()));
       st.exchange(soci::use(peer.tlsCertificate()));
@@ -329,8 +331,12 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::deletePeer(
         const shared_model::interface::Peer &peer) {
       soci::statement st = sql_.prepare
-          << "DELETE FROM peer WHERE public_key = lower(:pk) AND address = "
-             ":address";
+          << fmt::format("DELETE FROM {} WHERE public_key = "
+                         "lower(:pk) AND address = :address",
+                         peer.isSyncingPeer() ? "sync_peer" : "peer"
+
+             );
+
       st.exchange(soci::use(peer.pubkey()));
       st.exchange(soci::use(peer.address()));
 

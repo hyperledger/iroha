@@ -1,0 +1,39 @@
+name: Push Iroha2 to Dockerhub as nightly
+
+on: workflow_dispatch
+
+jobs:
+  tag-nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Check Dockerhub credentials
+        run: |
+          set -x
+          test -n "${{ secrets.DOCKERHUB_ORG }}"
+          test -n "${{ secrets.DOCKERHUB_USERNAME }}"
+          test -n "${{ secrets.DOCKERHUB_TOKEN }}"
+      - name: Build and push Iroha Docker image
+        uses: docker/build-push-action@v1.1.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: hyperledger/iroha2
+          tags: iroha2-nightly-${{ github.sha }}
+          build_args: TARGET_DIR=release,PROFILE=--release
+      - name: Build and push Iroha Client CLI Docker image
+        uses: docker/build-push-action@v1.1.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: hyperledger/iroha2
+          tags: iroha2-client-cli-nightly-${{ github.sha }}
+          build_args: BIN=iroha_client_cli,TARGET_DIR=release,PROFILE=--release
+      - name: Build and push Iroha Crypto CLI Docker image
+        uses: docker/build-push-action@v1.1.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: hyperledger/iroha2
+          tags: iroha2-crypto-cli-nightly-${{ github.sha }}
+          build_args: BIN=iroha_crypto_cli,TARGET_DIR=release,PROFILE=--release

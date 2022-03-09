@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -74,8 +75,11 @@ namespace iroha {
                   "Context must be with 0 offset.");
     using Alloc =
         typename std::allocator_traits<AllocT>::template rebind_alloc<Node>;
+    using AllocStr =
+        typename std::allocator_traits<AllocT>::template rebind_alloc<CharT>;
 
     mutable NodeContext root_;
+    std::basic_string<CharT, std::char_traits<CharT>, AllocStr> key_name_;
     Alloc alloc_;
 
     template <typename... Args>
@@ -101,6 +105,16 @@ namespace iroha {
     Node *reinit(Node *const what, Args &&... args) const {
       what->data.template emplace(std::forward<Args>(args)...);
       return what;
+    }
+
+    void createNodeKey(NodeContext const *const from) {
+      key_name_.clear();
+      auto parent = from;
+      while (parent != &root_) {
+        key_name_.insert(
+            key_name_.begin(), parent->key, parent->key + parent->key_sz);
+        parent = parent->parent;
+      }
     }
 
     NodeContext *&getFromKey(NodeContext *const parent,
@@ -202,6 +216,24 @@ namespace iroha {
       for (auto &child : from->children)
         if (child != nullptr)
           return child;
+      return nullptr;
+    }
+
+    NodeContext *getChildAfter(NodeContext const *const node,
+                               NodeContext const *const target = nullptr) {
+      if (!target)
+        return (node->children_count > 0) ? getFirstChild(node) : nullptr;
+
+      assert(target->parent == node);
+      assert(target->key_sz > 0ul);
+
+      for (auto pos = AlphabetT::position(target->key[0ul]) + 1;
+           pos < AlphabetT::size();
+           ++pos) {
+        auto const child = node->children[pos];
+        if (child != nullptr)
+          return child;
+      }
       return nullptr;
     }
 
@@ -314,7 +346,7 @@ namespace iroha {
 
     void eraseWithChildren(NodeContext *const from) {
       NodeContext *node = from;
-      NodeContext *parent = from->parent;
+      NodeContext *const parent = from->parent;
       while (node != parent)
         node = (node->children_count != 0ul)
             ? getFirstChild(node)
@@ -334,7 +366,7 @@ namespace iroha {
 
    public:
     RadixTree() = default;
-    explicit RadixTree(AllocT &alloc) : alloc_(alloc) {}
+    explicit RadixTree(AllocT &alloc) : alloc_(alloc), key_name_(alloc_) {}
 
     ~RadixTree() {
       eraseWithChildren(&root_);
@@ -407,6 +439,40 @@ namespace iroha {
           eraseWithChildren(context.node);
         else
           eraseWithChildren(getFromKey(context.node, context.target_begin));
+      }
+    }
+
+    template <typename Func>
+    void filterEnumerate(CharT const *key, uint32_t len, Func &&func) {
+      SearchContext context;
+      findNearest(&root_, key, len, context);
+
+      if (context.prefix_remains_len == 0ul) {
+        auto const target_remains_len = context.target_end - context.target;
+        NodeContext *const from = (target_remains_len == 0ul)
+            ? context.node
+            : getFromKey(context.node, context.target_begin);
+        createNodeKey(from);
+
+        NodeContext *child = nullptr;
+        NodeContext *node = from;
+
+        do {
+          while ((child = getChildAfter(node, child))) {
+            node = child;
+            child = nullptr;
+            key_name_.append(node->key, node->key_sz);
+          }
+          if (node != &root_) {
+            if (Node *const n = nodeContextToNode(node); n->data)
+              std::forward<Func>(func)(
+                  std::string_view(key_name_.data(), key_name_.size()),
+                  &(*n->data));
+            key_name_.resize(key_name_.size() - node->key_sz);
+          }
+          child = node;
+          node = node->parent;
+        } while (child != from);
       }
     }
   };

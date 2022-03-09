@@ -187,6 +187,7 @@ operator()(
                                  roles.emplace_back(role.ToStringView());
                                  return true;
                                },
+                               RocksDBPort::ColumnFamilyType::kWsv,
                                fmtstrings::kPathAccountRoles,
                                domain_id,
                                account_name);
@@ -262,6 +263,7 @@ operator()(
                       signatories.emplace_back(signatory.ToStringView());
                       return true;
                     },
+                    RocksDBPort::ColumnFamilyType::kWsv,
                     fmtstrings::kPathSignatories,
                     domain_id,
                     account_name);
@@ -438,12 +440,9 @@ RocksDbSpecificQueryExecutor::readTxs(
 
   rocksdb::Status status = rocksdb::Status::OK();
   if (query.paginationMeta().firstTxHash()) {
-    std::string target_hash;
     if (auto result =
             forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-                common,
-                toLowerAppend(query.paginationMeta().firstTxHash()->toString(),
-                              target_hash));
+                common, *query.paginationMeta().firstTxHash());
         expected::hasValue(result)) {
       assert(ordering_ptr->field
                  == shared_model::interface::Ordering::Field::kCreatedTime
@@ -455,7 +454,8 @@ RocksDbSpecificQueryExecutor::readTxs(
 
       if (ordering_ptr->field
           == shared_model::interface::Ordering::Field::kCreatedTime) {
-        auto it = common.template seek(fmtstrings::kTransactionByTs,
+        auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,
+                                       fmtstrings::kTransactionByTs,
                                        query.accountId(),
                                        tx_ts,
                                        tx_height,
@@ -466,7 +466,8 @@ RocksDbSpecificQueryExecutor::readTxs(
                                         fmtstrings::kPathTransactionByTs,
                                         query.accountId());
       } else {
-        auto it = common.template seek(fmtstrings::kTransactionByPosition,
+        auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,
+                                       fmtstrings::kTransactionByPosition,
                                        query.accountId(),
                                        tx_height,
                                        tx_index,
@@ -481,7 +482,8 @@ RocksDbSpecificQueryExecutor::readTxs(
   } else {
     if (ordering_ptr->field
         == shared_model::interface::Ordering::Field::kCreatedTime) {
-      auto it = common.template seek(fmtstrings::kTransactionByTsLowerBound,
+      auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,
+                                     fmtstrings::kTransactionByTsLowerBound,
                                      query.accountId(),
                                      bounds.tsFrom);
       status = enumerateKeysAndValues(common,
@@ -490,7 +492,8 @@ RocksDbSpecificQueryExecutor::readTxs(
                                       fmtstrings::kPathTransactionByTs,
                                       query.accountId());
     } else {
-      auto it = common.template seek(fmtstrings::kTransactionByHeight,
+      auto it = common.template seek(RocksDBPort::ColumnFamilyType::kWsv,
+                                     fmtstrings::kTransactionByHeight,
                                      query.accountId(),
                                      bounds.heightFrom);
       status = enumerateKeysAndValues(common,
@@ -563,7 +566,7 @@ operator()(
 
     std::optional<std::string_view> opt;
     if (auto r = forTransactionStatus<kDbOperation::kGet, kDbEntry::kMustExist>(
-            common, h_hex);
+            common, hash);
         expected::hasError(r))
       return query_response_factory_->createErrorQueryResponse(
           ErrorQueryType::kStatefulFailed,
@@ -699,6 +702,7 @@ operator()(
           return false;
         }
       },
+      RocksDBPort::ColumnFamilyType::kWsv,
       fmtstrings::kPathAccountAssets,
       domain_id,
       account_name);
@@ -807,6 +811,7 @@ operator()(
                                 }
                                 return true;
                               },
+                              RocksDBPort::ColumnFamilyType::kWsv,
                               fmtstrings::kPathRoles);
   RDB_ERROR_CHECK(canExist(status, [&] { return "Enumerate roles"; }));
 
@@ -942,23 +947,33 @@ operator()(
   RDB_ERROR_CHECK(checkPermissions(creator_permissions, {Role::kGetPeers}));
   std::vector<std::shared_ptr<shared_model::plain::Peer>> peers;
 
-  auto status = enumerateKeysAndValues(
-      common,
-      [&](auto pubkey, auto address) {
-        peers.emplace_back(std::make_shared<shared_model::plain::Peer>(
-            address.ToStringView(),
-            std::string{pubkey.ToStringView()},
-            std::nullopt));
-        return true;
-      },
-      fmtstrings::kPathPeers);
+  auto enum_peers = [&](auto const &path, bool syncing_peer) {
+    return enumerateKeysAndValues(
+        common,
+        [&](auto pubkey, auto address) {
+          peers.emplace_back(std::make_shared<shared_model::plain::Peer>(
+              address.ToStringView(),
+              std::string{pubkey.ToStringView()},
+              std::nullopt,
+              syncing_peer));
+          return true;
+        },
+        RocksDBPort::ColumnFamilyType::kWsv,
+        path);
+  };
+
+  auto status = enum_peers(fmtstrings::kPathPeers, false);
+  RDB_ERROR_CHECK(
+      canExist(status, [&]() { return fmt::format("Enumerate peers"); }));
+
+  status = enum_peers(fmtstrings::kPathSPeers, true);
   RDB_ERROR_CHECK(
       canExist(status, [&]() { return fmt::format("Enumerate peers"); }));
 
   for (auto &peer : peers) {
     RDB_TRY_GET_VALUE(opt_tls,
                       forPeerTLS<kDbOperation::kGet, kDbEntry::kCanExist>(
-                          common, peer->pubkey()));
+                          common, peer->pubkey(), peer->isSyncingPeer()));
 
     if (opt_tls)
       utils::reinterpret_pointer_cast<shared_model::plain::Peer>(peer)

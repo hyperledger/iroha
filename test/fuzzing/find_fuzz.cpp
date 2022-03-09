@@ -98,7 +98,8 @@ struct QueryFixture {
         qry_processor_,
         query_factory,
         blocks_query_factory,
-        logger::getDummyLoggerPtr());
+        logger::getDummyLoggerPtr(),
+        nullptr);
   }
 };
 

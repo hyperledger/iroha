@@ -101,6 +101,7 @@ namespace iroha::ametsuchi {
                                      roles.emplace_back(r.ToStringView());
                                      return true;
                                    },
+                                   RocksDBPort::ColumnFamilyType::kWsv,
                                    fmtstrings::kPathAccountRoles,
                                    domain,
                                    account);
@@ -234,6 +235,7 @@ namespace iroha::ametsuchi {
 
             return true;
           },
+          RocksDBPort::ColumnFamilyType::kWsv,
           fmtstrings::kPathAccountDetail,
           domain,
           account);
@@ -487,7 +489,7 @@ namespace iroha::ametsuchi {
     CHECK_SUCCESSFUL_RESULT(
         execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
 
-    auto peers = wsv_query->getPeers();
+    auto peers = wsv_query->getPeers(false);
     ASSERT_TRUE(peers);
     ASSERT_TRUE(std::find_if(peers->begin(),
                              peers->end(),
@@ -568,7 +570,7 @@ namespace iroha::ametsuchi {
     CHECK_SUCCESSFUL_RESULT(
         execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
 
-    auto peers = wsv_query->getPeers();
+    auto peers = wsv_query->getPeers(false);
     ASSERT_TRUE(peers);
     ASSERT_TRUE(std::find_if(peers->begin(),
                              peers->end(),
@@ -587,7 +589,7 @@ namespace iroha::ametsuchi {
     CHECK_SUCCESSFUL_RESULT(
         execute(*mock_command_factory->constructRemovePeer(kPublicKey)));
 
-    auto peers = wsv_query->getPeers();
+    auto peers = wsv_query->getPeers(false);
     ASSERT_TRUE(peers);
     ASSERT_TRUE(std::find_if(peers->begin(),
                              peers->end(),

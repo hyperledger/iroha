@@ -30,11 +30,16 @@ namespace integration_framework::fake_peer {
 
     void onTxsCommitted(const HashesSetType &hashes) override;
 
-    void forCachedBatches(
-        std::function<void(const iroha::ordering::OnDemandOrderingService::
-                               BatchesSetType &)> const &f) const override;
+    void onDuplicates(const HashesSetType &hashes) override;
 
-    bool isEmptyBatchesCache() const override;
+    void forCachedBatches(
+        std::function<void(
+            iroha::ordering::OnDemandOrderingService::BatchesSetType &)> const
+            &f) override;
+
+    bool isEmptyBatchesCache() override;
+
+    bool hasEnoughBatchesInCache() const override;
 
     bool hasProposal(iroha::consensus::Round round) const override;
 

@@ -46,13 +46,19 @@ namespace integration_framework::fake_peer {
       iroha::consensus::Round round) {}
 
   void OnDemandOsNetworkNotifier::onTxsCommitted(const HashesSetType &hashes) {}
+  void OnDemandOsNetworkNotifier::onDuplicates(const HashesSetType &hashes) {}
 
   void OnDemandOsNetworkNotifier::forCachedBatches(
-      std::function<void(const iroha::ordering::OnDemandOrderingService::
-                             BatchesSetType &)> const &f) const {}
+      std::function<void(
+          iroha::ordering::OnDemandOrderingService::BatchesSetType &)> const
+          &f) {}
 
-  bool OnDemandOsNetworkNotifier::isEmptyBatchesCache() const {
+  bool OnDemandOsNetworkNotifier::isEmptyBatchesCache() {
     return true;
+  }
+
+  bool OnDemandOsNetworkNotifier::hasEnoughBatchesInCache() const {
+    return false;
   }
 
   void OnDemandOsNetworkNotifier::processReceivedProposal(

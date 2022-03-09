@@ -81,6 +81,7 @@ void OnDemandConnectionManager::initializeConnections(
     auto maybe_connection = factory_->create(*peers.peers[target]);
     if (expected::hasError(maybe_connection)) {
       connections_.peers[target] = std::nullopt;
+      return;
     }
     connections_.peers[target] = std::move(maybe_connection).assumeValue();
   };

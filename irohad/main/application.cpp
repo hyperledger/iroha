@@ -1141,6 +1141,7 @@ Irohad::RunResult Irohad::run() {
     vm_caller_.value().get()->exportBurrow(*burrow_storage_.value().get());
     log_->info("Burrow server run on port : {}", burrow_port_);
   }
+  
   ordering_init->subscribe([simulator(utils::make_weak(simulator)),
                             consensus_gate(utils::make_weak(consensus_gate)),
                             tx_processor(utils::make_weak(tx_processor)),
