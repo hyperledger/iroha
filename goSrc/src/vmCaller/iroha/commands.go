@@ -210,7 +210,6 @@ func MakeCompareAndSetAccountDetailArgs(account string, key string, value string
 	if len(oldValue) != 0 {
 		cmd1.OptOldValue = &pb.CompareAndSetAccountDetail_OldValue{oldValue}
 	}
-
 	if len(checkEmpty) != 0 {
 		val, err := strconv.ParseBool(checkEmpty)
 		if err == nil {

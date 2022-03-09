@@ -11,10 +11,6 @@ import (
 	"github.com/hyperledger/burrow/execution/exec"
 	"github.com/stretchr/testify/suite"
 	"github.com/tmthrgd/go-hex"
-	"io/ioutil"
-	"net/http"
-	"sync"
-	"testing"
 )
 
 type engineSuccess struct {
