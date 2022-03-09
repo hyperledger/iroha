@@ -7,7 +7,6 @@
 #define IROHA_APPLICATION_HPP
 
 #include <optional>
-
 #include <soci/soci.h>
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
@@ -27,6 +26,7 @@
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
+
 
 namespace google::protobuf {
   class Empty;

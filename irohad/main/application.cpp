@@ -158,7 +158,6 @@ Irohad::Irohad(
       })) {
     log_->error("Storage initialization failed: {}", e.value());
   }
-  
 }
 
 Irohad::~Irohad() {
@@ -414,6 +413,7 @@ Irohad::RunResult Irohad::initStorage(
             }
           }
         };
+
     auto st = type == StorageType::kPostgres
         ? ::iroha::initStorage(*pg_opt_,
                                pool_wrapper_,
@@ -1131,7 +1131,6 @@ Irohad::RunResult Irohad::run() {
     return expected::makeError(
         "proposal_delay must be more than proposal_creation_timeout");
   }
-
   // should check if db type is postgres and we use burrow
   // we should check if we are using burrow
   if (vm_caller_ &&  config_.database_config && config_.database_config->type == kDbTypePostgres) {
@@ -1142,8 +1141,6 @@ Irohad::RunResult Irohad::run() {
     vm_caller_.value().get()->exportBurrow(*burrow_storage_.value().get());
     log_->info("Burrow server run on port : {}", burrow_port_);
   }
-  
-  
   ordering_init->subscribe([simulator(utils::make_weak(simulator)),
                             consensus_gate(utils::make_weak(consensus_gate)),
                             tx_processor(utils::make_weak(tx_processor)),
