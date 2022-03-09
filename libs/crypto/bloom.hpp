@@ -25,18 +25,22 @@ namespace shared_model::crypto {
       auto const input = *(((uint64_t *)&hash.blob()[0]) + kIndex);
       auto const pack1 = (input >> 32) ^ input;
       auto const pack2 = (pack1 >> 16) ^ pack1;
-      return (((pack2 >> 8) ^ pack2) & 0xff);
+      auto const pack3 = (((pack2 >> 8) ^ pack2) & 0xff);
+
+      assert((pack3 >> 3) < kSize);
+      return std::make_pair(pack3 >> 3, pack3 & 0x7);
     }
-    void operator()(shared_model::crypto::Hash const &hash,
+    void set(shared_model::crypto::Hash const &hash,
                     uint8_t (&bloom)[kSize]) const {
-      auto const pack3 = (*this)(hash);
-      auto const byte_position = (pack3 >> 3);
-      auto const bit_position = (pack3 & 0x7);
-
-      assert(byte_position < kSize);
+      auto const &[byte_position, bit_position] = (*this)(hash);
       auto &target = *(bloom + byte_position);
-
       target |= (1 << bit_position);
+    }
+    bool isSet(shared_model::crypto::Hash const &hash,
+               uint8_t const (&bloom)[kSize]) const {
+      auto const &[byte_position, bit_position] = (*this)(hash);
+      auto const &target = *(bloom + byte_position);
+      return ((target & (1 << bit_position)) != 0);
     }
   };
 
@@ -55,13 +59,7 @@ namespace shared_model::crypto {
 
     template <typename Hasher>
     auto checkHash(DataType const &data) const {
-      auto const pack = Hasher{}(data);
-      auto const byte_position = (pack >> 3);
-      auto const bit_position = (pack & 0x7);
-
-      assert(byte_position < kBytesCount);
-      auto const &target = *(filter_ + byte_position);
-      return ((target & (1 << bit_position)) != 0);
+      return Hasher{}.isSet(data, filter_);
     };
 
     template <typename Hasher,
@@ -82,7 +80,7 @@ namespace shared_model::crypto {
     }
 
     void set(DataType const &data) {
-      ((void)HashFunctions()(data, filter_), ...);
+      ((void)HashFunctions().set(data, filter_), ...);
     }
 
     bool test(DataType const &data) const {
