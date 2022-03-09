@@ -175,12 +175,10 @@ func (w *EngineWrapper) Execute(caller, callee crypto.Address, input []byte) ([]
 		Gas:    &gas,
 	}
 	output, err := w.engine.Execute(w.state, blockchain.New(), w.eventSink, params, calleeAccount.EVMCode)
-	fmt.Println("in main.go:")
-	fmt.Println(output)
-	fmt.Println(err)
+
 	if err != nil {
-		return nil, fmt.Errorf("Error calling smart contract at address %s: %s %s",
-			callee.String(), err.Error(), iroha.IrohaErrorDetails)
+		return nil, fmt.Errorf("Error calling smart contract at address %s: %s",
+			callee.String(), err.Error())
 	}
 
 	return output, nil
