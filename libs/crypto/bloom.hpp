@@ -7,6 +7,7 @@
 #define IROHA_CRYPTO_BLOOM_HPP
 
 #include <string_view>
+#include <iostream>
 
 #include "cryptography/hash.hpp"
 #include "common/mem_operations.hpp"
@@ -19,13 +20,15 @@ namespace shared_model::crypto {
     static_assert(kSize % sizeof(uint64_t) == 0, "Inconsistent size.");
 
    public:
-    void operator()(shared_model::crypto::Hash const &hash,
-                    uint8_t (&bloom)[kSize]) const {
+    auto operator()(shared_model::crypto::Hash const &hash) const {
       auto const input = *(((uint64_t *)&hash.blob()[0]) + kIndex);
       auto const pack1 = (input >> 32) ^ input;
       auto const pack2 = (pack1 >> 16) ^ pack1;
-      auto const pack3 = ((pack2 >> 8) ^ pack2) & 0xff;
-
+      return (uint8_t)((pack2 >> 8) ^ pack2);// & 0xff;
+    }
+    void operator()(shared_model::crypto::Hash const &hash,
+                    uint8_t (&bloom)[kSize]) const {
+      auto const pack3 = (*this)(hash);
       auto const byte_position = (pack3 >> 3);
       auto const bit_position = (pack3 & 0x7);
 
@@ -54,7 +57,22 @@ namespace shared_model::crypto {
     }
 
     bool test(DataType const &data) const {
-      uint8_t filter[kBytesCount] __attribute__((aligned(16)));
+      bool result = true;
+      auto proxy_call = [&](auto const &hasher){
+        auto const pack3 = hasher(data);
+        auto const byte_position = (pack3 >> 3);
+        auto const bit_position = (pack3 & 0x7);
+
+        assert(byte_position < kBytesCount);
+        auto const &target = *(filter_ + byte_position);
+        result &= ((target & (1 << bit_position)) != 0);
+        return true;
+      };
+      std::apply([&](auto... hashers) { std::make_tuple(proxy_call(hashers)...); },
+                 std::make_tuple(HashFunctions()...));
+      return result;
+
+      /*uint8_t filter[kBytesCount] __attribute__((aligned(16)));
       memzero(filter);
       ((void)HashFunctions()(data, filter), ...);
 
@@ -65,7 +83,7 @@ namespace shared_model::crypto {
           return false;
       }
 
-      return true;
+      return true;*/
     }
 
     void clear() {
