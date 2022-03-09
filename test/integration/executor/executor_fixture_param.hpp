@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 #include "interfaces/common_objects/types.hpp"
+#include "main/subscription.hpp"
 
 namespace iroha::ametsuchi {
   class BlockIndex;
@@ -52,6 +53,7 @@ namespace executor_testing {
     virtual std::string toString() const = 0;
 
     std::unique_ptr<iroha::ametsuchi::MockVmCaller> vm_caller_;
+    std::shared_ptr<iroha::Subscription> subscription_manager_;
   };
 
 }  // namespace executor_testing

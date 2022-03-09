@@ -7,6 +7,7 @@
 #define IROHA_LIBS_COMMON_HPP
 
 #include <chrono>
+#include <condition_variable>
 #include <mutex>
 #include <shared_mutex>
 
@@ -60,7 +61,7 @@ namespace iroha::utils {
    * @endcode
    */
   // clang-format on
-  template <typename T>
+  template <typename T, typename M = std::shared_mutex>
   struct ReadWriteObject {
     template <typename... Args>
     ReadWriteObject(Args &&... args) : t_(std::forward<Args>(args)...) {}
@@ -79,7 +80,7 @@ namespace iroha::utils {
 
    private:
     T t_;
-    mutable std::shared_mutex cs_;
+    mutable M cs_;
   };
 
   class WaitForSingleObject final : NoMove, NoCopy {

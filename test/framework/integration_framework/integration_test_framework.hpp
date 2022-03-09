@@ -23,11 +23,9 @@
 #include "main/subscription_fwd.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 
-namespace google {
-  namespace protobuf {
-    class Empty;
-  }
-}  // namespace google
+namespace google::protobuf {
+  class Empty;
+}  // namespace google::protobuf
 
 namespace shared_model {
   namespace crypto {
@@ -73,7 +71,6 @@ namespace iroha {
     class GenericClientFactory;
     class MstTransportGrpc;
     struct OrderingEvent;
-    class OrderingServiceTransport;
     class ServerRunner;
     template <typename Response>
     class AsyncGrpcClient;
@@ -104,7 +101,6 @@ namespace integration_framework {
   }
 
   class PortGuard;
-
   class IrohaInstance;
 
   using std::chrono::milliseconds;
@@ -117,16 +113,10 @@ namespace integration_framework {
     using VerifiedProposalType =
         std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>;
     using BlockType = std::shared_ptr<const shared_model::interface::Block>;
-    using TxResponseType =
-        std::shared_ptr<shared_model::interface::TransactionResponse>;
 
    public:
     using TransactionBatchType = shared_model::interface::TransactionBatch;
     using TransactionBatchSPtr = std::shared_ptr<TransactionBatchType>;
-
-   private:
-    std::mutex queue_mu;
-    std::condition_variable queue_cond;
 
    public:
     /**
@@ -155,7 +145,7 @@ namespace integration_framework {
         const boost::optional<std::string> block_store_path = boost::none,
         milliseconds proposal_waiting = milliseconds(20000),
         milliseconds block_waiting = milliseconds(20000),
-        milliseconds tx_response_waiting = milliseconds(10000),
+        milliseconds tx_response_waiting_ms = milliseconds(10000),
         logger::LoggerManagerTreePtr log_manager = getDefaultItfLogManager(),
         std::string db_wsv_path = (boost::filesystem::temp_directory_path()
                                    / boost::filesystem::unique_path())
@@ -187,6 +177,8 @@ namespace integration_framework {
      */
     shared_model::proto::Block defaultBlock(
         const shared_model::crypto::Keypair &key) const;
+
+    void printDbStatus();
 
     /// Construct default genesis block using the my_key_ key.
     shared_model::proto::Block defaultBlock() const;
@@ -459,6 +451,8 @@ namespace integration_framework {
     /// Get this node address.
     std::string getAddress() const;
 
+    void unbind_guarded_port(uint16_t port);
+
    protected:
     using AsyncCall = iroha::network::AsyncGrpcClient<google::protobuf::Empty>;
 
@@ -506,12 +500,14 @@ namespace integration_framework {
         std::shared_ptr<shared_model::interface::Block const>>>
         block_subscription_;
     std::shared_ptr<CheckerQueue<BlockType>> block_queue_;
-    std::map<std::string, std::unique_ptr<CheckerQueue<TxResponseType>>>
-        responses_queues_;
+
+    struct ResponsesQueues;
+    std::shared_ptr<ResponsesQueues> responses_queues_;
     std::shared_ptr<iroha::BaseSubscriber<
         bool,
         std::shared_ptr<shared_model::interface::TransactionResponse>>>
         responses_subscription_;
+    std::chrono::milliseconds tx_response_waiting_ms_;
 
     std::unique_ptr<PortGuard> port_guard_;
     size_t torii_port_;
@@ -523,9 +519,6 @@ namespace integration_framework {
     std::shared_ptr<AsyncCall> async_call_;
 
     // config area
-
-    /// maximum time of waiting before appearing next transaction response
-    milliseconds tx_response_waiting;
 
     size_t maximum_proposal_size_;
 
@@ -552,7 +545,7 @@ namespace integration_framework {
     std::shared_ptr<iroha::network::MstTransportGrpc> mst_transport_;
     std::shared_ptr<iroha::consensus::yac::YacNetwork> yac_transport_;
 
-    boost::optional<shared_model::crypto::Keypair> my_key_;
+    std::optional<shared_model::crypto::Keypair> my_key_;
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
 
    private:

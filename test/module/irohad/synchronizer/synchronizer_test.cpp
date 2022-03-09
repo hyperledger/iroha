@@ -92,10 +92,12 @@ class SynchronizerTest : public ::testing::Test {
     ON_CALL(*block_query, getTopBlockHeight())
         .WillByDefault(Return(kInitTopBlockHeight));
     ON_CALL(*mutable_factory, commit_(_))
-        .WillByDefault(Return(ByMove(expected::makeValue(
-            std::make_shared<LedgerState>(ledger_peers,
-                                          commit_message->height(),
-                                          commit_message->hash())))));
+        .WillByDefault(
+            Return(ByMove(expected::makeValue(std::make_shared<LedgerState>(
+                ledger_peers,
+                shared_model::interface::types::PeerList{},
+                commit_message->height(),
+                commit_message->hash())))));
     EXPECT_CALL(*mutable_factory, preparedCommitEnabled())
         .WillRepeatedly(Return(false));
     EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
@@ -109,7 +111,10 @@ class SynchronizerTest : public ::testing::Test {
                                            getTestLogger("Synchronizer"));
 
     ledger_state = std::make_shared<LedgerState>(
-        ledger_peers, commit_message->height() - 1, commit_message->prevHash());
+        ledger_peers,
+        shared_model::interface::types::PeerList{},
+        commit_message->height() - 1,
+        commit_message->prevHash());
   }
 
   std::shared_ptr<const shared_model::interface::Block> makeCommit(
@@ -269,7 +274,10 @@ TEST_F(SynchronizerTest, ValidWhenValidChainMultipleBlocks) {
   auto target_commit = makeCommit(target_height);
   EXPECT_CALL(*mutable_factory, commit_(_))
       .WillOnce(Return(ByMove(expected::makeValue(std::make_shared<LedgerState>(
-          ledger_peers, target_height, target_commit->hash())))));
+          ledger_peers,
+          shared_model::interface::types::PeerList{},
+          target_height,
+          target_commit->hash())))));
   std::vector<std::shared_ptr<const shared_model::interface::Block>> commits{
       commit_message, target_commit};
   chainValidatorExpectChain(*chain_validator, commits);
@@ -586,7 +594,10 @@ TEST_F(SynchronizerTest, VotedForBlockCommitPrepared) {
   EXPECT_CALL(*mutable_factory, commitPrepared(_))
       .WillOnce(Return(
           ByMove(CommitResult{expected::makeValue(std::make_shared<LedgerState>(
-              ledger_peers, kHeight, commit_message->hash()))})));
+              ledger_peers,
+              shared_model::interface::types::PeerList{},
+              kHeight,
+              commit_message->hash()))})));
 
   EXPECT_CALL(*mutable_factory, commit_(_)).Times(0);
 
@@ -638,8 +649,11 @@ TEST_F(SynchronizerTest, VotedForThisCommitPreparedFailure) {
   mutableStorageExpectChain(*mutable_factory, {commit_message});
 
   EXPECT_CALL(*mutable_factory, commit_(_))
-      .WillOnce(Return(ByMove(expected::makeValue(
-          std::make_shared<LedgerState>(ledger_peers, kHeight, hash)))));
+      .WillOnce(Return(ByMove(expected::makeValue(std::make_shared<LedgerState>(
+          ledger_peers,
+          shared_model::interface::types::PeerList{},
+          kHeight,
+          hash)))));
 
   auto commit_event = synchronizer->processOutcome(consensus::PairValid(
       consensus::Round{kHeight, 1}, ledger_state, commit_message));

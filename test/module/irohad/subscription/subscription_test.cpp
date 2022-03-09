@@ -6,6 +6,7 @@
 #include "main/subscription.hpp"
 
 #include <gtest/gtest.h>
+#include <atomic>
 #include <vector>
 
 #include "module/irohad/subscription/subscription_mocks.hpp"
@@ -68,6 +69,161 @@ class SubscriptionTest : public ::testing::Test {
     return std::make_shared<MockDispatcher>();
   }
 };
+
+struct StatusTrackTest {
+  StatusTrackTest() = default;
+  StatusTrackTest &operator=(StatusTrackTest const &) {
+    throw std::runtime_error("Unexpected copy call.");
+  }
+  StatusTrackTest(StatusTrackTest const &) {
+    throw std::runtime_error("Unexpected copy call.");
+  }
+  StatusTrackTest(StatusTrackTest &&) = default;
+  StatusTrackTest &operator=(StatusTrackTest &&) = default;
+};
+
+/**
+ * @given subscription engine
+ * @when put task that must repeat N times
+ * @then task must NOT be copied
+ */
+TEST_F(SubscriptionTest, RepeatCopyControl) {
+  auto manager = createSubscriptionManager<1>();
+  utils::WaitForSingleObject complete;
+
+  std::atomic<uint32_t> counter = 0ul;
+  std::atomic<bool> work = true;
+
+  StatusTrackTest t;
+  manager->dispatcher()->repeat(
+      0ull,
+      std::chrono::milliseconds(0),
+      [&work, &counter, t(std::move(t))]() {
+        ++counter;
+        if (!work)
+          throw std::runtime_error("Unexpected execution.");
+      },
+      [&]() {
+        if (counter.load() < 5ul)
+          return true;
+
+        work = false;
+        complete.set();
+        return false;
+      });
+
+  ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  ASSERT_TRUE(counter.load() == 5ul);
+  manager->dispose();
+}
+
+/**
+ * @given subscription engine
+ * @when put task that must repeat untill counter less than 10
+ * @and check it in predicate
+ * @then task must be executed 10 times
+ */
+TEST_F(SubscriptionTest, RepeatCounter) {
+  auto manager = createSubscriptionManager<1>();
+  utils::WaitForSingleObject complete;
+
+  std::atomic<uint32_t> counter = 0ul;
+  std::atomic<bool> work = true;
+
+  manager->dispatcher()->repeat(
+      0ull,
+      std::chrono::microseconds(0),
+      [&]() {
+        ++counter;
+        if (!work)
+          throw std::runtime_error("Unexpected execution.");
+      },
+      [&]() {
+        if (counter.load() < 10ul)
+          return true;
+
+        work = false;
+        complete.set();
+        return false;
+      });
+
+  ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  ASSERT_TRUE(counter.load() == 10ul);
+  manager->dispose();
+}
+
+/**
+ * @given subscription engine
+ * @when put task that must repeat without predicate check
+ * @then this task must be executed 1 time
+ */
+TEST_F(SubscriptionTest, RepeatNoPredicate) {
+  auto manager = createSubscriptionManager<1>();
+  utils::WaitForSingleObject complete;
+
+  std::atomic<uint32_t> counter = 0ul;
+  manager->dispatcher()->repeat(0ull,
+                                std::chrono::microseconds(0),
+                                [&]() {
+                                  ++counter;
+                                  complete.set();
+                                },
+                                nullptr);
+
+  ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  ASSERT_TRUE(counter.load() == 1ul);
+  manager->dispose();
+}
+
+/**
+ * @given subscription engine
+ * @when put task that must repeat N times with 10ms delay untill counter less
+ * than 5
+ * @and check it in predicate
+ * @then task must be executed 5 times and spent not less than 50ms on it
+ */
+TEST_F(SubscriptionTest, RepeatNTimes) {
+  auto manager = createSubscriptionManager<1>();
+  utils::WaitForSingleObject complete;
+
+  std::atomic<uint32_t> counter = 0ul;
+  std::atomic<bool> work = true;
+
+  auto const start = std::chrono::high_resolution_clock::now();
+  manager->dispatcher()->repeat(
+      0ull,
+      std::chrono::milliseconds(10),
+      [&]() {
+        ++counter;
+        if (!work)
+          throw std::runtime_error("Unexpected execution.");
+      },
+      [&]() {
+        if (counter.load() < 5ul)
+          return true;
+
+        work = false;
+        complete.set();
+        return false;
+      });
+
+  ASSERT_TRUE(complete.wait(std::chrono::minutes(1ull)));
+  auto const end = std::chrono::high_resolution_clock::now();
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  auto const elapsed =
+      std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+  ASSERT_TRUE(elapsed >= std::chrono::milliseconds(50));
+  ASSERT_TRUE(counter.load() == 5ul);
+  manager->dispose();
+}
 
 /**
  * @given subscription engine

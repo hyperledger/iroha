@@ -35,6 +35,11 @@ namespace shared_model {
        */
       virtual const std::string &pubkey() const = 0;
 
+      /**
+       * @return flag determines if the peer is syncing or validating
+       */
+      virtual bool isSyncingPeer() const = 0;
+
       std::string toString() const override;
 
       bool operator==(const ModelType &rhs) const override;

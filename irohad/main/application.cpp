@@ -1143,7 +1143,6 @@ Irohad::RunResult Irohad::run() {
     log_->info("Burrow server run on port : {}", burrow_port_);
   }
   
-  
   ordering_init->subscribe([simulator(utils::make_weak(simulator)),
                             consensus_gate(utils::make_weak(consensus_gate)),
                             tx_processor(utils::make_weak(tx_processor)),

@@ -13,9 +13,10 @@ import (
 	"time"
 	"unsafe"
 	"vmCaller/iroha_model"
-
 	"github.com/golang/protobuf/proto"
 	pb "iroha.protocol"
+	"vmCaller/iroha_model"
+	"encoding/json"
 )
 
 var (
@@ -183,7 +184,7 @@ func GrantPermission(account string, permission string) error {
 	perm := pb.GrantablePermission_value[permission]
 	command := &pb.Command{Command: &pb.Command_GrantPermission{
 		GrantPermission: &pb.GrantPermission{
-			AccountId:  account,
+			AccountId: account,
 			Permission: pb.GrantablePermission(perm),
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
@@ -194,7 +195,7 @@ func RevokePermission(account string, permission string) error {
 	perm := pb.GrantablePermission_value[permission]
 	command := &pb.Command{Command: &pb.Command_RevokePermission{
 		RevokePermission: &pb.RevokePermission{
-			AccountId:  account,
+			AccountId: account,
 			Permission: pb.GrantablePermission(perm),
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
@@ -203,13 +204,14 @@ func RevokePermission(account string, permission string) error {
 
 func MakeCompareAndSetAccountDetailArgs(account string, key string, value string, oldValue string, checkEmpty string) (pb.Command, error) {
 	cmd1 := &pb.CompareAndSetAccountDetail{
-		Key:       key,
-		Value:     value,
+		Key: key,
+		Value: value,
 		AccountId: account,
 	}
 	if len(oldValue) != 0 {
 		cmd1.OptOldValue = &pb.CompareAndSetAccountDetail_OldValue{oldValue}
 	}
+
 	if len(checkEmpty) != 0 {
 		val, err := strconv.ParseBool(checkEmpty)
 		if err == nil {

@@ -54,7 +54,8 @@ namespace iroha::consensus::yac {
 
     std::optional<Answer> processRoundSwitch(
         consensus::Round const &round,
-        shared_model::interface::types::PeerList const &peers) override;
+        shared_model::interface::types::PeerList const &peers,
+        shared_model::interface::types::PeerList const &sync_peers) override;
 
     // ------|Network notifications|------
 
@@ -103,6 +104,7 @@ namespace iroha::consensus::yac {
 
     // ------|One round|------
     shared_model::interface::types::PeerList cluster_order_;
+    shared_model::interface::types::PeerList syncing_peers_;
     std::optional<shared_model::interface::types::PeerList> alternative_order_;
     Round round_;
 

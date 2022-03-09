@@ -152,7 +152,7 @@ Note the last line of the send function that emits a Sent event which gets recor
 
 
 Case 2. Interacting with Iroha state
-----------------------------
+------------------------------------
 
 Earlier we looked at an example of a contract that didn’t interact with Iroha state.
 However, in most real life applications one could imagine running on top of Iroha blockchain (like custom business logic in transaction processing or charging transaction fees etc.) being able to interact with Iroha state is indispensable.
@@ -294,12 +294,3 @@ First we provide the location part of the argument measured in bytes from the st
 This can be achieved with the help of functions in the example.
 
 For more examples and how the code works, you can visit `here  <https://github.com/hyperledger/iroha/tree/main/example/burrow_integration>`_ .
-
-
-
-
-
-
-
-
-
