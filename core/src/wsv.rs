@@ -6,6 +6,7 @@ use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
     sync::Arc,
+    time::Duration,
 };
 
 use config::Configuration;
@@ -15,10 +16,9 @@ use dashmap::{
 };
 use eyre::Result;
 use iroha_crypto::HashOf;
-use iroha_data_model::{prelude::*, trigger};
+use iroha_data_model::prelude::*;
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
-use small::SmallVec;
 use tokio::task;
 
 use crate::{
@@ -93,6 +93,8 @@ pub struct WorldStateView<W: WorldTrait> {
     new_block_notifier: Arc<NewBlockNotificationSender>,
     /// Triggers
     pub triggers: Arc<TriggerSet>,
+    /// Events produced in current block
+    pub events: Arc<Vec<Event>>,
     /// Transmitter to broadcast [`WorldStateView`]-related events.
     events_sender: Option<EventsSender>,
 }
@@ -202,9 +204,23 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[iroha_futures::telemetry_future]
     #[log(skip(self, block))]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
-        self.execute_triggers(&block.as_v1().trigger_recommendations.event_triggers)
-            .await?;
+        // Generate timestamp event
+        // TODO: Where is the real value?
+        const MAX_CONSENSUS_DURATION: Duration = Duration::from_secs(3600); // 10 hours
+        let time_event = Event::Time(TimeEvent(TimeInterval::new(
+            Duration::from_millis(block.as_v1().header.timestamp.try_into()?), // TODO: Duration vs u128?
+            MAX_CONSENSUS_DURATION,
+        )));
 
+        // Forward Event trigger-generated events
+        self.produce_events(
+            self.events
+                .iter()
+                .cloned()
+                .chain(std::iter::once(time_event)),
+        );
+
+        // Execute TXs
         // TODO: Should this block panic instead?
         for tx in &block.as_v1().transactions {
             self.process_executable(&tx.as_v1().payload.instructions, &tx.payload().account_id)?;
@@ -215,13 +231,18 @@ impl<W: WorldTrait> WorldStateView<W> {
             self.transactions.insert(tx.hash());
         }
 
-        // TODO: Should we check timestamps here?
-        self.execute_triggers(&block.as_v1().trigger_recommendations.time_triggers)
-            .await?;
+        // Execute Triggers (event and time based), no ordering
+        let events = self.events;
+        let triggers = self.triggers.find_matching(&events);
+        self.execute_triggers(&triggers).await?;
 
+        // Commit block
         self.blocks.push(block);
         self.block_commit_metrics_update_callback();
         self.new_block_notifier.send_replace(());
+
+        // TODO: On block commit triggers
+
         Ok(())
     }
 
@@ -229,13 +250,10 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if trigger execution fails
-    async fn execute_triggers<A>(&self, triggers: &[A]) -> Result<()>
-    where
-        A: trigger::ExecutionInfo + Sync,
-    {
+    async fn execute_triggers<A>(&self, triggers: &[Action]) -> Result<()> {
         // TODO: Validate the trigger executables as well as the technical account.
         for trigger in triggers {
-            self.process_executable(trigger.executable(), trigger.technical_account())?;
+            self.process_executable(&trigger.executable, &trigger.technical_account)?;
             task::yield_now().await;
         }
 
@@ -260,7 +278,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Send [`Event`]s to known subscribers.
     fn produce_events<E>(&self, events: E)
     where
-        E: IntoIterator<Item = DataEvent>,
+        E: IntoIterator<Item = Event>,
     {
         let events_sender = if let Some(sender) = &self.events_sender {
             sender
@@ -365,7 +383,6 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
-        let mut events: SmallVec<[DataEvent; 3]> = SmallVec(smallvec::smallvec![]);
         let event = f(&self.world)?;
 
         match event {
@@ -373,23 +390,24 @@ impl<W: WorldTrait> WorldStateView<W> {
                 match &domain_event {
                     DomainEvent::Account(account_event) => {
                         if let AccountEvent::Asset(asset_event) = account_event {
-                            events.push(DataEvent::Asset(asset_event.clone()))
+                            self.events
+                                .push(DataEvent::Asset(asset_event.clone()).into())
                         }
-                        events.push(DataEvent::Account(account_event.clone()));
+                        self.events
+                            .push(DataEvent::Account(account_event.clone()).into());
                     }
-                    DomainEvent::AssetDefinition(asset_definition_event) => {
-                        events.push(DataEvent::AssetDefinition(asset_definition_event.clone()))
-                    }
+                    DomainEvent::AssetDefinition(asset_definition_event) => self
+                        .events
+                        .push(DataEvent::AssetDefinition(asset_definition_event.clone()).into()),
                     _ => (),
                 }
-                events.push(DataEvent::Domain(domain_event));
+                self.events.push(DataEvent::Domain(domain_event).into());
             }
-            WorldEvent::Peer(peer_event) => events.push(DataEvent::Peer(peer_event)),
+            WorldEvent::Peer(peer_event) => self.events.push(DataEvent::Peer(peer_event).into()),
             #[cfg(feature = "roles")]
-            WorldEvent::Role(role_event) => events.push(DataEvent::Role(role_event)),
+            WorldEvent::Role(role_event) => self.events.push(DataEvent::Role(role_event).into()),
         }
 
-        self.produce_events(events);
         Ok(())
     }
 
@@ -497,6 +515,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
             triggers: Arc::new(TriggerSet::default()),
+            events: Arc::new(Vec::new()),
             events_sender: None,
         }
     }
@@ -739,7 +758,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     where
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
     {
-        let event = f(&self.triggers).map(Into::into)?;
+        let event = Event::Data(f(&self.triggers).map(Into::into)?);
         self.produce_events([event]);
         Ok(())
     }
