@@ -2,13 +2,12 @@ package iroha_model
 
 import "C"
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
-
-	"github.com/golang/protobuf/ptypes"
 	pb "iroha.protocol"
+	"github.com/golang/protobuf/ptypes"
+	"encoding/json"
 )
 
 type TxPaginationMeta struct{
