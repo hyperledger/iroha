@@ -4,7 +4,6 @@
 use alloc::{format, string::String, vec::Vec};
 use core::{cmp::Ordering, time::Duration};
 
-use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -44,38 +43,7 @@ impl Trigger {
     }
 }
 
-/// Action to be performed when the trigger matches
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-    FromVariant,
-)]
-pub enum Action {
-    /// Event based action
-    EventBased(EventAction),
-    /// Time based action
-    TimeBased(TimeAction),
-}
-
-/// Trait to get `executable` and `technical_account` field to be able to execute action
-pub trait ExecutionInfo {
-    /// Returns action executable
-    fn executable(&self) -> &Executable;
-
-    /// Returns action technical account
-    fn technical_account(&self) -> &super::account::Id;
-}
-
-/// Designed to differentiate between oneshot and unlimited event
+/// Designed to differentiate between oneshot and unlimited
 /// triggers. If the trigger must be run a limited number of times,
 /// it's the end-user's responsibility to either unregister the
 /// `Unlimited` variant.
@@ -88,7 +56,7 @@ pub trait ExecutionInfo {
 /// be run before any of the ISIs are pushed into the queue of the
 /// next block.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema)]
-pub struct EventAction {
+pub struct Action {
     /// The executable linked to this action
     pub executable: Executable,
     /// The repeating scheme of the action. It's kept as part of the
@@ -103,15 +71,15 @@ pub struct EventAction {
     pub filter: EventFilter,
 }
 
-impl EventAction {
+impl Action {
     /// Construct an action given `executable`, `repeats`, `technical_account` and `filter`.
     pub fn new(
         executable: impl Into<Executable>,
         repeats: impl Into<Repeats>,
         technical_account: super::account::Id,
         filter: EventFilter,
-    ) -> EventAction {
-        EventAction {
+    ) -> Action {
+        Action {
             executable: executable.into(),
             repeats: repeats.into(),
             // TODO: At this point the technical account is meaningless.
@@ -121,13 +89,13 @@ impl EventAction {
     }
 }
 
-impl PartialOrd for EventAction {
+impl PartialOrd for Action {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for EventAction {
+impl Ord for Action {
     fn cmp(&self, other: &Self) -> Ordering {
         // Exclude the executable. When debugging and replacing
         // the trigger, its position in Hash and Tree maps should
@@ -135,138 +103,6 @@ impl Ord for EventAction {
         match self.repeats.cmp(&other.repeats) {
             Ordering::Equal => self.technical_account.cmp(&other.technical_account),
             ord => ord,
-        }
-    }
-}
-
-impl ExecutionInfo for EventAction {
-    fn executable(&self) -> &Executable {
-        &self.executable
-    }
-
-    fn technical_account(&self) -> &super::account::Id {
-        &self.technical_account
-    }
-}
-
-/// Action that happens every set time or exactly at set time.
-/// If the trigger must be run every time interval, that's the end-user
-/// responsibility to unregister it
-///
-/// # Considerations
-///
-/// It's not guaranteed that this action execution will be done in exactly the same time,
-/// which is specified, but it's gonna be as close as possible.
-/// Is'
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema)]
-pub struct TimeAction {
-    /// The executable linked to this action
-    pub executable: Executable,
-    /// Technical account linked to this trigger. The technical
-    /// account must already exist in order for `Register<Trigger>` to
-    /// work.
-    pub technical_account: super::account::Id,
-    /// Time of this trigger appearance
-    pub appears: Appears,
-}
-
-impl TimeAction {
-    /// Construct an action given `executable`, `repeats`, `technical_account` and `appears`.
-    pub fn new(
-        executable: Executable,
-        technical_account: super::account::Id,
-        appears: Appears,
-    ) -> Self {
-        Self {
-            executable,
-            technical_account,
-            appears,
-        }
-    }
-}
-
-impl PartialOrd for TimeAction {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TimeAction {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Exclude the executable. When debugging and replacing
-        // the trigger, its position in Hash and Tree maps should
-        // not change depending on the content.
-        match self.appears.cmp(&other.appears) {
-            Ordering::Equal => self.technical_account.cmp(&other.technical_account),
-            ord => ord,
-        }
-    }
-}
-
-impl ExecutionInfo for TimeAction {
-    fn executable(&self) -> &Executable {
-        &self.executable
-    }
-
-    fn technical_account(&self) -> &super::account::Id {
-        &self.technical_account
-    }
-}
-
-/// Enumeration of possible appearance schemes.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    IntoSchema,
-)]
-pub enum Appears {
-    /// Appear every set time
-    Every(Interval),
-    /// Appear once exactly on set time
-    ExactlyAt(Duration),
-}
-
-/// Time interval in which `TimeAction` should appear
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    IntoSchema,
-)]
-pub struct Interval {
-    /// Since which time interval is measured. Initially should be action registration time.
-    /// Updated every action execution.
-    pub since: Duration,
-    /// Step of interval or interval length
-    pub step: Duration,
-    /// How much time to repeat interval
-    pub repeats: Repeats,
-}
-
-impl Interval {
-    /// Construct `Interval` with `since`, `step` and `repeats`
-    pub fn new(since: Duration, step: Duration, repeats: Repeats) -> Self {
-        Self {
-            since,
-            step,
-            repeats,
         }
     }
 }
@@ -291,11 +127,39 @@ pub enum Repeats {
     Indefinitely,
     /// Repeat a set number of times
     Exactly(u32), // If you need more, use `Indefinitely`.
+    /// Repeat every set time
+    Every(Interval),
+    /// Occurs once exactly on set time
+    ExactlyAt(Duration),
 }
 
-impl From<u32> for Repeats {
-    fn from(num: u32) -> Self {
-        Repeats::Exactly(num)
+/// Time interval in which `TimeAction` should appear
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Encode,
+    Decode,
+    Serialize,
+    Deserialize,
+    IntoSchema,
+)]
+pub struct Interval {
+    /// Since which time interval is measured. Initially should be action registration time.
+    /// Updated every action execution.
+    pub since: Duration,
+    /// Step of interval or interval length
+    pub step: Duration,
+}
+
+impl Interval {
+    /// Construct `Interval` with `since` and `step`
+    pub fn new(since: Duration, step: Duration) -> Self {
+        Self { since, step }
     }
 }
 
@@ -344,5 +208,5 @@ impl Id {
 
 pub mod prelude {
     //! Re-exports of commonly used types.
-    pub use super::{EventAction, Id as TriggerId, Repeats, TimeAction, Trigger};
+    pub use super::{Action, Id as TriggerId, Repeats, Trigger};
 }
