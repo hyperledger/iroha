@@ -381,6 +381,7 @@ type createAccountRets struct {
 
 func createAccount(ctx native.Context, args createAccountArgs) (createAccountRets, error) {
 	err := iroha.CreateAccount(args.Name, args.Domain, args.Key)
+	fmt.Println("error in native storage: ",err)
 	if err != nil {
 		return createAccountRets{Result: false}, err
 	}

@@ -1679,13 +1679,14 @@ namespace iroha {
                         perm_converter_);
                     
                     if (command.callee()) {
+                      std::cout<<"error.error"<<error.error<<std::endl;
                       // calling a deployed contract
                       executor.use("tx_hash", tx_hash);
                       executor.use("cmd_index", cmd_index);
                       executor.use("callee", command.callee()->get());
                       executor.use("engine_err_response", error.error);
                       executor.use("created_address", std::nullopt);
-                      executor.use("engine_response", std::nullopt);
+                      executor.use("engine_response", error.error);
                     }
                     executor.execute();
                     return makeCommandError(

@@ -103,7 +103,11 @@ func VmCall(input, caller, callee, nonce *C.const_char, commandExecutor, queryEx
 
 	output, err := engine.Execute(evmCaller, evmCallee, inputBytes)
 	if err != nil {
-		return makeError(err.Error())
+		if iroha.IrohaErrorDetails != "" {
+			return makeError(err.Error() + " iroha internal error: "+iroha.IrohaErrorDetails)
+		} else {
+			return makeError(err.Error())
+		}
 	}
 	if output == nil {
 		return nil, nil
@@ -143,7 +147,7 @@ func (w *EngineWrapper) NewContract(caller crypto.Address, code []byte, nonce st
 	}
 	output, err = w.engine.Execute(w.state, blockchain.New(), w.eventSink, params, code)
 	if err != nil {
-		return "", fmt.Errorf("Error deploying smart contract at address %s: %s",
+		return "", fmt.Errorf("Error deploying smart contract at address %s: %s:",
 			callee.String(), err.Error())
 	}
 

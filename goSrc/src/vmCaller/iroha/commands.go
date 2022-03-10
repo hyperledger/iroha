@@ -21,6 +21,7 @@ var (
 	IrohaCommandExecutor unsafe.Pointer
 	IrohaQueryExecutor   unsafe.Pointer
 	Caller               string
+	IrohaErrorDetails    string
 )
 
 // -----------------------Iroha commands---------------------------------------
@@ -49,6 +50,7 @@ func CreateAccount(name string, domain string, key string) error {
 			PublicKey:   key,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
+	fmt.Println("err in commands.go: ",err)
 	return handleErrors(commandResult, err, "CreateAccount")
 }
 
@@ -634,13 +636,17 @@ func handleErrors(result *C.Iroha_CommandError, err error, commandName string) (
 	if err != nil {
 		return err
 	}
+	fmt.Println("err: ",err)
 	if result.error_code != 0 {
+		fmt.Println(result.error_code, result)
 		error_extra := ""
 		error_extra_ptr := result.error_extra.toStringAndRelease()
 		if error_extra_ptr != nil {
 			error_extra = ": " + *error_extra_ptr
 		}
-		return fmt.Errorf("Error executing %s command: %s", commandName, error_extra)
+		IrohaErrorDetails = fmt.Sprintf("%s %s error_code %d ",commandName, error_extra, result.error_code)
+		fmt.Println("iroha error details: ",IrohaErrorDetails)
+		return fmt.Errorf("Error executing %s command: %s error_code %d", commandName, error_extra, result.error_code)
 	}
 	return nil
 }
