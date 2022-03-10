@@ -21,7 +21,7 @@ namespace shared_model::crypto {
     static_assert(kSize % sizeof(uint64_t) == 0, "Inconsistent size.");
 
    public:
-    auto operator()(shared_model::crypto::Hash const &hash) const {
+    static auto pack8(shared_model::crypto::Hash const &hash) {
       auto const input = *(((uint64_t *)&hash.blob()[0]) + kIndex);
       auto const pack1 = (input >> 32) ^ input;
       auto const pack2 = (pack1 >> 16) ^ pack1;
@@ -30,15 +30,15 @@ namespace shared_model::crypto {
       assert((pack3 >> 3) < kSize);
       return std::make_pair(pack3 >> 3, pack3 & 0x7);
     }
-    void set(shared_model::crypto::Hash const &hash,
-                    uint8_t (&bloom)[kSize]) const {
-      auto const &[byte_position, bit_position] = (*this)(hash);
+    static void set(shared_model::crypto::Hash const &hash,
+                    uint8_t (&bloom)[kSize]) {
+      auto const &[byte_position, bit_position] = pack8(hash);
       auto &target = *(bloom + byte_position);
       target |= (1 << bit_position);
     }
-    bool isSet(shared_model::crypto::Hash const &hash,
-               uint8_t const (&bloom)[kSize]) const {
-      auto const &[byte_position, bit_position] = (*this)(hash);
+    static bool isSet(shared_model::crypto::Hash const &hash,
+               uint8_t const (&bloom)[kSize]) {
+      auto const &[byte_position, bit_position] = pack8(hash);
       auto const &target = *(bloom + byte_position);
       return ((target & (1 << bit_position)) != 0);
     }
@@ -59,7 +59,7 @@ namespace shared_model::crypto {
 
     template <typename Hasher>
     auto checkHash(DataType const &data) const {
-      return Hasher{}.isSet(data, filter_);
+      return Hasher::isSet(data, filter_);
     };
 
     template <typename Hasher,
@@ -80,7 +80,7 @@ namespace shared_model::crypto {
     }
 
     void set(DataType const &data) {
-      ((void)HashFunctions().set(data, filter_), ...);
+      ((void)HashFunctions::set(data, filter_), ...);
     }
 
     bool test(DataType const &data) const {
