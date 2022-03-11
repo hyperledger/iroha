@@ -90,7 +90,8 @@ The following is the default configuration used by Iroha.
     "IDENT_LENGTH_LIMITS": {
       "min": 1,
       "max": 128
-    }
+    },
+    "COMMIT_TIME_MS": 2000
   },
   "NETWORK": {
     "MAILBOX": 100
@@ -478,7 +479,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_BLOCK_TIME_
 
 ### `sumeragi.commit_time_ms`
 
-Amount of time Peer waits for CommitMessage from the proxy tail.
+Amount of time Peer waits for `CommitMessage` from the proxy tail.
 
 Has type `u64`. Can be configured via environment variable `SUMERAGI_COMMIT_TIME_MS`
 
@@ -674,6 +675,7 @@ Has type `WorldStateViewConfiguration`. Can be configured via environment variab
     "max_entry_byte_size": 4096,
     "max_len": 1048576
   },
+  "COMMIT_TIME_MS": 2000,
   "DOMAIN_METADATA_LIMITS": {
     "max_entry_byte_size": 4096,
     "max_len": 1048576
@@ -722,6 +724,16 @@ Has type `MetadataLimits`. Can be configured via environment variable `WSV_ASSET
   "max_entry_byte_size": 4096,
   "max_len": 1048576
 }
+```
+
+### `wsv.commit_time_ms`
+
+Amount of time Peer waits for CommitMessage from the proxy tail.
+
+Has type `u64`. Can be configured via environment variable `WSV_COMMIT_TIME_MS`
+
+```json
+2000
 ```
 
 ### `wsv.domain_metadata_limits`

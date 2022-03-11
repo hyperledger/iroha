@@ -53,7 +53,7 @@ impl TriggerSet {
                     id.clone(),
                 ))))
             },
-            |entry| Ok(ReadOnlyArc(entry.value().clone())),
+            |entry| Ok(ReadOnlyArc(Arc::clone(entry.value()))),
         )
     }
 
@@ -88,17 +88,15 @@ impl TriggerSet {
     ///
     /// # Panics
     /// (Rare) Panics if someone stores actions, returned from `find_matching()`
+    #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     pub fn mod_repeats(
         &self,
         key: &trigger::Id,
         f: impl Fn(u32) -> Result<u32, MathError>,
     ) -> Result<(), smartcontracts::Error> {
-        let mut entry = self
-            .0
-            .get_mut(key)
-            .ok_or(smartcontracts::Error::Find(Box::new(FindError::Trigger(
-                key.clone(),
-            ))))?;
+        let mut entry = self.0.get_mut(key).ok_or_else(|| {
+            smartcontracts::Error::Find(Box::new(FindError::Trigger(key.clone())))
+        })?;
 
         let new_repeats = match &entry.repeats {
             Repeats::Exactly(n) => f(*n).map_err(Into::into),
@@ -118,6 +116,7 @@ impl TriggerSet {
     ///
     /// # Panics
     /// (Rare) Panics if someone holds matching action
+    #[allow(clippy::expect_used)]
     pub fn find_matching<'e, E>(&self, events: E) -> Vec<ReadOnlyArc<Action>>
     where
         E: IntoIterator<Item = &'e Event>,
@@ -129,13 +128,13 @@ impl TriggerSet {
                 if trigger.filter.apply(event) {
                     match trigger.repeats {
                         Repeats::Indefinitely => {
-                            result.push(ReadOnlyArc(trigger.value().clone()));
+                            result.push(ReadOnlyArc(Arc::clone(trigger.value())));
                         }
                         Repeats::Exactly(n) if n > 0_u32 => {
                             Arc::get_mut(&mut trigger)
                                 .expect("Failed to get mutable action while reducing repeats")
                                 .repeats = Repeats::Exactly(n - 1);
-                            result.push(ReadOnlyArc(trigger.value().clone()));
+                            result.push(ReadOnlyArc(Arc::clone(trigger.value())));
                         }
                         _ => {
                             // n == 0

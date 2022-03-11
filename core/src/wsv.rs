@@ -204,6 +204,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// you likely have data corruption.
     #[iroha_futures::telemetry_future]
     #[log(skip(self, block))]
+    #[allow(clippy::expect_used)]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
         // Generate timestamp event
         let time_event = Event::Time(TimeEvent(TimeInterval::new(
@@ -258,10 +259,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if trigger execution fails
-    async fn execute_triggers<A>(&self, triggers: A) -> Result<()>
-    where
-        A: IntoIterator<Item = ReadOnlyArc<Action>>,
-    {
+    async fn execute_triggers(&self, triggers: Vec<ReadOnlyArc<Action>>) -> Result<()> {
         // TODO: Validate the trigger executables as well as the technical account.
         for trigger in triggers {
             self.process_executable(&trigger.executable, &trigger.technical_account)?;
@@ -298,7 +296,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         };
 
         for event in events {
-            drop(events_sender.send(Event::from(event)))
+            drop(events_sender.send(event))
         }
     }
 
@@ -390,6 +388,10 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if `f` fails
+    ///
+    /// # Panics
+    /// (Rare) Panics if can't lock `self.events` for writing
+    #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     pub fn modify_world(
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
@@ -420,13 +422,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             WorldEvent::Role(role_event) => events.push(DataEvent::Role(role_event).into()),
         }
 
-        self.produce_events(
-            self.events
-                .read()
-                .expect("Failed to block events while modifying world")
-                .iter()
-                .cloned(),
-        );
+        self.produce_events(events.iter().cloned());
         Ok(())
     }
 

@@ -7,7 +7,7 @@ use super::*;
 /// Special event that is emitted when `WSV` is ready for handling time-triggers
 ///
 /// Contains time interval which is used to identify time-triggers to be executed
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema)]
 pub struct Event(pub Interval);
 
 /// Filters time-events and allows only ones which time interval contains

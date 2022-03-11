@@ -1562,6 +1562,7 @@ pub mod config {
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
+    /// Default amount of time Peer waits for `CommitMessage` from the proxy tail.
     pub const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
     const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
     const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
@@ -1585,7 +1586,7 @@ pub mod config {
         pub block_time_ms: u64,
         /// Optional list of predefined trusted peers.
         pub trusted_peers: TrustedPeers,
-        /// Amount of time Peer waits for CommitMessage from the proxy tail.
+        /// Amount of time Peer waits for `CommitMessage` from the proxy tail.
         pub commit_time_ms: u64,
         /// Amount of time Peer waits for TxReceipt from the leader.
         pub tx_receipt_time_ms: u64,
