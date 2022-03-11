@@ -27,7 +27,7 @@ use crate::{
     event::EventsSender,
     prelude::*,
     smartcontracts::{isi::Error, wasm, Execute, FindError},
-    triggers::TriggerSet,
+    triggers::{ReadOnlyArc, TriggerSet},
     DomainsMap, PeersIds,
 };
 
@@ -260,7 +260,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Fails if trigger execution fails
     async fn execute_triggers<A>(&self, triggers: A) -> Result<()>
     where
-        A: IntoIterator<Item = Arc<Action>>,
+        A: IntoIterator<Item = ReadOnlyArc<Action>>,
     {
         // TODO: Validate the trigger executables as well as the technical account.
         for trigger in triggers {

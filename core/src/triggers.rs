@@ -8,7 +8,7 @@
 //! search trees (common lisp) or hash tables (racket) to quickly
 //! trigger hooks.
 
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use dashmap::DashMap;
 use iroha_data_model::{
@@ -28,7 +28,7 @@ impl TriggerSet {
     /// Add another trigger to the [`TriggerSet`].
     ///
     /// # Errors
-    /// - If [`TriggerSet`] already contains a trigger with the same [`EventFilter`].
+    /// - If [`TriggerSet`] already contains a trigger with the same id.
     /// It's the user's responsibility to first `Unregister` the `Trigger`.
     pub fn add(&self, trigger: Trigger) -> Result<(), smartcontracts::Error> {
         if self.0.contains_key(&trigger.id) {
@@ -42,22 +42,25 @@ impl TriggerSet {
         Ok(())
     }
 
-    pub fn get(&self, id: &trigger::Id) -> Result<Arc<Action>, smartcontracts::Error> {
+    /// Get trigger by `id`
+    ///
+    /// # Errors
+    /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
+    pub fn get(&self, id: &trigger::Id) -> Result<ReadOnlyArc<Action>, smartcontracts::Error> {
         self.0.get(id).map_or_else(
             || {
                 Err(smartcontracts::Error::Find(Box::new(FindError::Trigger(
                     id.clone(),
                 ))))
             },
-            |entry| Ok(entry.value().clone()),
+            |entry| Ok(ReadOnlyArc(entry.value().clone())),
         )
     }
 
     /// Remove a trigger from the [`TriggerSet`].
     ///
     /// # Errors
-    /// - If [`TriggerSet`] doesn't contain the trigger with the given [`EventFilter`].
-    /// Note that the [`EventFilter`] must be specified exactly.
+    /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
     pub fn remove(&self, id: &trigger::Id) -> Result<(), smartcontracts::Error> {
         self.0.remove(id).map_or_else(
             || {
@@ -70,7 +73,7 @@ impl TriggerSet {
         )
     }
 
-    /// Check if `self` contains `key`.
+    /// Check if [`TriggerSet`] contains `key`.
     pub fn contains(&self, key: &trigger::Id) -> bool {
         self.0.contains_key(key)
     }
@@ -108,7 +111,14 @@ impl TriggerSet {
         Ok(())
     }
 
-    pub fn find_matching<'e, E>(&self, events: E) -> Vec<Arc<Action>>
+    /// Find triggers, which filter matches at least one event from `events`
+    ///
+    /// Users should not try to modify [`TriggerSet`] before dropping actions,
+    /// returned by the current function
+    ///
+    /// # Panics
+    /// (Rare) Panics if someone holds matching action
+    pub fn find_matching<'e, E>(&self, events: E) -> Vec<ReadOnlyArc<Action>>
     where
         E: IntoIterator<Item = &'e Event>,
     {
@@ -119,13 +129,13 @@ impl TriggerSet {
                 if trigger.filter.apply(event) {
                     match trigger.repeats {
                         Repeats::Indefinitely => {
-                            result.push(trigger.value().clone());
+                            result.push(ReadOnlyArc(trigger.value().clone()));
                         }
                         Repeats::Exactly(n) if n > 0_u32 => {
                             Arc::get_mut(&mut trigger)
                                 .expect("Failed to get mutable action while reducing repeats")
                                 .repeats = Repeats::Exactly(n - 1);
-                            result.push(trigger.value().clone());
+                            result.push(ReadOnlyArc(trigger.value().clone()));
                         }
                         _ => {
                             // n == 0
@@ -139,5 +149,17 @@ impl TriggerSet {
         self.0
             .retain(|_, action| !matches!(action.repeats, Repeats::Exactly(0)));
         result
+    }
+}
+
+/// Read only alternative to [`Arc`] to prevent modifying internal data
+#[derive(Debug, Clone)]
+pub struct ReadOnlyArc<T>(Arc<T>);
+
+impl<T> Deref for ReadOnlyArc<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
     }
 }
