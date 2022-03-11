@@ -14,6 +14,21 @@ pub mod isi {
 
     use super::{super::prelude::*, *};
 
+    /// Assert `repeats` field correctness
+    ///
+    /// # Errors
+    /// Fails with `Overflow` error if action is based on exact time and
+    /// repeats more than once
+    fn assert_repeats_correct(action: &Action) -> Result<(), Error> {
+        if let EventFilter::Time(TimeEventFilter(Occurrence::ExactlyAt(_))) = &action.filter {
+            if !matches!(&action.repeats, Repeats::Exactly(1)) {
+                return Err(Error::Math(MathError::Overflow));
+            }
+        }
+
+        Ok(())
+    }
+
     impl<W: WorldTrait> Execute<W> for Register<Trigger> {
         type Error = Error;
 
@@ -24,6 +39,9 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let new_trigger = self.object.clone();
+
+            assert_repeats_correct(&new_trigger.action)?;
+
             wsv.modify_triggers(|triggers| {
                 triggers.add(new_trigger)?;
                 Ok(TriggerEvent::Created(self.object.id))
@@ -42,7 +60,7 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let trigger = self.object_id.clone();
             wsv.modify_triggers(|triggers| {
-                triggers.remove(trigger)?;
+                triggers.remove(&trigger)?;
                 Ok(TriggerEvent::Deleted(self.object_id))
             })
         }
@@ -57,12 +75,16 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let trigger = self.destination_id.clone();
+            let id = self.destination_id;
+
             wsv.modify_triggers(|triggers| {
-                triggers.mod_repeats(trigger, |n| {
+                let action = triggers.get(&id)?;
+                assert_repeats_correct(&action)?;
+
+                triggers.mod_repeats(&id, |n| {
                     n.checked_add(self.object).ok_or(MathError::Overflow)
                 })?;
-                Ok(TriggerEvent::Extended(self.destination_id))
+                Ok(TriggerEvent::Extended(id))
             })
         }
     }
@@ -76,12 +98,12 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let trigger = self.destination_id.clone();
+            let trigger = self.destination_id;
             wsv.modify_triggers(|triggers| {
-                triggers.mod_repeats(trigger, |n| {
+                triggers.mod_repeats(&trigger, |n| {
                     n.checked_sub(self.object).ok_or(MathError::Overflow)
                 })?;
-                Ok(TriggerEvent::Shortened(self.destination_id))
+                Ok(TriggerEvent::Shortened(trigger))
             })
         }
     }

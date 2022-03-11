@@ -4,8 +4,9 @@
 use std::{
     convert::Infallible,
     fmt::Debug,
+    iter::once,
     ops::{Deref, DerefMut},
-    sync::Arc,
+    sync::{Arc, RwLock},
     time::Duration,
 };
 
@@ -93,8 +94,8 @@ pub struct WorldStateView<W: WorldTrait> {
     new_block_notifier: Arc<NewBlockNotificationSender>,
     /// Triggers
     pub triggers: Arc<TriggerSet>,
-    /// Events produced in current block
-    pub events: Arc<Vec<Event>>,
+    /// Events produced in the current block
+    events: Arc<RwLock<Vec<Event>>>,
     /// Transmitter to broadcast [`WorldStateView`]-related events.
     events_sender: Option<EventsSender>,
 }
@@ -205,20 +206,11 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[log(skip(self, block))]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
         // Generate timestamp event
-        // TODO: Where is the real value?
-        const MAX_CONSENSUS_DURATION: Duration = Duration::from_secs(3600); // 10 hours
         let time_event = Event::Time(TimeEvent(TimeInterval::new(
-            Duration::from_millis(block.as_v1().header.timestamp.try_into()?), // TODO: Duration vs u128?
-            MAX_CONSENSUS_DURATION,
+            Duration::from_millis(block.as_v1().header.timestamp.try_into()?),
+            Duration::from_millis(self.config.commit_time_ms),
         )));
-
-        // Forward Event trigger-generated events
-        self.produce_events(
-            self.events
-                .iter()
-                .cloned()
-                .chain(std::iter::once(time_event)),
-        );
+        self.produce_events(once(time_event.clone()));
 
         // Execute TXs
         // TODO: Should this block panic instead?
@@ -231,10 +223,25 @@ impl<W: WorldTrait> WorldStateView<W> {
             self.transactions.insert(tx.hash());
         }
 
+        // Move events
+        let mut events = Vec::new();
+        events.append(
+            &mut self
+                .events
+                .write()
+                .expect("Failed to lock events while applying block"),
+        );
+
         // Execute Triggers (event and time based), no ordering
-        let events = self.events;
-        let triggers = self.triggers.find_matching(&events);
-        self.execute_triggers(&triggers).await?;
+        let triggers = self.triggers.find_matching(
+            events
+                .iter()
+                .chain(&block.as_v1().event_recommendations)
+                .chain(once(&time_event)),
+        );
+        // TODO: If some trigger modifies itself or other trigger in `triggers`
+        // (e.g. modifies repeats) during the execution, then a panic will happen
+        self.execute_triggers(triggers).await?;
 
         // Commit block
         self.blocks.push(block);
@@ -242,6 +249,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.new_block_notifier.send_replace(());
 
         // TODO: On block commit triggers
+        // TODO: Pass self.events to the next block
 
         Ok(())
     }
@@ -250,7 +258,10 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if trigger execution fails
-    async fn execute_triggers<A>(&self, triggers: &[Action]) -> Result<()> {
+    async fn execute_triggers<A>(&self, triggers: A) -> Result<()>
+    where
+        A: IntoIterator<Item = Arc<Action>>,
+    {
         // TODO: Validate the trigger executables as well as the technical account.
         for trigger in triggers {
             self.process_executable(&trigger.executable, &trigger.technical_account)?;
@@ -383,6 +394,10 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
+        let mut events = self
+            .events
+            .write()
+            .expect("Failed to lock events while modifying world");
         let event = f(&self.world)?;
 
         match event {
@@ -390,24 +405,28 @@ impl<W: WorldTrait> WorldStateView<W> {
                 match &domain_event {
                     DomainEvent::Account(account_event) => {
                         if let AccountEvent::Asset(asset_event) = account_event {
-                            self.events
-                                .push(DataEvent::Asset(asset_event.clone()).into())
+                            events.push(DataEvent::Asset(asset_event.clone()).into())
                         }
-                        self.events
-                            .push(DataEvent::Account(account_event.clone()).into());
+                        events.push(DataEvent::Account(account_event.clone()).into());
                     }
-                    DomainEvent::AssetDefinition(asset_definition_event) => self
-                        .events
+                    DomainEvent::AssetDefinition(asset_definition_event) => events
                         .push(DataEvent::AssetDefinition(asset_definition_event.clone()).into()),
                     _ => (),
                 }
-                self.events.push(DataEvent::Domain(domain_event).into());
+                events.push(DataEvent::Domain(domain_event).into());
             }
-            WorldEvent::Peer(peer_event) => self.events.push(DataEvent::Peer(peer_event).into()),
+            WorldEvent::Peer(peer_event) => events.push(DataEvent::Peer(peer_event).into()),
             #[cfg(feature = "roles")]
-            WorldEvent::Role(role_event) => self.events.push(DataEvent::Role(role_event).into()),
+            WorldEvent::Role(role_event) => events.push(DataEvent::Role(role_event).into()),
         }
 
+        self.produce_events(
+            self.events
+                .read()
+                .expect("Failed to block events while modifying world")
+                .iter()
+                .cloned(),
+        );
         Ok(())
     }
 
@@ -515,7 +534,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
             triggers: Arc::new(TriggerSet::default()),
-            events: Arc::new(Vec::new()),
+            events: Arc::new(RwLock::new(Vec::new())),
             events_sender: None,
         }
     }
@@ -789,6 +808,9 @@ pub mod config {
         pub domain_metadata_limits: MetadataLimits,
         /// [`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
         pub ident_length_limits: LengthLimits,
+        /// Amount of time Peer waits for CommitMessage from the proxy tail.
+        /// Should have the same value as corresponding field in sumeragi config
+        pub commit_time_ms: u64,
     }
 
     impl Default for Configuration {
@@ -799,6 +821,7 @@ pub mod config {
                 account_metadata_limits: DEFAULT_METADATA_LIMITS,
                 domain_metadata_limits: DEFAULT_METADATA_LIMITS,
                 ident_length_limits: DEFAULT_IDENT_LENGTH_LIMITS,
+                commit_time_ms: crate::sumeragi::config::DEFAULT_COMMIT_TIME_MS,
             }
         }
     }

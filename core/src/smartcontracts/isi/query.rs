@@ -221,9 +221,7 @@ mod tests {
     use once_cell::sync::Lazy;
 
     use super::*;
-    use crate::{
-        block::TriggerRecommendations, tx::TransactionValidator, wsv::World, DomainsMap, PeersIds,
-    };
+    use crate::{tx::TransactionValidator, wsv::World, DomainsMap, PeersIds};
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> =
@@ -345,7 +343,7 @@ mod tests {
         let va_tx =
             crate::VersionedAcceptedTransaction::from_transaction(signed_tx.clone(), &tx_limits)?;
 
-        let mut block = PendingBlock::new(Vec::new(), TriggerRecommendations::new());
+        let mut block = PendingBlock::new(Vec::new(), Vec::new());
         block.transactions.push(va_tx.clone());
         let vcb = block
             .chain_first()

@@ -8,7 +8,7 @@ use super::*;
 ///
 /// Contains time interval which is used to identify time-triggers to be executed
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
-pub struct Event(Interval);
+pub struct Event(pub Interval);
 
 /// Filters time-events and allows only ones which time interval contains
 #[derive(
@@ -26,7 +26,7 @@ pub struct Event(Interval);
     Serialize,
     Deserialize,
 )]
-pub struct EventFilter(Occurrence);
+pub struct EventFilter(pub Occurrence);
 
 impl EventFilter {
     /// Check if `event` matches filter
