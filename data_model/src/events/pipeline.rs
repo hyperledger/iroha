@@ -61,7 +61,7 @@ impl EventFilter {
     }
 
     /// Apply filter to event.
-    pub fn apply(&self, event: &Event) -> bool {
+    pub fn matches(&self, event: &Event) -> bool {
         let entity_check = self
             .entity
             .map_or(true, |entity| entity == event.entity_type);
@@ -188,7 +188,7 @@ mod tests {
             events
                 .iter()
                 .cloned()
-                .filter(|event| EventFilter::by_hash(Hash([0_u8; 32])).apply(event))
+                .filter(|event| EventFilter::by_hash(Hash([0_u8; 32])).matches(event))
                 .collect::<Vec<Event>>()
         );
         assert_eq!(
@@ -200,7 +200,7 @@ mod tests {
             events
                 .iter()
                 .cloned()
-                .filter(|event| EventFilter::by_entity(EntityType::Block).apply(event))
+                .filter(|event| EventFilter::by_entity(EntityType::Block).matches(event))
                 .collect::<Vec<Event>>()
         );
         assert_eq!(
@@ -216,7 +216,7 @@ mod tests {
                     EntityType::Transaction,
                     Hash([2_u8; 32])
                 )
-                .apply(event))
+                .matches(event))
                 .collect::<Vec<Event>>()
         );
         assert_eq!(
@@ -224,7 +224,7 @@ mod tests {
             events
                 .iter()
                 .cloned()
-                .filter(|event| EventFilter::default().apply(event))
+                .filter(|event| EventFilter::default().matches(event))
                 .collect::<Vec<Event>>()
         )
     }

@@ -50,11 +50,12 @@ impl Trigger {
 ///
 /// # Considerations
 ///
-/// The granularity might not be sufficient to run an action exactly
-/// `n` times. In order to ensure that it is even possible to run the
-/// triggers without gaps, the `Executable` wrapped in the action must
-/// be run before any of the ISIs are pushed into the queue of the
-/// next block.
+/// * The granularity might not be sufficient to run an action exactly `n` times
+/// * To be able to register an action at exact time --
+/// action `repeats` field should have `Repeats::Exactly(1)` value
+/// * Time-based actions are executed relative to the block creation time stamp,
+/// as such the execution relative to real time is not exact,
+/// and heavily depends on the amount of transactions in the current block.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema)]
 pub struct Action {
     /// The executable linked to this action

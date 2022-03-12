@@ -113,7 +113,7 @@ impl TriggerSet {
 
         for event in events {
             for mut trigger in self.0.iter_mut() {
-                if trigger.filter.apply(event) {
+                if trigger.filter.matches(event) {
                     match trigger.repeats {
                         Repeats::Indefinitely => {
                             result.push(trigger.value().clone());

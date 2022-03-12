@@ -80,7 +80,7 @@ impl Consumer {
     /// Can fail due to timeout or sending event. Also receiving might fail
     #[iroha_futures::telemetry_future]
     pub async fn consume(&mut self, event: Event) -> Result<()> {
-        if !self.filter.apply(&event) {
+        if !self.filter.matches(&event) {
             return Ok(());
         }
 
