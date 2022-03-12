@@ -206,34 +206,21 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[log(skip(self, block))]
     #[allow(clippy::expect_used)]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
-        // Generate timestamp event
         let time_event = Event::Time(TimeEvent(TimeInterval::new(
             Duration::from_millis(block.as_v1().header.timestamp.try_into()?),
             Duration::from_millis(self.config.commit_time_ms),
         )));
         self.produce_events(once(time_event.clone()));
 
-        // Execute TXs
-        // TODO: Should this block panic instead?
-        for tx in &block.as_v1().transactions {
-            self.process_executable(&tx.as_v1().payload.instructions, &tx.payload().account_id)?;
-            self.transactions.insert(tx.hash());
-            task::yield_now().await;
-        }
-        for tx in &block.as_v1().rejected_transactions {
-            self.transactions.insert(tx.hash());
-        }
+        self.execute_transactions(block.as_v1()).await?;
 
-        // Move events
-        let mut events = Vec::new();
-        events.append(
-            &mut self
-                .events
-                .write()
-                .expect("Failed to lock events while applying block"),
-        );
+        let events: Vec<Event> = self
+            .events
+            .write()
+            .expect("Failed to lock events while applying block")
+            .drain(..)
+            .collect();
 
-        // Execute Triggers (event and time based), no ordering
         let triggers = self.triggers.find_matching(
             events
                 .iter()
@@ -242,13 +229,29 @@ impl<W: WorldTrait> WorldStateView<W> {
         );
         self.execute_triggers(triggers).await?;
 
-        // Commit block
-        self.blocks.push(block);
-        self.block_commit_metrics_update_callback();
-        self.new_block_notifier.send_replace(());
+        self.commit(block);
 
         // TODO: On block commit triggers
         // TODO: Pass self.events to the next block
+
+        Ok(())
+    }
+
+    /// Execute `block` transactions and store their hashes as well as
+    /// `rejected_transactions` hashes
+    ///
+    /// # Errors
+    /// Fails if transaction instruction execution fails
+    async fn execute_transactions(&self, block: &CommittedBlock) -> Result<()> {
+        // TODO: Should this block panic instead?
+        for tx in &block.transactions {
+            self.process_executable(&tx.as_v1().payload.instructions, &tx.payload().account_id)?;
+            self.transactions.insert(tx.hash());
+            task::yield_now().await;
+        }
+        for tx in &block.rejected_transactions {
+            self.transactions.insert(tx.hash());
+        }
 
         Ok(())
     }
@@ -269,6 +272,13 @@ impl<W: WorldTrait> WorldStateView<W> {
         }
 
         Ok(())
+    }
+
+    /// Commit block
+    fn commit(&self, block: VersionedCommittedBlock) {
+        self.blocks.push(block);
+        self.block_commit_metrics_update_callback();
+        self.new_block_notifier.send_replace(());
     }
 
     /// Get `Asset` by its id

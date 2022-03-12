@@ -4,6 +4,26 @@
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics;
 
+use crate::prelude::*;
+
+/// Trait to check if [`Action`] should be executed at exact time or not.
+///
+/// Implemented as a trait and not as basic method, cause it is needed only inside this module
+trait OccursExactlyAtTime {
+    /// Check if action occurs exactly at set time.
+    /// Returns `true` if yes and `false` in another case
+    fn occurs_exactly_at_time(&self) -> bool;
+}
+
+impl OccursExactlyAtTime for Action {
+    fn occurs_exactly_at_time(&self) -> bool {
+        matches!(
+            self.filter,
+            EventFilter::Time(TimeEventFilter(Occurrence::ExactlyAt(_)))
+        )
+    }
+}
+
 /// All instructions related to triggers.
 /// - registering a trigger
 /// - un-registering a trigger
@@ -13,21 +33,6 @@ pub mod isi {
     use iroha_data_model::trigger::Trigger;
 
     use super::{super::prelude::*, *};
-
-    /// Assert `repeats` field correctness
-    ///
-    /// # Errors
-    /// Fails with `Overflow` error if action is based on exact time and
-    /// repeats more than once
-    fn assert_repeats_correct(action: &Action) -> Result<(), Error> {
-        if let EventFilter::Time(TimeEventFilter(Occurrence::ExactlyAt(_))) = &action.filter {
-            if !matches!(&action.repeats, Repeats::Exactly(1)) {
-                return Err(Error::Math(MathError::Overflow));
-            }
-        }
-
-        Ok(())
-    }
 
     impl<W: WorldTrait> Execute<W> for Register<Trigger> {
         type Error = Error;
@@ -40,7 +45,11 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let new_trigger = self.object.clone();
 
-            assert_repeats_correct(&new_trigger.action)?;
+            if new_trigger.action.occurs_exactly_at_time()
+                && !matches!(&new_trigger.action.repeats, Repeats::Exactly(1))
+            {
+                return Err(Error::Math(MathError::Overflow));
+            }
 
             wsv.modify_triggers(|triggers| {
                 triggers.add(new_trigger)?;
@@ -79,7 +88,9 @@ pub mod isi {
 
             wsv.modify_triggers(|triggers| {
                 let action = triggers.get(&id)?;
-                assert_repeats_correct(&action)?;
+                if action.occurs_exactly_at_time() {
+                    return Err(MathError::Overflow.into());
+                }
 
                 triggers.mod_repeats(&id, |n| {
                     n.checked_add(self.object).ok_or(MathError::Overflow)
@@ -103,6 +114,8 @@ pub mod isi {
                 triggers.mod_repeats(&trigger, |n| {
                     n.checked_sub(self.object).ok_or(MathError::Overflow)
                 })?;
+                // TODO: Is it okay to remove triggers with 0 repeats count from `TriggerSet` only
+                // when they will match some of the events?
                 Ok(TriggerEvent::Shortened(trigger))
             })
         }
