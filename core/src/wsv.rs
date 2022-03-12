@@ -17,7 +17,7 @@ use dashmap::{
 };
 use eyre::Result;
 use iroha_crypto::HashOf;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, small::SmallVec};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
 use tokio::task;
@@ -398,10 +398,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
-        let mut events = self
-            .events
-            .write()
-            .expect("Failed to lock events while modifying world");
+        let mut cur_events: SmallVec<[Event; 3]> = SmallVec(smallvec::smallvec![]);
         let event = f(&self.world)?;
 
         match event {
@@ -409,22 +406,26 @@ impl<W: WorldTrait> WorldStateView<W> {
                 match &domain_event {
                     DomainEvent::Account(account_event) => {
                         if let AccountEvent::Asset(asset_event) = account_event {
-                            events.push(DataEvent::Asset(asset_event.clone()).into())
+                            cur_events.push(DataEvent::Asset(asset_event.clone()).into())
                         }
-                        events.push(DataEvent::Account(account_event.clone()).into());
+                        cur_events.push(DataEvent::Account(account_event.clone()).into());
                     }
-                    DomainEvent::AssetDefinition(asset_definition_event) => events
+                    DomainEvent::AssetDefinition(asset_definition_event) => cur_events
                         .push(DataEvent::AssetDefinition(asset_definition_event.clone()).into()),
                     _ => (),
                 }
-                events.push(DataEvent::Domain(domain_event).into());
+                cur_events.push(DataEvent::Domain(domain_event).into());
             }
-            WorldEvent::Peer(peer_event) => events.push(DataEvent::Peer(peer_event).into()),
+            WorldEvent::Peer(peer_event) => cur_events.push(DataEvent::Peer(peer_event).into()),
             #[cfg(feature = "roles")]
-            WorldEvent::Role(role_event) => events.push(DataEvent::Role(role_event).into()),
+            WorldEvent::Role(role_event) => cur_events.push(DataEvent::Role(role_event).into()),
         }
 
-        self.produce_events(events.iter().cloned());
+        self.produce_events(cur_events.iter().cloned());
+        self.events
+            .write()
+            .expect("Failed to lock events while modifying world")
+            .extend(cur_events);
         Ok(())
     }
 
