@@ -8,7 +8,7 @@
 //! search trees (common lisp) or hash tables (racket) to quickly
 //! trigger hooks.
 
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
 
 use dashmap::DashMap;
 use iroha_data_model::{
@@ -21,7 +21,7 @@ use crate::smartcontracts::{self, FindError, InstructionType, MathError};
 /// Specialised structure that maps event filters to Triggers.
 #[derive(Debug, Default)]
 pub struct TriggerSet(
-    DashMap<trigger::Id, Arc<Action>>, // TODO: Consider tree structures.
+    DashMap<trigger::Id, Action>, // TODO: Consider tree structures.
 );
 
 impl TriggerSet {
@@ -37,7 +37,7 @@ impl TriggerSet {
                 IdBox::TriggerId(trigger.id),
             ));
         }
-        self.0.insert(trigger.id.clone(), Arc::new(trigger.action));
+        self.0.insert(trigger.id.clone(), trigger.action);
 
         Ok(())
     }
@@ -46,15 +46,13 @@ impl TriggerSet {
     ///
     /// # Errors
     /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
-    pub fn get(&self, id: &trigger::Id) -> Result<ReadOnlyArc<Action>, smartcontracts::Error> {
-        self.0.get(id).map_or_else(
-            || {
-                Err(smartcontracts::Error::Find(Box::new(FindError::Trigger(
-                    id.clone(),
-                ))))
-            },
-            |entry| Ok(ReadOnlyArc(Arc::clone(entry.value()))),
-        )
+    pub fn get(
+        &self,
+        id: &trigger::Id,
+    ) -> Result<impl Deref<Target = Action> + '_, smartcontracts::Error> {
+        self.0
+            .get(id)
+            .ok_or_else(|| smartcontracts::Error::Find(Box::new(FindError::Trigger(id.clone()))))
     }
 
     /// Remove a trigger from the [`TriggerSet`].
@@ -85,26 +83,20 @@ impl TriggerSet {
     /// - if addition to remaining current trigger repeats
     /// overflows. Indefinitely repeating triggers and triggers set for
     /// exact time always cause an overflow.
-    ///
-    /// # Panics
-    /// (Rare) Panics if someone stores actions, returned from `find_matching()`
-    #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     pub fn mod_repeats(
         &self,
         key: &trigger::Id,
         f: impl Fn(u32) -> Result<u32, MathError>,
     ) -> Result<(), smartcontracts::Error> {
-        let mut entry = self.0.get_mut(key).ok_or_else(|| {
+        let mut trigger = self.0.get_mut(key).ok_or_else(|| {
             smartcontracts::Error::Find(Box::new(FindError::Trigger(key.clone())))
         })?;
 
-        let new_repeats = match &entry.repeats {
+        let new_repeats = match &trigger.repeats {
             Repeats::Exactly(n) => f(*n).map_err(Into::into),
             _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
         }?;
-        Arc::get_mut(&mut entry)
-            .expect("Failed to get mutable action while modifying repeats")
-            .repeats = Repeats::Exactly(new_repeats);
+        trigger.repeats = Repeats::Exactly(new_repeats);
 
         Ok(())
     }
@@ -113,11 +105,7 @@ impl TriggerSet {
     ///
     /// Users should not try to modify [`TriggerSet`] before dropping actions,
     /// returned by the current function
-    ///
-    /// # Panics
-    /// (Rare) Panics if someone holds matching action
-    #[allow(clippy::expect_used)]
-    pub fn find_matching<'e, E>(&self, events: E) -> Vec<ReadOnlyArc<Action>>
+    pub fn find_matching<'e, E>(&self, events: E) -> Vec<Action>
     where
         E: IntoIterator<Item = &'e Event>,
     {
@@ -128,13 +116,11 @@ impl TriggerSet {
                 if trigger.filter.apply(event) {
                     match trigger.repeats {
                         Repeats::Indefinitely => {
-                            result.push(ReadOnlyArc(Arc::clone(trigger.value())));
+                            result.push(trigger.value().clone());
                         }
                         Repeats::Exactly(n) if n > 0_u32 => {
-                            Arc::get_mut(&mut trigger)
-                                .expect("Failed to get mutable action while reducing repeats")
-                                .repeats = Repeats::Exactly(n - 1);
-                            result.push(ReadOnlyArc(Arc::clone(trigger.value())));
+                            trigger.repeats = Repeats::Exactly(n - 1);
+                            result.push(trigger.value().clone());
                         }
                         _ => {
                             // n == 0
@@ -148,17 +134,5 @@ impl TriggerSet {
         self.0
             .retain(|_, action| !matches!(action.repeats, Repeats::Exactly(0)));
         result
-    }
-}
-
-/// Read only alternative to [`Arc`] to prevent modifying internal data
-#[derive(Debug, Clone)]
-pub struct ReadOnlyArc<T>(Arc<T>);
-
-impl<T> Deref for ReadOnlyArc<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &*self.0
     }
 }

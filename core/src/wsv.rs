@@ -27,7 +27,7 @@ use crate::{
     event::EventsSender,
     prelude::*,
     smartcontracts::{isi::Error, wasm, Execute, FindError},
-    triggers::{ReadOnlyArc, TriggerSet},
+    triggers::TriggerSet,
     DomainsMap, PeersIds,
 };
 
@@ -240,8 +240,6 @@ impl<W: WorldTrait> WorldStateView<W> {
                 .chain(&block.as_v1().event_recommendations)
                 .chain(once(&time_event)),
         );
-        // TODO: If some trigger modifies itself or other trigger in `triggers`
-        // (e.g. modifies repeats) during the execution, then a panic will happen
         self.execute_triggers(triggers).await?;
 
         // Commit block
@@ -259,7 +257,11 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if trigger execution fails
-    async fn execute_triggers(&self, triggers: Vec<ReadOnlyArc<Action>>) -> Result<()> {
+    async fn execute_triggers<T, I>(&self, triggers: T) -> Result<()>
+    where
+        T: IntoIterator<Item = Action, IntoIter = I> + Send,
+        I: Iterator<Item = Action> + Send,
+    {
         // TODO: Validate the trigger executables as well as the technical account.
         for trigger in triggers {
             self.process_executable(&trigger.executable, &trigger.technical_account)?;
