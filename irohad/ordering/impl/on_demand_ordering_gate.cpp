@@ -81,7 +81,7 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
     assert(ordering_service_);
     assert(network_client_);
 
-    network_client_->onRequestProposal(
+    network_client_->onRequestProposalExt1(
         event.next_round,
         ordering_service_->waitForLocalProposal(
             event.next_round, network_client_->getRequestDelay()));

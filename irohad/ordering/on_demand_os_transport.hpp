@@ -15,6 +15,7 @@
 #include "consensus/round.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "ordering/ordering_types.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -60,6 +61,17 @@ namespace iroha {
             std::optional<
                 std::shared_ptr<const shared_model::interface::Proposal>>
                 ref_proposal) = 0;
+
+        /**
+         * Callback on request about proposal
+         * @param round - number of collaboration round.
+         * Calculated as block_height + 1
+         * @param proposal data with Bloom filter
+         */
+        virtual void onRequestProposalExt1(
+            consensus::Round round,
+            std::optional<std::pair<std::shared_ptr<shared_model::interface::Proposal const>, BloomFilter256>>
+            proposal) = 0;
 
         /**
          * @return delay proposal to wait for.
