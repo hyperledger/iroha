@@ -77,6 +77,21 @@ void OnDemandConnectionManager::onRequestProposal(
   }
 }
 
+void OnDemandConnectionManager::onRequestProposalExt1(
+    consensus::Round round,
+    std::optional<std::pair<std::shared_ptr<shared_model::interface::Proposal const>, BloomFilter256>>
+    proposal) {
+  std::shared_lock<std::shared_timed_mutex> lock(mutex_);
+  if (stop_requested_.load(std::memory_order_relaxed))
+    return;
+
+  log_->debug("onRequestProposalExt1, {} : {}",
+              round,
+              proposal ? proposal.value().first->toString() : "NULL_OPT");
+  if (auto &connection = connections_.peers[kIssuer])
+    (*connection)->onRequestProposalExt1(round, std::move(proposal));
+}
+
 void OnDemandConnectionManager::initializeConnections(
     const CurrentPeers &peers) {
   std::lock_guard<std::shared_timed_mutex> lock(mutex_);
