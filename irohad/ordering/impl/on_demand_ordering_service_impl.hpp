@@ -28,8 +28,7 @@ namespace iroha {
     namespace detail {
       using ProposalMapType =
           std::map<consensus::Round,
-                   std::optional<std::shared_ptr<
-                       const OnDemandOrderingService::ProposalType>>>;
+              OnDemandOrderingService::PackedProposalData>;
     }  // namespace detail
 
     class OnDemandOrderingServiceImpl : public OnDemandOrderingService {
@@ -56,7 +55,7 @@ namespace iroha {
 
       void onBatches(CollectionType batches) override;
 
-      std::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
+      PackedProposalData onRequestProposal(
           consensus::Round round) override;
 
       void onCollaborationOutcome(consensus::Round round) override;
@@ -71,7 +70,7 @@ namespace iroha {
 
       void processReceivedProposal(CollectionType batches) override;
 
-      std::optional<std::shared_ptr<const ProposalType>> waitForLocalProposal(
+      PackedProposalData waitForLocalProposal(
           consensus::Round const &round,
           std::chrono::milliseconds const &delay) override;
 
@@ -80,7 +79,7 @@ namespace iroha {
        * Packs new proposals and creates new rounds
        * Note: method is not thread-safe
        */
-      std::optional<std::shared_ptr<shared_model::interface::Proposal>>
+      PackedProposalData
       packNextProposals(const consensus::Round &round);
 
       using TransactionsCollectionType =

@@ -85,7 +85,7 @@ void OnDemandOrderingServiceImpl::forCachedBatches(
   batches_cache_.forCachedBatches(f);
 }
 
-std::optional<std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+OnDemandOrderingServiceImpl::PackedProposalData
 OnDemandOrderingServiceImpl::waitForLocalProposal(
     consensus::Round const &round, std::chrono::milliseconds const &delay) {
   if (!hasProposal(round) && !hasEnoughBatchesInCache()) {
@@ -124,12 +124,10 @@ OnDemandOrderingServiceImpl::waitForLocalProposal(
   return onRequestProposal(round);
 }
 
-std::optional<std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+OnDemandOrderingServiceImpl::PackedProposalData
 OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
   log_->debug("Requesting a proposal for round {}", round);
-  std::optional<
-      std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
-      result;
+  OnDemandOrderingServiceImpl::PackedProposalData result;
   do {
     std::lock_guard<std::mutex> lock(proposals_mutex_);
     auto it = proposal_map_.find(round);
@@ -146,6 +144,7 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
 
     if (is_current_round_or_next2) {
       result = packNextProposals(round);
+      proposal_map_.emplace(round, result);
       getSubscription()->notify(EventTypes::kOnPackProposal, round);
     }
   } while (false);
@@ -173,25 +172,27 @@ OnDemandOrderingServiceImpl::tryCreateProposal(
     proposal = std::nullopt;
     log_->debug("No transactions to create a proposal for {}", round);
   }
-
-  assert(proposal_map_.find(round) == proposal_map_.end());
-  proposal_map_.emplace(round, proposal);
   return proposal;
 }
 
-std::optional<std::shared_ptr<shared_model::interface::Proposal>>
+OnDemandOrderingServiceImpl::PackedProposalData
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   auto now = iroha::time::now();
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
+  BloomFilter256 bf;
+
   if (!isEmptyBatchesCache())
     batches_cache_.getTransactions(
-        transaction_limit_, txs, [&](auto const &batch) {
+        transaction_limit_, txs, bf, [&](auto const &batch) {
           assert(batch);
           return batchAlreadyProcessed(*batch);
         });
 
   log_->debug("Packed proposal contains: {} transactions.", txs.size());
-  return tryCreateProposal(round, txs, now);
+  if (auto result = tryCreateProposal(round, txs, now))
+    return std::make_pair(std::move(result).value(), bf);
+
+  return std::nullopt;
 }
 
 void OnDemandOrderingServiceImpl::tryErase(

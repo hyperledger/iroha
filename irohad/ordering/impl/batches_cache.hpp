@@ -15,6 +15,7 @@
 #include <unordered_set>
 
 #include "consensus/round.hpp"
+#include "ordering/ordering_types.hpp"
 
 namespace shared_model::interface {
   class TransactionBatch;
@@ -109,9 +110,11 @@ namespace iroha::ordering {
         size_t requested_tx_amount,
         std::vector<std::shared_ptr<shared_model::interface::Transaction>>
             &collection,
+        BloomFilter256 &bf,
         IsProcessedFunc &&is_processed) {
       collection.clear();
       collection.reserve(requested_tx_amount);
+      bf.clear();
 
       std::unique_lock lock(batches_cache_cs_);
       uint32_t depth_counter = 0ul;
@@ -130,6 +133,7 @@ namespace iroha::ordering {
                           std::begin(batch->transactions()),
                           std::end(batch->transactions()));
 
+        bf.set(batch->reducedHash());
         used_batches_cache_.insert(batch);
         return true;
       });
