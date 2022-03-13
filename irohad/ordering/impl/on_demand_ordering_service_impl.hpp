@@ -19,6 +19,7 @@
 // TODO 2019-03-15 andrei: IR-403 Separate BatchHashEquality and MstState
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "main/subscription.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -50,6 +51,8 @@ namespace iroha {
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           logger::LoggerPtr log,
           size_t number_of_proposals = 3);
+
+      ~OnDemandOrderingServiceImpl() override;
 
       // --------------------- | OnDemandOrderingService |_---------------------
 
@@ -159,6 +162,9 @@ namespace iroha {
        * Current round
        */
       consensus::Round current_round_;
+
+      std::shared_ptr<iroha::BaseSubscriber<bool, RemoteProposalDownloadedEvent>>
+          remote_proposal_observer_;
     };
   }  // namespace ordering
 }  // namespace iroha

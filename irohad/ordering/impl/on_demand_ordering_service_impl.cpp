@@ -19,8 +19,49 @@
 #include "logger/logger.hpp"
 #include "main/subscription.hpp"
 #include "subscription/scheduler_impl.hpp"
+#include "ordering/ordering_types.hpp"
+#include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
+#include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 
 using iroha::ordering::OnDemandOrderingServiceImpl;
+
+namespace {
+  auto parseProposal(
+      shared_model::interface::types::TransactionsCollectionType const &txs) {
+    shared_model::interface::types::SharedTxsCollectionType transactions;
+    for (auto const &transaction : txs)
+      transactions.push_back(clone(transaction));
+
+    return shared_model::interface::TransactionBatchParserImpl().parseBatches(
+        transactions);
+  }
+
+  void uploadBatches(
+      iroha::ordering::BatchesCache::BatchesSetType &batches,
+      shared_model::interface::types::TransactionsCollectionType const &txs) {
+    auto batch_txs = parseProposal(txs);
+    for (auto &txs : batch_txs) {
+      batches.insert(
+          std::make_shared<shared_model::interface::TransactionBatchImpl>(
+              std::move(txs)));
+    }
+  }
+
+  void uploadBatchesWithFilter(
+      iroha::ordering::BloomFilter256 const &bf,
+      iroha::ordering::BatchesCache::BatchesSetType &batches,
+      shared_model::interface::types::TransactionsCollectionType const &txs) {
+    auto batch_txs = parseProposal(txs);
+    for (auto &txs : batch_txs) {
+      auto batch =
+          std::make_shared<shared_model::interface::TransactionBatchImpl>(
+              std::move(txs));
+      if (bf.test(batch->reducedHash()))
+        batches.insert(batch);
+    }
+  }
+}
 
 OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t transaction_limit,
@@ -33,7 +74,48 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
       number_of_proposals_(number_of_proposals),
       proposal_factory_(std::move(proposal_factory)),
       tx_cache_(std::move(tx_cache)),
-      log_(std::move(log)) {}
+      log_(std::move(log)) {
+  remote_proposal_observer_ =
+      SubscriberCreator<bool, RemoteProposalDownloadedEvent>::template create<
+          iroha::EventTypes::kRemoteProposalDiff>(
+          iroha::SubscriptionEngineHandlers::kProposalProcessing,
+          [this](
+              auto,
+              auto ev) {  /// TODO(iceseer): remove `this` from lambda context
+            BatchesCache::BatchesSetType batches;
+            uploadBatches(batches, ev.remote->transactions());
+
+            if (ev.bloom_filter.size() == BloomFilter256::kBytesCount) {
+              BloomFilter256 bf;
+              bf.store(ev.bloom_filter);
+              uploadBatchesWithFilter(bf, batches, ev.local->transactions());
+            }
+
+            std::vector<std::shared_ptr<shared_model::interface::Transaction>>
+                collection;
+            for (auto const &batch : batches) {
+              collection.insert(std::end(collection),
+                                std::begin(batch->transactions()),
+                                std::end(batch->transactions()));
+            }
+            if (auto result =
+                    tryCreateProposal(ev.round, collection, ev.created_time);
+                result
+                && result.value()->hash()
+                    == shared_model::crypto::Hash(ev.remote_proposal_hash))
+              iroha::getSubscription()->notify(
+                  iroha::EventTypes::kOnProposalResponse,
+                  ProposalEvent{std::move(result).value(), ev.round});
+            else
+              iroha::getSubscription()->notify(
+                  iroha::EventTypes::kOnProposalResponseFailed,
+                  ProposalEvent{std::nullopt, ev.round});
+          });
+}
+
+OnDemandOrderingServiceImpl::~OnDemandOrderingServiceImpl() {
+  remote_proposal_observer_->unsubscribe();
+}
 
 // -------------------------| OnDemandOrderingService |-------------------------
 

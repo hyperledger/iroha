@@ -18,6 +18,7 @@
 #include "ordering/impl/round_switch.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
 #include "ordering/on_demand_os_transport.hpp"
+#include "main/subscription.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -96,6 +97,8 @@ namespace iroha {
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;
       consensus::Round current_round_;
       std::shared_ptr<const LedgerState> current_ledger_state_;
+      std::shared_ptr<iroha::BaseSubscriber<bool, ProposalEvent>>
+          failed_proposal_response_;
 
       std::shared_timed_mutex stop_mutex_;
       bool stop_requested_{false};

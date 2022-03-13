@@ -49,7 +49,6 @@ namespace iroha {
             std::function<TimepointType()> time_provider,
             std::chrono::milliseconds proposal_request_timeout,
             logger::LoggerPtr log,
-            std::function<void(ProposalEvent)> callback,
             std::shared_ptr<ExecutorKeeper> os_execution_keepers,
             std::string peer_name);
 
@@ -59,9 +58,8 @@ namespace iroha {
 
         void onRequestProposal(
             consensus::Round round,
-            std::optional<
-                std::shared_ptr<const shared_model::interface::Proposal>>
-                ref_proposal) override;
+            std::optional<std::pair<std::shared_ptr<shared_model::interface::Proposal const>, BloomFilter256>>
+            proposal) override;
 
         std::chrono::milliseconds getRequestDelay() const override;
 
@@ -71,7 +69,6 @@ namespace iroha {
         std::shared_ptr<TransportFactoryType> proposal_factory_;
         std::function<TimepointType()> time_provider_;
         std::chrono::milliseconds proposal_request_timeout_;
-        std::function<void(ProposalEvent)> callback_;
         std::weak_ptr<grpc::ClientContext> context_;
         std::shared_ptr<ExecutorKeeper> os_execution_keepers_;
         std::string peer_name_;
@@ -89,7 +86,6 @@ namespace iroha {
             OnDemandOsClientGrpc::TimeoutType proposal_request_timeout,
             logger::LoggerPtr client_log,
             std::unique_ptr<ClientFactory> client_factory,
-            std::function<void(ProposalEvent)> callback,
             std::shared_ptr<ExecutorKeeper> os_execution_keepers);
 
         iroha::expected::Result<std::unique_ptr<OdOsNotification>, std::string>
@@ -103,7 +99,6 @@ namespace iroha {
         std::chrono::milliseconds proposal_request_timeout_;
         logger::LoggerPtr client_log_;
         std::unique_ptr<ClientFactory> client_factory_;
-        std::function<void(ProposalEvent)> callback_;
         std::shared_ptr<ExecutorKeeper> os_execution_keepers_;
       };
 

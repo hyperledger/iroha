@@ -46,15 +46,18 @@ namespace shared_model::crypto {
 
   template <typename DataType, size_t kBitsCount, typename... HashFunctions>
   class BloomFilter final {
+   public:
     static_assert((kBitsCount & 0x7) == 0, "BitsCount must be multiple of 8");
     static_assert(kBitsCount != 0, "BitsCount can not be 0");
+    static constexpr size_t kBytesCount = (kBitsCount >> 3);
+
+   private:
 
     template <typename... T>
     struct ArgsListNE {
       static constexpr auto value = sizeof...(T) > 0;
     };
 
-    static constexpr size_t kBytesCount = (kBitsCount >> 3);
     uint8_t filter_[kBytesCount] __attribute__((aligned(16)));
 
     template <typename Hasher>
@@ -98,8 +101,8 @@ namespace shared_model::crypto {
         throw std::runtime_error("Unexpected Bloom filter size.");
     }
 
-    std::string_view load() {
-      return std::string_view(filter_, kBytesCount);
+    std::string_view load() const {
+      return std::string_view((char*)filter_, kBytesCount);
     }
   };
 

@@ -63,33 +63,17 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
 
 void OnDemandConnectionManager::onRequestProposal(
     consensus::Round round,
-    std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-        ref_proposal) {
-  std::shared_lock<std::shared_timed_mutex> lock(mutex_);
-  if (stop_requested_.load(std::memory_order_relaxed)) {
-    return;
-  }
-
-  log_->debug("onRequestProposal, {}", round);
-
-  if (auto &connection = connections_.peers[kIssuer]) {
-    (*connection)->onRequestProposal(round, std::move(ref_proposal));
-  }
-}
-
-void OnDemandConnectionManager::onRequestProposalExt1(
-    consensus::Round round,
     std::optional<std::pair<std::shared_ptr<shared_model::interface::Proposal const>, BloomFilter256>>
     proposal) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed))
     return;
 
-  log_->debug("onRequestProposalExt1, {} : {}",
+  log_->debug("onRequestProposal, {} : {}",
               round,
               proposal ? proposal.value().first->toString() : "NULL_OPT");
   if (auto &connection = connections_.peers[kIssuer])
-    (*connection)->onRequestProposalExt1(round, std::move(proposal));
+    (*connection)->onRequestProposal(round, std::move(proposal));
 }
 
 void OnDemandConnectionManager::initializeConnections(

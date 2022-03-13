@@ -30,6 +30,21 @@ message ProposalRequest {
   }
 }
 
+message ProposalRequest_v2 {
+  ProposalRound round = 1;
+  oneof optional_bloom_filter {
+    bytes bloom_filter = 2;
+  }
+}
+
+message ProposalResponse_v2 {
+  bytes bloom_filter = 1;
+  protocol.Proposal proposal = 2;
+  oneof optional_proposal_hash {
+    bytes proposal_hash = 3;
+  }
+}
+
 message ProposalResponse {
   oneof optional_proposal {
     protocol.Proposal proposal = 1;
@@ -40,4 +55,5 @@ message ProposalResponse {
 service OnDemandOrdering {
   rpc SendBatches(BatchesRequest) returns (google.protobuf.Empty);
   rpc RequestProposal(ProposalRequest) returns (ProposalResponse);
+  rpc RequestProposal_v2(ProposalRequest_v2) returns (ProposalResponse_v2);
 }

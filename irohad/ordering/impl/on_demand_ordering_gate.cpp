@@ -22,6 +22,7 @@
 #include "logger/logger.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "validators/field_validator.hpp"
+#include "main/subscription.hpp"
 
 using iroha::ordering::OnDemandOrderingGate;
 
@@ -39,9 +40,23 @@ OnDemandOrderingGate::OnDemandOrderingGate(
       network_client_(std::move(network_client)),
       proposal_factory_(std::move(factory)),
       tx_cache_(std::move(tx_cache)),
-      syncing_mode_(syncing_mode) {}
+      syncing_mode_(syncing_mode) {
+  failed_proposal_response_ =
+      SubscriberCreator<bool, ProposalEvent>::template create<
+          EventTypes::kOnProposalResponseFailed>(
+          SubscriptionEngineHandlers::kYac,
+          [this](
+              auto,
+              auto ev) {  /// TODO(iceseer): remove `this` from lambda context
+            if (!syncing_mode_) {
+              assert(network_client_);
+              network_client_->onRequestProposal(ev.round, std::nullopt);
+            }
+          });
+}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {
+  failed_proposal_response_->unsubscribe();
   stop();
 }
 
@@ -81,7 +96,7 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
     assert(ordering_service_);
     assert(network_client_);
 
-    network_client_->onRequestProposalExt1(
+    network_client_->onRequestProposal(
         event.next_round,
         ordering_service_->waitForLocalProposal(
             event.next_round, network_client_->getRequestDelay()));

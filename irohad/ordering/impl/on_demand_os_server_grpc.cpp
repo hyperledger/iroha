@@ -7,6 +7,7 @@
 
 #include "backend/protobuf/deserialize_repeated_transactions.hpp"
 #include "backend/protobuf/proposal.hpp"
+#include "backend/protobuf/transaction.hpp"
 #include "interfaces/iroha_internal/parse_and_create_batches.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
@@ -61,37 +62,43 @@ grpc::Status OnDemandOsServerGrpc::SendBatches(
   return ::grpc::Status::OK;
 }
 
-grpc::Status OnDemandOsServerGrpc::RequestProposal(
+grpc::Status OnDemandOsServerGrpc::RequestProposal_v2(
     ::grpc::ServerContext *context,
-    const proto::ProposalRequest *request,
-    proto::ProposalResponse *response) {
+    const proto::ProposalRequest_v2 *request,
+    proto::ProposalResponse_v2 *response) {
   consensus::Round round{request->round().block_round(),
                          request->round().reject_round()};
-  log_->info("Received RequestProposal for {} from {}", round, context->peer());
+  log_->info(
+      "Received RequestProposal_v2 for {} from {}", round, context->peer());
   auto maybe_proposal = ordering_service_->waitForLocalProposal(round, delay_);
   if (maybe_proposal.has_value()) {
-    if (request->has_ref_proposal_hash()
-        && maybe_proposal.value()->hash()
-            == shared_model::crypto::Hash(request->ref_proposal_hash()))
-      response->set_same_proposal_hash(request->ref_proposal_hash());
-    else
+    auto const &[sptr_proposal, bf] = maybe_proposal.value();
+    response->set_bloom_filter(bf.load().data(), bf.load().size());
+    response->set_proposal_hash(sptr_proposal->hash().blob().data(),
+                                sptr_proposal->hash().blob().size());
+
+    if (!request->has_bloom_filter() || request->bloom_filter().size() != BloomFilter256::kBytesCount) {
+      log_->info("Response with full {} txs proposal.",
+                 sptr_proposal->transactions().size());
       *response->mutable_proposal() =
-          static_cast<const shared_model::proto::Proposal *>(
-              maybe_proposal->get())
+          static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
               ->getTransport();
+    } else {
+      auto const &proto_proposal = static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
+          ->getTransport();
+      response->mutable_proposal()->set_created_time(proto_proposal.created_time());
+      response->mutable_proposal()->set_height(proto_proposal.height());
+
+      BloomFilter256 bf;
+      bf.store(std::string_view(request->bloom_filter()));
+      for (auto &tx_src : proto_proposal.transactions()) {
+        if (!bf.test()) {
+          auto *tx_dst =
+              response->mutable_proposal()->mutable_transactions()->Add();
+          *tx_dst = tx_src;
+        }
+      }
+    }
   }
-
-  log_->debug(
-      "Responding for {} with {}: our proposal {}",
-      round,
-      request->has_ref_proposal_hash() ? request->ref_proposal_hash()
-                                       : "NO REFERENCE PROPOSAL HASH",
-      response->optional_proposal_case() == response->kProposal
-          ? fmt::format("has DIFFERENT hash {}, sending full proposal",
-                        maybe_proposal.value()->hash().hex())
-          : response->optional_proposal_case() == response->kSameProposalHash
-              ? "has SAME hash, sending only hash"
-              : "is EMPTY");
-
   return ::grpc::Status::OK;
 }

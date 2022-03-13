@@ -55,20 +55,9 @@ namespace iroha {
          * Callback on request about proposal
          * @param round - number of collaboration round.
          * Calculated as block_height + 1
-         */
-        virtual void onRequestProposal(
-            consensus::Round round,
-            std::optional<
-                std::shared_ptr<const shared_model::interface::Proposal>>
-                ref_proposal) = 0;
-
-        /**
-         * Callback on request about proposal
-         * @param round - number of collaboration round.
-         * Calculated as block_height + 1
          * @param proposal data with Bloom filter
          */
-        virtual void onRequestProposalExt1(
+        virtual void onRequestProposal(
             consensus::Round round,
             std::optional<std::pair<std::shared_ptr<shared_model::interface::Proposal const>, BloomFilter256>>
             proposal) = 0;

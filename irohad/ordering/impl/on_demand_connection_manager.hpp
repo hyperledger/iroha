@@ -56,13 +56,8 @@ namespace iroha {
 
       void onBatches(CollectionType batches) override;
       std::chrono::milliseconds getRequestDelay() const override;
-      void onRequestProposal(
-          consensus::Round round,
-          std::optional<
-              std::shared_ptr<const shared_model::interface::Proposal>>
-              ref_proposal) override;
 
-      void onRequestProposalExt1(
+      void onRequestProposal(
           consensus::Round round,
           std::optional<std::pair<std::shared_ptr<shared_model::interface::Proposal const>, BloomFilter256>>
           proposal) override;
