@@ -176,5 +176,14 @@ namespace shared_model {
       return new Transaction(TransportType(*impl_->proto_));
     }
 
+    void Transaction::storeBatchHash(shared_model::interface::types::HashType const &hash) {
+      batch_hash_ = hash;
+    }
+
+    std::optional<shared_model::interface::types::HashType> const &Transaction::getBatchHash() {
+      return batch_hash_;
+    }
+
+
   }  // namespace proto
 }  // namespace shared_model

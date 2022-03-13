@@ -91,11 +91,14 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal_v2(
 
       BloomFilter256 bf;
       bf.store(std::string_view(request->bloom_filter()));
-      for (auto &tx_src : proto_proposal.transactions()) {
-        if (!bf.test()) {
+
+      assert((size_t)proto_proposal.transactions().size() == sptr_proposal->transactions().size());
+      for (size_t ix = 0; ix < sptr_proposal->transactions().size(); ++ix) {
+        assert(sptr_proposal->transactions()[ix].getBatchHash());
+        if (!bf.test(sptr_proposal->transactions()[(int)ix].getBatchHash().value())) {
           auto *tx_dst =
               response->mutable_proposal()->mutable_transactions()->Add();
-          *tx_dst = tx_src;
+          *tx_dst = proto_proposal.transactions()[(int)ix];
         }
       }
     }

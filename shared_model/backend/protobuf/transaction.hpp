@@ -58,12 +58,16 @@ namespace shared_model {
       std::optional<std::shared_ptr<interface::BatchMeta>> batchMeta()
           const override;
 
+      void storeBatchHash(shared_model::interface::types::HashType const &hash) override;
+      std::optional<shared_model::interface::types::HashType> const &getBatchHash() override;
+
      protected:
       Transaction::ModelType *clone() const override;
 
      private:
       struct Impl;
       std::unique_ptr<Impl> impl_;
+      std::optional<shared_model::interface::types::HashType> batch_hash_;
     };
   }  // namespace proto
 }  // namespace shared_model

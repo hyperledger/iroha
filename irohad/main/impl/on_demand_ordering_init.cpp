@@ -56,10 +56,6 @@ auto createNotificationFactory(
       std::make_unique<iroha::network::ClientFactoryImpl<
           iroha::ordering::transport::OnDemandOsClientGrpcFactory::Service>>(
           std::move(client_factory)),
-      [](iroha::ordering::ProposalEvent event) {
-        iroha::getSubscription()->notify(iroha::EventTypes::kOnProposalResponse,
-                                         std::move(event));
-      },
       std::move(os_execution_keepers));
 }
 
