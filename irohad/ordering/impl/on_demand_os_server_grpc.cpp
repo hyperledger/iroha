@@ -77,15 +77,13 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal_v2(
     response->set_proposal_hash(sptr_proposal->hash().blob().data(),
                                 sptr_proposal->hash().blob().size());
 
+    auto const &proto_proposal = static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
+        ->getTransport();
     if (!request->has_bloom_filter() || request->bloom_filter().size() != BloomFilter256::kBytesCount) {
       log_->info("Response with full {} txs proposal.",
                  sptr_proposal->transactions().size());
-      *response->mutable_proposal() =
-          static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
-              ->getTransport();
+      *response->mutable_proposal() = proto_proposal;
     } else {
-      auto const &proto_proposal = static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
-          ->getTransport();
       response->mutable_proposal()->set_created_time(proto_proposal.created_time());
       response->mutable_proposal()->set_height(proto_proposal.height());
 
