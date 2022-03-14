@@ -26,24 +26,24 @@ pub struct Event(pub Interval);
     Serialize,
     Deserialize,
 )]
-pub struct EventFilter(pub Occurrence);
+pub struct EventFilter(pub Recurrence);
 
 impl EventFilter {
     /// Check if `event` matches filter
-    ///
-    /// Returns `true`, if `event` matches filter and `false` if not
     pub fn matches(&self, event: &Event) -> bool {
         match &self.0 {
-            Occurrence::Every(interval) => {
+            Recurrence::Every(interval) => {
+                // `since` field inside `self` is updated every time trigger is executed.
+                // See `TriggerSet::find_matching()`
                 let time = interval.since + interval.length;
                 Range::from(event.0).contains(&time)
             }
-            Occurrence::ExactlyAt(time) => Range::from(event.0).contains(time),
+            Recurrence::ExactlyAt(time) => Range::from(event.0).contains(time),
         }
     }
 }
 
-/// Enumeration of possible occurrence schemes
+/// Enumeration of possible recurrence schemes
 #[derive(
     Debug,
     Clone,
@@ -59,7 +59,7 @@ impl EventFilter {
     IntoSchema,
     Hash,
 )]
-pub enum Occurrence {
+pub enum Recurrence {
     /// Occurs every set time
     Every(Interval),
     /// Occurs once exactly on set time
@@ -105,6 +105,6 @@ impl From<Interval> for Range<Duration> {
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
-        Event as TimeEvent, EventFilter as TimeEventFilter, Interval as TimeInterval, Occurrence,
+        Event as TimeEvent, EventFilter as TimeEventFilter, Interval as TimeInterval, Recurrence,
     };
 }

@@ -7,8 +7,7 @@ use iroha_telemetry::metrics;
 use crate::prelude::*;
 
 /// Trait to check if [`Action`] should be executed at exact time or not.
-///
-/// Implemented as a trait and not as basic method, cause it is needed only inside this module
+/// Implemented as a trait and not as basic method, cause it is needed only inside this module.
 trait OccursExactlyAtTime {
     /// Check if action occurs exactly at set time.
     /// Returns `true` if yes and `false` in another case
@@ -19,7 +18,7 @@ impl OccursExactlyAtTime for Action {
     fn occurs_exactly_at_time(&self) -> bool {
         matches!(
             self.filter,
-            EventFilter::Time(TimeEventFilter(Occurrence::ExactlyAt(_)))
+            EventFilter::Time(TimeEventFilter(Recurrence::ExactlyAt(_)))
         )
     }
 }

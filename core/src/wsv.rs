@@ -192,9 +192,8 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Instructions** to `self`.
     ///
     /// Order of execution:
-    /// 1) Event Based Triggers from `trigger_recommendations.event_triggers`
-    /// 2) Transactions
-    /// 3) Time Based Triggers from `trigger_recommendations.time_triggers`
+    /// 1) Transactions
+    /// 2) Triggers
     ///
     /// # Errors
     ///
@@ -229,7 +228,9 @@ impl<W: WorldTrait> WorldStateView<W> {
         );
         self.execute_triggers(triggers).await?;
 
-        self.commit(block);
+        self.blocks.push(block);
+        self.block_commit_metrics_update_callback();
+        self.new_block_notifier.send_replace(());
 
         // TODO: On block commit triggers
         // TODO: Pass self.events to the next block
@@ -272,13 +273,6 @@ impl<W: WorldTrait> WorldStateView<W> {
         }
 
         Ok(())
-    }
-
-    /// Commit block
-    fn commit(&self, block: VersionedCommittedBlock) {
-        self.blocks.push(block);
-        self.block_commit_metrics_update_callback();
-        self.new_block_notifier.send_replace(());
     }
 
     /// Get `Asset` by its id
