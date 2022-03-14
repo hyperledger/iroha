@@ -109,11 +109,16 @@ namespace shared_model {
                                         BatchOrderValidator,
                                         false>;
 
+    using DefaultSignedTransactionsValidatorWithAllowedEmptyList =
+    TransactionsCollectionValidator<DefaultSignedTransactionValidator,
+        BatchOrderValidator,
+        true>;
+
     /**
      * Proposal validator which checks stateless validation of proposal
      */
     using DefaultProposalValidator =
-        ProposalValidator<FieldValidator, DefaultSignedTransactionsValidator>;
+        ProposalValidator<FieldValidator, DefaultSignedTransactionsValidatorWithAllowedEmptyList>;
 
     /**
      * Block validator which checks blocks WITHOUT signatures. Note that it does

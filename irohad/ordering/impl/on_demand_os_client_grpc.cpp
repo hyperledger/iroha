@@ -236,11 +236,16 @@ void OnDemandOsClientGrpc::onRequestProposal(
                   response.proposal_hash(),
                   round,
                   remote_proposal ? remote_proposal->createdTime() : 0ull});
-        } else
+        } else if (!remote_proposal->transactions().empty())
           iroha::getSubscription()->notify(
               iroha::EventTypes::kOnProposalResponse,
               ProposalEvent{std::move(remote_proposal), round});
-
+        else {
+          maybe_log->info("Transactions sequence in proposal is empty");
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kOnProposalResponse,
+              ProposalEvent{std::nullopt, round});
+        }
 
         /*auto extract_batches = [&](auto const &proposal) {
           shared_model::interface::types::BatchesCollectionType batches;
