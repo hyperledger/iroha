@@ -129,6 +129,9 @@ namespace iroha::ordering {
           return false;
         }
 
+        for (auto &tx : batch->transactions())
+          tx->storeBatchHash(batch->reducedHash());
+
         collection.insert(std::end(collection),
                           std::begin(batch->transactions()),
                           std::end(batch->transactions()));

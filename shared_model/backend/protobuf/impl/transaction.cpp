@@ -180,7 +180,7 @@ namespace shared_model {
       batch_hash_ = hash;
     }
 
-    std::optional<shared_model::interface::types::HashType> const &Transaction::getBatchHash() {
+    std::optional<shared_model::interface::types::HashType> const &Transaction::getBatchHash() const {
       return batch_hash_;
     }
 

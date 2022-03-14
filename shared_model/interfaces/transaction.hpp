@@ -55,7 +55,7 @@ namespace shared_model {
       virtual const types::HashType &reducedHash() const = 0;
 
       virtual void storeBatchHash(types::HashType const &hash) = 0;
-      virtual std::optional<types::HashType> const &getBatchHash() = 0;
+      virtual std::optional<types::HashType> const &getBatchHash() const = 0;
 
       /**
        * @return new Transaction obeject with moved data
