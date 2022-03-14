@@ -54,7 +54,7 @@ func CallSim(reader acmstate.Reader, blockchain bcm.BlockchainInfo, from string,
 		Balance:     999999,
 		Permissions: permission.DefaultAccountPermissions,
 	}); err != nil {
-		return nil, fmt.Errorf("unable to update account ")
+		return nil, fmt.Errorf("unable to update account")
 	}
 	evmCaller := native.AddressFromName(from)
 	callerAccount, err := worldState.GetAccount(evmCaller)
