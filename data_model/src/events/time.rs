@@ -1,6 +1,6 @@
 //! Time event and filter
 
-use std::{ops::Range, time::Duration};
+use core::{ops::Range, time::Duration};
 
 use super::*;
 
