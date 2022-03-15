@@ -8,6 +8,7 @@
 
 #include "crypto/bloom.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
+#include "consensus/round.hpp"
 
 namespace iroha::ordering {
 
