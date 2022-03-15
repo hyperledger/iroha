@@ -1561,10 +1561,13 @@ pub mod config {
     use iroha_data_model::{prelude::*, transaction};
     use serde::{Deserialize, Serialize};
 
-    const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
+    /// Default Amount of time peer waits for the `CreatedBlock` message
+    /// after getting a `TransactionReceipt`
+    pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
     /// Default amount of time Peer waits for `CommitMessage` from the proxy tail.
     pub const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
-    const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
+    /// Default amount of time Peer waits for `TxReceipt` from the leader.
+    pub const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
     const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
     const DEFAULT_MAILBOX_SIZE: usize = 100;
     const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
@@ -1588,7 +1591,7 @@ pub mod config {
         pub trusted_peers: TrustedPeers,
         /// Amount of time Peer waits for `CommitMessage` from the proxy tail.
         pub commit_time_ms: u64,
-        /// Amount of time Peer waits for TxReceipt from the leader.
+        /// Amount of time Peer waits for `TxReceipt` from the leader.
         pub tx_receipt_time_ms: u64,
         /// After N view changes topology will change tactic from shifting by one, to reshuffle.
         pub n_topology_shifts_before_reshuffle: u64,

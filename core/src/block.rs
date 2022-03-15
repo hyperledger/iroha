@@ -21,12 +21,20 @@ use parity_scale_codec::{Decode, Encode};
 use crate::{
     prelude::*,
     sumeragi::{
+        config::*,
         network_topology::Topology,
         view_change::{Proof, ProofChain as ViewChangeProofs},
     },
     tx::{TransactionValidator, VersionedAcceptedTransaction},
     wsv::WorldTrait,
 };
+
+const PIPELINE_TIME_MS: u64 =
+    DEFAULT_BLOCK_TIME_MS + DEFAULT_COMMIT_TIME_MS + DEFAULT_TX_RECEIPT_TIME_MS;
+
+/// Default estimation of consensus duration
+#[allow(clippy::integer_division)]
+pub const DEFAULT_CONSENSUS_ESTIMATION: u64 = (DEFAULT_COMMIT_TIME_MS + PIPELINE_TIME_MS) / 2;
 
 /// The chain of the previous block hash. If there is no previous
 /// block - the blockchain is empty.
@@ -209,6 +217,7 @@ impl PendingBlock {
             event_recommendations: self.event_recommendations,
             header: BlockHeader {
                 timestamp: self.timestamp,
+                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION,
                 height: height + 1,
                 previous_block_hash,
                 transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
@@ -227,6 +236,7 @@ impl PendingBlock {
             event_recommendations: self.event_recommendations,
             header: BlockHeader {
                 timestamp: self.timestamp,
+                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
@@ -245,6 +255,7 @@ impl PendingBlock {
             event_recommendations: self.event_recommendations,
             header: BlockHeader {
                 timestamp: self.timestamp,
+                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
@@ -273,6 +284,8 @@ pub struct ChainedBlock {
 pub struct BlockHeader {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
+    /// Estimation of consensus duration in milliseconds
+    pub consensus_estimation: u64,
     /// a number of blocks in the chain up to the block.
     pub height: u64,
     /// Hash of a previous block in the chain.
@@ -606,6 +619,7 @@ impl ValidBlock {
         Self {
             header: BlockHeader {
                 timestamp: 0,
+                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: EmptyChainHash::default().into(),

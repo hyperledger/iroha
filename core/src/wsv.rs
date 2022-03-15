@@ -207,7 +207,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
         let time_event = Event::Time(TimeEvent(TimeInterval::new(
             Duration::from_millis(block.as_v1().header.timestamp.try_into()?),
-            Duration::from_millis(self.config.commit_time_ms),
+            Duration::from_millis(block.as_v1().header.consensus_estimation),
         )));
         self.produce_events(once(time_event.clone()));
 
@@ -811,9 +811,6 @@ pub mod config {
         pub domain_metadata_limits: MetadataLimits,
         /// [`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
         pub ident_length_limits: LengthLimits,
-        /// Amount of time Peer waits for CommitMessage from the proxy tail.
-        /// Should have the same value as corresponding field in sumeragi config
-        pub commit_time_ms: u64,
     }
 
     impl Default for Configuration {
@@ -824,7 +821,6 @@ pub mod config {
                 account_metadata_limits: DEFAULT_METADATA_LIMITS,
                 domain_metadata_limits: DEFAULT_METADATA_LIMITS,
                 ident_length_limits: DEFAULT_IDENT_LENGTH_LIMITS,
-                commit_time_ms: crate::sumeragi::config::DEFAULT_COMMIT_TIME_MS,
             }
         }
     }

@@ -1,7 +1,7 @@
 //! Objects for the `print` subcommand.
 
 use futures_util::StreamExt;
-use iroha_core::{kura, prelude::VersionedCommittedBlock};
+use iroha_core::{kura, prelude::*};
 
 use crate::Output;
 
@@ -117,11 +117,12 @@ mod tests {
     }
 
     fn block() -> VersionedCommittedBlock {
-        use iroha_core::block::{BlockHeader, EmptyChainHash, ValidBlock};
+        use iroha_core::block::{BlockHeader, EmptyChainHash};
 
         ValidBlock {
             header: BlockHeader {
                 timestamp: 0,
+                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: EmptyChainHash::default().into(),
