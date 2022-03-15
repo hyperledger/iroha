@@ -6,12 +6,12 @@
 #ifndef IROHA_CRYPTO_BLOOM_HPP
 #define IROHA_CRYPTO_BLOOM_HPP
 
-#include <string_view>
 #include <iostream>
+#include <string_view>
 #include <type_traits>
 
-#include "cryptography/hash.hpp"
 #include "common/mem_operations.hpp"
+#include "cryptography/hash.hpp"
 
 namespace shared_model::crypto {
 
@@ -37,7 +37,7 @@ namespace shared_model::crypto {
       target |= (1 << bit_position);
     }
     static bool isSet(shared_model::crypto::Hash const &hash,
-               uint8_t const (&bloom)[kSize]) {
+                      uint8_t const (&bloom)[kSize]) {
       auto const &[byte_position, bit_position] = pack8(hash);
       auto const &target = *(bloom + byte_position);
       return ((target & (1 << bit_position)) != 0);
@@ -52,7 +52,6 @@ namespace shared_model::crypto {
     static constexpr size_t kBytesCount = (kBitsCount >> 3);
 
    private:
-
     template <typename... T>
     struct ArgsListNE {
       static constexpr auto value = sizeof...(T) > 0;
@@ -102,7 +101,7 @@ namespace shared_model::crypto {
     }
 
     std::string_view load() const {
-      return std::string_view((char*)filter_, kBytesCount);
+      return std::string_view((char *)filter_, kBytesCount);
     }
   };
 

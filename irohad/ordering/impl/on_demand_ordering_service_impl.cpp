@@ -15,14 +15,13 @@
 #include "datetime/time.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "interfaces/iroha_internal/transaction_batch_impl.hpp"
+#include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "main/subscription.hpp"
-#include "subscription/scheduler_impl.hpp"
 #include "ordering/ordering_types.hpp"
-#include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
-#include "interfaces/iroha_internal/transaction_batch.hpp"
-#include "interfaces/iroha_internal/transaction_batch_impl.hpp"
+#include "subscription/scheduler_impl.hpp"
 
 using iroha::ordering::OnDemandOrderingServiceImpl;
 
@@ -61,7 +60,7 @@ namespace {
         batches.insert(batch);
     }
   }
-}
+}  // namespace
 
 OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t transaction_limit,

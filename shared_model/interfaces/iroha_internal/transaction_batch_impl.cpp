@@ -25,8 +25,7 @@ namespace shared_model {
             return tx->reducedHash();
           }));
 
-      for (auto &tx : transactions_)
-        tx->storeBatchHash(reduced_hash_);
+      for (auto &tx : transactions_) tx->storeBatchHash(reduced_hash_);
     }
 
     const types::SharedTxsCollectionType &TransactionBatchImpl::transactions()

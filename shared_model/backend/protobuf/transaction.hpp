@@ -58,8 +58,10 @@ namespace shared_model {
       std::optional<std::shared_ptr<interface::BatchMeta>> batchMeta()
           const override;
 
-      void storeBatchHash(shared_model::interface::types::HashType const &hash) override;
-      std::optional<shared_model::interface::types::HashType> const &getBatchHash() const override;
+      void storeBatchHash(
+          shared_model::interface::types::HashType const &hash) override;
+      std::optional<shared_model::interface::types::HashType> const &
+      getBatchHash() const override;
 
      protected:
       Transaction::ModelType *clone() const override;

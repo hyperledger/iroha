@@ -17,9 +17,9 @@
 #include "multi_sig_transactions/hash.hpp"
 #include "ordering/impl/batches_cache.hpp"
 // TODO 2019-03-15 andrei: IR-403 Separate BatchHashEquality and MstState
+#include "main/subscription.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "ordering/impl/on_demand_common.hpp"
-#include "main/subscription.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -29,7 +29,7 @@ namespace iroha {
     namespace detail {
       using ProposalMapType =
           std::map<consensus::Round,
-              OnDemandOrderingService::PackedProposalData>;
+                   OnDemandOrderingService::PackedProposalData>;
     }  // namespace detail
 
     class OnDemandOrderingServiceImpl : public OnDemandOrderingService {
@@ -58,8 +58,7 @@ namespace iroha {
 
       void onBatches(CollectionType batches) override;
 
-      PackedProposalData onRequestProposal(
-          consensus::Round round) override;
+      PackedProposalData onRequestProposal(consensus::Round round) override;
 
       void onCollaborationOutcome(consensus::Round round) override;
 
@@ -82,8 +81,7 @@ namespace iroha {
        * Packs new proposals and creates new rounds
        * Note: method is not thread-safe
        */
-      PackedProposalData
-      packNextProposals(const consensus::Round &round);
+      PackedProposalData packNextProposals(const consensus::Round &round);
 
       using TransactionsCollectionType =
           std::vector<std::shared_ptr<shared_model::interface::Transaction>>;
@@ -163,7 +161,8 @@ namespace iroha {
        */
       consensus::Round current_round_;
 
-      std::shared_ptr<iroha::BaseSubscriber<bool, RemoteProposalDownloadedEvent>>
+      std::shared_ptr<
+          iroha::BaseSubscriber<bool, RemoteProposalDownloadedEvent>>
           remote_proposal_observer_;
     };
   }  // namespace ordering

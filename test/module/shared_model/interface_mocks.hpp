@@ -75,8 +75,11 @@ struct MockTransaction : public shared_model::interface::Transaction {
       std::optional<std::shared_ptr<shared_model::interface::BatchMeta>>());
   MOCK_METHOD0(moveTo, std::unique_ptr<Transaction>());
 
-  MOCK_METHOD1(storeBatchHash, void (shared_model::interface::types::HashType const &));
-  MOCK_CONST_METHOD0(getBatchHash, std::optional<shared_model::interface::types::HashType> const &());
+  MOCK_METHOD1(storeBatchHash,
+               void(shared_model::interface::types::HashType const &));
+  MOCK_CONST_METHOD0(
+      getBatchHash,
+      std::optional<shared_model::interface::types::HashType> const &());
 };
 
 /**

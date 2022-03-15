@@ -14,11 +14,11 @@
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/round_switch.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
 #include "ordering/on_demand_os_transport.hpp"
-#include "main/subscription.hpp"
 
 namespace iroha {
   namespace ametsuchi {

@@ -7,11 +7,11 @@
 
 #include <chrono>
 
-#include "ordering/ordering_types.hpp"
 #include "backend/protobuf/proposal.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/behaviour.hpp"
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
+#include "ordering/ordering_types.hpp"
 
 namespace integration_framework::fake_peer {
 
@@ -44,9 +44,11 @@ namespace integration_framework::fake_peer {
     if (behaviour) {
       auto opt_proposal = behaviour->processOrderingProposalRequest(round);
       if (opt_proposal) {
-        return std::make_pair(std::shared_ptr<const shared_model::interface::Proposal>(
-            std::static_pointer_cast<const shared_model::proto::Proposal>(
-                *opt_proposal)), iroha::ordering::BloomFilter256{});
+        return std::make_pair(
+            std::shared_ptr<const shared_model::interface::Proposal>(
+                std::static_pointer_cast<const shared_model::proto::Proposal>(
+                    *opt_proposal)),
+            iroha::ordering::BloomFilter256{});
       }
     }
     return {};

@@ -20,9 +20,9 @@
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "validators/field_validator.hpp"
-#include "main/subscription.hpp"
 
 using iroha::ordering::OnDemandOrderingGate;
 

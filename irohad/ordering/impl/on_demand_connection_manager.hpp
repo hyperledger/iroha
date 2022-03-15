@@ -59,8 +59,9 @@ namespace iroha {
 
       void onRequestProposal(
           consensus::Round round,
-          std::optional<std::pair<std::shared_ptr<shared_model::interface::Proposal const>, BloomFilter256>>
-          proposal) override;
+          std::optional<std::pair<
+              std::shared_ptr<shared_model::interface::Proposal const>,
+              BloomFilter256>> proposal) override;
 
       /**
        * Initialize corresponding peers in connections_ using factory_

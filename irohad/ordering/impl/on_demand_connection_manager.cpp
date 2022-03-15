@@ -63,8 +63,9 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
 
 void OnDemandConnectionManager::onRequestProposal(
     consensus::Round round,
-    std::optional<std::pair<std::shared_ptr<shared_model::interface::Proposal const>, BloomFilter256>>
-    proposal) {
+    std::optional<
+        std::pair<std::shared_ptr<shared_model::interface::Proposal const>,
+                  BloomFilter256>> proposal) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed))
     return;

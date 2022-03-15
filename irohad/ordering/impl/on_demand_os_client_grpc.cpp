@@ -9,15 +9,13 @@
 #include "backend/protobuf/transaction.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "interfaces/iroha_internal/transaction_batch_impl.hpp"
+#include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
 #include "main/subscription.hpp"
 #include "network/impl/client_factory.hpp"
 #include "ordering/impl/os_executor_keepers.hpp"
 #include "subscription/thread_handler.hpp"
-#include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
-#include "interfaces/iroha_internal/transaction_batch.hpp"
-#include "interfaces/iroha_internal/transaction_batch_impl.hpp"
-
 
 using iroha::ordering::transport::OnDemandOsClientGrpc;
 using iroha::ordering::transport::OnDemandOsClientGrpcFactory;
@@ -148,8 +146,9 @@ std::chrono::milliseconds OnDemandOsClientGrpc::getRequestDelay() const {
 
 void OnDemandOsClientGrpc::onRequestProposal(
     consensus::Round round,
-    std::optional<std::pair<std::shared_ptr<shared_model::interface::Proposal const>, BloomFilter256>>
-    ref_proposal) {
+    std::optional<
+        std::pair<std::shared_ptr<shared_model::interface::Proposal const>,
+                  BloomFilter256>> ref_proposal) {
   // Cancel an unfinished request
   if (auto maybe_context = context_.lock()) {
     maybe_context->TryCancel();
@@ -211,20 +210,21 @@ void OnDemandOsClientGrpc::onRequestProposal(
         /// parse request
         std::shared_ptr<shared_model::interface::Proposal const>
             remote_proposal;
-          if (auto proposal_result =
-                  maybe_proposal_factory->build(response.proposal());
-              expected::hasError(proposal_result)) {
-            maybe_log->warn("{}", proposal_result.assumeError().error);
-            iroha::getSubscription()->notify(
-                iroha::EventTypes::kOnProposalResponse,
-                ProposalEvent{std::nullopt, round});
-            return;
-          } else
-            remote_proposal = std::move(proposal_result).assumeValue();
+        if (auto proposal_result =
+                maybe_proposal_factory->build(response.proposal());
+            expected::hasError(proposal_result)) {
+          maybe_log->warn("{}", proposal_result.assumeError().error);
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kOnProposalResponse,
+              ProposalEvent{std::nullopt, round});
+          return;
+        } else
+          remote_proposal = std::move(proposal_result).assumeValue();
 
         /// merge if has local proposal or process directly if not
         if (ref_proposal.has_value()) {
-          std::shared_ptr<shared_model::interface::Proposal const> local_proposal;
+          std::shared_ptr<shared_model::interface::Proposal const>
+              local_proposal;
           local_proposal = ref_proposal.value().first;
 
           iroha::getSubscription()->notify(

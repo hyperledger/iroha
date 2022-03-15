@@ -6,9 +6,9 @@
 #ifndef IROHA_ORDERING_TYPES_HPP
 #define IROHA_ORDERING_TYPES_HPP
 
+#include "consensus/round.hpp"
 #include "crypto/bloom.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
-#include "consensus/round.hpp"
 
 namespace iroha::ordering {
 
@@ -20,14 +20,14 @@ namespace iroha::ordering {
       shared_model::crypto::Iroha2BloomHasher64<2, 32>,
       shared_model::crypto::Iroha2BloomHasher64<3, 32>>;
 
-    struct RemoteProposalDownloadedEvent {
-      std::shared_ptr<shared_model::interface::Proposal const> local;
-      std::shared_ptr<shared_model::interface::Proposal const> remote;
-      std::string bloom_filter;
-      std::string remote_proposal_hash;
-      consensus::Round round;
-      shared_model::interface::types::TimestampType created_time;
-    };
+  struct RemoteProposalDownloadedEvent {
+    std::shared_ptr<shared_model::interface::Proposal const> local;
+    std::shared_ptr<shared_model::interface::Proposal const> remote;
+    std::string bloom_filter;
+    std::string remote_proposal_hash;
+    consensus::Round round;
+    shared_model::interface::types::TimestampType created_time;
+  };
 
 }  // namespace iroha::ordering
 
