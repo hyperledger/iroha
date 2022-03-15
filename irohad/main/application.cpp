@@ -158,7 +158,6 @@ Irohad::Irohad(
       })) {
     log_->error("Storage initialization failed: {}", e.value());
   }
-  
 }
 
 Irohad::~Irohad() {
@@ -177,7 +176,7 @@ Irohad::~Irohad() {
   if (ordering_gate) {
     ordering_gate->stop();
   }
-  if (vm_caller_) {
+  if (vm_caller_ && is_postgres) {
     vm_caller_.value().get()->stopBurrow();
   }
   subscription_engine_->dispose();

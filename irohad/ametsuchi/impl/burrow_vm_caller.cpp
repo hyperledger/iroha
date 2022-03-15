@@ -15,7 +15,7 @@
 using namespace iroha::ametsuchi;
 
 void BurrowVmCaller::exportBurrow(PostgresBurrowStorage &burrowStorage) const  {
-  TryExport(&burrowStorage);
+  ExportBurrowStorage(&burrowStorage);
 }
 
 void BurrowVmCaller::stopBurrow() const {

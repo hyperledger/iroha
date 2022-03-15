@@ -119,6 +119,7 @@ namespace shared_model {
 }  // namespace shared_model
 
 class Irohad {
+  bool is_postgres;
  public:
   using RunResult = iroha::expected::Result<void, std::string>;
 
@@ -185,7 +186,7 @@ class Irohad {
   RunResult run();
 
   virtual ~Irohad();
-  bool is_postgres;
+  
  protected:
   // -----------------------| component initialization |------------------------
   virtual RunResult initStorage(

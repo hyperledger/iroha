@@ -45,8 +45,8 @@ type EngineWrapper struct {
 	eventSink exec.EventSink
 }
 
-//export TryExport
-func TryExport(storage unsafe.Pointer) {
+//export ExportBurrowStorage
+func ExportBurrowStorage(storage unsafe.Pointer) {
 	iroha.StoragePointer = storage
 }
 
