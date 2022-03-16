@@ -11,6 +11,7 @@ extern crate alloc;
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
+//pub use iroha_data_model_derive::iroha_wasm_bindgen;
 use derive_more::Display;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_data_primitives::small::SmallVec;
@@ -24,6 +25,7 @@ use crate::{
     account::SignatureCheckCondition, permissions::PermissionToken, transaction::TransactionValue,
 };
 
+//pub mod wasm;
 pub mod account;
 pub mod asset;
 pub mod domain;
@@ -608,7 +610,7 @@ pub mod trigger {
     )]
     pub struct Trigger {
         /// [`Id`] of the [`Trigger`].
-        pub id: Id,
+        pub id: <Self as Identifiable>::Id,
         /// Action to be performed when the trigger matches.
         pub action: Action,
         /// Metadata of this account as a key-value store.
@@ -617,18 +619,12 @@ pub mod trigger {
 
     impl Trigger {
         /// Construct trigger, given name action and signatories.
-        ///
-        /// # Errors
-        /// - Name is malformed
-        pub fn new(name: &str, action: Action) -> Result<Self, ParseError> {
-            let id = Id {
-                name: Name::new(name)?,
-            };
-            Ok(Trigger {
+        pub fn new(id: <Self as Identifiable>::Id, action: Action) -> Self {
+            Self {
                 id,
                 action,
                 metadata: Metadata::new(),
-            })
+            }
         }
     }
 
@@ -668,8 +664,8 @@ pub mod trigger {
             repeats: impl Into<Repeats>,
             technical_account: super::account::Id,
             filter: EventFilter,
-        ) -> Action {
-            Action {
+        ) -> Self {
+            Self {
                 executable: executable.into(),
                 repeats: repeats.into(),
                 // TODO: At this point the technical account is meaningless.

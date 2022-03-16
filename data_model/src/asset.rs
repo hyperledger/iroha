@@ -73,7 +73,7 @@ pub struct AssetDefinition {
     /// Type of [`AssetValue`]
     pub value_type: AssetValueType,
     /// An Identification of the [`AssetDefinition`].
-    pub id: DefinitionId,
+    pub id: <Self as Identifiable>::Id,
     /// Metadata of this asset definition as a key-value store.
     pub metadata: Metadata,
     /// Is the asset mintable
@@ -85,7 +85,7 @@ pub struct AssetDefinition {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Asset {
     /// Component Identification.
-    pub id: Id,
+    pub id: <Self as Identifiable>::Id,
     /// Asset's Quantity.
     pub value: AssetValue,
 }
@@ -243,7 +243,7 @@ pub struct DefinitionId {
     /// Asset's name.
     pub name: Name,
     /// Domain's id.
-    pub domain_id: DomainId,
+    pub domain_id: <Domain as Identifiable>::Id,
 }
 
 /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
@@ -263,9 +263,9 @@ pub struct DefinitionId {
 )]
 pub struct Id {
     /// Entity Identification.
-    pub definition_id: DefinitionId,
+    pub definition_id: <AssetDefinition as Identifiable>::Id,
     /// Account Identification.
-    pub account_id: AccountId,
+    pub account_id: <Account as Identifiable>::Id,
 }
 
 impl AssetDefinition {

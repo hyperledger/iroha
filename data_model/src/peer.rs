@@ -20,7 +20,7 @@ use crate::{Identifiable, PublicKey, Value};
 )]
 pub struct Peer {
     /// Peer Identification.
-    pub id: Id,
+    pub id: <Self as Identifiable>::Id,
 }
 
 /// Peer's identification.
@@ -71,7 +71,7 @@ impl fmt::Display for Id {
 impl Peer {
     /// Construct `Peer` given `id`.
     #[inline]
-    pub const fn new(id: Id) -> Self {
+    pub const fn new(id: <Self as Identifiable>::Id) -> Self {
         Self { id }
     }
 }

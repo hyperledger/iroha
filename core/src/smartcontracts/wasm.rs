@@ -23,16 +23,17 @@ use crate::{
 
 type WasmUsize = u32;
 
-/// Exported function to allocate memory
-pub const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
+const IROHA_MODULE_NAME: &str = "iroha";
 /// Name of the exported memory
 pub const WASM_MEMORY_NAME: &str = "memory";
+/// Exported function to allocate memory
+pub const WASM_ALLOC_FN: &str = "_iroha_alloc";
 /// Name of the exported entry to smartcontract execution
 pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
 /// Name of the imported function to execute instructions
-pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
+pub const EXECUTE_ISI_FN_NAME: &str = "iroha_wasm_execute_instruction";
 /// Name of the imported function to execute queries
-pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
+pub const EXECUTE_QUERY_FN_NAME: &str = "iroha_wasm_execute_query";
 
 /// `WebAssembly` execution error type
 #[derive(Debug, thiserror::Error)]
@@ -122,7 +123,7 @@ struct State<'a, W: WorldTrait> {
 }
 
 impl<'a, W: WorldTrait> State<'a, W> {
-    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId, config: Configuration) -> Self {
+    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId, config: &Configuration) -> Self {
         Self {
             wsv,
             account_id,
@@ -130,7 +131,7 @@ impl<'a, W: WorldTrait> State<'a, W> {
 
             store_limits: StoreLimitsBuilder::new()
                 .memory_size(config.max_memory)
-                .instances(1)
+                .instances(2)
                 .memories(1)
                 .tables(1)
                 .build(),
@@ -156,11 +157,70 @@ impl<'a, W: WorldTrait> State<'a, W> {
     }
 }
 
+struct IrohaModule<'a, W: WorldTrait> {
+    linker: Linker<State<'a, W>>,
+    module: Module,
+}
+
+impl<'a, W: WorldTrait> IrohaModule<'a, W> {
+    fn new(engine: &Engine, module_path: &str) -> Result<Self, Error> {
+        let linker = Self::create_iroha_linker(engine).map_err(Error::Initialization)?;
+        let module = Module::from_file(engine, module_path).map_err(Error::Initialization)?;
+
+        Ok(Self { linker, module })
+    }
+
+    fn create_iroha_linker(engine: &Engine) -> Result<Linker<State<'a, W>>, anyhow::Error> {
+        let mut linker = Linker::new(engine);
+
+        linker
+            .func_wrap(
+                IROHA_MODULE_NAME,
+                EXECUTE_ISI_FN_NAME,
+                Runtime::execute_instruction,
+            )?
+            .func_wrap(
+                IROHA_MODULE_NAME,
+                EXECUTE_QUERY_FN_NAME,
+                Runtime::execute_query,
+            )?;
+
+        Ok(linker)
+    }
+
+    fn alloc_fn(
+        caller: &mut Caller<State<W>>,
+    ) -> Result<TypedFunc<(WasmUsize, WasmUsize), WasmUsize>, Trap> {
+        caller
+            .get_export(WASM_ALLOC_FN)
+            .ok_or_else(|| Trap::new(format!("{}: export not found", WASM_ALLOC_FN)))?
+            .into_func()
+            .ok_or_else(|| Trap::new(format!("{}: not a function", WASM_ALLOC_FN)))?
+            .typed::<(WasmUsize, WasmUsize), WasmUsize, _>(caller)
+            .map_err(|_error| Trap::new(format!("{}: unexpected declaration", WASM_ALLOC_FN)))
+    }
+
+    fn memory(caller: &mut Caller<State<W>>) -> Result<wasmtime::Memory, Trap> {
+        caller
+            .get_export(WASM_MEMORY_NAME)
+            .ok_or_else(|| Trap::new(format!("{}: export not found", WASM_MEMORY_NAME)))?
+            .into_memory()
+            .ok_or_else(|| Trap::new(format!("{}: not a memory", WASM_MEMORY_NAME)))
+    }
+
+    fn instantiate(&self, store: &mut Store<State<'a, W>>) -> Result<wasmtime::Instance, Error> {
+        self.linker
+            .instantiate(store, &self.module)
+            .map_err(Error::Instantiation)
+    }
+}
+
 /// `WebAssembly` virtual machine
 pub struct Runtime<'a, W: WorldTrait> {
-    engine: Engine,
-    linker: Linker<State<'a, W>>,
     config: Configuration,
+    engine: Engine,
+
+    iroha_module: IrohaModule<'a, W>,
 }
 
 impl<'a, W: WorldTrait> Runtime<'a, W> {
@@ -170,16 +230,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
     ///
     /// If unable to construct runtime
     pub fn new() -> Result<Self, Error> {
-        let engine = Self::create_engine()?;
-        let config = Configuration::default();
-
-        let linker = Self::create_linker(&engine)?;
-
-        Ok(Self {
-            engine,
-            linker,
-            config,
-        })
+        Self::from_configuration(Configuration::default())
     }
 
     /// `Runtime` constructor.
@@ -188,9 +239,14 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
     ///
     /// See [`Runtime::new`]
     pub fn from_configuration(config: Configuration) -> Result<Self, Error> {
+        let engine = Self::create_engine()?;
+        let iroha_module = IrohaModule::new(&engine, config.iroha_wasm_module.as_str())?;
+
         Ok(Self {
             config,
-            ..Runtime::new()?
+            engine,
+
+            iroha_module,
         })
     }
 
@@ -203,6 +259,15 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
 
     fn create_engine() -> Result<Engine, Error> {
         Engine::new(&Self::create_config()).map_err(Error::Initialization)
+    }
+
+    fn create_store(&self, state: State<'a, W>) -> Result<Store<State<'a, W>>, anyhow::Error> {
+        let mut store = Store::new(&self.engine, state);
+
+        store.limiter(|stat| &mut stat.store_limits);
+        store.add_fuel(self.config.fuel_limit)?;
+
+        Ok(store)
     }
 
     /// Encode the given object but also add it's length in front of it. This can be considered
@@ -251,8 +316,8 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         offset: WasmUsize,
         len: WasmUsize,
     ) -> Result<WasmUsize, Trap> {
-        let alloc_fn = Self::get_alloc_fn(&mut caller)?;
-        let memory = Self::get_memory(&mut caller)?;
+        let memory = IrohaModule::memory(&mut caller)?;
+        let alloc_fn = IrohaModule::alloc_fn(&mut caller)?;
 
         // Accessing memory as a byte slice to avoid the use of unsafe
         let query_mem_range = offset as usize..(offset + len) as usize;
@@ -279,7 +344,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
 
         let res_offset = {
             let res_offset = alloc_fn
-                .call(&mut caller, res_bytes_len)
+                .call(&mut caller, (res_bytes_len, 1))
                 .map_err(|e| Trap::new(e.to_string()))?;
 
             memory
@@ -308,7 +373,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         offset: WasmUsize,
         len: WasmUsize,
     ) -> Result<(), Trap> {
-        let memory = Self::get_memory(&mut caller)?;
+        let memory = IrohaModule::memory(&mut caller)?;
 
         // Accessing memory as a byte slice to avoid the use of unsafe
         let isi_mem_range = offset as usize..(offset + len) as usize;
@@ -330,40 +395,6 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         Ok(())
     }
 
-    fn create_linker(engine: &Engine) -> Result<Linker<State<'a, W>>, Error> {
-        let mut linker = Linker::new(engine);
-
-        linker
-            .func_wrap("iroha", EXECUTE_ISI_FN_NAME, Self::execute_instruction)
-            .map_err(Error::Initialization)?;
-
-        linker
-            .func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query)
-            .map_err(Error::Initialization)?;
-
-        Ok(linker)
-    }
-
-    fn get_alloc_fn(
-        caller: &mut Caller<State<W>>,
-    ) -> Result<TypedFunc<WasmUsize, WasmUsize>, Trap> {
-        caller
-            .get_export(WASM_ALLOC_FN)
-            .ok_or_else(|| Trap::new(format!("{}: export not found", WASM_ALLOC_FN)))?
-            .into_func()
-            .ok_or_else(|| Trap::new(format!("{}: not a function", WASM_ALLOC_FN)))?
-            .typed::<WasmUsize, WasmUsize, _>(caller)
-            .map_err(|_error| Trap::new(format!("{}: unexpected declaration", WASM_ALLOC_FN)))
-    }
-
-    fn get_memory(caller: &mut Caller<State<W>>) -> Result<wasmtime::Memory, Trap> {
-        caller
-            .get_export(WASM_MEMORY_NAME)
-            .ok_or_else(|| Trap::new(format!("{}: export not found", WASM_MEMORY_NAME)))?
-            .into_memory()
-            .ok_or_else(|| Trap::new(format!("{}: not a memory", WASM_MEMORY_NAME)))
-    }
-
     /// Validates that the given smartcontract is eligible for execution
     ///
     /// # Errors
@@ -373,14 +404,14 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
     /// - if execution of the smartcontract fails (check ['execute'])
     pub fn validate(
         &mut self,
-        wsv: &WorldStateView<W>,
+        wsv: &'a WorldStateView<W>,
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
         is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
         is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
     ) -> Result<(), Error> {
-        let state = State::new(wsv, account_id.clone(), self.config).with_validator(
+        let state = State::new(wsv, account_id.clone(), &self.config).with_validator(
             max_instruction_count,
             is_instruction_allowed,
             is_query_allowed,
@@ -399,11 +430,11 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
     /// - if the execution of the smartcontract fails
     pub fn execute(
         &mut self,
-        wsv: &WorldStateView<W>,
+        wsv: &'a WorldStateView<W>,
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
-        let state = State::new(wsv, account_id.clone(), self.config);
+        let state = State::new(wsv, account_id.clone(), &self.config);
         self.execute_with_state(account_id, bytes, state)
     }
 
@@ -411,35 +442,30 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         &mut self,
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
-        state: State<W>,
+        state: State<'a, W>,
     ) -> Result<(), Error> {
-        let account_bytes = account_id.encode();
-
         let module = Module::new(&self.engine, bytes).map_err(Error::Instantiation)?;
-        let mut store = Store::new(&self.engine, state);
-        store.limiter(|stat| &mut stat.store_limits);
+        let mut store = self.create_store(state).map_err(Error::Instantiation)?;
+        let iroha_instance = self.iroha_module.instantiate(&mut store)?;
 
-        store
-            .add_fuel(self.config.fuel_limit)
+        // TODO: Store linker into Runtime instead of recreating?
+        let mut linker = Linker::new(&self.engine);
+        linker
+            .instance(&mut store, IROHA_MODULE_NAME, iroha_instance)
+            .map_err(Error::Instantiation)?
+            // TODO: Is it possible to export 'memory' and
+            // 'table' under 'iroha' module, not 'env'?
+            .alias_module(IROHA_MODULE_NAME, "env")
             .map_err(Error::Instantiation)?;
 
-        let instance = self
-            .linker
+        let instance = linker
             .instantiate(&mut store, &module)
             .map_err(Error::Instantiation)?;
-        let alloc_fn = instance
-            .get_typed_func::<WasmUsize, WasmUsize, _>(&mut store, WASM_ALLOC_FN)
+        let alloc_fn = iroha_instance
+            .get_typed_func::<(WasmUsize, WasmUsize), WasmUsize, _>(&mut store, WASM_ALLOC_FN)
             .map_err(Error::ExportNotFound)?;
 
-        let memory = instance
-            .get_memory(&mut store, WASM_MEMORY_NAME)
-            .ok_or_else(|| {
-                Error::ExportNotFound(anyhow::Error::msg(format!(
-                    "{}: export not found or not a memory",
-                    WASM_MEMORY_NAME
-                )))
-            })?;
-
+        let account_bytes = account_id.encode();
         let account_bytes_len = account_bytes
             .len()
             .try_into()
@@ -451,10 +477,17 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
 
         let account_offset = {
             let acc_offset = alloc_fn
-                .call(&mut store, account_bytes_len)
+                .call(&mut store, (account_bytes_len, 1))
                 .map_err(Error::ExportFnCall)?;
 
-            memory
+            iroha_instance
+                .get_memory(&mut store, "memory")
+                .ok_or_else(|| {
+                    Error::ExportNotFound(anyhow::Error::msg(format!(
+                        "{}: export not found or not a memory",
+                        WASM_MEMORY_NAME
+                    )))
+                })?
                 .write(&mut store, acc_offset as usize, &account_bytes)
                 .map_err(|error| Trap::new(error.to_string()))?;
 
@@ -479,11 +512,12 @@ pub mod config {
     use iroha_config::derive::Configurable;
     use serde::{Deserialize, Serialize};
 
-    const DEFAULT_FUEL_LIMIT: u64 = 1_000_000;
+    const DEFAULT_FUEL_LIMIT: u64 = 1_000_000_000;
     const DEFAULT_MAX_MEMORY: usize = 500 * 2_usize.pow(20); // 500 MiB
+    const DEFAULT_IROHA_WASM_MODULE: &str = "/home/emarin/Documents/soramitsu/iroha/core/wasm/target/wasm32-unknown-unknown/release/iroha_core_wasm.wasm";
 
     /// [`WebAssembly Runtime`](super::Runtime) configuration.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
     #[config(env_prefix = "WASM_")]
     #[serde(rename_all = "UPPERCASE", default)]
     pub struct Configuration {
@@ -493,6 +527,9 @@ pub mod config {
 
         /// Maximum amount of linear memory a given smartcontract can allocate
         pub max_memory: usize,
+
+        /// Path to the module [`Wasmtime`] runtime will link against
+        pub iroha_wasm_module: String,
     }
 
     impl Default for Configuration {
@@ -500,6 +537,7 @@ pub mod config {
             Configuration {
                 fuel_limit: DEFAULT_FUEL_LIMIT,
                 max_memory: DEFAULT_MAX_MEMORY,
+                iroha_wasm_module: DEFAULT_IROHA_WASM_MODULE.to_owned(),
             }
         }
     }
@@ -792,5 +830,23 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn test_me() {
+        let account_id = AccountId::test("alice", "wonderland");
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+
+        let target = "wasm32-unknown-unknown";
+        let target_dir = "/home/emarin/Documents/soramitsu/iroha/smartcontract/target";
+        let wasm_blob_name = format!(
+            "{target_dir}/{target}/release/smartcontract.wasm",
+            target_dir = target_dir,
+            target = target
+        );
+        let wasm_blob = std::fs::read(wasm_blob_name).unwrap();
+
+        let mut wasm_runtime = Runtime::new().unwrap();
+        wasm_runtime.execute(&wsv, &account_id, wasm_blob).unwrap();
     }
 }

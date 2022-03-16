@@ -16,7 +16,7 @@ pub fn iroha_wasm(_: TokenStream, item: TokenStream) -> TokenStream {
         vis,
         sig,
         mut block,
-    }: ItemFn = parse_macro_input!(item as ItemFn);
+    } = parse_macro_input!(item);
 
     verify_function_signature(&sig);
     let fn_name = &sig.ident;
@@ -30,7 +30,7 @@ pub fn iroha_wasm(_: TokenStream, item: TokenStream) -> TokenStream {
 
     quote! {
         #[no_mangle]
-        unsafe extern "C" fn _iroha_wasm_main(ptr: u32, len: u32) {
+        unsafe extern "C" fn _iroha_wasm_main(ptr: usize, len: usize) {
             #fn_name(iroha_wasm::_decode_from_raw::<AccountId>(ptr, len))
         }
 

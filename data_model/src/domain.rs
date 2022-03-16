@@ -55,7 +55,7 @@ impl From<GenesisDomain> for Domain {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Domain {
     /// Identification of this [`Domain`].
-    pub id: Id,
+    pub id: <Self as Identifiable>::Id,
     /// Accounts of the domain.
     pub accounts: AccountsMap,
     /// Assets of the domain.

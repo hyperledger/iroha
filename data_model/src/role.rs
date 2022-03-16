@@ -1,16 +1,14 @@
 //! Structures, traits and impls related to `Role`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, string::String};
+use alloc::{boxed::Box, string::String};
 use core::fmt;
-#[cfg(feature = "std")]
-use std::collections::btree_set;
 
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{permissions::PermissionToken, IdBox, Identifiable, IdentifiableBox, Name, Value};
+use crate::{permissions::prelude::*, IdBox, Identifiable, IdentifiableBox, Name, Value};
 
 /// Identification of a role.
 #[derive(
@@ -99,21 +97,21 @@ impl TryFrom<Value> for Role {
 )]
 pub struct Role {
     /// Unique name of the role.
-    pub id: Id,
+    pub id: <Self as Identifiable>::Id,
     /// Permission tokens.
-    pub permissions: btree_set::BTreeSet<PermissionToken>,
+    pub permissions: Permissions,
 }
 
 impl Role {
     /// Constructor.
     #[inline]
     pub fn new(
-        id: impl Into<Id>,
-        permissions: impl Into<btree_set::BTreeSet<PermissionToken>>,
+        id: impl Into<<Self as Identifiable>::Id>,
+        permissions: impl IntoIterator<Item = PermissionToken>,
     ) -> Self {
         Self {
             id: id.into(),
-            permissions: permissions.into(),
+            permissions: permissions.into_iter().collect(),
         }
     }
 }

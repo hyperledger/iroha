@@ -92,7 +92,7 @@ impl Limits {
 )]
 #[serde(transparent)]
 pub struct Metadata {
-    map: btree_map::BTreeMap<Name, Value>,
+    map: UnlimitedMetadata,
 }
 
 /// A path slice, composed of [`Name`]s.
@@ -103,7 +103,7 @@ impl Metadata {
     #[inline]
     pub fn new() -> Self {
         Self {
-            map: btree_map::BTreeMap::new(),
+            map: UnlimitedMetadata::new(),
         }
     }
 
@@ -177,7 +177,6 @@ impl Metadata {
                 _ => return Err(Error::InvalidSegment(k.clone())),
             };
         }
-        check_size_limits(key, value.clone(), limits)?;
         layer.insert_with_limits(key.clone(), value, limits)
     }
 

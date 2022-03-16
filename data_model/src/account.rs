@@ -113,7 +113,7 @@ impl Default for SignatureCheckCondition {
 )]
 pub struct NewAccount {
     /// An Identification of the `NewAccount`.
-    pub id: Id,
+    pub id: <Self as Identifiable>::Id,
     /// `Account`'s signatories.
     pub signatories: Signatories,
     /// Metadata of this account as a key-value store.
@@ -168,7 +168,7 @@ impl NewAccount {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Account {
     /// An Identification of the [`Account`].
-    pub id: Id,
+    pub id: <Self as Identifiable>::Id,
     /// Asset's in this [`Account`].
     pub assets: AssetsMap,
     /// [`Account`]'s signatories.
@@ -226,7 +226,7 @@ pub struct Id {
     /// [`Account`]'s name.
     pub name: Name,
     /// [`Account`]'s [`Domain`](`crate::domain::Domain`)'s id.
-    pub domain_id: DomainId,
+    pub domain_id: <Domain as Identifiable>::Id,
 }
 
 impl Account {

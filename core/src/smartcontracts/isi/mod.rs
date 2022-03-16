@@ -276,11 +276,7 @@ pub mod error {
 impl<W: WorldTrait> Execute<W> for Instruction {
     type Error = Error;
 
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         use Instruction::*;
         match self {
             Register(register_box) => register_box.execute(authority, wsv),
@@ -348,11 +344,7 @@ impl<W: WorldTrait> Execute<W> for MintBox {
     type Error = Error;
 
     #[log]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
         match (
             self.destination_id.evaluate(wsv, &context)?,
@@ -383,11 +375,7 @@ impl<W: WorldTrait> Execute<W> for BurnBox {
     type Error = Error;
 
     #[log]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
         match (
             self.destination_id.evaluate(wsv, &context)?,
@@ -411,11 +399,7 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
     type Error = Error;
 
     #[log]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
         let source_asset_id = match self.source_id.evaluate(wsv, &context)? {
             IdBox::AssetId(source_asset_id) => source_asset_id,
@@ -441,11 +425,7 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
     type Error = Error;
 
     #[log]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
         let key = self.key.evaluate(wsv, &context)?;
         let value = self.value.evaluate(wsv, &context)?;
@@ -473,11 +453,7 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
     type Error = Error;
 
     #[log]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
         let key = self.key.evaluate(wsv, &context)?;
         match self.object_id.evaluate(wsv, &context)? {
@@ -500,11 +476,7 @@ impl<W: WorldTrait> Execute<W> for If {
     type Error = Error;
 
     #[log]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
         if self.condition.evaluate(wsv, &context)? {
             self.then.execute(authority, wsv)?;
@@ -520,11 +492,7 @@ impl<W: WorldTrait> Execute<W> for Pair {
     type Error = Error;
 
     #[log]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         self.left_instruction.execute(authority.clone(), wsv)?;
         self.right_instruction.execute(authority, wsv)?;
         Ok(())
@@ -535,11 +503,7 @@ impl<W: WorldTrait> Execute<W> for SequenceBox {
     type Error = Error;
 
     #[log]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         for instruction in self.instructions {
             instruction.execute(authority.clone(), wsv)?;
         }
@@ -551,11 +515,7 @@ impl<W: WorldTrait> Execute<W> for FailBox {
     type Error = Error;
 
     #[log(skip(_authority, _wsv))]
-    fn execute(
-        self,
-        _authority: <Account as Identifiable>::Id,
-        _wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, _authority: AccountId, _wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         Err(Error::FailBox(self.message))
     }
 }
@@ -564,11 +524,7 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
     type Error = Error;
 
     #[log]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
         match (
             self.destination_id.evaluate(wsv, &context)?,
@@ -591,11 +547,7 @@ impl<W: WorldTrait> Execute<W> for RevokeBox {
     type Error = Error;
 
     #[log]
-    fn execute(
-        self,
-        authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
         match (
             self.destination_id.evaluate(wsv, &context)?,
