@@ -77,5 +77,5 @@ impl PermissionToken {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
-    pub use super::PermissionToken;
+    pub use super::{PermissionToken, Permissions};
 }

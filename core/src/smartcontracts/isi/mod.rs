@@ -144,7 +144,7 @@ pub mod error {
         AssetDefinition(AssetDefinitionId),
         /// Failed to find account
         #[error("Failed to find account: `{0}`")]
-        Account(AccountId),
+        Account(<Account as Identifiable>::Id),
         /// Failed to find domain
         #[error("Failed to find domain: `{0}`")]
         Domain(DomainId),
@@ -300,7 +300,11 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
     type Error = Error;
 
     #[log]
-    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
+    fn execute(
+        self,
+        authority: <Account as Identifiable>::Id,
+        wsv: &WorldStateView<W>,
+    ) -> Result<(), Self::Error> {
         let context = Context::new();
 
         match self.object.evaluate(wsv, &context)? {
@@ -327,7 +331,11 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
     type Error = Error;
 
     #[log]
-    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
+    fn execute(
+        self,
+        authority: <Account as Identifiable>::Id,
+        wsv: &WorldStateView<W>,
+    ) -> Result<(), Self::Error> {
         let context = Context::new();
         match self.object_id.evaluate(wsv, &context)? {
             IdBox::AccountId(account_id) => {

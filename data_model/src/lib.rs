@@ -11,6 +11,7 @@ extern crate alloc;
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
+//pub use iroha_data_model_derive::iroha_wasm_bindgen;
 use derive_more::Display;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_data_primitives::small::SmallVec;
@@ -24,6 +25,7 @@ use crate::{
     account::SignatureCheckCondition, permissions::PermissionToken, transaction::TransactionValue,
 };
 
+//pub mod wasm;
 pub mod account;
 pub mod asset;
 pub mod domain;

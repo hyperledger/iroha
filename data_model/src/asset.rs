@@ -111,7 +111,7 @@ impl AssetDefinitionEntry {
 #[getset(get = "pub")]
 pub struct AssetDefinition {
     /// An Identification of the [`AssetDefinition`].
-    id: <AssetDefinition as Identifiable>::Id,
+    id: <Self as Identifiable>::Id,
     /// Type of [`AssetValue`]
     value_type: AssetValueType,
     /// Is the asset mintable
@@ -156,7 +156,7 @@ pub enum Mintable {
 #[getset(get = "pub")]
 pub struct Asset {
     /// Component Identification.
-    id: <Asset as Identifiable>::Id,
+    id: <Self as Identifiable>::Id,
     /// Asset's Quantity.
     value: AssetValue,
 }
@@ -324,7 +324,7 @@ pub struct DefinitionId {
     /// Asset's name.
     pub name: Name,
     /// Domain's id.
-    pub domain_id: DomainId,
+    pub domain_id: <Domain as Identifiable>::Id,
 }
 
 /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
