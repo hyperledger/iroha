@@ -113,8 +113,8 @@ impl EventFilter {
         let start = periodicity.period_length
             * u32::try_from(normalized_since.as_millis() / periodicity.period_length.as_millis())
                 .expect(
-                    "Time filter periodicity has very small period length \
-                and/or it has ben set very long time ago",
+                    "Time filter periodicity has a very small period length \
+                and/or it has been set very long time ago",
                 )
             + periodicity.period_length;
         if start > normalized_since + normalized_length {
@@ -127,8 +127,8 @@ impl EventFilter {
                 (normalized_length - diff).as_millis() / periodicity.period_length.as_millis(),
             )
             .expect(
-                "Time filter periodicity has very small period length \
-            and/or block previous block was committed very long time ago",
+                "Time filter periodicity has a very small period length \
+            and/or previous block was committed very long time ago",
             )
     }
 }
@@ -240,14 +240,32 @@ pub mod prelude {
 mod tests {
     use super::*;
 
-    mod count_times_in_interval {
+    /// Tests for `EventFilter::count_matches_in_interval()`
+    mod count_matches_in_interval {
         use super::*;
 
         /// Sample timestamp
         const TIMESTAMP: u64 = 1_647_443_386;
 
         #[test]
-        fn test_jump_over() {
+        fn test_jump_over_inside() {
+            // ----(------|-----)----*----
+            //     i1     p    i2
+
+            let periodicity =
+                Periodicity::new(Duration::from_secs(TIMESTAMP + 5), Duration::from_secs(30));
+            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            assert_eq!(
+                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                0
+            );
+        }
+
+        #[test]
+        fn test_jump_over_outside() {
+            // ----|------(-----)----*----
+            //     p     i1    i2
+
             let periodicity =
                 Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
             let interval =
@@ -259,7 +277,40 @@ mod tests {
         }
 
         #[test]
-        fn test_matches_several_times() {
+        fn test_interval_on_the_left() {
+            // ----(----)----|-----*-----*----
+            //     i1   i2   p
+
+            let periodicity =
+                Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(6));
+            let interval =
+                Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(4));
+            assert_eq!(
+                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                0
+            );
+        }
+
+        #[test]
+        fn test_periodicy_starts_at_the_middle() {
+            // ----(------|----*----*----*--)-*----
+            //     i1     p                i2
+
+            let periodicity =
+                Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(6));
+            let interval =
+                Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(30));
+            assert_eq!(
+                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                3
+            );
+        }
+
+        #[test]
+        fn test_interval_on_the_right() {
+            // ----|----*--(----*----*----*----*----)----*----
+            //     p      i1                       i2
+
             let periodicity =
                 Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_millis(600));
             let interval = Interval::new(
@@ -274,6 +325,10 @@ mod tests {
 
         #[test]
         fn test_only_right_border_inside() {
+            //               *
+            // ----(----|----)----*----*----
+            //     i1   p    i2
+
             let periodicity =
                 Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
             let interval =
@@ -285,7 +340,26 @@ mod tests {
         }
 
         #[test]
+        fn test_only_left_border() {
+            //             *
+            // ----|-------(----)--*-------*--
+            //     p      i1   i2
+
+            let periodicity =
+                Periodicity::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(10));
+            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
+            assert_eq!(
+                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                0
+            );
+        }
+
+        #[test]
         fn test_only_right_border_outside() {
+            //              *
+            // ----|---(----)--------*----
+            //     p   i1   i2
+
             let periodicity =
                 Periodicity::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(5));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
@@ -297,38 +371,16 @@ mod tests {
 
         #[test]
         fn test_matches_right_border_and_ignores_left() {
+            //     |             *
+            // ----(-*-*-*-*-*-*-)-*-*-*
+            //   p, i1           i2
+
             let periodicity =
                 Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(1));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(7));
             assert_eq!(
                 EventFilter::count_matches_in_interval(&periodicity, &interval),
                 7
-            );
-        }
-
-        #[test]
-        fn test_half_past_time() {
-            // -------------|----------|-----*-----*-----*--|------
-            //    TIMESTAMP - 10    TIMESTAMP       TIMESTAMP + 20
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(6));
-            let interval =
-                Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(30));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
-                3
-            );
-        }
-
-        #[test]
-        fn test_past_time() {
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(6));
-            let interval =
-                Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(4));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
-                0
             );
         }
     }
