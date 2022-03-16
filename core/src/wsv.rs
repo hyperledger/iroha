@@ -205,10 +205,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[log(skip(self, block))]
     #[allow(clippy::expect_used)]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
-        let time_event = Event::Time(TimeEvent(TimeInterval::new(
-            Duration::from_millis(block.as_v1().header.timestamp.try_into()?),
-            Duration::from_millis(block.as_v1().header.consensus_estimation),
-        )));
+        let time_event = Event::Time(self.create_time_event(block.as_v1())?);
         self.produce_events(once(time_event.clone()));
 
         self.execute_transactions(block.as_v1()).await?;
@@ -236,6 +233,31 @@ impl<W: WorldTrait> WorldStateView<W> {
         // TODO: Pass self.events to the next block
 
         Ok(())
+    }
+
+    #[allow(clippy::unwrap_in_result, clippy::expect_used)]
+    fn create_time_event(&self, block: &CommittedBlock) -> Result<TimeEvent> {
+        let previous_block_timestamp = if self.blocks.is_empty() {
+            // If there is no previous block, then assuming it *was* exactly
+            // `consensus_estimation` time before current block
+            block.header.timestamp - u128::from(block.header.consensus_estimation)
+        } else {
+            self.blocks
+                .latest_block()
+                .expect("At least genesis should exist")
+                .header()
+                .timestamp
+        };
+        let prev_interval = TimeInterval::new(
+            Duration::from_millis(previous_block_timestamp.try_into()?),
+            Duration::from_millis(block.header.consensus_estimation),
+        );
+        let interval = TimeInterval::new(
+            Duration::from_millis(block.header.timestamp.try_into()?),
+            Duration::from_millis(block.header.consensus_estimation),
+        );
+
+        Ok(TimeEvent::new(prev_interval, interval))
     }
 
     /// Execute `block` transactions and store their hashes as well as
@@ -775,7 +797,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Produces trigger event from `f`
     ///
     /// # Errors
-    /// Throws up `f` errors
+    ///  up `f` errors
     pub fn modify_triggers<F>(&self, f: F) -> Result<(), Error>
     where
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,

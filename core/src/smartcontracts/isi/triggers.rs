@@ -18,7 +18,7 @@ impl OccursExactlyAtTime for Action {
     fn occurs_exactly_at_time(&self) -> bool {
         matches!(
             self.filter,
-            EventFilter::Time(TimeEventFilter(Recurrence::ExactlyAt(_)))
+            EventFilter::Time(TimeEventFilter(Reoccurs::ExactlyAt(_)))
         )
     }
 }

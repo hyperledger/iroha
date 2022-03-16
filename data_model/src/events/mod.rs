@@ -130,7 +130,7 @@ impl EventFilter {
         match (event, self) {
             (Event::Pipeline(event), EventFilter::Pipeline(filter)) => filter.matches(event),
             (Event::Data(event), EventFilter::Data(filter)) => filter.matches(event),
-            (Event::Time(event), EventFilter::Time(filter)) => filter.matches(event),
+            (Event::Time(event), EventFilter::Time(filter)) => filter.count_matches(event) > 0,
             _ => false,
         }
     }

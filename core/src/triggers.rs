@@ -8,7 +8,7 @@
 //! search trees (common lisp) or hash tables (racket) to quickly
 //! trigger hooks.
 
-use std::ops::Deref;
+use std::{cmp::min, ops::Deref};
 
 use dashmap::DashMap;
 use iroha_data_model::{
@@ -113,7 +113,19 @@ impl TriggerSet {
 
         for event in events {
             for mut trigger in self.0.iter_mut() {
-                if trigger.filter.matches(event) {
+                if let Event::Time(time_event) = event {
+                    if let EventFilter::Time(time_filter) = &trigger.filter {
+                        let mut count = time_filter.count_matches(time_event);
+                        if let Repeats::Exactly(n) = &mut trigger.repeats {
+                            count = min(*n, count);
+                            *n -= count;
+                        }
+
+                        for _ in 0..count {
+                            result.push(trigger.value().clone());
+                        }
+                    }
+                } else if trigger.filter.matches(event) {
                     match trigger.repeats {
                         Repeats::Indefinitely => {
                             result.push(trigger.value().clone());
@@ -125,18 +137,6 @@ impl TriggerSet {
                         _ => {
                             // n == 0
                             continue;
-                        }
-                    }
-
-                    // Changing `since` field of interval for time-based triggers, which are set to
-                    // reoccurrence at every interval. New value will be current time-event time.
-                    // This way of calculations helps to prevent double trigger execution, if
-                    // blocks applying happened too close
-                    if let EventFilter::Time(TimeEventFilter(Recurrence::Every(interval))) =
-                        &mut trigger.filter
-                    {
-                        if let Event::Time(time_event) = event {
-                            interval.since = time_event.0.since;
                         }
                     }
                 }
