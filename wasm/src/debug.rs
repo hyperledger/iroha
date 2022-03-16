@@ -14,14 +14,14 @@ mod host {
         ///
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
-        pub(crate) fn dbg(ptr: *const u8, len: usize);
+        pub(crate) fn host__dbg(ptr: *const u8, len: usize);
     }
 }
 
 /// Print `obj` in debug representation to the stdout
 pub fn dbg<T: Debug + ?Sized>(obj: &T) {
     #[cfg(not(test))]
-    use host::dbg as host_dbg;
+    use host::host__dbg as host_dbg;
     #[cfg(test)]
     use tests::_dbg_mock as host_dbg;
 

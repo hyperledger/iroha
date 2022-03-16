@@ -106,7 +106,7 @@ impl<W: WorldTrait + Clone> Clone for WorldStateView<W> {
     fn clone(&self) -> Self {
         Self {
             world: Clone::clone(&self.world),
-            config: self.config,
+            config: self.config.clone(),
             blocks: Arc::clone(&self.blocks),
             transactions: self.transactions.clone(),
             metrics: Arc::clone(&self.metrics),
@@ -190,7 +190,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             }
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime =
-                    wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
+                    wasm::Runtime::from_configuration(self.config.wasm_runtime_config.clone())?;
                 wasm_runtime.execute(self, authority, bytes)?;
             }
         }
@@ -833,7 +833,7 @@ pub mod config {
     const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
 
     /// [`WorldStateView`](super::WorldStateView) configuration.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
     #[config(env_prefix = "WSV_")]
     #[serde(rename_all = "UPPERCASE", default)]
     pub struct Configuration {

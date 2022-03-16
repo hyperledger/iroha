@@ -11,11 +11,11 @@ compile_error!("Target architectures other then 32-bit are not supported");
 #[cfg(all(not(test), not(all(target_arch = "wasm32", target_os = "unknown"))))]
 compile_error!("Targets other then wasm32-unknown-unknown are not supported");
 
-extern crate alloc;
+extern crate alloc as core_alloc;
 
-use alloc::{boxed::Box, format, vec::Vec};
 use core::ops::RangeFrom;
 
+use core_alloc::{boxed::Box, format};
 use data_model::prelude::*;
 #[cfg(feature = "debug")]
 pub use debug::*;
@@ -23,11 +23,10 @@ pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::entrypoint;
 use parity_scale_codec::{Decode, Encode};
 
+#[cfg(not(test))]
+mod alloc;
 #[cfg(feature = "debug")]
 mod debug;
-
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[no_mangle]
 #[cfg(not(test))]
@@ -46,11 +45,6 @@ fn oom(layout: ::core::alloc::Layout) -> ! {
     panic!("Allocation({} bytes) failed", layout.size())
 }
 
-#[no_mangle]
-extern "C" fn _iroha_wasm_alloc(len: usize) -> *const u8 {
-    core::mem::ManuallyDrop::new(Vec::<u8>::with_capacity(len)).as_mut_ptr()
-}
-
 pub trait Execute {
     type Result;
     fn execute(&self) -> Self::Result;
@@ -62,7 +56,7 @@ impl Execute for data_model::isi::Instruction {
     /// Execute the given instruction on the host environment
     fn execute(&self) -> Self::Result {
         #[cfg(not(test))]
-        use host::execute_instruction as host_execute_instruction;
+        use host::host__execute_instruction as host_execute_instruction;
         #[cfg(test)]
         use tests::_iroha_wasm_execute_instruction_mock as host_execute_instruction;
 
@@ -77,7 +71,7 @@ impl Execute for data_model::query::QueryBox {
     /// Executes the given query on the host environment
     fn execute(&self) -> Self::Result {
         #[cfg(not(test))]
-        use host::execute_query as host_execute_query;
+        use host::host__execute_query as host_execute_query;
         #[cfg(test)]
         use tests::_iroha_wasm_execute_query_mock as host_execute_query;
 
@@ -99,7 +93,7 @@ mod host {
         ///
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
-        pub(super) fn execute_query(ptr: *const u8, len: usize) -> *const u8;
+        pub(super) fn host__execute_query(ptr: *const u8, len: usize) -> *const u8;
 
         /// Executes encoded instruction by providing offset and length
         /// into WebAssembly's linear memory where instruction is stored
@@ -108,7 +102,7 @@ mod host {
         ///
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
-        pub(super) fn execute_instruction(ptr: *const u8, len: usize);
+        pub(super) fn host__execute_instruction(ptr: *const u8, len: usize);
     }
 }
 
@@ -207,9 +201,9 @@ mod tests {
     #![allow(clippy::restriction)]
     #![allow(clippy::pedantic)]
 
-    use alloc::vec::Vec;
     use core::{mem::ManuallyDrop, slice};
 
+    use core_alloc::vec::Vec;
     use webassembly_test::webassembly_test;
 
     use super::*;
