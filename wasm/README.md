@@ -1,10 +1,24 @@
 # Iroha WASM
 
-The library crate that is used for writing Iroha-compliant smart contracts in Rust using the WebAssembly format. 
+The library crate that is used for writing Iroha-compliant smart contracts in Rust using the WebAssembly format.
 
 ## Usage
 
 Check the [WASM section of our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/advanced/wasm.html) for a detailed guide.
+
+## How to build smart contract?
+
+When building smart contract it has to import both `memory` and `table`. This can most
+easily be done by defining the build script `build.rs` in the root of the package:
+
+```rs
+fn main() {
+    println!("cargo:rustc-link-arg=--import-memory");
+    println!("cargo:rustc-link-arg=--import-table");
+}
+```
+
+Alternatively, you can also define linker arguments in the cargo configuration `.cargo/config.toml`
 
 ## Reducing the size of WASM
 
@@ -25,7 +39,7 @@ By following this list of optimization steps you can reduce the size of your bin
       # from the host environment. The host environment executes a smart contract by
       # calling the function that smart contract exports (entry point of execution)
     crate-type = ['cdylib']
- 
+
     [profile.release]
     strip = "debuginfo" # Remove debugging info from the binary
     panic = "abort"     # Panics are transcribed to Traps when compiling for WASM

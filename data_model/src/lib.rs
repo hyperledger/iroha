@@ -26,6 +26,7 @@ use crate::{
     account::SignatureCheckCondition, permissions::PermissionToken, transaction::TransactionValue,
 };
 
+//pub mod wasm;
 pub mod account;
 pub mod asset;
 pub mod block_value;

@@ -103,7 +103,7 @@ impl Metadata {
     #[inline]
     pub fn new() -> Self {
         Self {
-            map: btree_map::BTreeMap::new(),
+            map: UnlimitedMetadata::new(),
         }
     }
 
@@ -177,7 +177,6 @@ impl Metadata {
                 _ => return Err(Error::InvalidSegment(k.clone())),
             };
         }
-        check_size_limits(key, value.clone(), limits)?;
         layer.insert_with_limits(key.clone(), value, limits)
     }
 
@@ -221,6 +220,10 @@ impl Metadata {
         Name: Borrow<K>,
     {
         self.map.remove(key)
+    }
+
+    pub fn iter(&self) -> btree_map::Iter<Name, Value> {
+        self.map.iter()
     }
 }
 

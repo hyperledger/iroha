@@ -65,7 +65,7 @@ pub struct BasicAuth {
 }
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
-#[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
+#[derive(Debug, Clone, Deserialize, Serialize, Configurable)]
 #[serde(rename_all = "UPPERCASE")]
 #[serde(default)]
 #[config(env_prefix = "IROHA_")]
