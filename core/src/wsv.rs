@@ -537,8 +537,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<T, FindError> {
         let domain = self.domain(&id.domain_id)?;
         let account = domain
-            .accounts
-            .get(id)
+            .get_account(id)
             .ok_or_else(|| FindError::Account(id.clone()))?;
         Ok(f(account))
     }
@@ -554,8 +553,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<(), Error> {
         self.modify_domain(&id.domain_id, |domain| {
             let account = domain
-                .accounts
-                .get_mut(id)
+                .get_account_mut(id)
                 .ok_or_else(|| FindError::Account(id.clone()))?;
             f(account).map(DomainEvent::Account)
         })

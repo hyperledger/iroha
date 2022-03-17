@@ -343,7 +343,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts.values() {
+                for account in domain.accounts() {
                     for asset in account.assets.values() {
                         vec.push(asset.clone())
                     }
@@ -398,7 +398,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts.values() {
+                for account in domain.accounts() {
                     for asset in account.assets.values() {
                         if asset.id.definition_id.name == name {
                             vec.push(asset.clone())
@@ -434,7 +434,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts.values() {
+                for account in domain.accounts() {
                     for asset in account.assets.values() {
                         if asset.id.definition_id == id {
                             vec.push(asset.clone())
@@ -456,7 +456,7 @@ pub mod query {
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
-            for account in wsv.domain(&id)?.accounts.values() {
+            for account in wsv.domain(&id)?.accounts() {
                 for asset in account.assets.values() {
                     vec.push(asset.clone())
                 }
@@ -485,7 +485,7 @@ pub mod query {
                 .get(&asset_definition_id)
                 .ok_or_else(|| FindError::AssetDefinition(asset_definition_id.clone()))?;
             let mut assets = Vec::new();
-            for account in domain.accounts.values() {
+            for account in domain.accounts() {
                 for asset in account.assets.values() {
                     if asset.id.account_id.domain_id == domain_id
                         && asset.id.definition_id == asset_definition_id

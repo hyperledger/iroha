@@ -35,18 +35,17 @@ pub mod isi {
                 .map_err(Error::Validate)?;
 
             wsv.modify_domain(&account_id.domain_id, |domain| {
-                match domain.accounts.entry(account_id.clone()) {
-                    Entry::Occupied(_) => Err(Error::Repetition(
+                if domain.get_account(&account_id).is_some() {
+                    return Err(Error::Repetition(
                         InstructionType::Register,
                         IdBox::AccountId(account_id.clone()),
-                    )),
-                    Entry::Vacant(entry) => {
-                        let _ = entry.insert(account.into());
-                        Ok(DomainEvent::Account(AccountEvent::Created(
-                            account_id.clone(),
-                        )))
-                    }
+                    ));
                 }
+
+                domain.add_account(account.into());
+                Ok(DomainEvent::Account(AccountEvent::Created(
+                    account_id.clone(),
+                )))
             })
         }
     }
@@ -62,7 +61,7 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let account_id = self.object_id;
             wsv.modify_domain(&account_id.domain_id, |domain| {
-                domain.accounts.remove(&account_id);
+                domain.remove_account(&account_id);
                 Ok(DomainEvent::Account(AccountEvent::Deleted(
                     account_id.clone(),
                 )))
@@ -125,7 +124,7 @@ pub mod isi {
             })?;
 
             for domain in wsv.domains() {
-                for (account_id, account) in &domain.accounts {
+                for account in domain.accounts() {
                     let keys = account
                         .assets
                         .iter()
@@ -133,7 +132,7 @@ pub mod isi {
                         .map(|(asset_id, _asset)| asset_id.clone())
                         .collect::<Vec<_>>();
                     for id in &keys {
-                        wsv.modify_account(account_id, |account_mut| {
+                        wsv.modify_account(&account.id, |account_mut| {
                             account_mut.assets.remove(id);
                             Ok(AccountEvent::Asset(AssetEvent::Deleted(id.clone())))
                         })?;
@@ -214,7 +213,7 @@ pub mod isi {
                 let limits = wsv.config.domain_metadata_limits;
 
                 domain
-                    .metadata
+                    .metadata_mut()
                     .insert_with_limits(self.key, self.value, limits)?;
 
                 Ok(DomainEvent::MetadataInserted(domain_id.clone()))
@@ -235,7 +234,7 @@ pub mod isi {
 
             wsv.modify_domain(&domain_id, |domain| {
                 domain
-                    .metadata
+                    .metadata_mut()
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
@@ -292,7 +291,7 @@ pub mod query {
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             wsv.map_domain(&id, |domain| {
-                Ok(domain.metadata.get(&key).map(Clone::clone))
+                Ok(domain.metadata().get(&key).map(Clone::clone))
             })?
             .ok_or_else(|| FindError::MetadataKey(key).into())
         }

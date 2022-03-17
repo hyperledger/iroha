@@ -63,7 +63,7 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let domain = self.object;
-            let domain_id = domain.id.clone();
+            let domain_id = domain.id().clone();
             domain_id
                 .name
                 .validate_len(wsv.config.ident_length_limits)
@@ -132,7 +132,7 @@ pub mod isi {
             wsv.modify_world(|world| {
                 world.roles.remove(&role_id);
                 for mut domain in world.domains.iter_mut() {
-                    for account in domain.accounts.values_mut() {
+                    for account in domain.accounts_mut() {
                         let _ = account.roles.remove(&role_id);
                     }
                 }

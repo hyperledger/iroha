@@ -275,7 +275,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts.values() {
+                for account in domain.accounts() {
                     vec.push(account.clone())
                 }
             }
@@ -307,8 +307,8 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for (id, account) in &domain.accounts {
-                    if id.name == name {
+                for account in domain.accounts() {
+                    if account.id.name == name {
                         vec.push(account.clone())
                     }
                 }
@@ -328,8 +328,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             Ok(wsv
                 .domain(&id)?
-                .accounts
-                .values()
+                .accounts()
                 .cloned()
                 .collect::<Vec<_>>())
         }

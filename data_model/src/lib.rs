@@ -85,6 +85,7 @@ impl ValidationError {
     Serialize,
     IntoSchema,
 )]
+#[repr(transparent)]
 pub struct Name(String);
 
 impl Name {
@@ -149,9 +150,6 @@ impl Debug for Name {
         write!(f, "{:?}", self.0)
     }
 }
-
-/// Represents a sequence of bytes. Used for storing encoded data.
-pub type Bytes = Vec<u8>;
 
 #[allow(clippy::missing_errors_doc)]
 /// [`AsMut`] but reference conversion can fail.
@@ -772,7 +770,7 @@ pub mod prelude {
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, fixed::prelude::*,
-        pagination::prelude::*, peer::prelude::*, trigger::prelude::*, uri, Bytes, EnumTryAsError,
+        pagination::prelude::*, peer::prelude::*, trigger::prelude::*, uri, EnumTryAsError,
         IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, ValidationError,
         Value,
     };

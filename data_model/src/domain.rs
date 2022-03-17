@@ -6,6 +6,7 @@ use core::{cmp::Ordering, fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
+use getset::{Getters, MutGetters, Setters};
 use iroha_crypto::PublicKey;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -53,18 +54,34 @@ impl From<GenesisDomain> for Domain {
 }
 
 /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Setters,
+    Getters,
+    MutGetters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+)]
 pub struct Domain {
     /// Identification of this [`Domain`].
-    pub id: Id,
+    #[getset(get = "pub")]
+    id: Id,
     /// Accounts of the domain.
-    pub accounts: AccountsMap,
+    accounts: AccountsMap,
     /// Assets of the domain.
     pub asset_definitions: AssetDefinitionsMap,
     /// Metadata of this domain as a key-value store.
-    pub metadata: Metadata,
+    #[getset(get = "pub", get_mut = "pub")]
+    metadata: Metadata,
     /// IPFS link to domain logo
-    pub logo: Option<IpfsPath>,
+    #[getset(get = "pub", set = "pub")]
+    logo: Option<IpfsPath>,
 }
 
 impl PartialOrd for Domain {
@@ -93,7 +110,8 @@ impl Domain {
         }
     }
 
-    /// Domain constructor with pre-setup accounts. Useful for testing purposes.
+    /// Domain constructor with pre-setup accounts
+    #[cfg(feature = "cross_crate_testing")]
     pub fn with_accounts(name: &str, accounts: impl IntoIterator<Item = Account>) -> Self {
         let accounts_map = accounts
             .into_iter()
@@ -107,6 +125,42 @@ impl Domain {
             metadata: Metadata::new(),
             logo: None,
         }
+    }
+
+    /// Returns a reference to the account corresponding to the account id.
+    pub fn get_account(&self, account_id: &<Account as Identifiable>::Id) -> Option<&Account> {
+        self.accounts.get(account_id)
+    }
+
+    /// Returns a mutable reference to the account corresponding to the account id.
+    pub fn get_account_mut(
+        &mut self,
+        account_id: &<Account as Identifiable>::Id,
+    ) -> Option<&mut Account> {
+        self.accounts.get_mut(account_id)
+    }
+
+    /// Adds account into the domain
+    pub fn add_account(&mut self, account: Account) -> Option<Account> {
+        self.accounts.insert(account.id.clone(), account)
+    }
+
+    /// Removes account from the domain
+    pub fn remove_account(
+        &mut self,
+        account_id: &<Account as Identifiable>::Id,
+    ) -> Option<Account> {
+        self.accounts.remove(account_id)
+    }
+
+    /// Gets an iterator over accounts of the domain
+    pub fn accounts(&self) -> impl Iterator<Item = &Account> {
+        self.accounts.values()
+    }
+
+    /// Gets a mutable iterator over accounts of the domain
+    pub fn accounts_mut(&mut self) -> impl Iterator<Item = &mut Account> {
+        self.accounts.values_mut()
     }
 }
 

@@ -514,7 +514,7 @@ impl Client {
     pub fn get_status(&self) -> Result<Status> {
         let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
             format!("{}/{}", &self.telemetry_url, uri::STATUS),
-            Bytes::new(),
+            Vec::new(),
             vec![],
             self.headers.clone(),
         )?;
