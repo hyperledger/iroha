@@ -201,6 +201,8 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// scenario is rare, because the `tx` validation implies applying
     /// instructions directly to a clone of the wsv.  If this happens,
     /// you likely have data corruption.
+    /// - If trigger execution fails
+    /// - If timestamp conversion to `u64` fails
     #[iroha_futures::telemetry_future]
     #[log(skip(self, block))]
     #[allow(clippy::expect_used)]
@@ -236,7 +238,6 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Create time event using previous and current blocks
-    #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     fn create_time_event(&self, block: &CommittedBlock) -> Result<TimeEvent> {
         let prev_interval = self.blocks.latest_block().map_or_else(
             || Result::<_, <u128 as TryInto<u64>>::Error>::Ok(None),
