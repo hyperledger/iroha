@@ -57,8 +57,8 @@ fn check_assets(
         15,
         |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == *asset_definition_id
-                    && asset.value == AssetValue::Quantity(quantity)
+                asset.id().definition_id == *asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(quantity)
             })
         },
     );

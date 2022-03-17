@@ -403,7 +403,7 @@ impl<T> SignaturesOf<T> {
     }
 
     /// Returns all signatures.
-    pub fn iter(&self) -> impl Iterator<Item = &SignatureOf<T>> {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &SignatureOf<T>> {
         self.into_iter()
     }
 

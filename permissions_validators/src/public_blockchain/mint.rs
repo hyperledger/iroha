@@ -1,11 +1,13 @@
 //! Module with permission for minting
 
+use std::str::FromStr as _;
+
 use super::*;
 
 #[allow(clippy::expect_used)]
 /// Can mint asset with the corresponding asset definition.
 pub static CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::new("can_mint_user_asset_definitions").expect("Tested. Works."));
+    Lazy::new(|| Name::from_str("can_mint_user_asset_definitions").expect("Tested. Works."));
 
 /// Checks that account can mint only the assets which were registered by this account.
 #[derive(Debug, Copy, Clone)]
@@ -32,7 +34,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyAssetsCreatedByThisAccount
         let asset_id: AssetId = try_into_or_exit!(destination_id);
         let registered_by_signer_account = wsv
             .asset_definition_entry(&asset_id.definition_id)
-            .map(|asset_definition_entry| &asset_definition_entry.registered_by == authority)
+            .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
             return Err("Can't mint assets registered by other accounts.".to_owned());

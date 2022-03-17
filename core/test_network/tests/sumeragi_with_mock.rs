@@ -242,16 +242,15 @@ pub mod utils {
 
         pub static ALICE_KEYS: Lazy<KeyPair> =
             Lazy::new(|| KeyPair::generate().expect("doesn't fail"));
-        pub static ALICE_ID: Lazy<AccountId> =
-            Lazy::new(|| AccountId::new("alice", "wonderland").expect("valid account name."));
         pub static ALICE: Lazy<Account> = Lazy::new(|| {
-            let mut account = Account::new(ALICE_ID.clone());
+            let account_id = AccountId::new("alice", "wonderland").expect("valid account name.");
+            let mut account = Account::new(account_id);
             account.signatories.push(ALICE_KEYS.public_key.clone());
             account
         });
         pub static WONDERLAND: Lazy<Domain> = Lazy::new(|| {
             let mut domain = Domain::new(DomainId::new("wonderland").expect("valid domain name"));
-            domain.accounts.insert(ALICE_ID.clone(), ALICE.clone());
+            domain.add_account(ALICE.clone());
             domain
         });
 
@@ -262,7 +261,7 @@ pub mod utils {
                 trusted_peers_ids: impl IntoIterator<Item = PeerId>,
             ) -> Self {
                 Self(World::with(
-                    vec![(WONDERLAND.id.clone(), WONDERLAND.clone())]
+                    vec![(WONDERLAND.id().clone(), WONDERLAND.clone())]
                         .into_iter()
                         .chain(domains),
                     trusted_peers_ids,
@@ -272,7 +271,7 @@ pub mod utils {
 
         pub fn sign_tx(isi: impl IntoIterator<Item = Instruction>) -> VersionedAcceptedTransaction {
             let instructions: Vec<_> = isi.into_iter().collect();
-            let tx = Transaction::new(ALICE_ID.clone(), instructions.into(), 100_000)
+            let tx = Transaction::new(ALICE.id().clone(), instructions.into(), 100_000)
                 .sign(ALICE_KEYS.clone())
                 .expect("Sign shall not fail");
             let tx_limits = TransactionLimits {

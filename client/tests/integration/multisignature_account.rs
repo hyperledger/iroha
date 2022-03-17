@@ -44,8 +44,8 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
         client::asset::by_account_id(account_id),
         |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(quantity)
+                asset.id().definition_id == asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(quantity)
             })
         },
     );

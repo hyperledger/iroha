@@ -52,8 +52,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
         client::asset::by_account_id(account_id),
         |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(quantity)
+                asset.id().definition_id == asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(quantity)
             })
         },
     );

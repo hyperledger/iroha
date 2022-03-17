@@ -630,6 +630,8 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use core::str::FromStr;
+
     use iroha_crypto::KeyPair;
 
     use super::*;
@@ -642,12 +644,12 @@ mod tests {
         let mut account = Account::new(account_id.clone());
         let key_pair = KeyPair::generate()?;
         account.signatories.push(key_pair.public_key);
-        domain.accounts.insert(account_id.clone(), account);
+        domain.add_account(account);
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
-        domain.asset_definitions.insert(
-            asset_definition_id.clone(),
-            AssetDefinitionEntry::new(AssetDefinition::new_store(asset_definition_id), account_id),
-        );
+        domain.define_asset(AssetDefinitionEntry::new(
+            AssetDefinition::new_store(asset_definition_id),
+            account_id,
+        ));
         domains.insert(DomainId::new("wonderland")?, domain);
         Ok(World::with(domains, PeersIds::new()))
     }
@@ -660,13 +662,15 @@ mod tests {
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
         SetKeyValueBox::new(
             IdBox::from(asset_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
         let asset = wsv.asset(&asset_id)?;
         let metadata: &Metadata = asset.try_as_ref()?;
-        let bytes = metadata.get(&Name::new("Bytes").expect("Valid")).cloned();
+        let bytes = metadata
+            .get(&Name::from_str("Bytes").expect("Valid"))
+            .cloned();
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
@@ -684,14 +688,14 @@ mod tests {
         let account_id = AccountId::new("alice", "wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id.clone(), &wsv)?;
         let bytes = wsv.map_account(&account_id, |account| {
             account
-                .metadata
-                .get(&Name::new("Bytes").expect("Valid"))
+                .metadata()
+                .get(&Name::from_str("Bytes").expect("Valid"))
                 .cloned()
         })?;
         assert_eq!(
@@ -712,15 +716,15 @@ mod tests {
         let account_id = AccountId::new("alice", "wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(definition_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
         let bytes = wsv
             .asset_definition_entry(&definition_id)?
-            .definition
-            .metadata
-            .get(&Name::new("Bytes")?)
+            .definition()
+            .metadata()
+            .get(&Name::from_str("Bytes")?)
             .cloned();
         assert_eq!(
             bytes,
@@ -740,14 +744,14 @@ mod tests {
         let account_id = AccountId::new("alice", "wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(domain_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
         let bytes = wsv
             .domain(&domain_id)?
-            .metadata
-            .get(&Name::new("Bytes")?)
+            .metadata()
+            .get(&Name::from_str("Bytes")?)
             .cloned();
         assert_eq!(
             bytes,

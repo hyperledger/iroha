@@ -1,11 +1,13 @@
 //! Module with permissions for registering.
 
+use std::str::FromStr as _;
+
 use super::*;
 
 /// Can register domains permission token name.
 #[allow(clippy::expect_used)]
 pub static CAN_REGISTER_DOMAINS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::new("can_register_domains").expect("this mustn't panic"));
+    Lazy::new(|| Name::from_str("can_register_domains").expect("this mustn't panic"));
 
 /// Prohibits registering domains.
 #[derive(Debug, Copy, Clone)]

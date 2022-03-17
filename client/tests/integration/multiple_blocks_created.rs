@@ -73,8 +73,8 @@ fn long_multiple_blocks_created() {
         client::asset::by_account_id(account_id),
         |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(account_has_quantity)
+                asset.id().definition_id == asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(account_has_quantity)
             })
         },
     );

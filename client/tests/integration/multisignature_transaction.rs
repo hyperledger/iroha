@@ -113,5 +113,5 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     thread::sleep(pipeline_time);
     let assets = iroha_client_1.request(request).expect("Query failed.");
     assert!(!assets.is_empty());
-    assert_eq!(AssetValue::Quantity(quantity), assets[0].value);
+    assert_eq!(AssetValue::Quantity(quantity), *assets[0].value());
 }

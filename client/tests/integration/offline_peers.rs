@@ -23,8 +23,8 @@ fn genesis_block_is_commited_with_some_offline_peers() {
     let asset = assets
         .iter()
         .find(|asset| {
-            asset.id.definition_id == AssetDefinitionId::new("rose", "wonderland").expect("Valid")
+            asset.id().definition_id == AssetDefinitionId::new("rose", "wonderland").expect("Valid")
         })
         .unwrap();
-    assert_eq!(AssetValue::Quantity(alice_has_roses), asset.value);
+    assert_eq!(AssetValue::Quantity(alice_has_roses), *asset.value());
 }

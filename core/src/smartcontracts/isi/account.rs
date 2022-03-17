@@ -100,7 +100,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 let account_metadata_limits = wsv.config.account_metadata_limits;
 
-                account.metadata.insert_with_limits(
+                account.metadata_mut().insert_with_limits(
                     self.key,
                     self.value,
                     account_metadata_limits,
@@ -124,7 +124,7 @@ pub mod isi {
 
             wsv.modify_account(&account_id, |account| {
                 account
-                    .metadata
+                    .metadata_mut()
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
@@ -146,7 +146,7 @@ pub mod isi {
             let permission = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                let _ = account.permission_tokens.insert(permission);
+                let _ = account.add_permission(permission);
 
                 Ok(AccountEvent::PermissionAdded(account_id.clone()))
             })
@@ -166,7 +166,7 @@ pub mod isi {
             let permission = &self.object;
 
             wsv.modify_account(&account_id, |account| {
-                let _ = account.permission_tokens.remove(permission);
+                let _ = account.remove_permission(permission);
 
                 Ok(AccountEvent::PermissionRemoved(account_id.clone()))
             })
@@ -191,7 +191,7 @@ pub mod isi {
                 .ok_or_else(|| FindError::Role(role.clone()))?;
 
             wsv.modify_account(&self.destination_id, |account| {
-                let _ = account.roles.insert(role);
+                let _ = account.add_role(role);
 
                 Ok(AccountEvent::PermissionAdded(self.destination_id.clone()))
             })
@@ -216,7 +216,7 @@ pub mod isi {
                 .ok_or_else(|| FindError::Role(role.clone()))?;
 
             wsv.modify_account(&self.destination_id, |account| {
-                let _ = account.roles.remove(&role);
+                let _ = account.remove_role(&role);
 
                 Ok(AccountEvent::PermissionRemoved(self.destination_id.clone()))
             })
@@ -244,7 +244,7 @@ pub mod query {
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let roles = wsv.map_account(&account_id, |account| {
-                account.roles.iter().cloned().collect::<Vec<_>>()
+                account.roles().cloned().collect::<Vec<_>>()
             })?;
             Ok(roles)
         }
@@ -261,9 +261,6 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let tokens = wsv.map_account(&account_id, |account| {
                 wsv.account_permission_tokens(account)
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
             })?;
             Ok(tokens)
         }
@@ -275,7 +272,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts.values() {
+                for account in domain.accounts() {
                     vec.push(account.clone())
                 }
             }
@@ -307,8 +304,8 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for (id, account) in &domain.accounts {
-                    if id.name == name {
+                for account in domain.accounts() {
+                    if account.id().name == name {
                         vec.push(account.clone())
                     }
                 }
@@ -326,12 +323,7 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            Ok(wsv
-                .domain(&id)?
-                .accounts
-                .values()
-                .cloned()
-                .collect::<Vec<_>>())
+            Ok(wsv.domain(&id)?.accounts().cloned().collect::<Vec<_>>())
         }
     }
 
@@ -349,8 +341,10 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            wsv.map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
-                .ok_or_else(|| query::Error::Find(Box::new(FindError::MetadataKey(key))))
+            wsv.map_account(&id, |account| {
+                account.metadata().get(&key).map(Clone::clone)
+            })?
+            .ok_or_else(|| query::Error::Find(Box::new(FindError::MetadataKey(key))))
         }
     }
 }

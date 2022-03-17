@@ -6,11 +6,17 @@ use core::fmt;
 #[cfg(feature = "std")]
 use std::collections::btree_set;
 
+use getset::Getters;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{permissions::PermissionToken, IdBox, Identifiable, IdentifiableBox, Name, Value};
+use crate::{
+    permissions::{PermissionToken, Permissions},
+    IdBox, Identifiable, IdentifiableBox, Name, Value,
+};
+
+pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
 
 /// Identification of a role.
 #[derive(
@@ -95,26 +101,40 @@ impl TryFrom<Value> for Role {
 
 /// Role is a tag for a set of permission tokens.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
 pub struct Role {
     /// Unique name of the role.
-    pub id: Id,
+    #[getset(get = "pub")]
+    id: Id,
     /// Permission tokens.
-    pub permissions: btree_set::BTreeSet<PermissionToken>,
+    permissions: Permissions,
 }
 
 impl Role {
     /// Constructor.
     #[inline]
-    pub fn new(
-        id: impl Into<Id>,
-        permissions: impl Into<btree_set::BTreeSet<PermissionToken>>,
-    ) -> Self {
+    pub fn new(id: impl Into<Id>, permissions: impl Into<Permissions>) -> Self {
         Self {
             id: id.into(),
             permissions: permissions.into(),
         }
+    }
+
+    #[inline]
+    pub fn permissions(&self) -> impl Iterator<Item = &PermissionToken> {
+        self.permissions.iter()
     }
 }
 

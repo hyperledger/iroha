@@ -1826,6 +1826,7 @@ version = "2.0.0-pre-rc.3"
 dependencies = [
  "criterion",
  "derive_more",
+ "getset",
  "hex-literal",
  "iroha",
  "iroha_client",

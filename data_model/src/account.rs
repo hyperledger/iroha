@@ -1,38 +1,32 @@
 //! Structures, traits and impls related to `Account`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{
-    collections::{btree_map, btree_set},
-    format,
-    string::String,
-    vec::Vec,
-};
+use alloc::{collections::btree_map, format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
-use std::collections::{btree_map, btree_set};
+use std::collections::btree_map;
 
+use getset::{Getters, MutGetters};
 use iroha_data_primitives::small::{smallvec, SmallVec};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "roles")]
-use crate::role::Id as RoleId;
+use crate::role::{prelude::RoleId, RoleIds};
 use crate::{
-    asset::AssetsMap,
+    asset::{prelude::AssetId, AssetsMap},
     domain::prelude::*,
     expression::{ContainsAny, ContextValue, EvaluatesTo, ExpressionBox, WhereBuilder},
     metadata::Metadata,
-    permissions::PermissionToken,
+    permissions::{PermissionToken, Permissions},
+    prelude::Asset,
     Identifiable, Name, ParseError, PublicKey, Value,
 };
 
 /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
 /// (`Account`) pairs.
-pub type AccountsMap = btree_map::BTreeMap<Id, Account>;
-
-/// Collection of [`PermissionToken`]s
-pub type Permissions = btree_set::BTreeSet<PermissionToken>;
+pub type AccountsMap = btree_map::BTreeMap<<Account as Identifiable>::Id, Account>;
 
 // The size of the array must be fixed. If we use more than `1` we
 // waste all of that space for all non-multisig accounts. If we
@@ -109,15 +103,29 @@ impl Default for SignatureCheckCondition {
 
 /// Type which is used for registering `Account`
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    MutGetters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
+#[getset(get = "pub", get_mut = "pub")]
 pub struct NewAccount {
     /// An Identification of the `NewAccount`.
-    pub id: Id,
+    #[getset(get = "pub")]
+    id: Id,
     /// `Account`'s signatories.
-    pub signatories: Signatories,
+    signatories: Signatories,
     /// Metadata of this account as a key-value store.
-    pub metadata: Metadata,
+    metadata: Metadata,
 }
 
 impl From<NewAccount> for Account {
@@ -136,7 +144,7 @@ impl From<NewAccount> for Account {
             permission_tokens: Permissions::default(),
             signature_check_condition: SignatureCheckCondition::default(),
             #[cfg(feature = "roles")]
-            roles: btree_set::BTreeSet::default(),
+            roles: RoleIds::default(),
         }
     }
 }
@@ -165,24 +173,39 @@ impl NewAccount {
 }
 
 /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Getters,
+    MutGetters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+)]
 pub struct Account {
     /// An Identification of the [`Account`].
-    pub id: Id,
+    #[getset(get = "pub")]
+    id: Id,
     /// Asset's in this [`Account`].
-    pub assets: AssetsMap,
+    #[getset(skip)]
+    assets: AssetsMap,
     /// [`Account`]'s signatories.
     pub signatories: Signatories,
     /// Permissions tokens of this account
-    pub permission_tokens: Permissions,
+    permission_tokens: Permissions,
     /// Condition which checks if the account has the right signatures.
     #[serde(default)]
     pub signature_check_condition: SignatureCheckCondition,
     /// Metadata of this account as a key-value store.
-    pub metadata: Metadata,
+    #[getset(get = "pub", get_mut = "pub")]
+    metadata: Metadata,
     /// Roles of this account, they are tags for sets of permissions stored in `World`.
     #[cfg(feature = "roles")]
-    pub roles: btree_set::BTreeSet<RoleId>,
+    roles: RoleIds,
 }
 
 impl PartialOrd for Account {
@@ -241,7 +264,7 @@ impl Account {
             signature_check_condition: SignatureCheckCondition::default(),
             metadata: Metadata::new(),
             #[cfg(feature = "roles")]
-            roles: btree_set::BTreeSet::new(),
+            roles: RoleIds::new(),
         }
     }
 
@@ -257,7 +280,7 @@ impl Account {
             signature_check_condition: SignatureCheckCondition::default(),
             metadata: Metadata::new(),
             #[cfg(feature = "roles")]
-            roles: btree_set::BTreeSet::new(),
+            roles: RoleIds::new(),
         }
     }
 
@@ -275,10 +298,61 @@ impl Account {
         expr
     }
 
-    /// Inserts permission token into account.
+    pub fn get_asset(&self, asset_id: &AssetId) -> Option<&Asset> {
+        self.assets.get(asset_id)
+    }
+
+    pub fn get_asset_mut(&mut self, asset_id: &AssetId) -> Option<&mut Asset> {
+        self.assets.get_mut(asset_id)
+    }
+
+    pub fn add_asset(&mut self, asset: Asset) -> Option<Asset> {
+        self.assets.insert(asset.id().clone(), asset)
+    }
+
+    pub fn remove_asset(&mut self, asset_id: &AssetId) -> Option<Asset> {
+        self.assets.remove(asset_id)
+    }
+
+    pub fn assets(&self) -> impl Iterator<Item = &Asset> {
+        self.assets.values()
+    }
+
+    /// Adds permission token into account.
     #[inline]
-    pub fn insert_permission_token(&mut self, token: PermissionToken) -> bool {
+    pub fn add_permission(&mut self, token: PermissionToken) -> bool {
         self.permission_tokens.insert(token)
+    }
+
+    /// Adds permission token into account.
+    #[inline]
+    pub fn remove_permission(&mut self, token: &PermissionToken) -> bool {
+        self.permission_tokens.remove(token)
+    }
+
+    #[inline]
+    pub fn contains_permission(&self, token: &PermissionToken) -> bool {
+        self.permission_tokens.contains(token)
+    }
+
+    #[inline]
+    pub fn permissions(&self) -> impl Iterator<Item = &PermissionToken> {
+        self.permission_tokens.iter()
+    }
+
+    #[cfg(feature = "roles")]
+    pub fn add_role(&mut self, role_id: RoleId) -> bool {
+        self.roles.insert(role_id)
+    }
+
+    #[cfg(feature = "roles")]
+    pub fn remove_role(&mut self, role_id: &RoleId) -> bool {
+        self.roles.remove(role_id)
+    }
+
+    #[cfg(feature = "roles")]
+    pub fn roles(&self) -> impl Iterator<Item = &RoleId> {
+        self.roles.iter()
     }
 }
 
@@ -291,7 +365,7 @@ impl Id {
     #[inline]
     pub fn new(name: &str, domain_name: &str) -> Result<Self, ParseError> {
         Ok(Self {
-            name: Name::new(name)?,
+            name: Name::from_str(name)?,
             domain_id: DomainId::new(domain_name)?,
         })
     }
@@ -301,7 +375,7 @@ impl Id {
     pub fn genesis() -> Self {
         #[allow(clippy::expect_used)]
         Self {
-            name: Name::new(GENESIS_ACCOUNT_NAME)
+            name: Name::from_str(GENESIS_ACCOUNT_NAME)
                 .expect("Programmer error. Must not contain whitespace."),
             domain_id: DomainId::new(GENESIS_DOMAIN_NAME)
                 .expect("Programmer error. Must not contain whitespace."),
@@ -338,7 +412,7 @@ impl FromStr for Id {
             });
         }
         Ok(Self {
-            name: Name::new(vector[0])?,
+            name: Name::from_str(vector[0])?,
             domain_id: DomainId::new(vector[1])?,
         })
     }

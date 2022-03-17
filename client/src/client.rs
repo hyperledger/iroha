@@ -367,7 +367,10 @@ impl Client {
     ///
     /// # Errors
     /// Fails if subscribing to websocket fails
-    pub fn listen_for_events(&mut self, event_filter: EventFilter) -> Result<EventIterator> {
+    pub fn listen_for_events(
+        &mut self,
+        event_filter: EventFilter,
+    ) -> Result<impl Iterator<Item = Result<Event>>> {
         EventIterator::new(
             &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
             event_filter,
@@ -514,7 +517,7 @@ impl Client {
     pub fn get_status(&self) -> Result<Status> {
         let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
             format!("{}/{}", &self.telemetry_url, uri::STATUS),
-            Bytes::new(),
+            Vec::new(),
             vec![],
             self.headers.clone(),
         )?;
@@ -544,7 +547,7 @@ impl EventIterator {
         url: &str,
         event_filter: EventFilter,
         headers: http_client::Headers,
-    ) -> Result<EventIterator> {
+    ) -> Result<Self> {
         let mut stream = http_client::web_socket_connect(url, headers)?;
         stream.write_message(WebSocketMessage::Binary(
             VersionedEventSubscriberMessage::from(EventSubscriberMessage::from(event_filter))
@@ -567,7 +570,7 @@ impl EventIterator {
                 Err(err) => return Err(err.into()),
             }
         }
-        Ok(EventIterator { stream })
+        Ok(Self { stream })
     }
 }
 

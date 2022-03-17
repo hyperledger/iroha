@@ -86,18 +86,10 @@ impl ValidationError {
     Serialize,
     IntoSchema,
 )]
+#[repr(transparent)]
 pub struct Name(String);
 
 impl Name {
-    /// Construct [`Name`] if `name` is valid.
-    ///
-    /// # Errors
-    /// Fails if parsing fails
-    #[inline]
-    pub fn new(name: &str) -> Result<Self, ParseError> {
-        Self::from_str(name)
-    }
-
     /// Check if `range` contains the number of chars in the inner `String` of this [`Name`].
     ///
     /// # Errors
@@ -128,7 +120,6 @@ impl AsRef<str> for Name {
 impl FromStr for Name {
     type Err = ParseError;
 
-    // TODO: This can be made into a constant function eventually.
     fn from_str(candidate: &str) -> Result<Self, Self::Err> {
         if candidate.chars().any(char::is_whitespace) {
             return Err(ParseError {
@@ -150,9 +141,6 @@ impl Debug for Name {
         write!(f, "{:?}", self.0)
     }
 }
-
-/// Represents a sequence of bytes. Used for storing encoded data.
-pub type Bytes = Vec<u8>;
 
 #[allow(clippy::missing_errors_doc)]
 /// [`AsMut`] but reference conversion can fail.
@@ -582,9 +570,8 @@ pub mod prelude {
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, fixed::prelude::*,
-        pagination::prelude::*, peer::prelude::*, trigger::prelude::*, uri, Bytes, EnumTryAsError,
-        IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, ValidationError,
-        Value,
+        pagination::prelude::*, peer::prelude::*, trigger::prelude::*, uri, EnumTryAsError, IdBox,
+        Identifiable, IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, ValidationError, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

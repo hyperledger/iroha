@@ -301,7 +301,7 @@ async fn find_asset() {
                 IdentifiableBox::Asset(asset),
             ))) = body
             {
-                asset.value == AssetValue::Quantity(99)
+                *asset.value() == AssetValue::Quantity(99)
             } else {
                 false
             }
@@ -411,7 +411,7 @@ async fn find_asset_definition() {
                     if let Value::Identifiable(IdentifiableBox::AssetDefinition(asset_definition)) =
                         value
                     {
-                        asset_definition.id.name.as_ref() == "rose"
+                        asset_definition.id().name.as_ref() == "rose"
                     } else {
                         false
                     }

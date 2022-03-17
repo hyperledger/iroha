@@ -730,7 +730,7 @@ pub mod query {
             };
             assets.iter().find_map(|asset| {
                 if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
-                    if &asset.id.definition_id == asset_id {
+                    if &asset.id().definition_id == asset_id {
                         return Some(asset.as_ref());
                     }
                 }

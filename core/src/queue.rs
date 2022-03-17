@@ -304,9 +304,9 @@ mod tests {
         let domains = DomainsMap::new();
         let mut domain = Domain::new(DomainId::new("wonderland").expect("Valid"));
         let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-        let mut account = Account::new(account_id.clone());
+        let mut account = Account::new(account_id);
         account.signatories.push(public_key);
-        domain.accounts.insert(account_id, account);
+        domain.add_account(account);
         domains.insert(DomainId::new("wonderland").expect("Valid"), domain);
         World::with(domains, PeersIds::new())
     }
@@ -372,10 +372,10 @@ mod tests {
             let domains = DomainsMap::new();
             let mut domain = Domain::new(DomainId::new("wonderland").expect("Valid"));
             let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-            let mut account = Account::new(account_id.clone());
+            let mut account = Account::new(account_id);
             account.signatories.push(public_key);
             account.signature_check_condition = SignatureCheckCondition(0_u32.into());
-            domain.accounts.insert(account_id, account);
+            domain.add_account(account);
             domains.insert(DomainId::new("wonderland").expect("Valid"), domain);
 
             Arc::new(WorldStateView::new(World::with(domains, PeersIds::new())))

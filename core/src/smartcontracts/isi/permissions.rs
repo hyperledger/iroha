@@ -588,7 +588,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for HasTokenBoxed<W> {
             .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
         let contain = wsv
             .map_account(authority, |account| {
-                account.permission_tokens.contains(&permission_token)
+                account.contains_permission(&permission_token)
             })
             .map_err(|e| e.to_string())?;
         if contain {
@@ -711,8 +711,7 @@ fn unpack_if_role_grant<W: WorldTrait>(
 
     let instructions = if let Some(role) = wsv.world.roles.get(&id) {
         let destination_id = grant.destination_id.evaluate(wsv, &Context::new())?;
-        role.permissions
-            .iter()
+        role.permissions()
             .cloned()
             .map(|permission_token| GrantBox::new(permission_token, destination_id.clone()).into())
             .collect()
@@ -753,8 +752,7 @@ pub fn unpack_if_role_revoke<W: WorldTrait>(
 
     let instructions = if let Some(role) = wsv.world.roles.get(&id) {
         let destination_id = revoke.destination_id.evaluate(wsv, &Context::new())?;
-        role.permissions
-            .iter()
+        role.permissions()
             .cloned()
             .map(|permission_token| RevokeBox::new(permission_token, destination_id.clone()).into())
             .collect()
@@ -809,7 +807,10 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        str::FromStr as _,
+    };
 
     use iroha_data_model::{expression::prelude::*, isi::*};
 
@@ -873,7 +874,7 @@ mod tests {
             _wsv: &WorldStateView<W>,
         ) -> Result<PermissionToken, String> {
             Ok(PermissionToken::new(
-                Name::new("token").expect("Valid"),
+                Name::from_str("token").expect("Valid"),
                 BTreeMap::new(),
             ))
         }
@@ -955,11 +956,11 @@ mod tests {
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
         let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
         let mut bob_account = Account::new(bob_id.clone());
-        let _ = bob_account.permission_tokens.insert(PermissionToken::new(
-            Name::new("token").expect("Valid"),
+        let _ = bob_account.add_permission(PermissionToken::new(
+            Name::from_str("token").expect("Valid"),
             BTreeMap::default(),
         ));
-        domain.accounts.insert(bob_id.clone(), bob_account);
+        domain.add_account(bob_account);
         let domains = vec![(DomainId::new("test").expect("Valid"), domain)];
         let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
         let validator: HasTokenBoxed<_> = Box::new(GrantedToken);

@@ -42,11 +42,11 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
         .expect("Failed to execute request.");
     assert!(query_result
         .iter()
-        .all(|asset| asset.id.definition_id != wrong_asset_definition_id));
+        .all(|asset| asset.id().definition_id != wrong_asset_definition_id));
     let definition_query_result = iroha_client
         .request(client::asset::all_definitions())
         .expect("Failed to execute request.");
     assert!(definition_query_result
         .iter()
-        .all(|asset| asset.id != wrong_asset_definition_id));
+        .all(|asset| *asset.id() != wrong_asset_definition_id));
 }

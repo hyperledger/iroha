@@ -111,8 +111,8 @@ fn unstable_network(
         polling_max_attempts,
         |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(account_has_quantity)
+                asset.id().definition_id == asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(account_has_quantity)
             })
         },
     );

@@ -1,4 +1,7 @@
 //! Permission checks asociated with use cases that can be summarized as public blockchains.
+
+use std::str::FromStr as _;
+
 use super::*;
 
 pub mod burn;
@@ -10,15 +13,15 @@ pub mod unregister;
 /// Origin asset id param used in permission tokens.
 #[allow(clippy::expect_used)]
 pub static ASSET_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::new("asset_id").expect("This must never panic"));
+    Lazy::new(|| Name::from_str("asset_id").expect("This must never panic"));
 #[allow(clippy::expect_used)]
 /// Origin account id param used in permission tokens.
 pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::new("account_id").expect("This shall never panic"));
+    Lazy::new(|| Name::from_str("account_id").expect("This shall never panic"));
 #[allow(clippy::expect_used)]
 /// Origin asset definition param used in permission tokens.
 pub static ASSET_DEFINITION_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::new("asset_definition_id").expect("This should never panic"));
+    Lazy::new(|| Name::from_str("asset_definition_id").expect("This should never panic"));
 
 /// A preconfigured set of permissions for simple use cases.
 pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
@@ -156,7 +159,7 @@ pub fn check_asset_creator_for_token<W: WorldTrait>(
     };
     let registered_by_signer_account = wsv
         .asset_definition_entry(definition_id)
-        .map(|asset_definition_entry| &asset_definition_entry.registered_by == authority)
+        .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
         .unwrap_or(false);
     if !registered_by_signer_account {
         return Err("Can not grant access for assets, registered by another account.".to_owned());
@@ -168,7 +171,7 @@ pub fn check_asset_creator_for_token<W: WorldTrait>(
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeSet;
 
     use iroha_core::wsv::World;
 
@@ -218,14 +221,14 @@ mod tests {
         );
         let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
         let mut bob_account = Account::new(bob_id.clone());
-        let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+        let _ = bob_account.add_permission(PermissionToken::new(
             transfer::CAN_TRANSFER_USER_ASSETS_TOKEN.clone(),
             [(
                 ASSET_ID_TOKEN_PARAM_NAME.clone(),
                 alice_xor_id.clone().into(),
             )],
         ));
-        domain.accounts.insert(bob_id.clone(), bob_account);
+        domain.add_account(bob_account);
         let domains = vec![(DomainId::new("test").expect("Valid"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, BTreeSet::new()));
         let transfer = Instruction::Transfer(TransferBox {
@@ -268,26 +271,10 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::new("bob", "test").expect("Valid");
         let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let wsv = WorldStateView::<World>::new(World::with(
-            [(
-                DomainId::new("test").expect("Valid"),
-                Domain {
-                    accounts: BTreeMap::new(),
-                    id: DomainId::new("test").expect("Valid"),
-                    asset_definitions: [(
-                        xor_id.clone(),
-                        AssetDefinitionEntry {
-                            definition: xor_definition,
-                            registered_by: alice_id.clone(),
-                        },
-                    )]
-                    .into(),
-                    metadata: Metadata::new(),
-                    logo: None,
-                },
-            )],
-            [],
-        ));
+        let domain_id = DomainId::new("test").expect("Valid");
+        let mut domain = Domain::new(domain_id.clone());
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        let wsv = WorldStateView::<World>::new(World::with([(domain_id, domain)], []));
         let unregister =
             Instruction::Unregister(UnregisterBox::new(IdBox::AssetDefinitionId(xor_id)));
         assert!(unregister::OnlyAssetsCreatedByThisAccount
@@ -306,18 +293,15 @@ mod tests {
         let xor_definition = new_xor_definition(&xor_id);
         let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
         let mut bob_account = Account::new(bob_id.clone());
-        let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+        let _ = bob_account.add_permission(PermissionToken::new(
             unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone(),
             [(
                 ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
                 xor_id.clone().into(),
             )],
         ));
-        domain.accounts.insert(bob_id.clone(), bob_account);
-        domain.asset_definitions.insert(
-            xor_id.clone(),
-            AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-        );
+        domain.add_account(bob_account);
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
         let domains = [(DomainId::new("test").expect("Valid"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, []));
         let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
@@ -343,10 +327,7 @@ mod tests {
             )],
         );
         let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
-        domain.asset_definitions.insert(
-            xor_id,
-            AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-        );
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
         let domains = [(DomainId::new("test").expect("Valid"), domain)];
 
         let wsv = WorldStateView::<World>::new(World::with(domains, []));
@@ -370,26 +351,10 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::new("bob", "test").expect("Valid");
         let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let wsv = WorldStateView::<World>::new(World::with(
-            [(
-                DomainId::new("test").expect("Valid"),
-                Domain {
-                    accounts: BTreeMap::new(),
-                    id: DomainId::new("test").expect("Valid"),
-                    asset_definitions: [(
-                        xor_id,
-                        AssetDefinitionEntry {
-                            definition: xor_definition,
-                            registered_by: alice_id.clone(),
-                        },
-                    )]
-                    .into(),
-                    metadata: Metadata::new(),
-                    logo: None,
-                },
-            )],
-            [],
-        ));
+        let domain_id = DomainId::new("test").expect("Valid");
+        let mut domain = Domain::new(domain_id.clone());
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        let wsv = WorldStateView::<World>::new(World::with([(domain_id, domain)], []));
         let mint = Instruction::Mint(MintBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -414,18 +379,15 @@ mod tests {
         let xor_definition = new_xor_definition(&xor_id);
         let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
         let mut bob_account = Account::new(bob_id.clone());
-        let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+        let _ = bob_account.add_permission(PermissionToken::new(
             mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone(),
             [(
                 ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
                 xor_id.clone().into(),
             )],
         ));
-        domain.accounts.insert(bob_id.clone(), bob_account);
-        domain.asset_definitions.insert(
-            xor_id,
-            AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-        );
+        domain.add_account(bob_account);
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
         let domains = [(DomainId::new("test").expect("Valid"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, []));
         let instruction = Instruction::Mint(MintBox {
@@ -453,10 +415,7 @@ mod tests {
             )],
         );
         let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
-        domain.asset_definitions.insert(
-            xor_id,
-            AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-        );
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
         let domains = [(DomainId::new("test").expect("Valid"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
         let grant = Instruction::Grant(GrantBox {
@@ -478,26 +437,10 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::new("bob", "test").expect("Valid");
         let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let wsv = WorldStateView::<World>::new(World::with(
-            [(
-                DomainId::new("test").expect("Valid"),
-                Domain {
-                    accounts: [].into(),
-                    id: DomainId::new("test").expect("Valid"),
-                    asset_definitions: [(
-                        xor_id,
-                        AssetDefinitionEntry {
-                            definition: xor_definition,
-                            registered_by: alice_id.clone(),
-                        },
-                    )]
-                    .into(),
-                    metadata: Metadata::new(),
-                    logo: None,
-                },
-            )],
-            [],
-        ));
+        let domain_id = DomainId::new("test").expect("Valid");
+        let mut domain = Domain::new(domain_id.clone());
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        let wsv = WorldStateView::<World>::new(World::with([(domain_id, domain)], []));
         let burn = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -522,18 +465,15 @@ mod tests {
         let xor_definition = new_xor_definition(&xor_id);
         let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
         let mut bob_account = Account::new(bob_id.clone());
-        let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+        let _ = bob_account.add_permission(PermissionToken::new(
             burn::CAN_BURN_ASSET_WITH_DEFINITION.clone(),
             [(
                 ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
                 xor_id.clone().into(),
             )],
         ));
-        domain.accounts.insert(bob_id.clone(), bob_account);
-        domain.asset_definitions.insert(
-            xor_id,
-            AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-        );
+        domain.add_account(bob_account);
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
         let domains = [(DomainId::new("test").expect("Valid"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
         let instruction = Instruction::Burn(BurnBox {
@@ -561,10 +501,7 @@ mod tests {
             )],
         );
         let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
-        domain.asset_definitions.insert(
-            xor_id,
-            AssetDefinitionEntry::new(xor_definition, alice_id.clone()),
-        );
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
         let domains = [(DomainId::new("test").expect("Valid"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
         let grant = Instruction::Grant(GrantBox {
@@ -603,14 +540,14 @@ mod tests {
         );
         let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
         let mut bob_account = Account::new(bob_id.clone());
-        let _ = bob_account.permission_tokens.insert(PermissionToken::new(
+        let _ = bob_account.add_permission(PermissionToken::new(
             burn::CAN_BURN_USER_ASSETS_TOKEN.clone(),
             [(
                 ASSET_ID_TOKEN_PARAM_NAME.clone(),
                 alice_xor_id.clone().into(),
             )],
         ));
-        domain.accounts.insert(bob_id.clone(), bob_account);
+        domain.add_account(bob_account);
         let domains = vec![(DomainId::new("test").expect("Valid"), domain)];
         let wsv = WorldStateView::<World>::new(World::with(domains, vec![]));
         let transfer = Instruction::Burn(BurnBox {
@@ -730,26 +667,10 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::new("bob", "test").expect("Valid");
         let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let wsv = WorldStateView::<World>::new(World::with(
-            [(
-                DomainId::new("test").expect("Valid"),
-                Domain {
-                    accounts: BTreeMap::new(),
-                    id: DomainId::new("test").expect("Valid"),
-                    asset_definitions: [(
-                        xor_id.clone(),
-                        AssetDefinitionEntry {
-                            definition: xor_definition,
-                            registered_by: alice_id.clone(),
-                        },
-                    )]
-                    .into(),
-                    metadata: Metadata::new(),
-                    logo: None,
-                },
-            )],
-            [],
-        ));
+        let domain_id = DomainId::new("test").expect("Valid");
+        let mut domain = Domain::new(domain_id.clone());
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        let wsv = WorldStateView::<World>::new(World::with([(domain_id, domain)], []));
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),
             Value::from("key".to_owned()),
@@ -769,26 +690,10 @@ mod tests {
         let bob_id = <Account as Identifiable>::Id::new("bob", "test").expect("Valid");
         let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let wsv = WorldStateView::<World>::new(World::with(
-            [(
-                DomainId::new("test").expect("Valid"),
-                Domain {
-                    accounts: BTreeMap::new(),
-                    id: DomainId::new("test").expect("Valid"),
-                    asset_definitions: [(
-                        xor_id.clone(),
-                        AssetDefinitionEntry {
-                            definition: xor_definition,
-                            registered_by: alice_id.clone(),
-                        },
-                    )]
-                    .into(),
-                    metadata: Metadata::new(),
-                    logo: None,
-                },
-            )],
-            [],
-        ));
+        let domain_id = DomainId::new("test").expect("Valid");
+        let mut domain = Domain::new(domain_id.clone());
+        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        let wsv = WorldStateView::<World>::new(World::with([(domain_id, domain)], []));
         let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),
             Value::from("key".to_owned()),

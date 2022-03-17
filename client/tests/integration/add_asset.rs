@@ -35,8 +35,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
-            asset.id.definition_id == asset_definition_id
-                && asset.value == AssetValue::Quantity(quantity)
+            asset.id().definition_id == asset_definition_id
+                && *asset.value() == AssetValue::Quantity(quantity)
         })
     });
     Ok(())
@@ -68,8 +68,8 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
-            asset.id.definition_id == asset_definition_id
-                && asset.value == AssetValue::BigQuantity(quantity)
+            asset.id().definition_id == asset_definition_id
+                && *asset.value() == AssetValue::BigQuantity(quantity)
         })
     });
     Ok(())
@@ -101,8 +101,8 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
         result.iter().any(|asset| {
-            asset.id.definition_id == asset_definition_id
-                && asset.value == AssetValue::Fixed(quantity)
+            asset.id().definition_id == asset_definition_id
+                && *asset.value() == AssetValue::Fixed(quantity)
         })
     });
 
@@ -121,7 +121,8 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
         .map_err(|e| eyre::eyre!("{}", e))?;
     test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
-            asset.id.definition_id == asset_definition_id && asset.value == AssetValue::Fixed(sum)
+            asset.id().definition_id == asset_definition_id
+                && *asset.value() == AssetValue::Fixed(sum)
         })
     });
     Ok(())
@@ -155,7 +156,7 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
         .request(client::asset::all_definitions())
         .expect("Failed to execute request.")
         .into_iter()
-        .map(|asset| asset.id)
+        .map(|asset| asset.id().clone())
         .collect::<Vec<_>>();
     dbg!(&asset_definition_ids);
 
