@@ -28,7 +28,7 @@ use crate::{
     wsv::WorldTrait,
 };
 
-/// Collection of actions, that is not a [`TriggerSet`]
+/// Collection of actions, that is not a `TriggerSet`
 pub type Triggers = Vec<Action>;
 
 /// The chain of the previous block hash. If there is no previous
@@ -108,7 +108,7 @@ impl<'a> ChainIterator<'a> {
         }
     }
 
-    fn is_exhausted(&self) -> bool {
+    const fn is_exhausted(&self) -> bool {
         self.pos_front > self.pos_back
     }
 }
@@ -391,6 +391,7 @@ impl VersionedValidBlock {
     }
 
     /// Validate block transactions against current state of the world.
+    #[must_use]
     pub fn revalidate<W: WorldTrait>(
         self,
         transaction_validator: &TransactionValidator<W>,
@@ -536,6 +537,7 @@ impl ValidBlock {
     }
 
     /// Validate block transactions against current state of the world.
+    #[must_use]
     pub fn revalidate<W: WorldTrait>(
         self,
         transaction_validator: &TransactionValidator<W>,

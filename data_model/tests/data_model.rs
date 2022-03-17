@@ -2,24 +2,36 @@
 
 use std::{str::FromStr, thread, time::Duration};
 
+use iroha::samples::*;
 use iroha_client::{client::Client, samples::get_client_config};
 use iroha_core::{
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     prelude::*,
-    samples::get_config,
 };
 use iroha_data_model::prelude::*;
 use small::SmallStr;
 use test_network::{Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
+fn asset_id_new(
+    definition_name: &str,
+    definition_domain: &str,
+    account_name: &str,
+    account_domain: &str,
+) -> AssetId {
+    AssetId::new(
+        AssetDefinitionId::new(definition_name, definition_domain).expect("Valid"),
+        AccountId::new(account_name, account_domain).expect("Valid"),
+    )
+}
+
 #[test]
 fn find_rate_and_make_exchange_isi_should_be_valid() {
     let _instruction = Pair::new(
         TransferBox::new(
-            IdBox::AssetId(AssetId::test("btc", "crypto", "seller", "company")),
+            IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
             Expression::Query(
-                FindAssetQuantityById::new(AssetId::test(
+                FindAssetQuantityById::new(asset_id_new(
                     "btc2eth_rate",
                     "exchange",
                     "dex",
@@ -27,12 +39,12 @@ fn find_rate_and_make_exchange_isi_should_be_valid() {
                 ))
                 .into(),
             ),
-            IdBox::AssetId(AssetId::test("btc", "crypto", "buyer", "company")),
+            IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
         ),
         TransferBox::new(
-            IdBox::AssetId(AssetId::test("btc", "crypto", "buyer", "company")),
+            IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
             Expression::Query(
-                FindAssetQuantityById::new(AssetId::test(
+                FindAssetQuantityById::new(asset_id_new(
                     "btc2eth_rate",
                     "exchange",
                     "dex",
@@ -40,7 +52,7 @@ fn find_rate_and_make_exchange_isi_should_be_valid() {
                 ))
                 .into(),
             ),
-            IdBox::AssetId(AssetId::test("btc", "crypto", "seller", "company")),
+            IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
         ),
     );
 }
@@ -49,7 +61,7 @@ fn find_rate_and_make_exchange_isi_should_be_valid() {
 fn find_rate_and_check_it_greater_than_value_isi_should_be_valid() {
     let _instruction = IfInstruction::new(
         Not::new(Greater::new(
-            QueryBox::from(FindAssetQuantityById::new(AssetId::test(
+            QueryBox::from(FindAssetQuantityById::new(asset_id_new(
                 "btc2eth_rate",
                 "exchange",
                 "dex",
@@ -79,11 +91,13 @@ impl FindRateAndCheckItGreaterThanValue {
     pub fn into_isi(self) -> IfInstruction {
         IfInstruction::new(
             Not::new(Greater::new(
-                QueryBox::from(FindAssetQuantityById::new(AssetId::test(
-                    &format!("{}2{}_rate", self.from_currency, self.to_currency),
-                    "exchange",
-                    "dex",
-                    "exchange",
+                QueryBox::from(FindAssetQuantityById::new(AssetId::new(
+                    AssetDefinitionId::new(
+                        &format!("{}2{}_rate", self.from_currency, self.to_currency),
+                        "exchange",
+                    )
+                    .expect("Should be valid"),
+                    AccountId::new("dex", "exchange").expect("Valid"),
                 ))),
                 self.value,
             )),
@@ -97,6 +111,31 @@ fn find_rate_and_check_it_greater_than_value_predefined_isi_should_be_valid() {
     let _instruction = FindRateAndCheckItGreaterThanValue::new("btc", "eth", 10).into_isi();
 }
 
+mod register {
+    use super::*;
+
+    pub fn domain(name: &str) -> RegisterBox {
+        RegisterBox::new(IdentifiableBox::Domain(
+            Domain::new(DomainId::new(name).expect("Valid")).into(),
+        ))
+    }
+
+    pub fn account(account_name: &str, domain_name: &str) -> RegisterBox {
+        RegisterBox::new(IdentifiableBox::NewAccount(
+            NewAccount::new(AccountId::new(account_name, domain_name).expect("Valid")).into(),
+        ))
+    }
+
+    pub fn asset_definition(asset_name: &str, domain_name: &str) -> RegisterBox {
+        RegisterBox::new(IdentifiableBox::AssetDefinition(
+            AssetDefinition::new_quantity(
+                AssetDefinitionId::new(asset_name, domain_name).expect("Valid"),
+            )
+            .into(),
+        ))
+    }
+}
+
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
     let kp = KeyPair {
@@ -107,7 +146,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         private_key: PrivateKey {
             digest_function: "ed25519".to_string(),
             payload: hex_literal::hex!("9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0")
-				.into(),
+                .into(),
         },
     };
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
@@ -126,7 +165,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let rt = Runtime::test();
     let mut client_configuration = get_client_config(&configuration.sumeragi.key_pair);
 
-    rt.block_on(peer.start_with_config(genesis, configuration));
+    rt.block_on(peer.start_with_config_permissions(configuration, genesis, AllowAll, AllowAll));
     thread::sleep(pipeline_time);
 
     client_configuration.torii_api_url =
@@ -134,63 +173,35 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let mut iroha_client = Client::new(&client_configuration);
     iroha_client
         .submit_all(vec![
-            RegisterBox::new(IdentifiableBox::Domain(Domain::test("exchange").into())).into(),
-            RegisterBox::new(IdentifiableBox::Domain(Domain::test("company").into())).into(),
-            RegisterBox::new(IdentifiableBox::Domain(Domain::test("crypto").into())).into(),
-            RegisterBox::new(IdentifiableBox::NewAccount(
-                NewAccount::new(AccountId::test("seller", "company")).into(),
-            ))
-            .into(),
-            RegisterBox::new(IdentifiableBox::NewAccount(
-                NewAccount::new(AccountId::test("buyer", "company")).into(),
-            ))
-            .into(),
-            RegisterBox::new(IdentifiableBox::NewAccount(
-                NewAccount::new(AccountId::test("dex", "exchange")).into(),
-            ))
-            .into(),
-            RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(AssetDefinitionId::test("btc", "crypto")).into(),
-            ))
-            .into(),
-            RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(AssetDefinitionId::test("eth", "crypto")).into(),
-            ))
-            .into(),
-            RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(AssetDefinitionId::test("btc2eth_rate", "exchange"))
-                    .into(),
-            ))
-            .into(),
+            register::domain("exchange").into(),
+            register::domain("company").into(),
+            register::domain("crypto").into(),
+            register::account("seller", "company").into(),
+            register::account("buyer", "company").into(),
+            register::account("dex", "exchange").into(),
+            register::asset_definition("btc", "crypto").into(),
+            register::asset_definition("eth", "crypto").into(),
+            register::asset_definition("btc2eth_rate", "exchange").into(),
             MintBox::new(
                 Value::U32(200),
-                IdBox::AssetId(AssetId::new(
-                    AssetDefinitionId::test("eth", "crypto"),
-                    AccountId::test("buyer", "company"),
-                )),
+                IdBox::AssetId(asset_id_new("eth", "crypto", "buyer", "company")),
             )
             .into(),
             MintBox::new(
                 Value::U32(20),
-                IdBox::AssetId(AssetId::new(
-                    AssetDefinitionId::test("btc", "crypto"),
-                    AccountId::test("seller", "company"),
-                )),
+                IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
             )
             .into(),
             MintBox::new(
                 Value::U32(20),
-                IdBox::AssetId(AssetId::new(
-                    AssetDefinitionId::test("btc2eth_rate", "exchange"),
-                    AccountId::test("dex", "exchange"),
-                )),
+                IdBox::AssetId(asset_id_new("btc2eth_rate", "exchange", "dex", "exchange")),
             )
             .into(),
             Pair::new(
                 TransferBox::new(
-                    IdBox::AssetId(AssetId::test("btc", "crypto", "seller", "company")),
+                    IdBox::AssetId(asset_id_new("btc", "crypto", "seller", "company")),
                     Expression::Query(
-                        FindAssetQuantityById::new(AssetId::test(
+                        FindAssetQuantityById::new(asset_id_new(
                             "btc2eth_rate",
                             "exchange",
                             "dex",
@@ -198,12 +209,12 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
                         ))
                         .into(),
                     ),
-                    IdBox::AssetId(AssetId::test("btc", "crypto", "buyer", "company")),
+                    IdBox::AssetId(asset_id_new("btc", "crypto", "buyer", "company")),
                 ),
                 TransferBox::new(
-                    IdBox::AssetId(AssetId::test("eth", "crypto", "buyer", "company")),
+                    IdBox::AssetId(asset_id_new("eth", "crypto", "buyer", "company")),
                     Expression::Query(
-                        FindAssetQuantityById::new(AssetId::test(
+                        FindAssetQuantityById::new(asset_id_new(
                             "btc2eth_rate",
                             "exchange",
                             "dex",
@@ -211,7 +222,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
                         ))
                         .into(),
                     ),
-                    IdBox::AssetId(AssetId::test("eth", "crypto", "seller", "company")),
+                    IdBox::AssetId(asset_id_new("eth", "crypto", "seller", "company")),
                 ),
             )
             .into(),
@@ -223,7 +234,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     let expected_buyer_btc = 20;
 
     let eth_quantity = iroha_client
-        .request(FindAssetQuantityById::new(AssetId::test(
+        .request(FindAssetQuantityById::new(asset_id_new(
             "eth", "crypto", "seller", "company",
         )))
         .expect("Failed to execute Iroha Query");
@@ -231,20 +242,20 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     // For the btc amount we expect an error, as zero assets are purged from accounts
     iroha_client
-        .request(FindAssetQuantityById::new(AssetId::test(
+        .request(FindAssetQuantityById::new(asset_id_new(
             "btc", "crypto", "seller", "company",
         )))
         .expect_err("Failed to execute Iroha Query");
 
     let buyer_eth_quantity = iroha_client
-        .request(FindAssetQuantityById::new(AssetId::test(
+        .request(FindAssetQuantityById::new(asset_id_new(
             "eth", "crypto", "buyer", "company",
         )))
         .expect("Failed to execute Iroha Query");
     assert_eq!(expected_buyer_eth, buyer_eth_quantity);
 
     let buyer_btc_quantity = iroha_client
-        .request(FindAssetQuantityById::new(AssetId::test(
+        .request(FindAssetQuantityById::new(asset_id_new(
             "btc", "crypto", "buyer", "company",
         )))
         .expect("Failed to execute Iroha Query");

@@ -3,12 +3,12 @@
 use std::thread;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use iroha::samples::get_config;
 use iroha_client::client::{asset, Client};
 use iroha_config::runtime_upgrades::Reload;
 use iroha_core::{
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     prelude::*,
-    samples::get_config,
 };
 use iroha_data_model::prelude::*;
 use iroha_version::Encode;
@@ -34,7 +34,12 @@ fn query_requests(criterion: &mut Criterion) {
     )
     .expect("genesis creation failed");
 
-    rt.block_on(peer.start_with_config(genesis, configuration.clone()));
+    rt.block_on(peer.start_with_config_permissions(
+        configuration.clone(),
+        genesis,
+        AllowAll,
+        AllowAll,
+    ));
     configuration
         .logger
         .max_log_level
@@ -42,9 +47,11 @@ fn query_requests(criterion: &mut Criterion) {
         .expect("Should not fail");
     let mut group = criterion.benchmark_group("query-requests");
     let domain_name = "domain";
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
+        Domain::new(DomainId::new(domain_name).expect("Valid")).into(),
+    ));
     let account_name = "account";
-    let account_id = AccountId::test(account_name, domain_name);
+    let account_id = AccountId::new(account_name, domain_name).expect("Valid");
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(
             account_id.clone(),
@@ -54,7 +61,7 @@ fn query_requests(criterion: &mut Criterion) {
         )
         .into(),
     ));
-    let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name).expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
@@ -133,12 +140,14 @@ fn instruction_submits(criterion: &mut Criterion) {
         &configuration.sumeragi.transaction_limits,
     )
     .expect("failed to create genesis");
-    rt.block_on(peer.start_with_config(genesis, configuration));
+    rt.block_on(peer.start_with_config_permissions(configuration, genesis, AllowAll, AllowAll));
     let mut group = criterion.benchmark_group("instruction-requests");
     let domain_name = "domain";
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test(domain_name).into()));
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
+        Domain::new(DomainId::new(domain_name).expect("Valid")).into(),
+    ));
     let account_name = "account";
-    let account_id = AccountId::test(account_name, domain_name);
+    let account_id = AccountId::new(account_name, domain_name).expect("Valid");
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(
             account_id.clone(),
@@ -148,7 +157,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         )
         .into(),
     ));
-    let asset_definition_id = AssetDefinitionId::test("xor", domain_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name).expect("Valid");
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
     client_config.torii_api_url = small::SmallStr::from_string(peer.api_address.clone());
     if !client_config.torii_api_url.starts_with("http://") {

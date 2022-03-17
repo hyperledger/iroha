@@ -8,8 +8,8 @@ use std::{
 };
 
 use color_eyre::eyre::WrapErr;
+use iroha::config::Configuration;
 use iroha_config::Configurable;
-use iroha_core::config::Configuration;
 use serde_json::{Map, Value};
 
 fn main() -> color_eyre::Result<()> {

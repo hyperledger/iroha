@@ -611,6 +611,8 @@ mod tests {
         Ok(())
     }
 
+    // TODO: We don't actually need unsafe here. It can very well be achieved with an RWLock or other means of interior mutability.
+
     #[allow(unsafe_code)]
     #[tokio::test]
     async fn actors_start_sequentially() -> Result<(), Error> {
@@ -622,6 +624,9 @@ mod tests {
         #[async_trait::async_trait]
         impl Actor for Actor1 {
             async fn on_start(&mut self, _ctx: &mut Context<Self>) {
+                // SAFETY: The init order is only modified once the
+                // actor is initialised. So the modification of the
+                // global static is safe.
                 unsafe {
                     INIT_ORDER.push(1);
                 }
@@ -631,6 +636,9 @@ mod tests {
         #[async_trait::async_trait]
         impl Actor for Actor2 {
             async fn on_start(&mut self, _ctx: &mut Context<Self>) {
+                // SAFETY: The init order is only modified once the
+                // actor is initialised. So the modification of the
+                // global static is safe.
                 unsafe {
                     INIT_ORDER.push(2);
                 }
@@ -640,6 +648,7 @@ mod tests {
         Actor1.start().await;
         Actor2.start().await;
 
+        // SAFETY: The init order is modified in a normal fashion.
         unsafe {
             assert_eq!(INIT_ORDER, vec![1, 2]);
         }

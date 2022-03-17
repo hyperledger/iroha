@@ -227,6 +227,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                 }
             }
             #[cfg(not(feature = "roles"))]
+            #[allow(unreachable_patterns)]
             _ => Err("Unable to compile with tests enabled, but without \"roles\", because it's a dev-dependency of `iroha_data_model`, and due to https://github.com/rust-lang/cargo/issues/6915".to_owned())
         }
     }
@@ -390,6 +391,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                 }
             }
             #[cfg(not(feature = "roles" ))]
+            #[allow(unreachable_patterns)]
             _ => Err("Unable to compile with tests enabled, but without \"roles\", because it's a dev-dependency of `iroha_data_model`, and due to https://github.com/rust-lang/cargo/issues/6915".to_owned())
         }
     }

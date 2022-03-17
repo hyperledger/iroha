@@ -17,16 +17,13 @@ pub enum ReloadError {
     /// another thread.
     #[error("Resource poisoned.")]
     Poisoned,
-
     /// The resource held by the handle was dropped.
     #[error("Resource dropped.")]
     Dropped,
-
     /// If the reload handle wasn't properly initialized (using
     /// [`handle::Singleton::set`]), there's nothing to reload with.
     #[error("Cannot reload an uninitialized handle.")]
     NotInitialized,
-
     /// Error not specified by the implementer of the [`Reload`]
     /// traits. Use as last resort.
     #[error("Unspecified reload failure.")]

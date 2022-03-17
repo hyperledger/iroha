@@ -184,6 +184,10 @@ impl<T> SignatureOf<T> {
     /// This method uses [`core::mem::transmute`] internally
     pub fn transmute_ref<F>(&self) -> &SignatureOf<F> {
         #[allow(unsafe_code, trivial_casts)]
+        // SAFETY: transmuting is safe, because we're casting a
+        // pointer of type `SignatureOf<T>` into a pointer of type
+        // `SignatureOf<F>`, where `<F>` and `<T>` type parameters are
+        // normally related types that have the exact same alignment.
         unsafe {
             &*((self as *const Self).cast::<SignatureOf<F>>())
         }
@@ -361,6 +365,8 @@ impl<T> SignaturesOf<T> {
     /// This method uses [`core::mem::transmute`] internally
     #[allow(unsafe_code)]
     pub fn transmute<F>(self) -> SignaturesOf<F> {
+        // SAFETY: Safe because we are transmuting to a pointer of
+        // type `<F>` which is related to type `<T>`.
         let signatures = unsafe { core::mem::transmute(self.signatures) };
         SignaturesOf { signatures }
     }

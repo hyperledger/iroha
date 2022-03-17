@@ -6,26 +6,30 @@ use iroha_client::{
     client::{self, Client},
     config::Configuration as ClientConfiguration,
 };
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::{account::TRANSACTION_SIGNATORIES_VALUE, prelude::*};
 use test_network::*;
+
+use super::Configuration;
 
 #[allow(clippy::too_many_lines)]
 #[test]
 fn multisignature_transactions_should_wait_for_all_signatures() {
     let (_rt, network, _) = <Network>::start_test_with_runtime(4, 1);
-    wait_for_genesis_committed(network.clients(), 0);
+    wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
-    let account_id = AccountId::test("account", "domain");
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
+        Domain::new(DomainId::new("domain").expect("Valid")).into(),
+    ));
+    let account_id = AccountId::new("account", "domain").expect("Valid");
     let key_pair_1 = KeyPair::generate().expect("Failed to generate KeyPair.");
     let key_pair_2 = KeyPair::generate().expect("Failed to generate KeyPair.");
     let create_account = RegisterBox::new(IdentifiableBox::from(NewAccount::with_signatory(
         account_id.clone(),
         key_pair_1.public_key.clone(),
     )));
-    let asset_definition_id = AssetDefinitionId::test("xor", "domain");
+    let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
         asset_definition_id.clone(),
     )));

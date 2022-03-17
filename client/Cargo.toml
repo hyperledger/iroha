@@ -32,13 +32,16 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tungstenite = { version = "0.16" }
 smallvec = { version = "1.8.0", features = ["serde", "union"] }
-smallstr = { version = "0.2.0", features = ["serde", "union"] }
+smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
 base64 = "0.13.0"
 
 
 [dev-dependencies]
 iroha_core = { version = "=2.0.0-pre-rc.2", path = "../core", features = ["dev-telemetry", "telemetry"] }
 iroha_permissions_validators = { version = "=2.0.0-pre-rc.2", path = "../permissions_validators" }
+iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
+iroha_data_model = { version = "=2.0.0-pre-rc.2", path = "../data_model", features = ["warp", "cross_crate_testing"] }
+
 test_network = { version = "=2.0.0-pre-rc.2", path = "../core/test_network" }
 
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }

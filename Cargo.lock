@@ -1632,10 +1632,27 @@ name = "iroha"
 version = "2.0.0-pre-rc.2"
 dependencies = [
  "color-eyre",
+ "eyre",
+ "futures",
+ "hex",
+ "iroha_actor",
+ "iroha_config",
  "iroha_core",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_futures",
  "iroha_logger",
+ "iroha_p2p",
  "iroha_permissions_validators",
+ "iroha_telemetry",
+ "iroha_version",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "thiserror",
  "tokio",
+ "unique_port",
+ "warp",
 ]
 
 [[package]]
@@ -1678,6 +1695,7 @@ dependencies = [
  "eyre",
  "hex",
  "http",
+ "iroha",
  "iroha_config",
  "iroha_core",
  "iroha_crypto",
@@ -1690,7 +1708,7 @@ dependencies = [
  "rand 0.8.4",
  "serde",
  "serde_json",
- "smallstr 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "smallstr",
  "smallvec",
  "tempfile",
  "test_network",
@@ -1765,7 +1783,7 @@ dependencies = [
  "rand 0.8.4",
  "serde",
  "serde_json",
- "smallstr 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "smallstr",
  "smallvec",
  "tempfile",
  "thiserror",
@@ -1807,6 +1825,7 @@ version = "2.0.0-pre-rc.2"
 dependencies = [
  "derive_more",
  "hex-literal",
+ "iroha",
  "iroha_client",
  "iroha_core",
  "iroha_crypto",
@@ -1835,7 +1854,7 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "serde_json",
- "smallstr 0.2.0 (git+https://github.com/murarth/smallstr?rev=68efc08)",
+ "smallstr",
  "smallvec",
  "thiserror",
 ]
@@ -1856,6 +1875,7 @@ name = "iroha_docs"
 version = "2.0.0-pre-rc.2"
 dependencies = [
  "color-eyre",
+ "iroha",
  "iroha_config",
  "iroha_core",
  "serde_json",
@@ -3238,18 +3258,9 @@ checksum = "9def91fd1e018fe007022791f865d0ccc9b3a0d5001e01aabb8b40e46000afb5"
 
 [[package]]
 name = "smallstr"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e922794d168678729ffc7e07182721a14219c65814e66e91b839a272fe5ae4f"
-dependencies = [
- "serde",
- "smallvec",
-]
-
-[[package]]
-name = "smallstr"
-version = "0.2.0"
-source = "git+https://github.com/murarth/smallstr?rev=68efc08#68efc08826b789d26fda4422eb625740edaed0e3"
+checksum = "63b1aefdf380735ff8ded0b15f31aab05daf1f70216c01c02a12926badd1df9d"
 dependencies = [
  "serde",
  "smallvec",
@@ -3431,6 +3442,7 @@ dependencies = [
  "eyre",
  "futures",
  "hex-literal",
+ "iroha",
  "iroha_actor",
  "iroha_client",
  "iroha_config",
@@ -3441,7 +3453,7 @@ dependencies = [
  "iroha_p2p",
  "once_cell",
  "rand 0.8.4",
- "smallstr 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "smallstr",
  "tempfile",
  "tokio",
  "unique_port",

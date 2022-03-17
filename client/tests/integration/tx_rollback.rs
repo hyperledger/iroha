@@ -3,21 +3,22 @@
 use std::thread;
 
 use iroha_client::client;
-use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() {
     let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
+    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
     let pipeline_time = Configuration::pipeline_time();
 
     //When
-    let account_id = AccountId::test("alice", "wonderland");
-    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
-    let wrong_asset_definition_id = AssetDefinitionId::test("ksor", "wonderland");
+    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
+    let wrong_asset_definition_id = AssetDefinitionId::new("ksor", "wonderland").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id).into(),
     ));

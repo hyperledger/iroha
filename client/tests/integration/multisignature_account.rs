@@ -4,19 +4,21 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::client::{self, Client};
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     let (_rt, peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
+    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let account_id = AccountId::test("alice", "wonderland");
-    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
+    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));

@@ -1,30 +1,23 @@
 //! Module for starting peers and networks. Used only for tests
 
-#![allow(
-    missing_docs,
-    clippy::pedantic,
-    clippy::restriction,
-    clippy::future_not_send
-)]
+#![allow(clippy::restriction, clippy::future_not_send)]
 
 use core::{fmt::Debug, str::FromStr, time::Duration};
 use std::{collections::HashMap, thread};
 
 use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
+use iroha::{config::Configuration, torii::config::ToriiConfiguration, Iroha};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
-    config::Configuration,
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     kura::{Kura, KuraTrait},
     prelude::*,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
-    torii::config::ToriiConfiguration,
     wsv::{World, WorldTrait},
-    Iroha,
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
@@ -91,10 +84,8 @@ pub struct Peer<
     pub key_pair: KeyPair,
     /// Broker
     pub broker: Broker,
-
     /// Shutdown handle
     shutdown: Option<JoinHandle<()>>,
-
     /// Iroha itself
     pub iroha: Option<Iroha<W, G, K, S, B>>,
 }
@@ -107,12 +98,16 @@ impl std::cmp::PartialEq for Peer {
 
 impl std::cmp::Eq for Peer {}
 
+/// Get a standardised key-pair from the hard-coded literals.
+///
+/// # Panics
+/// Programmer error. The key must be given in Multihash format.
 pub fn get_key_pair() -> KeyPair {
     KeyPair {
         public_key: PublicKey::from_str(
             r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,
         )
-        .unwrap(),
+        .expect("Works"),
         private_key: PrivateKey {
             digest_function: "ed25519".to_string(),
             payload: hex_literal::hex!("9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0"
@@ -122,7 +117,10 @@ pub fn get_key_pair() -> KeyPair {
     }
 }
 
+/// Trait used to differentiate a test instance of `genesis`.
 pub trait TestGenesis: Sized {
+    /// Construct Iroha genesis network and optionally submit genesis
+    /// from the given peer.
     fn test(submit_genesis: bool) -> Option<Self>;
 }
 
@@ -133,14 +131,19 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
             .expect("Valid names never fail to parse");
         genesis.transactions[0].isi.push(
             RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(AssetDefinitionId::test("rose", "wonderland")).into(),
+                AssetDefinition::new_quantity(
+                    AssetDefinitionId::new("rose", "wonderland").expect("valid names"),
+                )
+                .into(),
             ))
             .into(),
         );
         genesis.transactions[0].isi.push(
             RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(AssetDefinitionId::test("tulip", "wonderland"))
-                    .into(),
+                AssetDefinition::new_quantity(
+                    AssetDefinitionId::new("tulip", "wonderland").expect("valid names"),
+                )
+                .into(),
             ))
             .into(),
         );
@@ -148,8 +151,8 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
             MintBox::new(
                 Value::U32(13),
                 IdBox::AssetId(AssetId::new(
-                    AssetDefinitionId::test("rose", "wonderland"),
-                    AccountId::test("alice", "wonderland"),
+                    AssetDefinitionId::new("rose", "wonderland").expect("valid names"),
+                    AccountId::new("alice", "wonderland").expect("valid names"),
                 )),
             )
             .into(),
@@ -172,6 +175,10 @@ where
     S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
+    /// Send message to an actor instance on peers.
+    ///
+    /// # Panics
+    /// Programmer error. `self.peers()` should already have `iroha`.
     pub async fn send_to_actor_on_peers<M, A>(
         &self,
         select_actor: impl Fn(&Iroha<W, G, K, S, B>) -> &Addr<A>,
@@ -184,7 +191,12 @@ where
     {
         let fut = self
             .peers()
-            .map(|peer| (select_actor(peer.iroha.as_ref().unwrap()), peer.id.clone()))
+            .map(|peer| {
+                (
+                    select_actor(peer.iroha.as_ref().expect("Already initialised")),
+                    peer.id.clone(),
+                )
+            })
             .map(|(actor, peer_id)| async { (actor.send(msg.clone()).await, peer_id) })
             .collect::<FuturesUnordered<_>>()
             .collect::<Vec<_>>();
@@ -192,26 +204,29 @@ where
             .await
             .unwrap()
             .into_iter()
-            .map(|(result, peer_id)| (result.unwrap(), peer_id))
+            .map(|(result, peer_id)| (result.expect("Always `Ok`"), peer_id))
             .collect()
     }
 
-    /// Starts network with peers with default configuration and specified options in a new async runtime.
-    /// Returns its info and client for connecting to it.
+    /// Starts network with peers with default configuration and
+    /// specified options in a new async runtime.  Returns its info
+    /// and client for connecting to it.
     pub fn start_test_with_runtime(n_peers: u32, max_txs_in_block: u32) -> (Runtime, Self, Client) {
         let rt = Runtime::test();
         let (network, client) = rt.block_on(Self::start_test(n_peers, max_txs_in_block));
         (rt, network, client)
     }
 
-    /// Starts network with peers with default configuration and specified options.
-    /// Returns its info and client for connecting to it.
+    /// Starts network with peers with default configuration and
+    /// specified options.  Returns its info and client for connecting
+    /// to it.
     pub async fn start_test(n_peers: u32, max_txs_in_block: u32) -> (Self, Client) {
         Self::start_test_with_offline(n_peers, max_txs_in_block, 0).await
     }
 
-    /// Starts network with peers with default configuration and specified options.
-    /// Returns its info and client for connecting to it.
+    /// Starts network with peers with default configuration and
+    /// specified options.  Returns its info and client for connecting
+    /// to it.
     pub async fn start_test_with_offline_and_set_n_shifts(
         n_peers: u32,
         max_txs_in_block: u32,
@@ -231,8 +246,9 @@ where
         (network, client)
     }
 
-    /// Starts network with peers with default configuration and specified options.
-    /// Returns its info and client for connecting to it.
+    /// Starts network with peers with default configuration and
+    /// specified options.  Returns its info and client for connecting
+    /// to it.
     pub async fn start_test_with_offline(
         n_peers: u32,
         maximum_transactions_in_block: u32,
@@ -247,7 +263,8 @@ where
         .await
     }
 
-    /// Adds peer to network and waits for it to start block synchronization.
+    /// Adds peer to network and waits for it to start block
+    /// synchronization.
     pub async fn add_peer(&self) -> (Peer, Client) {
         let mut client = Client::test(&self.genesis.api_address, &self.genesis.telemetry_address);
         let mut peer = Peer::new().expect("Failed to create new peer");
@@ -267,7 +284,11 @@ where
     /// Creates new network with some offline peers
     ///
     /// # Panics
-    /// Panics if fails to find or decode default configuration
+    /// Panics if default configuration is not found.
+    ///
+    /// # Errors
+    /// - (RARE) Creating new peers and collecting into a [`HashMap`] fails.
+    /// - Creating new [`Peer`] instance fails.
     pub async fn new_with_offline_peers(
         default_configuration: Option<Configuration>,
         n_peers: u32,
@@ -310,6 +331,7 @@ where
         std::iter::once(&self.genesis).chain(self.peers.values())
     }
 
+    /// Get active clients
     pub fn clients(&self) -> Vec<Client> {
         self.peers()
             .map(|peer| Client::test(&peer.api_address, &peer.telemetry_address))
@@ -324,37 +346,18 @@ where
             None
         })
     }
-
-    /// Creates new network from configuration and with that number of peers
-    pub async fn new(default_configuration: Option<Configuration>, n_peers: u32) -> Result<Self> {
-        Self::new_with_offline_peers(default_configuration, n_peers, 0).await
-    }
-
-    pub async fn send_all<M: iroha_actor::broker::BrokerMessage + Sync>(&self, m: M) {
-        for peer in self.peers() {
-            iroha_logger::info!(?peer.id, "Sending message");
-            peer.send(m.clone()).await
-        }
-    }
-
-    pub async fn send_all_default<M: iroha_actor::broker::BrokerMessage + Sync + Default>(&self) {
-        for peer in self.peers() {
-            iroha_logger::info!(?peer.id, "Sending message");
-            peer.send_default::<M>().await
-        }
-    }
 }
 
 /// Wait for peers to have committed genesis block.
 ///
 /// # Panics
 /// When unsuccessful after `MAX_RETRIES`.
-pub fn wait_for_genesis_committed(clients: Vec<Client>, offline_peers: u32) {
+pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
     const POLL_PERIOD: Duration = Duration::from_millis(1000);
     const MAX_RETRIES: u32 = 60 * 3; // 3 minutes
 
     for _ in 0..MAX_RETRIES {
-        let without_genesis_peers = clients.iter().fold(0u32, |acc, client| {
+        let without_genesis_peers = clients.iter().fold(0_u32, |acc, client| {
             if let Ok(status) = client.get_status() {
                 if status.blocks < 1 {
                     acc + 1
@@ -390,7 +393,10 @@ where
             api_addr = %self.api_address,
             "Stopping peer",
         );
-        self.stop()
+        if let Some(shutdown) = self.shutdown.take() {
+            shutdown.abort();
+            iroha_logger::info!("Shutting down peer...");
+        }
     }
 }
 
@@ -402,22 +408,7 @@ where
     S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
     B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
 {
-    pub async fn send<M: iroha_actor::broker::BrokerMessage + Sync>(&self, m: M) {
-        self.broker.issue_send(m).await
-    }
-
-    pub async fn send_default<M: iroha_actor::broker::BrokerMessage + Sync + Default>(&self) {
-        self.send(M::default()).await
-    }
-
-    pub fn stop(&mut self) {
-        if let Some(shutdown) = self.shutdown.take() {
-            shutdown.abort();
-            iroha_logger::info!("Shutting down peer...");
-        }
-    }
-
-    /// Returns per peer config with all addresses, keys, and id set up
+    /// Returns per peer config with all addresses, keys, and id set up.
     fn get_config(&self, configuration: Configuration) -> Configuration {
         Configuration {
             sumeragi: SumeragiConfiguration {
@@ -432,7 +423,6 @@ where
                 ..configuration.torii
             },
             logger: LoggerConfiguration {
-                compact_mode: false,
                 ..configuration.logger
             },
             public_key: self.key_pair.public_key.clone(),
@@ -443,6 +433,12 @@ where
     }
 
     /// Starts peer with config, permissions and temporary directory
+    ///
+    /// # Panics
+    /// - Starting [`Iroha`] instance fails.
+    /// - Block store path not readable
+    /// - [`Iroha::start_as_task`] failed or produced empty job handle.
+    /// - `receiver` fails to produce a message.
     pub async fn start_with_config_permissions_dir(
         &mut self,
         configuration: Configuration,
@@ -453,7 +449,7 @@ where
         configuration
             .kura
             .block_store_path(temp_dir.path())
-            .unwrap();
+            .expect("block store path not readable");
         let info_span = iroha_logger::info_span!(
             "test-peer",
             p2p_addr = %self.p2p_address,
@@ -473,9 +469,9 @@ where
                 )
                 .await
                 .expect("Failed to start iroha");
-                let jh = iroha.start_as_task().unwrap();
+                let job_handle = iroha.start_as_task().unwrap();
                 sender.send(iroha).unwrap();
-                jh.await.unwrap().unwrap();
+                job_handle.await.unwrap().unwrap();
             }
             .instrument(info_span),
         );
@@ -485,6 +481,12 @@ where
     }
 
     /// Starts peer with config and permissions
+    ///
+    /// # Panics
+    /// - [`TempDir::new`] failed.
+    /// - [`Iroha::with_genesis`] failed.
+    /// - Failed to send [`Iroha`] via sender.
+    /// - [`Iroha::start_as_task`] failed or produced empty job handle.
     pub async fn start_with_config_permissions(
         &mut self,
         configuration: Configuration,
@@ -497,7 +499,7 @@ where
         configuration
             .kura
             .block_store_path(temp_dir.path())
-            .unwrap();
+            .expect("Guaranteed to exist");
         let info_span = iroha_logger::info_span!(
             "test-peer",
             p2p_addr = %self.p2p_address,
@@ -517,10 +519,10 @@ where
                     broker,
                 )
                 .await
-                .expect("Failed to start iroha");
-                let jh = iroha.start_as_task().unwrap();
+                .expect("Failed to start Iroha");
+                let job_handle = iroha.start_as_task().unwrap();
                 sender.send(iroha).unwrap();
-                jh.await.unwrap().unwrap();
+                job_handle.await.unwrap().unwrap();
             }
             .instrument(info_span),
         );
@@ -530,37 +532,36 @@ where
         self.shutdown = Some(join_handle);
     }
 
-    /// Starts peer with config
+    /// Start peer with config
+    #[inline]
     pub async fn start_with_config(&mut self, genesis: Option<G>, configuration: Configuration) {
         self.start_with_config_permissions(configuration, genesis, AllowAll, AllowAll)
             .await;
     }
 
-    /// Starts peer with config
+    /// Start peer with config
     pub async fn start_with_genesis(&mut self, genesis: Option<G>) {
-        self.start_with_config(genesis, Configuration::test()).await;
+        self.start_with_config_permissions(Configuration::test(), genesis, AllowAll, AllowAll)
+            .await;
     }
 
-    /// Starts peer
+    /// Start peer
     pub async fn start(&mut self, submit_genesis: bool) {
         self.start_with_genesis(G::test(submit_genesis)).await;
     }
 
     /// Creates peer
+    ///
+    /// # Errors
+    /// If can't get a unique port for
+    /// - `p2p_address`
+    /// - `api_address`
+    /// - `telemetry_address`
     pub fn new() -> Result<Self> {
         let key_pair = KeyPair::generate()?;
-        let p2p_address = format!(
-            "127.0.0.1:{}",
-            unique_port::get_unique_free_port().map_err(Error::msg)?
-        );
-        let api_address = format!(
-            "127.0.0.1:{}",
-            unique_port::get_unique_free_port().map_err(Error::msg)?
-        );
-        let telemetry_address = format!(
-            "127.0.0.1:{}",
-            unique_port::get_unique_free_port().map_err(Error::msg)?
-        );
+        let p2p_address = local_unique_port()?;
+        let api_address = local_unique_port()?;
+        let telemetry_address = local_unique_port()?;
         let id = PeerId {
             address: p2p_address.clone(),
             public_key: key_pair.public_key.clone(),
@@ -584,14 +585,11 @@ where
     /// Returns its info and client for connecting to it.
     pub fn start_test_with_runtime() -> (Runtime, Self, Client) {
         let rt = Runtime::test();
-        let (peer, client) = rt.block_on(Self::start_test());
+        let (peer, client) = rt.block_on(Self::start_test_with_permissions(
+            AllowAll.into(),
+            AllowAll.into(),
+        ));
         (rt, peer, client)
-    }
-
-    /// Starts peer with default configuration.
-    /// Returns its info and client for connecting to it.
-    pub async fn start_test() -> (Self, Client) {
-        Self::start_test_with_permissions(AllowAll.into(), AllowAll.into()).await
     }
 
     /// Starts peer with default configuration and specified permissions.
@@ -619,11 +617,20 @@ where
     }
 }
 
+fn local_unique_port() -> Result<String> {
+    Ok(format!(
+        "127.0.0.1:{}",
+        unique_port::get_unique_free_port().map_err(Error::msg)?
+    ))
+}
+
+/// Runtime used for testing.
 pub trait TestRuntime {
     /// Creates test runtime
     fn test() -> Self;
 }
 
+/// Peer configuration mocking trait.
 pub trait TestConfiguration {
     /// Creates test configuration
     fn test() -> Self;
@@ -633,11 +640,13 @@ pub trait TestConfiguration {
     fn block_sync_gossip_time() -> Duration;
 }
 
+/// Client configuration mocking trait.
 pub trait TestClientConfiguration {
     /// Creates test client configuration
     fn test(api_url: &str, telemetry_url: &str) -> Self;
 }
 
+/// Client mocking trait
 pub trait TestClient: Sized {
     /// Creates test client from api url
     fn test(api_url: &str, telemetry_url: &str) -> Self;
@@ -701,9 +710,34 @@ pub trait TestClient: Sized {
         R::Output: Clone + Debug;
 }
 
-pub trait TestQueryResult {
-    /// Tries to find asset by id
-    fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset>;
+#[cfg(feature = "query")]
+pub mod query {
+    //! Query mocking module.
+    use super::*;
+
+    /// Query result mocking trait.
+    pub trait TestQueryResult {
+        /// Tries to find asset by id
+        fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset>;
+    }
+
+    impl TestQueryResult for QueryResult {
+        fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset> {
+            let assets = if let QueryResult(Value::Vec(assets)) = self {
+                assets
+            } else {
+                panic!("Wrong Query Result Type.");
+            };
+            assets.iter().find_map(|asset| {
+                if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
+                    if &asset.id.definition_id == asset_id {
+                        return Some(asset.as_ref());
+                    }
+                }
+                None
+            })
+        }
+    }
 }
 
 impl TestRuntime for Runtime {
@@ -720,8 +754,7 @@ use std::collections::HashSet;
 
 impl TestConfiguration for Configuration {
     fn test() -> Self {
-        let mut configuration =
-            iroha_core::samples::get_config(HashSet::new(), Some(get_key_pair()));
+        let mut configuration = iroha::samples::get_config(HashSet::new(), Some(get_key_pair()));
         configuration
             .load_environment()
             .expect("Failed to load configuration from environment");
@@ -743,18 +776,16 @@ impl TestConfiguration for Configuration {
 impl TestClientConfiguration for ClientConfiguration {
     fn test(api_url: &str, telemetry_url: &str) -> Self {
         let mut configuration = iroha_client::samples::get_client_config(&get_key_pair());
-        if !api_url.starts_with("http") {
-            configuration.torii_api_url =
-                small::SmallStr::from_str(&("http://".to_owned() + api_url));
+        configuration.torii_api_url = if api_url.starts_with("http") {
+            small::SmallStr::from_str(api_url)
         } else {
-            configuration.torii_api_url = small::SmallStr::from_str(api_url);
-        }
-        if !telemetry_url.starts_with("http") {
-            configuration.torii_telemetry_url =
-                small::SmallStr::from_str(&("http://".to_owned() + telemetry_url));
+            small::SmallStr::from_str(&("http://".to_owned() + api_url))
+        };
+        configuration.torii_telemetry_url = if telemetry_url.starts_with("http") {
+            small::SmallStr::from_str(telemetry_url)
         } else {
-            configuration.torii_telemetry_url = small::SmallStr::from_str(telemetry_url);
-        }
+            small::SmallStr::from_str(&("http://".to_owned() + telemetry_url))
+        };
         configuration
     }
 }
@@ -855,23 +886,5 @@ impl TestClient for Client {
         R::Output: Clone + Debug,
     {
         self.poll_request_with_period(request, Configuration::pipeline_time() / 2, 10, f)
-    }
-}
-
-impl TestQueryResult for QueryResult {
-    fn find_asset_by_id(&self, asset_id: &AssetDefinitionId) -> Option<&Asset> {
-        let assets = if let QueryResult(Value::Vec(assets)) = self {
-            assets
-        } else {
-            panic!("Wrong Query Result Type.");
-        };
-        assets.iter().find_map(|asset| {
-            if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
-                if &asset.id.definition_id == asset_id {
-                    return Some(asset.as_ref());
-                }
-            }
-            None
-        })
     }
 }

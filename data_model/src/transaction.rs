@@ -106,7 +106,6 @@ pub trait Txn {
     }
 }
 
-// TODO: Reduce after 1858 is closed.
 /// Either ISI or Wasm binary
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum Executable {
@@ -253,6 +252,7 @@ pub struct Transaction {
 impl Transaction {
     /// Construct `Transaction`.
     #[inline]
+    #[must_use]
     #[cfg(feature = "std")]
     pub fn new(
         account_id: <Account as Identifiable>::Id,
@@ -276,12 +276,16 @@ impl Transaction {
     }
 
     /// Adds metadata to the `Transaction`
+    #[must_use]
+    #[inline]
     pub fn with_metadata(mut self, metadata: UnlimitedMetadata) -> Self {
         self.payload.metadata = metadata;
         self
     }
 
     /// Adds nonce to the `Transaction`
+    #[must_use]
+    #[inline]
     pub fn with_nonce(mut self, nonce: u32) -> Self {
         self.payload.nonce = Some(nonce);
         self
@@ -320,6 +324,7 @@ declare_versioned_with_scale!(VersionedPendingTransactions 1..2, Debug, Clone, F
 
 impl VersionedPendingTransactions {
     /// Converts from `&VersionedPendingTransactions` to V1 reference
+    #[inline]
     pub const fn as_v1(&self) -> &PendingTransactions {
         match self {
             Self::V1(v1) => v1,
@@ -327,6 +332,7 @@ impl VersionedPendingTransactions {
     }
 
     /// Converts from `&mut VersionedPendingTransactions` to V1 mutable reference
+    #[inline]
     pub fn as_mut_v1(&mut self) -> &mut PendingTransactions {
         match self {
             Self::V1(v1) => v1,
@@ -334,6 +340,7 @@ impl VersionedPendingTransactions {
     }
 
     /// Performs the conversion from `VersionedPendingTransactions` to V1
+    #[inline]
     pub fn into_v1(self) -> PendingTransactions {
         match self {
             Self::V1(v1) => v1,
@@ -349,6 +356,7 @@ impl FromIterator<Transaction> for VersionedPendingTransactions {
 
 #[cfg(feature = "warp")]
 impl Reply for VersionedPendingTransactions {
+    #[inline]
     fn into_response(self) -> Response {
         use iroha_version::scale::EncodeVersioned;
         Response::new(self.encode_versioned().into())
@@ -428,6 +436,7 @@ impl VersionedValidTransaction {
     }
 
     /// Converts from `&mut VersionedValidTransaction` to V1 mutable reference
+    #[inline]
     pub fn as_mut_v1(&mut self) -> &mut ValidTransaction {
         match self {
             Self::V1(v1) => v1,
@@ -435,6 +444,7 @@ impl VersionedValidTransaction {
     }
 
     /// Performs the conversion from `VersionedValidTransaction` to V1
+    #[inline]
     pub fn into_v1(self) -> ValidTransaction {
         match self {
             Self::V1(v1) => v1,
@@ -474,6 +484,7 @@ declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, E
 
 impl VersionedRejectedTransaction {
     /// Converts from `&VersionedRejectedTransaction` to V1 reference
+    #[inline]
     pub const fn as_v1(&self) -> &RejectedTransaction {
         match self {
             Self::V1(v1) => v1,
@@ -481,6 +492,7 @@ impl VersionedRejectedTransaction {
     }
 
     /// Converts from `&mut VersionedRejectedTransaction` to V1 mutable reference
+    #[inline]
     pub fn as_mut_v1(&mut self) -> &mut RejectedTransaction {
         match self {
             Self::V1(v1) => v1,
@@ -488,6 +500,7 @@ impl VersionedRejectedTransaction {
     }
 
     /// Performs the conversion from `VersionedRejectedTransaction` to V1
+    #[inline]
     pub fn into_v1(self) -> RejectedTransaction {
         match self {
             Self::V1(v1) => v1,
@@ -624,7 +637,6 @@ impl std::error::Error for NotPermittedFail {}
 #[display(fmt = "Block was rejected during consensus")]
 pub enum BlockRejectionReason {
     /// Block was rejected during consensus.
-    //TODO: store rejection reasons for blocks?
     ConsensusBlockRejection,
 }
 

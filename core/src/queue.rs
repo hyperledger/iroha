@@ -282,7 +282,7 @@ mod tests {
             .collect();
         let instructions: Vec<Instruction> = vec![FailBox { message }.into()];
         let tx = Transaction::new(
-            AccountId::test(account, domain),
+            AccountId::new(account, domain).expect("Valid"),
             instructions.into(),
             proposed_ttl_ms,
         )
@@ -298,12 +298,12 @@ mod tests {
 
     pub fn world_with_test_domains(public_key: PublicKey) -> World {
         let domains = DomainsMap::new();
-        let mut domain = Domain::test("wonderland");
-        let account_id = AccountId::test("alice", "wonderland");
+        let mut domain = Domain::new(DomainId::new("wonderland").expect("Valid"));
+        let account_id = AccountId::new("alice", "wonderland").expect("Valid");
         let mut account = Account::new(account_id.clone());
         account.signatories.push(public_key);
         domain.accounts.insert(account_id, account);
-        domains.insert(DomainId::test("wonderland"), domain);
+        domains.insert(DomainId::new("wonderland").expect("Valid"), domain);
         World::with(domains, PeersIds::new())
     }
 
@@ -366,13 +366,13 @@ mod tests {
         let wsv = {
             let public_key = KeyPair::generate().unwrap().public_key;
             let domains = DomainsMap::new();
-            let mut domain = Domain::test("wonderland");
-            let account_id = AccountId::test("alice", "wonderland");
+            let mut domain = Domain::new(DomainId::new("wonderland").expect("Valid"));
+            let account_id = AccountId::new("alice", "wonderland").expect("Valid");
             let mut account = Account::new(account_id.clone());
             account.signatories.push(public_key);
             account.signature_check_condition = SignatureCheckCondition(0_u32.into());
             domain.accounts.insert(account_id, account);
-            domains.insert(DomainId::test("wonderland"), domain);
+            domains.insert(DomainId::new("wonderland").expect("Valid"), domain);
 
             Arc::new(WorldStateView::new(World::with(domains, PeersIds::new())))
         };
@@ -409,7 +409,7 @@ mod tests {
             wsv,
         );
         let tx = Transaction::new(
-            AccountId::test("alice", "wonderland"),
+            AccountId::new("alice", "wonderland").expect("Valid"),
             Vec::<Instruction>::new().into(),
             100_000,
         );

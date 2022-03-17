@@ -116,9 +116,11 @@ impl Actor for DeadlockActor {
 impl Handler<Reminder> for DeadlockActor {
     type Result = ();
     async fn handle(&mut self, _: Reminder) {
-        if self.has_cycle() {
-            panic!("Detected deadlock. Aborting. Cycle:\n{:#?}", self.0);
-        }
+        assert!(
+            !self.has_cycle(),
+            "Detected deadlock. Aborting. Cycle:\n{:#?}",
+            self.0
+        );
     }
 }
 

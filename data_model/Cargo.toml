@@ -21,6 +21,7 @@ default = ["std"]
 std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_data_primitives/std", "thiserror"]
 # https://github.com/rust-lang/cargo/issues/6915
 roles = []
+cross_crate_testing = []
 
 [dependencies]
 iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.2", default-features = false }
@@ -39,6 +40,8 @@ thiserror = { version = "1.0.28", optional = true }
 [dev-dependencies]
 iroha_core = { path = "../core", version = "=2.0.0-pre-rc.2", features = ["roles"] }
 iroha_client = { path = "../client", version = "=2.0.0-pre-rc.2" }
+iroha = { path = "../cli" }
+
 test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.2" }
 
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}

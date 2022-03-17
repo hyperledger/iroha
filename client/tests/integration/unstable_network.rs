@@ -4,11 +4,12 @@ use std::{thread, time::Duration};
 
 use iroha_client::client::{self, Client};
 use iroha_config::logger;
-use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
 use iroha_logger::Level;
 use test_network::*;
 use tokio::runtime::Runtime;
+
+use super::Configuration;
 
 const MAXIMUM_TRANSACTIONS_IN_BLOCK: u32 = 5;
 
@@ -75,12 +76,12 @@ fn unstable_network(
         );
         (network, client)
     });
-    wait_for_genesis_committed(network.clients(), n_offline_peers);
+    wait_for_genesis_committed(&network.clients(), n_offline_peers);
 
     let pipeline_time = Configuration::pipeline_time();
 
-    let account_id = AccountId::test("alice", "wonderland");
-    let asset_definition_id = AssetDefinitionId::test("rose", "wonderland");
+    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
     // Initially there are 13 roses.
     let mut account_has_quantity = 13;
 

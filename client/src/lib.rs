@@ -15,12 +15,14 @@ pub mod samples {
     use super::Configuration;
 
     /// Get sample client configuration.
+    #[allow(clippy::expect_used)]
     pub fn get_client_config(key_pair: &KeyPair) -> Configuration {
         let (public_key, private_key) = key_pair.clone().into();
         Configuration {
             public_key,
             private_key,
-            account_id: iroha_data_model::prelude::AccountId::test("alice", "wonderland"),
+            account_id: iroha_data_model::prelude::AccountId::new("alice", "wonderland")
+                .expect("Should not fail."),
             torii_api_url: iroha_data_model::small::SmallStr::from_str(uri::DEFAULT_API_URL),
             ..Configuration::default()
         }

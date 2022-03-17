@@ -3,20 +3,21 @@
 use std::thread;
 
 use iroha_client::client::transaction;
-use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
+
+use super::Configuration;
 
 #[test]
 fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
-    wait_for_genesis_committed(vec![iroha_client.clone()], 0);
+    wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let account_id = AccountId::test("alice", "wonderland");
-    let asset_definition_id = AssetDefinitionId::test("xor", "wonderland");
+    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));
@@ -33,7 +34,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let mint_not_existed_asset = MintBox::new(
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(
-            AssetDefinitionId::test("foo", "wonderland"),
+            AssetDefinitionId::new("foo", "wonderland").expect("Valid"),
             account_id.clone(),
         )),
     );

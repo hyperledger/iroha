@@ -2,15 +2,17 @@ use std::thread;
 
 use eyre::Result;
 use iroha_client::client;
-use iroha_core::{config::Configuration, prelude::*};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::*;
+
+use super::Configuration;
 
 #[test]
 fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given a network
     let (rt, network, mut genesis_client, pipeline_time, account_id, asset_definition_id) = init()?;
-    wait_for_genesis_committed(network.clients(), 0);
+    wait_for_genesis_committed(&network.clients(), 0);
 
     // When assets are minted
     mint(
@@ -82,6 +84,7 @@ fn mint(
     Ok(quantity)
 }
 
+#[allow(clippy::expect_used)]
 fn init() -> Result<(
     tokio::runtime::Runtime,
     test_network::Network,
@@ -94,12 +97,14 @@ fn init() -> Result<(
     let pipeline_time = Configuration::pipeline_time();
     thread::sleep(pipeline_time * 2);
     iroha_logger::info!("Started");
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(Domain::test("domain").into()));
-    let account_id = AccountId::test("account", "domain");
+    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
+        Domain::new(DomainId::new("domain").expect("Valid")).into(),
+    ));
+    let account_id = AccountId::new("account", "domain").expect("Valid");
     let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
         NewAccount::with_signatory(account_id.clone(), KeyPair::generate()?.public_key).into(),
     ));
-    let asset_definition_id = AssetDefinitionId::test("xor", "domain");
+    let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
         AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
     ));

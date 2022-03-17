@@ -53,6 +53,7 @@ impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
 
 impl<V: TryFrom<Value>> EvaluatesTo<V> {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         self.expression.len()
     }
@@ -135,6 +136,7 @@ pub enum Expression {
 
 impl Expression {
     /// Number of underneath expressions.
+    #[inline]
     pub fn len(&self) -> usize {
         use Expression::*;
 
@@ -810,24 +812,28 @@ pub struct WhereBuilder {
 
 impl WhereBuilder {
     /// Sets the `expression` to be evaluated.
-    pub fn evaluate<E: Into<EvaluatesTo<Value>>>(expression: E) -> WhereBuilder {
-        WhereBuilder {
+    #[must_use]
+    pub fn evaluate<E: Into<EvaluatesTo<Value>>>(expression: E) -> Self {
+        Self {
             expression: expression.into(),
             values: btree_map::BTreeMap::new(),
         }
     }
 
     /// Binds `expression` result to a `value_name`, by which it will be reachable from the main expression.
+    #[must_use]
     pub fn with_value<E: Into<EvaluatesTo<Value>>>(
         mut self,
         value_name: ValueName,
         expression: E,
-    ) -> WhereBuilder {
+    ) -> Self {
         let _result = self.values.insert(value_name, expression.into());
         self
     }
 
     /// Returns a [`Where`] expression.
+    #[inline]
+    #[must_use]
     pub fn build(self) -> Where {
         Where::new(self.expression, self.values)
     }
@@ -847,11 +853,14 @@ pub struct Where {
 
 impl Where {
     /// Number of underneath expressions.
+    #[must_use]
+    #[inline]
     pub fn len(&self) -> usize {
         self.expression.len() + self.values.values().map(EvaluatesTo::len).sum::<usize>() + 1
     }
 
     /// Constructs `Or` expression.
+    #[must_use]
     pub fn new<E: Into<EvaluatesTo<Value>>>(
         expression: E,
         values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,

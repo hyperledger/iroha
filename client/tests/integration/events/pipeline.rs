@@ -7,9 +7,10 @@ use std::{
 
 use eyre::Result;
 use iroha_client::client::Client;
-use iroha_core::config::Configuration;
 use iroha_data_model::prelude::*;
 use test_network::*;
+
+use super::Configuration;
 
 const PEER_COUNT: usize = 7;
 
@@ -26,7 +27,7 @@ fn test_with_instruction_and_status(
     should_be_committed: bool,
 ) -> Result<()> {
     let (_rt, network, _) = <Network>::start_test_with_runtime(PEER_COUNT.try_into().unwrap(), 1);
-    wait_for_genesis_committed(network.clients(), 0);
+    wait_for_genesis_committed(&network.clients(), 0);
 
     for submitting_peer in 0..PEER_COUNT {
         let pipeline_time = Configuration::pipeline_time();
