@@ -235,23 +235,18 @@ impl<W: WorldTrait> WorldStateView<W> {
         Ok(())
     }
 
+    /// Create time event using previous and current blocks
     #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     fn create_time_event(&self, block: &CommittedBlock) -> Result<TimeEvent> {
-        let previous_block_timestamp = if self.blocks.is_empty() {
-            // If there is no previous block, then assuming it *was* exactly
-            // `consensus_estimation` time before current block
-            block.header.timestamp - u128::from(block.header.consensus_estimation)
-        } else {
-            self.blocks
-                .latest_block()
-                .expect("At least genesis should exist")
-                .header()
-                .timestamp
-        };
-        let prev_interval = TimeInterval::new(
-            Duration::from_millis(previous_block_timestamp.try_into()?),
-            Duration::from_millis(block.header.consensus_estimation),
-        );
+        let prev_interval = self.blocks.latest_block().map_or_else(
+            || Result::<_, <u128 as TryInto<u64>>::Error>::Ok(None),
+            |latest_block| {
+                Ok(Some(TimeInterval::new(
+                    Duration::from_millis(latest_block.header().timestamp.try_into()?),
+                    Duration::from_millis(latest_block.header().consensus_estimation),
+                )))
+            },
+        )?;
         let interval = TimeInterval::new(
             Duration::from_millis(block.header.timestamp.try_into()?),
             Duration::from_millis(block.header.consensus_estimation),
@@ -797,7 +792,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Produces trigger event from `f`
     ///
     /// # Errors
-    ///  up `f` errors
+    /// Throws up `f` errors
     pub fn modify_triggers<F>(&self, f: F) -> Result<(), Error>
     where
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,

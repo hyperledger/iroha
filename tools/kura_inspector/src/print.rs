@@ -122,7 +122,7 @@ mod tests {
         ValidBlock {
             header: BlockHeader {
                 timestamp: 0,
-                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION,
+                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: EmptyChainHash::default().into(),

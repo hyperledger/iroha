@@ -9,15 +9,16 @@ use super::*;
 /// Contains time interval which is used to identify time-triggers to be executed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema)]
 pub struct Event {
-    /// Previous block timestamp and consensus durations estimation
-    pub prev_interval: Interval,
+    /// Previous block timestamp and consensus durations estimation.
+    /// `None` if it's first block commit
+    pub prev_interval: Option<Interval>,
     /// Current block timestamp and consensus durations estimation
     pub interval: Interval,
 }
 
 impl Event {
     /// Construct `Event` with `prev_interval` and `interval`
-    pub fn new(prev_interval: Interval, interval: Interval) -> Self {
+    pub fn new(prev_interval: Option<Interval>, interval: Interval) -> Self {
         Self {
             prev_interval,
             interval,
@@ -50,27 +51,29 @@ impl EventFilter {
             Reoccurs::Periodically(periodicity) => {
                 let mut res = Self::count_matches_in_interval(periodicity, &event.interval);
 
-                let previous_estimation = event.prev_interval.since + event.prev_interval.length;
+                if let Some(prev_interval) = event.prev_interval {
+                    let previous_estimation = prev_interval.since + prev_interval.length;
 
-                // Counting matching points between estimated timestamp and the real one
-                match event.interval.since.cmp(&previous_estimation) {
-                    Ordering::Greater => {
-                        let length = event.interval.since - previous_estimation;
-                        let forgotten_count = Self::count_matches_in_interval(
-                            periodicity,
-                            &Interval::new(previous_estimation, length),
-                        );
-                        res += forgotten_count;
+                    // Counting matching points between estimated timestamp and the real one
+                    match event.interval.since.cmp(&previous_estimation) {
+                        Ordering::Greater => {
+                            let length = event.interval.since - previous_estimation;
+                            let forgotten_count = Self::count_matches_in_interval(
+                                periodicity,
+                                &Interval::new(previous_estimation, length),
+                            );
+                            res += forgotten_count;
+                        }
+                        Ordering::Less => {
+                            let length = previous_estimation - event.interval.since;
+                            let twice_counted_count = Self::count_matches_in_interval(
+                                periodicity,
+                                &Interval::new(event.interval.since, length),
+                            );
+                            res -= twice_counted_count;
+                        }
+                        Ordering::Equal => (),
                     }
-                    Ordering::Less => {
-                        let length = previous_estimation - event.interval.since;
-                        let twice_counted_count = Self::count_matches_in_interval(
-                            periodicity,
-                            &Interval::new(event.interval.since, length),
-                        );
-                        res -= twice_counted_count;
-                    }
-                    Ordering::Equal => (),
                 }
 
                 res
@@ -87,7 +90,7 @@ impl EventFilter {
         // i2 -- interval right border
         //
         // Case:
-        // ------(-------)-----|-------
+        // ------(-------]-----|-------
         //       i1     i2     p
         if interval.since + interval.length < periodicity.start {
             return 0;
@@ -96,11 +99,11 @@ impl EventFilter {
         // Normalizing values so that we can use the same math for the next cases
         //
         // Case 1:
-        // -----(---------|------)-----
+        // -----(---------|------]-----
         //      i1        p     i2
         //
         // Case 2:
-        // -----|----(----------)-----
+        // -----|----(----------]-----
         //      p    i1        i2
         let (normalized_since, normalized_length) = if interval.since > periodicity.start {
             (interval.since - periodicity.start, interval.length)
@@ -249,7 +252,7 @@ mod tests {
 
         #[test]
         fn test_jump_over_inside() {
-            // ----(------|-----)----*----
+            // ----(------|-----]----*----
             //     i1     p    i2
 
             let periodicity =
@@ -263,7 +266,7 @@ mod tests {
 
         #[test]
         fn test_jump_over_outside() {
-            // ----|------(-----)----*----
+            // ----|------(-----]----*----
             //     p     i1    i2
 
             let periodicity =
@@ -278,7 +281,7 @@ mod tests {
 
         #[test]
         fn test_interval_on_the_left() {
-            // ----(----)----|-----*-----*----
+            // ----(----]----|-----*-----*----
             //     i1   i2   p
 
             let periodicity =
@@ -292,8 +295,8 @@ mod tests {
         }
 
         #[test]
-        fn test_periodicy_starts_at_the_middle() {
-            // ----(------|----*----*----*--)-*----
+        fn test_periodicity_starts_at_the_middle() {
+            // ----(------|----*----*----*--]-*----
             //     i1     p                i2
 
             let periodicity =
@@ -308,7 +311,7 @@ mod tests {
 
         #[test]
         fn test_interval_on_the_right() {
-            // ----|----*--(----*----*----*----*----)----*----
+            // ----|----*--(----*----*----*----*----]----*----
             //     p      i1                       i2
 
             let periodicity =
@@ -324,9 +327,24 @@ mod tests {
         }
 
         #[test]
+        fn test_only_left_border() {
+            //             *
+            // ----|-------(----]--*-------*--
+            //     p      i1   i2
+
+            let periodicity =
+                Periodicity::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(10));
+            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
+            assert_eq!(
+                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                0
+            );
+        }
+
+        #[test]
         fn test_only_right_border_inside() {
             //               *
-            // ----(----|----)----*----*----
+            // ----(----|----]----*----*----
             //     i1   p    i2
 
             let periodicity =
@@ -340,24 +358,9 @@ mod tests {
         }
 
         #[test]
-        fn test_only_left_border() {
-            //             *
-            // ----|-------(----)--*-------*--
-            //     p      i1   i2
-
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(10));
-            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
-                0
-            );
-        }
-
-        #[test]
         fn test_only_right_border_outside() {
             //              *
-            // ----|---(----)--------*----
+            // ----|---(----]--------*----
             //     p   i1   i2
 
             let periodicity =
@@ -372,7 +375,7 @@ mod tests {
         #[test]
         fn test_matches_right_border_and_ignores_left() {
             //     |             *
-            // ----(-*-*-*-*-*-*-)-*-*-*
+            // ----(-*-*-*-*-*-*-]-*-*-*
             //   p, i1           i2
 
             let periodicity =
