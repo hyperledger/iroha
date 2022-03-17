@@ -3,7 +3,6 @@
 //! used in code.
 
 use super::{config::SumeragiConfiguration, *};
-use crate::block::Triggers;
 
 /// Fault injection for consensus tests
 pub trait FaultInjection: Send + Sync + Sized + 'static {
@@ -215,8 +214,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         }
         let txs = self.queue.get_transactions_for_block();
         // TODO: This should properly process triggers
-        let trigger_recommendations = Vec::new();
-        if let Err(error) = self.round(txs, trigger_recommendations, ctx).await {
+        let event_recommendations = Vec::new();
+        if let Err(error) = self.round(txs, event_recommendations, ctx).await {
             error!(%error, "Round failed");
         }
     }
@@ -498,7 +497,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
     pub async fn round(
         &mut self,
         transactions: Vec<VersionedAcceptedTransaction>,
-        trigger_recommendations: Triggers,
+        event_recommendations: Vec<Event>,
         ctx: &mut Context<Self>,
     ) -> Result<()> {
         if transactions.is_empty() {
@@ -506,7 +505,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         }
 
         if Role::Leader == self.topology.role(&self.peer_id) {
-            let block = PendingBlock::new(transactions, trigger_recommendations).chain(
+            let block = PendingBlock::new(transactions, event_recommendations).chain(
                 self.block_height,
                 *self.latest_block_hash(),
                 self.view_change_proofs().clone(),

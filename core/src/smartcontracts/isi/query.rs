@@ -221,7 +221,10 @@ mod tests {
     use once_cell::sync::Lazy;
 
     use super::*;
-    use crate::{tx::TransactionValidator, wsv::World, DomainsMap, PeersIds};
+    use crate::{
+        block::PendingBlock, prelude::AllowAll, tx::TransactionValidator, wsv::World, DomainsMap,
+        PeersIds,
+    };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> =

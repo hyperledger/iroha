@@ -7,9 +7,13 @@ use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
-const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
-const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
+/// Default Amount of time peer waits for the `CreatedBlock` message
+/// after getting a `TransactionReceipt`.
+pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
+// Default amount of time Peer waits for `CommitMessage` from the proxy tail.
+pub const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
+/// Default amount of time Peer waits for `TxReceipt` from the leader.
+pub const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
 const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
 const DEFAULT_MAILBOX_SIZE: usize = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;

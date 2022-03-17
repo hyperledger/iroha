@@ -4,8 +4,6 @@
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics;
 
-use crate::prelude::*;
-
 /// Trait to check if [`Action`] should be executed at exact time or not.
 /// Implemented as a trait and not as basic method, cause it is needed only inside this module.
 trait OccursExactlyAtTime {

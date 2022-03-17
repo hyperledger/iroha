@@ -164,13 +164,6 @@ impl Id {
             name: Name::new(name)?,
         })
     }
-
-    /// Unchecked variant of [`Self::new`]. Does not panic on error.
-    pub fn test(name: &str) -> Self {
-        Self {
-            name: Name::test(name),
-        }
-    }
 }
 
 pub mod prelude {
