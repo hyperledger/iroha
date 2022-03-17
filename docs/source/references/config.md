@@ -478,7 +478,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_BLOCK_TIME_
 
 ### `sumeragi.commit_time_ms`
 
-Amount of time Peer waits for `CommitMessage` from the proxy tail.
+Amount of time Peer waits for CommitMessage from the proxy tail.
 
 Has type `u64`. Can be configured via environment variable `SUMERAGI_COMMIT_TIME_MS`
 
@@ -580,7 +580,7 @@ Has type `TrustedPeers`. Can be configured via environment variable `SUMERAGI_TR
 
 ### `sumeragi.tx_receipt_time_ms`
 
-Amount of time Peer waits for `TxReceipt` from the leader.
+Amount of time Peer waits for TxReceipt from the leader.
 
 Has type `u64`. Can be configured via environment variable `SUMERAGI_TX_RECEIPT_TIME_MS`
 

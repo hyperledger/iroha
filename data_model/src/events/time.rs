@@ -78,7 +78,7 @@ impl EventFilter {
 
                 res
             }
-            Reoccurs::ExactlyAt(time) => Range::from(event.interval).contains(time) as u32,
+            Reoccurs::ExactlyAt(time) => u32::from(Range::from(event.interval).contains(time)),
         }
     }
 

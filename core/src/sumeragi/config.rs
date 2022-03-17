@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// Default Amount of time peer waits for the `CreatedBlock` message
 /// after getting a `TransactionReceipt`.
 pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
-// Default amount of time Peer waits for `CommitMessage` from the proxy tail.
+/// Default amount of time Peer waits for `CommitMessage` from the proxy tail.
 pub const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
 /// Default amount of time Peer waits for `TxReceipt` from the leader.
 pub const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
