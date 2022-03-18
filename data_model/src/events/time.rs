@@ -59,11 +59,11 @@ impl EventFilter {
     /// Count something with the `schedule` within the `interval`
     #[allow(clippy::expect_used)]
     fn count_matches_in_interval(schedule: &Schedule, interval: &Interval) -> u32 {
-        schedule.cycle.map_or_else(
+        schedule.period.map_or_else(
             || u32::from(Range::from(*interval).contains(&schedule.start)),
-            |cycle| {
+            |period| {
                 (0..)
-                    .map(|i| schedule.start + cycle * i)
+                    .map(|i| schedule.start + period * i)
                     .skip_while(|time| *time < interval.since)
                     .take_while(|time| Range::from(*interval).contains(time))
                     .count()
@@ -96,13 +96,13 @@ pub struct Schedule {
     /// The first execution time
     pub start: Duration,
     /// If some, the period between cyclic executions
-    pub cycle: Option<Duration>,
+    pub period: Option<Duration>,
 }
 
 impl Schedule {
-    /// Create new `Schedule` with `start` and `cycle`
-    pub fn new(start: Duration, cycle: Option<Duration>) -> Self {
-        Self { start, cycle }
+    /// Create new `Schedule` with `start` and `period`
+    pub fn new(start: Duration, period: Option<Duration>) -> Self {
+        Self { start, period }
     }
 }
 
@@ -162,7 +162,7 @@ mod tests {
         const TIMESTAMP: u64 = 1_647_443_386;
 
         #[test]
-        fn test_no_cycle_before_left_border() {
+        fn test_no_period_before_left_border() {
             // ----|-----[-----)-------
             //     p    i1     i2
 
@@ -175,10 +175,10 @@ mod tests {
         }
 
         #[test]
-        fn test_no_cycle_on_left_border() {
+        fn test_no_period_on_left_border() {
             //     |
             // ----[---------)------
-            //    p,i1      i2
+            //   p, i1      i2
 
             let schedule = Schedule::new(Duration::from_secs(TIMESTAMP), None);
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
@@ -189,7 +189,7 @@ mod tests {
         }
 
         #[test]
-        fn test_no_cycle_inside() {
+        fn test_no_period_inside() {
             // ----[------|-----)----
             //     i1     p    i2
 
@@ -198,6 +198,20 @@ mod tests {
             assert_eq!(
                 EventFilter::count_matches_in_interval(&schedule, &interval),
                 1
+            );
+        }
+
+        #[test]
+        fn test_no_period_on_right_border() {
+            //               |
+            // ----[---------)------
+            //    i1      i2, p
+
+            let schedule = Schedule::new(Duration::from_secs(TIMESTAMP + 10), None);
+            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            assert_eq!(
+                EventFilter::count_matches_in_interval(&schedule, &interval),
+                0
             );
         }
 
