@@ -1,6 +1,6 @@
 //! Time event and filter
 
-use core::{cmp::Ordering, ops::Range, time::Duration};
+use core::{ops::Range, time::Duration};
 
 use super::*;
 
@@ -42,101 +42,41 @@ impl Event {
     Serialize,
     Deserialize,
 )]
-pub struct EventFilter(pub Reoccurs);
+pub struct EventFilter(pub Schedule);
 
 impl EventFilter {
     /// Compute how much times trigger with `self` as filter should be executed on `event`
     pub fn count_matches(&self, event: &Event) -> u32 {
-        match &self.0 {
-            Reoccurs::Periodically(periodicity) => {
-                let mut res = Self::count_matches_in_interval(periodicity, &event.interval);
+        let current_interval = event.prev_interval.map_or(event.interval, |prev| {
+            let estimation = event.interval.since + event.interval.length;
+            let prev_estimation = prev.since + prev.length;
+            Interval::new(prev_estimation, estimation.saturating_sub(prev_estimation))
+        });
 
-                if let Some(prev_interval) = event.prev_interval {
-                    let previous_estimation = prev_interval.since + prev_interval.length;
-
-                    // Counting matching points between estimated timestamp and the real one
-                    match event.interval.since.cmp(&previous_estimation) {
-                        Ordering::Greater => {
-                            let length = event.interval.since - previous_estimation;
-                            let forgotten_count = Self::count_matches_in_interval(
-                                periodicity,
-                                &Interval::new(previous_estimation, length),
-                            );
-                            res += forgotten_count;
-                        }
-                        Ordering::Less => {
-                            let length = previous_estimation - event.interval.since;
-                            let twice_counted_count = Self::count_matches_in_interval(
-                                periodicity,
-                                &Interval::new(event.interval.since, length),
-                            );
-                            res -= twice_counted_count;
-                        }
-                        Ordering::Equal => (),
-                    }
-                }
-
-                res
-            }
-            Reoccurs::ExactlyAt(time) => u32::from(Range::from(event.interval).contains(time)),
-        }
+        Self::count_matches_in_interval(&self.0, &current_interval)
     }
 
-    /// Count how much thing with set `reoccurrence` should happen in time `interval`
-    #[allow(clippy::expect_used, clippy::integer_division)]
-    fn count_matches_in_interval(periodicity: &Periodicity, interval: &Interval) -> u32 {
-        // p -- periodicity start point
-        // i1 -- interval left border
-        // i2 -- interval right border
-        //
-        // Case:
-        // ------(-------]-----|-------
-        //       i1     i2     p
-        if interval.since + interval.length < periodicity.start {
-            return 0;
-        }
-
-        // Normalizing values so that we can use the same math for the next cases
-        //
-        // Case 1:
-        // -----(---------|------]-----
-        //      i1        p     i2
-        //
-        // Case 2:
-        // -----|----(----------]-----
-        //      p    i1        i2
-        let (normalized_since, normalized_length) = if interval.since > periodicity.start {
-            (interval.since - periodicity.start, interval.length)
-        } else {
-            let diff = periodicity.start - interval.since;
-            (Duration::ZERO, interval.length - diff)
-        };
-
-        // The first desired point inside `interval`
-        let start = periodicity.period_length
-            * u32::try_from(normalized_since.as_millis() / periodicity.period_length.as_millis())
-                .expect(
-                    "Time filter periodicity has a very small period length \
-                and/or it has been set very long time ago",
-                )
-            + periodicity.period_length;
-        if start > normalized_since + normalized_length {
-            return 0;
-        }
-
-        let diff = start - normalized_since;
-        1_u32
-            + u32::try_from(
-                (normalized_length - diff).as_millis() / periodicity.period_length.as_millis(),
-            )
-            .expect(
-                "Time filter periodicity has a very small period length \
-            and/or previous block was committed very long time ago",
-            )
+    /// Count something with the `schedule` within the `interval`
+    #[allow(clippy::expect_used)]
+    fn count_matches_in_interval(schedule: &Schedule, interval: &Interval) -> u32 {
+        schedule.cycle.map_or_else(
+            || u32::from(Range::from(*interval).contains(&schedule.start)),
+            |cycle| {
+                (0..)
+                    .map(|i| schedule.start + cycle * i)
+                    .skip_while(|time| *time < interval.since)
+                    .take_while(|time| Range::from(*interval).contains(time))
+                    .count()
+                    .try_into()
+                    .expect(
+                        "Overflow. The schedule is too frequent relative to the interval length",
+                    )
+            },
+        )
     }
 }
 
-/// Enumeration of possible recurrence schemes
+/// Schedule of the trigger
 #[derive(
     Debug,
     Clone,
@@ -152,11 +92,18 @@ impl EventFilter {
     IntoSchema,
     Hash,
 )]
-pub enum Reoccurs {
-    /// Occurs periodically
-    Periodically(Periodicity),
-    /// Occurs once exactly on set time
-    ExactlyAt(Duration),
+pub struct Schedule {
+    /// The first execution time
+    pub start: Duration,
+    /// If some, the period between cyclic executions
+    pub cycle: Option<Duration>,
+}
+
+impl Schedule {
+    /// Create new `Schedule` with `start` and `cycle`
+    pub fn new(start: Duration, cycle: Option<Duration>) -> Self {
+        Self { start, cycle }
+    }
 }
 
 /// Time interval in which `TimeAction` should appear
@@ -195,47 +142,11 @@ impl From<Interval> for Range<Duration> {
     }
 }
 
-/// Represents endless periodicity that starts at some `start` point of time
-/// and reoccurs every `period_length` time
-///
-/// Looks similar to `Interval` but has different semantics
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    IntoSchema,
-    Hash,
-)]
-pub struct Periodicity {
-    /// Period registration time
-    pub start: Duration,
-    /// Length of time interval
-    pub period_length: Duration,
-}
-
-impl Periodicity {
-    /// Construct `Periodicity` with `start` and `period_length`
-    pub fn new(start: Duration, period_length: Duration) -> Self {
-        Self {
-            start,
-            period_length,
-        }
-    }
-}
-
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
         Event as TimeEvent, EventFilter as TimeEventFilter, Interval as TimeInterval,
-        Periodicity as TimePeriodicity, Reoccurs,
+        Schedule as TimeSchedule,
     };
 }
 
@@ -251,77 +162,123 @@ mod tests {
         const TIMESTAMP: u64 = 1_647_443_386;
 
         #[test]
-        fn test_jump_over_inside() {
-            // ----(------|-----]----*----
-            //     i1     p    i2
+        fn test_no_cycle_before_left_border() {
+            // ----|-----[-----)-------
+            //     p    i1     i2
 
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP + 5), Duration::from_secs(30));
+            let schedule = Schedule::new(Duration::from_secs(TIMESTAMP - 5), None);
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
             assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                EventFilter::count_matches_in_interval(&schedule, &interval),
                 0
             );
         }
 
         #[test]
+        fn test_no_cycle_on_left_border() {
+            //     |
+            // ----[---------)------
+            //    p,i1      i2
+
+            let schedule = Schedule::new(Duration::from_secs(TIMESTAMP), None);
+            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            assert_eq!(
+                EventFilter::count_matches_in_interval(&schedule, &interval),
+                1
+            );
+        }
+
+        #[test]
+        fn test_no_cycle_inside() {
+            // ----[------|-----)----
+            //     i1     p    i2
+
+            let schedule = Schedule::new(Duration::from_secs(TIMESTAMP + 5), None);
+            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            assert_eq!(
+                EventFilter::count_matches_in_interval(&schedule, &interval),
+                1
+            );
+        }
+
+        #[test]
+        fn test_jump_over_inside() {
+            // ----[------|-----)----*----
+            //     i1     p    i2
+
+            let schedule = Schedule::new(
+                Duration::from_secs(TIMESTAMP + 5),
+                Some(Duration::from_secs(30)),
+            );
+            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            assert_eq!(
+                EventFilter::count_matches_in_interval(&schedule, &interval),
+                1
+            );
+        }
+
+        #[test]
         fn test_jump_over_outside() {
-            // ----|------(-----]----*----
+            // ----|------[-----)----*----
             //     p     i1    i2
 
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
+            let schedule = Schedule::new(
+                Duration::from_secs(TIMESTAMP),
+                Some(Duration::from_secs(10)),
+            );
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP + 35), Duration::from_secs(4));
             assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                EventFilter::count_matches_in_interval(&schedule, &interval),
                 0
             );
         }
 
         #[test]
         fn test_interval_on_the_left() {
-            // ----(----]----|-----*-----*----
+            // ----[----)----|-----*-----*----
             //     i1   i2   p
 
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(6));
+            let schedule =
+                Schedule::new(Duration::from_secs(TIMESTAMP), Some(Duration::from_secs(6)));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(4));
             assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                EventFilter::count_matches_in_interval(&schedule, &interval),
                 0
             );
         }
 
         #[test]
-        fn test_periodicity_starts_at_the_middle() {
-            // ----(------|----*----*----*--]-*----
+        fn test_schedule_starts_at_the_middle() {
+            // ----[------|----*----*----*--)-*----
             //     i1     p                i2
 
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(6));
+            let schedule =
+                Schedule::new(Duration::from_secs(TIMESTAMP), Some(Duration::from_secs(6)));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(30));
             assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
-                3
+                EventFilter::count_matches_in_interval(&schedule, &interval),
+                4
             );
         }
 
         #[test]
         fn test_interval_on_the_right() {
-            // ----|----*--(----*----*----*----*----]----*----
+            // ----|----*--[----*----*----*----*----)----*----
             //     p      i1                       i2
 
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_millis(600));
+            let schedule = Schedule::new(
+                Duration::from_secs(TIMESTAMP),
+                Some(Duration::from_millis(600)),
+            );
             let interval = Interval::new(
                 Duration::from_secs(TIMESTAMP + 3) + Duration::from_millis(500),
                 Duration::from_secs(2),
             );
             assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                EventFilter::count_matches_in_interval(&schedule, &interval),
                 4
             );
         }
@@ -329,30 +286,32 @@ mod tests {
         #[test]
         fn test_only_left_border() {
             //             *
-            // ----|-------(----]--*-------*--
+            // ----|-------[----)--*-------*--
             //     p      i1   i2
 
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(10));
+            let schedule = Schedule::new(
+                Duration::from_secs(TIMESTAMP - 10),
+                Some(Duration::from_secs(10)),
+            );
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
             assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
-                0
+                EventFilter::count_matches_in_interval(&schedule, &interval),
+                1
             );
         }
 
         #[test]
         fn test_only_right_border_inside() {
             //               *
-            // ----(----|----]----*----*----
+            // ----[----|----)----*----*----
             //     i1   p    i2
 
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
+            let schedule =
+                Schedule::new(Duration::from_secs(TIMESTAMP), Some(Duration::from_secs(5)));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(15));
             assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                EventFilter::count_matches_in_interval(&schedule, &interval),
                 1
             );
         }
@@ -360,29 +319,31 @@ mod tests {
         #[test]
         fn test_only_right_border_outside() {
             //              *
-            // ----|---(----]--------*----
+            // ----|---[----)--------*----
             //     p   i1   i2
 
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(5));
+            let schedule = Schedule::new(
+                Duration::from_secs(TIMESTAMP - 10),
+                Some(Duration::from_secs(15)),
+            );
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
             assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
-                1
+                EventFilter::count_matches_in_interval(&schedule, &interval),
+                0
             );
         }
 
         #[test]
         fn test_matches_right_border_and_ignores_left() {
             //     |             *
-            // ----(-*-*-*-*-*-*-]-*-*-*
+            // ----[-*-*-*-*-*-*-)-*-*-*
             //   p, i1           i2
 
-            let periodicity =
-                Periodicity::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(1));
+            let schedule =
+                Schedule::new(Duration::from_secs(TIMESTAMP), Some(Duration::from_secs(1)));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(7));
             assert_eq!(
-                EventFilter::count_matches_in_interval(&periodicity, &interval),
+                EventFilter::count_matches_in_interval(&schedule, &interval),
                 7
             );
         }

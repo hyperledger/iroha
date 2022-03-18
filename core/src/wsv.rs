@@ -239,15 +239,20 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Create time event using previous and current blocks
     fn create_time_event(&self, block: &CommittedBlock) -> Result<TimeEvent> {
-        let prev_interval = self.blocks.latest_block().map_or_else(
-            || Result::<_, <u128 as TryInto<u64>>::Error>::Ok(None),
-            |latest_block| {
-                Ok(Some(TimeInterval::new(
-                    Duration::from_millis(latest_block.header().timestamp.try_into()?),
-                    Duration::from_millis(latest_block.header().consensus_estimation),
-                )))
-            },
-        )?;
+        let prev_interval = self
+            .blocks
+            .latest_block()
+            .map(|latest_block| {
+                let header = latest_block.header();
+                header.timestamp.try_into().map(|since| {
+                    TimeInterval::new(
+                        Duration::from_millis(since),
+                        Duration::from_millis(header.consensus_estimation),
+                    )
+                })
+            })
+            .transpose()?;
+
         let interval = TimeInterval::new(
             Duration::from_millis(block.header.timestamp.try_into()?),
             Duration::from_millis(block.header.consensus_estimation),
