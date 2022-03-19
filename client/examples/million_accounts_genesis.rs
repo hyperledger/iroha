@@ -26,9 +26,8 @@ fn main() {
             let asset_definition_id =
                 AssetDefinitionId::new(&format!("xor-{}", num), &format!("wonderland-{}", num))
                     .expect("Valid");
-            let create_asset = RegisterBox::new(IdentifiableBox::from(
-                AssetDefinition::new_quantity(asset_definition_id.clone()),
-            ));
+            let create_asset =
+                RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
             ret.push(GenesisTransaction {
                 isi: small::SmallVec(smallvec::smallvec![create_asset.into()]),
             });

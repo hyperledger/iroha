@@ -260,7 +260,7 @@ mod domain {
                 id,
                 metadata: Metadata(metadata),
             } = self;
-            let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(id)));
+            let create_domain = RegisterBox::new(Domain::new(id));
             submit(create_domain, cfg, metadata).wrap_err("Failed to create domain")
         }
     }
@@ -333,8 +333,7 @@ mod account {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let create_account =
-                RegisterBox::new(IdentifiableBox::from(NewAccount::with_signatory(id, key)));
+            let create_account = RegisterBox::new(Account::new(id, [key]));
             submit(create_account, cfg, metadata).wrap_err("Failed to register account")
         }
     }
@@ -380,7 +379,7 @@ mod account {
 
     impl RunArgs for SignatureCondition {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            let account = Account::new(cfg.account_id.clone());
+            let account = Account::new(cfg.account_id.clone(), []);
             let Self {
                 condition: Signature(condition),
                 metadata: Metadata(metadata),
@@ -467,9 +466,7 @@ mod asset {
                 metadata: Metadata(metadata),
             } = self;
             submit(
-                RegisterBox::new(IdentifiableBox::AssetDefinition(
-                    AssetDefinition::new(id, value_type, !unmintable).into(),
-                )),
+                RegisterBox::new(AssetDefinition::new(id, value_type, !unmintable)),
                 cfg,
                 metadata,
             )
@@ -637,9 +634,7 @@ mod peer {
                 metadata: Metadata(metadata),
             } = self;
             submit(
-                RegisterBox::new(IdentifiableBox::Peer(
-                    Peer::new(PeerId::new(&address, &key)).into(),
-                )),
+                RegisterBox::new(Peer::new(PeerId::new(&address, &key))),
                 cfg,
                 metadata,
             )

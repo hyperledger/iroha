@@ -269,7 +269,7 @@ mod tests {
     use rand::Rng;
 
     use super::*;
-    use crate::{wsv::World, DomainsMap, PeersIds};
+    use crate::{wsv::World, PeersIds};
 
     fn accepted_tx(
         account: &str,
@@ -301,14 +301,12 @@ mod tests {
     }
 
     pub fn world_with_test_domains(public_key: PublicKey) -> World {
-        let domains = DomainsMap::new();
-        let mut domain = Domain::new(DomainId::new("wonderland").expect("Valid"));
+        let domain_id = DomainId::new("wonderland").expect("Valid");
         let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-        let mut account = Account::new(account_id);
-        account.signatories.push(public_key);
+        let mut domain: Domain = Domain::new(domain_id).into();
+        let account = Account::new(account_id, [public_key]);
         domain.add_account(account);
-        domains.insert(DomainId::new("wonderland").expect("Valid"), domain);
-        World::with(domains, PeersIds::new())
+        World::with([domain], PeersIds::new())
     }
 
     #[test]
@@ -369,16 +367,14 @@ mod tests {
 
         let wsv = {
             let public_key = KeyPair::generate().unwrap().public_key;
-            let domains = DomainsMap::new();
-            let mut domain = Domain::new(DomainId::new("wonderland").expect("Valid"));
+            let domain_id = DomainId::new("wonderland").expect("Valid");
+            let mut domain: Domain = Domain::new(domain_id.clone()).into();
             let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-            let mut account = Account::new(account_id);
-            account.signatories.push(public_key);
+            let mut account: Account = Account::new(account_id, [public_key]).into();
             account.signature_check_condition = SignatureCheckCondition(0_u32.into());
             domain.add_account(account);
-            domains.insert(DomainId::new("wonderland").expect("Valid"), domain);
 
-            Arc::new(WorldStateView::new(World::with(domains, PeersIds::new())))
+            Arc::new(WorldStateView::new(World::with([domain], PeersIds::new())))
         };
 
         let queue = Queue::from_configuration(

@@ -954,15 +954,14 @@ mod tests {
             AccountId::new("alice", "test").expect("Valid"),
         );
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
-        let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
-        let mut bob_account = Account::new(bob_id.clone());
+        let mut domain: Domain = Domain::new(DomainId::new("test").expect("Valid")).into();
+        let mut bob_account: Account = Account::new(bob_id.clone(), []).into();
         let _ = bob_account.add_permission(PermissionToken::new(
             Name::from_str("token").expect("Valid"),
             BTreeMap::default(),
         ));
         domain.add_account(bob_account);
-        let domains = vec![(DomainId::new("test").expect("Valid"), domain)];
-        let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
+        let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
         let validator: HasTokenBoxed<_> = Box::new(GrantedToken);
         assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());
         assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_ok());

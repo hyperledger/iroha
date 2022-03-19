@@ -97,17 +97,14 @@ fn init() -> Result<(
     let pipeline_time = Configuration::pipeline_time();
     thread::sleep(pipeline_time * 2);
     iroha_logger::info!("Started");
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new("domain").expect("Valid")).into(),
-    ));
+    let create_domain = RegisterBox::new(Domain::new(DomainId::new("domain").expect("Valid")));
     let account_id = AccountId::new("account", "domain").expect("Valid");
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(account_id.clone(), KeyPair::generate()?.public_key).into(),
+    let create_account = RegisterBox::new(Account::new(
+        account_id.clone(),
+        [KeyPair::generate()?.public_key],
     ));
     let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     client.submit_all(vec![
         create_domain.into(),
         create_account.into(),

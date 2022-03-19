@@ -47,24 +47,17 @@ fn query_requests(criterion: &mut Criterion) {
         .expect("Should not fail");
     let mut group = criterion.benchmark_group("query-requests");
     let domain_name = "domain";
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new(domain_name).expect("Valid")).into(),
-    ));
+    let create_domain = RegisterBox::new(Domain::new(DomainId::new(domain_name).expect("Valid")));
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name).expect("Valid");
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(
-            account_id.clone(),
-            KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key,
-        )
-        .into(),
+    let create_account = RegisterBox::new(Account::new(
+        account_id.clone(),
+        [KeyPair::generate()
+            .expect("Failed to generate KeyPair.")
+            .public_key],
     ));
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name).expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),
@@ -143,19 +136,14 @@ fn instruction_submits(criterion: &mut Criterion) {
     rt.block_on(peer.start_with_config_permissions(configuration, genesis, AllowAll, AllowAll));
     let mut group = criterion.benchmark_group("instruction-requests");
     let domain_name = "domain";
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new(domain_name).expect("Valid")).into(),
-    ));
+    let create_domain = RegisterBox::new(Domain::new(DomainId::new(domain_name).expect("Valid")));
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name).expect("Valid");
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(
-            account_id.clone(),
-            KeyPair::generate()
-                .expect("Failed to generate Key-pair.")
-                .public_key,
-        )
-        .into(),
+    let create_account = RegisterBox::new(Account::new(
+        account_id.clone(),
+        [KeyPair::generate()
+            .expect("Failed to generate Key-pair.")
+            .public_key],
     ));
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name).expect("Valid");
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());

@@ -2,16 +2,14 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{cmp::Ordering, str::FromStr};
+use core::cmp::Ordering;
 
-use getset::Getters;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     metadata::Metadata, prelude::EventFilter, transaction::Executable, Identifiable, Name,
-    ParseError,
 };
 
 /// Type which is used for registering a `Trigger`.

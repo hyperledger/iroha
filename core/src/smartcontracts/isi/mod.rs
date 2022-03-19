@@ -310,17 +310,20 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
     #[log]
     fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
+
         match self.object.evaluate(wsv, &context)? {
+            IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
+            IdentifiableBox::NewDomain(domain) => {
+                Register::<iroha_data_model::domain::NewDomain>::new(*domain)
+                    .execute(authority, wsv)
+            }
             IdentifiableBox::NewAccount(account) => {
-                Register::<NewAccount>::new(*account).execute(authority, wsv)
+                Register::<iroha_data_model::account::NewAccount>::new(*account)
+                    .execute(authority, wsv)
             }
             IdentifiableBox::AssetDefinition(asset_definition) => {
                 Register::<AssetDefinition>::new(*asset_definition).execute(authority, wsv)
             }
-            IdentifiableBox::Domain(domain) => {
-                Register::<Domain>::new(*domain).execute(authority, wsv)
-            }
-            IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
             IdentifiableBox::Trigger(trigger) => {
                 Register::<Trigger>::new(*trigger).execute(authority, wsv)
             }
@@ -635,23 +638,20 @@ mod tests {
     use iroha_crypto::KeyPair;
 
     use super::*;
-    use crate::{wsv::World, DomainsMap, PeersIds};
+    use crate::{wsv::World, PeersIds};
 
     fn world_with_test_domains() -> Result<World> {
-        let domains = DomainsMap::new();
-        let mut domain = Domain::new(DomainId::new("wonderland")?);
+        let mut domain: Domain = Domain::new(DomainId::new("wonderland")?).into();
         let account_id = AccountId::new("alice", "wonderland")?;
-        let mut account = Account::new(account_id.clone());
         let key_pair = KeyPair::generate()?;
-        account.signatories.push(key_pair.public_key);
+        let account = Account::new(account_id.clone(), [key_pair.public_key]);
         domain.add_account(account);
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
         domain.define_asset(AssetDefinitionEntry::new(
             AssetDefinition::new_store(asset_definition_id),
             account_id,
         ));
-        domains.insert(DomainId::new("wonderland")?, domain);
-        Ok(World::with(domains, PeersIds::new()))
+        Ok(World::with([domain], PeersIds::new()))
     }
 
     #[test]

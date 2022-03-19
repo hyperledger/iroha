@@ -18,17 +18,14 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new("domain")?).into(),
-    ));
+    let create_domain = RegisterBox::new(Domain::new(DomainId::new("domain")?));
     let account_id = AccountId::new("account", "domain")?;
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(account_id.clone(), KeyPair::generate()?.public_key).into(),
+    let create_account = RegisterBox::new(Account::new(
+        account_id.clone(),
+        [KeyPair::generate()?.public_key],
     ));
     let asset_definition_id = AssetDefinitionId::new("xor", "domain")?;
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     iroha_client.submit_all(vec![
         create_domain.into(),
         create_account.into(),

@@ -6,7 +6,7 @@ use core::{cmp::Ordering, fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
-use getset::{Getters, MutGetters, Setters};
+use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -17,7 +17,7 @@ use crate::{
     asset::AssetDefinitionsMap,
     metadata::Metadata,
     prelude::{AssetDefinition, AssetDefinitionEntry},
-    Identifiable, Name, ParseError, Value,
+    Identifiable, Name, ParseError,
 };
 
 /// Genesis domain name. Genesis domain should contain only genesis account.
@@ -32,6 +32,7 @@ pub struct GenesisDomain {
 impl GenesisDomain {
     /// Returns `GenesisDomain`.
     #[inline]
+    #[must_use]
     pub const fn new(genesis_key: PublicKey) -> Self {
         Self { genesis_key }
     }
@@ -54,13 +55,56 @@ impl From<GenesisDomain> for Domain {
     }
 }
 
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+pub struct NewDomain {
+    id: Id,
+    logo: Option<IpfsPath>,
+    metadata: Metadata,
+}
+
+impl NewDomain {
+    #[must_use]
+    pub fn new(id: Id) -> Self {
+        Self {
+            id,
+            logo: None,
+            metadata: Metadata::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_logo(mut self, logo: IpfsPath) -> Self {
+        self.logo = Some(logo);
+        self
+    }
+
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}
+
+impl From<NewDomain> for Domain {
+    fn from(source: NewDomain) -> Self {
+        Self {
+            id: source.id,
+            accounts: AccountsMap::new(),
+            asset_definitions: AssetDefinitionsMap::new(),
+            metadata: source.metadata,
+            logo: source.logo,
+        }
+    }
+}
+
 /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
 #[derive(
     Debug,
     Clone,
     PartialEq,
     Eq,
-    Setters,
     Getters,
     MutGetters,
     Decode,
@@ -77,12 +121,13 @@ pub struct Domain {
     accounts: AccountsMap,
     /// Assets of the domain.
     asset_definitions: AssetDefinitionsMap,
-    /// Metadata of this domain as a key-value store.
-    #[getset(get = "pub", get_mut = "pub")]
-    metadata: Metadata,
     /// IPFS link to domain logo
-    #[getset(get = "pub", set = "pub")]
+    #[getset(get = "pub")]
     logo: Option<IpfsPath>,
+    /// Metadata of this domain as a key-value store.
+    #[getset(get = "pub")]
+    #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
+    metadata: Metadata,
 }
 
 impl PartialOrd for Domain {
@@ -100,32 +145,9 @@ impl Ord for Domain {
 }
 
 impl Domain {
-    /// Construct [`Domain`] from [`Id`].
-    pub fn new(id: Id) -> Self {
-        Self {
-            id,
-            accounts: AccountsMap::new(),
-            asset_definitions: AssetDefinitionsMap::new(),
-            metadata: Metadata::new(),
-            logo: None,
-        }
-    }
-
-    /// Domain constructor with pre-setup accounts
-    #[cfg(feature = "cross_crate_testing")]
-    pub fn with_accounts(name: &str, accounts: impl IntoIterator<Item = Account>) -> Self {
-        let accounts_map = accounts
-            .into_iter()
-            .map(|account| (account.id().clone(), account))
-            .collect();
-        #[allow(clippy::expect_used)]
-        Self {
-            id: Id::new(name).expect("must be valid"),
-            accounts: accounts_map,
-            asset_definitions: AssetDefinitionsMap::new(),
-            metadata: Metadata::new(),
-            logo: None,
-        }
+    /// Construct new empty [`Domain`] from [`Id`].
+    pub fn new(id: Id) -> NewDomain {
+        NewDomain::new(id)
     }
 
     /// Returns a reference to the account corresponding to the account id.
@@ -133,6 +155,20 @@ impl Domain {
         self.accounts.get(account_id)
     }
 
+    pub fn get_asset_definition(
+        &self,
+        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
+    ) -> Option<&AssetDefinitionEntry> {
+        self.asset_definitions.get(asset_definition_id)
+    }
+
+    pub fn asset_definitions(&self) -> impl ExactSizeIterator<Item = &AssetDefinitionEntry> {
+        self.asset_definitions.values()
+    }
+}
+
+#[cfg(feature = "mutable_api")]
+impl Domain {
     /// Returns a mutable reference to the account corresponding to the account id.
     pub fn get_account_mut(
         &mut self,
@@ -142,7 +178,8 @@ impl Domain {
     }
 
     /// Adds account into the domain
-    pub fn add_account(&mut self, account: Account) -> Option<Account> {
+    pub fn add_account(&mut self, account: impl Into<Account>) -> Option<Account> {
+        let account = account.into();
         self.accounts.insert(account.id().clone(), account)
     }
 
@@ -164,13 +201,6 @@ impl Domain {
         self.accounts.values_mut()
     }
 
-    pub fn get_asset_definition(
-        &self,
-        asset_definition_id: &<AssetDefinition as Identifiable>::Id,
-    ) -> Option<&AssetDefinitionEntry> {
-        self.asset_definitions.get(asset_definition_id)
-    }
-
     pub fn get_asset_definition_mut(
         &mut self,
         asset_definition_id: &<AssetDefinition as Identifiable>::Id,
@@ -180,8 +210,9 @@ impl Domain {
 
     pub fn define_asset(
         &mut self,
-        asset_definition: AssetDefinitionEntry,
+        asset_definition: impl Into<AssetDefinitionEntry>,
     ) -> Option<AssetDefinitionEntry> {
+        let asset_definition = asset_definition.into();
         self.asset_definitions
             .insert(asset_definition.definition().id().clone(), asset_definition)
     }
@@ -192,17 +223,17 @@ impl Domain {
     ) -> Option<AssetDefinitionEntry> {
         self.asset_definitions.remove(asset_definition_id)
     }
+}
 
-    pub fn asset_definitions(&self) -> impl ExactSizeIterator<Item = &AssetDefinitionEntry> {
-        self.asset_definitions.values()
-    }
+impl Identifiable for NewDomain {
+    type Id = Id;
 }
 
 impl Identifiable for Domain {
     type Id = Id;
 }
 
-impl FromIterator<Domain> for Value {
+impl FromIterator<Domain> for crate::Value {
     fn from_iter<T: IntoIterator<Item = Domain>>(iter: T) -> Self {
         iter.into_iter()
             .map(Into::into)

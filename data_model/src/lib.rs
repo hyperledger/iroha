@@ -60,6 +60,8 @@ pub struct ValidationError {
 #[cfg(feature = "std")]
 impl std::error::Error for ValidationError {}
 
+pub struct InvalidState;
+
 impl ValidationError {
     /// Construct [`ValidationError`].
     pub fn new(reason: &str) -> Self {
@@ -247,8 +249,6 @@ pub enum IdBox {
     RoleId(role::Id),
     /// [`TriggerId`](trigger::Id) variant.
     TriggerId(trigger::Id),
-    /// `World`.
-    WorldId,
 }
 
 /// Sized container for all possible entities.
@@ -267,16 +267,18 @@ pub enum IdBox {
     IntoSchema,
 )]
 pub enum IdentifiableBox {
-    /// [`Account`](`account::Account`) variant.
-    Account(Box<account::Account>),
+    /// [`NewDomain`](`domain::NewDomain`) variant.
+    NewDomain(Box<domain::NewDomain>),
     /// [`NewAccount`](`account::NewAccount`) variant.
     NewAccount(Box<account::NewAccount>),
+    /// [`Domain`](`domain::Domain`) variant.
+    Domain(Box<domain::Domain>),
+    /// [`Account`](`account::Account`) variant.
+    Account(Box<account::Account>),
     /// [`Asset`](`asset::Asset`) variant.
     Asset(Box<asset::Asset>),
     /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
     AssetDefinition(Box<asset::AssetDefinition>),
-    /// [`Domain`](`domain::Domain`) variant.
-    Domain(Box<domain::Domain>),
     /// [`Peer`](`peer::Peer`) variant.
     Peer(Box<peer::Peer>),
     /// [`Role`](`role::Role`) variant.
@@ -284,8 +286,6 @@ pub enum IdentifiableBox {
     Role(Box<role::Role>),
     /// [`Trigger`](`trigger::Trigger`) variant.
     Trigger(Box<trigger::Trigger>),
-    /// `World`.
-    World,
 }
 
 /// Boxed [`Value`].
@@ -406,6 +406,7 @@ from_and_try_from_value_idbox!(
     AssetDefinitionId(asset::DefinitionId),
     DomainId(domain::Id),
     PeerId(peer::Id),
+    RoleId(role::Id),
 );
 // TODO: Should we wrap String with new type in order to convert like here?
 //from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
@@ -458,20 +459,24 @@ macro_rules! from_and_try_from_value_identifiable {
 }
 
 from_and_try_from_value_identifiablebox!(
-    Account(Box<account::Account>),
+    NewDomain(Box<domain::NewDomain>),
     NewAccount(Box<account::NewAccount>),
+    Domain(Box<domain::Domain>),
+    Account(Box<account::Account>),
     Asset(Box<asset::Asset>),
     AssetDefinition(Box<asset::AssetDefinition>),
-    Domain(Box<domain::Domain>),
     Peer(Box<peer::Peer>),
+    Role(Box<role::Role>),
 );
 from_and_try_from_value_identifiable!(
-    Account(Box<account::Account>),
+    NewDomain(Box<domain::NewDomain>),
     NewAccount(Box<account::NewAccount>),
+    Account(Box<account::Account>),
+    Domain(Box<domain::Domain>),
     Asset(Box<asset::Asset>),
     AssetDefinition(Box<asset::AssetDefinition>),
-    Domain(Box<domain::Domain>),
     Peer(Box<peer::Peer>),
+    Role(Box<role::Role>),
 );
 
 impl<V: Into<Value>> From<Vec<V>> for Value {

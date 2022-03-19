@@ -10,12 +10,9 @@ fn create_million_accounts_directly() {
     for i in 0_u32..10_000_000_u32 {
         let domain_name = format!("wonderland-{}", i);
         let normal_account_id = AccountId::new(&format!("bob-{}", i), &domain_name).expect("Valid");
-        let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(
-            DomainId::new(&domain_name).expect("Valid"),
-        )));
-        let create_account = RegisterBox::new(IdentifiableBox::from(NewAccount::new(
-            normal_account_id.clone(),
-        )));
+        let create_domain =
+            RegisterBox::new(Domain::new(DomainId::new(&domain_name).expect("Valid")));
+        let create_account = RegisterBox::new(Account::new(normal_account_id.clone(), []));
         if test_client
             .submit_all([create_domain.into(), create_account.into()].to_vec())
             .is_err()

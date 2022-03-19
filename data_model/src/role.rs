@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     permissions::{PermissionToken, Permissions},
-    IdBox, Identifiable, IdentifiableBox, Name, Value,
+    Identifiable, Name,
 };
 
 pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
@@ -53,49 +53,9 @@ impl From<Name> for Id {
     }
 }
 
-impl From<Id> for Value {
-    #[inline]
-    fn from(id: Id) -> Self {
-        Self::Id(IdBox::RoleId(id))
-    }
-}
-
-impl TryFrom<Value> for Id {
-    type Error = iroha_macro::error::ErrorTryFromEnum<Value, Self>;
-
-    #[inline]
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Id(IdBox::RoleId(id)) = value {
-            Ok(id)
-        } else {
-            Err(Self::Error::default())
-        }
-    }
-}
-
 impl fmt::Display for Id {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)
-    }
-}
-
-impl From<Role> for Value {
-    #[inline]
-    fn from(role: Role) -> Self {
-        IdentifiableBox::from(Box::new(role)).into()
-    }
-}
-
-impl TryFrom<Value> for Role {
-    type Error = iroha_macro::error::ErrorTryFromEnum<Value, Self>;
-
-    #[inline]
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Identifiable(IdentifiableBox::Role(role)) = value {
-            Ok(*role)
-        } else {
-            Err(Self::Error::default())
-        }
     }
 }
 

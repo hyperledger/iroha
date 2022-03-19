@@ -130,20 +130,14 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
         let mut genesis = RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key)
             .expect("Valid names never fail to parse");
         genesis.transactions[0].isi.push(
-            RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(
-                    AssetDefinitionId::new("rose", "wonderland").expect("valid names"),
-                )
-                .into(),
+            RegisterBox::new(AssetDefinition::new_quantity(
+                AssetDefinitionId::new("rose", "wonderland").expect("valid names"),
             ))
             .into(),
         );
         genesis.transactions[0].isi.push(
-            RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(
-                    AssetDefinitionId::new("tulip", "wonderland").expect("valid names"),
-                )
-                .into(),
+            RegisterBox::new(AssetDefinition::new_quantity(
+                AssetDefinitionId::new("tulip", "wonderland").expect("valid names"),
             ))
             .into(),
         );
@@ -273,9 +267,7 @@ where
         peer.start_with_config(GenesisNetwork::test(false), config)
             .await;
         time::sleep(Configuration::pipeline_time() + Configuration::block_sync_gossip_time()).await;
-        let add_peer = RegisterBox::new(IdentifiableBox::Peer(
-            DataModelPeer::new(peer.id.clone()).into(),
-        ));
+        let add_peer = RegisterBox::new(DataModelPeer::new(peer.id.clone()));
         client.submit(add_peer).expect("Failed to add new peer.");
         let client = Client::test(&peer.api_address, &peer.telemetry_address);
         (peer, client)

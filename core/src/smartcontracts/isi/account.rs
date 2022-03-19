@@ -28,7 +28,7 @@ pub mod isi {
             let public_key = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                account.signatories.push(public_key);
+                account.add_signatory(public_key);
 
                 Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
             })
@@ -65,22 +65,15 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let account_id = self.destination_id;
-            let public_key = &self.object;
+            let public_key = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                if account.signatories.len() < 2 {
+                if account.signatories().len() < 2 {
                     return Err(Self::Error::Validate(ValidationError::new(
                         "Public keys cannot be burned to nothing. If you want to delete the account, please use an unregister instruction.",
                     )));
                 }
-                if let Some(index) = account
-                    .signatories
-                    .iter()
-                    .position(|key| key == public_key)
-                {
-                    account.signatories.remove(index);
-                }
-
+                account.remove_signatory(&public_key);
                 Ok(AccountEvent::AuthenticationRemoved(account_id.clone()))
             })
         }

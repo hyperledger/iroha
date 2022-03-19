@@ -17,9 +17,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     // Given
     let account_id = AccountId::new("alice", "wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
-        asset_definition_id.clone(),
-    )));
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity: u32 = 200;
@@ -50,9 +48,9 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     // Given
     let account_id = AccountId::new("alice", "wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_big_quantity(
+    let create_asset = RegisterBox::new(AssetDefinition::new_big_quantity(
         asset_definition_id.clone(),
-    )));
+    ));
     let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity: u128 = 2_u128.pow(65);
@@ -82,8 +80,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     // Given
     let account_id = AccountId::new("alice", "wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
-    let identifiable_box =
-        IdentifiableBox::from(AssetDefinition::with_precision(asset_definition_id.clone()));
+    let identifiable_box = AssetDefinition::new_fixed_precision(asset_definition_id.clone());
     let create_asset = RegisterBox::new(identifiable_box);
     let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
 
@@ -135,18 +132,18 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
 
     // Given
     let normal_asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(
         normal_asset_definition_id.clone(),
-    )));
+    ));
     test_client.submit(create_asset)?;
     iroha_logger::info!("Creating asset");
 
     let too_long_asset_name = "0".repeat(2_usize.pow(14));
     let incorrect_asset_definition_id =
         AssetDefinitionId::new(&too_long_asset_name, "wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(
         incorrect_asset_definition_id.clone(),
-    )));
+    ));
 
     test_client.submit(create_asset)?;
     iroha_logger::info!("Creating another asset");

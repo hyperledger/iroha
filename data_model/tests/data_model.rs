@@ -115,23 +115,19 @@ mod register {
     use super::*;
 
     pub fn domain(name: &str) -> RegisterBox {
-        RegisterBox::new(IdentifiableBox::Domain(
-            Domain::new(DomainId::new(name).expect("Valid")).into(),
-        ))
+        RegisterBox::new(Domain::new(DomainId::new(name).expect("Valid")))
     }
 
     pub fn account(account_name: &str, domain_name: &str) -> RegisterBox {
-        RegisterBox::new(IdentifiableBox::NewAccount(
-            NewAccount::new(AccountId::new(account_name, domain_name).expect("Valid")).into(),
+        RegisterBox::new(Account::new(
+            AccountId::new(account_name, domain_name).expect("Valid"),
+            [],
         ))
     }
 
     pub fn asset_definition(asset_name: &str, domain_name: &str) -> RegisterBox {
-        RegisterBox::new(IdentifiableBox::AssetDefinition(
-            AssetDefinition::new_quantity(
-                AssetDefinitionId::new(asset_name, domain_name).expect("Valid"),
-            )
-            .into(),
+        RegisterBox::new(AssetDefinition::new_quantity(
+            AssetDefinitionId::new(asset_name, domain_name).expect("Valid"),
         ))
     }
 }

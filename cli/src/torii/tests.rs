@@ -1,9 +1,6 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    time::Duration,
-};
+use std::{collections::BTreeSet, time::Duration};
 
 use futures::future::FutureExt;
 use iroha_actor::{broker::Broker, Actor};
@@ -38,25 +35,19 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
         format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     let (events, _) = tokio::sync::broadcast::channel(100);
     let wsv = Arc::new(WorldStateView::new(World::with(
-        ('a'..'z').map(|name| name.to_string()).map(|name| {
-            (
-                DomainId::new(&name).expect("Valid"),
-                Domain::new(DomainId::new(&name).expect("Valid")),
-            )
-        }),
+        ('a'..'z')
+            .map(|name| name.to_string())
+            .map(|name| Domain::new(DomainId::new(&name).expect("Valid"))),
         vec![],
     )));
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    wsv.world.domains.insert(
-        DomainId::new("wonderland").expect("Valid"),
-        Domain::with_accounts(
-            "wonderland",
-            std::iter::once(Account::with_signatory(
-                AccountId::new("alice", "wonderland").expect("Valid"),
-                keys.public_key.clone(),
-            )),
-        ),
-    );
+    let domain_id = DomainId::new("wonderland").expect("Valid");
+    let mut domain: Domain = Domain::new(domain_id.clone()).into();
+    domain.add_account(Account::new(
+        AccountId::new("alice", "wonderland").expect("Valid"),
+        [keys.public_key.clone()],
+    ));
+    wsv.world.domains.insert(domain_id, domain);
     let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
     let network = IrohaNetwork::new(
         Broker::new(),
@@ -256,9 +247,9 @@ fn register_domain() -> Instruction {
 }
 
 fn register_account(name: &str) -> Instruction {
-    Instruction::Register(RegisterBox::new(NewAccount::with_signatory(
+    Instruction::Register(RegisterBox::new(Account::new(
         AccountId::new(name, DOMAIN).expect("Valid"),
-        KeyPair::generate().unwrap().public_key,
+        [KeyPair::generate().unwrap().public_key],
     )))
 }
 
@@ -680,19 +671,15 @@ async fn blocks_stream() {
 }
 
 /// Returns the a map of a form `domain_name -> domain`, for initial domains.
-pub fn domains(
+fn domains(
     configuration: &crate::config::Configuration,
-) -> eyre::Result<BTreeMap<DomainId, Domain>> {
+) -> eyre::Result<impl Iterator<Item = Domain>> {
     let key = configuration
         .genesis
         .account_public_key
         .clone()
         .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
-    Ok(std::iter::once((
-        DomainId::new(GENESIS_DOMAIN_NAME).expect("Valid"),
-        Domain::from(GenesisDomain::new(key)),
-    ))
-    .collect())
+    Ok([Domain::from(GenesisDomain::new(key))].into_iter())
 }
 
 #[test]

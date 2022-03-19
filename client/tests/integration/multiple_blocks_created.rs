@@ -19,23 +19,16 @@ fn long_multiple_blocks_created() {
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new("domain").expect("Valid")).into(),
-    ));
+    let create_domain = RegisterBox::new(Domain::new(DomainId::new("domain").expect("Valid")));
     let account_id = AccountId::new("account", "domain").expect("Valid");
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(
-            account_id.clone(),
-            KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key,
-        )
-        .into(),
+    let create_account = RegisterBox::new(Account::new(
+        account_id.clone(),
+        [KeyPair::generate()
+            .expect("Failed to generate KeyPair.")
+            .public_key],
     ));
     let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
 
     iroha_client
         .submit_all(vec![

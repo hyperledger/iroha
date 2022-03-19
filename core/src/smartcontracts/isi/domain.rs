@@ -15,16 +15,16 @@ pub mod isi {
 
     use super::*;
 
-    impl<W: WorldTrait> Execute<W> for Register<NewAccount> {
+    impl<W: WorldTrait> Execute<W> for Register<iroha_data_model::account::NewAccount> {
         type Error = Error;
 
         #[metrics(+"register_account")]
         fn execute(
             self,
-            _authority: <NewAccount as Identifiable>::Id,
+            _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let account = self.object;
+            let account: Account = self.object.into();
             let account_id = account.id().clone();
 
             account_id
@@ -40,7 +40,7 @@ pub mod isi {
                     ));
                 }
 
-                domain.add_account(account.into());
+                domain.add_account(account);
                 Ok(DomainEvent::Account(AccountEvent::Created(
                     account_id.clone(),
                 )))

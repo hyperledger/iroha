@@ -42,7 +42,7 @@ pub trait WorldTrait:
 {
     /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
     fn with(
-        domains: impl IntoIterator<Item = (DomainId, Domain)>,
+        domains: impl IntoIterator<Item = impl Into<Domain>>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
     ) -> Self;
 }
@@ -138,10 +138,14 @@ impl World {
 
 impl WorldTrait for World {
     fn with(
-        domains: impl IntoIterator<Item = (DomainId, Domain)>,
+        domains: impl IntoIterator<Item = impl Into<Domain>>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
     ) -> Self {
-        let domains = domains.into_iter().collect();
+        let domains = domains
+            .into_iter()
+            .map(|domain| domain.into())
+            .map(|domain| (domain.id().clone(), domain))
+            .collect();
         let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
         World {
             domains,

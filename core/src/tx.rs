@@ -275,17 +275,34 @@ impl AcceptedTransaction {
             .signatures
             .iter()
             .map(|signature| &signature.public_key)
-            .cloned()
-            .collect();
+            .cloned();
 
         wsv.map_account(account_id, |account| {
-            account
-                .check_signature_condition(signatories)
+            check_signature_condition(account, signatories)
                 .evaluate(wsv, &Context::new())
                 .map_err(|_err| FindError::Account(account_id.clone()))
         })?
         .wrap_err("Failed to find the account")
     }
+}
+
+/// Returns a prebuilt expression that when executed
+/// returns if the needed signatures are gathered.
+fn check_signature_condition(
+    account: &Account,
+    signatories: impl IntoIterator<Item = PublicKey>,
+) -> EvaluatesTo<bool> {
+    WhereBuilder::evaluate(account.signature_check_condition.as_expression().clone())
+        .with_value(
+            String::from(iroha_data_model::account::ACCOUNT_SIGNATORIES_VALUE),
+            account.signatories().cloned().collect::<Vec<_>>(),
+        )
+        .with_value(
+            String::from(iroha_data_model::account::TRANSACTION_SIGNATORIES_VALUE),
+            signatories.into_iter().collect::<Vec<_>>(),
+        )
+        .build()
+        .into()
 }
 
 impl Txn for AcceptedTransaction {

@@ -100,15 +100,15 @@ impl AssetDefinitionEntry {
 )]
 #[getset(get = "pub")]
 pub struct AssetDefinition {
-    /// Type of [`AssetValue`]
-    value_type: AssetValueType,
     /// An Identification of the [`AssetDefinition`].
     id: <AssetDefinition as Identifiable>::Id,
+    /// Type of [`AssetValue`]
+    value_type: AssetValueType,
+    /// Is the asset mintable
+    mintable: bool,
     /// Metadata of this asset definition as a key-value store.
     #[getset(get = "pub", get_mut = "pub")]
     metadata: Metadata,
-    /// Is the asset mintable
-    mintable: bool,
 }
 
 /// Asset represents some sort of commodity or value.
@@ -311,11 +311,18 @@ impl AssetDefinition {
         mintable: bool,
     ) -> Self {
         Self {
-            value_type,
             id,
-            metadata: Metadata::new(),
+            value_type,
             mintable,
+            metadata: Metadata::new(),
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
     }
 
     /// Asset definition with quantity asset value type.
@@ -344,13 +351,13 @@ impl AssetDefinition {
 
     /// Asset definition with decimal quantity asset value type.
     #[inline]
-    pub fn with_precision(id: <AssetDefinition as Identifiable>::Id) -> Self {
+    pub fn new_fixed_precision(id: <AssetDefinition as Identifiable>::Id) -> Self {
         AssetDefinition::new(id, AssetValueType::Fixed, true)
     }
 
     /// Token definition with decimal quantity asset value type.
     #[inline]
-    pub fn with_precision_token(id: <AssetDefinition as Identifiable>::Id) -> Self {
+    pub fn new_fixed_precision_token(id: <AssetDefinition as Identifiable>::Id) -> Self {
         AssetDefinition::new(id, AssetValueType::Fixed, true)
     }
 
@@ -374,18 +381,6 @@ impl Asset {
             id,
             value: value.into(),
         }
-    }
-
-    /// `Asset` with `quantity` value constructor.
-    #[inline]
-    pub fn with_quantity(id: <Asset as Identifiable>::Id, quantity: u32) -> Self {
-        Self::new(id, AssetValue::from(quantity))
-    }
-
-    /// `Asset` with `big_quantity` value constructor.
-    #[inline]
-    pub fn with_big_quantity(id: <Asset as Identifiable>::Id, big_quantity: u128) -> Self {
-        Self::new(id, AssetValue::from(big_quantity))
     }
 }
 

@@ -7,7 +7,7 @@
             "object": {
               "Raw": {
                 "Identifiable": {
-                  "Domain": {
+                  "NewDomain": {
                     "id": {
                       "name": "wonderland"
                     },

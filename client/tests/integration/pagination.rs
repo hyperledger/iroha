@@ -18,7 +18,6 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         .map(|c| c.to_string())
         .map(|name| AssetDefinitionId::new(&name, "wonderland").expect("Valid"))
         .map(AssetDefinition::new_quantity)
-        .map(IdentifiableBox::from)
         .map(RegisterBox::new)
         .map(Instruction::Register)
         .collect();

@@ -54,9 +54,7 @@ fn connected_peers_with_f(faults: u64) {
 
     // Re-register the peer: committed with f = `faults` - 1 then
     // `status.peers` increments
-    let register_peer = RegisterBox::new(IdentifiableBox::Peer(
-        DataModelPeer::new(peer.id.clone()).into(),
-    ));
+    let register_peer = RegisterBox::new(DataModelPeer::new(peer.id.clone()));
     genesis_client.submit(register_peer).unwrap();
     thread::sleep(pipeline_time * 4);
     status = genesis_client.get_status().unwrap();

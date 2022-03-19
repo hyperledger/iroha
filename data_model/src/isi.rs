@@ -553,6 +553,7 @@ impl RegisterBox {
     }
 
     /// Construct [`Register`].
+    // TODO: Needs to be scoped to NewXXX structures!!!
     pub fn new<O: Into<EvaluatesTo<IdentifiableBox>>>(object: O) -> Self {
         Self {
             object: object.into(),

@@ -244,12 +244,13 @@ pub mod utils {
             Lazy::new(|| KeyPair::generate().expect("doesn't fail"));
         pub static ALICE: Lazy<Account> = Lazy::new(|| {
             let account_id = AccountId::new("alice", "wonderland").expect("valid account name.");
-            let mut account = Account::new(account_id);
-            account.signatories.push(ALICE_KEYS.public_key.clone());
+            let mut account: Account = Account::new(account_id, []).into();
+            account.add_signatory(ALICE_KEYS.public_key.clone());
             account
         });
         pub static WONDERLAND: Lazy<Domain> = Lazy::new(|| {
-            let mut domain = Domain::new(DomainId::new("wonderland").expect("valid domain name"));
+            let mut domain: Domain =
+                Domain::new(DomainId::new("wonderland").expect("valid domain name")).into();
             domain.add_account(ALICE.clone());
             domain
         });
@@ -257,13 +258,14 @@ pub mod utils {
         impl WorldTrait for WithAlice {
             /// Creates `World` with these `domains` and `trusted_peers_ids`
             fn with(
-                domains: impl IntoIterator<Item = (DomainId, Domain)>,
+                domains: impl IntoIterator<Item = impl Into<Domain>>,
                 trusted_peers_ids: impl IntoIterator<Item = PeerId>,
             ) -> Self {
                 Self(World::with(
-                    vec![(WONDERLAND.id().clone(), WONDERLAND.clone())]
+                    domains
                         .into_iter()
-                        .chain(domains),
+                        .map(Into::into)
+                        .chain([WONDERLAND.clone()]),
                     trusted_peers_ids,
                 ))
             }

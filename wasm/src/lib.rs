@@ -246,7 +246,7 @@ mod tests {
 
     fn get_test_instruction() -> Instruction {
         let new_account_id = AccountId::new("mad_hatter", "wonderland").expect("Valid");
-        let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+        let register_isi = RegisterBox::new(Account::new(new_account_id));
 
         Instruction::Register(register_isi)
     }

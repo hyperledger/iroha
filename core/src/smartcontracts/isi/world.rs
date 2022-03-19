@@ -53,7 +53,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Register<Domain> {
+    impl<W: WorldTrait> Execute<W> for Register<iroha_data_model::domain::NewDomain> {
         type Error = Error;
 
         #[metrics("register_domain")]
@@ -62,8 +62,9 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let domain = self.object;
+            let domain: Domain = self.object.into();
             let domain_id = domain.id().clone();
+
             domain_id
                 .name
                 .validate_len(wsv.config.ident_length_limits)

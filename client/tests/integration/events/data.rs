@@ -18,7 +18,6 @@ fn produce_instructions() -> Vec<Instruction> {
 
     let registers: [Instruction; 4] = domains
         .into_iter()
-        .map(IdentifiableBox::from)
         .map(RegisterBox::new)
         .map(Instruction::from)
         .collect::<Vec<_>>()
