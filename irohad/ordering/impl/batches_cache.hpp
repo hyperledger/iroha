@@ -12,7 +12,6 @@
 #include <numeric>
 #include <set>
 #include <shared_mutex>
-#include <unordered_set>
 
 #include "consensus/round.hpp"
 
