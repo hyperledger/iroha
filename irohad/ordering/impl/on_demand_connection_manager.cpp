@@ -31,6 +31,10 @@ OnDemandConnectionManager::~OnDemandConnectionManager() {
   std::lock_guard<std::shared_timed_mutex> lock(mutex_);
 }
 
+std::chrono::milliseconds OnDemandConnectionManager::getRequestDelay() const {
+  return factory_->getRequestDelay();
+}
+
 void OnDemandConnectionManager::onBatches(CollectionType batches) {
   /*
    * Transactions are sent to the current and next rounds (+1)
@@ -57,7 +61,10 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
   propagate(kCommitConsumer);
 }
 
-void OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
+void OnDemandConnectionManager::onRequestProposal(
+    consensus::Round round,
+    std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+        ref_proposal) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed)) {
     return;
@@ -66,7 +73,7 @@ void OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
   log_->debug("onRequestProposal, {}", round);
 
   if (auto &connection = connections_.peers[kIssuer]) {
-    (*connection)->onRequestProposal(round);
+    (*connection)->onRequestProposal(round, std::move(ref_proposal));
   }
 }
 

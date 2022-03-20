@@ -6,6 +6,7 @@
 #ifndef IROHA_ON_DEMAND_ORDERING_SERVICE_HPP
 #define IROHA_ON_DEMAND_ORDERING_SERVICE_HPP
 
+#include <chrono>
 #include <unordered_set>
 
 #include "consensus/round.hpp"
@@ -43,10 +44,9 @@ namespace iroha {
         }
       };
 
-      using BatchesSetType = std::unordered_set<
-          std::shared_ptr<shared_model::interface::TransactionBatch>,
-          BatchPointerHasher,
-          shared_model::interface::BatchHashEquality>;
+      using BatchesSetType =
+          std::set<std::shared_ptr<shared_model::interface::TransactionBatch>,
+                   shared_model::interface::BatchHashLess>;
 
       /**
        * Type of stored transaction batches
@@ -89,6 +89,15 @@ namespace iroha {
        * @param hashes - txs list
        */
       virtual void onDuplicates(const HashesSetType &hashes) = 0;
+
+      /**
+       * Method to wait until proposal become available.
+       * @param round which proposal to wait
+       * @param delay time to wait
+       */
+      virtual std::optional<std::shared_ptr<const ProposalType>>
+      waitForLocalProposal(consensus::Round const &round,
+                           std::chrono::milliseconds const &delay) = 0;
 
       /**
        * Method to get betches under lock
