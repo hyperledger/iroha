@@ -93,14 +93,16 @@ TEST_P(FakePeerExampleTest, SynchronizeTheRightVersionOfForkedLedger) {
       bad_fake_peers.front();  // the malicious actor
 
   // Add two blocks to the ledger.
-  itf.sendTx(complete(baseTx(kAdminId).transferAsset(
-                          kAdminId, kUserId, kAssetId, "common_tx1", "1.0"),
-                      kAdminKeypair))
-      .skipBlock();
-  itf.sendTx(complete(baseTx(kAdminId).transferAsset(
-                          kAdminId, kUserId, kAssetId, "common_tx2", "2.0"),
-                      kAdminKeypair))
-      .skipBlock();
+  itf.sendTxAwait(
+      complete(baseTx(kAdminId).transferAsset(
+                   kAdminId, kUserId, kAssetId, "common_tx1", "1.0"),
+               kAdminKeypair),
+      [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+  itf.sendTxAwait(
+      complete(baseTx(kAdminId).transferAsset(
+                   kAdminId, kUserId, kAssetId, "common_tx2", "2.0"),
+               kAdminKeypair),
+      [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 
   // Create the valid branch, supported by the good fake peers:
   auto valid_block_storage =
