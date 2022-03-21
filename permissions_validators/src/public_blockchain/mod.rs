@@ -221,14 +221,14 @@ mod tests {
         );
         let mut domain: Domain = Domain::new(DomainId::new("test").expect("Valid")).into();
         let mut bob_account: Account = Account::new(bob_id.clone(), []).into();
-        let _ = bob_account.add_permission(PermissionToken::new(
+        assert!(bob_account.add_permission(PermissionToken::new(
             transfer::CAN_TRANSFER_USER_ASSETS_TOKEN.clone(),
             [(
                 ASSET_ID_TOKEN_PARAM_NAME.clone(),
                 alice_xor_id.clone().into(),
             )],
-        ));
-        domain.add_account(bob_account);
+        )));
+        assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], BTreeSet::new()));
         let transfer = Instruction::Transfer(TransferBox {
             source_id: IdBox::AssetId(alice_xor_id).into(),
@@ -271,8 +271,10 @@ mod tests {
         let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
         let domain_id = DomainId::new("test").expect("Valid");
-        let mut domain: Domain = Domain::new(domain_id.clone()).into();
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        let mut domain: Domain = Domain::new(domain_id).into();
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], []));
         let unregister =
             Instruction::Unregister(UnregisterBox::new(IdBox::AssetDefinitionId(xor_id)));
@@ -292,15 +294,17 @@ mod tests {
         let xor_definition = new_xor_definition(&xor_id);
         let mut domain: Domain = Domain::new(DomainId::new("test").expect("Valid")).into();
         let mut bob_account: Account = Account::new(bob_id.clone(), []).into();
-        let _ = bob_account.add_permission(PermissionToken::new(
+        assert!(bob_account.add_permission(PermissionToken::new(
             unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone(),
             [(
                 ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
                 xor_id.clone().into(),
             )],
-        ));
-        domain.add_account(bob_account);
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        )));
+        assert!(domain.add_account(bob_account).is_none());
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], []));
         let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
         let validator: IsInstructionAllowedBoxed<World> =
@@ -321,11 +325,13 @@ mod tests {
             unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone(),
             [(
                 ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                xor_id.clone().into(),
+                xor_id.into(),
             )],
         );
         let mut domain: Domain = Domain::new(DomainId::new("test").expect("Valid")).into();
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
 
         let wsv = WorldStateView::<World>::new(World::with([domain], []));
         let grant = Instruction::Grant(GrantBox {
@@ -349,8 +355,10 @@ mod tests {
         let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
         let domain_id = DomainId::new("test").expect("Valid");
-        let mut domain: Domain = Domain::new(domain_id.clone()).into();
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        let mut domain: Domain = Domain::new(domain_id).into();
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], []));
         let mint = Instruction::Mint(MintBox {
             object: Value::U32(100).into(),
@@ -376,15 +384,14 @@ mod tests {
         let xor_definition = new_xor_definition(&xor_id);
         let mut domain: Domain = Domain::new(DomainId::new("test").expect("Valid")).into();
         let mut bob_account: Account = Account::new(bob_id.clone(), []).into();
-        let _ = bob_account.add_permission(PermissionToken::new(
+        assert!(bob_account.add_permission(PermissionToken::new(
             mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone(),
-            [(
-                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
-                xor_id.clone().into(),
-            )],
-        ));
-        domain.add_account(bob_account);
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+            [(ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(), xor_id.into(),)],
+        )));
+        assert!(domain.add_account(bob_account).is_none());
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], []));
         let instruction = Instruction::Mint(MintBox {
             object: Value::U32(100).into(),
@@ -407,11 +414,13 @@ mod tests {
             mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone(),
             [(
                 ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                xor_id.clone().into(),
+                xor_id.into(),
             )],
         );
         let mut domain: Domain = Domain::new(DomainId::new("test").expect("Valid")).into();
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], vec![]));
         let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
@@ -433,8 +442,10 @@ mod tests {
         let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
         let domain_id = DomainId::new("test").expect("Valid");
-        let mut domain: Domain = Domain::new(domain_id.clone()).into();
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        let mut domain: Domain = Domain::new(domain_id).into();
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], []));
         let burn = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
@@ -460,15 +471,14 @@ mod tests {
         let xor_definition = new_xor_definition(&xor_id);
         let mut domain: Domain = Domain::new(DomainId::new("test").expect("Valid")).into();
         let mut bob_account: Account = Account::new(bob_id.clone(), []).into();
-        let _ = bob_account.add_permission(PermissionToken::new(
+        assert!(bob_account.add_permission(PermissionToken::new(
             burn::CAN_BURN_ASSET_WITH_DEFINITION.clone(),
-            [(
-                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
-                xor_id.clone().into(),
-            )],
-        ));
-        domain.add_account(bob_account);
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+            [(ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(), xor_id.into(),)],
+        )));
+        assert!(domain.add_account(bob_account).is_none());
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], vec![]));
         let instruction = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
@@ -491,11 +501,13 @@ mod tests {
             burn::CAN_BURN_ASSET_WITH_DEFINITION.clone(),
             [(
                 ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                xor_id.clone().into(),
+                xor_id.into(),
             )],
         );
         let mut domain: Domain = Domain::new(DomainId::new("test").expect("Valid")).into();
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], vec![]));
         let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
@@ -533,14 +545,14 @@ mod tests {
         );
         let mut domain: Domain = Domain::new(DomainId::new("test").expect("Valid")).into();
         let mut bob_account: Account = Account::new(bob_id.clone(), []).into();
-        let _ = bob_account.add_permission(PermissionToken::new(
+        assert!(bob_account.add_permission(PermissionToken::new(
             burn::CAN_BURN_USER_ASSETS_TOKEN.clone(),
             [(
                 ASSET_ID_TOKEN_PARAM_NAME.clone(),
                 alice_xor_id.clone().into(),
             )],
-        ));
-        domain.add_account(bob_account);
+        )));
+        assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], vec![]));
         let transfer = Instruction::Burn(BurnBox {
             object: Value::U32(10).into(),
@@ -660,8 +672,10 @@ mod tests {
         let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
         let domain_id = DomainId::new("test").expect("Valid");
-        let mut domain: Domain = Domain::new(domain_id.clone()).into();
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        let mut domain: Domain = Domain::new(domain_id).into();
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], []));
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),
@@ -683,8 +697,10 @@ mod tests {
         let xor_id = <AssetDefinition as Identifiable>::Id::new("xor", "test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
         let domain_id = DomainId::new("test").expect("Valid");
-        let mut domain: Domain = Domain::new(domain_id.clone()).into();
-        domain.define_asset(AssetDefinitionEntry::new(xor_definition, alice_id.clone()));
+        let mut domain: Domain = Domain::new(domain_id).into();
+        assert!(domain
+            .add_asset_definition(xor_definition, alice_id.clone())
+            .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], []));
         let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),

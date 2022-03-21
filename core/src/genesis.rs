@@ -253,7 +253,7 @@ impl RawGenesisBlock {
         ))
     }
 
-    /// Create a [`RawGenesisBlock`] with specified [`Domain`] and [`NewAccount`].
+    /// Create a [`RawGenesisBlock`] with specified [`Domain`] and [`Account`].
     ///
     /// # Errors
     /// Fails if `account_name` or `domain_name` is invalid
@@ -294,7 +294,7 @@ impl GenesisTransaction {
         VersionedAcceptedTransaction::from_transaction(transaction, limits)
     }
 
-    /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`NewAccount`].
+    /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`Account`].
     ///
     /// # Errors
     /// Fails if `account_name` or `domain_name` is invalid

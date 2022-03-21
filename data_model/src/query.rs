@@ -80,14 +80,14 @@ pub enum QueryBox {
     FindTransactionsByAccountId(FindTransactionsByAccountId),
     /// [`FindTransactionByHash`] variant.
     FindTransactionByHash(FindTransactionByHash),
+    /// [`FindPermissionTokensByAccountId`] variant.
+    FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
     /// [`FindAllRoles`] variant.
     #[cfg(feature = "roles")]
     FindAllRoles(FindAllRoles),
     /// [`FindRolesByAccountId`] variant.
     #[cfg(feature = "roles")]
     FindRolesByAccountId(FindRolesByAccountId),
-    /// [`FindPermissionTokensByAccountId`] variant.
-    FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
 }
 
 /// Trait for typesafe query output

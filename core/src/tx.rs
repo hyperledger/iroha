@@ -97,6 +97,20 @@ impl<W: WorldTrait> TransactionValidator<W> {
         // Therefore, this instruction execution validates before actually executing
         let wsv = WorldStateView::clone(&self.wsv);
 
+        if !wsv
+            .domain(&account_id.domain_id)
+            .map_err(|_e| {
+                TransactionRejectionReason::NotPermitted(NotPermittedFail {
+                    reason: "Domain not found in Iroha".to_owned(),
+                })
+            })?
+            .contains_account(account_id)
+        {
+            return Err(TransactionRejectionReason::NotPermitted(NotPermittedFail {
+                reason: "Account not found in Iroha".to_owned(),
+            }));
+        }
+
         match &tx.payload.instructions {
             Executable::Instructions(instructions) => {
                 for instruction in instructions {
@@ -292,7 +306,7 @@ fn check_signature_condition(
     account: &Account,
     signatories: impl IntoIterator<Item = PublicKey>,
 ) -> EvaluatesTo<bool> {
-    WhereBuilder::evaluate(account.signature_check_condition.as_expression().clone())
+    WhereBuilder::evaluate(account.signature_check_condition().as_expression().clone())
         .with_value(
             String::from(iroha_data_model::account::ACCOUNT_SIGNATORIES_VALUE),
             account.signatories().cloned().collect::<Vec<_>>(),

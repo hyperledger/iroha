@@ -28,8 +28,7 @@ pub mod isi {
             let public_key = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                account.add_signatory(public_key);
-
+                assert!(account.add_signatory(public_key));
                 Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
             })
         }
@@ -48,8 +47,7 @@ pub mod isi {
             let signature_check_condition = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                account.signature_check_condition = signature_check_condition;
-
+                account.set_signature_check_condition(signature_check_condition);
                 Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
             })
         }
@@ -73,7 +71,7 @@ pub mod isi {
                         "Public keys cannot be burned to nothing. If you want to delete the account, please use an unregister instruction.",
                     )));
                 }
-                account.remove_signatory(&public_key);
+                assert!(account.remove_signatory(&public_key));
                 Ok(AccountEvent::AuthenticationRemoved(account_id.clone()))
             })
         }
@@ -139,8 +137,7 @@ pub mod isi {
             let permission = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                let _ = account.add_permission(permission);
-
+                assert!(account.add_permission(permission));
                 Ok(AccountEvent::PermissionAdded(account_id.clone()))
             })
         }
@@ -159,8 +156,7 @@ pub mod isi {
             let permission = &self.object;
 
             wsv.modify_account(&account_id, |account| {
-                let _ = account.remove_permission(permission);
-
+                assert!(account.remove_permission(permission));
                 Ok(AccountEvent::PermissionRemoved(account_id.clone()))
             })
         }
@@ -184,8 +180,7 @@ pub mod isi {
                 .ok_or_else(|| FindError::Role(role.clone()))?;
 
             wsv.modify_account(&self.destination_id, |account| {
-                let _ = account.add_role(role);
-
+                assert!(account.add_role(role));
                 Ok(AccountEvent::PermissionAdded(self.destination_id.clone()))
             })
         }
@@ -201,16 +196,15 @@ pub mod isi {
             _authority: AccountId,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let role = self.object;
+            let role_id = self.object;
 
             wsv.world()
                 .roles
-                .get(&role)
-                .ok_or_else(|| FindError::Role(role.clone()))?;
+                .get(&role_id)
+                .ok_or_else(|| FindError::Role(role_id.clone()))?;
 
             wsv.modify_account(&self.destination_id, |account| {
-                let _ = account.remove_role(&role);
-
+                assert!(account.remove_role(&role_id));
                 Ok(AccountEvent::PermissionRemoved(self.destination_id.clone()))
             })
         }

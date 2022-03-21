@@ -58,8 +58,8 @@ fn build_test_wsv(keys: KeyPair) -> WorldStateView<World> {
         let domain_id = DomainId::new(START_DOMAIN).expect("Valid");
         let mut domain: Domain = Domain::new(domain_id).into();
         let account_id = AccountId::new(START_ACCOUNT, START_DOMAIN).expect("Valid");
-        let account = Account::new(account_id.clone(), [keys.public_key]);
-        domain.add_account(account);
+        let account = Account::new(account_id, [keys.public_key]);
+        assert!(domain.add_account(account).is_none());
         World::with([domain], BTreeSet::new())
     })
 }
@@ -189,10 +189,10 @@ fn validate_blocks(criterion: &mut Criterion) {
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let domain_name = "global";
     let account_id = AccountId::new("root", domain_name).expect("is valid");
-    let account = Account::new(account_id.clone(), [key_pair.public_key]);
+    let account = Account::new(account_id, [key_pair.public_key]);
     let domain_id = DomainId::new(domain_name).expect("is valid");
-    let mut domain: Domain = Domain::new(domain_id.clone()).into();
-    domain.add_account(account);
+    let mut domain: Domain = Domain::new(domain_id).into();
+    assert!(domain.add_account(account).is_none());
     // Pepare test transaction
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let transaction =

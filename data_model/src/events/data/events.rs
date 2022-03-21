@@ -226,9 +226,8 @@ mod trigger {
 )]
 #[allow(missing_docs)]
 pub enum WorldEvent {
-    Domain(domain::DomainEvent),
     Peer(peer::PeerEvent),
-
+    Domain(domain::DomainEvent),
     #[cfg(feature = "roles")]
     Role(role::RoleEvent),
     Trigger(trigger::TriggerEvent),
@@ -239,13 +238,10 @@ pub enum WorldEvent {
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum Event {
-    /// Domain event
-    Domain(domain::DomainEvent),
     /// Peer event
     Peer(peer::PeerEvent),
-    /// Role event
-    #[cfg(feature = "roles")]
-    Role(role::RoleEvent),
+    /// Domain event
+    Domain(domain::DomainEvent),
     /// Account event
     Account(account::AccountEvent),
     /// Asset definition event
@@ -254,6 +250,9 @@ pub enum Event {
     Asset(asset::AssetEvent),
     /// Trigger event
     Trigger(trigger::TriggerEvent),
+    /// Role event
+    #[cfg(feature = "roles")]
+    Role(role::RoleEvent),
 }
 
 pub mod prelude {

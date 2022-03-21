@@ -2,27 +2,41 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::cmp::Ordering;
+use core::{cmp::Ordering, str::FromStr};
 
+use getset::Getters;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     metadata::Metadata, prelude::EventFilter, transaction::Executable, Identifiable, Name,
+    ParseError,
 };
 
 /// Type which is used for registering a `Trigger`.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
+#[getset(get = "pub")]
 pub struct Trigger {
     /// [`Id`] of the [`Trigger`].
-    pub id: Id,
+    id: Id,
     /// Action to be performed when the trigger matches.
-    pub action: Action,
+    action: Action,
     /// Metadata of this account as a key-value store.
-    pub metadata: Metadata,
+    metadata: Metadata,
 }
 
 impl Trigger {
@@ -30,13 +44,28 @@ impl Trigger {
     ///
     /// # Errors
     /// - Name is malformed
-    pub fn new(id: <Self as Identifiable>::Id, action: Action) -> Self {
-        Trigger {
+    pub fn new(
+        id: <Self as Identifiable>::Id,
+        action: Action,
+    ) -> <Self as Identifiable>::Constructor {
+        Self {
             id,
             action,
             metadata: Metadata::new(),
         }
     }
+
+    /// Add [`Metadata`] to the trigger replacing previously defined
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}
+
+impl Identifiable for Trigger {
+    type Id = Id;
+    type Constructor = Self;
 }
 
 /// Designed to differentiate between oneshot and unlimited
@@ -75,8 +104,8 @@ impl Action {
         repeats: impl Into<Repeats>,
         technical_account: super::account::Id,
         filter: EventFilter,
-    ) -> Action {
-        Action {
+    ) -> Self {
+        Self {
             executable: executable.into(),
             repeats: repeats.into(),
             // TODO: At this point the technical account is meaningless.
@@ -153,10 +182,6 @@ pub struct Id {
     pub name: Name,
 }
 
-impl Identifiable for Trigger {
-    type Id = Id;
-}
-
 impl Id {
     /// Construct [`Id`], while performing lenght checks and acceptable character validation.
     ///
@@ -164,6 +189,16 @@ impl Id {
     /// If name contains invalid characters.
     pub fn new(name: Name) -> Self {
         Self { name }
+    }
+}
+
+impl FromStr for Id {
+    type Err = ParseError;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        Ok(Self {
+            name: Name::from_str(name)?,
+        })
     }
 }
 

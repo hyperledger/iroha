@@ -51,17 +51,17 @@ pub trait WorldTrait:
 /// For example registration of domain, will have this as an ISI target.
 #[derive(Debug, Default, Clone)]
 pub struct World {
+    /// Iroha parameters.
+    pub parameters: Vec<Parameter>,
     /// Identifications of discovered trusted peers.
     pub trusted_peers_ids: PeersIds,
+    /// Registered domains.
+    pub domains: DomainsMap,
     /// Roles. [`Role`] pairs.
     #[cfg(feature = "roles")]
     pub roles: crate::RolesMap,
-    /// Registered domains.
-    pub domains: DomainsMap,
     /// Triggers
     pub triggers: TriggerSet,
-    /// Iroha parameters.
-    pub parameters: Vec<Parameter>,
 }
 
 impl Deref for World {
@@ -143,7 +143,7 @@ impl WorldTrait for World {
     ) -> Self {
         let domains = domains
             .into_iter()
-            .map(|domain| domain.into())
+            .map(Into::into)
             .map(|domain| (domain.id().clone(), domain))
             .collect();
         let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
@@ -328,7 +328,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, FindError> {
         self.map_account(&id.account_id, |account| -> Result<Asset, FindError> {
             account
-                .get_asset(id)
+                .asset(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))
                 .map(Clone::clone)
         })?
@@ -354,6 +354,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if there is no account with such name.
+    #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
         &self,
         id: &<Asset as Identifiable>::Id,
@@ -361,8 +362,10 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<Asset, Error> {
         // This function is strictly infallible.
         self.modify_account(&id.account_id, |account| {
-            if account.get_asset(id).is_none() {
-                account.add_asset(Asset::new(id.clone(), default_asset_value.into()));
+            if account.asset(id).is_none() {
+                assert!(account
+                    .add_asset(Asset::new(id.clone(), default_asset_value.into()))
+                    .is_none());
             }
 
             // TODO: What if asset was already present?
@@ -643,7 +646,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<T, FindError> {
         let domain = self.domain(&id.domain_id)?;
         let account = domain
-            .get_account(id)
+            .account(id)
             .ok_or_else(|| FindError::Account(id.clone()))?;
         Ok(f(account))
     }
@@ -659,7 +662,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<(), Error> {
         self.modify_domain(&id.domain_id, |domain| {
             let account = domain
-                .get_account_mut(id)
+                .account_mut(id)
                 .ok_or_else(|| FindError::Account(id.clone()))?;
             f(account).map(DomainEvent::Account)
         })
@@ -669,6 +672,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if there are no such asset or account
+    #[allow(clippy::missing_panics_doc)]
     pub fn modify_asset(
         &self,
         id: &<Asset as Identifiable>::Id,
@@ -676,11 +680,11 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<(), Error> {
         self.modify_account(&id.account_id, |account| {
             let asset = account
-                .get_asset_mut(id)
+                .asset_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
             let event_result = f(asset);
             if asset.value().is_zero_value() {
-                account.remove_asset(id);
+                assert!(account.remove_asset(id).is_some());
             }
             event_result.map(AccountEvent::Asset)
         })
@@ -697,7 +701,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<(), Error> {
         self.modify_domain(&id.domain_id, |domain| {
             let asset_definition_entry = domain
-                .get_asset_definition_mut(id)
+                .asset_definition_mut(id)
                 .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
             f(asset_definition_entry).map(DomainEvent::AssetDefinition)
         })
@@ -724,7 +728,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         asset_id: &<AssetDefinition as Identifiable>::Id,
     ) -> Result<AssetDefinitionEntry, FindError> {
         self.domain(&asset_id.domain_id)?
-            .get_asset_definition(asset_id)
+            .asset_definition(asset_id)
             .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
             .map(Clone::clone)
     }

@@ -245,13 +245,13 @@ pub mod utils {
         pub static ALICE: Lazy<Account> = Lazy::new(|| {
             let account_id = AccountId::new("alice", "wonderland").expect("valid account name.");
             let mut account: Account = Account::new(account_id, []).into();
-            account.add_signatory(ALICE_KEYS.public_key.clone());
+            assert!(account.add_signatory(ALICE_KEYS.public_key.clone()));
             account
         });
         pub static WONDERLAND: Lazy<Domain> = Lazy::new(|| {
             let mut domain: Domain =
                 Domain::new(DomainId::new("wonderland").expect("valid domain name")).into();
-            domain.add_account(ALICE.clone());
+            assert!(domain.add_account(ALICE.clone()).is_none());
             domain
         });
 

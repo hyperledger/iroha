@@ -68,10 +68,10 @@ pub mod error {
         Unsupported(InstructionType),
         /// [`FailBox`] error
         #[error("Execution failed {0}")]
-        FailBox(std::string::String),
+        FailBox(String),
         /// Conversion Error
         #[error("Conversion Error: {0}")]
-        Conversion(std::string::String),
+        Conversion(String),
         /// Repeated instruction
         #[error("Repetition")]
         Repetition(InstructionType, IdBox),
@@ -150,10 +150,6 @@ pub mod error {
         /// Failed to find metadata key
         #[error("Failed to find metadata key")]
         MetadataKey(Name),
-        /// Failed to find Role by id.
-        #[cfg(feature = "roles")]
-        #[error("Failed to find role by id: `{0}`")]
-        Role(RoleId),
         /// Block with supplied parent hash not found. More description in a string.
         #[error("Block not found")]
         Block(#[source] ParentHashNotFound),
@@ -169,6 +165,10 @@ pub mod error {
         /// Trigger not found.
         #[error("Trigger not found.")]
         Trigger(TriggerId),
+        /// Failed to find Role by id.
+        #[cfg(feature = "roles")]
+        #[error("Failed to find role by id: `{0}`")]
+        Role(RoleId),
     }
 
     /// Mintability logic error
@@ -312,19 +312,17 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
         let context = Context::new();
 
         match self.object.evaluate(wsv, &context)? {
-            IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
-            IdentifiableBox::NewDomain(domain) => {
-                Register::<iroha_data_model::domain::NewDomain>::new(*domain)
-                    .execute(authority, wsv)
+            RegistrableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
+            RegistrableBox::Domain(domain) => {
+                Register::<Domain>::new(*domain).execute(authority, wsv)
             }
-            IdentifiableBox::NewAccount(account) => {
-                Register::<iroha_data_model::account::NewAccount>::new(*account)
-                    .execute(authority, wsv)
+            RegistrableBox::Account(account) => {
+                Register::<Account>::new(*account).execute(authority, wsv)
             }
-            IdentifiableBox::AssetDefinition(asset_definition) => {
+            RegistrableBox::AssetDefinition(asset_definition) => {
                 Register::<AssetDefinition>::new(*asset_definition).execute(authority, wsv)
             }
-            IdentifiableBox::Trigger(trigger) => {
+            RegistrableBox::Trigger(trigger) => {
                 Register::<Trigger>::new(*trigger).execute(authority, wsv)
             }
             _ => Err(Error::Unsupported(InstructionType::Register)),
@@ -645,12 +643,11 @@ mod tests {
         let account_id = AccountId::new("alice", "wonderland")?;
         let key_pair = KeyPair::generate()?;
         let account = Account::new(account_id.clone(), [key_pair.public_key]);
-        domain.add_account(account);
+        assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
-        domain.define_asset(AssetDefinitionEntry::new(
-            AssetDefinition::new_store(asset_definition_id),
-            account_id,
-        ));
+        assert!(domain
+            .add_asset_definition(AssetDefinition::new_store(asset_definition_id), account_id)
+            .is_none());
         Ok(World::with([domain], PeersIds::new()))
     }
 

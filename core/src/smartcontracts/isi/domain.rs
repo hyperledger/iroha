@@ -15,7 +15,7 @@ pub mod isi {
 
     use super::*;
 
-    impl<W: WorldTrait> Execute<W> for Register<iroha_data_model::account::NewAccount> {
+    impl<W: WorldTrait> Execute<W> for Register<Account> {
         type Error = Error;
 
         #[metrics(+"register_account")]
@@ -33,14 +33,16 @@ pub mod isi {
                 .map_err(Error::Validate)?;
 
             wsv.modify_domain(&account_id.domain_id, |domain| {
-                if domain.get_account(&account_id).is_some() {
+                let _m = domain.metadata_mut();
+                let _n = domain.metadata();
+                if domain.account(&account_id).is_some() {
                     return Err(Error::Repetition(
                         InstructionType::Register,
                         IdBox::AccountId(account_id.clone()),
                     ));
                 }
 
-                domain.add_account(account);
+                assert!(domain.add_account(account).is_none());
                 Ok(DomainEvent::Account(AccountEvent::Created(
                     account_id.clone(),
                 )))
@@ -58,8 +60,9 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let account_id = self.object_id;
+
             wsv.modify_domain(&account_id.domain_id, |domain| {
-                domain.remove_account(&account_id);
+                assert!(domain.remove_account(&account_id).is_some());
                 Ok(DomainEvent::Account(AccountEvent::Deleted(
                     account_id.clone(),
                 )))
@@ -85,14 +88,16 @@ pub mod isi {
             let domain_id = asset_definition_id.domain_id.clone();
 
             wsv.modify_domain(&domain_id, |domain| {
-                if let Some(asset_definition) = domain.get_asset_definition(&asset_definition_id) {
+                if let Some(entry) = domain.asset_definition(&asset_definition_id) {
                     return Err(Error::Repetition(
                         InstructionType::Register,
-                        IdBox::AccountId(asset_definition.registered_by().clone()),
+                        IdBox::AccountId(entry.registered_by().clone()),
                     ));
                 }
 
-                domain.define_asset(AssetDefinitionEntry::new(asset_definition, authority));
+                assert!(domain
+                    .add_asset_definition(asset_definition, authority)
+                    .is_none());
                 Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Created(
                     asset_definition_id,
                 )))
@@ -111,13 +116,15 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let asset_definition_id = self.object_id;
             wsv.modify_domain(&asset_definition_id.domain_id, |domain| {
-                domain.remove_asset_definition(&asset_definition_id);
+                assert!(domain
+                    .remove_asset_definition(&asset_definition_id)
+                    .is_none());
                 Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Deleted(
                     asset_definition_id.clone(),
                 )))
             })?;
 
-            for domain in wsv.domains() {
+            for domain in wsv.domains().iter() {
                 for account in domain.accounts() {
                     let keys = account
                         .assets()
@@ -130,8 +137,8 @@ pub mod isi {
                         })
                         .collect::<Vec<_>>();
                     for id in keys {
-                        wsv.modify_account(&account.id(), |account_mut| {
-                            account_mut.remove_asset(id);
+                        wsv.modify_account(account.id(), |account_mut| {
+                            assert!(account_mut.remove_asset(id).is_some());
                             Ok(AccountEvent::Asset(AssetEvent::Deleted(id.clone())))
                         })?;
                     }
@@ -155,7 +162,7 @@ pub mod isi {
 
             let metadata_limits = wsv.config.asset_definition_metadata_limits;
             wsv.modify_asset_definition_entry(&asset_definition_id, |asset_definition_entry| {
-                let asset_definition = &mut asset_definition_entry.definition_mut();
+                let asset_definition = asset_definition_entry.definition_mut();
 
                 asset_definition.metadata_mut().insert_with_limits(
                     self.key,
@@ -182,7 +189,7 @@ pub mod isi {
             let asset_definition_id = self.object_id;
 
             wsv.modify_asset_definition_entry(&asset_definition_id, |asset_definition_entry| {
-                let asset_definition = &mut asset_definition_entry.definition_mut();
+                let asset_definition = asset_definition_entry.definition_mut();
 
                 asset_definition
                     .metadata_mut()

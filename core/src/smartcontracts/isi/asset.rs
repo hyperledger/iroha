@@ -483,7 +483,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let domain = wsv.domain(&domain_id)?;
             let _definition = domain
-                .get_asset_definition(&asset_definition_id)
+                .asset_definition(&asset_definition_id)
                 .ok_or_else(|| FindError::AssetDefinition(asset_definition_id.clone()))?;
             let mut assets = Vec::new();
             for account in domain.accounts() {

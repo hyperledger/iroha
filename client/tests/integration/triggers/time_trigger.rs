@@ -32,13 +32,11 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     let start_time = current_time();
 
-    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_definition_id = "rose@wonderland".parse().expect("Valid");
+    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let prev_value = test_client
-        .request(client::asset::by_id(asset_id.clone()))?
-        .value;
+    let prev_value = test_client.request(client::asset::by_id(asset_id.clone()))?;
 
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
@@ -124,15 +122,15 @@ fn build_register_mint_rose_trigger_isi(
     execution_time: ExecutionTime,
 ) -> Result<RegisterBox> {
     let instruction = MintBox::new(1_u32, asset_id.clone());
-    Ok(RegisterBox::new(IdentifiableBox::from(Trigger::new(
-        "mint_rose",
+    Ok(RegisterBox::new(Trigger::new(
+        "mint_rose".parse().expect("Valid"),
         Action::new(
             Executable::from(vec![instruction.into()]),
             Repeats::Indefinitely,
             asset_id.account_id,
             EventFilter::Time(TimeEventFilter(execution_time)),
         ),
-    )?)))
+    )))
 }
 
 /// Submit some sample ISIs to create new blocks
@@ -157,8 +155,11 @@ fn submit_sample_isi_on_every_block_commit(
     {
         std::thread::sleep(Duration::from_secs(1));
         // ISI just to create a new block
-        let sample_isi =
-            SetKeyValueBox::new(account_id.clone(), Name::new("key")?, String::from("value"));
+        let sample_isi = SetKeyValueBox::new(
+            account_id.clone(),
+            "key".parse::<Name>()?,
+            String::from("value"),
+        );
         test_client.submit(sample_isi)?;
     }
 

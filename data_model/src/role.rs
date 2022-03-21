@@ -16,6 +16,7 @@ use crate::{
     Identifiable, Name,
 };
 
+/// Collection of [`RoleId`]s
 pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
 
 /// Identification of a role.
@@ -39,17 +40,10 @@ pub struct Id {
 }
 
 impl Id {
-    /// Constructor.
+    /// Construct role id
     #[inline]
     pub fn new(name: impl Into<Name>) -> Self {
         Self { name: name.into() }
-    }
-}
-
-impl From<Name> for Id {
-    #[inline]
-    fn from(name: Name) -> Self {
-        Self::new(name)
     }
 }
 
@@ -74,24 +68,29 @@ impl fmt::Display for Id {
     Serialize,
     IntoSchema,
 )]
+#[getset(get = "pub")]
 pub struct Role {
     /// Unique name of the role.
-    #[getset(get = "pub")]
     id: Id,
     /// Permission tokens.
+    #[getset(skip)]
     permissions: Permissions,
 }
 
 impl Role {
     /// Constructor.
     #[inline]
-    pub fn new(id: impl Into<Id>, permissions: impl Into<Permissions>) -> Self {
+    pub fn new(
+        id: impl Into<Id>,
+        permissions: impl Into<Permissions>,
+    ) -> <Self as Identifiable>::Constructor {
         Self {
             id: id.into(),
             permissions: permissions.into(),
         }
     }
 
+    /// Get an iterator over [`permissions`](PermissionToken) of the `Role`
     #[inline]
     pub fn permissions(&self) -> impl Iterator<Item = &PermissionToken> {
         self.permissions.iter()
@@ -100,6 +99,7 @@ impl Role {
 
 impl Identifiable for Role {
     type Id = Id;
+    type Constructor = Self;
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.

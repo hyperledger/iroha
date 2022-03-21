@@ -43,10 +43,12 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
     let keys = KeyPair::generate().expect("Failed to generate keys");
     let domain_id = DomainId::new("wonderland").expect("Valid");
     let mut domain: Domain = Domain::new(domain_id.clone()).into();
-    domain.add_account(Account::new(
-        AccountId::new("alice", "wonderland").expect("Valid"),
-        [keys.public_key.clone()],
-    ));
+    assert!(domain
+        .add_account(Account::new(
+            AccountId::new("alice", "wonderland").expect("Valid"),
+            [keys.public_key.clone()],
+        ))
+        .is_none());
     wsv.world.domains.insert(domain_id, domain);
     let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
     let network = IrohaNetwork::new(
@@ -241,29 +243,26 @@ impl QueryResponseTest {
 const DOMAIN: &str = "desert";
 
 fn register_domain() -> Instruction {
-    Instruction::Register(RegisterBox::new(Domain::new(
-        DomainId::new(DOMAIN).expect("Valid"),
-    )))
+    RegisterBox::new(Domain::new(DomainId::new(DOMAIN).expect("Valid"))).into()
 }
 
 fn register_account(name: &str) -> Instruction {
-    Instruction::Register(RegisterBox::new(Account::new(
+    RegisterBox::new(Account::new(
         AccountId::new(name, DOMAIN).expect("Valid"),
         [KeyPair::generate().unwrap().public_key],
-    )))
+    ))
+    .into()
 }
 
 fn register_asset_definition(name: &str) -> Instruction {
-    Instruction::Register(RegisterBox::new(AssetDefinition::new_quantity(
+    RegisterBox::new(AssetDefinition::new_quantity(
         AssetDefinitionId::new(name, DOMAIN).expect("Valid"),
-    )))
+    ))
+    .into()
 }
 
 fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
-    Instruction::Mint(MintBox::new(
-        Value::U32(quantity),
-        asset_id_new(asset, DOMAIN, account),
-    ))
+    MintBox::new(Value::U32(quantity), asset_id_new(asset, DOMAIN, account)).into()
 }
 
 fn asset_id_new(asset: &str, domain: &str, account: &str) -> AssetId {

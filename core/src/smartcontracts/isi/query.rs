@@ -201,7 +201,6 @@ impl<W: WorldTrait> ValidQuery<W> for QueryBox {
             FindTransactionByHash(query) => query.execute_into_value(wsv),
             FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
             FindAssetDefinitionKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
-
             #[cfg(feature = "roles")]
             FindAllRoles(query) => query.execute_into_value(wsv),
             #[cfg(feature = "roles")]
@@ -233,12 +232,14 @@ mod tests {
         let domain_id = DomainId::new("wonderland").expect("Valid");
         let mut domain: Domain = Domain::new(domain_id).into();
         let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]);
-        domain.add_account(account);
+        assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-        domain.define_asset(AssetDefinitionEntry::new(
-            AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
-            ALICE_ID.clone(),
-        ));
+        assert!(domain
+            .add_asset_definition(
+                AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
+                ALICE_ID.clone(),
+            )
+            .is_none());
         World::with([domain], PeersIds::new())
     }
 
@@ -247,10 +248,12 @@ mod tests {
         let mut domain: Domain = Domain::new(DomainId::new("wonderland").expect("Valid")).into();
         let mut account: Account =
             Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).into();
-        domain.define_asset(AssetDefinitionEntry::new(
-            AssetDefinition::new(asset_definition_id.clone(), AssetValueType::Quantity, true),
-            ALICE_ID.clone(),
-        ));
+        assert!(domain
+            .add_asset_definition(
+                AssetDefinition::new(asset_definition_id.clone(), AssetValueType::Quantity, true),
+                ALICE_ID.clone(),
+            )
+            .is_none());
 
         let mut store = Metadata::new();
         store
@@ -263,8 +266,8 @@ mod tests {
         let asset_id = AssetId::new(asset_definition_id, account.id().clone());
         let asset = Asset::new(asset_id, AssetValue::Store(store));
 
-        account.add_asset(asset);
-        domain.add_account(account);
+        assert!(account.add_asset(asset).is_none());
+        assert!(domain.add_account(account).is_none());
         World::with([domain], PeersIds::new())
     }
 
@@ -279,12 +282,14 @@ mod tests {
         let mut domain: Domain = Domain::new(DomainId::new("wonderland")?).into();
         let account =
             Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).with_metadata(metadata);
-        domain.add_account(account);
+        assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-        domain.define_asset(AssetDefinitionEntry::new(
-            AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
-            ALICE_ID.clone(),
-        ));
+        assert!(domain
+            .add_asset_definition(
+                AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
+                ALICE_ID.clone(),
+            )
+            .is_none());
         Ok(World::with([domain], PeersIds::new()))
     }
 
@@ -373,12 +378,14 @@ mod tests {
                 .with_metadata(metadata)
                 .into();
             let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]);
-            domain.add_account(account);
+            assert!(domain.add_account(account).is_none());
             let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
-            domain.define_asset(AssetDefinitionEntry::new(
-                AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
-                ALICE_ID.clone(),
-            ));
+            assert!(domain
+                .add_asset_definition(
+                    AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
+                    ALICE_ID.clone(),
+                )
+                .is_none());
             WorldStateView::new(World::with([domain], PeersIds::new()))
         };
 

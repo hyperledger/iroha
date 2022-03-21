@@ -71,13 +71,14 @@ impl fmt::Display for Id {
 impl Peer {
     /// Construct `Peer` given `id`.
     #[inline]
-    pub const fn new(id: Id) -> Self {
+    pub const fn new(id: Id) -> <Self as Identifiable>::Constructor {
         Self { id }
     }
 }
 
 impl Identifiable for Peer {
     type Id = Id;
+    type Constructor = Self;
 }
 
 impl Id {

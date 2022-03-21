@@ -305,7 +305,7 @@ mod tests {
         let account_id = AccountId::new("alice", "wonderland").expect("Valid");
         let mut domain: Domain = Domain::new(domain_id).into();
         let account = Account::new(account_id, [public_key]);
-        domain.add_account(account);
+        assert!(domain.add_account(account).is_none());
         World::with([domain], PeersIds::new())
     }
 
@@ -371,8 +371,8 @@ mod tests {
             let mut domain: Domain = Domain::new(domain_id.clone()).into();
             let account_id = AccountId::new("alice", "wonderland").expect("Valid");
             let mut account: Account = Account::new(account_id, [public_key]).into();
-            account.signature_check_condition = SignatureCheckCondition(0_u32.into());
-            domain.add_account(account);
+            account.set_signature_check_condition(SignatureCheckCondition(0_u32.into()));
+            assert!(domain.add_account(account).is_none());
 
             Arc::new(WorldStateView::new(World::with([domain], PeersIds::new())))
         };

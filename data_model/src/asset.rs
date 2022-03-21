@@ -45,12 +45,12 @@ pub type AssetDefinitionsMap =
     Serialize,
     IntoSchema,
 )]
+#[getset(get = "pub")]
 pub struct AssetDefinitionEntry {
     /// Asset definition.
-    #[getset(get = "pub", get_mut = "pub")]
+    #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
     definition: AssetDefinition,
     /// The account that registered this asset.
-    #[getset(get = "pub")]
     registered_by: <Account as Identifiable>::Id,
 }
 
@@ -70,10 +70,7 @@ impl Ord for AssetDefinitionEntry {
 
 impl AssetDefinitionEntry {
     /// Constructor.
-    pub const fn new(
-        definition: AssetDefinition,
-        registered_by: <Account as Identifiable>::Id,
-    ) -> Self {
+    pub fn new(definition: AssetDefinition, registered_by: <Account as Identifiable>::Id) -> Self {
         Self {
             definition,
             registered_by,
@@ -107,7 +104,7 @@ pub struct AssetDefinition {
     /// Is the asset mintable
     mintable: bool,
     /// Metadata of this asset definition as a key-value store.
-    #[getset(get = "pub", get_mut = "pub")]
+    #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
     metadata: Metadata,
 }
 
@@ -201,6 +198,20 @@ impl AssetValue {
     }
 }
 
+impl PartialOrd for Asset {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.id.cmp(&other.id))
+    }
+}
+
+impl Ord for Asset {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
 macro_rules! impl_try_as_for_asset_value {
     ( $($variant:ident( $ty:ty ),)* ) => {$(
         impl TryAsMut<$ty> for AssetValue {
@@ -234,20 +245,6 @@ impl_try_as_for_asset_value! {
     BigQuantity(u128),
     Fixed(Fixed),
     Store(Metadata),
-}
-
-impl PartialOrd for Asset {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.id.cmp(&other.id))
-    }
-}
-
-impl Ord for Asset {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.id.cmp(&other.id)
-    }
 }
 
 /// Identification of an Asset Definition. Consists of Asset's name and Domain's name.
@@ -304,12 +301,11 @@ pub struct Id {
 
 impl AssetDefinition {
     /// Construct [`AssetDefinition`].
-    #[inline]
     pub fn new(
         id: <AssetDefinition as Identifiable>::Id,
         value_type: AssetValueType,
         mintable: bool,
-    ) -> Self {
+    ) -> <Self as Identifiable>::Constructor {
         Self {
             id,
             value_type,
@@ -318,6 +314,7 @@ impl AssetDefinition {
         }
     }
 
+    /// Add [`Metadata`] to the asset definition replacing previously defined
     #[inline]
     #[must_use]
     pub fn with_metadata(mut self, metadata: Metadata) -> Self {
@@ -327,56 +324,75 @@ impl AssetDefinition {
 
     /// Asset definition with quantity asset value type.
     #[inline]
-    pub fn new_quantity(id: <AssetDefinition as Identifiable>::Id) -> Self {
+    pub fn new_quantity(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::Constructor {
         AssetDefinition::new(id, AssetValueType::Quantity, true)
     }
 
     /// Token definition with quantity asset value type.
     #[inline]
-    pub fn new_quantity_token(id: <AssetDefinition as Identifiable>::Id) -> Self {
+    pub fn new_quantity_token(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::Constructor {
         AssetDefinition::new(id, AssetValueType::BigQuantity, true)
     }
 
     /// Asset definition with big quantity asset value type.
     #[inline]
-    pub fn new_big_quantity(id: <AssetDefinition as Identifiable>::Id) -> Self {
+    pub fn new_big_quantity(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::Constructor {
         AssetDefinition::new(id, AssetValueType::BigQuantity, true)
     }
 
     /// Token definition with big quantity asset value type.
     #[inline]
-    pub fn new_bin_quantity_token(id: <AssetDefinition as Identifiable>::Id) -> Self {
+    pub fn new_bin_quantity_token(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::Constructor {
         AssetDefinition::new(id, AssetValueType::BigQuantity, false)
     }
 
     /// Asset definition with decimal quantity asset value type.
     #[inline]
-    pub fn new_fixed_precision(id: <AssetDefinition as Identifiable>::Id) -> Self {
+    pub fn new_fixed_precision(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::Constructor {
         AssetDefinition::new(id, AssetValueType::Fixed, true)
     }
 
     /// Token definition with decimal quantity asset value type.
     #[inline]
-    pub fn new_fixed_precision_token(id: <AssetDefinition as Identifiable>::Id) -> Self {
+    pub fn new_fixed_precision_token(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::Constructor {
         AssetDefinition::new(id, AssetValueType::Fixed, true)
     }
 
     /// Asset definition with store asset value type.
     #[inline]
-    pub fn new_store(id: <AssetDefinition as Identifiable>::Id) -> Self {
+    pub fn new_store(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::Constructor {
         AssetDefinition::new(id, AssetValueType::Store, true)
     }
 
     /// Token definition with store asset value type.
     #[inline]
-    pub fn new_store_token(id: <AssetDefinition as Identifiable>::Id) -> Self {
+    pub fn new_store_token(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::Constructor {
         AssetDefinition::new(id, AssetValueType::Store, false)
     }
 }
 
 impl Asset {
     /// Constructor
-    pub fn new<V: Into<AssetValue>>(id: <Asset as Identifiable>::Id, value: V) -> Self {
+    pub fn new<V: Into<AssetValue>>(
+        id: <Asset as Identifiable>::Id,
+        value: V,
+    ) -> <Self as Identifiable>::Constructor {
         Self {
             id,
             value: value.into(),
@@ -438,10 +454,12 @@ impl Id {
 
 impl Identifiable for Asset {
     type Id = Id;
+    type Constructor = Self;
 }
 
 impl Identifiable for AssetDefinition {
     type Id = DefinitionId;
+    type Constructor = Self;
 }
 
 impl FromIterator<Asset> for Value {

@@ -53,7 +53,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Register<iroha_data_model::domain::NewDomain> {
+    impl<W: WorldTrait> Execute<W> for Register<Domain> {
         type Error = Error;
 
         #[metrics("register_domain")]
@@ -132,11 +132,12 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let role_id = self.object_id;
+
             wsv.modify_world(|world| {
                 world.roles.remove(&role_id);
                 for mut domain in world.domains.iter_mut() {
                     for account in domain.accounts_mut() {
-                        let _ = account.remove_role(&role_id);
+                        assert!(account.remove_role(&role_id));
                     }
                 }
 

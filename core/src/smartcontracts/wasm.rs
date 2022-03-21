@@ -535,8 +535,8 @@ mod tests {
         let domain_id = account_id.domain_id.clone();
         let public_key = KeyPair::generate().unwrap().public_key;
         let account = Account::new(account_id, [public_key]);
-        let mut domain: Domain = Domain::new(domain_id.clone()).into();
-        domain.add_account(account);
+        let mut domain: Domain = Domain::new(domain_id).into();
+        assert!(domain.add_account(account).is_none());
 
         World::with([domain], PeersIds::new())
     }
