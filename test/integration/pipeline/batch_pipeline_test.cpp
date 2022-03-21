@@ -6,6 +6,8 @@
 #include <gtest/gtest.h>
 
 #include <boost/variant.hpp>
+#include <chrono>
+#include <thread>
 
 #include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
@@ -359,33 +361,26 @@ TEST_P(BatchPipelineTest, InvalidAtomicBatch) {
       {signedTx(batch_transactions[0], kFirstUserKeypair),
        signedTx(batch_transactions[1], kSecondUserKeypair)});
 
-  IntegrationTestFramework itf(2, std::get<StorageType>(GetParam()));
+  IntegrationTestFramework itf(2,
+                               std::get<StorageType>(GetParam()),
+                               boost::none,
+                               iroha::StartupWsvDataPolicy::kDrop,
+                               true,
+                               false,
+                               boost::none,
+                               milliseconds(20000),
+                               milliseconds(20000),
+                               milliseconds(20000));
   prepareState(itf, "1.0", "1.0")
-      .sendTxSequence(
-          transaction_sequence,
-          [](const auto &statuses) {
-            for (const auto &status : statuses) {
-              EXPECT_NO_THROW(
-                  boost::get<const shared_model::interface::
-                                 StatelessValidTxResponse &>(status.get()));
-            }
-          })
+      .sendTxSequenceAwait(transaction_sequence,
+                           [](const auto block) {
+                             ASSERT_THAT(block->transactions(), IsEmpty());
+                           })
       .checkStatus(batch_transactions[0]->hash(), CHECK_STATELESS_VALID)
       .checkStatus(batch_transactions[0]->hash(), CHECK_ENOUGH_SIGNATURES)
       .checkStatus(batch_transactions[1]->hash(), CHECK_STATELESS_VALID)
       .checkStatus(batch_transactions[1]->hash(), CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(batch_transactions[1]->hash(), CHECK_STATEFUL_INVALID)
-      .checkProposal([&transaction_sequence](const auto proposal) {
-        ASSERT_THAT(
-            proposal->transactions(),
-            Pointwise(RefAndPointerEq(), transaction_sequence.transactions()));
-      })
-      .checkVerifiedProposal([](const auto verified_proposal) {
-        ASSERT_THAT(verified_proposal->transactions(), IsEmpty());
-      })
-      .checkBlock([](const auto block) {
-        ASSERT_THAT(block->transactions(), IsEmpty());
-      });
+      .checkStatus(batch_transactions[1]->hash(), CHECK_STATEFUL_INVALID);
 }
 
 /**
