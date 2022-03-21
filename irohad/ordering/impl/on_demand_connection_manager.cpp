@@ -93,7 +93,6 @@ void OnDemandConnectionManager::initializeConnections(
     return;
   }
 
-  // connections_.all_connections.clear();
   std::vector<ConnectionData> tmp;
   for (auto &p : all_peers) {
     bool found = false;

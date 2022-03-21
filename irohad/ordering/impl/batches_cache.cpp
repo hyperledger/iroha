@@ -15,7 +15,6 @@
 namespace {
   shared_model::interface::types::TimestampType oldestTimestamp(
       std::shared_ptr<shared_model::interface::TransactionBatch> const &batch) {
-    assert(!batch->transactions().empty());
     if (!batch->transactions().empty()) {
       auto it = batch->transactions().begin();
       shared_model::interface::types::TimestampType ts = (*it)->createdTime();
