@@ -16,8 +16,12 @@ namespace iroha {
 
       struct MockOdOsNotification : public OdOsNotification {
         MOCK_METHOD1(onBatches, void(CollectionType));
-        MOCK_METHOD1(onRequestProposal, void(consensus::Round));
         MOCK_METHOD1(onBatchesToWholeNetwork, void(CollectionType));
+        MOCK_METHOD2(onRequestProposal,
+                     void(consensus::Round,
+                          std::optional<std::shared_ptr<
+                              const shared_model::interface::Proposal>>));
+        MOCK_CONST_METHOD0(getRequestDelay, std::chrono::milliseconds());
       };
 
     }  // namespace transport

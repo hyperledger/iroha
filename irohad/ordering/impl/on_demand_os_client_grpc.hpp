@@ -57,7 +57,14 @@ namespace iroha {
 
         void onBatches(CollectionType batches) override;
         void onBatchesToWholeNetwork(CollectionType batches) override;
-        void onRequestProposal(consensus::Round round) override;
+
+        void onRequestProposal(
+            consensus::Round round,
+            std::optional<
+                std::shared_ptr<const shared_model::interface::Proposal>>
+                ref_proposal) override;
+
+        std::chrono::milliseconds getRequestDelay() const override;
 
        private:
         logger::LoggerPtr log_;
@@ -88,6 +95,8 @@ namespace iroha {
 
         iroha::expected::Result<std::unique_ptr<OdOsNotification>, std::string>
         create(const shared_model::interface::Peer &to) override;
+
+        std::chrono::milliseconds getRequestDelay() const override;
 
        private:
         std::shared_ptr<TransportFactoryType> proposal_factory_;

@@ -75,9 +75,15 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
 
   this->sendCachedTransactions();
 
-  // request proposal for the current round
-  if (!syncing_mode_)
-    network_client_->onRequestProposal(event.next_round);
+  if (!syncing_mode_) {
+    assert(ordering_service_);
+    assert(network_client_);
+
+    network_client_->onRequestProposal(
+        event.next_round,
+        ordering_service_->waitForLocalProposal(
+            event.next_round, network_client_->getRequestDelay()));
+  }
 }
 
 void OnDemandOrderingGate::stop() {

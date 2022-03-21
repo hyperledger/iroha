@@ -5,6 +5,8 @@
 
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 
+#include <string_view>
+
 #include "interfaces/transaction.hpp"
 #include "utils/string_builder.hpp"
 
@@ -30,5 +32,11 @@ namespace shared_model {
       return hasher_(a->reducedHash());
     }
 
+    bool BatchHashLess::operator()(
+        const std::shared_ptr<TransactionBatch> &left_tx,
+        const std::shared_ptr<TransactionBatch> &right_tx) const {
+      return std::less<shared_model::crypto::Blob::Bytes>{}(
+          left_tx->reducedHash().blob(), right_tx->reducedHash().blob());
+    }
   }  // namespace interface
 }  // namespace shared_model

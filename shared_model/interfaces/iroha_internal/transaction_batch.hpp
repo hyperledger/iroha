@@ -76,6 +76,19 @@ namespace shared_model {
           const std::shared_ptr<shared_model::interface::TransactionBatch> &a)
           const;
     };
+
+    /**
+     * This is a helper structure which serves as a predicate
+     * for hash comparison.
+     */
+    struct BatchHashLess {
+      /**
+       * The function used to compare batches for equality:
+       * check only hashes of batches, without signatures
+       */
+      bool operator()(const std::shared_ptr<TransactionBatch> &left_tx,
+                      const std::shared_ptr<TransactionBatch> &right_tx) const;
+    };
   }  // namespace interface
 }  // namespace shared_model
 
