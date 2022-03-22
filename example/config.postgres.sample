@@ -12,7 +12,6 @@
      "maintenance database": "postgres"
   },
   "max_proposal_size" : 10,
-  "proposal_delay" : 5000,
   "vote_delay" : 5000,
   "mst_enable" : false,
   "mst_expiration_time" : 1440,
