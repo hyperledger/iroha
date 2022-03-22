@@ -20,7 +20,7 @@ cli = []
 cross_crate_testing = []
 dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry"]
 expensive-telemetry = ["iroha_telemetry/metric-instrumentation"]
-default = ["bridge", "cli"]
+default = ["bridge", "cli", "telemetry"]
 
 [badges]
 is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }

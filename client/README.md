@@ -2,7 +2,7 @@
 
 ## Description
 
-The library crate containing the basic building blocks of an Iroha client. If you want to build your own client application, this library is what you should link against. More details can be found in our [tutorial])https://hyperledger.github.io/iroha-2-docs/guide/rust.html) .
+The library crate containing the basic building blocks of an Iroha client. If you want to build your own client application, this library is what you should link against. More details can be found in our [tutorial](https://hyperledger.github.io/iroha-2-docs/guide/rust.html) .
 
 ### Features
 

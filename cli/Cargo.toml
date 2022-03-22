@@ -17,7 +17,7 @@ dex = ["iroha_core/dex"]
 roles = ["iroha_core/roles", "iroha_permissions_validators/roles"]
 telemetry = ["iroha_telemetry", "iroha_core/telemetry"]
 dev-telemetry = ["iroha_core/dev-telemetry", "iroha_telemetry"]
-default = ["bridge"]
+default = ["bridge", "telemetry"]
 test-network = []
 
 [badges]
