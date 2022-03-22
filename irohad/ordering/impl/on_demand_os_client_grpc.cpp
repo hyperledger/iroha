@@ -29,8 +29,11 @@ namespace {
       std::weak_ptr<logger::Logger> wlog) {
     auto maybe_stub = wstub.lock();
     auto maybe_log = wlog.lock();
-    if (not(maybe_stub and maybe_log))
+    if (not(maybe_stub and maybe_log)) {
+      if (maybe_log)
+        maybe_log->info("No stub. Send batches skipped.");
       return true;
+    }
 
     grpc::ClientContext context;
     context.set_wait_for_ready(false);
@@ -59,7 +62,7 @@ namespace {
       return false;
     }
 
-    maybe_log->info("RPC succeeded: {}", context.peer());
+    maybe_log->info("RPC succeeded(SendBatches): {}", context.peer());
     return true;
   }
 }  // namespace
@@ -89,6 +92,11 @@ OnDemandOsClientGrpc::~OnDemandOsClientGrpc() {
     sh_ctx->TryCancel();
 }
 
+void OnDemandOsClientGrpc::onBatchesToWholeNetwork(CollectionType batches) {
+  // This code should not be called.
+  assert(false);
+}
+
 void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   std::shared_ptr<proto::BatchesRequest> request;
   for (auto &batch : batches) {
@@ -102,6 +110,7 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
     }
 
     if (request->ByteSizeLong() >= 2ull * 1024 * 1024) {
+      log_->debug("execute for called");
       os_execution_keepers_->executeFor(
           peer_name_,
           [peer_name(peer_name_),
@@ -122,6 +131,7 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   }
 
   if (request) {
+    log_->debug("execute for called");
     os_execution_keepers_->executeFor(
         peer_name_,
         [peer_name(peer_name_),
@@ -140,7 +150,14 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   }
 }
 
-void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
+std::chrono::milliseconds OnDemandOsClientGrpc::getRequestDelay() const {
+  return proposal_request_timeout_;
+}
+
+void OnDemandOsClientGrpc::onRequestProposal(
+    consensus::Round round,
+    std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+        ref_proposal) {
   // Cancel an unfinished request
   if (auto maybe_context = context_.lock()) {
     maybe_context->TryCancel();
@@ -151,9 +168,15 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
   proto::ProposalRequest request;
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
+  if (ref_proposal.has_value())
+    request.set_ref_proposal_hash(
+        std::string((char *)ref_proposal.value()->hash().blob().data(),
+                    ref_proposal.value()->hash().blob().size()));
+
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
       [round,
+       ref_proposal{std::move(ref_proposal)},
        time_provider(time_provider_),
        proposal_request_timeout(proposal_request_timeout_),
        context(std::move(context)),
@@ -179,20 +202,25 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
           callback({std::nullopt, round});
           return;
         } else {
-          maybe_log->info("RPC succeeded: {}", context->peer());
+          maybe_log->info("RPC succeeded(RequestingProposal): {}",
+                          context->peer());
         }
-        if (not response.has_proposal()) {
-          callback({std::nullopt, round});
-          return;
+
+        switch (response.optional_proposal_case()) {
+          case proto::ProposalResponse::kSameProposalHash: {
+            callback({std::move(ref_proposal), round});
+          } break;
+          case proto::ProposalResponse::kProposal: {
+            auto proposal_result =
+                maybe_proposal_factory->build(response.proposal());
+            if (expected::hasError(proposal_result)) {
+              maybe_log->info("{}", proposal_result.assumeError().error);
+              callback({std::nullopt, round});
+            } else
+              callback({std::move(proposal_result).assumeValue(), round});
+          } break;
+          default: { callback({std::nullopt, round}); } break;
         }
-        auto maybe_proposal =
-            maybe_proposal_factory->build(response.proposal());
-        if (expected::hasError(maybe_proposal)) {
-          maybe_log->info("{}", maybe_proposal.assumeError().error);
-          callback({std::nullopt, round});
-          return;
-        }
-        callback({std::move(maybe_proposal).assumeValue(), round});
       });
 }
 
@@ -229,4 +257,8 @@ OnDemandOsClientGrpcFactory::create(const shared_model::interface::Peer &to) {
                                                   os_execution_keepers_,
                                                   to.pubkey());
   };
+}
+
+std::chrono::milliseconds OnDemandOsClientGrpcFactory::getRequestDelay() const {
+  return proposal_request_timeout_;
 }

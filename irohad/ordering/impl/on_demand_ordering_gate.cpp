@@ -53,10 +53,8 @@ void OnDemandOrderingGate::propagateBatch(
     return;
   }
 
-  // TODO iceseer 14.01.21 IR-959 Refactor to avoid copying.
-  forLocalOS(&OnDemandOrderingService::onBatches,
-             transport::OdOsNotification::CollectionType{batch});
-  network_client_->onBatches(
+  log_->info("Propagated for network batch: {}", *batch);
+  network_client_->onBatchesToWholeNetwork(
       transport::OdOsNotification::CollectionType{batch});
 }
 
@@ -77,9 +75,15 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
 
   this->sendCachedTransactions();
 
-  // request proposal for the current round
-  if (!syncing_mode_)
-    network_client_->onRequestProposal(event.next_round);
+  if (!syncing_mode_) {
+    assert(ordering_service_);
+    assert(network_client_);
+
+    network_client_->onRequestProposal(
+        event.next_round,
+        ordering_service_->waitForLocalProposal(
+            event.next_round, network_client_->getRequestDelay()));
+  }
 }
 
 void OnDemandOrderingGate::stop() {

@@ -6,12 +6,14 @@
 #ifndef IROHA_ON_DEMAND_OS_TRANSPORT_HPP
 #define IROHA_ON_DEMAND_OS_TRANSPORT_HPP
 
+#include <chrono>
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include "common/result_fwd.hpp"
 #include "consensus/round.hpp"
+#include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 
 namespace shared_model {
@@ -49,11 +51,26 @@ namespace iroha {
         virtual void onBatches(CollectionType batches) = 0;
 
         /**
+         * Callback on receiving transactions, propagated to whole network.
+         * @param batches - vector of passed transaction batches
+         */
+        virtual void onBatchesToWholeNetwork(CollectionType batches) = 0;
+
+        /**
          * Callback on request about proposal
          * @param round - number of collaboration round.
          * Calculated as block_height + 1
          */
-        virtual void onRequestProposal(consensus::Round round) = 0;
+        virtual void onRequestProposal(
+            consensus::Round round,
+            std::optional<
+                std::shared_ptr<const shared_model::interface::Proposal>>
+                ref_proposal) = 0;
+
+        /**
+         * @return delay proposal to wait for.
+         */
+        virtual std::chrono::milliseconds getRequestDelay() const = 0;
 
         virtual ~OdOsNotification() = default;
       };
@@ -72,6 +89,11 @@ namespace iroha {
         virtual iroha::expected::Result<std::unique_ptr<OdOsNotification>,
                                         std::string>
         create(const shared_model::interface::Peer &to) = 0;
+
+        /**
+         * @return delay proposal to wait for.
+         */
+        virtual std::chrono::milliseconds getRequestDelay() const = 0;
 
         virtual ~OdOsNotificationFactory() = default;
       };

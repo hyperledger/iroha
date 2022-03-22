@@ -328,8 +328,6 @@ int main(int argc, char *argv[]) {
             ? iroha::StartupWsvSynchronizationPolicy::kWaitForNewBlocks
             : iroha::StartupWsvSynchronizationPolicy::kSyncUpAndGo,
         std::nullopt,
-        boost::make_optional(config.mst_support,
-                             iroha::GossipPropagationStrategyParams{}),
         boost::none);
 
     // Check if iroha daemon storage was successfully initialized
