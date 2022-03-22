@@ -1,6 +1,6 @@
 # Iroha WASM
 
-The library crate that is used for writing Iroha-compliant smartcontracts in Rust using the Web-assembly format. 
+The library crate that is used for writing Iroha-compliant smartcontracts in Rust using the WebAssembly format. 
 
 ## Usage
 

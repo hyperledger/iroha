@@ -147,7 +147,7 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 -  **Prefer imperative mood** ("Deploy to docker..." not "Deploys to docker...").
 -  Write a meaningful commit message. Imagine that you're looking at someone's code, titled "Fixed error".
 -  Limit the first line of your commit message to 50 characters or less.
--  The first line of your commit message should contain the summary of the work you've done. If you need more than one line, leave a blank line between each pargraph and describe your changes in the middle. The last line must be the sign-off.
+-  The first line of your commit message should contain the summary of the work you've done. If you need more than one line, leave a blank line between each paragraph and describe your changes in the middle. The last line must be the sign-off.
 -  Use the [Git Rebase Workflow](https://git-rebase.io/). Avoid using `git pull` use `git pull --rebase` instead.
 -  If you modify the Schema (check by generating the schema with `iroha_schema_bin` and diff), you should make all changes to the schema in a separate commit with the message `[schema]`.
 -  Generally, try to stick to one commit per meaningful change.
@@ -207,8 +207,7 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 - If your function is a constructor (i.e. it's creating a new value from the input parameters and calls `default()`) it should be `#[inline]`.
 - Leaving `TODO` markers in code is fine, as long as you reference an issue that you created for it. Not creating an issue, means it doesn't get merged.
 - If you change naming conventions, make sure that the new name that you've chosen is _much_ clearer than what we had before.
-- Avoid tying your code to concrete data structures. Rust is smart enough to turn a `Vec<Instruction>` into `impl IntoIterator<Item = Instruction>` without extra processing.
--
+- Avoid tying your code to concrete data structures; `rustc` is smart enough to turn a `Vec<Instruction>` into `impl IntoIterator<Item = Instruction>` and vice versa when it needs to.
 
 ## Contact
 

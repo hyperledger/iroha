@@ -18,7 +18,7 @@ Iroha is a fully-featured blockchain ledger
 * Creation and management of custom fungible assets, such as currencies, gold, etc.
 * Non-fungible asset support.
 * User account management, with a domain hierarchy, and multi-signature transactions.
-* Efficient portable smartcontracts implemented either via Web-assembly, or Iroha Special Instructions.
+* Efficient portable smartcontracts implemented either via WebAssembly, or Iroha Special Instructions.
 * Support for both permissioned, and permission-less blockchain deployments.
 * Byzantine fault-tolerance with up to 34% fault rate.
 * Efficient in-memory operation.
@@ -35,7 +35,7 @@ Iroha is a fully-featured blockchain ledger
 | Deploy (small)    | Dual-core CPU     | 8GB+  | 20GB+       |
 | Deploy (large)    | AMD Epyc™ 64-core | 128GB | 128GB+      |
 
-[^1]: Note, Iroha only optionally requires a block storage. All operations are done in RAM by default.
+[^1]: Note, all operations are done in RAM, so it can theoretically work without persistent storage. However, since synchronising blocks can take a long time, we recommend adding a hard drive.
 
 ### Notes on system requirements
 
