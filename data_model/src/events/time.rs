@@ -62,10 +62,15 @@ impl EventFilter {
         schedule.period.map_or_else(
             || u32::from(Range::from(*interval).contains(&schedule.start)),
             |period| {
+                #[allow(clippy::integer_division)]
+                let k =
+                    interval.since.saturating_sub(schedule.start).as_millis() / period.as_millis();
+                let start = schedule.start + Self::multiply_duration_by_u128(period, k);
+                let range = Range::from(*interval);
                 (0..)
-                    .map(|i| schedule.start + period * i)
+                    .map(|i| start + period * i)
                     .skip_while(|time| *time < interval.since)
-                    .take_while(|time| Range::from(*interval).contains(time))
+                    .take_while(|time| range.contains(time))
                     .count()
                     .try_into()
                     .expect(
@@ -73,6 +78,29 @@ impl EventFilter {
                     )
             },
         )
+    }
+
+    /// Multiply `duration` by `n`
+    ///
+    /// Usage of this function allows to operate with much longer time *intervals*
+    /// with much less *periods* than just `impl Mul<u32> for Duration` does
+    ///
+    /// # Panics
+    /// Panics if result number in seconds can't be represented as `u64`
+    #[allow(clippy::expect_used, clippy::integer_division)]
+    fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
+        if let Ok(n) = u32::try_from(n) {
+            return duration * n;
+        }
+
+        let new_ms = duration.as_millis() * n;
+        if let Ok(ms) = u64::try_from(new_ms) {
+            return Duration::from_millis(ms);
+        }
+
+        let new_secs = u64::try_from(new_ms / 1000)
+            .expect("Overflow. Can't multiply duration by such a big number");
+        Duration::from_secs(new_secs)
     }
 }
 
@@ -100,9 +128,22 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    /// Create new `Schedule` with `start` and `period`
-    pub fn new(start: Duration, period: Option<Duration>) -> Self {
-        Self { start, period }
+    /// Create new `Schedule` starting at `start` and without period
+    #[must_use]
+    #[inline]
+    pub fn starting_at(start: Duration) -> Self {
+        Self {
+            start,
+            period: None,
+        }
+    }
+
+    /// Add `period` to `self`
+    #[must_use]
+    #[inline]
+    pub fn with_period(mut self, period: Duration) -> Self {
+        self.period = Some(period);
+        self
     }
 }
 
@@ -131,12 +172,14 @@ pub struct Interval {
 
 impl Interval {
     /// Construct `Interval` with `since` and `step`
+    #[inline]
     pub fn new(since: Duration, length: Duration) -> Self {
         Self { since, length }
     }
 }
 
 impl From<Interval> for Range<Duration> {
+    #[inline]
     fn from(interval: Interval) -> Self {
         interval.since..interval.since + interval.length
     }
@@ -157,6 +200,7 @@ mod tests {
     /// Tests for `EventFilter::count_matches_in_interval()`
     mod count_matches_in_interval {
         use super::*;
+        use crate::current_time;
 
         /// Sample timestamp
         const TIMESTAMP: u64 = 1_647_443_386;
@@ -166,7 +210,7 @@ mod tests {
             // ----|-----[-----)-------
             //     p    i1     i2
 
-            let schedule = Schedule::new(Duration::from_secs(TIMESTAMP - 5), None);
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 5));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
             assert_eq!(
                 EventFilter::count_matches_in_interval(&schedule, &interval),
@@ -180,7 +224,7 @@ mod tests {
             // ----[---------)------
             //   p, i1      i2
 
-            let schedule = Schedule::new(Duration::from_secs(TIMESTAMP), None);
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
             assert_eq!(
                 EventFilter::count_matches_in_interval(&schedule, &interval),
@@ -193,7 +237,7 @@ mod tests {
             // ----[------|-----)----
             //     i1     p    i2
 
-            let schedule = Schedule::new(Duration::from_secs(TIMESTAMP + 5), None);
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 5));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
             assert_eq!(
                 EventFilter::count_matches_in_interval(&schedule, &interval),
@@ -207,7 +251,7 @@ mod tests {
             // ----[---------)------
             //    i1      i2, p
 
-            let schedule = Schedule::new(Duration::from_secs(TIMESTAMP + 10), None);
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 10));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
             assert_eq!(
                 EventFilter::count_matches_in_interval(&schedule, &interval),
@@ -220,10 +264,8 @@ mod tests {
             // ----[------|-----)----*----
             //     i1     p    i2
 
-            let schedule = Schedule::new(
-                Duration::from_secs(TIMESTAMP + 5),
-                Some(Duration::from_secs(30)),
-            );
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 5))
+                .with_period(Duration::from_secs(30));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
             assert_eq!(
                 EventFilter::count_matches_in_interval(&schedule, &interval),
@@ -236,10 +278,8 @@ mod tests {
             // ----|------[-----)----*----
             //     p     i1    i2
 
-            let schedule = Schedule::new(
-                Duration::from_secs(TIMESTAMP),
-                Some(Duration::from_secs(10)),
-            );
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
+                .with_period(Duration::from_secs(10));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP + 35), Duration::from_secs(4));
             assert_eq!(
@@ -253,8 +293,8 @@ mod tests {
             // ----[----)----|-----*-----*----
             //     i1   i2   p
 
-            let schedule =
-                Schedule::new(Duration::from_secs(TIMESTAMP), Some(Duration::from_secs(6)));
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
+                .with_period(Duration::from_secs(6));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(4));
             assert_eq!(
@@ -268,8 +308,8 @@ mod tests {
             // ----[------|----*----*----*--)-*----
             //     i1     p                i2
 
-            let schedule =
-                Schedule::new(Duration::from_secs(TIMESTAMP), Some(Duration::from_secs(6)));
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
+                .with_period(Duration::from_secs(6));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(30));
             assert_eq!(
@@ -283,10 +323,8 @@ mod tests {
             // ----|----*--[----*----*----*----*----)----*----
             //     p      i1                       i2
 
-            let schedule = Schedule::new(
-                Duration::from_secs(TIMESTAMP),
-                Some(Duration::from_millis(600)),
-            );
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
+                .with_period(Duration::from_millis(600));
             let interval = Interval::new(
                 Duration::from_secs(TIMESTAMP + 3) + Duration::from_millis(500),
                 Duration::from_secs(2),
@@ -303,10 +341,8 @@ mod tests {
             // ----|-------[----)--*-------*--
             //     p      i1   i2
 
-            let schedule = Schedule::new(
-                Duration::from_secs(TIMESTAMP - 10),
-                Some(Duration::from_secs(10)),
-            );
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 10))
+                .with_period(Duration::from_secs(10));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
             assert_eq!(
                 EventFilter::count_matches_in_interval(&schedule, &interval),
@@ -320,8 +356,8 @@ mod tests {
             // ----[----|----)----*----*----
             //     i1   p    i2
 
-            let schedule =
-                Schedule::new(Duration::from_secs(TIMESTAMP), Some(Duration::from_secs(5)));
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
+                .with_period(Duration::from_secs(5));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(15));
             assert_eq!(
@@ -336,10 +372,8 @@ mod tests {
             // ----|---[----)--------*----
             //     p   i1   i2
 
-            let schedule = Schedule::new(
-                Duration::from_secs(TIMESTAMP - 10),
-                Some(Duration::from_secs(15)),
-            );
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 10))
+                .with_period(Duration::from_secs(15));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
             assert_eq!(
                 EventFilter::count_matches_in_interval(&schedule, &interval),
@@ -353,13 +387,36 @@ mod tests {
             // ----[-*-*-*-*-*-*-)-*-*-*
             //   p, i1           i2
 
-            let schedule =
-                Schedule::new(Duration::from_secs(TIMESTAMP), Some(Duration::from_secs(1)));
+            let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
+                .with_period(Duration::from_secs(1));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(7));
             assert_eq!(
                 EventFilter::count_matches_in_interval(&schedule, &interval),
                 7
             );
+        }
+
+        #[test]
+        fn bench_schedule_from_zero_with_little_period() {
+            //                       *         *
+            // --|-*-*-*- ... -*-*-*-[-*-...-*-)-*-*-*-
+            //   p     52 years     i1   1sec  i2
+
+            let start_time = current_time();
+
+            let schedule =
+                Schedule::starting_at(Duration::ZERO).with_period(Duration::from_millis(1));
+            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(1));
+
+            assert_eq!(
+                EventFilter::count_matches_in_interval(&schedule, &interval),
+                1000
+            );
+
+            let finish_time = current_time();
+            let result_time = finish_time.saturating_sub(start_time);
+
+            assert!(result_time < Duration::from_millis(1));
         }
     }
 }
