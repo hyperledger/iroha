@@ -301,7 +301,6 @@ IntegrationTestFramework::IntegrationTestFramework(
       cleanup_on_exit_(cleanup_on_exit),
       db_wsv_path_(std::move(db_wsv_path)),
       db_store_path_(std::move(db_store_path)) {
-  config_.proposal_delay = 1000;
   config_.proposal_creation_timeout = 500;
   // 100 ms is small delay to avoid unnecessary messages due to eternal voting
   // and to allow scheduler to switch threads

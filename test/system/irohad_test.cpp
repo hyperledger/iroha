@@ -658,8 +658,6 @@ TEST_F(IrohadTest, StartWithoutConfigAndKeyFile) {
       std::to_string(doc[config_members::InternalPort].GetInt64());
   env["IROHA_MAX_PROPOSAL_SIZE"] =
       std::to_string(doc[config_members::MaxProposalSize].GetInt64());
-  env["IROHA_PROPOSAL_DELAY"] =
-      std::to_string(doc[config_members::ProposalDelay].GetInt64());
   env["IROHA_VOTE_DELAY"] =
       std::to_string(doc[config_members::VoteDelay].GetInt64());
   env["IROHA_MST_ENABLE"] = "false";
