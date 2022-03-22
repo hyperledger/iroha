@@ -26,6 +26,12 @@ namespace shared_model {
       return left_tx->reducedHash() == right_tx->reducedHash();
     }
 
+    size_t BatchPointerHasher::operator()(
+        const std::shared_ptr<shared_model::interface::TransactionBatch> &a)
+        const {
+      return hasher_(a->reducedHash());
+    }
+
     bool BatchHashLess::operator()(
         const std::shared_ptr<TransactionBatch> &left_tx,
         const std::shared_ptr<TransactionBatch> &right_tx) const {

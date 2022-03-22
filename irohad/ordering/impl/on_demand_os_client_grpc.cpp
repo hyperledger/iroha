@@ -29,8 +29,11 @@ namespace {
       std::weak_ptr<logger::Logger> wlog) {
     auto maybe_stub = wstub.lock();
     auto maybe_log = wlog.lock();
-    if (not(maybe_stub and maybe_log))
+    if (not(maybe_stub and maybe_log)) {
+      if (maybe_log)
+        maybe_log->info("No stub. Send batches skipped.");
       return true;
+    }
 
     grpc::ClientContext context;
     context.set_wait_for_ready(false);
@@ -59,7 +62,7 @@ namespace {
       return false;
     }
 
-    maybe_log->info("RPC succeeded: {}", context.peer());
+    maybe_log->info("RPC succeeded(SendBatches): {}", context.peer());
     return true;
   }
 }  // namespace
@@ -89,6 +92,11 @@ OnDemandOsClientGrpc::~OnDemandOsClientGrpc() {
     sh_ctx->TryCancel();
 }
 
+void OnDemandOsClientGrpc::onBatchesToWholeNetwork(CollectionType batches) {
+  // This code should not be called.
+  assert(false);
+}
+
 void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   std::shared_ptr<proto::BatchesRequest> request;
   for (auto &batch : batches) {
@@ -102,6 +110,7 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
     }
 
     if (request->ByteSizeLong() >= 2ull * 1024 * 1024) {
+      log_->debug("execute for called");
       os_execution_keepers_->executeFor(
           peer_name_,
           [peer_name(peer_name_),
@@ -122,6 +131,7 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   }
 
   if (request) {
+    log_->debug("execute for called");
     os_execution_keepers_->executeFor(
         peer_name_,
         [peer_name(peer_name_),
@@ -192,7 +202,8 @@ void OnDemandOsClientGrpc::onRequestProposal(
           callback({std::nullopt, round});
           return;
         } else {
-          maybe_log->info("RPC succeeded: {}", context->peer());
+          maybe_log->info("RPC succeeded(RequestingProposal): {}",
+                          context->peer());
         }
 
         switch (response.optional_proposal_case()) {

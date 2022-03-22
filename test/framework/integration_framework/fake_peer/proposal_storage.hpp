@@ -15,8 +15,6 @@
 #include "consensus/round.hpp"
 #include "framework/integration_framework/fake_peer/types.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
-#include "multi_sig_transactions/hash.hpp"             // for PointerBatchHasher
-#include "multi_sig_transactions/state/mst_state.hpp"  // for BatchHashEquality
 
 namespace integration_framework {
   namespace fake_peer {

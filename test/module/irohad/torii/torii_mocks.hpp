@@ -58,10 +58,11 @@ namespace iroha {
           processCommit,
           (std::shared_ptr<shared_model::interface::Block const> const &),
           (override));
-      MOCK_METHOD(void,
-                  processStateUpdate,
-                  (std::shared_ptr<MstState> const &),
-                  (override));
+      MOCK_METHOD(
+          void,
+          processStateUpdate,
+          (std::shared_ptr<shared_model::interface::TransactionBatch> const &),
+          (override));
       MOCK_METHOD(
           void,
           processPreparedBatch,

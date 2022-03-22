@@ -20,7 +20,6 @@ namespace integration_framework {
      public:
       virtual ~EmptyBehaviour() = default;
 
-      void processMstMessage(std::shared_ptr<MstMessage> message) override;
       void processYacMessage(
           std::shared_ptr<const YacMessage> message) override;
       void processOsBatch(

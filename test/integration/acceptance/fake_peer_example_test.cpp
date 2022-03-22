@@ -43,28 +43,12 @@ TEST_P(FakePeerExampleTest,
        MstStateOfTransactionWithoutAllSignaturesPropagtesToOtherPeer) {
   createFakePeers(1);
   auto &itf = prepareState();
-  auto mst_states_observable =
-      fake_peers_.front()->getMstStatesObservable().replay();
-  mst_states_observable.connect();
 
   itf.sendTxWithoutValidation(complete(
       baseTx(kAdminId)
           .transferAsset(kAdminId, kUserId, kAssetId, "income", "500.0")
           .quorum(2),
       kAdminKeypair));
-
-  mst_states_observable
-      .timeout(kMstStateWaitingTime, rxcpp::observe_on_new_thread())
-      .take(1)
-      .as_blocking()
-      .subscribe([](const auto &) {},
-                 [](std::exception_ptr ep) {
-                   try {
-                     std::rethrow_exception(ep);
-                   } catch (const std::exception &e) {
-                     FAIL() << "Error waiting for MST state: " << e.what();
-                   }
-                 });
 }
 
 /**

@@ -16,6 +16,7 @@ namespace iroha {
 
       struct MockOdOsNotification : public OdOsNotification {
         MOCK_METHOD1(onBatches, void(CollectionType));
+        MOCK_METHOD1(onBatchesToWholeNetwork, void(CollectionType));
         MOCK_METHOD2(onRequestProposal,
                      void(consensus::Round,
                           std::optional<std::shared_ptr<
