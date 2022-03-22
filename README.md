@@ -1,6 +1,6 @@
 # Overview
 
-A very simple and performant blockchain.
+A simple and efficient blockchain ledger.
 
 ## About
 
@@ -9,31 +9,40 @@ A very simple and performant blockchain.
 [![codecov](https://codecov.io/gh/hyperledger/iroha/branch/iroha2-dev/graph/badge.svg)](https://codecov.io/gh/hyperledger/iroha)
 
 
-Iroha is a straightforward distributed ledger technology (DLT), inspired by the Japanese Kaizen principle — eliminate excesses (muri). Iroha has essential functionality for your asset, information and identity management needs, while also being an efficient and trustworthy crash and fault-tolerant tool for your enterprise needs.
+Iroha is a distributed ledger technology (DLT). Its design principles are inspired by the Japanese Kaizen principle — eliminate excesses (muri). Iroha can help you manage your accounts, assets, on-chain data storage with efficient smartcontracts, while being Byzantine- and crash-fault tolerant, being able to withstand a fault rate of 33%.
 
 ## Features
 
-Iroha has the following features:
+Iroha is a fully-featured blockchain ledger
 
 * Creation and management of custom fungible assets, such as currencies, gold, etc.
-* User account management including domain-based taxonomy
-* The system of rights and verification of user permissions for the execution of transactions and queries in the system
-* Byzantine fault-tolerance with up to 34% fault rate
+* Non-fungible asset support.
+* User account management, with a domain hierarchy, and multi-signature transactions.
+* Efficient portable smartcontracts implemented either via Web-assembly, or Iroha Special Instructions.
+* Support for both permissioned, and permission-less blockchain deployments.
+* Byzantine fault-tolerance with up to 34% fault rate.
+* Efficient in-memory operation.
+* Extensive telemetry support out of the box.
+* Modular structure. Don't need it? Compile with `--no-default-features` and add the features you need.
+* Event-driven architecture with strongly-typed events.
 
 # System Requirements
 
-| Use-case          | CPU               | RAM   | Storage |
-|-------------------|-------------------|-------|---------|
-| Build (minimum)   | Dual-core CPU     | 4GB   | 20GB    |
-| Build (recommend) | AMD Ryzen™ 5 1600 | 16GB  | 40GB    |
-| Deploy (small)    | Dual-core CPU     | 8GB+  | 20GB+   |
-| Deploy (large)    | AMD Epyc™ 64-core | 128GB | 128GB+  |
+| Use-case          | CPU               | RAM   | Storage[^1] |
+|-------------------|-------------------|-------|-------------|
+| Build (minimum)   | Dual-core CPU     | 4GB   | 20GB        |
+| Build (recommend) | AMD Ryzen™ 5 1600 | 16GB  | 40GB        |
+| Deploy (small)    | Dual-core CPU     | 8GB+  | 20GB+       |
+| Deploy (large)    | AMD Epyc™ 64-core | 128GB | 128GB+      |
 
-## Notes
-* Rust compilation highly favours multi-core CPUs such as Apple M1™, AMD Ryzen™/Threadripper™/Epyc™, Intel Alder Lake
+[^1]: Note, Iroha only optionally requires a block storage. All operations are done in RAM by default.
+
+### Notes on system requirements
+
+* Rust compilation highly favours multi-core CPUs such as Apple M1™, AMD Ryzen™/Threadripper™/Epyc™, Intel Alder Lake™ etc.
 * On systems with restricted memory but many CPU cores, compilation of Iroha may sometimes fail with (`SIGKILL`). If this happens to you, restrict the number of CPU cores using `cargo build -j <number>`, where `<number>` (without the angle brackets) is half your RAM capacity rounded down.
-* Blockchain operations are done in-memory, so RAM requirements may increase over time, depending on the size and number of blocks in your blockchain.
-* Iroha itself does not require any persistent storage, as all of its configuration options can be specified via environment variables.
+* Be advised that RAM usage will grow linearly, as all transactions are stored in in-memory. You should expect to consume more RAM with a higher TPS and uptime.
+* You need on average 5KiB of RAM per-account. So a 1 000 000 account network uses 5GiB of memory. Each transfer or Mint instruction occupies slightly less memory at 1KiB per instruction.
 
 
 # Building, testing and running
@@ -41,23 +50,27 @@ Iroha has the following features:
 ## Pre-requisites
 
 * [Rust](https://www.rust-lang.org/learn/get-started)
-* [Docker](https://docs.docker.com/get-docker/)
-* [Docker Compose](https://docs.docker.com/compose/install/)
+* (Optional) [Docker](https://docs.docker.com/get-docker/)
+* (Optional) [Docker Compose](https://docs.docker.com/compose/install/)
 
-## Test Iroha
+## (Optional) Test
 
-### Unit tests
+### Cargo
 
 ```bash
 cargo test
 ```
 
-### Integration tests
+### API functional tests
 
 ```bash
-bash ./scripts/setup_docker_test_env.sh
-bash ./scripts/test_docker_compose.sh
-bash ./scripts/cleanup_docker_test_env.sh
+cargo build
+chmod +x target/debug/iroha
+chmod +x target/debug/iroha_client_cli
+
+bash ./scripts/test_env.sh setup
+bash ./scripts/tests/register_mint_quantity.sh
+bash ./scripts/test_env.sh cleanup
 ```
 
 
@@ -87,7 +100,7 @@ More details about the usage of Iroha can be found [here](https://github.com/hyp
 With the `docker-compose` instance running,
 
 ```bash
-cp configs/client_config.json target/debug/config.json
+cp configs/client_cli/config.json target/debug/config.json
 cd target/debug
 ./iroha_client_cli --help
 ```
@@ -98,7 +111,7 @@ More details about Iroha Client CLI can be found [here](./client_cli/README.md).
 
 Iroha project mainly consists of the following crates:
 
-* [`iroha`](cli) — the command-line application for deploying an Iroha peer
+* [`iroha`](cli) — the command-line application for deploying an Iroha peer. Contains the routing table and definitions of API endpoints.
 * [`iroha_actor`](actor), which  provides a message passing model for Iroha components
 * [`iroha_client`](client), which provides a library for building clients which communicate with peers
 * [`iroha_client_cli`](client_cli) — reference implementation of a client.
@@ -125,18 +138,21 @@ It may be useful to generate the configurations by looking at [`core/src/samples
 
 ## Endpoints
 
-A detailed list of all available endpoints is available [here](./docs/source/references/api_spec.md#endpoints).
+A detailed list of all available endpoints is available [in the API specifications](./docs/source/references/api_spec.md#endpoints).
 
 ## Logging
 
-By default Iroha logs in a human readable format to `stdout`. The logging level is set as described [here](./docs/source/references/config.md#loggermax_log_level), and it can be changed at run-time using the `configuration` endpoint.
+By default, Iroha logs in both a human readable format to `stdout`. The logging level can be changed either via a [configuration option](./docs/source/references/config.md#loggermax_log_level), or at run-time using the `configuration` endpoint.
 
-For example if your iroha instance is running at `127.0.0.1:8080` to change the log level to `DEBUG` using `curl` one can
+For example if your iroha instance is running at `127.0.0.1:8080` to change the log level to `DEBUG` using `curl`, you should send a `POST` request containing the new level in JSON. For example
 ```bash
-curl -X POST -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"LogLevel": "DEBUG"}' -i
+curl -X POST \
+    -H 'content-type: application/json' \
+    http://127.0.0.1:8080/configuration \
+    -d '{"LogLevel": "DEBUG"}' -i
 ```
 
-Optional JSON formatted logging can be saved to the [logging file](./docs/source/references/config.md#loggerlog_file_path). [Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the peer administrator's responsibility.
+Optionally, Iroha supports a JSON logging mode. To enable this please set the [logging file](./docs/source/references/config.md#loggerlog_file_path) (on UNIX, you can also specify `/dev/stdout` or `/dev/stderr` if you prefer to pipe the output to [`bunyan`](https://www.npmjs.com/package/bunyan)). [Log rotation](https://www.commandlinux.com/man-page/man5/logrotate.conf.5.html) is the peer administrator's responsibility.
 
 ## Monitoring
 
@@ -156,9 +172,9 @@ The blocks are written to the `blocks` sub-folder (created automatically by Iroh
 
 No additional storage is necessary.
 
-## Scaling
+## Scalability
 
-Multiple instances of Iroha peer and client can be run on the same physical machine and in the same working directory (although it is recommended to give each a clean new working directory).
+Multiple instances of Iroha peer and client binaries  can be run on the same physical machine and in the same working directory (although it is recommended to give each a clean new working directory).
 
 The provided `docker-compose` file showcases a minimum viable network and the general methods of using the `hyperledger/iroha2:dev` docker image for deploying a network of peers.
 
@@ -174,8 +190,7 @@ The provided `docker-compose` file showcases a minimum viable network and the ge
 
 # Contributing
 
-That's great!
-Check out our [contributing guide](./CONTRIBUTING.md)
+Check out our [contributing guide](./CONTRIBUTING.md) for more details.
 
 # [Help](./CONTRIBUTING.md#contact)
 

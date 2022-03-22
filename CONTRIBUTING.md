@@ -142,12 +142,20 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 
 -  We require you to **Sign-off every commit**. If you don't [DCO](https://github.com/apps/dco) will not let you merge. Please add: `Signed-off-by: $NAME <$EMAIL>` as the final line of your commit message. You can do it automatically using `git commit -s`
 -  It's also useful to format your commit messages appropriately. Try to keep them short.
+-  Use the PR categories as a template for your commit messages: e.g. `[fix] #1969: Fix regression in Kotlin SDK tests`.
 -  **Prefer present tense** ("Add feature", not "Added feature").
 -  **Prefer imperative mood** ("Deploy to docker..." not "Deploys to docker...").
 -  Write a meaningful commit message. Imagine that you're looking at someone's code, titled "Fixed error".
 -  Limit the first line of your commit message to 50 characters or less.
 -  The first line of your commit message should contain the summary of the work you've done. If you need more than one line, leave a blank line between each pargraph and describe your changes in the middle. The last line must be the sign-off.
 -  Use the [Git Rebase Workflow](https://git-rebase.io/). Avoid using `git pull` use `git pull --rebase` instead.
+-  If you modify the Schema (check by generating the schema with `iroha_schema_bin` and diff), you should make all changes to the schema in a separate commit with the message `[schema]`.
+-  Generally, try to stick to one commit per meaningful change.
+  -  If you fixed several issues in one PR, give them separate commits.
+  -  As mentioned previously changes to the `schema` and the API should be done in appropriate commits separate from the rest of your work.
+  -  Don't bother with separate commits for fixing review comments. Amend the last one, unless the review comment asks to change the `schema`-affecting work. In that case, you want to rebase interactively.
+  -  Tests for functionality in the same commit as the functionality.
+
 
 
 ### Rust Style Guide
@@ -191,6 +199,16 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 -  Modules *contain* things, and we know that. Get to the point! Example: use `Logger-related traits.` instead of `Module which contains logger-related logic`.
 -  Prefer the single-line comment syntax. Use `///` above inline modules and `//!` for file-based modules.
 
+
+### General rules of thumb
+- If your function doesn't mutate any of its inputs (and it shouldn't mutate anything else), mark it as `#[must_use]`.
+- We prefer strong typing. Avoid `Box<dyn Error>` if possible.
+- If your function is a getter/setter it should be marked `#[inline]`.
+- If your function is a constructor (i.e. it's creating a new value from the input parameters and calls `default()`) it should be `#[inline]`.
+- Leaving `TODO` markers in code is fine, as long as you reference an issue that you created for it. Not creating an issue, means it doesn't get merged.
+- If you change naming conventions, make sure that the new name that you've chosen is _much_ clearer than what we had before.
+- Avoid tying your code to concrete data structures. Rust is smart enough to turn a `Vec<Instruction>` into `impl IntoIterator<Item = Instruction>` without extra processing.
+-
 
 ## Contact
 

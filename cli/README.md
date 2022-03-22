@@ -1,27 +1,63 @@
-# Iroha Application
+# Iroha CLI
 
 ## Description
 
-When you start your own ledger, Iroha Application will make peers in it up and running
-based on predefined configuration.
 
-## Usage
+Binary crate containing the Iroha peer binary. The binary is used to instantiate a peer and bootstrap an Iroha-based network. The feature flags used to compile the binary determine the network's capabilities.
 
-### CLI Help
+The library portions of this crate are related to CLI-argument processing, configuration loading and Endpoint routing. Everything related to the interfaces or API specifications is handled in this crate.
+
+## Build
+
+### Prerequisites
+
+A working [Rust toolchain](https://www.rust-lang.org/learn/get-started) is required to build the peer binary.
+
+Optionally, [Docker](https://www.docker.com/) can be used to build images containing any of the provided binaries. Using [Docker buildx](https://docs.docker.com/buildx/working-with-buildx/) is recommended, but not required.
+
+### Default
+
+The following command will build the Iroha peer binary, as well as every other supporting binary.
+
+```bash
+cargo build --release
 ```
-./iroha --help
+
+the results of the compilation can be found in `<IROHA REPO ROOT>/target/release/`, where `<IROHA REPO ROOT>` is the path to where you cloned this repository (without the angle brackets).
+
+### Adding features
+
+To add optional features, e.g. support for _roles_, compile with
+
+```bash
+cargo build --release --features roles
 ```
+
+A full list of features can be found in the [cargo manifest file](Cargo.toml) of this repository.
+
+### Disabling default features
+
+By default the Iroha binary is compiled with the `bridge` and `telemetry` features. If you with to remove those features, add `--no-default-features` to the command.
+
+```bash
+cargo build --release --no-default-features
+```
+
+This flag can be combined with the `--features` flag in order to precisely specify the feature set that you wish.
+
+## Configuration
 
 ### Generating Keys
 
-Before deployment each Peer should generate own pair of cryptographic keys. In our example we will use `Ed25519` and
-[iroha_crypto_cli](https://github.com/hyperledger/iroha/blob/iroha2-dev/crypto_cli/README.md) tool. This tool is a recommended way to generate iroha keys.
+We highly recommend that any non-testing deployment generate a new key pair, with the recommended algorithm `Ed25519`. For convenience, you can use the provided [`iroha_crypto_cli`](../crypto_cli/README.md). For example,
+
+<!-- TODO, update the links for the release version.  -->
 
 ```bash
-./iroha_crypto_cli
+cargo run --bin iroha_crypto_cli
 ```
 
-As a result you will see something like that:
+should produce
 
 ```bash
 Public key (multihash): ed0120bdf918243253b1e731fa096194c8928da37c4d3226f97eebd18cf5523d758d6c
@@ -29,39 +65,42 @@ Private key: 0311152fad9308482f51ca2832fdfab18e1c74f36c6adb198e3ef0213fe42fd8bdf
 Digest function: ed25519
 ```
 
-### Configuration
-
-All the parameters are configured in `config.json` file. The full documentation of each parameters is available [here](../docs/source/references/config.md). The values specified in the config can be overwritten by environment variables.
-
-### Manual Deployment
-
-All the commands are assumed to be executed in the root directory of the clone of this repository in Unix bash compatible shell.
-
-#### Make a Directory for Deployment
+**NOTE**: to see the command-line options for `iroha_crypto_cli` you must first terminate the arguments passed to `cargo`, so the command for running the `iroha_crypto_cli` binary with JSON formatting is
 
 ```bash
-mkdir deploy
+cargo run --bin iroha_crypto_cli -- --json
 ```
 
-#### Build Iroha Binary
+**NOTE**: The `iroha_crypto_cli` binary can be run without `cargo` using the `<IROHA REPO ROOT>/target/release/iroha_crypto_cli` binary.
 
-Build and copy Iroha binary into the directory.
+### Configuration file
 
+For the Iroha peer binary to run, a configuration file must be provided. Iroha will not run with defaults if the configuration file is not available.
+
+The Iroha binary looks for either a file `config.json` in the current directory, or for a JSON file `IROHA2_CONFIG_PATH`. If the latter environment variable is defined, but not a valid configuration file, the Iroha peer binary will exit and do nothing.
+
+The  [configuration options reference](../docs/source/references/config.md) provides detailed explanations of each configuration variable. All variables defined in `config.json` can be overridden with environment variables. **We don't recommend using environment variables for configuration outside docker-compose and Kubernetes deployments**. Please change the values in the configuration file instead, so that we can better debug the problems that you might be having.
+
+A [sample configuration file](../configs/peer/config.json) is provided for quick testing.
+
+One of the peers on your network must be provided with the genesis block, which is either `IROHA2_GENESIS_PATH` or `genesis.json` in the working directory.
+
+## Deployment
+### Native binary
+
+#### Prepare a deployment environment
+
+If you plan on running the `iroha` peer binary from the directory `deploy`, copy and if necessary edit `config.json` and `genesis.json`.
 ```bash
-cargo build --release
-cp ./target/release/iroha deploy
-```
-
-#### Copy configs
-
-Copy and if necessary edit config, genesis.
-```bash
+cp ./target/release/iroha
 cp ./configs/peer/config.json deploy
 cp ./configs/peer/genesis.json deploy
 ```
 
-In `config.json` define `TRUSTED_PEERS` to contain ids of the peers you are planning to start.
-Also update `PUBLIC_KEY`, `PRIVATE_KEY`, `TORII.P2P_ADDR` and `TORII.API_URL` correspondingly, they should be unique for each of the peers. `TRUSTED_PEERS` address fields should correspond to `TORII.P2P_URL`s of peers.
+Briefly, you should change all key pairs (don't forget to add these changes to `genesis.json`), adjust the port values for your initial set of trusted peers, and change the number of trusted peers to fit your initial network topology.
+
+**NOTE**: the number of peers needed for tolerating _f_ byzantine faults is _3f+1_.
+
 
 #### Start Iroha
 
@@ -72,17 +111,11 @@ cd deploy
 ./iroha --submit-genesis
 ```
 
-### Docker Compose Deployment
+### Docker
 
-To change configuration for this type of deployment use either environment variables in `docker-compose.yml` or change `config.json` that the `Dockerfile` references.
+We provide a sample configuration in [`docker-compose.yml`](../docker-compose.yml). We highly recommend that you adjust the `config.json` to include a set of new key pairs.
 
-#### Updating Keys
-
-[Generate keys](#generating-keys) and put them into `services.*.environment` in `docker-compose.yml`,
-or the keys default to those of `config.json`.
-
-Take a look at the reference configurations for a [single peer](https://github.com/hyperledger/iroha/blob/iroha2-dev/docker-compose-single.yml)
-and for [multiple peers](https://github.com/hyperledger/iroha/blob/iroha2-dev/docker-compose.yml).
+[Generate keys](#generating-keys) and put them into `services.*.environment` in `docker-compose.yml`. Don't forget that the public keys of `TRUSTED_PEERS` must also be updated.
 
 #### Build Images
 
@@ -114,9 +147,8 @@ docker-compose stop
 docker-compose down
 ```
 
-### Want to help us develop Iroha?
+### Contributing
 
-That's great!
 Check out [this document](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md)
 
 ## [Need help?](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md#contact)
