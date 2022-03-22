@@ -372,15 +372,9 @@ TEST_P(BatchPipelineTest, InvalidAtomicBatch) {
                                milliseconds(20000),
                                milliseconds(20000));
   prepareState(itf, "1.0", "1.0")
-      .sendTxSequenceAwait(transaction_sequence,
-                           [](const auto block) {
-                             ASSERT_THAT(block->transactions(), IsEmpty());
-                           })
-      .checkStatus(batch_transactions[0]->hash(), CHECK_STATELESS_VALID)
-      .checkStatus(batch_transactions[0]->hash(), CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(batch_transactions[1]->hash(), CHECK_STATELESS_VALID)
-      .checkStatus(batch_transactions[1]->hash(), CHECK_ENOUGH_SIGNATURES)
-      .checkStatus(batch_transactions[1]->hash(), CHECK_STATEFUL_INVALID);
+      .sendTxSequenceAwait(transaction_sequence, [](const auto block) {
+        ASSERT_THAT(block->transactions(), IsEmpty());
+      });
 }
 
 /**
