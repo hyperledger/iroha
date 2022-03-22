@@ -1,4 +1,12 @@
-# How to optimize your binary size?
+# Iroha WASM
+
+The library crate that is used for writing Iroha-compliant smartcontracts in Rust using the Web-assembly format. 
+
+## Usage
+
+Please follow the [WASM section of our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/advanced/intro.html#wasm) for a detailed guide
+
+## Reducing the size of WASM
 
 Smartcontracts' size should be optimized because they are stored directly on the blockchain. By
 following this list of optimization steps your binary's size can be reduced by an order of magnitude
@@ -44,3 +52,27 @@ $ wasm-opt -Os -o output.wasm input.wasm
 Following these steps is the bare minimum that can be done to all WASM smartcontracts.
 Users are encouraged to further reduce the sizes of their binaries by profiling using
 [twiggy](https://rustwasm.github.io/twiggy/) and avoid usage of large libraries.
+
+
+# Contributing
+
+Check out our [contributing guide](./CONTRIBUTING.md) for more details.
+
+# [Help](./CONTRIBUTING.md#contact)
+
+# License
+
+Iroha codebase is licensed under the Apache License,
+Version 2.0 (the "License"); you may not use this file except
+in compliance with the License. You may obtain a copy of the
+License at http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Iroha documentation files are made available under the Creative Commons
+Attribution 4.0 International License (CC-BY-4.0), available at
+http://creativecommons.org/licenses/by/4.0/
