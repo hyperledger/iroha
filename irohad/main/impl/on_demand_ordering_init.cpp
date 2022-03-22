@@ -260,7 +260,7 @@ iroha::ordering::RoundSwitch OnDemandOrderingInit::processSynchronizationEvent(
   peers.peers.at(OnDemandConnectionManager::kIssuer) =
       getOsPeer(kCurrentRound, current_round.reject_round);
 
-  connection_manager_->initializeConnections(peers);
+  connection_manager_->initializeConnections(peers, current_peers);
 
   return {std::move(current_round), event.ledger_state};
 }

@@ -10,7 +10,6 @@
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
 #include "logger/logger.hpp"
-#include "multi_sig_transactions/state/mst_state.hpp"
 #include "simulator/verified_proposal_creator_common.hpp"
 #include "validation/stateful_validator_common.hpp"
 
@@ -48,13 +47,11 @@ namespace iroha {
 
     TransactionProcessorImpl::TransactionProcessorImpl(
         std::shared_ptr<PeerCommunicationService> pcs,
-        std::shared_ptr<MstProcessor> mst_processor,
         std::shared_ptr<iroha::torii::StatusBus> status_bus,
         std::shared_ptr<shared_model::interface::TxStatusFactory>
             status_factory,
         logger::LoggerPtr log)
         : pcs_(std::move(pcs)),
-          mst_processor_(std::move(mst_processor)),
           status_bus_(std::move(status_bus)),
           status_factory_(std::move(status_factory)),
           log_(std::move(log)) {}
@@ -63,15 +60,7 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::TransactionBatch>
             transaction_batch) const {
       log_->info("handle batch");
-      if (transaction_batch->hasAllSignatures()
-          and not mst_processor_->batchInStorage(transaction_batch)) {
-        log_->info("propagating batch to PCS");
-        publishEnoughSignaturesStatus(transaction_batch->transactions());
-        pcs_->propagate_batch(transaction_batch);
-      } else {
-        log_->info("propagating batch to MST");
-        mst_processor_->propagateBatch(transaction_batch);
-      }
+      pcs_->propagate_batch(transaction_batch);
     }
 
     void TransactionProcessorImpl::processVerifiedProposalCreatorEvent(
@@ -113,19 +102,22 @@ namespace iroha {
     }
 
     void TransactionProcessorImpl::processStateUpdate(
-        std::shared_ptr<MstState> const &state) {
+        std::shared_ptr<shared_model::interface::TransactionBatch> const
+            &batch) {
       log_->info("MST state updated");
-      state->iterateTransactions([this](const auto &tx) {
-        publishStatus(TxStatusType::kMstPending, tx->hash());
-      });
+      std::for_each(batch->transactions().begin(),
+                    batch->transactions().end(),
+                    [this](const auto &tx) {
+                      publishStatus(TxStatusType::kMstPending, tx->hash());
+                    });
     }
 
     void TransactionProcessorImpl::processPreparedBatch(
         std::shared_ptr<shared_model::interface::TransactionBatch> const
             &batch) {
       log_->info("MST batch prepared");
-      publishEnoughSignaturesStatus(batch->transactions());
-      pcs_->propagate_batch(batch);
+      for (const auto &tx : batch->transactions())
+        publishStatus(TxStatusType::kEnoughSignaturesCollected, tx->hash());
     }
 
     void TransactionProcessorImpl::processExpiredBatch(
@@ -192,14 +184,6 @@ namespace iroha {
               status_factory_->makeEnoughSignaturesCollected(hash, tx_error));
           return;
         };
-      }
-    }
-
-    void TransactionProcessorImpl::publishEnoughSignaturesStatus(
-        const shared_model::interface::types::SharedTxsCollectionType &txs)
-        const {
-      for (const auto &tx : txs) {
-        publishStatus(TxStatusType::kEnoughSignaturesCollected, tx->hash());
       }
     }
   }  // namespace torii

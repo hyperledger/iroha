@@ -27,17 +27,19 @@ namespace iroha {
          const std::optional<shared_model::interface::types::TimestampType>
              &first_tx_time,
          const std::optional<shared_model::interface::types::TimestampType>
-             &last_tx_time), (const));
+             &last_tx_time),
+        (const));
     MOCK_METHOD1(insertPresenceCache,
                  void(std::shared_ptr<ametsuchi::TxPresenceCache> &cache));
     MOCK_METHOD(void,
                 removeTransaction,
                 (shared_model::interface::types::HashType const &),
                 (override));
-    MOCK_METHOD(void,
-                updatedBatchesHandler,
-                (std::shared_ptr<MstState> const &),
-                (override));
+    MOCK_METHOD(
+        void,
+        updatedBatchesHandler,
+        (std::shared_ptr<shared_model::interface::TransactionBatch> const &),
+        (override));
     MOCK_METHOD(
         void,
         removeBatch,
