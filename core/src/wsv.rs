@@ -58,6 +58,8 @@ pub struct World {
     pub roles: crate::RolesMap,
     /// Registered domains.
     pub domains: DomainsMap,
+    /// Triggers
+    pub triggers: TriggerSet,
     /// Iroha parameters.
     pub parameters: Vec<Parameter>,
 }
@@ -92,8 +94,6 @@ pub struct WorldStateView<W: WorldTrait> {
     pub metrics: Arc<Metrics>,
     /// Notifies subscribers when new block is applied
     new_block_notifier: Arc<NewBlockNotificationSender>,
-    /// Triggers
-    pub triggers: Arc<TriggerSet>,
     /// Events produced in the current block
     events: Arc<RwLock<Vec<Event>>>,
     /// Transmitter to broadcast [`WorldStateView`]-related events.
@@ -219,7 +219,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             .drain(..)
             .collect();
 
-        let triggers = self.triggers.find_matching(
+        let triggers = self.world.triggers.find_matching(
             events
                 .iter()
                 .chain(&block.as_v1().event_recommendations)
@@ -446,6 +446,9 @@ impl<W: WorldTrait> WorldStateView<W> {
             WorldEvent::Peer(peer_event) => cur_events.push(DataEvent::Peer(peer_event).into()),
             #[cfg(feature = "roles")]
             WorldEvent::Role(role_event) => cur_events.push(DataEvent::Role(role_event).into()),
+            WorldEvent::Trigger(trigger_event) => {
+                cur_events.push(DataEvent::Trigger(trigger_event).into())
+            }
         }
 
         self.produce_events(cur_events.iter().cloned());
@@ -559,7 +562,6 @@ impl<W: WorldTrait> WorldStateView<W> {
             blocks: Arc::new(Chain::new()),
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
-            triggers: Arc::new(TriggerSet::default()),
             events: Arc::new(RwLock::new(Vec::new())),
             events_sender: None,
         }
@@ -803,9 +805,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     where
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
     {
-        let event = Event::Data(f(&self.triggers).map(Into::into)?);
-        self.produce_events([event]);
-        Ok(())
+        self.modify_world(|world| f(&world.triggers).map(WorldEvent::Trigger))
     }
 }
 

@@ -231,6 +231,7 @@ pub enum WorldEvent {
 
     #[cfg(feature = "roles")]
     Role(role::RoleEvent),
+    Trigger(trigger::TriggerEvent),
 }
 
 /// Event

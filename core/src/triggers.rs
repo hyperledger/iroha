@@ -19,7 +19,7 @@ use iroha_data_model::{
 use crate::smartcontracts::{self, FindError, InstructionType, MathError};
 
 /// Specialised structure that maps event filters to Triggers.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TriggerSet(
     DashMap<trigger::Id, Action>, // TODO: Consider tree structures.
 );
