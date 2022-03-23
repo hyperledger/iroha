@@ -309,6 +309,20 @@ where
     pub destination_id: D::Id,
 }
 
+/// Instruction to execute specified trigger
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+pub struct ExecuteTrigger {
+    /// Id of a trigger to execute
+    pub trigger_id: TriggerId,
+}
+
+impl ExecuteTrigger {
+    /// Construct [`ExecuteTrigger`]
+    pub fn new(trigger_id: TriggerId) -> Self {
+        Self { trigger_id }
+    }
+}
+
 impl<O, K, V> SetKeyValue<O, K, V>
 where
     O: Identifiable,
@@ -770,8 +784,9 @@ mod tests {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Burn, BurnBox, FailBox, Grant, GrantBox, If as IfInstruction, Instruction, Mint, MintBox,
-        Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke, RevokeBox,
-        SequenceBox, SetKeyValue, SetKeyValueBox, Transfer, TransferBox, Unregister, UnregisterBox,
+        Burn, BurnBox, ExecuteTrigger, FailBox, Grant, GrantBox, If as IfInstruction, Instruction,
+        Mint, MintBox, Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke,
+        RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox, Transfer, TransferBox, Unregister,
+        UnregisterBox,
     };
 }
