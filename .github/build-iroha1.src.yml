@@ -1,5 +1,6 @@
 name: Iroha1
 
+## TODO IMPORTANT DISALLOW deploying tags and main and develop builds where skip_testing was set.
 ## TODO 1. [vcpkg,optimization-space,optimization-speed]
 ##         Build only Debug or only Release - reduce vcpkg build duration and output size 2times
 ##         see directory triplets/, `vcpkg help triplets` and link: https://stackoverflow.com/a/52781832/3743145
@@ -15,7 +16,7 @@ name: Iroha1
 ##                                                         and from 2hrs to 27min without cache
 ##         GitHub's default runners also idles much time before started when build often
 ## TODO 5. [speed,optimization,resources] Cancel previous runs if their duration is less than 10 minutes, protect almost done builds from being killed
-## TODO [prettify,documentation] update status badges in README.md
+## TODO [prettify,documentation] update status badges in /README.md
 ## TODO [minor] windows
 ## TODO actions/create-release for main branch and tags
 ## TODO [cmake,dockerimage,iroha-builder] To improve speed of vcpkg step install to iroha-builder
@@ -55,9 +56,31 @@ on:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
       build_spec:
-        description: 'See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"'
-        required: false
-        default: '/build'
+        description: |
+          See chatops-gen-matrix.sh, example "/build ubuntu macos gcc-9 burrow"
+          EXAMPLE build_spec:
+            /build ubuntu release gcc10
+            /build macos llvm release; /build macos clang ursa release
+            /build all
+            /build ubuntu all              ## build all possible configurations on Ubuntu
+            /build ubuntu burrow all       ## build release and debug on Ubuntu with Burrow
+          AVAILABLE build_spec keywords:
+            ubuntu|linux
+            macos
+            windows
+            normal
+            burrow
+            ursa
+            release|Release
+            debug|Debug
+            gcc|gcc-9|gcc9
+            gcc-10|gcc10
+            clang|clang-10|clang10
+            llvm
+            skip-testing|skip_testing
+            all|everything|beforemerge|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge
+        required: true
+        default: '/build skip_testing '
   # issue_comment:
   #   types: [created, edited]
   schedule:
@@ -365,9 +388,11 @@ jobs:
         id: dockertag_already
         run: |
           echo "::set-output name=container::$DOCKERHUB_ORG/iroha-builder:$dockertag"
+          docker pull "$DOCKERHUB_ORG/iroha-builder:$dockertag"
       -
-        name: Possible ERROR, Dockerfile edited but image cannot be pushed
-        if: ${{ steps.docker_login.outcome != 'success' || steps.build_and_push.outcome != 'success' }}
+        name: Possible ERROR, Dockerfile edited, image was build, but seems not pushed, CANNOT PULL.
+        if: failure()
+        #if: ${{ steps.docker_login.outcome != 'success' || steps.build_and_push.outcome != 'success' }}
         env:
           container: ${{steps.dockertag_already.outputs.container}}
           dockertag: ${{env.dockertag}}
@@ -447,6 +472,7 @@ jobs:
             *) echo "::error::Unknown features '$features'"; false ;;
           esac
           echo >>$GITHUB_ENV  features="$features"
+          echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
       - *step_detect_commented_pr
       - &step_checkout_full
         <<: *step_checkout
@@ -511,8 +537,8 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ env.BuildType }}
           -GNinja
           $CMAKE_USE
-          -DTESTING=ON
-          -DBENCHMARKING=ON
+          -DTESTING=$(      test "$skip_testing" = skip_testing && echo OFF || echo ON )
+          -DBENCHMARKING=$( test "$skip_testing" = skip_testing && echo OFF || echo ON )
           -DPACKAGE_DEB=ON
           #-DCMAKE_VERBOSE_MAKEFILE=ON  ## Note: use for debug
       - &step_cmake_build
@@ -574,6 +600,7 @@ jobs:
             build/test_data/**
       - &step_ctest
         timeout-minutes: 40
+        if: env.skip_testing == ''
         name: CTest
         run: |
           echo ::group::'boilerplate'
