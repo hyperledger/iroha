@@ -8,7 +8,7 @@
 //! search trees (common lisp) or hash tables (racket) to quickly
 //! trigger hooks.
 
-use std::sync::RwLock;
+use std::{cmp::min, ops::Deref};
 
 use dashmap::DashMap;
 use iroha_data_model::{
@@ -19,124 +19,120 @@ use iroha_data_model::{
 use crate::smartcontracts::{self, FindError, InstructionType, MathError};
 
 /// Specialised structure that maps event filters to Triggers.
-#[derive(Debug)]
-pub struct TriggerSet {
-    hooks: DashMap<trigger::Id, Action>, // TODO: Consider tree structures.
-    recommendations: RwLock<Vec<Action>>,
-}
-
-impl Default for TriggerSet {
-    fn default() -> Self {
-        Self {
-            hooks: DashMap::new(),
-            recommendations: RwLock::new(Vec::new()),
-        }
-    }
-}
+#[derive(Debug, Default, Clone)]
+pub struct TriggerSet(
+    DashMap<trigger::Id, Action>, // TODO: Consider tree structures.
+);
 
 impl TriggerSet {
     /// Add another trigger to the [`TriggerSet`].
     ///
     /// # Errors
-    /// - If [`TriggerSet`] already contains a trigger with the same [`EventFilter`].
+    /// - If [`TriggerSet`] already contains a trigger with the same id.
     /// It's the user's responsibility to first `Unregister` the `Trigger`.
     pub fn add(&self, trigger: Trigger) -> Result<(), smartcontracts::Error> {
-        let action = trigger.action;
-        if self.hooks.contains_key(&trigger.id) {
-            Err(smartcontracts::Error::Repetition(
+        if self.0.contains_key(&trigger.id) {
+            return Err(smartcontracts::Error::Repetition(
                 InstructionType::Register,
                 IdBox::TriggerId(trigger.id),
-            ))
-        } else {
-            self.hooks.insert(trigger.id.clone(), action).map_or_else(
-                || Ok(()),
-                |_| {
-                    Err(smartcontracts::Error::Repetition(
-                        InstructionType::Register,
-                        IdBox::TriggerId(trigger.id),
-                    ))
-                },
-            )
+            ));
         }
+        self.0.insert(trigger.id.clone(), trigger.action);
+
+        Ok(())
+    }
+
+    /// Get trigger by `id`
+    ///
+    /// # Errors
+    /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
+    pub fn get(
+        &self,
+        id: &trigger::Id,
+    ) -> Result<impl Deref<Target = Action> + '_, smartcontracts::Error> {
+        self.0
+            .get(id)
+            .ok_or_else(|| smartcontracts::Error::Find(Box::new(FindError::Trigger(id.clone()))))
     }
 
     /// Remove a trigger from the [`TriggerSet`].
     ///
     /// # Errors
-    /// - If [`TriggerSet`] doesn't contain the trigger with the given [`EventFilter`].
-    /// Note that the [`EventFilter`] must be specified exactly.
-    pub fn remove(&self, id: trigger::Id) -> Result<(), smartcontracts::Error> {
-        self.hooks.remove(&id).map_or_else(
+    /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
+    pub fn remove(&self, id: &trigger::Id) -> Result<(), smartcontracts::Error> {
+        self.0.remove(id).map_or_else(
             || {
                 Err(smartcontracts::Error::Repetition(
                     InstructionType::Unregister,
-                    IdBox::TriggerId(id),
+                    IdBox::TriggerId(id.clone()),
                 ))
             },
             |_| Ok(()),
         )
     }
 
-    /// Check if `self` contains `key`.
+    /// Check if [`TriggerSet`] contains `key`.
     pub fn contains(&self, key: &trigger::Id) -> bool {
-        self.hooks.contains_key(key)
+        self.0.contains_key(key)
     }
 
-    /// Add more repetitions to the hook identified by [`trigger::Id`].
+    /// Modify repetitions of the hook identified by [`trigger::Id`].
     ///
     /// # Errors
     /// - if trigger not found.
     /// - if addition to remaining current trigger repeats
-    /// overflows. Indefinitely repeating triggers always cause an
-    /// overflow.
+    /// overflows. Indefinitely repeating triggers and triggers set for
+    /// exact time always cause an overflow.
     pub fn mod_repeats(
         &self,
-        key: trigger::Id,
+        key: &trigger::Id,
         f: impl Fn(u32) -> Result<u32, MathError>,
     ) -> Result<(), smartcontracts::Error> {
-        if self.hooks.contains_key(&key) {
-            let mut action = self.hooks.get_mut(&key).ok_or(FindError::Trigger(key))?;
-            let new_repeats = match action.value().repeats {
-                Repeats::Exactly(n) => f(n).map_err(Into::into),
-                _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
-            }?;
-            action.value_mut().repeats = Repeats::Exactly(new_repeats);
-            Ok(())
-        } else {
-            Err(smartcontracts::Error::Find(Box::new(FindError::Trigger(
-                key,
-            ))))
-        }
+        let mut trigger = self.0.get_mut(key).ok_or_else(|| {
+            smartcontracts::Error::Find(Box::new(FindError::Trigger(key.clone())))
+        })?;
+
+        let new_repeats = match &trigger.repeats {
+            Repeats::Exactly(n) => f(*n).map_err(Into::into),
+            _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
+        }?;
+        trigger.repeats = Repeats::Exactly(new_repeats);
+
+        Ok(())
     }
 
-    /// Produce and store recommendations for next block execution.
+    /// Find triggers, which filter matches at least one event from `events`
     ///
-    /// # Panics
-    /// (RARE) If locking recommendations for writing fails.
-    pub fn produce_recommendations(&self, events: &[Event]) {
-        let actions = self.actions_matching(events);
-        #[allow(clippy::expect_used)]
-        let mut recommendations = self
-            .recommendations
-            .write()
-            .expect("Failed to lock recommendations, when updating triggers.");
-        *recommendations = actions;
-    }
-
-    /// Find all actions which match the current events.
-    fn actions_matching(&self, events: &[Event]) -> Vec<Action> {
+    /// Users should not try to modify [`TriggerSet`] before dropping actions,
+    /// returned by the current function
+    pub fn find_matching<'e, E>(&self, events: E) -> Vec<Action>
+    where
+        E: IntoIterator<Item = &'e Event>,
+    {
         let mut result = Vec::new();
+
         for event in events {
-            for mut trigger in self.hooks.iter_mut() {
-                if trigger.value().filter.apply(event) {
-                    match trigger.value().repeats {
+            for mut trigger in self.0.iter_mut() {
+                if let Event::Time(time_event) = event {
+                    if let EventFilter::Time(time_filter) = &trigger.filter {
+                        let mut count = time_filter.count_matches(time_event);
+                        if let Repeats::Exactly(n) = &mut trigger.repeats {
+                            count = min(*n, count);
+                            *n -= count;
+                        }
+
+                        for _ in 0..count {
+                            result.push(trigger.value().clone());
+                        }
+                    }
+                } else if trigger.filter.matches(event) {
+                    match trigger.repeats {
                         Repeats::Indefinitely => {
                             result.push(trigger.value().clone());
                         }
                         Repeats::Exactly(n) if n > 0_u32 => {
-                            let value = trigger.value_mut();
-                            value.repeats = Repeats::Exactly(n - 1);
-                            result.push(value.clone());
+                            trigger.repeats = Repeats::Exactly(n - 1);
+                            result.push(trigger.value().clone());
                         }
                         _ => {
                             // n == 0
@@ -146,7 +142,8 @@ impl TriggerSet {
                 }
             }
         }
-        self.hooks
+
+        self.0
             .retain(|_, action| !matches!(action.repeats, Repeats::Exactly(0)));
         result
     }

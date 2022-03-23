@@ -67,6 +67,7 @@ pub mod prelude {
     pub use crate::{
         block::{
             CommittedBlock, PendingBlock, ValidBlock, VersionedCommittedBlock, VersionedValidBlock,
+            DEFAULT_CONSENSUS_ESTIMATION_MS,
         },
         smartcontracts::permissions::AllowAll,
         smartcontracts::ValidQuery,

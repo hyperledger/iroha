@@ -12,7 +12,7 @@ use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{eyre, Context, Result};
 use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
 use iroha_data_model::{
-    current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*, trigger::Action,
+    current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*,
 };
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
@@ -21,6 +21,7 @@ use parity_scale_codec::{Decode, Encode};
 use crate::{
     prelude::*,
     sumeragi::{
+        config::*,
         network_topology::Topology,
         view_change::{Proof, ProofChain as ViewChangeProofs},
     },
@@ -28,8 +29,12 @@ use crate::{
     wsv::WorldTrait,
 };
 
-/// Collection of actions, that is not a `TriggerSet`
-pub type Triggers = Vec<Action>;
+const PIPELINE_TIME_MS: u64 =
+    DEFAULT_BLOCK_TIME_MS + DEFAULT_COMMIT_TIME_MS + DEFAULT_TX_RECEIPT_TIME_MS;
+
+/// Default estimation of consensus duration
+#[allow(clippy::integer_division)]
+pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 = (DEFAULT_COMMIT_TIME_MS + PIPELINE_TIME_MS) / 2;
 
 /// The chain of the previous block hash. If there is no previous
 /// block - the blockchain is empty.
@@ -174,8 +179,8 @@ pub struct PendingBlock {
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedAcceptedTransaction>,
-    /// Vector of trigger recommendations.
-    pub trigger_recommendations: Triggers,
+    /// Event recommendations.
+    pub event_recommendations: Vec<Event>,
 }
 
 // TODO: I strongly believe that we shouldn't be moving parts of a
@@ -187,7 +192,7 @@ impl PendingBlock {
     #[inline]
     pub fn new(
         transactions: Vec<VersionedAcceptedTransaction>,
-        trigger_recommendations: Triggers,
+        event_recommendations: Vec<Event>,
     ) -> PendingBlock {
         #[allow(clippy::expect_used)]
         let timestamp = current_time().as_millis();
@@ -195,7 +200,7 @@ impl PendingBlock {
         PendingBlock {
             timestamp,
             transactions,
-            trigger_recommendations,
+            event_recommendations,
         }
     }
 
@@ -209,9 +214,10 @@ impl PendingBlock {
     ) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
-            trigger_recommendations: self.trigger_recommendations,
+            event_recommendations: self.event_recommendations,
             header: BlockHeader {
                 timestamp: self.timestamp,
+                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: height + 1,
                 previous_block_hash,
                 transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
@@ -227,9 +233,10 @@ impl PendingBlock {
     pub fn chain_first_with_genesis_topology(self, genesis_topology: Topology) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
-            trigger_recommendations: self.trigger_recommendations,
+            event_recommendations: self.event_recommendations,
             header: BlockHeader {
                 timestamp: self.timestamp,
+                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
@@ -245,9 +252,10 @@ impl PendingBlock {
     pub fn chain_first(self) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
-            trigger_recommendations: self.trigger_recommendations,
+            event_recommendations: self.event_recommendations,
             header: BlockHeader {
                 timestamp: self.timestamp,
+                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
@@ -267,8 +275,8 @@ pub struct ChainedBlock {
     pub header: BlockHeader,
     /// Array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedAcceptedTransaction>,
-    /// Vector of trigger recommendations.
-    pub trigger_recommendations: Triggers,
+    /// Event recommendations.
+    pub event_recommendations: Vec<Event>,
 }
 
 /// Header of the block. The hash should be taken from its byte representation.
@@ -276,6 +284,8 @@ pub struct ChainedBlock {
 pub struct BlockHeader {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
+    /// Estimation of consensus duration in milliseconds
+    pub consensus_estimation: u64,
     /// a number of blocks in the chain up to the block.
     pub height: u64,
     /// Hash of a previous block in the chain.
@@ -334,14 +344,14 @@ impl ChainedBlock {
             .map(VersionedRejectedTransaction::hash)
             .collect::<MerkleTree<_>>()
             .root_hash();
-        let trigger_recommendations = self.trigger_recommendations;
-        // TODO: Validate trigger recommendations somehow?
+        let event_recommendations = self.event_recommendations;
+        // TODO: Validate Event recommendations somehow?
         ValidBlock {
             header,
             rejected_transactions: rejected,
             transactions: txs,
             signatures: BTreeSet::default(),
-            trigger_recommendations,
+            event_recommendations,
         }
         .into()
     }
@@ -489,8 +499,8 @@ pub struct ValidBlock {
     pub transactions: Vec<VersionedValidTransaction>,
     /// Signatures of peers which approved this block.
     pub signatures: BTreeSet<SignatureOf<Self>>,
-    /// Vector of trigger recommendations.
-    pub trigger_recommendations: Triggers,
+    /// Event recommendations.
+    pub event_recommendations: Vec<Event>,
 }
 
 impl ValidBlock {
@@ -502,7 +512,7 @@ impl ValidBlock {
             .map(|tx| tx.check_limits(tx_limits))
             .collect::<Result<Vec<_>, _>>()
             .map(drop)?;
-        // TODO: Check trigger recommendations.
+        // TODO: Check Event recommendations.
         self.rejected_transactions
             .iter()
             .map(|tx| tx.check_limits(tx_limits))
@@ -518,7 +528,7 @@ impl ValidBlock {
             header,
             rejected_transactions,
             transactions,
-            trigger_recommendations,
+            event_recommendations,
             signatures,
         } = self;
 
@@ -528,7 +538,7 @@ impl ValidBlock {
             .expect("Expected at least one signature");
 
         CommittedBlock {
-            trigger_recommendations,
+            event_recommendations,
             header,
             rejected_transactions,
             transactions,
@@ -546,7 +556,7 @@ impl ValidBlock {
             signatures: self.signatures,
             ..ChainedBlock {
                 header: self.header,
-                trigger_recommendations: self.trigger_recommendations,
+                event_recommendations: self.event_recommendations,
                 transactions: self
                     .transactions
                     .into_iter()
@@ -609,6 +619,7 @@ impl ValidBlock {
         Self {
             header: BlockHeader {
                 timestamp: 0,
+                consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
                 transactions_hash: EmptyChainHash::default().into(),
@@ -620,7 +631,7 @@ impl ValidBlock {
             rejected_transactions: Vec::new(),
             transactions: Vec::new(),
             signatures: BTreeSet::default(),
-            trigger_recommendations: Vec::new(),
+            event_recommendations: Vec::new(),
         }
         .sign(KeyPair::generate().unwrap())
         .unwrap()
@@ -720,8 +731,8 @@ pub struct CommittedBlock {
     pub rejected_transactions: Vec<VersionedRejectedTransaction>,
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<VersionedValidTransaction>,
-    /// Vector of trigger recommendations.
-    pub trigger_recommendations: Triggers,
+    /// Event recommendations.
+    pub event_recommendations: Vec<Event>,
     /// Signatures of peers which approved this block
     pub signatures: SignaturesOf<Self>,
 }
@@ -746,14 +757,14 @@ impl From<CommittedBlock> for ValidBlock {
             rejected_transactions,
             transactions,
             signatures,
-            trigger_recommendations,
+            event_recommendations,
         }: CommittedBlock,
     ) -> Self {
         Self {
             header,
             rejected_transactions,
             transactions,
-            trigger_recommendations,
+            event_recommendations,
             signatures: signatures.transmute().into(),
         }
     }

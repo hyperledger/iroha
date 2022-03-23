@@ -596,6 +596,7 @@ fn new_dummy() -> ValidBlock {
     ValidBlock {
         header: BlockHeader {
             timestamp: 0,
+            consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
             height: 1,
             previous_block_hash: EmptyChainHash::default().into(),
             transactions_hash: EmptyChainHash::default().into(),
@@ -606,7 +607,7 @@ fn new_dummy() -> ValidBlock {
         },
         rejected_transactions: vec![],
         transactions: vec![],
-        trigger_recommendations: vec![],
+        event_recommendations: vec![],
         signatures: BTreeSet::default(),
     }
     .sign(KeyPair::generate().unwrap())

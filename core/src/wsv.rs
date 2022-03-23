@@ -4,8 +4,10 @@
 use std::{
     convert::Infallible,
     fmt::Debug,
+    iter::once,
     ops::{Deref, DerefMut},
-    sync::Arc,
+    sync::{Arc, RwLock},
+    time::Duration,
 };
 
 use config::Configuration;
@@ -15,10 +17,9 @@ use dashmap::{
 };
 use eyre::Result;
 use iroha_crypto::HashOf;
-use iroha_data_model::{prelude::*, trigger::Action};
+use iroha_data_model::{prelude::*, small::SmallVec};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
-use small::SmallVec;
 use tokio::task;
 
 use crate::{
@@ -57,6 +58,8 @@ pub struct World {
     pub roles: crate::RolesMap,
     /// Registered domains.
     pub domains: DomainsMap,
+    /// Triggers
+    pub triggers: TriggerSet,
     /// Iroha parameters.
     pub parameters: Vec<Parameter>,
 }
@@ -91,8 +94,8 @@ pub struct WorldStateView<W: WorldTrait> {
     pub metrics: Arc<Metrics>,
     /// Notifies subscribers when new block is applied
     new_block_notifier: Arc<NewBlockNotificationSender>,
-    /// Triggers
-    pub triggers: Arc<TriggerSet>,
+    /// Events produced in the current block
+    events: Arc<RwLock<Vec<Event>>>,
     /// Transmitter to broadcast [`WorldStateView`]-related events.
     events_sender: Option<EventsSender>,
 }
@@ -186,8 +189,11 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Apply `CommittedBlock` with changes in form of **Iroha Special
-    /// Instructions** to `self`. `trigger_recommendations` are
-    /// applied first.
+    /// Instructions** to `self`.
+    ///
+    /// Order of execution:
+    /// 1) Transactions
+    /// 2) Triggers
     ///
     /// # Errors
     ///
@@ -195,32 +201,100 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// scenario is rare, because the `tx` validation implies applying
     /// instructions directly to a clone of the wsv.  If this happens,
     /// you likely have data corruption.
+    /// - If trigger execution fails
+    /// - If timestamp conversion to `u64` fails
     #[iroha_futures::telemetry_future]
     #[log(skip(self, block))]
+    #[allow(clippy::expect_used)]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
-        // TODO: Validate the trigger executables as well as the technical account.
-        for Action {
-            technical_account,
-            executable,
-            ..
-        } in &block.as_v1().trigger_recommendations
-        {
-            self.process_executable(executable, technical_account)?;
-            task::yield_now().await;
-        }
+        let time_event = Event::Time(self.create_time_event(block.as_v1())?);
+        self.produce_events(once(time_event.clone()));
 
+        self.execute_transactions(block.as_v1()).await?;
+
+        let events: Vec<Event> = self
+            .events
+            .write()
+            .expect("Failed to lock events while applying block")
+            .drain(..)
+            .collect();
+
+        let triggers = self.world.triggers.find_matching(
+            events
+                .iter()
+                .chain(&block.as_v1().event_recommendations)
+                .chain(once(&time_event)),
+        );
+        self.execute_triggers(triggers).await?;
+
+        self.blocks.push(block);
+        self.block_commit_metrics_update_callback();
+        self.new_block_notifier.send_replace(());
+
+        // TODO: On block commit triggers
+        // TODO: Pass self.events to the next block
+
+        Ok(())
+    }
+
+    /// Create time event using previous and current blocks
+    fn create_time_event(&self, block: &CommittedBlock) -> Result<TimeEvent> {
+        let prev_interval = self
+            .blocks
+            .latest_block()
+            .map(|latest_block| {
+                let header = latest_block.header();
+                header.timestamp.try_into().map(|since| {
+                    TimeInterval::new(
+                        Duration::from_millis(since),
+                        Duration::from_millis(header.consensus_estimation),
+                    )
+                })
+            })
+            .transpose()?;
+
+        let interval = TimeInterval::new(
+            Duration::from_millis(block.header.timestamp.try_into()?),
+            Duration::from_millis(block.header.consensus_estimation),
+        );
+
+        Ok(TimeEvent::new(prev_interval, interval))
+    }
+
+    /// Execute `block` transactions and store their hashes as well as
+    /// `rejected_transactions` hashes
+    ///
+    /// # Errors
+    /// Fails if transaction instruction execution fails
+    async fn execute_transactions(&self, block: &CommittedBlock) -> Result<()> {
         // TODO: Should this block panic instead?
-        for tx in &block.as_v1().transactions {
+        for tx in &block.transactions {
             self.process_executable(&tx.as_v1().payload.instructions, &tx.payload().account_id)?;
             self.transactions.insert(tx.hash());
             task::yield_now().await;
         }
-        for tx in &block.as_v1().rejected_transactions {
+        for tx in &block.rejected_transactions {
             self.transactions.insert(tx.hash());
         }
-        self.blocks.push(block);
-        self.block_commit_metrics_update_callback();
-        self.new_block_notifier.send_replace(());
+
+        Ok(())
+    }
+
+    /// Execute `triggers` and apply them to `self`
+    ///
+    /// # Errors
+    /// Fails if trigger execution fails
+    async fn execute_triggers<T, I>(&self, triggers: T) -> Result<()>
+    where
+        T: IntoIterator<Item = Action, IntoIter = I> + Send,
+        I: Iterator<Item = Action> + Send,
+    {
+        // TODO: Validate the trigger executables as well as the technical account.
+        for trigger in triggers {
+            self.process_executable(&trigger.executable, &trigger.technical_account)?;
+            task::yield_now().await;
+        }
+
         Ok(())
     }
 
@@ -242,7 +316,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Send [`Event`]s to known subscribers.
     fn produce_events<E>(&self, events: E)
     where
-        E: IntoIterator<Item = DataEvent>,
+        E: IntoIterator<Item = Event>,
     {
         let events_sender = if let Some(sender) = &self.events_sender {
             sender
@@ -251,7 +325,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         };
 
         for event in events {
-            drop(events_sender.send(Event::from(event)))
+            drop(events_sender.send(event))
         }
     }
 
@@ -343,11 +417,15 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if `f` fails
+    ///
+    /// # Panics
+    /// (Rare) Panics if can't lock `self.events` for writing
+    #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     pub fn modify_world(
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
-        let mut events: SmallVec<[DataEvent; 3]> = SmallVec(smallvec::smallvec![]);
+        let mut cur_events: SmallVec<[Event; 3]> = SmallVec(smallvec::smallvec![]);
         let event = f(&self.world)?;
 
         match event {
@@ -355,23 +433,29 @@ impl<W: WorldTrait> WorldStateView<W> {
                 match &domain_event {
                     DomainEvent::Account(account_event) => {
                         if let AccountEvent::Asset(asset_event) = account_event {
-                            events.push(DataEvent::Asset(asset_event.clone()))
+                            cur_events.push(DataEvent::Asset(asset_event.clone()).into())
                         }
-                        events.push(DataEvent::Account(account_event.clone()));
+                        cur_events.push(DataEvent::Account(account_event.clone()).into());
                     }
-                    DomainEvent::AssetDefinition(asset_definition_event) => {
-                        events.push(DataEvent::AssetDefinition(asset_definition_event.clone()))
-                    }
+                    DomainEvent::AssetDefinition(asset_definition_event) => cur_events
+                        .push(DataEvent::AssetDefinition(asset_definition_event.clone()).into()),
                     _ => (),
                 }
-                events.push(DataEvent::Domain(domain_event));
+                cur_events.push(DataEvent::Domain(domain_event).into());
             }
-            WorldEvent::Peer(peer_event) => events.push(DataEvent::Peer(peer_event)),
+            WorldEvent::Peer(peer_event) => cur_events.push(DataEvent::Peer(peer_event).into()),
             #[cfg(feature = "roles")]
-            WorldEvent::Role(role_event) => events.push(DataEvent::Role(role_event)),
+            WorldEvent::Role(role_event) => cur_events.push(DataEvent::Role(role_event).into()),
+            WorldEvent::Trigger(trigger_event) => {
+                cur_events.push(DataEvent::Trigger(trigger_event).into())
+            }
         }
 
-        self.produce_events(events);
+        self.produce_events(cur_events.iter().cloned());
+        self.events
+            .write()
+            .expect("Failed to lock events while modifying world")
+            .extend(cur_events);
         Ok(())
     }
 
@@ -478,7 +562,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             blocks: Arc::new(Chain::new()),
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
-            triggers: Arc::new(TriggerSet::default()),
+            events: Arc::new(RwLock::new(Vec::new())),
             events_sender: None,
         }
     }
@@ -721,9 +805,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     where
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
     {
-        let event = f(&self.triggers).map(Into::into)?;
-        self.produce_events([event]);
-        Ok(())
+        self.modify_world(|world| f(&world.triggers).map(WorldEvent::Trigger))
     }
 }
 

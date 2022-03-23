@@ -320,7 +320,10 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
                 Register::<Domain>::new(*domain).execute(authority, wsv)
             }
             IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
-            _ => Err(Error::Unsupported(InstructionType::Unregister)),
+            IdentifiableBox::Trigger(trigger) => {
+                Register::<Trigger>::new(*trigger).execute(authority, wsv)
+            }
+            _ => Err(Error::Unsupported(InstructionType::Register)),
         }
     }
 }
