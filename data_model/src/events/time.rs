@@ -86,7 +86,7 @@ impl EventFilter {
     /// with much less *periods* than just `impl Mul<u32> for Duration` does
     ///
     /// # Panics
-    /// Panics if result number in seconds can't be represented as `u64`
+    /// Panics if resulting number in seconds can't be represented as `u64`
     #[allow(clippy::expect_used, clippy::integer_division)]
     fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
         if let Ok(n) = u32::try_from(n) {
@@ -99,7 +99,7 @@ impl EventFilter {
         }
 
         let new_secs = u64::try_from(new_ms / 1000)
-            .expect("Overflow. Can't multiply duration by such a big number");
+            .expect("Overflow. Resulting number in seconds can't be represented as `u64`");
         Duration::from_secs(new_secs)
     }
 }
@@ -408,10 +408,7 @@ mod tests {
                 Schedule::starting_at(Duration::ZERO).with_period(Duration::from_millis(1));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(1));
 
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                1000
-            );
+            EventFilter::count_matches_in_interval(&schedule, &interval);
 
             let finish_time = current_time();
             let result_time = finish_time.saturating_sub(start_time);

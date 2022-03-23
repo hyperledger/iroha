@@ -18,8 +18,8 @@ macro_rules! const_assert {
 
 /// Time-based triggers and block commitment process depend heavily on **current time** and **CPU**,
 /// so it's impossible to create fully reproducible test scenario.
-/// But it's possible to compare expectations an reality about trigger execution count. In this test
-/// it is expected to have estimation error < **10%**
+///
+/// But in general it works well and this test demonstrates it
 #[test]
 #[allow(clippy::cast_precision_loss)]
 fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result<()> {
@@ -56,7 +56,8 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     let actual_value = *TryAsRef::<u32>::try_as_ref(&output_asset)?;
     let expected_value = TryAsRef::<u32>::try_as_ref(&prev_value)? + u32::try_from(average_count)?;
     let acceptable_error = expected_value as f32 * (f32::from(ACCEPTABLE_ERROR_PERCENT) / 100.0);
-    let error = i32::abs((actual_value - expected_value).try_into()?) as f32;
+    let error = (core::cmp::max(actual_value, expected_value)
+        - core::cmp::min(actual_value, expected_value)) as f32;
     assert!(
         error < acceptable_error,
         "error = {}, but acceptable error = {}",
