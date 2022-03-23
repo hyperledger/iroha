@@ -200,7 +200,6 @@ mod tests {
     /// Tests for `EventFilter::count_matches_in_interval()`
     mod count_matches_in_interval {
         use super::*;
-        use crate::current_time;
 
         /// Sample timestamp
         const TIMESTAMP: u64 = 1_647_443_386;
@@ -394,26 +393,6 @@ mod tests {
                 EventFilter::count_matches_in_interval(&schedule, &interval),
                 7
             );
-        }
-
-        #[test]
-        fn bench_schedule_from_zero_with_little_period() {
-            //                       *         *
-            // --|-*-*-*- ... -*-*-*-[-*-...-*-)-*-*-*-
-            //   p     52 years     i1   1sec  i2
-
-            let start_time = current_time();
-
-            let schedule =
-                Schedule::starting_at(Duration::ZERO).with_period(Duration::from_millis(1));
-            let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(1));
-
-            EventFilter::count_matches_in_interval(&schedule, &interval);
-
-            let finish_time = current_time();
-            let result_time = finish_time.saturating_sub(start_time);
-
-            assert!(result_time < Duration::from_millis(1));
         }
     }
 }

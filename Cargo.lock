@@ -1823,6 +1823,7 @@ dependencies = [
 name = "iroha_data_model"
 version = "2.0.0-pre-rc.2"
 dependencies = [
+ "criterion",
  "derive_more",
  "hex-literal",
  "iroha",
