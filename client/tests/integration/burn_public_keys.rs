@@ -28,7 +28,7 @@ fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {
 #[test]
 fn public_keys_cannot_be_burned_to_nothing() {
     const KEYS_COUNT: usize = 3;
-    let bob_id = AccountId::new("bob", "wonderland").expect("Valid");
+    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
     let bob_keys_count = |client: &mut Client| account_keys_count(client, bob_id.clone());
 
     let (_rt, _peer, mut client) = <TestPeer>::start_test_with_runtime();

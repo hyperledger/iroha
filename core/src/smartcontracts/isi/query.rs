@@ -226,14 +226,14 @@ mod tests {
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> =
-        Lazy::new(|| AccountId::new("alice", "wonderland").expect("Valid"));
+        Lazy::new(|| AccountId::from_str("alice@wonderland").expect("Valid"));
 
     fn world_with_test_domains() -> World {
-        let domain_id = DomainId::new("wonderland").expect("Valid");
-        let mut domain: Domain = Domain::new(domain_id).into();
-        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]);
+        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let mut domain = Domain::new(domain_id).build();
+        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
         assert!(domain.add_account(account).is_none());
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
             .add_asset_definition(
                 AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
@@ -244,10 +244,9 @@ mod tests {
     }
 
     fn world_with_test_asset_with_metadata() -> World {
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-        let mut domain: Domain = Domain::new(DomainId::new("wonderland").expect("Valid")).into();
-        let mut account: Account =
-            Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).into();
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
+        let mut domain = Domain::new(DomainId::from_str("wonderland").expect("Valid")).build();
+        let mut account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
         assert!(domain
             .add_asset_definition(
                 AssetDefinition::new(asset_definition_id.clone(), AssetValueType::Quantity, true),
@@ -279,11 +278,12 @@ mod tests {
             MetadataLimits::new(10, 100),
         )?;
 
-        let mut domain: Domain = Domain::new(DomainId::new("wonderland")?).into();
-        let account =
-            Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).with_metadata(metadata);
+        let mut domain = Domain::new(DomainId::from_str("wonderland")?).build();
+        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()])
+            .with_metadata(metadata)
+            .build();
         assert!(domain.add_account(account).is_none());
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
             .add_asset_definition(
                 AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
@@ -297,7 +297,7 @@ mod tests {
     fn asset_store() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_asset_with_metadata());
 
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
         let bytes =
             FindAssetKeyValueByIdAndKey::new(asset_id, Name::from_str("Bytes")?).execute(&wsv)?;
@@ -374,12 +374,12 @@ mod tests {
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             )?;
-            let mut domain: Domain = Domain::new(DomainId::new("wonderland")?)
+            let mut domain = Domain::new(DomainId::from_str("wonderland")?)
                 .with_metadata(metadata)
-                .into();
-            let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]);
+                .build();
+            let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
             assert!(domain.add_account(account).is_none());
-            let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
+            let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             assert!(domain
                 .add_asset_definition(
                     AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
@@ -389,7 +389,7 @@ mod tests {
             WorldStateView::new(World::with([domain], PeersIds::new()))
         };
 
-        let domain_id = DomainId::new("wonderland")?;
+        let domain_id = DomainId::from_str("wonderland")?;
         let key = Name::from_str("Bytes")?;
         let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&wsv)?;
         assert_eq!(

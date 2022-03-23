@@ -80,8 +80,8 @@ fn unstable_network(
 
     let pipeline_time = Configuration::pipeline_time();
 
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
+    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().expect("Valid");
     // Initially there are 13 roses.
     let mut account_has_quantity = 13;
 

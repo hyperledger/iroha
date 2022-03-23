@@ -254,7 +254,7 @@ impl_try_as_for_asset_value! {
 /// ```
 /// use iroha_data_model::asset::DefinitionId;
 ///
-/// let definition_id = DefinitionId::new("xor", "soramitsu");
+/// let definition_id = "xor#soramitsu".parse::<DefinitionId>().expect("Valid");
 /// ```
 #[derive(
     Debug,
@@ -305,7 +305,7 @@ impl AssetDefinition {
         id: <AssetDefinition as Identifiable>::Id,
         value_type: AssetValueType,
         mintable: bool,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id,
             value_type,
@@ -326,7 +326,7 @@ impl AssetDefinition {
     #[inline]
     pub fn new_quantity(
         id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::Quantity, true)
     }
 
@@ -334,7 +334,7 @@ impl AssetDefinition {
     #[inline]
     pub fn new_quantity_token(
         id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::BigQuantity, true)
     }
 
@@ -342,7 +342,7 @@ impl AssetDefinition {
     #[inline]
     pub fn new_big_quantity(
         id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::BigQuantity, true)
     }
 
@@ -350,7 +350,7 @@ impl AssetDefinition {
     #[inline]
     pub fn new_bin_quantity_token(
         id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::BigQuantity, false)
     }
 
@@ -358,7 +358,7 @@ impl AssetDefinition {
     #[inline]
     pub fn new_fixed_precision(
         id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::Fixed, true)
     }
 
@@ -366,7 +366,7 @@ impl AssetDefinition {
     #[inline]
     pub fn new_fixed_precision_token(
         id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::Fixed, true)
     }
 
@@ -374,7 +374,7 @@ impl AssetDefinition {
     #[inline]
     pub fn new_store(
         id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::Store, true)
     }
 
@@ -382,7 +382,7 @@ impl AssetDefinition {
     #[inline]
     pub fn new_store_token(
         id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::Store, false)
     }
 }
@@ -392,7 +392,7 @@ impl Asset {
     pub fn new<V: Into<AssetValue>>(
         id: <Asset as Identifiable>::Id,
         value: V,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id,
             value: value.into(),
@@ -430,11 +430,15 @@ impl DefinitionId {
     /// # Errors
     /// Fails if any sub-construction fails
     #[inline]
-    pub fn new(name: &str, domain_name: &str) -> Result<Self, ParseError> {
-        Ok(Self {
-            name: Name::from_str(name)?,
-            domain_id: DomainId::new(domain_name)?,
-        })
+    pub fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
+        Self { name, domain_id }
+    }
+
+    pub(crate) const fn empty() -> Self {
+        Self {
+            name: Name::empty(),
+            domain_id: DomainId::empty(),
+        }
     }
 }
 
@@ -454,12 +458,12 @@ impl Id {
 
 impl Identifiable for Asset {
     type Id = Id;
-    type Constructor = Self;
+    type RegisteredWith = Self;
 }
 
 impl Identifiable for AssetDefinition {
     type Id = DefinitionId;
-    type Constructor = Self;
+    type RegisteredWith = Self;
 }
 
 impl FromIterator<Asset> for Value {
@@ -485,6 +489,10 @@ impl FromStr for DefinitionId {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
+        if string.is_empty() {
+            return Ok(Self::empty());
+        }
+
         let vector: Vec<&str> = string.split('#').collect();
         if vector.len() != 2 {
             return Err(ParseError {
@@ -493,7 +501,7 @@ impl FromStr for DefinitionId {
         }
         Ok(Self {
             name: Name::from_str(vector[0])?,
-            domain_id: DomainId::new(vector[1])?,
+            domain_id: DomainId::from_str(vector[1])?,
         })
     }
 }

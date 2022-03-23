@@ -233,7 +233,7 @@ where
     O: Identifiable,
 {
     /// The object that should be registered, should be uniquely identifiable by its id.
-    pub object: O::Constructor,
+    pub object: O::RegisteredWith,
 }
 
 /// Generic instruction for an unregistration of an object from the identifiable destination.
@@ -375,7 +375,7 @@ where
     O: Identifiable,
 {
     /// Construct [`Register`].
-    pub fn new(object: O::Constructor) -> Self {
+    pub fn new(object: O::RegisteredWith) -> Self {
         Register { object }
     }
 }

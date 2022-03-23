@@ -32,7 +32,7 @@ use crate::{
 #[getset(get = "pub")]
 pub struct Trigger {
     /// [`Id`] of the [`Trigger`].
-    id: Id,
+    id: <Self as Identifiable>::Id,
     /// Action to be performed when the trigger matches.
     action: Action,
     /// Metadata of this account as a key-value store.
@@ -41,13 +41,10 @@ pub struct Trigger {
 
 impl Trigger {
     /// Construct trigger, given name action and signatories.
-    ///
-    /// # Errors
-    /// - Name is malformed
     pub fn new(
         id: <Self as Identifiable>::Id,
         action: Action,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id,
             action,
@@ -65,7 +62,7 @@ impl Trigger {
 
 impl Identifiable for Trigger {
     type Id = Id;
-    type Constructor = Self;
+    type RegisteredWith = Self;
 }
 
 /// Designed to differentiate between oneshot and unlimited

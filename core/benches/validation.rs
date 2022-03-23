@@ -1,6 +1,6 @@
 #![allow(missing_docs, clippy::restriction)]
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, str::FromStr as _, sync::Arc};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
@@ -23,17 +23,22 @@ const TRANSACTION_LIMITS: TransactionLimits = TransactionLimits {
 
 fn build_test_transaction(keys: KeyPair) -> Transaction {
     let domain_name = "domain";
-    let domain_id = DomainId::new(domain_name).expect("does not panic");
+    let domain_id = DomainId::from_str(domain_name).expect("does not panic");
     let create_domain = RegisterBox::new(Domain::new(domain_id));
     let account_name = "account";
     let create_account = RegisterBox::new(Account::new(
-        AccountId::new(account_name, domain_name).expect("does not panic"),
+        AccountId::new(
+            account_name.parse().expect("Valid"),
+            domain_name.parse().expect("Valid"),
+        ),
         [KeyPair::generate()
             .expect("Failed to generate KeyPair.")
             .public_key],
     ));
-    let asset_definition_id =
-        AssetDefinitionId::new("xor", domain_name).expect("Valid definition Ids");
+    let asset_definition_id = AssetDefinitionId::new(
+        "xor".parse().expect("Valid"),
+        domain_name.parse().expect("Valid"),
+    );
     let create_asset = RegisterBox::new(AssetDefinition::new(
         asset_definition_id,
         AssetValueType::Quantity,
@@ -45,7 +50,10 @@ fn build_test_transaction(keys: KeyPair) -> Transaction {
         create_asset.into(),
     ];
     Transaction::new(
-        AccountId::new(START_ACCOUNT, START_DOMAIN).expect("valid START ACCOUNT and START_DOMAIN"),
+        AccountId::new(
+            START_ACCOUNT.parse().expect("Valid"),
+            START_DOMAIN.parse().expect("Valid"),
+        ),
         instructions.into(),
         TRANSACTION_TIME_TO_LIVE_MS,
     )
@@ -55,10 +63,13 @@ fn build_test_transaction(keys: KeyPair) -> Transaction {
 
 fn build_test_wsv(keys: KeyPair) -> WorldStateView<World> {
     WorldStateView::new({
-        let domain_id = DomainId::new(START_DOMAIN).expect("Valid");
-        let mut domain: Domain = Domain::new(domain_id).into();
-        let account_id = AccountId::new(START_ACCOUNT, START_DOMAIN).expect("Valid");
-        let account = Account::new(account_id, [keys.public_key]);
+        let domain_id = DomainId::from_str(START_DOMAIN).expect("Valid");
+        let mut domain = Domain::new(domain_id).build();
+        let account_id = AccountId::new(
+            START_ACCOUNT.parse().expect("Valid"),
+            START_DOMAIN.parse().expect("Valid"),
+        );
+        let account = Account::new(account_id, [keys.public_key]).build();
         assert!(domain.add_account(account).is_none());
         World::with([domain], BTreeSet::new())
     })
@@ -188,10 +199,13 @@ fn validate_blocks(criterion: &mut Criterion) {
     // Prepare WSV
     let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let domain_name = "global";
-    let account_id = AccountId::new("root", domain_name).expect("is valid");
-    let account = Account::new(account_id, [key_pair.public_key]);
-    let domain_id = DomainId::new(domain_name).expect("is valid");
-    let mut domain: Domain = Domain::new(domain_id).into();
+    let account_id = AccountId::new(
+        "root".parse().expect("Valid"),
+        domain_name.parse().expect("Valid"),
+    );
+    let account = Account::new(account_id, [key_pair.public_key]).build();
+    let domain_id = DomainId::from_str(domain_name).expect("is valid");
+    let mut domain = Domain::new(domain_id).build();
     assert!(domain.add_account(account).is_none());
     // Pepare test transaction
     let keys = KeyPair::generate().expect("Failed to generate keys");

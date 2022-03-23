@@ -127,17 +127,20 @@ pub trait TestGenesis: Sized {
 impl<G: GenesisNetworkTrait> TestGenesis for G {
     fn test(submit_genesis: bool) -> Option<Self> {
         let cfg = Configuration::test();
-        let mut genesis = RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key)
-            .expect("Valid names never fail to parse");
+        let mut genesis = RawGenesisBlock::new(
+            "alice".parse().expect("Valid"),
+            "wonderland".parse().expect("Valid"),
+            get_key_pair().public_key,
+        );
         genesis.transactions[0].isi.push(
             RegisterBox::new(AssetDefinition::new_quantity(
-                AssetDefinitionId::new("rose", "wonderland").expect("valid names"),
+                AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
             ))
             .into(),
         );
         genesis.transactions[0].isi.push(
             RegisterBox::new(AssetDefinition::new_quantity(
-                AssetDefinitionId::new("tulip", "wonderland").expect("valid names"),
+                AssetDefinitionId::from_str("tulip#wonderland").expect("valid names"),
             ))
             .into(),
         );
@@ -145,8 +148,8 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
             MintBox::new(
                 Value::U32(13),
                 IdBox::AssetId(AssetId::new(
-                    AssetDefinitionId::new("rose", "wonderland").expect("valid names"),
-                    AccountId::new("alice", "wonderland").expect("valid names"),
+                    AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
+                    AccountId::from_str("alice@wonderland").expect("valid names"),
                 )),
             )
             .into(),

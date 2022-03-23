@@ -77,6 +77,10 @@ impl ValidationError {
 pub struct Name(String);
 
 impl Name {
+    pub(crate) const fn empty() -> Self {
+        Self(String::new())
+    }
+
     /// Check if `range` contains the number of chars in the inner `String` of this [`Name`].
     ///
     /// # Errors
@@ -108,6 +112,10 @@ impl FromStr for Name {
     type Err = ParseError;
 
     fn from_str(candidate: &str) -> Result<Self, Self::Err> {
+        if candidate.is_empty() {
+            return Ok(Self::empty());
+        }
+
         if candidate.chars().any(char::is_whitespace) {
             return Err(ParseError {
                 reason: "White space not allowed in `Name` constructs",
@@ -142,13 +150,13 @@ impl<'de> Deserialize<'de> for Name {
         use serde::de::Error as _;
 
         let name = <Cow<str>>::deserialize(deserializer)?;
-        Name::from_str(&name).map_err(D::Error::custom)
+        Self::from_str(&name).map_err(D::Error::custom)
     }
 }
 impl Decode for Name {
     fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
         let name = String::decode(input)?;
-        Name::from_str(&name).map_err(|error| error.reason.into())
+        Self::from_str(&name).map_err(|error| error.reason.into())
     }
 }
 
@@ -276,20 +284,20 @@ pub enum IdBox {
 )]
 pub enum RegistrableBox {
     /// [`Peer`](`peer::Peer`) variant.
-    Peer(Box<<peer::Peer as Identifiable>::Constructor>),
+    Peer(Box<<peer::Peer as Identifiable>::RegisteredWith>),
     /// [`Domain`](`domain::Domain`) variant.
-    Domain(Box<<domain::Domain as Identifiable>::Constructor>),
+    Domain(Box<<domain::Domain as Identifiable>::RegisteredWith>),
     /// [`Account`](`account::Account`) variant.
-    Account(Box<<account::Account as Identifiable>::Constructor>),
+    Account(Box<<account::Account as Identifiable>::RegisteredWith>),
     /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
-    AssetDefinition(Box<<asset::AssetDefinition as Identifiable>::Constructor>),
+    AssetDefinition(Box<<asset::AssetDefinition as Identifiable>::RegisteredWith>),
     /// [`Asset`](`asset::Asset`) variant.
-    Asset(Box<<asset::Asset as Identifiable>::Constructor>),
+    Asset(Box<<asset::Asset as Identifiable>::RegisteredWith>),
     /// [`Trigger`](`trigger::Trigger`) variant.
-    Trigger(Box<<trigger::Trigger as Identifiable>::Constructor>),
+    Trigger(Box<<trigger::Trigger as Identifiable>::RegisteredWith>),
     /// [`Role`](`role::Role`) variant.
     #[cfg(feature = "roles")]
-    Role(Box<<role::Role as Identifiable>::Constructor>),
+    Role(Box<<role::Role as Identifiable>::RegisteredWith>),
 }
 
 /// Sized container for all possible entities.
@@ -311,9 +319,9 @@ pub enum IdentifiableBox {
     /// [`Peer`](`peer::Peer`) variant.
     Peer(Box<peer::Peer>),
     /// [`NewDomain`](`domain::NewDomain`) variant.
-    NewDomain(Box<<domain::Domain as Identifiable>::Constructor>),
+    NewDomain(Box<<domain::Domain as Identifiable>::RegisteredWith>),
     /// [`NewAccount`](`account::NewAccount`) variant.
-    NewAccount(Box<<account::Account as Identifiable>::Constructor>),
+    NewAccount(Box<<account::Account as Identifiable>::RegisteredWith>),
     /// [`Domain`](`domain::Domain`) variant.
     Domain(Box<domain::Domain>),
     /// [`Account`](`account::Account`) variant.
@@ -641,8 +649,8 @@ impl<V: Into<Value> + Debug + Clone> ValueMarker for V {}
 pub trait Identifiable: Debug + Clone {
     /// Type of entity's identification.
     type Id: Into<IdBox> + Debug + Clone + Eq + Ord;
-    /// Type of constructor of the entity
-    type Constructor: Into<RegistrableBox>;
+    /// Type used to register `Identifiable` entity
+    type RegisteredWith: Into<RegistrableBox>;
 }
 
 /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars

@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::thread;
+use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
 use iroha_core::prelude::AllowAll;
@@ -38,9 +38,9 @@ fn permissions_disallow_asset_transfer() {
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let alice_id = AccountId::new("alice", "wonderland").expect("Valid");
-    let bob_id = AccountId::new("bob", "wonderland").expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
+    let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+    let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
 
@@ -97,10 +97,9 @@ fn permissions_disallow_asset_burn() {
     // Given
     thread::sleep(pipeline_time * 5);
 
-    let domain_name = "wonderland";
-    let alice_id = AccountId::new("alice", domain_name).expect("Valid");
-    let bob_id = AccountId::new("bob", domain_name).expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name).expect("Valid");
+    let alice_id = "alice@wonderland".parse().expect("Valid");
+    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
+    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
 
@@ -159,10 +158,9 @@ fn account_can_query_only_its_own_domain() {
     // Given
     thread::sleep(pipeline_time * 2);
 
-    let domain_name = "wonderland";
-    let new_domain_name = "wonderland2";
-    let register_domain =
-        RegisterBox::new(Domain::new(DomainId::new(new_domain_name).expect("Valid")));
+    let domain_id: DomainId = "wonderland".parse().expect("Valid");
+    let new_domain_id: DomainId = "wonderland2".parse().expect("Valid");
+    let register_domain = RegisterBox::new(Domain::new(new_domain_id.clone()));
 
     iroha_client
         .submit(register_domain)
@@ -172,15 +170,11 @@ fn account_can_query_only_its_own_domain() {
 
     // Alice can query the domain in which her account exists.
     assert!(iroha_client
-        .request(client::domain::by_id(
-            DomainId::new(domain_name).expect("Valid")
-        ))
+        .request(client::domain::by_id(domain_id))
         .is_ok());
 
     // Alice can not query other domains.
     assert!(iroha_client
-        .request(client::domain::by_id(
-            DomainId::new(new_domain_name).expect("Valid")
-        ))
+        .request(client::domain::by_id(new_domain_id))
         .is_err());
 }

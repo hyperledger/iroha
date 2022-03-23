@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::thread;
+use std::{str::FromStr as _, thread};
 
 use iroha_client::client;
 use iroha_data_model::prelude::*;
@@ -16,9 +16,9 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
     let pipeline_time = Configuration::pipeline_time();
 
     //When
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
-    let wrong_asset_definition_id = AssetDefinitionId::new("ksor", "wonderland").expect("Valid");
+    let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let wrong_asset_definition_id = AssetDefinitionId::from_str("ksor#wonderland").expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id));
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(

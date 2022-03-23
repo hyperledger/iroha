@@ -218,7 +218,10 @@ pub mod utils {
     }
 
     pub mod world {
-        use std::ops::{Deref, DerefMut};
+        use std::{
+            ops::{Deref, DerefMut},
+            str::FromStr as _,
+        };
 
         use iroha_core::{prelude::*, tx::Domain, wsv::WorldTrait};
         use iroha_data_model::prelude::*;
@@ -243,14 +246,14 @@ pub mod utils {
         pub static ALICE_KEYS: Lazy<KeyPair> =
             Lazy::new(|| KeyPair::generate().expect("doesn't fail"));
         pub static ALICE: Lazy<Account> = Lazy::new(|| {
-            let account_id = AccountId::new("alice", "wonderland").expect("valid account name.");
-            let mut account: Account = Account::new(account_id, []).into();
+            let account_id = AccountId::from_str("alice@wonderland").expect("valid account name.");
+            let mut account = Account::new(account_id, []).build();
             assert!(account.add_signatory(ALICE_KEYS.public_key.clone()));
             account
         });
         pub static WONDERLAND: Lazy<Domain> = Lazy::new(|| {
-            let mut domain: Domain =
-                Domain::new(DomainId::new("wonderland").expect("valid domain name")).into();
+            let mut domain =
+                Domain::new(DomainId::from_str("wonderland").expect("valid domain name")).build();
             assert!(domain.add_account(ALICE.clone()).is_none());
             domain
         });
@@ -258,14 +261,11 @@ pub mod utils {
         impl WorldTrait for WithAlice {
             /// Creates `World` with these `domains` and `trusted_peers_ids`
             fn with(
-                domains: impl IntoIterator<Item = impl Into<Domain>>,
+                domains: impl IntoIterator<Item = Domain>,
                 trusted_peers_ids: impl IntoIterator<Item = PeerId>,
             ) -> Self {
                 Self(World::with(
-                    domains
-                        .into_iter()
-                        .map(Into::into)
-                        .chain([WONDERLAND.clone()]),
+                    domains.into_iter().chain([WONDERLAND.clone()]),
                     trusted_peers_ids,
                 ))
             }

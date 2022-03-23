@@ -24,7 +24,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let account: Account = self.object.into();
+            let account: Account = self.object.build();
             let account_id = account.id().clone();
 
             account_id
@@ -33,8 +33,6 @@ pub mod isi {
                 .map_err(Error::Validate)?;
 
             wsv.modify_domain(&account_id.domain_id, |domain| {
-                let _m = domain.metadata_mut();
-                let _n = domain.metadata();
                 if domain.account(&account_id).is_some() {
                     return Err(Error::Repetition(
                         InstructionType::Register,

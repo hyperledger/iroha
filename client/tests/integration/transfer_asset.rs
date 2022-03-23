@@ -15,9 +15,9 @@ fn client_can_transfer_asset_to_another_account() {
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(Domain::new(DomainId::new("domain").expect("Valid")));
-    let account1_id = AccountId::new("account1", "domain").expect("Valid");
-    let account2_id = AccountId::new("account2", "domain").expect("Valid");
+    let create_domain = RegisterBox::new(Domain::new("domain".parse().expect("Valid")));
+    let account1_id: AccountId = "account1@domain".parse().expect("Valid");
+    let account2_id: AccountId = "account2@domain".parse().expect("Valid");
     let create_account1 = RegisterBox::new(Account::new(
         account1_id.clone(),
         [KeyPair::generate()
@@ -30,7 +30,7 @@ fn client_can_transfer_asset_to_another_account() {
             .expect("Failed to generate KeyPair.")
             .public_key],
     ));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
     let quantity: u32 = 200;
     let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     let mint_asset = MintBox::new(

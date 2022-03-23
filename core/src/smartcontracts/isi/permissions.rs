@@ -887,8 +887,14 @@ mod tests {
         account_domain: &str,
     ) -> IdBox {
         IdBox::AssetId(AssetId::new(
-            AssetDefinitionId::new(asset_name, asset_domain).expect("Valid"),
-            AccountId::new(account_name, account_domain).expect("Valid"),
+            AssetDefinitionId::new(
+                asset_name.parse().expect("Valid"),
+                asset_domain.parse().expect("Valid"),
+            ),
+            AccountId::new(
+                account_name.parse().expect("Valid"),
+                account_domain.parse().expect("Valid"),
+            ),
         ))
     }
 
@@ -903,8 +909,8 @@ mod tests {
         let instruction_fail = Instruction::Fail(FailBox {
             message: "fail message".to_owned(),
         });
-        let account_bob = <Account as Identifiable>::Id::new("bob", "test").expect("Valid");
-        let account_alice = <Account as Identifiable>::Id::new("alice", "test").expect("Valid");
+        let account_bob = <Account as Identifiable>::Id::from_str("bob@test").expect("Valid");
+        let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check(&account_bob, &instruction_burn, &wsv)
@@ -932,7 +938,7 @@ mod tests {
         });
         let nested_instruction_sequence =
             Instruction::If(If::new(true, instruction_burn.clone()).into());
-        let account_alice = <Account as Identifiable>::Id::new("alice", "test").expect("Valid");
+        let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check(&account_alice, &instruction_fail, &wsv)
@@ -947,15 +953,15 @@ mod tests {
 
     #[test]
     pub fn granted_permission() -> Result<()> {
-        let alice_id = <Account as Identifiable>::Id::new("alice", "test")?;
-        let bob_id = <Account as Identifiable>::Id::new("bob", "test")?;
+        let alice_id = <Account as Identifiable>::Id::from_str("alice@test")?;
+        let bob_id = <Account as Identifiable>::Id::from_str("bob@test")?;
         let alice_xor_id = <Asset as Identifiable>::Id::new(
-            AssetDefinitionId::new("xor", "test").expect("Valid"),
-            AccountId::new("alice", "test").expect("Valid"),
+            AssetDefinitionId::from_str("xor#test").expect("Valid"),
+            AccountId::from_str("alice@test").expect("Valid"),
         );
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
-        let mut domain: Domain = Domain::new(DomainId::new("test").expect("Valid")).into();
-        let mut bob_account: Account = Account::new(bob_id.clone(), []).into();
+        let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
+        let mut bob_account = Account::new(bob_id.clone(), []).build();
         assert!(bob_account.add_permission(PermissionToken::new(
             Name::from_str("token").expect("Valid"),
             BTreeMap::default(),
@@ -976,8 +982,8 @@ mod tests {
                 Expression::Add(Add::new(
                     Expression::Query(
                         FindAssetQuantityById::new(AssetId::new(
-                            AssetDefinitionId::new("btc2eth_rate", "exchange").expect("Valid"),
-                            AccountId::new("dex", "exchange").expect("Valid"),
+                            AssetDefinitionId::from_str("btc2eth_rate#exchange").expect("Valid"),
+                            AccountId::from_str("dex@exchange").expect("Valid"),
                         ))
                         .into(),
                     ),
@@ -993,7 +999,7 @@ mod tests {
         )
         .into();
         let wsv = WorldStateView::new(World::new());
-        let alice_id = <Account as Identifiable>::Id::new("alice", "test").expect("Valid");
+        let alice_id = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &DenyAll.into()).is_err())
     }
 }

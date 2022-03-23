@@ -639,12 +639,12 @@ mod tests {
     use crate::{wsv::World, PeersIds};
 
     fn world_with_test_domains() -> Result<World> {
-        let mut domain: Domain = Domain::new(DomainId::new("wonderland")?).into();
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let mut domain = Domain::new(DomainId::from_str("wonderland")?).build();
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let key_pair = KeyPair::generate()?;
-        let account = Account::new(account_id.clone(), [key_pair.public_key]);
+        let account = Account::new(account_id.clone(), [key_pair.public_key]).build();
         assert!(domain.add_account(account).is_none());
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         assert!(domain
             .add_asset_definition(AssetDefinition::new_store(asset_definition_id), account_id)
             .is_none());
@@ -654,8 +654,8 @@ mod tests {
     #[test]
     fn asset_store() -> Result<()> {
         let wsv = WorldStateView::<World>::new(world_with_test_domains()?);
-        let account_id = AccountId::new("alice", "wonderland")?;
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
         SetKeyValueBox::new(
             IdBox::from(asset_id.clone()),
@@ -682,7 +682,7 @@ mod tests {
     #[test]
     fn account_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
             Name::from_str("Bytes")?,
@@ -709,8 +709,8 @@ mod tests {
     #[test]
     fn asset_definition_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
-        let definition_id = AssetDefinitionId::new("rose", "wonderland")?;
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(definition_id.clone()),
             Name::from_str("Bytes")?,
@@ -737,8 +737,8 @@ mod tests {
     #[test]
     fn domain_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
-        let domain_id = DomainId::new("wonderland")?;
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let domain_id = DomainId::from_str("wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(domain_id.clone()),
             Name::from_str("Bytes")?,

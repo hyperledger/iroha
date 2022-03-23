@@ -32,8 +32,8 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     let start_time = current_time();
 
-    let asset_definition_id = "rose@wonderland".parse().expect("Valid");
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let asset_definition_id = "rose#wonderland".parse().expect("Valid");
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
     let prev_value = test_client.request(client::asset::by_id(asset_id.clone()))?;
@@ -41,7 +41,7 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
     let register_trigger =
-        build_register_mint_rose_trigger_isi(asset_id.clone(), ExecutionTime::Schedule(schedule))?;
+        build_register_mint_rose_trigger_isi(asset_id.clone(), ExecutionTime::Schedule(schedule));
     test_client.submit(register_trigger)?;
 
     submit_sample_isi_on_every_block_commit(&mut test_client, &account_id, 3)?;
@@ -120,9 +120,10 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
 fn build_register_mint_rose_trigger_isi(
     asset_id: AssetId,
     execution_time: ExecutionTime,
-) -> Result<RegisterBox> {
+) -> RegisterBox {
     let instruction = MintBox::new(1_u32, asset_id.clone());
-    Ok(RegisterBox::new(Trigger::new(
+
+    RegisterBox::new(Trigger::new(
         "mint_rose".parse().expect("Valid"),
         Action::new(
             Executable::from(vec![instruction.into()]),
@@ -130,7 +131,7 @@ fn build_register_mint_rose_trigger_isi(
             asset_id.account_id,
             EventFilter::Time(TimeEventFilter(execution_time)),
         ),
-    )))
+    ))
 }
 
 /// Submit some sample ISIs to create new blocks

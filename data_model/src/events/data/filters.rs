@@ -689,14 +689,15 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)]
     fn entity_scope() {
-        const DOMAIN: &str = "wonderland";
-        const ACCOUNT: &str = "alice";
-        const ASSET: &str = "rose";
-        let domain_id = DomainId::new(DOMAIN).expect("Valid");
-        let account_id = AccountId::new(ACCOUNT, DOMAIN).expect("Valid");
+        let domain_name = "wonderland".parse().expect("Valid");
+        let account_name = "alice".parse().expect("Valid");
+        let asset_name = "rose".parse().expect("Valid");
+
+        let domain_id = DomainId::new(domain_name);
+        let account_id = AccountId::new(account_name, domain_id.clone());
         let asset_id = AssetId::new(
-            AssetDefinitionId::new(ASSET, DOMAIN).expect("Valid"),
-            AccountId::new(ACCOUNT, DOMAIN).expect("Valid"),
+            AssetDefinitionId::new(asset_name, domain_id.clone()),
+            account_id.clone(),
         );
 
         let domain_created = DomainEvent::Created(domain_id);

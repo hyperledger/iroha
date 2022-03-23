@@ -42,7 +42,7 @@ pub trait WorldTrait:
 {
     /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
     fn with(
-        domains: impl IntoIterator<Item = impl Into<Domain>>,
+        domains: impl IntoIterator<Item = Domain>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
     ) -> Self;
 }
@@ -138,12 +138,11 @@ impl World {
 
 impl WorldTrait for World {
     fn with(
-        domains: impl IntoIterator<Item = impl Into<Domain>>,
+        domains: impl IntoIterator<Item = Domain>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
     ) -> Self {
         let domains = domains
             .into_iter()
-            .map(Into::into)
             .map(|domain| (domain.id().clone(), domain))
             .collect();
         let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
@@ -171,10 +170,10 @@ impl<W: WorldTrait> WorldStateView<W> {
         self
     }
 
-    /// Get `Account`'s `Asset`s and pass it to closure
+    /// Get `Account`'s `Asset`s
     ///
     /// # Errors
-    /// Fails if account finding fails
+    /// Fails if there is no domain or account
     pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, FindError> {
         self.map_account(id, |account| account.assets().cloned().collect())
     }
@@ -360,21 +359,23 @@ impl<W: WorldTrait> WorldStateView<W> {
         id: &<Asset as Identifiable>::Id,
         default_asset_value: impl Into<AssetValue>,
     ) -> Result<Asset, Error> {
+        if let Ok(asset) = self.asset(id) {
+            return Ok(asset);
+        }
+
         // This function is strictly infallible.
         self.modify_account(&id.account_id, |account| {
-            if account.asset(id).is_none() {
-                assert!(account
-                    .add_asset(Asset::new(id.clone(), default_asset_value.into()))
-                    .is_none());
-            }
+            assert!(account
+                .add_asset(Asset::new(id.clone(), default_asset_value.into()))
+                .is_none());
 
-            // TODO: What if asset was already present?
             Ok(AccountEvent::Asset(AssetEvent::Created(id.clone())))
         })
         .map_err(|err| {
             iroha_logger::warn!(?err);
             err
         })?;
+
         self.asset(id).map_err(Into::into)
     }
 

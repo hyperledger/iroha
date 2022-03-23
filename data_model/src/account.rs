@@ -60,10 +60,11 @@ impl GenesisAccount {
     }
 }
 
+#[cfg(feature = "mutable_api")]
 impl From<GenesisAccount> for Account {
     #[inline]
     fn from(account: GenesisAccount) -> Self {
-        Account::new(Id::genesis(), [account.public_key]).into()
+        Account::new(Id::genesis(), [account.public_key]).build()
     }
 }
 
@@ -126,7 +127,10 @@ impl Ord for NewAccount {
 }
 
 impl NewAccount {
-    fn new(id: Id, signatories: impl IntoIterator<Item = PublicKey>) -> Self {
+    fn new(
+        id: <Account as Identifiable>::Id,
+        signatories: impl IntoIterator<Item = PublicKey>,
+    ) -> Self {
         Self {
             id,
             signatories: signatories.into_iter().collect(),
@@ -139,6 +143,22 @@ impl NewAccount {
     pub fn with_metadata(mut self, metadata: Metadata) -> Self {
         self.metadata = metadata;
         self
+    }
+
+    /// Construct [`Account`]
+    #[must_use]
+    #[cfg(feature = "mutable_api")]
+    pub fn build(self) -> Account {
+        Account {
+            id: self.id,
+            signatories: self.signatories,
+            assets: AssetsMap::default(),
+            permission_tokens: Permissions::default(),
+            signature_check_condition: SignatureCheckCondition::default(),
+            metadata: self.metadata,
+            #[cfg(feature = "roles")]
+            roles: RoleIds::default(),
+        }
     }
 }
 
@@ -161,7 +181,7 @@ impl NewAccount {
 #[allow(clippy::multiple_inherent_impl)]
 pub struct Account {
     /// An Identification of the [`Account`].
-    id: Id,
+    id: <Self as Identifiable>::Id,
     /// Asset's in this [`Account`].
     #[getset(skip)]
     assets: AssetsMap,
@@ -185,7 +205,7 @@ pub struct Account {
 
 impl Identifiable for Account {
     type Id = Id;
-    type Constructor = NewAccount;
+    type RegisteredWith = NewAccount;
 }
 
 impl PartialOrd for Account {
@@ -202,29 +222,14 @@ impl Ord for Account {
     }
 }
 
-impl From<<Self as Identifiable>::Constructor> for Account {
-    fn from(source: <Self as Identifiable>::Constructor) -> Self {
-        Self {
-            id: source.id,
-            signatories: source.signatories,
-            assets: AssetsMap::default(),
-            permission_tokens: Permissions::default(),
-            signature_check_condition: SignatureCheckCondition::default(),
-            metadata: source.metadata,
-            #[cfg(feature = "roles")]
-            roles: RoleIds::default(),
-        }
-    }
-}
-
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]
     pub fn new(
-        id: Id,
+        id: <Self as Identifiable>::Id,
         signatories: impl IntoIterator<Item = PublicKey>,
-    ) -> <Self as Identifiable>::Constructor {
-        <Self as Identifiable>::Constructor::new(id, signatories)
+    ) -> <Self as Identifiable>::RegisteredWith {
+        <Self as Identifiable>::RegisteredWith::new(id, signatories)
     }
 
     /// Return `true` if the `Account` contains signatory
@@ -306,8 +311,7 @@ impl Account {
 
     /// Add [`Asset`] into the [`Account`] returning previous asset stored under the same id
     #[inline]
-    pub fn add_asset(&mut self, asset: impl Into<Asset>) -> Option<Asset> {
-        let asset = asset.into();
+    pub fn add_asset(&mut self, asset: Asset) -> Option<Asset> {
         self.assets.insert(asset.id().clone(), asset)
     }
 
@@ -350,34 +354,6 @@ impl Account {
     }
 }
 
-impl Id {
-    /// Construct [`Id`] from an account `name` and a `domain_name` if
-    /// these names are valid.
-    ///
-    /// # Errors
-    /// Fails if any sub-construction fails
-    #[inline]
-    pub fn new(name: &str, domain_name: &str) -> Result<Self, ParseError> {
-        Ok(Self {
-            name: Name::from_str(name)?,
-            domain_id: DomainId::new(domain_name)?,
-        })
-    }
-
-    /// Construct [`Id`] of the genesis account.
-    #[inline]
-    #[must_use]
-    pub fn genesis() -> Self {
-        #[allow(clippy::expect_used)]
-        Self {
-            name: Name::from_str(GENESIS_ACCOUNT_NAME)
-                .expect("Programmer error. Must not contain whitespace."),
-            domain_id: DomainId::new(GENESIS_DOMAIN_NAME)
-                .expect("Programmer error. Must not contain whitespace."),
-        }
-    }
-}
-
 impl FromIterator<Account> for crate::Value {
     fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
         iter.into_iter()
@@ -394,7 +370,7 @@ impl FromIterator<Account> for crate::Value {
 /// ```
 /// use iroha_data_model::account::Id;
 ///
-/// let id = Id::new("user", "company");
+/// let id = "user@company".parse::<Id>().expect("Valid");
 /// ```
 #[derive(
     Debug,
@@ -414,7 +390,37 @@ pub struct Id {
     /// [`Account`]'s name.
     pub name: Name,
     /// [`Account`]'s [`Domain`](`crate::domain::Domain`)'s id.
-    pub domain_id: DomainId,
+    pub domain_id: <Domain as Identifiable>::Id,
+}
+
+impl Id {
+    pub(crate) const fn empty() -> Self {
+        Self {
+            name: Name::empty(),
+            domain_id: DomainId::empty(),
+        }
+    }
+
+    /// Construct [`Id`] from an account `name` and a `domain_name` if
+    /// these names are valid.
+    ///
+    /// # Errors
+    /// Fails if any sub-construction fails
+    #[inline]
+    pub fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
+        Self { name, domain_id }
+    }
+
+    /// Construct [`Id`] of the genesis account.
+    #[inline]
+    #[must_use]
+    pub fn genesis() -> Self {
+        #[allow(clippy::expect_used)]
+        Self {
+            name: Name::from_str(GENESIS_ACCOUNT_NAME).expect("Valid"),
+            domain_id: DomainId::from_str(GENESIS_DOMAIN_NAME).expect("Valid"),
+        }
+    }
 }
 
 /// Account Identification is represented by `name@domain_name` string.
@@ -422,7 +428,12 @@ impl FromStr for Id {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
+        if string.is_empty() {
+            return Ok(Self::empty());
+        }
+
         let vector: Vec<&str> = string.split('@').collect();
+
         if vector.len() != 2 {
             return Err(ParseError {
                 reason: "Id should have format `name@domain_name`",
@@ -430,7 +441,7 @@ impl FromStr for Id {
         }
         Ok(Self {
             name: Name::from_str(vector[0])?,
-            domain_id: DomainId::new(vector[1])?,
+            domain_id: DomainId::from_str(vector[1])?,
         })
     }
 }

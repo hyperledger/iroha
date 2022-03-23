@@ -30,14 +30,15 @@ impl TriggerSet {
     /// # Errors
     /// - If [`TriggerSet`] already contains a trigger with the same id.
     /// It's the user's responsibility to first `Unregister` the `Trigger`.
-    pub fn add(&self, trigger: Trigger) -> Result<(), smartcontracts::Error> {
+    pub fn add(&self, trigger: &Trigger) -> Result<(), smartcontracts::Error> {
         if self.0.contains_key(trigger.id()) {
             return Err(smartcontracts::Error::Repetition(
                 InstructionType::Register,
                 IdBox::TriggerId(trigger.id().clone()),
             ));
         }
-        self.0.insert(trigger.id().clone(), trigger.action().clone());
+        self.0
+            .insert(trigger.id().clone(), trigger.action().clone());
 
         Ok(())
     }

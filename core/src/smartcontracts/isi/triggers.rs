@@ -53,7 +53,7 @@ pub mod isi {
 
             wsv.modify_triggers(|triggers| {
                 let trigger_id = new_trigger.id().clone();
-                triggers.add(new_trigger)?;
+                triggers.add(&new_trigger)?;
                 Ok(TriggerEvent::Created(trigger_id))
             })
         }

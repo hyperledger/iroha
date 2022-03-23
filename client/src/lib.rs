@@ -21,8 +21,7 @@ pub mod samples {
         Configuration {
             public_key,
             private_key,
-            account_id: iroha_data_model::prelude::AccountId::new("alice", "wonderland")
-                .expect("Should not fail."),
+            account_id: "alice@wonderland".parse().expect("Should not fail."),
             torii_api_url: iroha_data_model::small::SmallStr::from_str(uri::DEFAULT_API_URL),
             ..Configuration::default()
         }

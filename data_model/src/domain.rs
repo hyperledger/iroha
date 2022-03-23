@@ -1,19 +1,17 @@
 //! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_map, format, string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use core::{cmp::Ordering, fmt, str::FromStr};
-#[cfg(feature = "std")]
-use std::collections::btree_map;
 
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
 use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    account::{Account, AccountsMap, GenesisAccount},
+    account::{Account, AccountsMap},
     asset::AssetDefinitionsMap,
     metadata::Metadata,
     prelude::{AssetDefinition, AssetDefinitionEntry},
@@ -38,14 +36,20 @@ impl GenesisDomain {
     }
 }
 
+#[cfg(feature = "mutable_api")]
 impl From<GenesisDomain> for Domain {
     fn from(domain: GenesisDomain) -> Self {
+        #[cfg(not(feature = "std"))]
+        use alloc::collections::btree_map;
+        #[cfg(feature = "std")]
+        use std::collections::btree_map;
+
         #[allow(clippy::expect_used)]
         Self {
-            id: Id::new(GENESIS_DOMAIN_NAME).expect("Programmer error. Should pass verification"),
+            id: Id::from_str(GENESIS_DOMAIN_NAME).expect("Valid"),
             accounts: core::iter::once((
                 <Account as Identifiable>::Id::genesis(),
-                GenesisAccount::new(domain.genesis_key).into(),
+                crate::account::GenesisAccount::new(domain.genesis_key).into(),
             ))
             .collect(),
             asset_definitions: btree_map::BTreeMap::default(),
@@ -100,6 +104,19 @@ impl NewDomain {
         self.metadata = metadata;
         self
     }
+
+    /// Construct [`Domain`]
+    #[must_use]
+    #[cfg(feature = "mutable_api")]
+    pub fn build(self) -> Domain {
+        Domain {
+            id: self.id,
+            accounts: AccountsMap::default(),
+            asset_definitions: AssetDefinitionsMap::default(),
+            metadata: self.metadata,
+            logo: self.logo,
+        }
+    }
 }
 
 /// Named group of [`Account`] and [`Asset`](`crate::asset::Asset`) entities.
@@ -120,7 +137,7 @@ impl NewDomain {
 #[allow(clippy::multiple_inherent_impl)]
 pub struct Domain {
     /// Identification of this [`Domain`].
-    id: Id,
+    id: <Self as Identifiable>::Id,
     /// [`Account`]s of the domain.
     #[getset(skip)]
     accounts: AccountsMap,
@@ -136,7 +153,7 @@ pub struct Domain {
 
 impl Identifiable for Domain {
     type Id = Id;
-    type Constructor = NewDomain;
+    type RegisteredWith = NewDomain;
 }
 
 impl PartialOrd for Domain {
@@ -155,8 +172,8 @@ impl Ord for Domain {
 
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
-    pub fn new(id: Id) -> <Self as Identifiable>::Constructor {
-        <Self as Identifiable>::Constructor::new(id)
+    pub fn new(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
+        <Self as Identifiable>::RegisteredWith::new(id)
     }
 
     /// Return a reference to the [`Account`] corresponding to the account id.
@@ -206,8 +223,7 @@ impl Domain {
 
     /// Add [`Account`] into the [`Domain`] returning previous account stored under the same id
     #[inline]
-    pub fn add_account(&mut self, account: impl Into<Account>) -> Option<Account> {
-        let account = account.into();
+    pub fn add_account(&mut self, account: Account) -> Option<Account> {
         self.accounts.insert(account.id().clone(), account)
     }
 
@@ -240,10 +256,10 @@ impl Domain {
     #[inline]
     pub fn add_asset_definition(
         &mut self,
-        asset_definition: impl Into<AssetDefinition>,
+        asset_definition: AssetDefinition,
         registered_by: <Account as Identifiable>::Id,
     ) -> Option<AssetDefinitionEntry> {
-        let asset_definition = AssetDefinitionEntry::new(asset_definition.into(), registered_by);
+        let asset_definition = AssetDefinitionEntry::new(asset_definition, registered_by);
 
         self.asset_definitions
             .insert(asset_definition.definition().id().clone(), asset_definition)
@@ -259,18 +275,6 @@ impl Domain {
     }
 }
 
-impl From<<Self as Identifiable>::Constructor> for Domain {
-    fn from(source: <Self as Identifiable>::Constructor) -> Self {
-        Self {
-            id: source.id,
-            accounts: AccountsMap::default(),
-            asset_definitions: AssetDefinitionsMap::default(),
-            metadata: source.metadata,
-            logo: source.logo,
-        }
-    }
-}
-
 impl FromIterator<Domain> for crate::Value {
     fn from_iter<T: IntoIterator<Item = Domain>>(iter: T) -> Self {
         iter.into_iter()
@@ -283,20 +287,7 @@ impl FromIterator<Domain> for crate::Value {
 /// Represents path in IPFS. Performs some checks to ensure path validity.
 ///
 /// Should be constructed with `from_str()` method.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema)]
 pub struct IpfsPath(String);
 
 impl FromStr for IpfsPath {
@@ -359,6 +350,29 @@ impl IpfsPath {
     }
 }
 
+impl<'de> Deserialize<'de> for IpfsPath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[cfg(not(feature = "std"))]
+        use alloc::borrow::Cow;
+        #[cfg(feature = "std")]
+        use std::borrow::Cow;
+
+        use serde::de::Error as _;
+
+        let name = <Cow<str>>::deserialize(deserializer)?;
+        Self::from_str(&name).map_err(D::Error::custom)
+    }
+}
+impl Decode for IpfsPath {
+    fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+        let name = String::decode(input)?;
+        Self::from_str(&name).map_err(|error| error.reason.into())
+    }
+}
+
 /// Identification of a [`Domain`].
 #[derive(
     Debug,
@@ -385,10 +399,14 @@ impl Id {
     /// # Errors
     /// Fails if any sub-construction fails
     #[inline]
-    pub fn new(name: &str) -> Result<Self, ParseError> {
-        Ok(Self {
-            name: Name::from_str(name)?,
-        })
+    pub fn new(name: Name) -> Self {
+        Self { name }
+    }
+
+    pub(crate) const fn empty() -> Self {
+        Self {
+            name: Name::empty(),
+        }
     }
 }
 
@@ -396,7 +414,7 @@ impl FromStr for Id {
     type Err = ParseError;
 
     fn from_str(name: &str) -> Result<Self, Self::Err> {
-        Self::new(name)
+        Ok(Self::new(Name::from_str(name)?))
     }
 }
 

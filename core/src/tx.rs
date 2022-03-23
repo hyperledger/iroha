@@ -402,6 +402,8 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 mod tests {
     #![allow(clippy::pedantic, clippy::restriction)]
 
+    use std::str::FromStr as _;
+
     use eyre::Result;
     use iroha_data_model::transaction::DEFAULT_MAX_INSTRUCTION_NUMBER;
 
@@ -414,7 +416,7 @@ mod tests {
         }
         .into();
         let tx = Transaction::new(
-            AccountId::new("root", "global").expect("Valid"),
+            AccountId::from_str("root@global").expect("Valid"),
             vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
             1000,
         );

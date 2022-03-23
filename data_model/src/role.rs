@@ -71,7 +71,7 @@ impl fmt::Display for Id {
 #[getset(get = "pub")]
 pub struct Role {
     /// Unique name of the role.
-    id: Id,
+    id: <Self as Identifiable>::Id,
     /// Permission tokens.
     #[getset(skip)]
     permissions: Permissions,
@@ -83,7 +83,7 @@ impl Role {
     pub fn new(
         id: impl Into<Id>,
         permissions: impl Into<Permissions>,
-    ) -> <Self as Identifiable>::Constructor {
+    ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id: id.into(),
             permissions: permissions.into(),
@@ -99,7 +99,7 @@ impl Role {
 
 impl Identifiable for Role {
     type Id = Id;
-    type Constructor = Self;
+    type RegisteredWith = Self;
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.

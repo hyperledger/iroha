@@ -1,6 +1,6 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
-use std::{collections::BTreeSet, time::Duration};
+use std::{collections::BTreeSet, str::FromStr, time::Duration};
 
 use futures::future::FutureExt;
 use iroha_actor::{broker::Broker, Actor};
@@ -36,18 +36,21 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
     let (events, _) = tokio::sync::broadcast::channel(100);
     let wsv = Arc::new(WorldStateView::new(World::with(
         ('a'..'z')
-            .map(|name| name.to_string())
-            .map(|name| Domain::new(DomainId::new(&name).expect("Valid"))),
+            .map(|name| DomainId::from_str(&name.to_string()).expect("Valid"))
+            .map(|domain_id| Domain::new(domain_id).build()),
         vec![],
     )));
     let keys = KeyPair::generate().expect("Failed to generate keys");
-    let domain_id = DomainId::new("wonderland").expect("Valid");
-    let mut domain: Domain = Domain::new(domain_id.clone()).into();
+    let domain_id = DomainId::from_str("wonderland").expect("Valid");
+    let mut domain = Domain::new(domain_id.clone()).build();
     assert!(domain
-        .add_account(Account::new(
-            AccountId::new("alice", "wonderland").expect("Valid"),
-            [keys.public_key.clone()],
-        ))
+        .add_account(
+            Account::new(
+                AccountId::from_str("alice@wonderland").expect("Valid"),
+                [keys.public_key.clone()],
+            )
+            .build()
+        )
         .is_none());
     wsv.world.domains.insert(domain_id, domain);
     let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
@@ -84,7 +87,7 @@ async fn torii_pagination() {
     let get_domains = |start, limit| {
         let query: VerifiedQueryRequest = QueryRequest::new(
             QueryBox::FindAllDomains(Default::default()),
-            AccountId::new("alice", "wonderland").expect("Valid"),
+            AccountId::from_str("alice@wonderland").expect("Valid"),
         )
         .sign(keys.clone())
         .expect("Failed to sign query with keys")
@@ -151,7 +154,7 @@ impl QuerySet {
             torii.query_validator = Arc::new(DenyAll.into());
         }
 
-        let authority = AccountId::new("alice", "wonderland").expect("Valid");
+        let authority = AccountId::from_str("alice@wonderland").expect("Valid");
         for instruction in self.instructions {
             instruction
                 .execute(authority.clone(), &torii.wsv)
@@ -243,21 +246,22 @@ impl QueryResponseTest {
 const DOMAIN: &str = "desert";
 
 fn register_domain() -> Instruction {
-    RegisterBox::new(Domain::new(DomainId::new(DOMAIN).expect("Valid"))).into()
+    RegisterBox::new(Domain::new(DomainId::from_str(DOMAIN).expect("Valid"))).into()
 }
 
 fn register_account(name: &str) -> Instruction {
     RegisterBox::new(Account::new(
-        AccountId::new(name, DOMAIN).expect("Valid"),
+        AccountId::new(name.parse().expect("Valid"), DOMAIN.parse().expect("Valid")),
         [KeyPair::generate().unwrap().public_key],
     ))
     .into()
 }
 
 fn register_asset_definition(name: &str) -> Instruction {
-    RegisterBox::new(AssetDefinition::new_quantity(
-        AssetDefinitionId::new(name, DOMAIN).expect("Valid"),
-    ))
+    RegisterBox::new(AssetDefinition::new_quantity(AssetDefinitionId::new(
+        name.parse().expect("Valid"),
+        DOMAIN.parse().expect("Valid"),
+    )))
     .into()
 }
 
@@ -267,8 +271,14 @@ fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
 
 fn asset_id_new(asset: &str, domain: &str, account: &str) -> AssetId {
     AssetId::new(
-        AssetDefinitionId::new(asset, domain).expect("Valid"),
-        AccountId::new(account, DOMAIN).expect("Valid"),
+        AssetDefinitionId::new(
+            asset.parse().expect("Valid"),
+            domain.parse().expect("Valid"),
+        ),
+        AccountId::new(
+            account.parse().expect("Valid"),
+            DOMAIN.parse().expect("Valid"),
+        ),
     )
 }
 
@@ -419,7 +429,10 @@ async fn find_account() {
         .given(register_domain())
         .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
-            AccountId::new("alice", DOMAIN).expect("Valid"),
+            AccountId::new(
+                "alice".parse().expect("Valid"),
+                DOMAIN.parse().expect("Valid"),
+            ),
         )))
         .await
         .status(StatusCode::OK)
@@ -432,7 +445,7 @@ async fn find_account_with_no_account() {
         .given(register_domain())
     // .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
-            AccountId::new("alice", DOMAIN).expect("Valid"),
+            AccountId::new("alice".parse().expect("Valid"), DOMAIN.parse().expect("Valid")),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -452,7 +465,7 @@ async fn find_account_with_no_domain() {
     // .given(register_domain())
     // .given(register_account("alice"))
         .query(QueryBox::FindAccountById(FindAccountById::new(
-            AccountId::new("alice", DOMAIN).expect("Valid"),
+            AccountId::new("alice".parse().expect("Valid"), DOMAIN.parse().expect("Valid")),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -471,7 +484,7 @@ async fn find_domain() {
     QuerySet::new()
         .given(register_domain())
         .query(QueryBox::FindDomainById(FindDomainById::new(
-            DomainId::new(DOMAIN).expect("Valid"),
+            DomainId::from_str(DOMAIN).expect("Valid"),
         )))
         .await
         .status(StatusCode::OK)
@@ -483,7 +496,7 @@ async fn find_domain_with_no_domain() {
     QuerySet::new()
     // .given(register_domain())
         .query(QueryBox::FindDomainById(FindDomainById::new(
-            DomainId::new(DOMAIN).expect("Valid"),
+            DomainId::from_str(DOMAIN).expect("Valid"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -498,9 +511,10 @@ async fn find_domain_with_no_domain() {
 }
 
 fn query() -> QueryBox {
-    QueryBox::FindAccountById(FindAccountById::new(
-        AccountId::new("alice", DOMAIN).expect("Valid"),
-    ))
+    QueryBox::FindAccountById(FindAccountById::new(AccountId::new(
+        "alice".parse().expect("Valid"),
+        DOMAIN.parse().expect("Valid"),
+    )))
 }
 
 #[tokio::test]
@@ -508,7 +522,7 @@ async fn query_with_wrong_signatory() {
     QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
-        .account(AccountId::new("alice", DOMAIN).expect("Valid"))
+        .account(AccountId::new("alice".parse().expect("Valid"), DOMAIN.parse().expect("Valid")))
     // .deny_all()
         .query(query())
         .await
@@ -692,7 +706,10 @@ fn hash_should_be_the_same() {
     config.genesis.account_public_key = Some(key_pair.public_key.clone());
 
     let tx = Transaction::new(
-        AccountId::new(GENESIS_ACCOUNT_NAME, GENESIS_DOMAIN_NAME).expect("Valid"),
+        AccountId::new(
+            GENESIS_ACCOUNT_NAME.parse().expect("Valid"),
+            GENESIS_DOMAIN_NAME.parse().expect("Valid"),
+        ),
         Vec::<Instruction>::new().into(),
         1000,
     );

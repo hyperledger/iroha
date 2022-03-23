@@ -260,6 +260,7 @@ mod tests {
 
     use std::{
         iter,
+        str::FromStr,
         sync::Arc,
         thread,
         time::{Duration, Instant},
@@ -272,8 +273,7 @@ mod tests {
     use crate::{wsv::World, PeersIds};
 
     fn accepted_tx(
-        account: &str,
-        domain: &str,
+        account_id: &str,
         proposed_ttl_ms: u64,
         key: Option<&KeyPair>,
     ) -> VersionedAcceptedTransaction {
@@ -286,7 +286,7 @@ mod tests {
             .collect();
         let instructions: Vec<Instruction> = vec![FailBox { message }.into()];
         let tx = Transaction::new(
-            AccountId::new(account, domain).expect("Valid"),
+            AccountId::from_str(account_id).expect("Valid"),
             instructions.into(),
             proposed_ttl_ms,
         )
@@ -301,10 +301,10 @@ mod tests {
     }
 
     pub fn world_with_test_domains(public_key: PublicKey) -> World {
-        let domain_id = DomainId::new("wonderland").expect("Valid");
-        let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-        let mut domain: Domain = Domain::new(domain_id).into();
-        let account = Account::new(account_id, [public_key]);
+        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+        let mut domain = Domain::new(domain_id).build();
+        let account = Account::new(account_id, [public_key]).build();
         assert!(domain.add_account(account).is_none());
         World::with([domain], PeersIds::new())
     }
@@ -326,7 +326,7 @@ mod tests {
         );
 
         queue
-            .push(accepted_tx("alice", "wonderland", 100_000, None))
+            .push(accepted_tx("alice@wonderland", 100_000, None))
             .expect("Failed to push tx into queue");
     }
 
@@ -350,13 +350,13 @@ mod tests {
 
         for _ in 0..max_txs_in_queue {
             queue
-                .push(accepted_tx("alice", "wonderland", 100_000, None))
+                .push(accepted_tx("alice@wonderland", 100_000, None))
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         assert!(matches!(
-            queue.push(accepted_tx("alice", "wonderland", 100_000, None)),
+            queue.push(accepted_tx("alice@wonderland", 100_000, None)),
             Err((_, Error::Full))
         ));
     }
@@ -367,10 +367,10 @@ mod tests {
 
         let wsv = {
             let public_key = KeyPair::generate().unwrap().public_key;
-            let domain_id = DomainId::new("wonderland").expect("Valid");
-            let mut domain: Domain = Domain::new(domain_id.clone()).into();
-            let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-            let mut account: Account = Account::new(account_id, [public_key]).into();
+            let domain_id = DomainId::from_str("wonderland").expect("Valid");
+            let mut domain = Domain::new(domain_id.clone()).build();
+            let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+            let mut account = Account::new(account_id, [public_key]).build();
             account.set_signature_check_condition(SignatureCheckCondition(0_u32.into()));
             assert!(domain.add_account(account).is_none());
 
@@ -388,7 +388,7 @@ mod tests {
         );
 
         assert!(matches!(
-            queue.push(accepted_tx("alice", "wonderland", 100_000, None)),
+            queue.push(accepted_tx("alice@wonderland", 100_000, None)),
             Err((_, Error::SignatureCondition(_)))
         ));
     }
@@ -409,7 +409,7 @@ mod tests {
             wsv,
         );
         let tx = Transaction::new(
-            AccountId::new("alice", "wonderland").expect("Valid"),
+            AccountId::from_str("alice@wonderland").expect("Valid"),
             Vec::<Instruction>::new().into(),
             100_000,
         );
@@ -459,12 +459,7 @@ mod tests {
         );
         for _ in 0..5 {
             queue
-                .push(accepted_tx(
-                    "alice",
-                    "wonderland",
-                    100_000,
-                    Some(&alice_key),
-                ))
+                .push(accepted_tx("alice@wonderland", 100_000, Some(&alice_key)))
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
@@ -480,7 +475,7 @@ mod tests {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
             alice_key.public_key.clone(),
         )));
-        let tx = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
+        let tx = accepted_tx("alice@wonderland", 100_000, Some(&alice_key));
         wsv.transactions.insert(tx.hash());
         let queue = Queue::from_configuration(
             &Configuration {
@@ -502,7 +497,7 @@ mod tests {
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
             alice_key.public_key.clone(),
         )));
-        let tx = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
+        let tx = accepted_tx("alice@wonderland", 100_000, Some(&alice_key));
         let queue = Queue::from_configuration(
             &Configuration {
                 maximum_transactions_in_block: max_block_tx,
@@ -536,19 +531,19 @@ mod tests {
         );
         for _ in 0..(max_block_tx - 1) {
             queue
-                .push(accepted_tx("alice", "wonderland", 100, Some(&alice_key)))
+                .push(accepted_tx("alice@wonderland", 100, Some(&alice_key)))
                 .expect("Failed to push tx into queue");
             thread::sleep(Duration::from_millis(10));
         }
 
         queue
-            .push(accepted_tx("alice", "wonderland", 200, Some(&alice_key)))
+            .push(accepted_tx("alice@wonderland", 200, Some(&alice_key)))
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(101));
         assert_eq!(queue.get_transactions_for_block().len(), 1);
 
         queue
-            .push(accepted_tx("alice", "wonderland", 300, Some(&alice_key)))
+            .push(accepted_tx("alice@wonderland", 300, Some(&alice_key)))
             .expect("Failed to push tx into queue");
         std::thread::sleep(Duration::from_millis(210));
         assert_eq!(queue.get_transactions_for_block().len(), 0);
@@ -572,12 +567,7 @@ mod tests {
             wsv,
         );
         queue
-            .push(accepted_tx(
-                "alice",
-                "wonderland",
-                100_000,
-                Some(&alice_key),
-            ))
+            .push(accepted_tx("alice@wonderland", 100_000, Some(&alice_key)))
             .expect("Failed to push tx into queue");
 
         let a = queue
@@ -621,7 +611,7 @@ mod tests {
         // Spawn a thread where we push transactions
         let push_txs_handle = thread::spawn(move || {
             while start_time.elapsed() < run_for {
-                let tx = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
+                let tx = accepted_tx("alice@wonderland", 100_000, Some(&alice_key));
                 match queue_arc_clone_1.push(tx) {
                     Ok(()) => (),
                     Err((_, Error::Full)) => (),
@@ -676,7 +666,7 @@ mod tests {
             wsv,
         );
 
-        let mut tx = accepted_tx("alice", "wonderland", 100_000, Some(&alice_key));
+        let mut tx = accepted_tx("alice@wonderland", 100_000, Some(&alice_key));
         assert!(queue.push(tx.clone()).is_ok());
         // tamper timestamp
         tx.as_mut_v1().payload.creation_time += 2 * future_threshold_ms;

@@ -62,7 +62,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let domain: Domain = self.object.into();
+            let domain: Domain = self.object.build();
             let domain_id = domain.id().clone();
 
             domain_id
