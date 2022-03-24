@@ -18,8 +18,6 @@
 #include "logger/logger.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
-#include "multi_sig_transactions/mst_types.hpp"
-#include "multi_sig_transactions/state/mst_state.hpp"
 
 inline auto makeKey() {
   return shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
@@ -27,7 +25,8 @@ inline auto makeKey() {
 
 inline auto txBuilder(
     const shared_model::interface::types::CounterType &counter,
-    iroha::TimeType created_time = iroha::time::now(),
+    shared_model::interface::types::TimestampType created_time =
+        iroha::time::now(),
     shared_model::interface::types::QuorumType quorum = 3,
     shared_model::interface::types::AccountIdType account_id = "user@test") {
   return TestTransactionBuilder()
@@ -99,7 +98,8 @@ inline auto makeSignature(
 }
 
 inline auto makeTx(const shared_model::interface::types::CounterType &counter,
-                   iroha::TimeType created_time = iroha::time::now(),
+                   shared_model::interface::types::TimestampType created_time =
+                       iroha::time::now(),
                    shared_model::crypto::Keypair keypair = makeKey(),
                    uint8_t quorum = 3) {
   return std::make_shared<shared_model::proto::Transaction>(
@@ -112,29 +112,5 @@ inline auto makeTx(const shared_model::interface::types::CounterType &counter,
           .signAndAddSignature(keypair)
           .finish());
 }
-
-namespace iroha {
-  class TestCompleter : public DefaultCompleter {
-   public:
-    explicit TestCompleter() : DefaultCompleter(std::chrono::minutes(0)) {}
-
-    bool isCompleted(const DataType &batch) const override {
-      return std::all_of(batch->transactions().begin(),
-                         batch->transactions().end(),
-                         [](const auto &tx) {
-                           return boost::size(tx->signatures()) >= tx->quorum();
-                         });
-    }
-
-    bool isExpired(const DataType &batch,
-                   const TimeType &current_time) const override {
-      return std::any_of(batch->transactions().begin(),
-                         batch->transactions().end(),
-                         [&current_time](const auto &tx) {
-                           return tx->createdTime() < current_time;
-                         });
-    }
-  };
-}  // namespace iroha
 
 #endif  // IROHA_MST_TEST_HELPERS_HPP

@@ -55,6 +55,7 @@ namespace iroha {
         ~OnDemandOsClientGrpc() override;
 
         void onBatches(CollectionType batches) override;
+        void onBatchesToWholeNetwork(CollectionType batches) override;
 
         void onRequestProposal(
             consensus::Round round,

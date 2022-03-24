@@ -8,6 +8,8 @@
 
 #include <memory>
 
+#include "interfaces/common_objects/transaction_sequence_common.hpp"
+
 namespace shared_model {
   namespace interface {
     class Block;
@@ -43,7 +45,8 @@ namespace iroha {
               &block) = 0;
 
       virtual void processStateUpdate(
-          std::shared_ptr<MstState> const &state) = 0;
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) = 0;
 
       virtual void processPreparedBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> const

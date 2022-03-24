@@ -14,7 +14,6 @@
 
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
 #include "logger/logger_fwd.hpp"
-#include "multi_sig_transactions/hash.hpp"
 #include "ordering/impl/batches_cache.hpp"
 // TODO 2019-03-15 andrei: IR-403 Separate BatchHashEquality and MstState
 #include "main/subscription.hpp"

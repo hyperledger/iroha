@@ -47,8 +47,6 @@
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/proposal.hpp"
 #include "module/shared_model/validators/always_valid_validators.hpp"
-#include "multi_sig_transactions/mst_processor.hpp"
-#include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 #include "network/consensus_gate.hpp"
 #include "network/impl/channel_factory.hpp"
 #include "network/peer_communication_service.hpp"
@@ -303,7 +301,6 @@ IntegrationTestFramework::IntegrationTestFramework(
       cleanup_on_exit_(cleanup_on_exit),
       db_wsv_path_(std::move(db_wsv_path)),
       db_store_path_(std::move(db_store_path)) {
-  config_.proposal_delay = 1000;
   config_.proposal_creation_timeout = 500;
   // 100 ms is small delay to avoid unnecessary messages due to eternal voting
   // and to allow scheduler to switch threads
@@ -460,14 +457,6 @@ IntegrationTestFramework &IntegrationTestFramework::setInitialState(
   return *this;
 }
 
-IntegrationTestFramework &IntegrationTestFramework::setMstGossipParams(
-    std::chrono::milliseconds mst_gossip_emitting_period,
-    uint32_t mst_gossip_amount_per_once) {
-  iroha_instance_->setMstGossipParams(mst_gossip_emitting_period,
-                                      mst_gossip_amount_per_once);
-  return *this;
-}
-
 IntegrationTestFramework &IntegrationTestFramework::setInitialState(
     const Keypair &keypair, const shared_model::interface::Block &block) {
   initPipeline(keypair);
@@ -609,25 +598,6 @@ std::string IntegrationTestFramework::getAddress() const {
   return format_address(kLocalHost, config_.internal_port);
 }
 
-rxcpp::observable<std::shared_ptr<iroha::MstState>>
-IntegrationTestFramework::getMstStateUpdateObservable() {
-  return iroha_instance_->getTestIrohad()->getMstProcessor()->onStateUpdate();
-}
-
-rxcpp::observable<iroha::BatchPtr>
-IntegrationTestFramework::getMstPreparedBatchesObservable() {
-  return iroha_instance_->getTestIrohad()
-      ->getMstProcessor()
-      ->onPreparedBatches();
-}
-
-rxcpp::observable<iroha::BatchPtr>
-IntegrationTestFramework::getMstExpiredBatchesObservable() {
-  return iroha_instance_->getTestIrohad()
-      ->getMstProcessor()
-      ->onExpiredBatches();
-}
-
 std::shared_ptr<iroha::ametsuchi::BlockQuery>
 IntegrationTestFramework::getBlockQuery() {
   return getIrohaInstance().getTestIrohad()->getStorage()->getBlockQuery();
@@ -763,16 +733,6 @@ IntegrationTestFramework &IntegrationTestFramework::sendQuery(
 IntegrationTestFramework &IntegrationTestFramework::sendQuery(
     const shared_model::proto::Query &qry) {
   sendQuery(qry, [](const auto &) {});
-  return *this;
-}
-
-IntegrationTestFramework &IntegrationTestFramework::sendMstState(
-    PublicKeyHexStringView src_key, const iroha::MstState &mst_state) {
-  auto client = makeTransportClientFactory<iroha::network::MstTransportGrpc>(
-                    client_factory_)
-                    ->createClient(*this_peer_)
-                    .assumeValue();
-  iroha::network::sendStateAsync(mst_state, src_key, *client, *async_call_);
   return *this;
 }
 

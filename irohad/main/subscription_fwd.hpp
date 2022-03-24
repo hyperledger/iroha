@@ -15,6 +15,7 @@ namespace iroha {
     kVoteProcess,
     kProposalProcessing,
     kMetrics,
+    kNotifications,
     //---------------
     kTotalCount
   };

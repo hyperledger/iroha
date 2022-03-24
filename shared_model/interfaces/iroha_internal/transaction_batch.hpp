@@ -70,6 +70,13 @@ namespace shared_model {
                       const std::shared_ptr<TransactionBatch> &right_tx) const;
     };
 
+    struct BatchPointerHasher {
+      shared_model::crypto::Hash::Hasher hasher_;
+      size_t operator()(
+          const std::shared_ptr<shared_model::interface::TransactionBatch> &a)
+          const;
+    };
+
     /**
      * This is a helper structure which serves as a predicate
      * for hash comparison.

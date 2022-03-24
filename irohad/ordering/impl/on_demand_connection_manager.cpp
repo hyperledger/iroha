@@ -6,6 +6,7 @@
 #include "ordering/impl/on_demand_connection_manager.hpp"
 
 #include "common/result.hpp"
+#include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "logger/logger.hpp"
 #include "ordering/impl/on_demand_common.hpp"
@@ -21,9 +22,10 @@ OnDemandConnectionManager::OnDemandConnectionManager(
 OnDemandConnectionManager::OnDemandConnectionManager(
     std::shared_ptr<transport::OdOsNotificationFactory> factory,
     CurrentPeers initial_peers,
+    shared_model::interface::types::PeerList const &all_peers,
     logger::LoggerPtr log)
     : OnDemandConnectionManager(std::move(factory), std::move(log)) {
-  initializeConnections(initial_peers);
+  initializeConnections(initial_peers, all_peers);
 }
 
 OnDemandConnectionManager::~OnDemandConnectionManager() {
@@ -61,6 +63,18 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
   propagate(kCommitConsumer);
 }
 
+void OnDemandConnectionManager::onBatchesToWholeNetwork(
+    CollectionType batches) {
+  std::shared_lock<std::shared_timed_mutex> lock(mutex_);
+  log_->info("Propagate to {} peers.", connections_.all_connections.size());
+  if (not stop_requested_.load(std::memory_order_relaxed))
+    for (auto &connection : connections_.all_connections)
+      if (connection.connection)
+        (*connection.connection)->onBatches(batches);
+
+  log_->info("Propagation complete.");
+}
+
 void OnDemandConnectionManager::onRequestProposal(
     consensus::Round round,
     std::optional<
@@ -78,19 +92,43 @@ void OnDemandConnectionManager::onRequestProposal(
 }
 
 void OnDemandConnectionManager::initializeConnections(
-    const CurrentPeers &peers) {
+    const CurrentPeers &peers,
+    shared_model::interface::types::PeerList const &all_peers) {
   std::lock_guard<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed)) {
     // Object was destroyed and `this' is no longer valid.
     return;
   }
-  auto create_assign = [&](auto target) {
-    auto maybe_connection = factory_->create(*peers.peers[target]);
-    if (expected::hasError(maybe_connection)) {
-      connections_.peers[target] = std::nullopt;
-      return;
+
+  std::vector<ConnectionData> tmp;
+  for (auto &p : all_peers) {
+    bool found = false;
+    for (auto &it : connections_.all_connections) {
+      if (it.connection && it.peer->pubkey() == p->pubkey()
+          && it.peer->address() == p->address()
+          && it.peer->isSyncingPeer() == p->isSyncingPeer()) {
+        tmp.emplace_back(it.connection, it.peer);
+        found = true;
+        break;
+      }
     }
-    connections_.peers[target] = std::move(maybe_connection).assumeValue();
+    if (found)
+      continue;
+
+    if (auto maybe_connection = factory_->create(*p);
+        expected::hasValue(maybe_connection))
+      tmp.emplace_back(std::move(maybe_connection).assumeValue(), p);
+    else
+      tmp.emplace_back(std::nullopt, p);
+  }
+  connections_.all_connections.swap(tmp);
+
+  auto create_assign = [&](auto target) {
+    for (size_t ix = 0; ix < all_peers.size(); ++ix)
+      if (all_peers[ix]->address() == peers.peers[target]->address()
+          && all_peers[ix]->pubkey() == peers.peers[target]->pubkey())
+        connections_.peers[target] =
+            connections_.all_connections[ix].connection;
   };
 
   create_assign(kIssuer);

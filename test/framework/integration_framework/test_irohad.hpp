@@ -25,9 +25,7 @@ namespace integration_framework {
                const shared_model::crypto::Keypair &keypair,
                logger::LoggerManagerTreePtr irohad_log_manager,
                logger::LoggerPtr log,
-               iroha::StartupWsvDataPolicy startup_wsv_data_policy,
-               const boost::optional<iroha::GossipPropagationStrategyParams>
-                   &opt_mst_gossip_params = boost::none)
+               iroha::StartupWsvDataPolicy startup_wsv_data_policy)
         : Irohad(config,
                  std::move(pg_opt),
                  std::move(rdb_opt),
@@ -37,7 +35,6 @@ namespace integration_framework {
                  startup_wsv_data_policy,
                  iroha::StartupWsvSynchronizationPolicy::kSyncUpAndGo,
                  std::nullopt,
-                 opt_mst_gossip_params,
                  boost::none),
           log_(std::move(log)) {}
 
@@ -51,10 +48,6 @@ namespace integration_framework {
 
     auto &getQueryService() {
       return query_service;
-    }
-
-    auto &getMstProcessor() {
-      return mst_processor;
     }
 
     auto &getConsensusGate() {
