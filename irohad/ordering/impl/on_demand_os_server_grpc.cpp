@@ -68,8 +68,7 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
     proto::ProposalResponse *response) {
   consensus::Round round{request->round().block_round(),
                          request->round().reject_round()};
-  log_->info(
-      "Received RequestProposal for {} from {}", round, context->peer());
+  log_->info("Received RequestProposal for {} from {}", round, context->peer());
   auto maybe_proposal = ordering_service_->waitForLocalProposal(round, delay_);
   if (maybe_proposal.has_value()) {
     auto const &[sptr_proposal, bf] = maybe_proposal.value();

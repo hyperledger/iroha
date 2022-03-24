@@ -130,8 +130,10 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
       ->mutable_reduced_payload()
       ->set_creator_account_id(creator);
 
-  auto p = std::make_pair(std::shared_ptr<const shared_model::interface::Proposal>(
-      std::make_shared<const shared_model::proto::Proposal>(proposal)), ordering::BloomFilter256{});
+  auto p = std::make_pair(
+      std::shared_ptr<const shared_model::interface::Proposal>(
+          std::make_shared<const shared_model::proto::Proposal>(proposal)),
+      ordering::BloomFilter256{});
   std::chrono::milliseconds delay(0);
   EXPECT_CALL(*notification, waitForLocalProposal(round, delay))
       .WillOnce(Return(ByMove(std::move(p))));

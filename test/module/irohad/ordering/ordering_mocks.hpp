@@ -45,9 +45,8 @@ namespace iroha::ordering {
     MOCK_METHOD(void, processReceivedProposal, (CollectionType), (override));
 
     MOCK_METHOD2(waitForLocalProposal,
-                 PackedProposalData(
-                     consensus::Round const &,
-                     std::chrono::milliseconds const &));
+                 PackedProposalData(consensus::Round const &,
+                                    std::chrono::milliseconds const &));
   };
 }  // namespace iroha::ordering
 
