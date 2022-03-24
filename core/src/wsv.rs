@@ -80,7 +80,7 @@ impl DerefMut for World {
 }
 
 /// Current state of the blockchain aligned with `Iroha` module.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WorldStateView<W: WorldTrait> {
     /// The world - contains `domains`, `triggers`, etc..
     pub world: W,
@@ -95,7 +95,7 @@ pub struct WorldStateView<W: WorldTrait> {
     /// Notifies subscribers when new block is applied
     new_block_notifier: Arc<NewBlockNotificationSender>,
     /// Events produced in the current block
-    events: Arc<RwLock<Vec<Event>>>,
+    events: RwLock<Vec<Event>>,
     /// Transmitter to broadcast [`WorldStateView`]-related events.
     events_sender: Option<EventsSender>,
 }
@@ -104,6 +104,27 @@ impl<W: WorldTrait + Default> Default for WorldStateView<W> {
     #[inline]
     fn default() -> Self {
         Self::new(W::default())
+    }
+}
+
+impl<W: WorldTrait + Clone> Clone for WorldStateView<W> {
+    #[allow(clippy::expect_used)]
+    fn clone(&self) -> Self {
+        Self {
+            world: Clone::clone(&self.world),
+            config: self.config,
+            blocks: Arc::clone(&self.blocks),
+            transactions: self.transactions.clone(),
+            metrics: Arc::clone(&self.metrics),
+            new_block_notifier: Arc::clone(&self.new_block_notifier),
+            events: RwLock::new(
+                self.events
+                    .read()
+                    .expect("Failed to lock events while cloning")
+                    .clone(),
+            ),
+            events_sender: self.events_sender.clone(),
+        }
     }
 }
 
@@ -562,7 +583,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             blocks: Arc::new(Chain::new()),
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
-            events: Arc::new(RwLock::new(Vec::new())),
+            events: RwLock::new(Vec::new()),
             events_sender: None,
         }
     }
