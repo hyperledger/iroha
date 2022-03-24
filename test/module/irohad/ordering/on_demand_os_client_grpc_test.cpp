@@ -64,13 +64,20 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
     std::shared_ptr<Peer> pk[] = {std::make_shared<Peer>("123")};
     exec_keeper->syncronize(&pk[0], &pk[1]);
 
+    proposals_subscription_ =
+      SubscriberCreator<bool, ProposalEvent>::template create<
+          EventTypes::kOnProposalResponse>(
+          iroha::SubscriptionEngineHandlers::kYac,
+          [this](auto, auto event) {
+            received_event = event;
+          });
+
     client = std::make_shared<OnDemandOsClientGrpc>(
         std::move(ustub),
         proposal_factory,
         [&] { return timepoint; },
         timeout,
         getTestLogger("OdOsClientGrpc"),
-        [this](ProposalEvent event) { received_event = event; },
         exec_keeper,
         "123");
   }
@@ -81,6 +88,9 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
   std::shared_ptr<OnDemandOsClientGrpc> client;
   consensus::Round round{1, 2};
   ProposalEvent received_event;
+  std::shared_ptr<BaseSubscriber<bool, ProposalEvent>>
+        proposals_subscription_;
+
 
   MockProposalValidator *proposal_validator;
   MockProtoProposalValidator *proto_proposal_validator;

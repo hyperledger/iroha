@@ -43,10 +43,10 @@ namespace iroha {
                                  const proto::BatchesRequest *request,
                                  ::google::protobuf::Empty *response) override;
 
-        grpc::Status RequestProposal_v2(
+        grpc::Status RequestProposal(
             ::grpc::ServerContext *context,
-            const proto::ProposalRequest_v2 *request,
-            proto::ProposalResponse_v2 *response) override;
+            const proto::ProposalRequest *request,
+            proto::ProposalResponse *response) override;
 
        private:
         std::shared_ptr<OnDemandOrderingService> ordering_service_;

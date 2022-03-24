@@ -155,7 +155,7 @@ TEST_F(OnDemandOsTest, OverflowRound) {
 
   ASSERT_TRUE(os->onRequestProposal(target_round));
   ASSERT_EQ(transaction_limit,
-            (*os->onRequestProposal(target_round))->transactions().size());
+            os->onRequestProposal(target_round)->first->transactions().size());
 }
 
 /**
@@ -302,7 +302,7 @@ TEST_F(OnDemandOsTest, SeveralTransactionsOneCommited) {
   os->onCollaborationOutcome(commit_round);
 
   auto proposal = os->onRequestProposal(target_round);
-  const auto &txs = proposal->get()->transactions();
+  const auto &txs = proposal->first->transactions();
   auto &batch2_tx = *batch2.transactions().at(0);
 
   EXPECT_TRUE(proposal);
@@ -326,7 +326,7 @@ TEST_F(OnDemandOsTest, DuplicateTxTest) {
   os->onCollaborationOutcome(commit_round);
   auto proposal = os->onRequestProposal(target_round);
 
-  ASSERT_EQ(1, boost::size((*proposal)->transactions()));
+  ASSERT_EQ(1, boost::size(proposal->first->transactions()));
 }
 
 /**
@@ -348,10 +348,10 @@ TEST_F(OnDemandOsTest, RejectCommit) {
   auto proposal = os->onRequestProposal(
       {initial_round.block_round, initial_round.reject_round + 3});
 
-  ASSERT_EQ(2, boost::size((*proposal)->transactions()));
+  ASSERT_EQ(2, boost::size(proposal->first->transactions()));
 
   proposal = os->onRequestProposal(commit_round);
-  ASSERT_EQ(2, boost::size((*proposal)->transactions()));
+  ASSERT_EQ(2, boost::size(proposal->first->transactions()));
 }
 
 /**

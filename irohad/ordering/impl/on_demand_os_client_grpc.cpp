@@ -166,7 +166,7 @@ void OnDemandOsClientGrpc::onRequestProposal(
 
   auto context = std::make_shared<grpc::ClientContext>();
   context_ = context;
-  proto::ProposalRequest_v2 request;
+  proto::ProposalRequest request;
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
   if (ref_proposal.has_value())
@@ -194,10 +194,10 @@ void OnDemandOsClientGrpc::onRequestProposal(
 
         /// make request
         context->set_deadline(time_provider() + proposal_request_timeout);
-        proto::ProposalResponse_v2 response;
+        proto::ProposalResponse response;
         maybe_log->info("Requesting proposal");
         auto status =
-            maybe_stub->RequestProposal_v2(context.get(), request, &response);
+            maybe_stub->RequestProposal(context.get(), request, &response);
         if (not status.ok()) {
           maybe_log->warn(
               "RPC failed: {} {}", context->peer(), status.error_message());
