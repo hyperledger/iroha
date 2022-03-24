@@ -25,3 +25,5 @@ pub const STATUS: &str = "status";
 ///  Metrics URI is used to export metrics according to [Prometheus
 ///  Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
 pub const METRICS: &str = "metrics";
+/// URI for retrieving the schema with which Iroha was built.
+pub const SCHEMA: &str = "schema";

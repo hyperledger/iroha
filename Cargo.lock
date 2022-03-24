@@ -1644,6 +1644,7 @@ dependencies = [
  "iroha_logger",
  "iroha_p2p",
  "iroha_permissions_validators",
+ "iroha_schema_bin",
  "iroha_telemetry",
  "iroha_version",
  "parity-scale-codec",
