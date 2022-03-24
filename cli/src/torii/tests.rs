@@ -8,7 +8,13 @@ use std::{
 use futures::future::FutureExt;
 use iroha_actor::{broker::Broker, Actor};
 use iroha_core::{
-    block::{BlockHeader, EmptyChainHash},
+    block::{
+        stream::{
+            BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
+            VersionedBlockSubscriberMessage,
+        },
+        BlockHeader, EmptyChainHash,
+    },
     queue::Queue,
     smartcontracts::{isi::error::FindError, permissions::DenyAll},
     stream::{Sink, Stream},

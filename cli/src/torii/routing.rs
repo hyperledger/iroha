@@ -1,6 +1,16 @@
 //! Routing functions for Torii. If you want to add an endpoint to
 //! Iroha you should add it here by creating a `handle_*` function,
 //! and add it to impl Torii.
+use iroha_actor::Addr;
+use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
+use iroha_core::{
+    block::stream::{
+        BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
+        VersionedBlockSubscriberMessage,
+    },
+    stream::{Sink, Stream},
+    wsv::WorldTrait,
+};
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
 
@@ -54,7 +64,7 @@ fn into_reply(error: query::Error) -> warp::http::Response<warp::hyper::Body> {
     reply::with_status(Scale(&error), error.status_code()).into_response()
 }
 
-#[derive(Serialize)]
+#[derive(serde::Serialize)]
 #[non_exhaustive]
 enum Health {
     Healthy,
@@ -63,6 +73,12 @@ enum Health {
 #[iroha_futures::telemetry_future]
 async fn handle_health() -> Json {
     reply::json(&Health::Healthy)
+}
+
+#[iroha_futures::telemetry_future]
+#[cfg(feature = "schema-endpoint")]
+async fn handle_schema() -> Json {
+    reply::json(&iroha_schema_bin::build_schemas())
 }
 
 #[iroha_futures::telemetry_future]
@@ -405,6 +421,10 @@ impl<W: WorldTrait> Torii<W> {
                     .and(add_state!(self.iroha_cfg))
                     .and(warp::body::json()),
             ));
+
+        #[cfg(feature = "schema-endpoint")]
+        let get_router = get_router.or(warp::path(uri::SCHEMA)
+            .and_then(|| async { Ok::<_, Infallible>(handle_schema().await) }));
 
         let post_router = endpoint3(
             handle_instructions,

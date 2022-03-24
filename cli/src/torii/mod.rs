@@ -5,13 +5,7 @@ use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 
 use eyre::{eyre, Context};
 use futures::{stream::FuturesUnordered, StreamExt};
-use iroha_actor::Addr;
-use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
 use iroha_core::{
-    block::stream::{
-        BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
-        VersionedBlockSubscriberMessage,
-    },
     event::{Consumer, EventsSender},
     prelude::*,
     queue::{self, Queue},
@@ -19,12 +13,10 @@ use iroha_core::{
         isi::query::{self, VerifiedQueryRequest},
         permissions::IsQueryAllowedBoxed,
     },
-    stream::{Sink, Stream},
     wsv::WorldTrait,
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use serde::Serialize;
 use thiserror::Error;
 use utils::*;
 use warp::{
@@ -48,7 +40,7 @@ pub struct Torii<W: WorldTrait> {
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     #[allow(dead_code)] // False positive with `telemetry` disabled.
-    network: Addr<IrohaNetwork>,
+    network: iroha_actor::Addr<IrohaNetwork>,
 }
 
 /// Torii errors.
