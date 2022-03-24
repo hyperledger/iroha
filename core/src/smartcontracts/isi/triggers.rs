@@ -127,7 +127,8 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            wsv.execute_trigger(&self.trigger_id)
+            wsv.execute_trigger(self.trigger_id);
+            Ok(())
         }
     }
 }

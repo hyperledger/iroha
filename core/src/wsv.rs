@@ -807,6 +807,15 @@ impl<W: WorldTrait> WorldStateView<W> {
     {
         self.modify_world(|world| f(&world.triggers).map(WorldEvent::Trigger))
     }
+
+    /// Execute trigger with `trigger_id` as id
+    ///
+    /// Produces [`ExecuteTriggerEvent`].
+    /// Actual trigger execution will be in the next [`Self::apply()`] call
+    pub fn execute_trigger(&self, trigger_id: TriggerId) {
+        let event = ExecuteTriggerEvent::new(trigger_id).into();
+        self.produce_events(once(event));
+    }
 }
 
 /// This module contains all configuration related logic.
