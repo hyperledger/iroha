@@ -257,56 +257,6 @@ void OnDemandOsClientGrpc::onRequestProposal(
               iroha::EventTypes::kOnProposalResponse,
               ProposalEvent{std::nullopt, round});
         }
-
-        /*auto extract_batches = [&](auto const &proposal) {
-          shared_model::interface::types::BatchesCollectionType batches;
-          if (auto proposal_result =
-                maybe_proposal_factory->build(proposal);
-        expected::hasValue(proposal_result)) {
-            shared_model::interface::types::SharedTxsCollectionType
-                transactions;
-            for (auto &transaction :
-        proposal_result.assumeValue()->transactions()) {
-              transactions.push_back(clone(transaction));
-            }
-            auto batch_txs =
-                shared_model::interface::TransactionBatchParserImpl()
-                    .parseBatches(transactions);
-            for (auto &txs : batch_txs) {
-              batches.push_back(std::make_shared<
-                  shared_model::interface::TransactionBatchImpl>(
-                  std::move(txs)));
-            }
-          } else
-            maybe_log->template warn("{}", proposal_result.assumeError().error);
-          return batches;
-        };
-
-        shared_model::interface::types::BatchesCollectionType remote_batches;
-        shared_model::interface::types::BatchesCollectionType local_batches;
-        if (response.has_proposal()) {
-          remote_batches = extract_batches(response.proposal());
-          if (ref_proposal)
-            local_batches = extract_batches(ref_proposal.value().first);
-
-
-        }*/
-
-        /* switch (response.optional_proposal_case()) {
-           case proto::ProposalResponse::kSameProposalHash: {
-             callback({std::move(ref_proposal), round});
-           } break;
-           case proto::ProposalResponse::kProposal: {
-             auto proposal_result =
-                 maybe_proposal_factory->build(response.proposal());
-             if (expected::hasError(proposal_result)) {
-               maybe_log->info("{}", proposal_result.assumeError().error);
-               callback({std::nullopt, round});
-             } else
-               callback({std::move(proposal_result).assumeValue(), round});
-           } break;
-           default: { callback({std::nullopt, round}); } break;
-         }*/
       });
 }
 
