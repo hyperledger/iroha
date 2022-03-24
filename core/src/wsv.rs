@@ -451,7 +451,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
-        let mut cur_events: SmallVec<[Event; 3]> = SmallVec(smallvec::smallvec![]);
+        let mut cur_events: SmallVec<[Event; 3]> = SmallVec::new();
         let event = f(&self.world)?;
 
         match event {

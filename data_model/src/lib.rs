@@ -420,7 +420,7 @@ where
         // This looks inefficient, but `Value` can only hold a
         // heap-allocated `Vec` (it's recursive) and the vector
         // conversions only do a heap allocation (if that).
-        let vec: Vec<_> = sv.0.into_vec();
+        let vec: Vec<_> = sv.into_vec();
         vec.into()
     }
 }
