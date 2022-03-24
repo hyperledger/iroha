@@ -808,12 +808,12 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.modify_world(|world| f(&world.triggers).map(WorldEvent::Trigger))
     }
 
-    /// Execute trigger with `trigger_id` as id
+    /// Execute trigger with `trigger_id` as id and `authority` as owner
     ///
     /// Produces [`ExecuteTriggerEvent`].
     /// Actual trigger execution will be in the next [`Self::apply()`] call
-    pub fn execute_trigger(&self, trigger_id: TriggerId) {
-        let event = ExecuteTriggerEvent::new(trigger_id).into();
+    pub fn execute_trigger(&self, trigger_id: TriggerId, authority: AccountId) {
+        let event = ExecuteTriggerEvent::new(trigger_id, authority).into();
         self.produce_events(once(event));
     }
 }

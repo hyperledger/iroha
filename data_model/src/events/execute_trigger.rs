@@ -7,13 +7,18 @@ use crate::prelude::*;
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
 pub struct Event {
     /// Id of trigger to be executed
-    pub trigger_id: TriggerId,
+    trigger_id: TriggerId,
+    /// Authority of user who tries to execute trigger
+    authority: AccountId,
 }
 
 impl Event {
-    /// Create new [`Event`] with `trigger_id`
-    pub fn new(trigger_id: TriggerId) -> Self {
-        Self { trigger_id }
+    /// Create new [`Event`] with `trigger_id` and `authority`
+    pub fn new(trigger_id: TriggerId, authority: AccountId) -> Self {
+        Self {
+            trigger_id,
+            authority,
+        }
     }
 }
 
@@ -34,20 +39,25 @@ impl Event {
 )]
 pub struct EventFilter {
     /// Id of trigger catch executions of
-    pub trigger_id: TriggerId,
+    trigger_id: TriggerId,
+    /// Authority of user who owns trigger
+    authority: AccountId,
 }
 
 impl EventFilter {
-    /// Create new [`EventFilter`] with `trigger_id`
-    pub fn new(trigger_id: TriggerId) -> Self {
-        Self { trigger_id }
+    /// Create new [`EventFilter`] with `trigger_id` and `authority`
+    pub fn new(trigger_id: TriggerId, authority: AccountId) -> Self {
+        Self {
+            trigger_id,
+            authority,
+        }
     }
 
     /// Check if `event` matches filter
     ///
     /// Event considered as matched if trigger ids are equal
     pub fn matches(&self, event: &Event) -> bool {
-        self.trigger_id == event.trigger_id
+        self.trigger_id == event.trigger_id && self.authority == event.authority
     }
 }
 

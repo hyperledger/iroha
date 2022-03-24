@@ -124,10 +124,10 @@ pub mod isi {
         #[metrics(+"execute_trigger")]
         fn execute(
             self,
-            _authority: <Account as Identifiable>::Id,
+            authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            wsv.execute_trigger(self.trigger_id);
+            wsv.execute_trigger(self.trigger_id, authority);
             Ok(())
         }
     }
