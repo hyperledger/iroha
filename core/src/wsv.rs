@@ -812,8 +812,16 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// Produces [`ExecuteTriggerEvent`].
     /// Actual trigger execution will be in the next [`Self::apply()`] call
+    ///
+    /// # Panics
+    /// (Rare) Panics if can't lock `self.events` for writing
+    #[allow(clippy::expect_used)]
     pub fn execute_trigger(&self, trigger_id: TriggerId, authority: AccountId) {
-        let event = ExecuteTriggerEvent::new(trigger_id, authority).into();
+        let event: Event = ExecuteTriggerEvent::new(trigger_id, authority).into();
+        self.events
+            .write()
+            .expect("Failed to lock events while executing trigger")
+            .push(event.clone());
         self.produce_events(once(event));
     }
 }
