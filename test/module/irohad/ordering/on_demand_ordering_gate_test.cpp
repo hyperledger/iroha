@@ -140,7 +140,7 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
               waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
 
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
+  std::optional<std::pair<std::shared_ptr<const shared_model::interface::Proposal>, ordering::BloomFilter256>> p{};
   EXPECT_CALL(*notification, onRequestProposal(round, p)).Times(1);
 
   auto event = RoundSwitch(round, ledger_state);
@@ -171,7 +171,8 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
   EXPECT_CALL(*notification, getRequestDelay())
       .WillOnce(Return(std::chrono::milliseconds(1)));
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
+
+  std::optional<std::pair<std::shared_ptr<const shared_model::interface::Proposal>, ordering::BloomFilter256>> p{};
   EXPECT_CALL(*notification, onRequestProposal(round, p)).Times(1);
 
   EXPECT_CALL(*ordering_service,
@@ -205,7 +206,7 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
       .WillOnce(Return(std::nullopt));
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
 
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
+  std::optional<std::pair<std::shared_ptr<const shared_model::interface::Proposal>, ordering::BloomFilter256>> p{};
   EXPECT_CALL(*notification, onRequestProposal(round, p)).Times(1);
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
@@ -232,7 +233,8 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
               waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
+
+  std::optional<std::pair<std::shared_ptr<const shared_model::interface::Proposal>, ordering::BloomFilter256>> p{};
   EXPECT_CALL(*notification, onRequestProposal(round, p)).Times(1);
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
@@ -271,7 +273,8 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
               waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
+
+  std::optional<std::pair<std::shared_ptr<const shared_model::interface::Proposal>, ordering::BloomFilter256>> p{};
   EXPECT_CALL(*notification, onRequestProposal(round, p)).Times(1);
   EXPECT_CALL(*tx_cache,
               check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
@@ -331,7 +334,8 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
               waitForLocalProposal(round, std::chrono::milliseconds(1)))
       .WillOnce(Return(std::nullopt));
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
-  std::optional<std::shared_ptr<const shared_model::interface::Proposal>> p{};
+
+  std::optional<std::pair<std::shared_ptr<const shared_model::interface::Proposal>, ordering::BloomFilter256>> p{};
   EXPECT_CALL(*notification, onRequestProposal(round, p)).Times(1);
   EXPECT_CALL(*tx_cache,
               check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
