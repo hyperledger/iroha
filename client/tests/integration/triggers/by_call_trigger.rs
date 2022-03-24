@@ -1,14 +1,16 @@
 #![allow(clippy::restriction)]
 
-use eyre::Result;
+use std::{sync::mpsc, thread, time::Duration};
+
+use eyre::{eyre, Result, WrapErr};
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
 
-#[test]
-fn test_call_execute_trigger() -> Result<()> {
-    const TRIGGER_NAME: &str = "mint_rose";
+const TRIGGER_NAME: &str = "mint_rose";
 
+#[test]
+fn call_execute_trigger() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -30,8 +32,42 @@ fn test_call_execute_trigger() -> Result<()> {
     Ok(())
 }
 
-fn get_asset_value(test_client: &mut Client, asset_id: AssetId) -> Result<u32> {
-    let asset = test_client.request(client::asset::by_id(asset_id))?;
+#[test]
+fn execute_trigger_should_produce_event() -> Result<()> {
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
+    let account_id = AccountId::new("alice", "wonderland")?;
+    let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+
+    let register_trigger = build_register_trigger_isi(TRIGGER_NAME, asset_id)?;
+    test_client.submit(register_trigger)?;
+
+    let trigger_id = TriggerId::new(TRIGGER_NAME)?;
+    let call_trigger = ExecuteTriggerBox::new(trigger_id.clone());
+
+    let mut thread_client = test_client.clone();
+    let (sender, receiver) = mpsc::channel();
+    let _handle = thread::spawn(move || -> Result<()> {
+        let mut event_it = thread_client
+            .listen_for_events(ExecuteTriggerEventFilter::new(trigger_id, account_id).into())?;
+        if event_it.next().is_some() {
+            sender.send(())?;
+            return Ok(());
+        }
+        Err(eyre!("No events emitted"))
+    });
+
+    test_client.submit(call_trigger)?;
+
+    receiver
+        .recv_timeout(Duration::from_secs(60))
+        .wrap_err("Failed to receive event message")
+}
+
+fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
+    let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(&asset.value)?)
 }
 
