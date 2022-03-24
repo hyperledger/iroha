@@ -81,6 +81,10 @@ namespace shared_model::crypto {
       clear();
     }
 
+    bool operator==(BloomFilter const &other) const {
+      return (0 == std::memcmp(filter_, other.filter_, sizeof(filter_)));
+    }
+
     void set(DataType const &data) {
       ((void)HashFunctions::set(data, filter_), ...);
     }

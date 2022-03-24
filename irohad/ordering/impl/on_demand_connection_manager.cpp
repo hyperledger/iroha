@@ -84,6 +84,7 @@ void OnDemandConnectionManager::onRequestProposal(
   if (stop_requested_.load(std::memory_order_relaxed))
     return;
 
+  assert(!proposal || proposal.value().first);
   log_->debug("onRequestProposal, {} : {}",
               round,
               proposal ? proposal.value().first->toString() : "NULL_OPT");
