@@ -44,6 +44,8 @@ pub enum Instruction {
     Grant(GrantBox),
     /// `Revoke` variant.
     Revoke(RevokeBox),
+    /// `ExecuteTrigger` variant.
+    ExecuteTrigger(ExecuteTriggerBox),
 }
 
 impl Instruction {
@@ -65,6 +67,7 @@ impl Instruction {
             RemoveKeyValue(remove_key_value) => remove_key_value.len(),
             Grant(grant_box) => grant_box.len(),
             Revoke(revoke_box) => revoke_box.len(),
+            ExecuteTrigger(execute_trigger) => execute_trigger.len(),
         }
     }
 }
@@ -310,16 +313,23 @@ where
 }
 
 /// Instruction to execute specified trigger
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct ExecuteTrigger {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+pub struct ExecuteTriggerBox {
     /// Id of a trigger to execute
     pub trigger_id: TriggerId,
 }
 
-impl ExecuteTrigger {
+impl ExecuteTriggerBox {
     /// Construct [`ExecuteTrigger`]
+    #[inline]
     pub fn new(trigger_id: TriggerId) -> Self {
         Self { trigger_id }
+    }
+
+    /// Length of contained instructions and queries.
+    #[inline]
+    pub const fn len(&self) -> usize {
+        1
     }
 }
 
@@ -784,9 +794,9 @@ mod tests {
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        Burn, BurnBox, ExecuteTrigger, FailBox, Grant, GrantBox, If as IfInstruction, Instruction,
-        Mint, MintBox, Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox, Revoke,
-        RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox, Transfer, TransferBox, Unregister,
-        UnregisterBox,
+        Burn, BurnBox, ExecuteTriggerBox, FailBox, Grant, GrantBox, If as IfInstruction,
+        Instruction, Mint, MintBox, Pair, Register, RegisterBox, RemoveKeyValue, RemoveKeyValueBox,
+        Revoke, RevokeBox, SequenceBox, SetKeyValue, SetKeyValueBox, Transfer, TransferBox,
+        Unregister, UnregisterBox,
     };
 }

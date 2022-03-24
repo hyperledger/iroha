@@ -582,6 +582,7 @@ impl Display for InstructionExecutionFail {
             RemoveKeyValue(_) => "remove key-value pair",
             Grant(_) => "grant",
             Revoke(_) => "revoke",
+            ExecuteTrigger(_) => "execute trigger",
         };
         write!(
             f,

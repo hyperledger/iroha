@@ -118,7 +118,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for ExecuteTrigger {
+    impl<W: WorldTrait> Execute<W> for ExecuteTriggerBox {
         type Error = Error;
 
         #[metrics(+"execute_trigger")]
