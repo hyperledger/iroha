@@ -71,12 +71,13 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   log_->info("Received RequestProposal for {} from {}", round, context->peer());
   auto maybe_proposal = ordering_service_->waitForLocalProposal(round, delay_);
   if (maybe_proposal.has_value()) {
-    auto const &[sptr_proposal, bf] = maybe_proposal.value();
-    response->set_bloom_filter(bf.load().data(), bf.load().size());
+    auto const &[sptr_proposal, bf_local] = maybe_proposal.value();
+    response->set_bloom_filter(bf_local.load().data(), bf_local.load().size());
     response->set_proposal_hash(sptr_proposal->hash().blob().data(),
                                 sptr_proposal->hash().blob().size());
 
-    log_->info("OS proposal: {}\nproposal: {}", sptr_proposal->hash(), *sptr_proposal);
+    log_->debug(
+        "OS proposal: {}\nproposal: {}", sptr_proposal->hash(), *sptr_proposal);
 
     auto const &proto_proposal =
         static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
@@ -98,11 +99,9 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
              == sptr_proposal->transactions().size());
       for (size_t ix = 0; ix < sptr_proposal->transactions().size(); ++ix) {
         assert(sptr_proposal->transactions()[ix].getBatchHash());
-        log_->info("Check batches hash: {}",
-                   *sptr_proposal->transactions()[ix].getBatchHash());
         if (!bf_remote.test(sptr_proposal->transactions()[(int)ix]
-                         .getBatchHash()
-                         .value())) {
+                                .getBatchHash()
+                                .value())) {
           auto *tx_dst =
               response->mutable_proposal()->mutable_transactions()->Add();
           *tx_dst = proto_proposal.transactions()[(int)ix];

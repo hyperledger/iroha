@@ -5,6 +5,7 @@
 
 #include "ordering/impl/on_demand_ordering_service_impl.hpp"
 
+#include <string_view>
 #include <unordered_set>
 
 #include <boost/range/adaptor/indirected.hpp>
@@ -101,14 +102,32 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
                     tryCreateProposal(ev.round, collection, ev.created_time);
                 result
                 && result.value()->hash()
-                    == shared_model::crypto::Hash(ev.remote_proposal_hash))
+                    == shared_model::crypto::Hash(ev.remote_proposal_hash)) {
+              log_->debug("Local correct proposal: {}, while remote {}",
+                          result.value()->hash(),
+                          shared_model::crypto::Hash(ev.remote_proposal_hash));
               iroha::getSubscription()->notify(
                   iroha::EventTypes::kOnProposalResponse,
                   ProposalEvent{std::move(result).value(), ev.round});
-            else
+            } else {
+              if (result)
+                log_->debug(
+                    "Local incorrect proposal: {}\nwhile remote {}\nremote "
+                    "proposal: {}\nlocal proposal: {}",
+                    result.value()->hash(),
+                    shared_model::crypto::Hash(ev.remote_proposal_hash),
+                    *ev.remote,
+                    **result);
+              else
+                log_->debug(
+                    "Local proposal was not created while remote hash "
+                    "{}\nremote proposal: {}",
+                    shared_model::crypto::Hash(ev.remote_proposal_hash),
+                    *ev.remote);
               iroha::getSubscription()->notify(
                   iroha::EventTypes::kOnProposalResponseFailed,
                   ProposalEvent{std::nullopt, ev.round});
+            }
           });
 }
 
@@ -229,7 +248,8 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
       getSubscription()->notify(EventTypes::kOnPackProposal, round);
     }
   } while (false);
-  log_->debug("uploadProposal, {}, {}returning a proposal.",
+
+  log_->debug("uploadProposal, {}, {} returning a proposal.",
               round,
               result ? "" : "NOT ");
   return result;

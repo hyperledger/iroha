@@ -100,8 +100,6 @@ namespace shared_model::crypto {
     void store(std::string_view const &data) {
       if (data.size() == kBytesCount)
         memcpy(filter_, data.data(), kBytesCount);
-      else
-        throw std::runtime_error("Unexpected Bloom filter size.");
     }
 
     std::string_view load() const {

@@ -48,6 +48,12 @@ OnDemandOrderingGate::OnDemandOrderingGate(
           [this](
               auto,
               auto ev) {  /// TODO(iceseer): remove `this` from lambda context
+            std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
+            if (stop_requested_) {
+              log_->warn("Not doing anything because stop was requested.");
+              return;
+            }
+
             if (!syncing_mode_) {
               assert(network_client_);
               network_client_->onRequestProposal(ev.round, std::nullopt);
