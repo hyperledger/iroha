@@ -114,15 +114,6 @@ impl<W: WorldTrait> TransactionValidator<W> {
         match &tx.payload.instructions {
             Executable::Instructions(instructions) => {
                 for instruction in instructions {
-                    instruction
-                        .clone()
-                        .execute(account_id.clone(), &wsv)
-                        .map_err(|reason| InstructionExecutionFail {
-                            instruction: instruction.clone(),
-                            reason: reason.to_string(),
-                        })
-                        .map_err(TransactionRejectionReason::InstructionExecution)?;
-
                     // Permission validation is skipped for genesis.
                     if !is_genesis {
                         check_instruction_permissions(
@@ -133,6 +124,15 @@ impl<W: WorldTrait> TransactionValidator<W> {
                             &wsv,
                         )?
                     }
+
+                    instruction
+                        .clone()
+                        .execute(account_id.clone(), &wsv)
+                        .map_err(|reason| InstructionExecutionFail {
+                            instruction: instruction.clone(),
+                            reason: reason.to_string(),
+                        })
+                        .map_err(TransactionRejectionReason::InstructionExecution)?;
                 }
             }
             Executable::Wasm(bytes) => {

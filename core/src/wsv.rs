@@ -683,10 +683,12 @@ impl<W: WorldTrait> WorldStateView<W> {
             let asset = account
                 .asset_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
+
             let event_result = f(asset);
             if asset.value().is_zero_value() {
                 assert!(account.remove_asset(id).is_some());
             }
+
             event_result.map(AccountEvent::Asset)
         })
     }

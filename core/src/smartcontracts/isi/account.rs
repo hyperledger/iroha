@@ -28,26 +28,13 @@ pub mod isi {
             let public_key = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                assert!(account.add_signatory(public_key));
-                Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
-            })
-        }
-    }
+                if account.contains_signatory(&public_key) {
+                    return Err(
+                        ValidationError::new("Account already contains this signatory").into(),
+                    );
+                }
 
-    impl<W: WorldTrait> Execute<W> for Mint<Account, SignatureCheckCondition> {
-        type Error = Error;
-
-        #[metrics(+"mint_account_signature_check_condition")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView<W>,
-        ) -> Result<(), Self::Error> {
-            let account_id = self.destination_id;
-            let signature_check_condition = self.object;
-
-            wsv.modify_account(&account_id, |account| {
-                account.set_signature_check_condition(signature_check_condition);
+                account.add_signatory(public_key);
                 Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
             })
         }
@@ -67,12 +54,34 @@ pub mod isi {
 
             wsv.modify_account(&account_id, |account| {
                 if account.signatories().len() < 2 {
-                    return Err(Self::Error::Validate(ValidationError::new(
+                    return Err(ValidationError::new(
                         "Public keys cannot be burned to nothing. If you want to delete the account, please use an unregister instruction.",
-                    )));
+                    ).into());
                 }
-                assert!(account.remove_signatory(&public_key));
+                if !account.remove_signatory(&public_key) {
+                    return Err(ValidationError::new("Public key not found").into())
+                }
+
                 Ok(AccountEvent::AuthenticationRemoved(account_id.clone()))
+            })
+        }
+    }
+
+    impl<W: WorldTrait> Execute<W> for Mint<Account, SignatureCheckCondition> {
+        type Error = Error;
+
+        #[metrics(+"mint_account_signature_check_condition")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Self::Error> {
+            let account_id = self.destination_id;
+            let signature_check_condition = self.object;
+
+            wsv.modify_account(&account_id, |account| {
+                account.set_signature_check_condition(signature_check_condition);
+                Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
             })
         }
     }
@@ -136,9 +145,13 @@ pub mod isi {
             let account_id = self.destination_id;
             let permission = self.object;
 
-            wsv.modify_account(&account_id, |account| {
-                assert!(account.add_permission(permission));
-                Ok(AccountEvent::PermissionAdded(account_id.clone()))
+            wsv.modify_account(&account_id.clone(), |account| {
+                if account.contains_permission(&permission) {
+                    return Err(ValidationError::new("Permission already exists").into());
+                }
+
+                account.add_permission(permission);
+                Ok(AccountEvent::PermissionAdded(account_id))
             })
         }
     }
@@ -153,10 +166,13 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let account_id = self.destination_id;
-            let permission = &self.object;
+            let permission = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                assert!(account.remove_permission(permission));
+                if !account.remove_permission(&permission) {
+                    return Err(ValidationError::new("Permission not found").into());
+                }
+
                 Ok(AccountEvent::PermissionRemoved(account_id.clone()))
             })
         }
@@ -172,16 +188,23 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let role = self.object;
+            let account_id = self.destination_id;
+            let role_id = self.object;
 
             wsv.world()
                 .roles
-                .get(&role)
-                .ok_or_else(|| FindError::Role(role.clone()))?;
+                .get(&role_id)
+                .ok_or_else(|| FindError::Role(role_id.clone()))?;
 
-            wsv.modify_account(&self.destination_id, |account| {
-                assert!(account.add_role(role));
-                Ok(AccountEvent::PermissionAdded(self.destination_id.clone()))
+            wsv.modify_account(&account_id.clone(), |account| {
+                if !account.add_role(role_id.clone()) {
+                    return Err(Error::Repetition(
+                        InstructionType::Grant,
+                        IdBox::RoleId(role_id),
+                    ));
+                }
+
+                Ok(AccountEvent::PermissionAdded(account_id))
             })
         }
     }
@@ -196,6 +219,7 @@ pub mod isi {
             _authority: AccountId,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
+            let account_id = self.destination_id;
             let role_id = self.object;
 
             wsv.world()
@@ -203,9 +227,12 @@ pub mod isi {
                 .get(&role_id)
                 .ok_or_else(|| FindError::Role(role_id.clone()))?;
 
-            wsv.modify_account(&self.destination_id, |account| {
-                assert!(account.remove_role(&role_id));
-                Ok(AccountEvent::PermissionRemoved(self.destination_id.clone()))
+            wsv.modify_account(&account_id.clone(), |account| {
+                if !account.remove_role(&role_id) {
+                    return Err(Error::Find(Box::new(FindError::Account(account_id))));
+                }
+
+                Ok(AccountEvent::PermissionRemoved(account_id))
             })
         }
     }

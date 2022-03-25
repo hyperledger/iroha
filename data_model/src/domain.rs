@@ -399,7 +399,7 @@ impl Id {
     /// # Errors
     /// Fails if any sub-construction fails
     #[inline]
-    pub fn new(name: Name) -> Self {
+    pub const fn new(name: Name) -> Self {
         Self { name }
     }
 

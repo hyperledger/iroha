@@ -77,7 +77,7 @@ pub mod error {
         Repetition(InstructionType, IdBox),
         /// Failed to validate.
         #[error("Failed to validate: {0}")]
-        Validate(#[source] ValidationError),
+        Validate(#[from] ValidationError),
     }
 
     // The main reason these are needed is because `FromVariant` can

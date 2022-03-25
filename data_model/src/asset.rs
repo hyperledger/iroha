@@ -70,7 +70,10 @@ impl Ord for AssetDefinitionEntry {
 
 impl AssetDefinitionEntry {
     /// Constructor.
-    pub fn new(definition: AssetDefinition, registered_by: <Account as Identifiable>::Id) -> Self {
+    pub const fn new(
+        definition: AssetDefinition,
+        registered_by: <Account as Identifiable>::Id,
+    ) -> Self {
         Self {
             definition,
             registered_by,
@@ -430,7 +433,7 @@ impl DefinitionId {
     /// # Errors
     /// Fails if any sub-construction fails
     #[inline]
-    pub fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
+    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
         Self { name, domain_id }
     }
 

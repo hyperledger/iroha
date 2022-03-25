@@ -4,7 +4,6 @@
 use alloc::{format, string::String, vec::Vec};
 use core::{cmp::Ordering, str::FromStr};
 
-use getset::Getters;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -16,27 +15,15 @@ use crate::{
 
 /// Type which is used for registering a `Trigger`.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-#[getset(get = "pub")]
 pub struct Trigger {
     /// [`Id`] of the [`Trigger`].
-    id: <Self as Identifiable>::Id,
+    pub id: <Self as Identifiable>::Id,
     /// Action to be performed when the trigger matches.
-    action: Action,
+    pub action: Action,
     /// Metadata of this account as a key-value store.
-    metadata: Metadata,
+    pub metadata: Metadata,
 }
 
 impl Trigger {
@@ -89,8 +76,7 @@ pub struct Action {
     /// account must already exist in order for `Register<Trigger>` to
     /// work.
     pub technical_account: super::account::Id,
-    /// Each trigger should be given a name. As with every other
-    /// instance of [`Name`] it has to exlclude whitespace.
+    /// Defines events which trigger the `Action`
     pub filter: EventFilter,
 }
 

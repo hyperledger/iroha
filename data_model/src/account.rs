@@ -1,13 +1,17 @@
 //! Structures, traits and impls related to `Account`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_map, format, string::String, vec::Vec};
+use alloc::{
+    collections::{btree_map, btree_set},
+    format,
+    string::String,
+    vec::Vec,
+};
 use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
-use std::collections::btree_map;
+use std::collections::{btree_map, btree_set};
 
 use getset::{Getters, MutGetters, Setters};
-use iroha_data_primitives::small::SmallVec;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -34,8 +38,7 @@ pub type AccountsMap = btree_map::BTreeMap<<Account as Identifiable>::Id, Accoun
 // stack. If we have more than 1, we keep everything on the
 // heap. Thanks to the union feature, we're not wasting `8Bytes`
 // of space, over `Vec`.
-// TODO: Should this be set rather than vec?
-type Signatories = SmallVec<[PublicKey; 1]>;
+type Signatories = btree_set::BTreeSet<PublicKey>;
 
 /// Genesis account name.
 pub const GENESIS_ACCOUNT_NAME: &str = "genesis";
@@ -256,7 +259,7 @@ impl Account {
         self.signatories.iter()
     }
 
-    /// Return `true` if the `Account` contains permission token
+    /// Return `true` if `Account` contains permission token
     #[inline]
     pub fn contains_permission(&self, token: &PermissionToken) -> bool {
         self.permission_tokens.contains(token)
@@ -266,6 +269,13 @@ impl Account {
     #[inline]
     pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
         self.permission_tokens.iter()
+    }
+
+    /// Return `true` if `Account` contains role
+    #[inline]
+    #[cfg(feature = "roles")]
+    pub fn contains_role(&self, role_id: &RoleId) -> bool {
+        self.roles.contains(role_id)
     }
 
     /// Get an iterator over [`role ids`](RoleId) of the `Account`
@@ -284,23 +294,13 @@ impl Account {
     /// If `Account` did have this signatory present, `false` is returned.
     #[inline]
     pub fn add_signatory(&mut self, signatory: PublicKey) -> bool {
-        if self.signatories().any(|s| *s == signatory) {
-            return false;
-        }
-
-        self.signatories.push(signatory);
-        true
+        self.signatories.insert(signatory)
     }
 
     /// Remove a signatory from the `Account` and return whether the signatory was present in the `Account`
     #[inline]
     pub fn remove_signatory(&mut self, signatory: &PublicKey) -> bool {
-        if let Some(pos) = self.signatories.iter().position(|s| s == signatory) {
-            self.signatories.remove(pos);
-            return true;
-        }
-
-        false
+        self.signatories.remove(signatory)
     }
 
     /// Return a mutable reference to the [`Asset`] corresponding to the asset id
@@ -407,7 +407,7 @@ impl Id {
     /// # Errors
     /// Fails if any sub-construction fails
     #[inline]
-    pub fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
+    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
         Self { name, domain_id }
     }
 
