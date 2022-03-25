@@ -832,7 +832,12 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Execute trigger with `trigger_id` as id and `authority` as owner
     ///
     /// Produces [`ExecuteTriggerEvent`].
-    /// Actual trigger execution will be in the next [`Self::apply()`] call
+    ///
+    /// Trigger execution time:
+    /// - If this method is called by ISI inside *transaction*,
+    /// then *trigger* will be executed on the **current** block
+    /// - If this method is called by ISI inside *trigger*,
+    /// then *trigger* will be executed on the **next** block
     ///
     /// # Panics
     /// (Rare) Panics if can't lock `self.events` for writing
