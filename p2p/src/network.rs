@@ -70,7 +70,7 @@ where
     /// Flag that stops listening stream
     finish_sender: Option<Sender<()>>,
     /// Mailbox capacity
-    mailbox: usize,
+    mailbox: u32,
 }
 
 impl<T, K, E> NetworkBase<T, K, E>
@@ -88,7 +88,7 @@ where
         broker: Broker,
         listen_addr: String,
         public_key: PublicKey,
-        mailbox: usize,
+        mailbox: u32,
     ) -> Result<Self, Error> {
         info!(%listen_addr, "Binding listener");
         let listener = TcpListener::bind(&listen_addr).await?;
@@ -159,7 +159,7 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    fn mailbox_capacity(&self) -> usize {
+    fn mailbox_capacity(&self) -> u32 {
         self.mailbox
     }
 

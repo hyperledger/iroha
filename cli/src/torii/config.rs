@@ -8,9 +8,9 @@ pub const DEFAULT_TORII_P2P_ADDR: &str = "127.0.0.1:1337";
 /// Default socket for reporting internal status and metrics
 pub const DEFAULT_TORII_TELEMETRY_URL: &str = "127.0.0.1:8180";
 /// Default maximum size of single transaction
-pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: usize = 2_usize.pow(15);
+pub const DEFAULT_TORII_MAX_TRANSACTION_SIZE: u32 = 2_u32.pow(15);
 /// Default upper bound on `content-length` specified in the HTTP request header
-pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: usize = 2_usize.pow(12) * 4000;
+pub const DEFAULT_TORII_MAX_CONTENT_LENGTH: u32 = 2_u32.pow(12) * 4000;
 
 /// Structure that defines the configuration parameters of `Torii` which is the routing module.
 /// For example the `p2p_addr`, which is used for consensus and block-synchronisation purposes,
@@ -27,9 +27,9 @@ pub struct ToriiConfiguration {
     /// Torii URL for reporting internal status and metrics for administration.
     pub telemetry_url: String,
     /// Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
-    pub max_transaction_size: usize,
+    pub max_transaction_size: u32,
     /// Maximum number of bytes in raw message. Used to prevent from DOS attacks.
-    pub max_content_len: usize,
+    pub max_content_len: u32,
 }
 
 impl Default for ToriiConfiguration {

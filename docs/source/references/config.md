@@ -143,7 +143,7 @@ Has type `u64`. Can be configured via environment variable `BLOCK_SYNC_GOSSIP_PE
 
 Mailbox size
 
-Has type `usize`. Can be configured via environment variable `BLOCK_SYNC_MAILBOX`
+Has type `u32`. Can be configured via environment variable `BLOCK_SYNC_MAILBOX`
 
 ```json
 100
@@ -274,7 +274,7 @@ Has type `Mode`. Can be configured via environment variable `KURA_INIT_MODE`
 
 Default mailbox size
 
-Has type `usize`. Can be configured via environment variable `KURA_MAILBOX`
+Has type `u32`. Can be configured via environment variable `KURA_MAILBOX`
 
 ```json
 100
@@ -330,7 +330,7 @@ Has type `handle::SyncValue<Level,handle::Singleton<Level>>`. Can be configured 
 
 Capacity (or batch size) for telemetry channel
 
-Has type `usize`. Can be configured via environment variable `TELEMETRY_CAPACITY`
+Has type `u32`. Can be configured via environment variable `TELEMETRY_CAPACITY`
 
 ```json
 1000
@@ -362,7 +362,7 @@ Has type `NetworkConfiguration`. Can be configured via environment variable `IRO
 
 Actor mailbox size
 
-Has type `usize`. Can be configured via environment variable `IROHA_NETWORK_MAILBOX`
+Has type `u32`. Can be configured via environment variable `IROHA_NETWORK_MAILBOX`
 
 ```json
 100
@@ -497,7 +497,7 @@ Has type `u64`. Can be configured via environment variable `SUMERAGI_COMMIT_TIME
 
 Maximum number of transactions in tx gossip batch message. While configuring this, attention should be payed to `p2p` max message size.
 
-Has type `usize`. Can be configured via environment variable `SUMERAGI_GOSSIP_BATCH_SIZE`
+Has type `u32`. Can be configured via environment variable `SUMERAGI_GOSSIP_BATCH_SIZE`
 
 ```json
 500
@@ -533,7 +533,7 @@ Has type `KeyPair`. Can be configured via environment variable `SUMERAGI_KEY_PAI
 
 Mailbox size
 
-Has type `usize`. Can be configured via environment variable `SUMERAGI_MAILBOX`
+Has type `u32`. Can be configured via environment variable `SUMERAGI_MAILBOX`
 
 ```json
 100
@@ -691,7 +691,7 @@ Has type `String`. Can be configured via environment variable `TORII_API_URL`
 
 Maximum number of bytes in raw message. Used to prevent from DOS attacks.
 
-Has type `usize`. Can be configured via environment variable `TORII_MAX_CONTENT_LEN`
+Has type `u32`. Can be configured via environment variable `TORII_MAX_CONTENT_LEN`
 
 ```json
 16384000
@@ -701,7 +701,7 @@ Has type `usize`. Can be configured via environment variable `TORII_MAX_CONTENT_
 
 Maximum number of bytes in raw transaction. Used to prevent from DOS attacks.
 
-Has type `usize`. Can be configured via environment variable `TORII_MAX_TRANSACTION_SIZE`
+Has type `u32`. Can be configured via environment variable `TORII_MAX_TRANSACTION_SIZE`
 
 ```json
 32768

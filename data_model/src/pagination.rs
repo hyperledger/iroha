@@ -1,4 +1,5 @@
 //! Structures and traits related to pagination.
+#![allow(clippy::expect_used)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{
@@ -60,7 +61,8 @@ impl<I: Iterator> Iterator for Paginated<I> {
         #[allow(clippy::option_if_let_else)]
         // Required because of E0524. 2 closures with unique refs to self
         if let Some(start) = self.pagination.start.take() {
-            self.iter.nth(start)
+            self.iter
+                .nth(start.try_into().expect("u32 should always fit in usize"))
         } else {
             self.iter.next()
         }
@@ -71,14 +73,14 @@ impl<I: Iterator> Iterator for Paginated<I> {
 #[derive(Clone, Eq, PartialEq, Debug, Default, Copy, Deserialize, Serialize)]
 pub struct Pagination {
     /// start of indexing
-    pub start: Option<usize>,
+    pub start: Option<u32>,
     /// limit of indexing
-    pub limit: Option<usize>,
+    pub limit: Option<u32>,
 }
 
 impl Pagination {
     /// Constructs [`Pagination`].
-    pub const fn new(start: Option<usize>, limit: Option<usize>) -> Self {
+    pub const fn new(start: Option<u32>, limit: Option<u32>) -> Self {
         Self { start, limit }
     }
 }
@@ -129,10 +131,25 @@ impl From<Pagination> for Vec<(&'static str, usize)> {
     fn from(pagination: Pagination) -> Self {
         match (pagination.start, pagination.limit) {
             (Some(start), Some(limit)) => {
-                vec![(PAGINATION_START, start), (PAGINATION_LIMIT, limit)]
+                vec![
+                    (
+                        PAGINATION_START,
+                        start.try_into().expect("u32 should always fit in usize"),
+                    ),
+                    (
+                        PAGINATION_LIMIT,
+                        limit.try_into().expect("u32 should always fit in usize"),
+                    ),
+                ]
             }
-            (Some(start), None) => vec![(PAGINATION_START, start)],
-            (None, Some(limit)) => vec![(PAGINATION_LIMIT, limit)],
+            (Some(start), None) => vec![(
+                PAGINATION_START,
+                start.try_into().expect("u32 should always fit in usize"),
+            )],
+            (None, Some(limit)) => vec![(
+                PAGINATION_LIMIT,
+                limit.try_into().expect("u32 should always fit in usize"),
+            )],
             (None, None) => Vec::new(),
         }
     }

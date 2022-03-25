@@ -53,7 +53,7 @@ pub struct KuraWithIO<W: WorldTrait, IO> {
     merkle_tree: MerkleTree<VersionedCommittedBlock>,
     wsv: Arc<WorldStateView<W>>,
     broker: Broker,
-    mailbox: usize,
+    mailbox: u32,
 }
 
 /// Production qualification of `KuraWithIO`
@@ -70,7 +70,7 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
         blocks_per_file: NonZeroU64,
         wsv: Arc<WorldStateView<W>>,
         broker: Broker,
-        mailbox: usize,
+        mailbox: u32,
         io: IO,
     ) -> Result<Self> {
         Ok(Self {
@@ -105,7 +105,7 @@ pub trait KuraTrait:
         blocks_per_file: NonZeroU64,
         wsv: Arc<WorldStateView<Self::World>>,
         broker: Broker,
-        mailbox: usize,
+        mailbox: u32,
     ) -> Result<Self>;
 
     /// Loads kura from configuration
@@ -138,7 +138,7 @@ impl<W: WorldTrait> KuraTrait for Kura<W> {
         blocks_per_file: NonZeroU64,
         wsv: Arc<WorldStateView<W>>,
         broker: Broker,
-        mailbox: usize,
+        mailbox: u32,
     ) -> Result<Self> {
         Self::new_meta(
             mode,
@@ -155,7 +155,7 @@ impl<W: WorldTrait> KuraTrait for Kura<W> {
 
 #[async_trait::async_trait]
 impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
-    fn mailbox_capacity(&self) -> usize {
+    fn mailbox_capacity(&self) -> u32 {
         self.mailbox
     }
 
@@ -486,7 +486,7 @@ pub mod config {
 
     const DEFAULT_BLOCKS_PER_STORAGE_FILE: u64 = 1000_u64;
     const DEFAULT_BLOCK_STORE_PATH: &str = "./blocks";
-    const DEFAULT_MAILBOX_SIZE: usize = 100;
+    const DEFAULT_MAILBOX_SIZE: u32 = 100;
 
     /// Configuration of kura
     #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
@@ -504,7 +504,7 @@ pub mod config {
         pub blocks_per_storage_file: NonZeroU64,
         /// Default mailbox size
         #[serde(default = "default_mailbox_size")]
-        pub mailbox: usize,
+        pub mailbox: u32,
     }
 
     impl Default for KuraConfiguration {
@@ -543,7 +543,7 @@ pub mod config {
         )
     }
 
-    const fn default_mailbox_size() -> usize {
+    const fn default_mailbox_size() -> u32 {
         DEFAULT_MAILBOX_SIZE
     }
 }

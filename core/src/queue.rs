@@ -1,4 +1,5 @@
 //! Module with queue actor
+#![allow(clippy::expect_used)]
 
 use std::{sync::Arc, time::Duration};
 
@@ -80,12 +81,15 @@ impl<W: WorldTrait> Queue<W> {
     }
 
     /// Returns `n` randomly selected transaction from the queue.
-    pub fn n_random_transactions(&self, n: usize) -> Vec<VersionedAcceptedTransaction> {
+    pub fn n_random_transactions(&self, n: u32) -> Vec<VersionedAcceptedTransaction> {
         self.txs
             .iter()
             .filter(|e| self.is_pending(e.value()))
             .map(|e| e.value().clone())
-            .choose_multiple(&mut rand::thread_rng(), n)
+            .choose_multiple(
+                &mut rand::thread_rng(),
+                n.try_into().expect("u32 should always fit in usize"),
+            )
     }
 
     fn check_tx(&self, tx: &VersionedAcceptedTransaction) -> Result<(), Error> {

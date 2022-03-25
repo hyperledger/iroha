@@ -15,9 +15,9 @@ pub const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
 /// Default amount of time Peer waits for `TxReceipt` from the leader.
 pub const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
 const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
-const DEFAULT_MAILBOX_SIZE: usize = 100;
+const DEFAULT_MAILBOX_SIZE: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
-const DEFAULT_GOSSIP_BATCH_SIZE: usize = 500;
+const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 
 /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
 /// and list of `TRUSTED_PEERS`.
@@ -44,9 +44,9 @@ pub struct SumeragiConfiguration {
     /// Limits to which transactions must adhere
     pub transaction_limits: TransactionLimits,
     /// Mailbox size
-    pub mailbox: usize,
+    pub mailbox: u32,
     /// Maximum number of transactions in tx gossip batch message. While configuring this, attention should be payed to `p2p` max message size.
-    pub gossip_batch_size: usize,
+    pub gossip_batch_size: u32,
     /// Period in milliseconds for pending transaction gossiping between peers.
     pub gossip_period_ms: u64,
 }
