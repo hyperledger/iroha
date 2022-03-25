@@ -76,6 +76,8 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
     response->set_proposal_hash(sptr_proposal->hash().blob().data(),
                                 sptr_proposal->hash().blob().size());
 
+    log_->info("OS proposal: {}\nproposal: {}", sptr_proposal->hash(), *sptr_proposal);
+
     auto const &proto_proposal =
         static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
             ->getTransport();
@@ -89,14 +91,16 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
           proto_proposal.created_time());
       response->mutable_proposal()->set_height(proto_proposal.height());
 
-      BloomFilter256 bf;
-      bf.store(std::string_view(request->bloom_filter()));
+      BloomFilter256 bf_remote;
+      bf_remote.store(std::string_view(request->bloom_filter()));
 
       assert((size_t)proto_proposal.transactions().size()
              == sptr_proposal->transactions().size());
       for (size_t ix = 0; ix < sptr_proposal->transactions().size(); ++ix) {
         assert(sptr_proposal->transactions()[ix].getBatchHash());
-        if (!bf.test(sptr_proposal->transactions()[(int)ix]
+        log_->info("Check batches hash: {}",
+                   *sptr_proposal->transactions()[ix].getBatchHash());
+        if (!bf_remote.test(sptr_proposal->transactions()[(int)ix]
                          .getBatchHash()
                          .value())) {
           auto *tx_dst =
