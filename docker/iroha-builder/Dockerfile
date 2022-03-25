@@ -46,7 +46,7 @@ RUN mkdir ${GOPATH}
 ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
 
 # random change to rebuld image and test workflow
-ENV PATH1=${PATH}:/opt/rust  
+RUN mkdir /opt/random 
 
 
 RUN go get github.com/golang/protobuf/protoc-gen-go
