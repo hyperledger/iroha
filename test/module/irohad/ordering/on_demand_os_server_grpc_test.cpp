@@ -7,8 +7,15 @@
 
 #include <grpcpp/impl/grpc_library.h>
 #include <gtest/gtest.h>
+#include <utility>
+
+#include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/validators/validators.hpp"
+#include "validators/default_validator.hpp"
+#include "validators/field_validator.hpp"
 #include "backend/protobuf/proposal.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
+#include "backend/protobuf/proto_proposal_factory.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
@@ -16,6 +23,7 @@
 #include "module/irohad/ordering/ordering_mocks.hpp"
 #include "module/shared_model/interface/mock_transaction_batch_factory.hpp"
 #include "module/shared_model/validators/validators.hpp"
+#include "module/irohad/ordering/mst_test_helpers.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -170,4 +178,53 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposalNone) {
   server->RequestProposal(&context, &request, &response);
 
   ASSERT_FALSE(response.has_proposal());
+}
+
+TEST_F(OnDemandOsServerGrpcTest, DiffCalculation) {
+  shared_model::proto::ProtoProposalFactory<
+      shared_model::validation::DefaultProposalValidator>
+      factory(iroha::test::kTestsValidatorsConfig);
+  auto const ts = iroha::time::now();
+
+  auto batch_1 = makeTestBatch(txBuilder(1, ts, 1));
+  auto batch_2 = makeTestBatch(txBuilder(2, ts, 1));
+
+  ordering::BloomFilter256 bf{};
+  bf.set(batch_1->reducedHash());
+  bf.set(batch_2->reducedHash());
+
+  iroha::protocol::Proposal proposal;
+  for (auto &transaction : batch_1->transactions())
+    *proposal.add_transactions() =
+        static_cast<shared_model::proto::Transaction *>(transaction.get())
+            ->getTransport();
+  for (auto &transaction : batch_2->transactions())
+    *proposal.add_transactions() =
+        static_cast<shared_model::proto::Transaction *>(transaction.get())
+            ->getTransport();
+
+  proto::ProposalRequest request;
+  request.mutable_round()->set_block_round(round.block_round);
+  request.mutable_round()->set_reject_round(round.reject_round);
+  request.set_bloom_filter(bf.load().data(), bf.load().size());
+
+  proto::ProposalResponse response;
+  std::chrono::milliseconds delay(0);
+
+  auto result = std::make_optional(std::make_pair(
+      std::shared_ptr<shared_model::interface::Proposal>(
+          std::make_shared<shared_model::proto::Proposal>(std::move(proposal))),
+      bf));
+
+  result->first->mut_transactions()[0].storeBatchHash(batch_1->reducedHash());
+  result->first->mut_transactions()[1].storeBatchHash(batch_2->reducedHash());
+
+  EXPECT_CALL(*notification, waitForLocalProposal(round, delay))
+      .WillOnce(Return(ByMove(std::move(result))));
+
+  grpc::ServerContext context;
+  server->RequestProposal(&context, &request, &response);
+
+  ASSERT_TRUE(response.has_proposal());
+  ASSERT_TRUE(response.proposal().transactions().empty());
 }
