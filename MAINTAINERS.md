@@ -26,5 +26,5 @@ This is the list of maintainers, including their email address for direct commun
 | Vyacheslav Bikbaev     | @laSinteZ                | viacheslav@soramitsu.co.jp     | Documentation, NodeJS library   |
 | Arseniy Fokin          | @stinger112              | stinger112@gmail.com           | NodeJS library                  |
 | Alexey Chernyshov      | @Alexey-N-Chernyshov     | chernyshov@soramitsu.co.jp     | Development                     |
-| Artyom Bakhtin         | @bakhtin                 | a@bakhtin.net                  | Ansible, Jenkins, artifacts     |
-| Anatoly Tyukushin      | @tyvision                | tyukushin@soramitsu.co.jp      | Ansible, Jenkins                |
+| Artyom Bakhtin         | @bakhtin                 | a@bakhtin.net                  | Ansible, artifacts              |
+| Anatoly Tyukushin      | @tyvision                | tyukushin@soramitsu.co.jp      | Ansible                         |
