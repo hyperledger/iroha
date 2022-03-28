@@ -7,7 +7,16 @@ Changelog
 
 Features
 ~~~~~~~~
-- 1928: implement changelog generation using `gitchangelog` [Aleksandr]
+- 1970: Add optional schema endpoint. [Aleksandr]
+- 1620: Introduce time based triggers (#1961) [Daniil]
+- 1918: Implement basic authentication for `client` (#1942) [Daniil]
+- 1726: Implement a release PR workflow. (#1932) [Aleksandr Petrosyan]
+- 1815: Make query responses more type-structured (#1867) [s8sato]
+- 1928: implement changelog generation using `gitchangelog` (#1930)
+  [Aleksandr Petrosyan]
+- 1902: Bare metal 4-peer setup script. (#1923) [Aleksandr Petrosyan]
+
+  Added a version of setup_test_env.sh that does not require docker-compose and uses the debug build of Iroha.
 - 1619: Introduce event-based triggers (#1874) [Aleksandr Petrosyan]
 - 1195: Close a websocket connection cleanly (#1899) [Daniil]
 - 1606: Add ipfs link to domain logo in Domain structure (#1886)
@@ -107,6 +116,11 @@ Features
 
 Fixes
 ~~~~~
+- 2013: Hotfix CLI args. [Aleksandr]
+- 1955: Fix possibility to pass `:` inside `web_login` (#1956) [Daniil]
+- 1943: Add query errors to the schema (#1950) [s8sato]
+- 1939: Proper features for `iroha_config_derive`. (#1940) [Aleksandr
+  Petrosyan]
 - 1908: fix zero value handling for telemetry analysis script (#1906)
   [Ahmed Elkashef]
 - 0000: Make implicitly ignored doc-test explicitly ignored. Fix typo.
@@ -176,6 +190,9 @@ Fixes
 
 Refactor
 ~~~~~~~~
+- : Core, `sumeragi`, instance functions, `torii` (#1965) [Aleksandr
+  Petrosyan]
+- 1903: move event emission to `modify_*` methods (#1931) [Daniil]
 - : Split `data_model` lib.rs file (#1905) [Daniil]
 - : add wsv reference to quueue. [Marin Veršić]
 - 1210: Split event stream (#1729) [Marin Veršić]
@@ -204,6 +221,11 @@ Refactor
 
 Documentation
 ~~~~~~~~~~~~~
+- : Update outdated README files. [Aleksandr]
+- : Added missing docs to `api_spec.md`. (#1941) [Aleksandr Petrosyan]
+- : add wasm README (#1919) [Marin Veršić]
+
+  * add wasm README.
 - : Updates codeowners file (#1843) [Egor Ivkov]
 - . (#1705) [Aleksandr Petrosyan]
 
@@ -211,6 +233,10 @@ Documentation
 
 CI/CD changes
 ~~~~~~~~~~~~~
+- : Fix push workflow. [Aleksandr]
+- : Add telemetry to default features. [Aleksandr]
+- : add proper tag to push workflow on main. [Aleksandr]
+- : fix failing tests. (#1938) [Aleksandr Petrosyan]
 - 1657: Update image to rust 1.57 (#1666) [Aleksandr Petrosyan]
 
   * [fix] #1630: Move back to self-hosted runners.
@@ -329,6 +355,7 @@ Tests
 
 Other
 ~~~~~
+- Fix return value for QueryBox execution in wasm (#1954) [Marin Veršić]
 - Share workdir as a volume with dev docker instances (#1910) [Marin
   Veršić]
 - Remove Diff associated type in Execute (#1895) [Marin Veršić]
