@@ -12,7 +12,7 @@ members = [
   "core/docs",
   "core/test_network",
   "crypto",
-  "crypto_cli",
+  "tools/crypto_cli",
   "data_model",
   "data_model/primitives",
   "futures",

@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-iroha_crypto = { version = "=2.0.0-pre-rc.3", path = "../crypto" }
+iroha_crypto = { version = "=2.0.0-pre-rc.3", path = "../../crypto" }
 
 clap = "2.33.0"
 color-eyre = "0.5.11"
