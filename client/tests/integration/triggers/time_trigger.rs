@@ -42,8 +42,7 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
 
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
-    let register_trigger =
-        build_register_trigger_isi(account_id.clone(), asset_id.clone(), schedule)?;
+    let register_trigger = build_register_trigger_isi(asset_id.clone(), schedule)?;
     test_client.submit(register_trigger)?;
 
     submit_sample_isi_on_every_block_commit(&mut test_client, &account_id, 3)?;
@@ -69,18 +68,14 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
 }
 
 /// Build register ISI for trigger which mints roses
-fn build_register_trigger_isi(
-    account_id: AccountId,
-    asset_id: AssetId,
-    schedule: TimeSchedule,
-) -> Result<RegisterBox> {
-    let instruction = MintBox::new(1_u32, asset_id);
+fn build_register_trigger_isi(asset_id: AssetId, schedule: TimeSchedule) -> Result<RegisterBox> {
+    let instruction = MintBox::new(1_u32, asset_id.clone());
     Ok(RegisterBox::new(IdentifiableBox::from(Trigger::new(
         "mint_rose",
         Action::new(
             Executable::from(vec![instruction.into()]),
             Repeats::Indefinitely,
-            account_id,
+            asset_id.account_id,
             EventFilter::Time(TimeEventFilter(schedule)),
         ),
     )?)))

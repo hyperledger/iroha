@@ -117,4 +117,18 @@ pub mod isi {
             })
         }
     }
+
+    impl<W: WorldTrait> Execute<W> for ExecuteTriggerBox {
+        type Error = Error;
+
+        #[metrics(+"execute_trigger")]
+        fn execute(
+            self,
+            authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Self::Error> {
+            wsv.execute_trigger(self.trigger_id, authority);
+            Ok(())
+        }
+    }
 }

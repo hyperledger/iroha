@@ -132,7 +132,8 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W, Instruction> {
             | Instruction::Transfer(_)
             | Instruction::Grant(_)
             | Instruction::Revoke(_)
-            | Instruction::Fail(_) => self.validator.check(authority, instruction, wsv),
+            | Instruction::Fail(_)
+            | Instruction::ExecuteTrigger(_) => self.validator.check(authority, instruction, wsv),
             Instruction::If(if_box) => {
                 self.check(authority, &if_box.then, wsv)
                     .and_then(|_| match &if_box.otherwise {
@@ -299,7 +300,6 @@ fn check_query_in_instruction<W: WorldTrait>(
                     validator,
                 ))
         }
-        Instruction::Fail(_) => Ok(()),
         Instruction::SetKeyValue(instruction) => {
             check_query_in_expression(authority, &instruction.object_id.expression, wsv, validator)
                 .and(check_query_in_expression(
@@ -365,6 +365,7 @@ fn check_query_in_instruction<W: WorldTrait>(
                     check_query_in_instruction(authority, this_instruction, wsv, validator)
                 })
         }
+        Instruction::Fail(_) | Instruction::ExecuteTrigger(_) => Ok(()),
     }
 }
 

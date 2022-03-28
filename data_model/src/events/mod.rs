@@ -11,6 +11,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 pub mod data;
+pub mod execute_trigger;
 pub mod pipeline;
 pub mod time;
 
@@ -96,6 +97,8 @@ pub enum Event {
     Data(data::Event),
     /// Time event.
     Time(time::Event),
+    /// Trigger execution event.
+    ExecuteTrigger(execute_trigger::Event),
 }
 
 /// Event filter.
@@ -122,6 +125,8 @@ pub enum EventFilter {
     Data(data::EventFilter),
     /// Listen to time events with filter.
     Time(time::EventFilter),
+    /// Listen to trigger execution event with filter.
+    ExecuteTrigger(execute_trigger::EventFilter),
 }
 
 impl EventFilter {
@@ -131,6 +136,9 @@ impl EventFilter {
             (Event::Pipeline(event), EventFilter::Pipeline(filter)) => filter.matches(event),
             (Event::Data(event), EventFilter::Data(filter)) => filter.matches(event),
             (Event::Time(event), EventFilter::Time(filter)) => filter.count_matches(event) > 0,
+            (Event::ExecuteTrigger(event), EventFilter::ExecuteTrigger(filter)) => {
+                filter.matches(event)
+            }
             _ => false,
         }
     }
@@ -139,8 +147,8 @@ impl EventFilter {
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
-        data::prelude::*, pipeline::prelude::*, time::prelude::*, Event, EventFilter,
-        EventPublisherMessage, EventSubscriberMessage, VersionedEventPublisherMessage,
-        VersionedEventSubscriberMessage,
+        data::prelude::*, execute_trigger::prelude::*, pipeline::prelude::*, time::prelude::*,
+        Event, EventFilter, EventPublisherMessage, EventSubscriberMessage,
+        VersionedEventPublisherMessage, VersionedEventSubscriberMessage,
     };
 }

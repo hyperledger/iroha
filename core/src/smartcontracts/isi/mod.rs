@@ -299,6 +299,7 @@ impl<W: WorldTrait> Execute<W> for Instruction {
             RemoveKeyValue(remove_key_value) => remove_key_value.execute(authority, wsv),
             Grant(grant_box) => grant_box.execute(authority, wsv),
             Revoke(revoke_box) => revoke_box.execute(authority, wsv),
+            ExecuteTrigger(execute_trigger) => execute_trigger.execute(authority, wsv),
         }
     }
 }
