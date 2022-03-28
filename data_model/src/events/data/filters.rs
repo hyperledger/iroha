@@ -659,6 +659,13 @@ impl Filter for EntityFilter {
 /// Passes id trough filter, if it equals to the one provided in construction
 pub struct IdFilter<Id: Eq>(Id);
 
+impl<Id: Eq> IdFilter<Id> {
+    /// Construct new `IdFilter`
+    pub fn new(id: Id) -> Self {
+        Self(id)
+    }
+}
+
 impl<Id: Eq> Filter for IdFilter<Id> {
     type EventType = Id;
 
@@ -676,7 +683,7 @@ pub mod prelude {
         domain::{DomainEventFilter, DomainFilter},
         peer::{PeerEventFilter, PeerFilter},
         trigger::{TriggerEventFilter, TriggerFilter},
-        EntityFilter, EventFilter as DataEventFilter,
+        EntityFilter as DataEntityFilter, EventFilter as DataEventFilter,
         FilterOpt::*,
         IdFilter,
     };
