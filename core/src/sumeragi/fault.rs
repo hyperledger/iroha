@@ -94,9 +94,9 @@ where
     /// [`iroha_p2p::Network`] actor address
     pub network: Addr<IrohaNetwork>,
     /// Mailbox size
-    pub mailbox: usize,
+    pub mailbox: u32,
     pub(crate) fault_injection: PhantomData<F>,
-    pub(crate) gossip_batch_size: usize,
+    pub(crate) gossip_batch_size: u32,
     pub(crate) gossip_period: Duration,
 }
 
@@ -161,7 +161,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
 impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Actor
     for SumeragiWithFault<G, K, W, F>
 {
-    fn mailbox_capacity(&self) -> usize {
+    fn mailbox_capacity(&self) -> u32 {
         self.mailbox
     }
 

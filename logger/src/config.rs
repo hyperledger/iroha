@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tracing::Subscriber;
 use tracing_subscriber::{filter::LevelFilter, reload::Handle};
 
-const TELEMETRY_CAPACITY: usize = 1000;
+const TELEMETRY_CAPACITY: u32 = 1000;
 const DEFAULT_COMPACT_MODE: bool = false;
 const DEFAULT_TERMINAL_COLORS: bool = true;
 
@@ -60,7 +60,7 @@ pub struct Configuration {
     #[config(serde_as_str)]
     pub max_log_level: handle::SyncValue<Level, handle::Singleton<Level>>,
     /// Capacity (or batch size) for telemetry channel
-    pub telemetry_capacity: usize,
+    pub telemetry_capacity: u32,
     /// Compact mode (no spans from telemetry)
     pub compact_mode: bool,
     /// If provided, logs will be copied to said file in the

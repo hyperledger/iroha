@@ -431,7 +431,7 @@ impl<W: WorldTrait> Torii<W> {
             warp::path(uri::TRANSACTION)
                 .and(add_state!(self.iroha_cfg, self.queue))
                 .and(warp::body::content_length_limit(
-                    self.iroha_cfg.torii.max_content_len as u64,
+                    self.iroha_cfg.torii.max_content_len.into(),
                 ))
                 .and(body::versioned()),
         )

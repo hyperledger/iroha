@@ -69,10 +69,10 @@ pub struct Configuration {
 #[config(env_prefix = "IROHA_NETWORK_")]
 pub struct NetworkConfiguration {
     /// Actor mailbox size
-    pub mailbox: usize,
+    pub mailbox: u32,
 }
 
-const DEFAULT_MAILBOX_SIZE: usize = 100;
+const DEFAULT_MAILBOX_SIZE: u32 = 100;
 
 impl Default for NetworkConfiguration {
     fn default() -> Self {

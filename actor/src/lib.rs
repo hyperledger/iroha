@@ -1,5 +1,6 @@
 //! Iroha simple actor framework.
 #![allow(clippy::same_name_method)]
+#![allow(clippy::expect_used)]
 
 #[cfg(feature = "deadlock_detection")]
 use std::any::type_name;
@@ -288,7 +289,7 @@ where
 #[async_trait::async_trait]
 pub trait Actor: Send + Sized + 'static {
     /// Capacity of actor queue
-    fn mailbox_capacity(&self) -> usize {
+    fn mailbox_capacity(&self) -> u32 {
         100
     }
 
@@ -305,7 +306,12 @@ pub trait Actor: Send + Sized + 'static {
     /// Initialize actor with its address.
     fn preinit(self) -> InitializedActor<Self> {
         let mailbox_capacity = self.mailbox_capacity();
-        InitializedActor::new(self, mailbox_capacity)
+        InitializedActor::new(
+            self,
+            mailbox_capacity
+                .try_into()
+                .expect("u32 should always fit in usize"),
+        )
     }
 
     /// Initialize actor with default values

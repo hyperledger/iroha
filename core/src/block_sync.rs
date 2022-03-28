@@ -43,7 +43,7 @@ pub struct BlockSynchronizer<S: SumeragiTrait, W: WorldTrait> {
     gossip_period: Duration,
     batch_size: u32,
     broker: Broker,
-    mailbox: usize,
+    mailbox: u32,
 }
 
 /// Block synchronizer
@@ -99,7 +99,7 @@ pub struct ReceiveUpdates;
 
 #[async_trait::async_trait]
 impl<S: SumeragiTrait, W: WorldTrait> Actor for BlockSynchronizer<S, W> {
-    fn mailbox_capacity(&self) -> usize {
+    fn mailbox_capacity(&self) -> u32 {
         self.mailbox
     }
 
@@ -350,7 +350,7 @@ pub mod config {
 
     const DEFAULT_BATCH_SIZE: u32 = 4;
     const DEFAULT_GOSSIP_PERIOD_MS: u64 = 10000;
-    const DEFAULT_MAILBOX_SIZE: usize = 100;
+    const DEFAULT_MAILBOX_SIZE: u32 = 100;
 
     /// Configuration for `BlockSynchronizer`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
@@ -364,7 +364,7 @@ pub mod config {
         /// Underlying network (`iroha_network`) should support transferring messages this large.
         pub batch_size: u32,
         /// Mailbox size
-        pub mailbox: usize,
+        pub mailbox: u32,
     }
 
     impl Default for BlockSyncConfiguration {

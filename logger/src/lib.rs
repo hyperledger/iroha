@@ -1,4 +1,5 @@
 //! Iroha's logging utilities.
+#![allow(clippy::expect_used)]
 
 pub mod config;
 pub mod layer;
@@ -110,8 +111,13 @@ fn add_telemetry_and_set_default<S: Subscriber + Send + Sync + 'static>(
     subscriber: S,
 ) -> Result<Telemetries> {
     // static global_subscriber: dyn Subscriber = once_cell::new;
-    let (subscriber, receiver, receiver_future) =
-        TelemetryLayer::from_capacity(subscriber, configuration.telemetry_capacity);
+    let (subscriber, receiver, receiver_future) = TelemetryLayer::from_capacity(
+        subscriber,
+        configuration
+            .telemetry_capacity
+            .try_into()
+            .expect("u32 should always fit in usize"),
+    );
     set_global_default(subscriber)?;
     Ok((receiver, receiver_future))
 }
