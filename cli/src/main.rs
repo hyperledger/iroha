@@ -1,7 +1,12 @@
 //! Iroha peer command-line interface.
 
-use std::str::FromStr;
+use std::{
+    env::{args, var},
+    path::PathBuf,
+    str::FromStr,
+};
 
+use eyre::eyre;
 use iroha::Arguments;
 use iroha_core::prelude::AllowAll;
 use iroha_permissions_validators::public_blockchain::default_permissions;
@@ -9,28 +14,28 @@ use iroha_permissions_validators::public_blockchain::default_permissions;
 #[tokio::main]
 async fn main() -> Result<(), color_eyre::Report> {
     let mut args = Arguments::default();
-    if std::env::args().any(|a| is_help(&a)) {
+    if args().any(|a| is_help(&a)) {
         print_help();
         return Ok(());
     }
 
-    if std::env::args().any(|a| is_submit(&a)) {
+    if args().any(|a| is_submit(&a)) {
         args.submit_genesis = true;
     }
 
-    for arg in std::env::args().skip(1) {
-        if !is_help(&arg) && !is_submit(&arg) {
+    for arg in args().skip(1) {
+        if !arg.is_empty() && !is_help(&arg) && !is_submit(&arg) {
             print_help();
-            return Err(eyre::eyre!("Unrecognised command-line flag `{}`", arg));
+            return Err(eyre!("Unrecognised command-line flag `{}`", arg));
         }
     }
 
-    if let Ok(config_path) = std::env::var("IROHA2_CONFIG_PATH") {
-        args.config_path = std::path::PathBuf::from_str(&config_path)?;
+    if let Ok(config_path) = var("IROHA2_CONFIG_PATH") {
+        args.config_path = PathBuf::from_str(&config_path)?;
     }
 
-    if let Ok(genesis_path) = std::env::var("IROHA2_GENESIS_PATH") {
-        args.genesis_path = std::path::PathBuf::from_str(&genesis_path)?;
+    if let Ok(genesis_path) = var("IROHA2_GENESIS_PATH") {
+        args.genesis_path = PathBuf::from_str(&genesis_path)?;
     }
 
     <iroha::Iroha>::new(&args, default_permissions(), AllowAll.into())
