@@ -62,6 +62,7 @@ struct FakePeerFixture : AcceptanceFixture,
 
  protected:
   void SetUp() override {
+    subscription = iroha::getSubscription();
     itf_ = std::make_unique<integration_framework::IntegrationTestFramework>(
         1,
         GetParam(),
@@ -74,9 +75,11 @@ struct FakePeerFixture : AcceptanceFixture,
 
   void TearDown() override {
     itf_.reset();
+    subscription->dispose();
   }
 
   std::vector<std::shared_ptr<FakePeer>> fake_peers_;
+  std::shared_ptr<iroha::Subscription> subscription;
 };
 
 #endif  // IROHA_FAKE_PEER_FIXTURE_HPP
