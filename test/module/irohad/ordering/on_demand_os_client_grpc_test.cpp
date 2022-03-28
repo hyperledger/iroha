@@ -42,7 +42,14 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
   using MockProtoProposalValidator =
       shared_model::validation::MockValidator<iroha::protocol::Proposal>;
 
+  void TearDown() override {
+    proposals_subscription_->unsubscribe();
+    proposals_subscription_.reset();
+    subscription->dispose();
+  }
+
   void SetUp() override {
+    subscription = iroha::getSubscription();
     auto ustub = std::make_unique<proto::MockOnDemandOrderingStub>();
     stub = ustub.get();
     auto validator = std::make_unique<MockProposalValidator>();
@@ -87,6 +94,7 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
   consensus::Round round{1, 2};
   ProposalEvent received_event;
   std::shared_ptr<BaseSubscriber<bool, ProposalEvent>> proposals_subscription_;
+  std::shared_ptr<iroha::Subscription> subscription;
 
   MockProposalValidator *proposal_validator;
   MockProtoProposalValidator *proto_proposal_validator;
@@ -171,6 +179,7 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposal) {
       ->mutable_payload()
       ->mutable_reduced_payload()
       ->set_creator_account_id(creator);
+  response.set_proposal_hash("hash_1");
   EXPECT_CALL(*stub, RequestProposal(_, _, _))
       .WillOnce(DoAll(SaveClientContextDeadline(&deadline),
                       SaveArg<1>(&request),

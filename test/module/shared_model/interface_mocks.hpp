@@ -188,6 +188,8 @@ struct MockProposal : public shared_model::interface::Proposal {
   MOCK_CONST_METHOD0(hash, const shared_model::interface::types::HashType &());
   MOCK_CONST_METHOD0(clone, MockProposal *());
   MOCK_CONST_METHOD0(toString, std::string());
+  MOCK_METHOD0(mut_transactions,
+               shared_model::interface::types::TransactionsCollectionType());
 };
 
 struct MockPeer : public shared_model::interface::Peer {
