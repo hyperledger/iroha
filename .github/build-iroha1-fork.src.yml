@@ -333,8 +333,8 @@ jobs:
     needs:
       - Docker-iroha-builder
       - generate_matrixes
-    #runs-on: [ self-hosted, Linux ]
-    runs-on: ubuntu-20.04 
+    runs-on: [ self-hosted, Linux ]
+    #runs-on: ubuntu-20.04 
     container: ## Container is taken from previous job
       image: &container_image ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
