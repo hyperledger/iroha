@@ -199,7 +199,6 @@ jobs:
         id: docker_login
         uses: docker/login-action@v1
         with:
-          #username: ${{ secrets.DOCKERHUB_USERNAME }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - &step_docker_login_ghcr
@@ -375,7 +374,7 @@ jobs:
           echo >>$GITHUB_ENV  features="$features"
           echo >>$GITHUB_ENV  skip_testing=$(echo ${{matrix.buildspec}} | grep -Fo skip_testing)
       - *step_detect_commented_pr
-      - &step_checkout_full
+      - &step_checkout_full_head
         <<: *step_checkout_head
         with:
           <<: *step_checkout_with_head
@@ -603,3 +602,228 @@ jobs:
             fi
           done
           $tests_passed
+
+  ## Just because release is built 2..3 times faster make it a different job
+  build-UR:
+    <<: *job_ubuntu
+    strategy: &strategy_ubuntu_release
+      fail-fast: false
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ) }}
+    if: &if_ubuntu_release ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
+
+  ## Just to align picture
+  prepare-macos-env:
+    needs: check_workflow_yaml_coressponds_to_src_yaml
+    runs-on: macos-latest
+    steps:
+      - *step_show_context
+
+  build-M:
+    needs:
+      - prepare-macos-env
+      - generate_matrixes
+    runs-on: macos-latest #[ self-hosted, MacOS ] #
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ) }}
+    if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ).include[0] }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - *step_show_context
+      - *step_system_info
+      - *step_build_info
+      - *step_env_from_buildspec
+      -
+        name: Homebrew
+        run: brew install cmake ninja coreutils ccache bash
+        ## Takes 22 seconds with default github runner
+      -
+        if: ${{ contains(env.CC_NAME, 'gcc-10') }}
+        name: Homebrew GCC
+        run: brew install gcc@10
+      -
+        if: ${{ contains(env.CC_NAME, 'llvm') }}
+        name: Homebrew LLVM
+        run: brew install llvm
+      -
+        if: ${{ contains(env.features, 'burrow') }}
+        name: Install protoc-gen-go for -DUSE_BURROW=ON
+        run: |
+          go get github.com/golang/protobuf/protoc-gen-go
+          echo >>$GITHUB_PATH $HOME/go/bin
+      - *step_detect_commented_pr
+      - *step_checkout_full_head
+      - <<: *step_export_cxx
+        env:
+          <<: *step_export_cxx_env
+          CCACHE_PATH: /usr/local/opt/ccache/libexec
+      - *step_restore_ccache
+      - *step_store_ccache_stats
+      - *step_vcpkg_cache
+      - *step_vcpkg_build
+      - *step_cmake_configure
+      - *step_cmake_build
+      - *step_compare_ccache_stats
+      - *step_always_after_build
+      - *step_artifact_suffix
+      - <<: *step_artifact_irohad
+        with:
+          name: irohad-macos${{env.ARTIFACT_SUFFIX}}
+          path: *step_artifact_irohad_path
+      - *step_artifact_tests
+      - &step_brew_postgres
+        name: Install Postgres on MacOS
+        run: brew install postgresql
+      - <<: *step_ctest
+        timeout-minutes: 70
+
+  ## Just to align picture
+  prepare-windows-env:
+    needs: check_workflow_yaml_coressponds_to_src_yaml
+    runs-on: windows-latest
+    steps:
+      - *step_show_context
+    defaults:
+      run:
+        shell: bash
+
+  build-W:
+    needs:
+      - prepare-windows-env
+      - generate_matrixes
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
+    if: ${{ false && ( fromJSON( needs.generate_matrixes.outputs.matrix_windows ).include[0] ) }}
+    defaults:
+      run:
+        shell: bash  #pwsh
+        working-directory: &workdir 'C:\github\iroha'  ## Use disk C: because D: is out of space
+    steps:
+      - name: Create working-directory, export WORKDIR
+        run: |
+          set -x
+          mkdir -p "$WORKDIR"
+          echo $PWD
+          echo >>$GITHUB_ENV WORKDIR="$WORKDIR"
+        working-directory: 'C:\'
+        env: { WORKDIR: *workdir }
+      - name: uname in bash
+        run: uname
+        shell: bash
+      - name: uname in [default] pwsh shell
+        run: uname
+        shell: pwsh
+      - &step_choco_install
+        name: Chocolatey install
+        run: choco install cmake ninja #ccache
+      - *step_checkout_full_head
+      - name: move to workdir
+        run: |
+          set -x
+          echo $PWD
+          shopt -s dotglob nullglob
+          mv -vf *  -t "$WORKDIR"
+        working-directory:
+      #- *step_restore_ccache
+      #- *step_vcpkg_cache
+      - *step_vcpkg_build
+      - *step_cmake_configure
+      - *step_cmake_build
+      - *step_always_after_build
+      - name: Install Postgres on Windows
+        run: choco install postgresql
+      # - *step_ctest
+
+  ## Build and publish docker image named 'hyperledger/iroha'  with irohad and iroha tools inside.
+  ## The result docker image is pushed with tags :branch_name, :pr-NUMBER, :tag_name,
+  ## and :latest (for git-tags).
+  ## Those docker image tags could be extended with suffixes with compiler and build type like
+  ## -gcc10, -clang, -debug, -gcc10-debug. Like :latest-debug, :main-debug, :1.3.0-gcc10-debug.
+  ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha:nightly.
+  ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
+  docker-R: &job_docker_image_release
+    needs:
+      - build-UR
+      - generate_matrixes
+    runs-on: [ self-hosted, Linux ] #ubuntu-latest
+    # strategy: *strategy_ubuntu_release
+    # if: *if_ubuntu_release
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_release ) }}
+    if:       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_release ).include[0] }}
+    #env: &env_dockerhub_release
+    #  <<: *env_dockerhub
+    #  IMAGE_NAME: iroha
+    env:
+      IMAGE_NAME: iroha
+    steps:
+      - *step_show_context
+      - *step_system_info
+      - *step_build_info
+      - *step_env_from_buildspec
+      - *step_detect_commented_pr
+      - *step_checkout_head
+      - *step_artifact_suffix
+      - name: Download artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: iroha-deb${{env.ARTIFACT_SUFFIX}}
+      - name: Rename artifact debs
+        run: |
+          mv *iroha_shepherd.deb docker/release/iroha_shepherd.deb
+          mv *irohad.deb         docker/release/iroha.deb
+      - <<: *step_docker_tag
+        env:
+          dockertag: ${{ hashFiles('docker/release/**') }}
+      - <<: *step_docker_meta
+        with: &step_docker_release_meta_with
+          images: |
+            ${{ env.DOCKERHUB_ORG }}/${{ env.IMAGE_NAME }}${{ env._uses_suffix }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
+            type=schedule
+          flavor: |
+            suffix=${{env._compiler_suffix}}${{env._debug_suffix}},onlatest=true
+          #maybetodo flavor: prefix=${{ env.USES_PREFIX }}  ## In case creating repository hyperledger/iroha-burrow denied, Use tag prefix hyperledger/iroha:burrow-xxxx
+      - <<: *step_docker_meta_ghcr
+        with:
+          <<: *step_docker_release_meta_with
+          images: ghcr.io/${{ github.repository }}${{ env._uses_suffix }}
+      - *step_docker_login
+      - *step_docker_login_ghcr
+      - *step_warn_docker_no_push
+      - *step_docker_buildx
+      - <<: *step_docker_cache
+        with:
+          path: /tmp/.buildx-cache
+          key:           ${{ runner.os }}-buildx-release-${{env.dockertag}}
+          restore-keys:  ${{ runner.os }}-buildx-release
+      - <<: *step_docker_build_and_push
+        with:
+          <<: *step_docker_build_and_push_with
+          context: docker/release/
+          push: ${{ steps.docker_login.outcome == 'success' }}
+      - <<: *step_docker_build_and_push_ghcr
+        with:
+          <<: *step_docker_build_and_push_ghcr-with
+          context: docker/release/
+      - *step_docker_move_cache
+
+  docker-D:
+    <<: *job_docker_image_release
+    needs:
+      - build-UD
+      - generate_matrixes
+    # strategy: *strategy_ubuntu_debug
+    # if: *if_ubuntu_debug
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_debug ) }}
+    if:       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_debug ).include[0] }}
