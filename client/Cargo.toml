@@ -46,7 +46,7 @@ test_network = { version = "=2.0.0-pre-rc.3", path = "../core/test_network" }
 
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
-criterion = { version = "0.3", features = ["html_reports"] }
+criterion = { version = "0.3.5", features = ["html_reports"] }
 color-eyre = "0.5.11"
 tempfile = "3"
 hex = "0.4.0"
@@ -54,3 +54,13 @@ hex = "0.4.0"
 [[bench]]
 name = "torii"
 harness = false
+
+[[bench]]
+name = "tps-dev"
+harness = false
+path = "benches/tps/dev.rs"
+
+[[example]]
+name = "tps-oneshot"
+harness = false
+path = "benches/tps/oneshot.rs"
