@@ -7,78 +7,77 @@ Changelog
 
 Features
 ~~~~~~~~
-- 1970: Add optional schema endpoint. [Aleksandr]
-- 1620: Introduce time based triggers (#1961) [Daniil]
-- 1918: Implement basic authentication for `client` (#1942) [Daniil]
-- 1726: Implement a release PR workflow. (#1932) [Aleksandr Petrosyan]
-- 1815: Make query responses more type-structured (#1867) [s8sato]
-- 1928: implement changelog generation using `gitchangelog` (#1930)
+- 1621 Introduce By Call Triggers (#2006) [Daniil]
+- 1970 Add optional schema endpoint. [Aleksandr]
+- 1620 Introduce time based triggers (#1961) [Daniil]
+- 1918 Implement basic authentication for `client` (#1942) [Daniil]
+- 1726 Implement a release PR workflow. (#1932) [Aleksandr Petrosyan]
+- 1815 Make query responses more type-structured (#1867) [s8sato]
+- 1928 implement changelog generation using `gitchangelog` (#1930)
   [Aleksandr Petrosyan]
-- 1902: Bare metal 4-peer setup script. (#1923) [Aleksandr Petrosyan]
+- 1902 Bare metal 4-peer setup script. (#1923) [Aleksandr Petrosyan]
 
   Added a version of setup_test_env.sh that does not require docker-compose and uses the debug build of Iroha.
-- 1619: Introduce event-based triggers (#1874) [Aleksandr Petrosyan]
-- 1195: Close a websocket connection cleanly (#1899) [Daniil]
-- 1606: Add ipfs link to domain logo in Domain structure (#1886)
-  [Daniil]
-- 1767: restrict linear memory usage for wasm smartcontracts (#1879)
+- 1619 Introduce event-based triggers (#1874) [Aleksandr Petrosyan]
+- 1195 Close a websocket connection cleanly (#1899) [Daniil]
+- 1606 Add ipfs link to domain logo in Domain structure (#1886) [Daniil]
+- 1767 restrict linear memory usage for wasm smartcontracts (#1879)
   [Marin Veršić]
 
   restrict linear memory usage for wasm smartcontracts.
-- 1766: Wasm permission validation (#1861) [Marin Veršić]
+- 1766 Wasm permission validation (#1861) [Marin Veršić]
 
   * custom decode for SignaturesOf.
-- 1754: Add Kura inspector CLI (#1817) [s8sato]
+- 1754 Add Kura inspector CLI (#1817) [s8sato]
 
   * Define the interface.
-- 1790: Improve performance by using stack-based vectors. (#1826)
+- 1790 Improve performance by using stack-based vectors. (#1826)
   [Aleksandr Petrosyan]
-- 1425: Wasm helper crate. [Marin Veršić]
+- 1425 Wasm helper crate. [Marin Veršić]
 
   * add helper crate for writing wasm smartcontracts.
-- 1425: add limits to wasm execution (#1828) [Marin Veršić]
-- 1805: Optional terminal colors for panic errors (#1818) [Egor Ivkov]
-- 1749: `no_std` in `data_model` (#1779) [Marin Veršić]
-- 1179: Add revoke-permission-or-role instruction (#1748) [Aleksandr
+- 1425 add limits to wasm execution (#1828) [Marin Veršić]
+- 1805 Optional terminal colors for panic errors (#1818) [Egor Ivkov]
+- 1749 `no_std` in `data_model` (#1779) [Marin Veršić]
+- 1179 Add revoke-permission-or-role instruction (#1748) [Aleksandr
   Petrosyan]
-- 1782: make iroha_crypto no_std compatible. [Marin Veršić]
-- 1425: add wasm runtime (#1759) [Marin Veršić]
+- 1782 make iroha_crypto no_std compatible. [Marin Veršić]
+- 1425 add wasm runtime (#1759) [Marin Veršić]
 
   * add wasm runtime.
-- 1172: Implement instruction events (#1764) [s8sato]
+- 1172 Implement instruction events (#1764) [s8sato]
 
   * Split `iroha_data_model::events` to files.
-- 1734: Validate `Name` to exclude whitespaces (#1743) [s8sato]
+- 1734 Validate `Name` to exclude whitespaces (#1743) [s8sato]
 
   * Unify metadata key to `Name`
-- 1144: Add metadata nesting (#1738) [Aleksandr Petrosyan]
+- 1144 Add metadata nesting (#1738) [Aleksandr Petrosyan]
 
   * Added nested metadata.
-- 1210 Block streaming - server side (#1724) [Marin Veršić]
+- #1210 Block streaming - server side (#1724) [Marin Veršić]
 
   * move transaction related functionality to data_model/transaction module.
-- 1331: Implement more `Prometheus` metrics (#1720) [Aleksandr
-  Petrosyan]
+- 1331 Implement more `Prometheus` metrics (#1720) [Aleksandr Petrosyan]
 
   * Initial implementation of some metrics.
-- 1689: Fix feature dependencies. (#1688) [Aleksandr Petrosyan]
+- 1689 Fix feature dependencies. (#1688) [Aleksandr Petrosyan]
 
   * [feature] #1261: Add cargo bloat.
-- 1675: use type instead of wrapper struct for versioned items (#1665)
+- 1675 use type instead of wrapper struct for versioned items (#1665)
   [Marin Veršić]
 
   * use type instead of wrapper struct for inner versioned items.
-- 1643: Wait for peers to commit genesis in tests (#1655) [Egor Ivkov]
-- 1678: `try_allocate` (#1679) [GaroRobe]
+- 1643 Wait for peers to commit genesis in tests (#1655) [Egor Ivkov]
+- 1678 `try_allocate` (#1679) [GaroRobe]
 
   * Added allocation error handling using try_reserve.
-- 1216: Add Prometheus endpoint.  (#1656) [Aleksandr Petrosyan]
+- 1216 Add Prometheus endpoint.  (#1656) [Aleksandr Petrosyan]
 
   * [feature] #1216 - initial implementation of metrics endpoint.
-- 1238: Run-time log-level updates (#1603) [Aleksandr Petrosyan]
+- 1238 Run-time log-level updates (#1603) [Aleksandr Petrosyan]
 
   * [feat] Created basic `connection` entrypoint-based reloading.
-- 1652: PR Title Formatting. [Egor Ivkov]
+- 1652 PR Title Formatting. [Egor Ivkov]
 - Add the number of connected peers to `Status` (#1576) [s8sato]
 
   * Revert "Delete things related to the number of connected peers"
@@ -116,43 +115,44 @@ Features
 
 Fixes
 ~~~~~
-- 2013: Hotfix CLI args. [Aleksandr]
-- 1955: Fix possibility to pass `:` inside `web_login` (#1956) [Daniil]
-- 1943: Add query errors to the schema (#1950) [s8sato]
-- 1939: Proper features for `iroha_config_derive`. (#1940) [Aleksandr
+- 1969 Make the `roles` feature part of the default feature set.
+  [Aleksandr]
+- 2013 Hotfix CLI args. [Aleksandr]
+- 1897 Remove usize/isize from serialization (#1989) [Sam Smith]
+- 1955 Fix possibility to pass `:` inside `web_login` (#1956) [Daniil]
+- 1943 Add query errors to the schema (#1950) [s8sato]
+- 1939 Proper features for `iroha_config_derive`. (#1940) [Aleksandr
   Petrosyan]
-- 1908: fix zero value handling for telemetry analysis script (#1906)
+- 1908 fix zero value handling for telemetry analysis script (#1906)
   [Ahmed Elkashef]
-- 0000: Make implicitly ignored doc-test explicitly ignored. Fix typo.
+- 0000 Make implicitly ignored doc-test explicitly ignored. Fix typo.
   (#1878) [Aleksandr Petrosyan]
-- 1865: use latest smallstr to be able to build no_std wasm
+- 1865 use latest smallstr to be able to build no_std wasm
   smartcontracts. [Marin Veršić]
-- 1848: Prevent public keys from being burned to nothing (#1860)
-  [s8sato]
-- 1811: added tests and checks to dedup trusted peer keys. (#1844)
+- 1848 Prevent public keys from being burned to nothing (#1860) [s8sato]
+- 1811 added tests and checks to dedup trusted peer keys. (#1844)
   [Aleksandr Petrosyan]
-- 1821: add IntoSchema for MerkleTree and VersionedValidBlock, fix
-  HashOf and SignatureOf schemas. [Marin Veršić]
-- 1819: Remove traceback from error report in validation. (#1820)
+- 1821 add IntoSchema for MerkleTree and VersionedValidBlock, fix HashOf
+  and SignatureOf schemas. [Marin Veršić]
+- 1819 Remove traceback from error report in validation. (#1820)
   [Aleksandr Petrosyan]
-- 1774: log exact reason for validation failures. (#1810) [Aleksandr
+- 1774 log exact reason for validation failures. (#1810) [Aleksandr
   Petrosyan]
-- 1714: Compare PeerId only by key (#1800) [Egor Ivkov]
-- 1788: Reduce memory footprint of `Value`. (#1807) [Aleksandr
-  Petrosyan]
-- 1804: fix schema generation for HashOf, SignatureOf, add test to
-  ensure no schemas are missing. [Marin Veršić]
-- 1802: Logging readability improvements (#1803) (#1806) [Egor Ivkov]
+- 1714 Compare PeerId only by key (#1800) [Egor Ivkov]
+- 1788 Reduce memory footprint of `Value`. (#1807) [Aleksandr Petrosyan]
+- 1804 fix schema generation for HashOf, SignatureOf, add test to ensure
+  no schemas are missing. [Marin Veršić]
+- 1802 Logging readability improvements (#1803) (#1806) [Egor Ivkov]
 
   - events log moved to trace level
   - ctx removed from log capture
   - terminal colors are made optional (for better log output to files)
-- 1783: Fixed torii benchmark. (#1784) [Aleksandr Petrosyan]
-- 1772: Fix after #1764 (#1773) [s8sato]
-- 1755: Minor fixes for #1743, #1725 (#1760) [s8sato]
+- 1783 Fixed torii benchmark. (#1784) [Aleksandr Petrosyan]
+- 1772 Fix after #1764 (#1773) [s8sato]
+- 1755 Minor fixes for #1743, #1725 (#1760) [s8sato]
 
   * Fix JSONs according to #1743 `Domain` struct change.
-- 1751: Consensus fixes (#1757) [Egor Ivkov]
+- 1751 Consensus fixes (#1757) [Egor Ivkov]
 
   * [fix] #1715: Consensus fixes to handle high load (#1746)
 
@@ -170,19 +170,19 @@ Fixes
   - Brings testing code closer to production code
   - Removes overcomplicated wrappers
   - Allows Sumeragi use actor Context in test code.
-- 1734: Update genesis to fit the new Domain validation. (#1756)
+- 1734 Update genesis to fit the new Domain validation. (#1756)
   [Aleksandr Petrosyan]
-- 1742: Concrete errors returned in `core` instructions. (#1744)
+- 1742 Concrete errors returned in `core` instructions. (#1744)
   [Aleksandr Petrosyan]
-- 1404: Verify fixed. (#1745) [Aleksandr Petrosyan]
-- 1636: Remove `trusted_peers.json` and `structopt` (#1739) [Aleksandr
+- 1404 Verify fixed. (#1745) [Aleksandr Petrosyan]
+- 1636 Remove `trusted_peers.json` and `structopt` (#1739) [Aleksandr
   Petrosyan]
 
   * [fix] #1636: Remove `trusted_peers.json`.
-- 1706: Update `max_faults` with Topology update (#1710) [s8sato]
+- 1706 Update `max_faults` with Topology update (#1710) [s8sato]
 
   * Update `max_faults` with Topology update.
-- 1698: Fixed public keys, documentation and error messages. (#1700)
+- 1698 Fixed public keys, documentation and error messages. (#1700)
   [Aleksandr Petrosyan]
 - Minting issues (1593 and 1405) (#1629) [Aleksandr Petrosyan]
 
@@ -192,20 +192,20 @@ Refactor
 ~~~~~~~~
 - : Core, `sumeragi`, instance functions, `torii` (#1965) [Aleksandr
   Petrosyan]
-- 1903: move event emission to `modify_*` methods (#1931) [Daniil]
+- 1903 move event emission to `modify_*` methods (#1931) [Daniil]
 - : Split `data_model` lib.rs file (#1905) [Daniil]
 - : add wsv reference to quueue. [Marin Veršić]
-- 1210: Split event stream (#1729) [Marin Veršić]
+- 1210 Split event stream (#1729) [Marin Veršić]
 
   * move transaction related functionality to data_model/transaction module.
-- 1725: Remove global state in Torii (#1721) [Marin Veršić]
+- 1725 Remove global state in Torii (#1721) [Marin Veršić]
 
   * implement add_state macro_rules and remove `ToriiState`
 - : Fix linter error (#1681) [GaroRobe]
-- 1661: `Cargo.toml` cleanup (#1670) [Marin Veršić]
+- 1661 `Cargo.toml` cleanup (#1670) [Marin Veršić]
 
   * sort out cargo dependencies.
-- 1650: tidy up `data_model` (#1645) [Marin Veršić]
+- 1650 tidy up `data_model` (#1645) [Marin Veršić]
 
   * move World to wsv, fix roles feature, derive IntoSchema for CommittedBlock.
 - Organisation of `json` files and readme.  (#1617) [Aleksandr
@@ -221,6 +221,7 @@ Refactor
 
 Documentation
 ~~~~~~~~~~~~~
+- : Generate changelog. [Aleksandr]
 - : Update outdated README files. [Aleksandr]
 - : Added missing docs to `api_spec.md`. (#1941) [Aleksandr Petrosyan]
 - : add wasm README (#1919) [Marin Veršić]
@@ -237,7 +238,7 @@ CI/CD changes
 - : Add telemetry to default features. [Aleksandr]
 - : add proper tag to push workflow on main. [Aleksandr]
 - : fix failing tests. (#1938) [Aleksandr Petrosyan]
-- 1657: Update image to rust 1.57 (#1666) [Aleksandr Petrosyan]
+- 1657 Update image to rust 1.57 (#1666) [Aleksandr Petrosyan]
 
   * [fix] #1630: Move back to self-hosted runners.
 - CI improvements (#1566) [Aleksandr Petrosyan]
@@ -262,8 +263,15 @@ CI/CD changes
   - publish docker images only from iroha2.
 - Additional CI caches. [Nikita Puzankov]
 
+Web-Assembly
+~~~~~~~~~~~~
+- Fix return value for QueryBox execution in wasm (#1954) [Marin Veršić]
+- Produce events while executing wasm smartcontract (#1894) [Marin
+  Veršić]
+
 Version bumps
 ~~~~~~~~~~~~~
+- : pre-release preparations. [Aleksandr]
 - Update Mold 1.0 (#1736) [Aleksandr Petrosyan]
 - Bump dependencies (#1677) [Marin Veršić]
 - Update api_spec.md: fix request/response bodies (#1663) [0x009922]
@@ -355,12 +363,9 @@ Tests
 
 Other
 ~~~~~
-- Fix return value for QueryBox execution in wasm (#1954) [Marin Veršić]
 - Share workdir as a volume with dev docker instances (#1910) [Marin
   Veršić]
 - Remove Diff associated type in Execute (#1895) [Marin Veršić]
-- Produce events while executing wasm smartcontract (#1894) [Marin
-  Veršić]
 - Add arjentix into codeowners file (#1880) [Daniil]
 - Use custom encoding instead of multival return (#1873) [Marin Veršić]
 - Remove serde_json as iroha_crypto dependency (#1722) [Marin Veršić]
