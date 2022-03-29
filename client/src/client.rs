@@ -281,7 +281,7 @@ impl Client {
         let hash = transaction.hash();
         let _handle = thread::spawn(move || -> eyre::Result<()> {
             let event_iterator = client
-                .listen_for_events(PipelineEventFilter::by_hash(hash.into()).into())
+                .listen_for_events(PipelineEventFilter::new().hash(hash.into()).into())
                 .wrap_err("Failed to establish event listener connection.")?;
             init_sender
                 .send(EventListenerInitialized)

@@ -181,7 +181,7 @@ fn submit_sample_isi_on_every_block_commit(
     times: usize,
 ) -> Result<()> {
     let block_filter =
-        EventFilter::Pipeline(PipelineEventFilter::by_entity(PipelineEntityType::Block));
+        EventFilter::Pipeline(PipelineEventFilter::new().entity_kind(PipelineEntityKind::Block));
     for _ in test_client
         .listen_for_events(block_filter)?
         .filter(|event| {
