@@ -76,7 +76,7 @@ fn build_register_trigger_isi(asset_id: AssetId, schedule: TimeSchedule) -> Resu
             Executable::from(vec![instruction.into()]),
             Repeats::Indefinitely,
             asset_id.account_id,
-            EventFilter::Time(TimeEventFilter(schedule)),
+            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),
     )?)))
 }
