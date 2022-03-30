@@ -15,6 +15,7 @@ use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use strum_macros::EnumString;
 
 use crate::{
     account::prelude::*,
@@ -104,6 +105,7 @@ pub struct Asset {
     Deserialize,
     Serialize,
     IntoSchema,
+    EnumString,
 )]
 pub enum AssetValueType {
     /// Asset's Quantity.
@@ -114,21 +116,6 @@ pub enum AssetValueType {
     Fixed,
     /// Asset's key-value structured data.
     Store,
-}
-
-impl FromStr for AssetValueType {
-    type Err = &'static str;
-
-    fn from_str(value_type: &str) -> Result<Self, Self::Err> {
-        // TODO: Could be implemented with some macro
-        match value_type {
-            "Quantity" => Ok(AssetValueType::Quantity),
-            "BigQuantity" => Ok(AssetValueType::BigQuantity),
-            "Fixed" => Ok(AssetValueType::Fixed),
-            "Store" => Ok(AssetValueType::Store),
-            _ => Err("Unknown variant"),
-        }
-    }
 }
 
 /// Asset's inner value.
