@@ -93,7 +93,7 @@ impl<T> MerkleTree<T> {
     }
 
     /// Return the `Hash` of the root node.
-    pub fn root_hash(&self) -> HashOf<Self> {
+    pub const fn root_hash(&self) -> HashOf<Self> {
         self.root_node.hash().transmute()
     }
 

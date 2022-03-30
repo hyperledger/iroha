@@ -98,7 +98,7 @@ mod tests {
     const BLOCKS_PER_FILE: u64 = 3;
 
     impl TestOutput {
-        fn new() -> Self {
+        const fn new() -> Self {
             Self {
                 ok: Vec::new(),
                 err: Vec::new(),

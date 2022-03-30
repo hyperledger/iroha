@@ -322,7 +322,7 @@ pub struct ExecuteTriggerBox {
 impl ExecuteTriggerBox {
     /// Construct [`ExecuteTrigger`]
     #[inline]
-    pub fn new(trigger_id: TriggerId) -> Self {
+    pub const fn new(trigger_id: TriggerId) -> Self {
         Self { trigger_id }
     }
 

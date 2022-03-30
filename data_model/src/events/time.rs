@@ -18,7 +18,7 @@ pub struct Event {
 
 impl Event {
     /// Construct `Event` with `prev_interval` and `interval`
-    pub fn new(prev_interval: Option<Interval>, interval: Interval) -> Self {
+    pub const fn new(prev_interval: Option<Interval>, interval: Interval) -> Self {
         Self {
             prev_interval,
             interval,
@@ -131,7 +131,7 @@ impl Schedule {
     /// Create new `Schedule` starting at `start` and without period
     #[must_use]
     #[inline]
-    pub fn starting_at(start: Duration) -> Self {
+    pub const fn starting_at(start: Duration) -> Self {
         Self {
             start,
             period: None,
@@ -141,7 +141,7 @@ impl Schedule {
     /// Add `period` to `self`
     #[must_use]
     #[inline]
-    pub fn with_period(mut self, period: Duration) -> Self {
+    pub const fn with_period(mut self, period: Duration) -> Self {
         self.period = Some(period);
         self
     }
@@ -173,7 +173,7 @@ pub struct Interval {
 impl Interval {
     /// Construct `Interval` with `since` and `step`
     #[inline]
-    pub fn new(since: Duration, length: Duration) -> Self {
+    pub const fn new(since: Duration, length: Duration) -> Self {
         Self { since, length }
     }
 }

@@ -29,7 +29,7 @@ macro_rules! entity_filter {
 
         impl $name {
             #[doc = $new_doc]
-            pub fn new(
+            pub const fn new(
                 id_filter: FilterOpt<IdFilter<<$entity_type as IdTrait>::Id>>,
                 event_filter: FilterOpt<$event_filter_type>,
             ) -> Self {
