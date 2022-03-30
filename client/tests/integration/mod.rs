@@ -11,6 +11,7 @@ mod events;
 mod multiple_blocks_created;
 mod multisignature_account;
 mod multisignature_transaction;
+mod non_mintable;
 mod offline_peers;
 mod pagination;
 mod permissions;

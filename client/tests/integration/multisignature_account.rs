@@ -46,6 +46,6 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
                     && *asset.value() == AssetValue::Quantity(quantity)
             })
         },
-    );
+    )?;
     Ok(())
 }

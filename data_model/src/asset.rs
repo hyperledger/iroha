@@ -79,6 +79,12 @@ impl AssetDefinitionEntry {
             registered_by,
         }
     }
+
+    /// Turn off minting for this asset.
+    #[cfg(feature = "mutable_api")]
+    pub fn forbid_minting(&mut self) {
+        self.definition.forbid_minting()
+    }
 }
 
 /// Asset definition defines type of that asset.
@@ -105,10 +111,35 @@ pub struct AssetDefinition {
     /// Type of [`AssetValue`]
     value_type: AssetValueType,
     /// Is the asset mintable
-    mintable: bool,
+    mintable: Mintable,
     /// Metadata of this asset definition as a key-value store.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
     metadata: Metadata,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+)]
+/// An assets mintability scheme. `Infinitely` means elastic supply. `Once` is what you want to use. Don't use `Not` explicitly outside of smartcontracts.
+pub enum Mintable {
+    /// Regular asset with elastic supply. Can be minted and burned.
+    Infinitely,
+    /// Non-mintable asset (token), with a fixed supply. Can be burned, and minted **once**.
+    Once,
+    /// Non-mintable asset (token), with a fixed supply. Can be burned, but not minted.
+    Not,
+    // TODO: Support more variants using bit-compacted tag, and `u32` mintability tokens.
 }
 
 /// Asset represents some sort of commodity or value.
@@ -321,9 +352,22 @@ impl AssetDefinition {
     ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id,
-            value_type,
-            mintable,
             metadata: Metadata::new(),
+            mintable: if mintable {
+                Mintable::Infinitely
+            } else {
+                Mintable::Once
+            },
+        }
+    }
+
+    #[inline]
+    #[cfg(feature = "mutable_api")]
+    pub fn forbid_minting(&mut self) {
+        if let Mintable::Once = self.mintable {
+            self.mintable = Mintable::Not
+        } else {
+            panic!("You shouldn't forbid minting on assets that are not Mintable::Once.")
         }
     }
 
@@ -348,7 +392,7 @@ impl AssetDefinition {
     pub fn new_quantity_token(
         id: <AssetDefinition as Identifiable>::Id,
     ) -> <Self as Identifiable>::RegisteredWith {
-        AssetDefinition::new(id, AssetValueType::BigQuantity, true)
+        AssetDefinition::new(id, AssetValueType::Quantity, false)
     }
 
     /// Asset definition with big quantity asset value type.
@@ -361,7 +405,7 @@ impl AssetDefinition {
 
     /// Token definition with big quantity asset value type.
     #[inline]
-    pub fn new_bin_quantity_token(
+    pub fn new_big_quantity_token(
         id: <AssetDefinition as Identifiable>::Id,
     ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::BigQuantity, false)
@@ -377,10 +421,10 @@ impl AssetDefinition {
 
     /// Token definition with decimal quantity asset value type.
     #[inline]
-    pub fn new_fixed_precision_token(
+    pub fn with_precision_token(
         id: <AssetDefinition as Identifiable>::Id,
     ) -> <Self as Identifiable>::RegisteredWith {
-        AssetDefinition::new(id, AssetValueType::Fixed, true)
+        AssetDefinition::new(id, AssetValueType::Fixed, false)
     }
 
     /// Asset definition with store asset value type.

@@ -46,6 +46,7 @@ mod asset {
     #[allow(missing_docs)]
     pub enum AssetDefinitionEvent {
         Created(AssetDefinitionId),
+        MintabilityChanged(AssetDefinitionId),
         Deleted(AssetDefinitionId),
         MetadataInserted(AssetDefinitionId),
         MetadataRemoved(AssetDefinitionId),
@@ -58,6 +59,7 @@ mod asset {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
+                | Self::MintabilityChanged(id)
                 | Self::MetadataInserted(id)
                 | Self::MetadataRemoved(id) => id,
             }
