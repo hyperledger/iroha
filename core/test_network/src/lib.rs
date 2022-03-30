@@ -650,6 +650,9 @@ pub trait TestClient: Sized {
     fn test_with_key(api_url: &str, telemetry_url: &str, keys: KeyPair) -> Self;
 
     /// Creates test client from api url, keypair, and account id
+    ///
+    /// # Errors
+    /// If predicate is not satisfied, after maximum retries.
     fn test_with_account(
         api_url: &str,
         telemetry_url: &str,
@@ -661,44 +664,60 @@ pub trait TestClient: Sized {
     fn for_each_event(self, event_filter: EventFilter, f: impl Fn(Result<Event>));
 
     /// Submits instruction with polling
+    ///
+    /// # Errors
+    /// If predicate is not satisfied, after maximum retries.
     fn submit_till<R>(
         &mut self,
         instruction: impl Into<Instruction> + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
     /// Submits instructions with polling
+    ///
+    /// # Errors
+    /// If predicate is not satisfied, after maximum retries.
     fn submit_all_till<R>(
         &mut self,
         instructions: Vec<Instruction>,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
-    fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
+    ///
+    /// # Errors
+    /// If predicate is not satisfied after maximum retries.
+    fn poll_request<R>(
+        &mut self,
+        request: R,
+        f: impl Fn(&R::Output) -> bool,
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied with `period` and `max_attempts` supplied.
+    ///
+    /// # Errors
+    /// If predicate is not satisfied after maximum retries.
     fn poll_request_with_period<R>(
         &mut self,
         request: R,
         period: Duration,
         max_attempts: u32,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -824,7 +843,7 @@ impl TestClient for Client {
         instruction: impl Into<Instruction> + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -840,7 +859,7 @@ impl TestClient for Client {
         instructions: Vec<Instruction>,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -857,7 +876,7 @@ impl TestClient for Client {
         period: Duration,
         max_attempts: u32,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -866,15 +885,19 @@ impl TestClient for Client {
         let mut query_result = None;
         for _ in 0..max_attempts {
             query_result = match self.request(request.clone()) {
-                Ok(result) if f(&result) => return result,
+                Ok(result) if f(&result) => return Ok(result),
                 result => Some(result),
             };
             thread::sleep(period);
         }
-        panic!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", &query_result)
+        Err(eyre::eyre!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", &query_result))
     }
 
-    fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
+    fn poll_request<R>(
+        &mut self,
+        request: R,
+        f: impl Fn(&R::Output) -> bool,
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,

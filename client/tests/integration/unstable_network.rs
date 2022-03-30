@@ -105,15 +105,17 @@ fn unstable_network(
     thread::sleep(pipeline_time);
 
     //Then
-    iroha_client.poll_request_with_period(
-        client::asset::by_account_id(account_id),
-        polling_period,
-        polling_max_attempts,
-        |result| {
-            result.iter().any(|asset| {
-                asset.id().definition_id == asset_definition_id
-                    && *asset.value() == AssetValue::Quantity(account_has_quantity)
-            })
-        },
-    );
+    iroha_client
+        .poll_request_with_period(
+            client::asset::by_account_id(account_id),
+            polling_period,
+            polling_max_attempts,
+            |result| {
+                result.iter().any(|asset| {
+                    asset.id().definition_id == asset_definition_id
+                        && *asset.value() == AssetValue::Quantity(account_has_quantity)
+                })
+            },
+        )
+        .expect("Test case failure.");
 }

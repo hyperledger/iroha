@@ -62,13 +62,12 @@ fn long_multiple_blocks_created() {
 
     //Then
     let peer = network.peers().last().unwrap();
-    Client::test(&peer.api_address, &peer.telemetry_address).poll_request(
-        client::asset::by_account_id(account_id),
-        |result| {
+    Client::test(&peer.api_address, &peer.telemetry_address)
+        .poll_request(client::asset::by_account_id(account_id), |result| {
             result.iter().any(|asset| {
                 asset.id().definition_id == asset_definition_id
                     && *asset.value() == AssetValue::Quantity(account_has_quantity)
             })
-        },
-    );
+        })
+        .expect("Panic on case assertion failure.");
 }

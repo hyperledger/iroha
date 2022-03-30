@@ -68,6 +68,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
                 .iter()
                 .any(|asset| asset.id().definition_id == asset_definition_id)
         })
+        .expect("Valid")
         .into_iter()
         .find(|asset| asset.id().definition_id == asset_definition_id)
         .unwrap();

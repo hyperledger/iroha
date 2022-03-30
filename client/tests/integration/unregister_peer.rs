@@ -45,6 +45,7 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::expect_used)]
 fn check_assets(
     iroha_client: &mut client::Client,
     account_id: &AccountId,
@@ -61,7 +62,7 @@ fn check_assets(
                     && *asset.value() == AssetValue::Quantity(quantity)
             })
         },
-    );
+    ).expect("Test case failure");
 }
 
 fn mint(

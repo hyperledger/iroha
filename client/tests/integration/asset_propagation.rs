@@ -53,6 +53,6 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
                     && *asset.value() == AssetValue::Quantity(quantity)
             })
         },
-    );
+    )?;
     Ok(())
 }

@@ -11,6 +11,7 @@ use super::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
+    use iroha_data_model::asset::Mintable;
     use iroha_logger::prelude::*;
 
     use super::*;
@@ -21,8 +22,7 @@ pub mod isi {
         wsv: &WorldStateView<W>,
         expected_value_type: AssetValueType,
     ) -> Result<AssetDefinition, Error> {
-        let asset_definition_entry = wsv.asset_definition_entry(definition_id)?;
-        let definition = asset_definition_entry.definition();
+        let definition = wsv.asset_definition_entry(definition_id)?.definition();
 
         if *definition.value_type() == expected_value_type {
             Ok(definition.clone())
@@ -41,10 +41,22 @@ pub mod isi {
         expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
         let definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
-        if !definition.mintable() {
-            return Err(Error::Mintability(MintabilityError::MintUnmintableError));
+        match definition.mintable() {
+            Mintable::Infinitely => Ok(()),
+            Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintableError)),
+            Mintable::Once => {
+                wsv.modify_asset_definition_entry(definition_id, |entry| {
+                    entry.definition = AssetDefinition {
+                        mintable: Mintable::Not,
+                        ..definition
+                    };
+                    Ok(AssetDefinitionEvent::MintabilityChanged(
+                        definition_id.clone(),
+                    ))
+                })?;
+                Ok(())
+            }
         }
-        Ok(())
     }
 
     impl<W: WorldTrait> Execute<W> for Mint<Asset, u32> {
