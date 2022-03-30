@@ -268,3 +268,13 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         .expect("Failed to execute Iroha Query");
     assert_eq!(expected_buyer_btc, buyer_btc_quantity);
 }
+
+#[test]
+#[should_panic]
+fn cannot_forbid_minting_on_asset_mintable_infinitely() {
+    if let Ok(id) = "test".parse() {
+        let mut definition = AssetDefinition::new_quantity(id);
+        definition.forbid_minting();
+    }
+    // We should fail the test if it returns an error.
+}

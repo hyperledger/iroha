@@ -36,7 +36,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::Quantity(quantity)
         })
-    });
+    })?;
     Ok(())
 }
 
@@ -69,7 +69,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::BigQuantity(quantity)
         })
-    });
+    })?;
     Ok(())
 }
 
@@ -101,7 +101,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::Fixed(quantity)
         })
-    });
+    })?;
 
     // Add some fractional part
     let quantity2: Fixed = Fixed::try_from(0.55_f64).unwrap();
@@ -121,7 +121,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
             asset.id().definition_id == asset_definition_id
                 && *asset.value() == AssetValue::Fixed(sum)
         })
-    });
+    })?;
     Ok(())
 }
 

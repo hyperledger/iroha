@@ -73,5 +73,5 @@ fn client_can_transfer_asset_to_another_account() {
                     && asset.id().account_id == account2_id
             })
         },
-    );
+    ).expect("Test case failure.");
 }
