@@ -1,5 +1,7 @@
 #![allow(clippy::restriction)]
 
+use std::str::FromStr as _;
+
 use eyre::Result;
 use iroha_client::client;
 use iroha_data_model::{metadata::UnlimitedMetadata, prelude::*};
@@ -11,8 +13,8 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     // Given
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
+    let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let create_asset = RegisterBox::new(IdentifiableBox::from(
         AssetDefinition::new_quantity_token(asset_definition_id.clone()),
     ));
@@ -34,8 +36,8 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
         result.iter().any(|asset| {
-            asset.id.definition_id == asset_definition_id
-                && asset.value == AssetValue::Quantity(200_u32)
+            asset.id().definition_id == asset_definition_id
+                && *asset.value() == AssetValue::Quantity(200_u32)
         })
     })?;
 
@@ -46,8 +48,8 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     assert!(test_client
         .poll_request(client::asset::by_account_id(account_id), |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(400_u32)
+                asset.id().definition_id == asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(400_u32)
             })
         })
         .is_err());
