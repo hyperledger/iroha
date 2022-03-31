@@ -8,11 +8,9 @@ env:
   DOCKERHUB_ORG: hyperledger
 
 jobs:
-  ## GitHub Actions Workflow does not support yaml anchors
-  ## and that is why there is a workaround with make-workflows.sh
-  ## You should `pre-commit install` or use `pre-commit-hook.sh`,
-  ## anyway please read .github/README.md
 
+  ## This workflow is created for pull requests from forks only and has less permissions
+  ## This step allows to skip the workflow completely for pull_requests from th same repo
   check_if_pull_request_comes_from_fork:
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Pull requests from forks should use other workflow
@@ -20,12 +18,13 @@ jobs:
     steps:
       - 
         run: |
-          cat <<END
-            
-            Please ask @insav on GitHub or in Telegram if you need help.
-          END
           true
 
+
+  ## GitHub Actions Workflow does not support yaml anchors
+  ## and that is why there is a workaround with make-workflows.sh
+  ## You should `pre-commit install` or use `pre-commit-hook.sh`,
+  ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Check if github workflows were properly made from sources
