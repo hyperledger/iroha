@@ -36,7 +36,7 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     let asset_definition_id = "rose#wonderland".parse().expect("Valid");
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let prev_value = test_client.request(client::asset::by_id(asset_id.clone()))?;
+    let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
@@ -47,7 +47,7 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
             Executable::from(vec![instruction.into()]),
             Repeats::Indefinitely,
             account_id.clone(),
-            EventFilter::Time(TimeEventFilter(schedule)),
+            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),
     )?));
     test_client.submit(register_trigger)?;
@@ -58,9 +58,8 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     let finish_time = current_time();
     let average_count = finish_time.saturating_sub(start_time).as_millis() / u128::from(PERIOD_MS);
 
-    let output_asset = test_client.request(client::asset::by_id(asset_id))?;
-    let actual_value = *TryAsRef::<u32>::try_as_ref(&output_asset)?;
-    let expected_value = TryAsRef::<u32>::try_as_ref(&prev_value)? + u32::try_from(average_count)?;
+    let actual_value = get_asset_value(&mut test_client, asset_id)?;
+    let expected_value = prev_value + u32::try_from(average_count)?;
     let acceptable_error = expected_value as f32 * (f32::from(ACCEPTABLE_ERROR_PERCENT) / 100.0);
     let error = (core::cmp::max(actual_value, expected_value)
         - core::cmp::min(actual_value, expected_value)) as f32;
@@ -94,7 +93,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
             Executable::from(vec![instruction.into()]),
             Repeats::Exactly(1),
             account_id.clone(),
-            EventFilter::Time(TimeEventFilter(schedule)),
+            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),
     )?));
     test_client.submit(register_trigger)?;
@@ -111,6 +110,64 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     assert!(matches!(value, Value::U32(3)));
 
     Ok(())
+}
+
+#[test]
+fn pre_commit_trigger_should_be_executed() -> Result<()> {
+    const CHECKS_COUNT: usize = 5;
+
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
+    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+
+    let mut prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
+
+    let instruction = MintBox::new(1_u32, asset_id.clone());
+    let register_trigger = RegisterBox::new(IdentifiableBox::from(Trigger::new(
+        "mint_rose",
+        Action::new(
+            Executable::from(vec![instruction.into()]),
+            Repeats::Indefinitely,
+            account_id.clone(),
+            EventFilter::Time(TimeEventFilter(ExecutionTime::PreCommit)),
+        ),
+    )?));
+    test_client.submit(register_trigger)?;
+
+    let block_filter =
+        EventFilter::Pipeline(PipelineEventFilter::by_entity(PipelineEntityType::Block));
+    for _ in test_client
+        .listen_for_events(block_filter)?
+        .filter(|event| {
+            if let Ok(Event::Pipeline(event)) = event {
+                if event.status == PipelineStatus::Committed {
+                    return true;
+                }
+            }
+            false
+        })
+        .take(CHECKS_COUNT)
+    {
+        let new_value = get_asset_value(&mut test_client, asset_id.clone())?;
+        assert_eq!(new_value, prev_value + 1);
+        prev_value = new_value;
+
+        // ISI just to create a new block
+        let sample_isi =
+            SetKeyValueBox::new(account_id.clone(), Name::new("key")?, String::from("value"));
+        test_client.submit(sample_isi)?;
+    }
+
+    Ok(())
+}
+
+/// Get asset numeric value
+fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
+    let asset = client.request(client::asset::by_id(asset_id))?;
+    Ok(*TryAsRef::<u32>::try_as_ref(&asset.value)?)
 }
 
 /// Submit some sample ISIs to create new blocks
