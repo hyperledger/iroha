@@ -29,6 +29,7 @@ jobs:
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Check if github workflows were properly made from sources
+    needs: check_if_pull_request_comes_from_the_same_repo
     steps:
       - &step_show_context
         name: Show context
