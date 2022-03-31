@@ -51,7 +51,7 @@ on:
     branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
     tags: '**'
   pull_request:
-    branches: [ main, support/1.*, edge, develop ]  ## target branches
+    branches: [ main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build ]  ## target branches
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:
@@ -87,6 +87,20 @@ on:
     - cron: '12 22 * * *'
 
 jobs:
+
+  check_if_pull_request_comes_from_fork:
+    runs-on: ubuntu-20.04 #ubuntu-latest
+    name: Pull requests from forks should use other workflow
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo != github.event.pull_request.base.repo }}
+    steps:
+      - 
+        run: |
+          cat <<END
+            Iroha-fork workflow is launched
+            Please ask @insav on GitHub or in Telegram if you need help.
+          END
+          false
+
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
