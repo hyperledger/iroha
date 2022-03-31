@@ -18,7 +18,7 @@ pub struct Event {
 
 impl Event {
     /// Construct `Event` with `prev_interval` and `interval`
-    pub fn new(prev_interval: Option<Interval>, interval: Interval) -> Self {
+    pub const fn new(prev_interval: Option<Interval>, interval: Interval) -> Self {
         Self {
             prev_interval,
             interval,
@@ -42,18 +42,23 @@ impl Event {
     Serialize,
     Deserialize,
 )]
-pub struct EventFilter(pub Schedule);
+pub struct EventFilter(pub ExecutionTime);
 
 impl EventFilter {
     /// Compute how much times trigger with `self` as filter should be executed on `event`
     pub fn count_matches(&self, event: &Event) -> u32 {
-        let current_interval = event.prev_interval.map_or(event.interval, |prev| {
-            let estimation = event.interval.since + event.interval.length;
-            let prev_estimation = prev.since + prev.length;
-            Interval::new(prev_estimation, estimation.saturating_sub(prev_estimation))
-        });
+        match &self.0 {
+            ExecutionTime::PreCommit => 1,
+            ExecutionTime::Schedule(schedule) => {
+                let current_interval = event.prev_interval.map_or(event.interval, |prev| {
+                    let estimation = event.interval.since + event.interval.length;
+                    let prev_estimation = prev.since + prev.length;
+                    Interval::new(prev_estimation, estimation.saturating_sub(prev_estimation))
+                });
 
-        Self::count_matches_in_interval(&self.0, &current_interval)
+                Self::count_matches_in_interval(schedule, &current_interval)
+            }
+        }
     }
 
     /// Count something with the `schedule` within the `interval`
@@ -104,6 +109,29 @@ impl EventFilter {
     }
 }
 
+/// Trigger execution time
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    Serialize,
+    Deserialize,
+    IntoSchema,
+    Hash,
+)]
+pub enum ExecutionTime {
+    /// Execute right before block commit
+    PreCommit,
+    /// Execute with some schedule
+    Schedule(Schedule),
+}
+
 /// Schedule of the trigger
 #[derive(
     Debug,
@@ -131,7 +159,7 @@ impl Schedule {
     /// Create new `Schedule` starting at `start` and without period
     #[must_use]
     #[inline]
-    pub fn starting_at(start: Duration) -> Self {
+    pub const fn starting_at(start: Duration) -> Self {
         Self {
             start,
             period: None,
@@ -141,7 +169,7 @@ impl Schedule {
     /// Add `period` to `self`
     #[must_use]
     #[inline]
-    pub fn with_period(mut self, period: Duration) -> Self {
+    pub const fn with_period(mut self, period: Duration) -> Self {
         self.period = Some(period);
         self
     }
@@ -173,7 +201,7 @@ pub struct Interval {
 impl Interval {
     /// Construct `Interval` with `since` and `step`
     #[inline]
-    pub fn new(since: Duration, length: Duration) -> Self {
+    pub const fn new(since: Duration, length: Duration) -> Self {
         Self { since, length }
     }
 }
@@ -188,8 +216,8 @@ impl From<Interval> for Range<Duration> {
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
-        Event as TimeEvent, EventFilter as TimeEventFilter, Interval as TimeInterval,
-        Schedule as TimeSchedule,
+        Event as TimeEvent, EventFilter as TimeEventFilter, ExecutionTime,
+        Interval as TimeInterval, Schedule as TimeSchedule,
     };
 }
 

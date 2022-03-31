@@ -14,7 +14,7 @@ pub struct Event {
 
 impl Event {
     /// Create new [`Event`] with `trigger_id` and `authority`
-    pub fn new(trigger_id: TriggerId, authority: AccountId) -> Self {
+    pub const fn new(trigger_id: TriggerId, authority: AccountId) -> Self {
         Self {
             trigger_id,
             authority,
@@ -46,7 +46,7 @@ pub struct EventFilter {
 
 impl EventFilter {
     /// Create new [`EventFilter`] with `trigger_id` and `authority`
-    pub fn new(trigger_id: TriggerId, authority: AccountId) -> Self {
+    pub const fn new(trigger_id: TriggerId, authority: AccountId) -> Self {
         Self {
             trigger_id,
             authority,

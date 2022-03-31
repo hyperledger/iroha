@@ -16,7 +16,10 @@ impl OccursExactlyAtTime for Action {
     fn occurs_exactly_at_time(&self) -> bool {
         matches!(
             self.filter,
-            EventFilter::Time(TimeEventFilter(TimeSchedule { period: None, .. }))
+            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(TimeSchedule {
+                period: None,
+                ..
+            })))
         )
     }
 }

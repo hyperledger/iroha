@@ -15,7 +15,7 @@ fn schedule_from_zero_with_little_period(criterion: &mut Criterion) {
     let interval = TimeInterval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(1));
     let event = TimeEvent::new(None, interval);
     let schedule = TimeSchedule::starting_at(Duration::ZERO).with_period(Duration::from_millis(1));
-    let filter = TimeEventFilter(schedule);
+    let filter = TimeEventFilter(ExecutionTime::Schedule(schedule));
 
     criterion.bench_function("count_matches_from_zero", |b| {
         b.iter(|| filter.count_matches(&event));

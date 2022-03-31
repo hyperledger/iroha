@@ -42,7 +42,8 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
 
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
-    let register_trigger = build_register_trigger_isi(asset_id.clone(), schedule)?;
+    let register_trigger =
+        build_register_mint_rose_trigger_isi(asset_id.clone(), ExecutionTime::Schedule(schedule))?;
     test_client.submit(register_trigger)?;
 
     submit_sample_isi_on_every_block_commit(&mut test_client, &account_id, 3)?;
@@ -67,8 +68,61 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     Ok(())
 }
 
+#[test]
+fn pre_commit_trigger_should_be_executed() -> Result<()> {
+    const CHECKS_COUNT: usize = 5;
+
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
+    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+
+    let mut prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
+
+    let register_trigger =
+        build_register_mint_rose_trigger_isi(asset_id.clone(), ExecutionTime::PreCommit)?;
+    test_client.submit(register_trigger)?;
+
+    let block_filter =
+        EventFilter::Pipeline(PipelineEventFilter::by_entity(PipelineEntityType::Block));
+    for _ in test_client
+        .listen_for_events(block_filter)?
+        .filter(|event| {
+            if let Ok(Event::Pipeline(event)) = event {
+                if event.status == PipelineStatus::Committed {
+                    return true;
+                }
+            }
+            false
+        })
+        .take(CHECKS_COUNT)
+    {
+        let new_value = get_asset_value(&mut test_client, asset_id.clone())?;
+        assert_eq!(new_value, prev_value + 1);
+        prev_value = new_value;
+
+        // ISI just to create a new block
+        let sample_isi =
+            SetKeyValueBox::new(account_id.clone(), Name::new("key")?, String::from("value"));
+        test_client.submit(sample_isi)?;
+    }
+
+    Ok(())
+}
+
+/// Get asset numeric value
+fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
+    let asset = client.request(client::asset::by_id(asset_id))?;
+    Ok(*TryAsRef::<u32>::try_as_ref(&asset.value)?)
+}
+
 /// Build register ISI for trigger which mints roses
-fn build_register_trigger_isi(asset_id: AssetId, schedule: TimeSchedule) -> Result<RegisterBox> {
+fn build_register_mint_rose_trigger_isi(
+    asset_id: AssetId,
+    execution_time: ExecutionTime,
+) -> Result<RegisterBox> {
     let instruction = MintBox::new(1_u32, asset_id.clone());
     Ok(RegisterBox::new(IdentifiableBox::from(Trigger::new(
         "mint_rose",
@@ -76,7 +130,7 @@ fn build_register_trigger_isi(asset_id: AssetId, schedule: TimeSchedule) -> Resu
             Executable::from(vec![instruction.into()]),
             Repeats::Indefinitely,
             asset_id.account_id,
-            EventFilter::Time(TimeEventFilter(schedule)),
+            EventFilter::Time(TimeEventFilter(execution_time)),
         ),
     )?)))
 }
