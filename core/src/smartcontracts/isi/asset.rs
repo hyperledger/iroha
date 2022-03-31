@@ -22,7 +22,8 @@ pub mod isi {
         wsv: &WorldStateView<W>,
         expected_value_type: AssetValueType,
     ) -> Result<AssetDefinition, Error> {
-        let definition = wsv.asset_definition_entry(definition_id)?.definition();
+        let asset_definition = wsv.asset_definition_entry(definition_id)?;
+        let definition = asset_definition.definition();
 
         if *definition.value_type() == expected_value_type {
             Ok(definition.clone())
@@ -46,10 +47,7 @@ pub mod isi {
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintableError)),
             Mintable::Once => {
                 wsv.modify_asset_definition_entry(definition_id, |entry| {
-                    entry.definition = AssetDefinition {
-                        mintable: Mintable::Not,
-                        ..definition
-                    };
+                    entry.forbid_minting();
                     Ok(AssetDefinitionEvent::MintabilityChanged(
                         definition_id.clone(),
                     ))

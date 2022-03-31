@@ -63,15 +63,17 @@ fn client_can_transfer_asset_to_another_account() {
             account2_id.clone(),
         )),
     );
-    iroha_client.submit_till(
-        transfer_asset,
-        client::asset::by_account_id(account2_id.clone()),
-        |result| {
-            result.iter().any(|asset| {
-                asset.id().definition_id == asset_definition_id
-                    && *asset.value() == AssetValue::Quantity(quantity)
-                    && asset.id().account_id == account2_id
-            })
-        },
-    ).expect("Test case failure.");
+    iroha_client
+        .submit_till(
+            transfer_asset,
+            client::asset::by_account_id(account2_id.clone()),
+            |result| {
+                result.iter().any(|asset| {
+                    asset.id().definition_id == asset_definition_id
+                        && *asset.value() == AssetValue::Quantity(quantity)
+                        && asset.id().account_id == account2_id
+                })
+            },
+        )
+        .expect("Test case failure.");
 }
