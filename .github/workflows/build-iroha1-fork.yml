@@ -59,11 +59,11 @@ jobs:
           ${{ toJson(needs) }}
           END
           echo "::endgroup::"
-      - name: Checkout base
+      - name: Checkout head
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
       - run: sudo snap install yq
       - name: Check if .github/workflows/*.yml correspond to *.src.yml
         run: |
@@ -96,11 +96,11 @@ jobs:
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
             "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
-      - name: Checkout base
+      - name: Checkout head
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
       - name: Generate matrix for build triggered by chat-ops - comment to PR
         if: github.event.issue.pull_request && github.event.comment
         id: comment_body
@@ -131,7 +131,7 @@ jobs:
                                   true
                                 else
                                   #echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
-                                  echo  >/tmp/comment_body "/build all"
+                                  echo  >/tmp/comment_body "/build all skip_testing"
                                   #echo  >/tmp/comment_body "/build ubuntu debug clang-10 normal"
                                 fi ;;
           esac
@@ -177,10 +177,6 @@ jobs:
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
     runs-on: ubuntu-20.04 #ubuntu-latest #[ self-hosted, Linux ]
-    # env: &env_dockerhub
-    #  DOCKERHUB_ORG: DOCKERHUB_ORG        ## Must be hyperledger, also can use iroha1, cannot use ${{ secrets.DOCKERHUB_ORG }}
-    #  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-    #  DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - name: Show context
         run: |
@@ -221,11 +217,11 @@ jobs:
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
             "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
-      - name: Checkout head
+      - name: Checkout base
         uses: actions/checkout@v2
         with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: Determine dockertag
         id: dockertag
         env:
@@ -334,33 +330,6 @@ jobs:
         run: |
           echo "::set-output name=container::$DOCKERHUB_ORG/iroha-builder:$dockertag"
           docker pull "$DOCKERHUB_ORG/iroha-builder:$dockertag"
-      - name: Possible ERROR, Dockerfile edited, image was build, but seems not pushed, CANNOT PULL.
-        if: failure()
-        #if: ${{ steps.docker_login.outcome != 'success' || steps.build_and_push.outcome != 'success' }}
-        env:
-          container: ${{steps.dockertag_already.outputs.container}}
-          dockertag: ${{env.dockertag}}
-        run: |
-          cat <<END
-            ::error::CHANGES TO Dockerfile.builder WERE NOT APPLYED.
-
-            It seems container with tag '$dockertag' was not pushed to registry and does not exist remotely.
-            The most possible reason is GitHub secrets are inaccessable to PRs from public forks.
-
-            $(test ${{github.event.pull_request.head.repo.full_name}} != ${{github.event.pull_request.base.repo.full_name}} \
-              && echo -n "SECRETS ARE NOT EXPOSED TO FORKS" || echo -n "SECRETS AVAILABLE")
-
-            **Consider to open PR from the same organization.**
-
-            What we know about this build:
-              - PR URL is ${{github.event.pull_request.html_url}}
-              - head repo is '${{github.event.pull_request.head.repo.full_name}}'
-              - base repo is '${{github.event.pull_request.base.repo.full_name}}'
-              - See more information in previous step 'Show context'
-
-            Please ask @kuvaldini on GitHub or in Telegram if you need help.
-          END
-          false
     outputs:
       ## WARN secret dropped from output!, output may not contain secret,
       ## and secret cannot be used in job:container directly, and there is no github non-secret variables...
