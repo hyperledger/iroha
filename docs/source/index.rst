@@ -19,5 +19,6 @@ As Hyperledger Iroha is an open-source project, we will also cover contribution 
     iroha_2_whitepaper.md
     guides/index.rst
     references/index.rst
+    tools/index.rst
     tutorials/index.rst
     community/CONTRIBUTING.md
