@@ -172,6 +172,7 @@ jobs:
   ## - on workflow_dispatch according to its build_spec
   ## - on schedule '/build all'
   generate_matrixes:
+    needs: check_if_pull_request_comes_from_the_same_repo
     runs-on: ubuntu-20.04 #ubuntu-latest
     #container: ubuntu:latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
