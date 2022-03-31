@@ -104,6 +104,7 @@ jobs:
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
   ## anyway please read .github/README.md
   check_workflow_yaml_coressponds_to_src_yaml:
+    needs: check_if_pull_request_comes_from_fork
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Check if github workflows were properly made from sources
     steps:
