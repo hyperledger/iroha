@@ -358,6 +358,7 @@ impl AssetDefinition {
             } else {
                 Mintable::Once
             },
+            value_type,
         }
     }
 
