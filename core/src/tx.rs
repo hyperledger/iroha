@@ -28,6 +28,8 @@ use crate::{
 };
 
 /// Used to validate transaction and thus move transaction lifecycle forward
+///
+/// Permission validation is skipped for genesis.
 #[derive(Clone)]
 pub struct TransactionValidator<W: WorldTrait> {
     transaction_limits: TransactionLimits,
@@ -58,6 +60,8 @@ impl<W: WorldTrait> TransactionValidator<W> {
 
     /// Move transaction lifecycle forward by checking if the
     /// instructions can be applied to the `WorldStateView`.
+    ///
+    /// Permission validation is skipped for genesis.
     ///
     /// # Errors
     /// Fails if validation of instruction fails (e.g. permissions mismatch).
@@ -114,7 +118,6 @@ impl<W: WorldTrait> TransactionValidator<W> {
         match &tx.payload.instructions {
             Executable::Instructions(instructions) => {
                 for instruction in instructions {
-                    // Permission validation is skipped for genesis.
                     if !is_genesis {
                         check_instruction_permissions(
                             account_id,

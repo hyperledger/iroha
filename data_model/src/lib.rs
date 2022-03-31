@@ -705,3 +705,34 @@ pub mod prelude {
         trigger::prelude::*,
     };
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::restriction)]
+
+    use super::*;
+
+    const INVALID_NAMES: [&str; 3] = [" ", "@", "#"];
+
+    #[test]
+    fn deserialize_name() {
+        for invalid_name in INVALID_NAMES {
+            let invalid_name = Name(invalid_name.to_owned());
+            let serialized = serde_json::to_string(&invalid_name).expect("Valid");
+            let name = serde_json::from_str::<Name>(serialized.as_str());
+
+            assert!(name.is_err());
+        }
+    }
+
+    #[test]
+    fn decode_name() {
+        for invalid_name in INVALID_NAMES {
+            let invalid_name = Name(invalid_name.to_owned());
+            let bytes = invalid_name.encode();
+            let name = Name::decode(&mut &bytes[..]);
+
+            assert!(name.is_err());
+        }
+    }
+}

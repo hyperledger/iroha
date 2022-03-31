@@ -431,24 +431,33 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::restriction)]
+
     use super::*;
+
+    const INVALID_IPFS: [&str; 4] = [
+        "",
+        "/ipld",
+        "/ipfs/a",
+        "/ipfsssss/QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE",
+    ];
 
     #[test]
     fn test_invalid_ipfs_path() {
         assert!(matches!(
-            IpfsPath::from_str(""),
+            IpfsPath::from_str(INVALID_IPFS[0]),
             Err(err) if err.to_string() == "Expected root type, but nothing found"
         ));
         assert!(matches!(
-            IpfsPath::from_str("/ipld"),
+            IpfsPath::from_str(INVALID_IPFS[1]),
             Err(err) if err.to_string() == "Expected at least one content id"
         ));
         assert!(matches!(
-            IpfsPath::from_str("/ipfs/a"),
+            IpfsPath::from_str(INVALID_IPFS[2]),
             Err(err) if err.to_string() == "IPFS cid is too short"
         ));
         assert!(matches!(
-            IpfsPath::from_str("/ipfsssss/QmQqzMTavQgT4f4T5v6PWBp7XNKtoPmC9jvn12WPT3gkSE"),
+            IpfsPath::from_str(INVALID_IPFS[3]),
             Err(err) if err.to_string() == "Unexpected root type. Expected `ipfs`, `ipld` or `ipns`"
         ));
     }
@@ -467,5 +476,27 @@ mod tests {
             .expect("Path with ipns root should be valid");
         IpfsPath::from_str("/ipfs/SomeFolder/SomeImage")
             .expect("Path with folders should be valid");
+    }
+
+    #[test]
+    fn deserialize_ipfs() {
+        for invalid_ipfs in INVALID_IPFS {
+            let invalid_ipfs = IpfsPath(invalid_ipfs.to_owned());
+            let serialized = serde_json::to_string(&invalid_ipfs).expect("Valid");
+            let ipfs = serde_json::from_str::<IpfsPath>(serialized.as_str());
+
+            assert!(ipfs.is_err());
+        }
+    }
+
+    #[test]
+    fn decode_ipfs() {
+        for invalid_ipfs in INVALID_IPFS {
+            let invalid_ipfs = IpfsPath(invalid_ipfs.to_owned());
+            let bytes = invalid_ipfs.encode();
+            let ipfs = IpfsPath::decode(&mut &bytes[..]);
+
+            assert!(ipfs.is_err());
+        }
     }
 }

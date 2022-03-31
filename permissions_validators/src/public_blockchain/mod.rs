@@ -255,10 +255,10 @@ mod tests {
             [(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), alice_xor_id.into())],
         );
         let wsv = WorldStateView::<World>::new(World::new());
-        let grant = Instruction::Grant(GrantBox {
-            object: permission_token_to_alice.into(),
-            destination_id: IdBox::AccountId(bob_id.clone()).into(),
-        });
+        let grant = Instruction::Grant(GrantBox::new(
+            permission_token_to_alice,
+            IdBox::AccountId(bob_id.clone()),
+        ));
         let validator: IsInstructionAllowedBoxed<World> = transfer::GrantMyAssetAccess.into();
         assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
         assert!(validator.check(&bob_id, &grant, &wsv).is_err());
@@ -578,10 +578,10 @@ mod tests {
             [(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), alice_xor_id.into())],
         );
         let wsv = WorldStateView::<World>::new(World::new());
-        let grant = Instruction::Grant(GrantBox {
-            object: permission_token_to_alice.into(),
-            destination_id: IdBox::AccountId(bob_id.clone()).into(),
-        });
+        let grant = Instruction::Grant(GrantBox::new(
+            permission_token_to_alice,
+            IdBox::AccountId(bob_id.clone()),
+        ));
         let validator: IsInstructionAllowedBoxed<World> = burn::GrantMyAssetAccess.into();
         assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
         assert!(validator.check(&bob_id, &grant, &wsv).is_err());

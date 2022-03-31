@@ -3,7 +3,7 @@
 use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
-use iroha_core::prelude::AllowAll;
+use iroha_core::{prelude::AllowAll, smartcontracts::isi::permissions::DenyAll};
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::{private_blockchain, public_blockchain};
 use test_network::{Peer as TestPeer, *};
@@ -177,4 +177,36 @@ fn account_can_query_only_its_own_domain() {
     assert!(iroha_client
         .request(client::domain::by_id(new_domain_id))
         .is_err());
+}
+
+#[test]
+// If permissions are checked after instruction is executed during validation this introduces
+// a potential security liability that gives an attacker a backdoor for gaining root access
+fn permissions_checked_before_transaction_execution() {
+    let rt = Runtime::test();
+    let (_not_drop, mut iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
+        // New domain registration is the only permitted instruction
+        private_blockchain::register::GrantedAllowedRegisterDomains.into(),
+        DenyAll.into(),
+    ));
+
+    let isi = [
+        // Grant instruction is not allowed
+        Instruction::Grant(GrantBox::new(
+            private_blockchain::register::CAN_REGISTER_DOMAINS_TOKEN.clone(),
+            IdBox::AccountId("alice@wonderland".parse().expect("Valid")),
+        )),
+        Instruction::Register(RegisterBox::new(Domain::new(
+            "new_domain".parse().expect("Valid"),
+        ))),
+    ];
+
+    let rejection_reason = iroha_client
+        .submit_all_blocking(isi)
+        .expect_err("Transaction must fail due to permission validation");
+
+    assert!(rejection_reason
+        .root_cause()
+        .to_string()
+        .contains("Account does not have the needed permission token"));
 }
