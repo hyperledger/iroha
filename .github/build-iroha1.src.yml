@@ -88,6 +88,8 @@ on:
 
 jobs:
 
+  ## This workflow is created for everything except pull requests from forks
+  ## This job allows to skip the workflow completely for pull_requests from forks
   check_if_pull_request_comes_from_the_same_repo:
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Pull requests from forks should use other workflow
@@ -95,10 +97,6 @@ jobs:
     steps:
       - 
         run: |
-          cat <<END
-            Iroha-fork workflow is launched
-            Please ask @insav on GitHub or in Telegram if you need help.
-          END
           true
 
   ## GitHub Actions Workflow does not support yaml anchors
