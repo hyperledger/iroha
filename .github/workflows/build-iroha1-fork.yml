@@ -1389,11 +1389,11 @@ jobs:
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
             "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
-      - name: Checkout head
+      - name: Checkout base
         uses: actions/checkout@v2
         with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: Generate artifact suffix depending on matrix to env.ARTIFACT_SUFFIX
         run: |
           set -x
@@ -1573,11 +1573,11 @@ jobs:
             "PR_SHA="+.head.sha,
             "PR_NUM="+(.number|tostring),
             "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
-      - name: Checkout head
+      - name: Checkout base
         uses: actions/checkout@v2
         with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - name: Generate artifact suffix depending on matrix to env.ARTIFACT_SUFFIX
         run: |
           set -x

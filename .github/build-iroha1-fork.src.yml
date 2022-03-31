@@ -750,7 +750,7 @@ jobs:
       - *step_build_info
       - *step_env_from_buildspec
       - *step_detect_commented_pr
-      - *step_checkout_head
+      - *step_checkout_base
       - *step_artifact_suffix
       - name: Download artifact
         uses: actions/download-artifact@v2
