@@ -13,23 +13,23 @@ jobs:
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
   ## anyway please read .github/README.md
 
-  check_if_pull_request_comes_from_the_same_repo:
+  check_if_pull_request_comes_from_fork:
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Pull requests from forks should use other workflow
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo == github.event.pull_request.base.repo }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo != github.event.pull_request.base.repo }}
     steps:
       - 
         run: |
           cat <<END
-            Iroha workflow is launched for pull requests from the same repo
+            
             Please ask @insav on GitHub or in Telegram if you need help.
           END
-          false
+          true
 
   check_workflow_yaml_coressponds_to_src_yaml:
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Check if github workflows were properly made from sources
-    needs: check_if_pull_request_comes_from_the_same_repo
+    needs: check_if_pull_request_comes_from_fork
     steps:
       - &step_show_context
         name: Show context
