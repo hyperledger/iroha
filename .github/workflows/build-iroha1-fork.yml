@@ -71,6 +71,7 @@ jobs:
           [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
   generate_matrixes:
     runs-on: ubuntu-20.04 #ubuntu-latest
+    needs: check_if_pull_request_comes_from_fork
     #container: ubuntu:latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
     steps:
