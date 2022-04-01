@@ -30,6 +30,8 @@ jobs:
         name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v18.6
+        with:
+          use_fork_point: True
 
       - 
         name: List all changed files
