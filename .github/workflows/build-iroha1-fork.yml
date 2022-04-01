@@ -4,12 +4,12 @@
 name: Iroha1-fork
 on:
   pull_request_target:
-    branches: [feature/DOPS-1651/enable-fork-build] ## target branches
+    branches: [main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build] ## target branches
 env:
   DOCKERHUB_ORG: hyperledger
 jobs:
   ## This workflow is created for pull requests from forks only and has less permissions
-  ## This step allows to skip the workflow completely for pull_requests from th same repo
+  ## This step allows to skip the workflow completely for pull_requests from the same repo
   check_if_pull_request_comes_from_fork:
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Pull requests from forks should use other workflow
@@ -17,6 +17,19 @@ jobs:
     steps:
       - run: |
           true
+      - name: Checkout head
+        uses: actions/checkout@v2
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v18.6
+      - name: List all changed files
+        run: |
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            echo "$file was changed"
+          done
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
@@ -59,6 +72,7 @@ jobs:
           ${{ toJson(needs) }}
           END
           echo "::endgroup::"
+      #- &step_checkout_head
       - name: Checkout head
         uses: actions/checkout@v2
         with:
