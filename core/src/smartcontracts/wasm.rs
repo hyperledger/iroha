@@ -523,23 +523,24 @@ pub mod config {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use std::str::FromStr as _;
+
     use iroha_crypto::KeyPair;
 
     use super::*;
     use crate::{
         smartcontracts::permissions::{AllowAll, DenyAll},
-        DomainsMap, PeersIds, World,
+        PeersIds, World,
     };
 
     fn world_with_test_account(account_id: AccountId) -> World {
         let domain_id = account_id.domain_id.clone();
         let public_key = KeyPair::generate().unwrap().public_key;
-        let account = Account::with_signatory(account_id, public_key);
-        let domain = Domain::with_accounts(domain_id.name.as_ref(), std::iter::once(account));
+        let account = Account::new(account_id, [public_key]).build();
+        let mut domain = Domain::new(domain_id).build();
+        assert!(domain.add_account(account).is_none());
 
-        let domains = DomainsMap::new();
-        domains.insert(domain_id, domain);
-        World::with(domains, PeersIds::new())
+        World::with([domain], PeersIds::new())
     }
 
     fn memory_and_alloc(isi_hex: &str) -> String {
@@ -583,12 +584,12 @@ mod tests {
 
     #[test]
     fn execute_instruction_exported() -> Result<(), Error> {
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
-            let new_account_id = AccountId::new("mad_hatter", "wonderland")?;
-            let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+            let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
+            let register_isi = RegisterBox::new(Account::new(new_account_id, []));
             encode_hex(Instruction::Register(register_isi))
         };
 
@@ -618,7 +619,7 @@ mod tests {
 
     #[test]
     fn execute_query_exported() -> Result<(), Error> {
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let query_hex = {
@@ -656,12 +657,12 @@ mod tests {
 
     #[test]
     fn instruction_limit_reached() -> Result<(), Error> {
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
-            let new_account_id = AccountId::new("mad_hatter", "wonderland")?;
-            let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+            let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
+            let register_isi = RegisterBox::new(Account::new(new_account_id, []));
             encode_hex(Instruction::Register(register_isi))
         };
 
@@ -703,12 +704,12 @@ mod tests {
 
     #[test]
     fn instructions_not_allowed() -> Result<(), Error> {
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
-            let new_account_id = AccountId::new("mad_hatter", "wonderland")?;
-            let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+            let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
+            let register_isi = RegisterBox::new(Account::new(new_account_id, []));
             encode_hex(Instruction::Register(register_isi))
         };
 
@@ -750,7 +751,7 @@ mod tests {
 
     #[test]
     fn queries_not_allowed() -> Result<(), Error> {
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let query_hex = {

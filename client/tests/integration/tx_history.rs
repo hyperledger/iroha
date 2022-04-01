@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::thread;
+use std::{str::FromStr as _, thread};
 
 use iroha_client::client::transaction;
 use iroha_data_model::prelude::*;
@@ -16,11 +16,9 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     iroha_client
         .submit(create_asset)
         .expect("Failed to prepare state.");
@@ -34,7 +32,7 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     let mint_not_existed_asset = MintBox::new(
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(
-            AssetDefinitionId::new("foo", "wonderland").expect("Valid"),
+            AssetDefinitionId::from_str("foo#wonderland").expect("Valid"),
             account_id.clone(),
         )),
     );

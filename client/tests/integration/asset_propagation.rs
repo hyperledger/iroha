@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::thread;
+use std::{str::FromStr as _, thread};
 
 use eyre::Result;
 use iroha_client::client;
@@ -18,17 +18,14 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new("domain")?).into(),
+    let create_domain = RegisterBox::new(Domain::new(DomainId::from_str("domain")?));
+    let account_id = AccountId::from_str("account@domain")?;
+    let create_account = RegisterBox::new(Account::new(
+        account_id.clone(),
+        [KeyPair::generate()?.public_key],
     ));
-    let account_id = AccountId::new("account", "domain")?;
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(account_id.clone(), KeyPair::generate()?.public_key).into(),
-    ));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain")?;
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let asset_definition_id = AssetDefinitionId::from_str("xor#domain")?;
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     iroha_client.submit_all(vec![
         create_domain.into(),
         create_account.into(),
@@ -52,8 +49,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
         client::asset::by_account_id(account_id),
         |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(quantity)
+                asset.id().definition_id == asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(quantity)
             })
         },
     );

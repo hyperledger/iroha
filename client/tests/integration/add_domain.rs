@@ -18,22 +18,18 @@ fn client_add_domain_with_name_length_more_than_limit_should_not_commit_transact
 
     // Given
 
-    let normal_domain_name = DomainId::new("sora")?;
-    let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(
-        normal_domain_name.clone(),
-    )));
+    let normal_domain_id: DomainId = "sora".parse()?;
+    let create_domain = RegisterBox::new(Domain::new(normal_domain_id.clone()));
     test_client.submit(create_domain)?;
 
-    let too_long_domain_name = DomainId::new(&"0".repeat(2_usize.pow(14)))?;
-    let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(
-        too_long_domain_name.clone(),
-    )));
+    let too_long_domain_name: DomainId = "0".repeat(2_usize.pow(14)).parse()?;
+    let create_domain = RegisterBox::new(Domain::new(too_long_domain_name.clone()));
     test_client.submit(create_domain)?;
 
     thread::sleep(pipeline_time * 2);
 
     assert!(test_client
-        .request(client::domain::by_id(normal_domain_name))
+        .request(client::domain::by_id(normal_domain_id))
         .is_ok());
     assert!(test_client
         .request(client::domain::by_id(too_long_domain_name))

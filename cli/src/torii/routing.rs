@@ -311,10 +311,10 @@ async fn update_metrics<W: WorldTrait>(
     for domain in domains {
         wsv.metrics
             .accounts
-            .get_metric_with_label_values(&[domain.id.name.as_ref()])
+            .get_metric_with_label_values(&[domain.id().name.as_ref()])
             .wrap_err("Failed to compose domains")
             .map_err(Error::Prometheus)?
-            .set(domain.accounts.values().len() as u64);
+            .set(domain.accounts().len() as u64);
     }
     Ok(())
 }

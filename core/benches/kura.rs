@@ -1,6 +1,6 @@
 #![allow(missing_docs, clippy::restriction)]
 
-use std::{num::NonZeroU64, sync::Arc};
+use std::{num::NonZeroU64, str::FromStr as _, sync::Arc};
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -16,9 +16,9 @@ use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_validators(n_validators: u32) {
     let dir = tempfile::tempdir().unwrap();
-    let alice_id = AccountId::new("alice", "test").expect("tested");
-    let bob_id = AccountId::new("bob", "test").expect("tested");
-    let xor_id = AssetDefinitionId::new("xor", "test").expect("tested");
+    let alice_id = AccountId::from_str("alice@test").expect("tested");
+    let bob_id = AccountId::from_str("bob@test").expect("tested");
+    let xor_id = AssetDefinitionId::from_str("xor#test").expect("tested");
     let alice_xor_id = <Asset as Identifiable>::Id::new(xor_id.clone(), alice_id);
     let bob_xor_id = <Asset as Identifiable>::Id::new(xor_id, bob_id);
     let transfer = Instruction::Transfer(TransferBox {
@@ -28,7 +28,7 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
     });
     let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let tx = Transaction::new(
-        AccountId::new("alice", "wonderland").expect("checked"),
+        AccountId::from_str("alice@wonderland").expect("checked"),
         vec![transfer].into(),
         1000,
     )

@@ -8,8 +8,8 @@ use alloc::{string::String, vec::Vec};
 use core::fmt;
 
 use iroha_schema::{IntoSchema, MetaMap};
-use parity_scale_codec::{Decode, Encode, Output};
-use serde::{Deserialize, Deserializer, Serialize};
+use parity_scale_codec::{WrapperTypeDecode, WrapperTypeEncode};
+use serde::{Deserialize, Serialize};
 pub use small_string::SmallStr;
 pub use small_vector::SmallVec;
 use smallstr::SmallString;
@@ -21,9 +21,11 @@ pub const SMALL_SIZE: usize = 8_usize;
 mod small_string {
     use super::*;
 
-    #[derive(Debug, derive_more::Display, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, derive_more::Display, Deserialize, Serialize)]
     /// Wrapper around the [`smallstr::SmallString`] type, enforcing a
     /// specific size of stack-based strings.
+    #[serde(transparent)]
+    #[repr(transparent)]
     pub struct SmallStr(SmallString<[u8; 32]>);
 
     impl SmallStr {
@@ -81,6 +83,15 @@ mod small_vector {
     ///
     /// let a: SmallVec<[u8; 24]> = SmallVec(smallvec::smallvec![32]);
     /// ```
+    #[derive(Deserialize, Serialize)]
+    #[serde(
+        bound(
+            serialize = "A::Item: Serialize",
+            deserialize = "A::Item: Deserialize<'de>"
+        ),
+        transparent
+    )]
+    #[repr(transparent)]
     pub struct SmallVec<A: Array>(pub smallvec::SmallVec<A>);
 
     impl<A: Array> Default for SmallVec<A> {
@@ -113,30 +124,6 @@ mod small_vector {
         }
     }
 
-    impl<A: Array> Serialize for SmallVec<A>
-    where
-        A::Item: Serialize,
-    {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            Serialize::serialize(&self.0, serializer)
-        }
-    }
-
-    impl<'de, A: Array> Deserialize<'de> for SmallVec<A>
-    where
-        A::Item: Deserialize<'de>,
-    {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_from_smallvec(deserializer)
-        }
-    }
-
     impl<A: Array> PartialEq for SmallVec<A>
     where
         A::Item: PartialEq,
@@ -165,7 +152,7 @@ mod small_vector {
     }
 
     impl<A: Array> core::ops::Deref for SmallVec<A> {
-        type Target = smallvec::SmallVec<A>;
+        type Target = <smallvec::SmallVec<A> as core::ops::Deref>::Target;
 
         fn deref(&self) -> &Self::Target {
             &self.0
@@ -181,11 +168,34 @@ mod small_vector {
     impl<A: Array> Eq for SmallVec<A> where A::Item: Eq {}
 
     impl<A: Array> SmallVec<A> {
+        /// Construct new empty [`SmallVec`]
         #[inline]
         #[must_use]
-        /// Construct new empty [`SmallVec`]
         pub fn new() -> Self {
             Self(smallvec::SmallVec::new())
+        }
+
+        /// Append an item to the vector.
+        #[inline]
+        pub fn push(&mut self, value: A::Item) {
+            self.0.push(value)
+        }
+
+        /// Remove and return the element at position `index`, shifting all elements after it to the
+        /// left.
+        ///
+        /// Panics if `index` is out of bounds.
+        #[inline]
+        pub fn remove(&mut self, index: usize) -> A::Item {
+            self.0.remove(index)
+        }
+
+        /// Convert a [`SmallVec`] to a [`Vec`], without reallocating if the [`SmallVec`]
+        /// has already spilled onto the heap.
+        #[inline]
+        #[must_use]
+        pub fn into_vec(self) -> Vec<A::Item> {
+            self.0.into_vec()
         }
     }
 
@@ -193,16 +203,6 @@ mod small_vector {
         fn from(vec: Vec<A::Item>) -> Self {
             Self(vec.into_iter().collect())
         }
-    }
-
-    fn deserialize_from_smallvec<'de, A, T, D>(deserializer: D) -> Result<SmallVec<A>, D::Error>
-    where
-        A: Array<Item = T>,
-        T: Deserialize<'de>,
-        D: Deserializer<'de>,
-    {
-        let sv: smallvec::SmallVec<A> = Deserialize::deserialize(deserializer)?;
-        Ok(SmallVec(sv))
     }
 
     impl<A: Array> IntoIterator for SmallVec<A> {
@@ -231,29 +231,11 @@ mod small_vector {
         }
     }
 
-    impl<A: Array> Encode for SmallVec<A>
-    where
-        A::Item: Encode + Clone,
-    {
-        fn size_hint(&self) -> usize {
-            core::mem::size_of::<A::Item>() * A::size()
-        }
+    impl<A: Array> WrapperTypeEncode for SmallVec<A> {}
 
-        fn encode_to<W: Output + ?Sized>(&self, dest: &mut W) {
-            // TODO: Delegating to `vec` might not be the most efficient
-            // thing in the world.
-            Encode::encode_to(&self.0.to_vec(), dest)
-        }
-    }
-
-    impl<A: Array> Decode for SmallVec<A>
-    where
-        A::Item: Decode,
-    {
-        fn decode<I: parity_scale_codec::Input>(
-            input: &mut I,
-        ) -> Result<Self, parity_scale_codec::Error> {
-            Ok(Vec::<A::Item>::decode(input)?.into_iter().collect())
-        }
+    // Decodes into Vec and then converts into SmallVec.
+    // TODO: Maybe this conversion can be optimized?
+    impl<A: Array> WrapperTypeDecode for SmallVec<A> {
+        type Wrapped = Vec<A::Item>;
     }
 }

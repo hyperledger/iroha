@@ -27,8 +27,11 @@ fn query_requests(criterion: &mut Criterion) {
     let rt = Runtime::test();
     let genesis = GenesisNetwork::from_configuration(
         true,
-        RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key)
-            .expect("Valid names never fail to parse"),
+        RawGenesisBlock::new(
+            "alice".parse().expect("Valid"),
+            "wonderland".parse().expect("Valid"),
+            get_key_pair().public_key,
+        ),
         &configuration.genesis,
         &configuration.sumeragi.transaction_limits,
     )
@@ -46,25 +49,17 @@ fn query_requests(criterion: &mut Criterion) {
         .reload(iroha_logger::Level(iroha_config::logger::Level::ERROR))
         .expect("Should not fail");
     let mut group = criterion.benchmark_group("query-requests");
-    let domain_name = "domain";
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new(domain_name).expect("Valid")).into(),
+    let domain_id: DomainId = "domain".parse().expect("Valid");
+    let create_domain = RegisterBox::new(Domain::new(domain_id.clone()));
+    let account_id = AccountId::new("account".parse().expect("Valid"), domain_id.clone());
+    let create_account = RegisterBox::new(Account::new(
+        account_id.clone(),
+        [KeyPair::generate()
+            .expect("Failed to generate KeyPair.")
+            .public_key],
     ));
-    let account_name = "account";
-    let account_id = AccountId::new(account_name, domain_name).expect("Valid");
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(
-            account_id.clone(),
-            KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key,
-        )
-        .into(),
-    ));
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name).expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let asset_definition_id = AssetDefinitionId::new("xor".parse().expect("Valid"), domain_id);
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),
@@ -134,30 +129,27 @@ fn instruction_submits(criterion: &mut Criterion) {
     );
     let genesis = GenesisNetwork::from_configuration(
         true,
-        RawGenesisBlock::new("alice", "wonderland", &configuration.public_key)
-            .expect("Valid names never fail to parse"),
+        RawGenesisBlock::new(
+            "alice".parse().expect("Valid"),
+            "wonderland".parse().expect("Valid"),
+            configuration.public_key.clone(),
+        ),
         &configuration.genesis,
         &configuration.sumeragi.transaction_limits,
     )
     .expect("failed to create genesis");
     rt.block_on(peer.start_with_config_permissions(configuration, genesis, AllowAll, AllowAll));
     let mut group = criterion.benchmark_group("instruction-requests");
-    let domain_name = "domain";
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new(domain_name).expect("Valid")).into(),
+    let domain_id: DomainId = "domain".parse().expect("Valid");
+    let create_domain = RegisterBox::new(Domain::new(domain_id.clone()));
+    let account_id = AccountId::new("account".parse().expect("Valid"), domain_id.clone());
+    let create_account = RegisterBox::new(Account::new(
+        account_id.clone(),
+        [KeyPair::generate()
+            .expect("Failed to generate Key-pair.")
+            .public_key],
     ));
-    let account_name = "account";
-    let account_id = AccountId::new(account_name, domain_name).expect("Valid");
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(
-            account_id.clone(),
-            KeyPair::generate()
-                .expect("Failed to generate Key-pair.")
-                .public_key,
-        )
-        .into(),
-    ));
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name).expect("Valid");
+    let asset_definition_id = AssetDefinitionId::new("xor".parse().expect("Valid"), domain_id);
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
     client_config.torii_api_url = small::SmallStr::from_string(peer.api_address.clone());
     if !client_config.torii_api_url.starts_with("http://") {

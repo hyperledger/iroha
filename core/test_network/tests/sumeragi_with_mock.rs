@@ -218,7 +218,10 @@ pub mod utils {
     }
 
     pub mod world {
-        use std::ops::{Deref, DerefMut};
+        use std::{
+            ops::{Deref, DerefMut},
+            str::FromStr as _,
+        };
 
         use iroha_core::{prelude::*, tx::Domain, wsv::WorldTrait};
         use iroha_data_model::prelude::*;
@@ -242,29 +245,27 @@ pub mod utils {
 
         pub static ALICE_KEYS: Lazy<KeyPair> =
             Lazy::new(|| KeyPair::generate().expect("doesn't fail"));
-        pub static ALICE_ID: Lazy<AccountId> =
-            Lazy::new(|| AccountId::new("alice", "wonderland").expect("valid account name."));
         pub static ALICE: Lazy<Account> = Lazy::new(|| {
-            let mut account = Account::new(ALICE_ID.clone());
-            account.signatories.push(ALICE_KEYS.public_key.clone());
+            let account_id = AccountId::from_str("alice@wonderland").expect("valid account name.");
+            let mut account = Account::new(account_id, []).build();
+            assert!(account.add_signatory(ALICE_KEYS.public_key.clone()));
             account
         });
         pub static WONDERLAND: Lazy<Domain> = Lazy::new(|| {
-            let mut domain = Domain::new(DomainId::new("wonderland").expect("valid domain name"));
-            domain.accounts.insert(ALICE_ID.clone(), ALICE.clone());
+            let mut domain =
+                Domain::new(DomainId::from_str("wonderland").expect("valid domain name")).build();
+            assert!(domain.add_account(ALICE.clone()).is_none());
             domain
         });
 
         impl WorldTrait for WithAlice {
             /// Creates `World` with these `domains` and `trusted_peers_ids`
             fn with(
-                domains: impl IntoIterator<Item = (DomainId, Domain)>,
+                domains: impl IntoIterator<Item = Domain>,
                 trusted_peers_ids: impl IntoIterator<Item = PeerId>,
             ) -> Self {
                 Self(World::with(
-                    vec![(WONDERLAND.id.clone(), WONDERLAND.clone())]
-                        .into_iter()
-                        .chain(domains),
+                    domains.into_iter().chain([WONDERLAND.clone()]),
                     trusted_peers_ids,
                 ))
             }
@@ -272,7 +273,7 @@ pub mod utils {
 
         pub fn sign_tx(isi: impl IntoIterator<Item = Instruction>) -> VersionedAcceptedTransaction {
             let instructions: Vec<_> = isi.into_iter().collect();
-            let tx = Transaction::new(ALICE_ID.clone(), instructions.into(), 100_000)
+            let tx = Transaction::new(ALICE.id().clone(), instructions.into(), 100_000)
                 .sign(ALICE_KEYS.clone())
                 .expect("Sign shall not fail");
             let tx_limits = TransactionLimits {

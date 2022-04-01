@@ -19,8 +19,10 @@ maintenance = { status = "actively-developed" }
 [features]
 default = ["std", "roles"]
 std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_data_primitives/std", "thiserror"]
-# https://github.com/rust-lang/cargo/issues/6915
-roles = []
+roles = []      # https://github.com/rust-lang/cargo/issues/6915
+
+# Internal use only
+mutable_api = []
 cross_crate_testing = []
 
 [dependencies]
@@ -36,6 +38,7 @@ serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.59", default-features = false }
 warp = { version = "0.3", default-features = false, optional = true }
 thiserror = { version = "1.0.28", optional = true }
+getset = "0.1.2"
 
 [dev-dependencies]
 iroha_core = { path = "../core", version = "=2.0.0-pre-rc.3", features = ["roles"] }

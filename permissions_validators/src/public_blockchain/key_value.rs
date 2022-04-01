@@ -1,35 +1,38 @@
 //! Module with permission for burning
 
+use std::str::FromStr as _;
+
 use super::*;
 
 #[allow(clippy::expect_used)]
 /// Can set key value in user's assets permission token name.
 pub static CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::new("can_set_key_value_in_user_assets").expect("Tested. Works."));
+    Lazy::new(|| Name::from_str("can_set_key_value_in_user_assets").expect("Tested. Works."));
 #[allow(clippy::expect_used)]
 /// Can remove key value in user's assets permission token name.
 pub static CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS: Lazy<Name> =
-    Lazy::new(|| Name::new("can_remove_key_value_in_user_assets").expect("Tested. Works."));
+    Lazy::new(|| Name::from_str("can_remove_key_value_in_user_assets").expect("Tested. Works."));
 #[allow(clippy::expect_used)]
 /// Can burn user's assets permission token name.
 pub static CAN_SET_KEY_VALUE_IN_USER_METADATA: Lazy<Name> =
-    Lazy::new(|| Name::new("can_set_key_value_in_user_metadata").expect("Tested. Works."));
+    Lazy::new(|| Name::from_str("can_set_key_value_in_user_metadata").expect("Tested. Works."));
 #[allow(clippy::expect_used)]
 /// Can burn user's assets permission token name.
 pub static CAN_REMOVE_KEY_VALUE_IN_USER_METADATA: Lazy<Name> =
-    Lazy::new(|| Name::new("can_remove_key_value_in_user_metadata").expect("Tested. Works."));
+    Lazy::new(|| Name::from_str("can_remove_key_value_in_user_metadata").expect("Tested. Works."));
 #[allow(clippy::expect_used)]
 /// Can set key value in the corresponding asset definition.
 pub static CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::new("can_set_key_value_in_asset_definition").expect("Tested. Works."));
+    Lazy::new(|| Name::from_str("can_set_key_value_in_asset_definition").expect("Tested. Works."));
 #[allow(clippy::expect_used)]
 /// Can remove key value in the corresponding asset definition.
-pub static CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::new("can_remove_key_value_in_asset_definition").expect("Tested. Works."));
+pub static CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION: Lazy<Name> = Lazy::new(|| {
+    Name::from_str("can_remove_key_value_in_asset_definition").expect("Tested. Works.")
+});
 #[allow(clippy::expect_used)]
 /// Target account id for setting and removing key value permission tokens.
 pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::new("account_id").expect("Tested. Works."));
+    Lazy::new(|| Name::from_str("account_id").expect("Tested. Works."));
 
 /// Checks that account can set keys for assets only for the signer account.
 #[derive(Debug, Copy, Clone)]
@@ -501,7 +504,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetDefinitionSetOnlyForSigne
         let object_id: AssetDefinitionId = try_into_or_exit!(obj_id);
         let registered_by_signer_account = wsv
             .asset_definition_entry(&object_id)
-            .map(|asset_definition_entry| &asset_definition_entry.registered_by == authority)
+            .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
             return Err(
@@ -538,7 +541,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetDefinitionRemoveOnlyForSi
         let object_id: AssetDefinitionId = try_into_or_exit!(obj_id);
         let registered_by_signer_account = wsv
             .asset_definition_entry(&object_id)
-            .map(|asset_definition_entry| &asset_definition_entry.registered_by == authority)
+            .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
             return Err(

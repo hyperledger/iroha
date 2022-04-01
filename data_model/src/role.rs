@@ -6,11 +6,18 @@ use core::fmt;
 #[cfg(feature = "std")]
 use std::collections::btree_set;
 
+use getset::Getters;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{permissions::PermissionToken, IdBox, Identifiable, IdentifiableBox, Name, Value};
+use crate::{
+    permissions::{PermissionToken, Permissions},
+    Identifiable, Name,
+};
+
+/// Collection of [`RoleId`]s
+pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
 
 /// Identification of a role.
 #[derive(
@@ -33,37 +40,10 @@ pub struct Id {
 }
 
 impl Id {
-    /// Constructor.
+    /// Construct role id
     #[inline]
     pub fn new(name: impl Into<Name>) -> Self {
         Self { name: name.into() }
-    }
-}
-
-impl From<Name> for Id {
-    #[inline]
-    fn from(name: Name) -> Self {
-        Self::new(name)
-    }
-}
-
-impl From<Id> for Value {
-    #[inline]
-    fn from(id: Id) -> Self {
-        Self::Id(IdBox::RoleId(id))
-    }
-}
-
-impl TryFrom<Value> for Id {
-    type Error = iroha_macro::error::ErrorTryFromEnum<Value, Self>;
-
-    #[inline]
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Id(IdBox::RoleId(id)) = value {
-            Ok(id)
-        } else {
-            Err(Self::Error::default())
-        }
     }
 }
 
@@ -73,35 +53,28 @@ impl fmt::Display for Id {
     }
 }
 
-impl From<Role> for Value {
-    #[inline]
-    fn from(role: Role) -> Self {
-        IdentifiableBox::from(Box::new(role)).into()
-    }
-}
-
-impl TryFrom<Value> for Role {
-    type Error = iroha_macro::error::ErrorTryFromEnum<Value, Self>;
-
-    #[inline]
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Identifiable(IdentifiableBox::Role(role)) = value {
-            Ok(*role)
-        } else {
-            Err(Self::Error::default())
-        }
-    }
-}
-
 /// Role is a tag for a set of permission tokens.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
+#[getset(get = "pub")]
 pub struct Role {
     /// Unique name of the role.
-    pub id: Id,
+    id: <Self as Identifiable>::Id,
     /// Permission tokens.
-    pub permissions: btree_set::BTreeSet<PermissionToken>,
+    #[getset(skip)]
+    permissions: Permissions,
 }
 
 impl Role {
@@ -109,17 +82,24 @@ impl Role {
     #[inline]
     pub fn new(
         id: impl Into<Id>,
-        permissions: impl Into<btree_set::BTreeSet<PermissionToken>>,
-    ) -> Self {
+        permissions: impl Into<Permissions>,
+    ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id: id.into(),
             permissions: permissions.into(),
         }
     }
+
+    /// Get an iterator over [`permissions`](PermissionToken) of the `Role`
+    #[inline]
+    pub fn permissions(&self) -> impl Iterator<Item = &PermissionToken> {
+        self.permissions.iter()
+    }
 }
 
 impl Identifiable for Role {
     type Id = Id;
+    type RegisteredWith = Self;
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.

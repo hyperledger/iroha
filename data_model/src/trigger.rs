@@ -2,7 +2,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::cmp::Ordering;
+use core::{cmp::Ordering, str::FromStr};
 
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -19,7 +19,7 @@ use crate::{
 )]
 pub struct Trigger {
     /// [`Id`] of the [`Trigger`].
-    pub id: Id,
+    pub id: <Self as Identifiable>::Id,
     /// Action to be performed when the trigger matches.
     pub action: Action,
     /// Metadata of this account as a key-value store.
@@ -28,19 +28,28 @@ pub struct Trigger {
 
 impl Trigger {
     /// Construct trigger, given name action and signatories.
-    ///
-    /// # Errors
-    /// - Name is malformed
-    pub fn new(name: &str, action: Action) -> Result<Self, ParseError> {
-        let id = Id {
-            name: Name::new(name)?,
-        };
-        Ok(Trigger {
+    pub fn new(
+        id: <Self as Identifiable>::Id,
+        action: Action,
+    ) -> <Self as Identifiable>::RegisteredWith {
+        Self {
             id,
             action,
             metadata: Metadata::new(),
-        })
+        }
     }
+
+    /// Add [`Metadata`] to the trigger replacing previously defined
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}
+
+impl Identifiable for Trigger {
+    type Id = Id;
+    type RegisteredWith = Self;
 }
 
 /// Designed to differentiate between oneshot and unlimited
@@ -50,12 +59,11 @@ impl Trigger {
 ///
 /// # Considerations
 ///
-/// - The granularity might not be sufficient to run an action exactly `n` times
-/// - To be able to register an action at exact time --
-/// action `repeats` field should have `Repeats::Exactly(1)` value
-/// - Time-based actions are executed relative to the block creation time stamp,
-/// as such the execution relative to real time is not exact,
-/// and heavily depends on the amount of transactions in the current block.
+/// The granularity might not be sufficient to run an action exactly
+/// `n` times. In order to ensure that it is even possible to run the
+/// triggers without gaps, the `Executable` wrapped in the action must
+/// be run before any of the ISIs are pushed into the queue of the
+/// next block.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema)]
 pub struct Action {
     /// The executable linked to this action
@@ -68,7 +76,7 @@ pub struct Action {
     /// account must already exist in order for `Register<Trigger>` to
     /// work.
     pub technical_account: super::account::Id,
-    /// Event filter to identify events on which this action should be performed.
+    /// Defines events which trigger the `Action`
     pub filter: EventFilter,
 }
 
@@ -79,8 +87,8 @@ impl Action {
         repeats: impl Into<Repeats>,
         technical_account: super::account::Id,
         filter: EventFilter,
-    ) -> Action {
-        Action {
+    ) -> Self {
+        Self {
             executable: executable.into(),
             repeats: repeats.into(),
             // TODO: At this point the technical account is meaningless.
@@ -102,9 +110,10 @@ impl Ord for Action {
         // the trigger, its position in Hash and Tree maps should
         // not change depending on the content.
         match self.repeats.cmp(&other.repeats) {
-            Ordering::Equal => self.technical_account.cmp(&other.technical_account),
-            ord => ord,
+            Ordering::Equal => {}
+            ord => return ord,
         }
+        self.technical_account.cmp(&other.technical_account)
     }
 }
 
@@ -130,6 +139,12 @@ pub enum Repeats {
     Exactly(u32), // If you need more, use `Indefinitely`.
 }
 
+impl From<u32> for Repeats {
+    fn from(num: u32) -> Self {
+        Repeats::Exactly(num)
+    }
+}
+
 /// Identification of a `Trigger`.
 #[derive(
     Debug,
@@ -150,18 +165,22 @@ pub struct Id {
     pub name: Name,
 }
 
-impl Identifiable for Trigger {
-    type Id = Id;
-}
-
 impl Id {
     /// Construct [`Id`], while performing lenght checks and acceptable character validation.
     ///
     /// # Errors
     /// If name contains invalid characters.
-    pub fn new(name: &str) -> Result<Self, ParseError> {
+    pub fn new(name: Name) -> Self {
+        Self { name }
+    }
+}
+
+impl FromStr for Id {
+    type Err = ParseError;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
         Ok(Self {
-            name: Name::new(name)?,
+            name: Name::from_str(name)?,
         })
     }
 }

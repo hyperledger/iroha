@@ -80,8 +80,8 @@ fn unstable_network(
 
     let pipeline_time = Configuration::pipeline_time();
 
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
+    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().expect("Valid");
     // Initially there are 13 roses.
     let mut account_has_quantity = 13;
 
@@ -111,8 +111,8 @@ fn unstable_network(
         polling_max_attempts,
         |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(account_has_quantity)
+                asset.id().definition_id == asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(account_has_quantity)
             })
         },
     );

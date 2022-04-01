@@ -4,7 +4,7 @@
 //!
 //! `Iroha` is the main instance of the peer program. `Arguments`
 //! should be constructed externally: (see `main.rs`).
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use config::Configuration;
@@ -305,16 +305,12 @@ where
 ///
 /// # Errors
 /// - Genesis account public key not specified.
-fn domains(configuration: &config::Configuration) -> Result<BTreeMap<DomainId, Domain>> {
+fn domains(configuration: &config::Configuration) -> Result<impl Iterator<Item = Domain>> {
     let key = configuration
         .genesis
         .account_public_key
         .clone()
         .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
-    #[allow(clippy::expect_used)]
-    Ok([(
-        DomainId::new(GENESIS_DOMAIN_NAME).expect("valid name"),
-        Domain::from(GenesisDomain::new(key)),
-    )]
-    .into())
+
+    Ok([Domain::from(GenesisDomain::new(key))].into_iter())
 }

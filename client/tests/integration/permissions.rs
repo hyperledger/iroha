@@ -1,9 +1,9 @@
 #![allow(clippy::restriction)]
 
-use std::thread;
+use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
-use iroha_core::prelude::AllowAll;
+use iroha_core::{prelude::AllowAll, smartcontracts::isi::permissions::DenyAll};
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::{private_blockchain, public_blockchain};
 use test_network::{Peer as TestPeer, *};
@@ -38,13 +38,11 @@ fn permissions_disallow_asset_transfer() {
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let alice_id = AccountId::new("alice", "wonderland").expect("Valid");
-    let bob_id = AccountId::new("bob", "wonderland").expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
-        asset_definition_id.clone(),
-    )));
-    let register_bob = RegisterBox::new(IdentifiableBox::from(NewAccount::new(bob_id.clone())));
+    let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+    let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
+    let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
     iroha_client
@@ -99,14 +97,11 @@ fn permissions_disallow_asset_burn() {
     // Given
     thread::sleep(pipeline_time * 5);
 
-    let domain_name = "wonderland";
-    let alice_id = AccountId::new("alice", domain_name).expect("Valid");
-    let bob_id = AccountId::new("bob", domain_name).expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("xor", domain_name).expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
-        asset_definition_id.clone(),
-    )));
-    let register_bob = RegisterBox::new(IdentifiableBox::from(NewAccount::new(bob_id.clone())));
+    let alice_id = "alice@wonderland".parse().expect("Valid");
+    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
+    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
+    let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
 
@@ -163,11 +158,9 @@ fn account_can_query_only_its_own_domain() {
     // Given
     thread::sleep(pipeline_time * 2);
 
-    let domain_name = "wonderland";
-    let new_domain_name = "wonderland2";
-    let register_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(
-        DomainId::new(new_domain_name).expect("Valid"),
-    )));
+    let domain_id: DomainId = "wonderland".parse().expect("Valid");
+    let new_domain_id: DomainId = "wonderland2".parse().expect("Valid");
+    let register_domain = RegisterBox::new(Domain::new(new_domain_id.clone()));
 
     iroha_client
         .submit(register_domain)
@@ -177,15 +170,43 @@ fn account_can_query_only_its_own_domain() {
 
     // Alice can query the domain in which her account exists.
     assert!(iroha_client
-        .request(client::domain::by_id(
-            DomainId::new(domain_name).expect("Valid")
-        ))
+        .request(client::domain::by_id(domain_id))
         .is_ok());
 
     // Alice can not query other domains.
     assert!(iroha_client
-        .request(client::domain::by_id(
-            DomainId::new(new_domain_name).expect("Valid")
-        ))
+        .request(client::domain::by_id(new_domain_id))
         .is_err());
+}
+
+#[test]
+// If permissions are checked after instruction is executed during validation this introduces
+// a potential security liability that gives an attacker a backdoor for gaining root access
+fn permissions_checked_before_transaction_execution() {
+    let rt = Runtime::test();
+    let (_not_drop, mut iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
+        // New domain registration is the only permitted instruction
+        private_blockchain::register::GrantedAllowedRegisterDomains.into(),
+        DenyAll.into(),
+    ));
+
+    let isi = [
+        // Grant instruction is not allowed
+        Instruction::Grant(GrantBox::new(
+            private_blockchain::register::CAN_REGISTER_DOMAINS_TOKEN.clone(),
+            IdBox::AccountId("alice@wonderland".parse().expect("Valid")),
+        )),
+        Instruction::Register(RegisterBox::new(Domain::new(
+            "new_domain".parse().expect("Valid"),
+        ))),
+    ];
+
+    let rejection_reason = iroha_client
+        .submit_all_blocking(isi)
+        .expect_err("Transaction must fail due to permission validation");
+
+    assert!(rejection_reason
+        .root_cause()
+        .to_string()
+        .contains("Account does not have the needed permission token"));
 }

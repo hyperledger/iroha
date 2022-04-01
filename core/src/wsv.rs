@@ -42,7 +42,7 @@ pub trait WorldTrait:
 {
     /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
     fn with(
-        domains: impl IntoIterator<Item = (DomainId, Domain)>,
+        domains: impl IntoIterator<Item = Domain>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
     ) -> Self;
 }
@@ -51,17 +51,17 @@ pub trait WorldTrait:
 /// For example registration of domain, will have this as an ISI target.
 #[derive(Debug, Default, Clone)]
 pub struct World {
+    /// Iroha parameters.
+    pub parameters: Vec<Parameter>,
     /// Identifications of discovered trusted peers.
     pub trusted_peers_ids: PeersIds,
+    /// Registered domains.
+    pub domains: DomainsMap,
     /// Roles. [`Role`] pairs.
     #[cfg(feature = "roles")]
     pub roles: crate::RolesMap,
-    /// Registered domains.
-    pub domains: DomainsMap,
     /// Triggers
     pub triggers: TriggerSet,
-    /// Iroha parameters.
-    pub parameters: Vec<Parameter>,
 }
 
 impl Deref for World {
@@ -138,10 +138,13 @@ impl World {
 
 impl WorldTrait for World {
     fn with(
-        domains: impl IntoIterator<Item = (DomainId, Domain)>,
+        domains: impl IntoIterator<Item = Domain>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
     ) -> Self {
-        let domains = domains.into_iter().collect();
+        let domains = domains
+            .into_iter()
+            .map(|domain| (domain.id().clone(), domain))
+            .collect();
         let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
         World {
             domains,
@@ -167,27 +170,24 @@ impl<W: WorldTrait> WorldStateView<W> {
         self
     }
 
-    /// Get `Account`'s `Asset`s and pass it to closure
+    /// Get `Account`'s `Asset`s
     ///
     /// # Errors
-    /// Fails if account finding fails
+    /// Fails if there is no domain or account
     pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, FindError> {
-        self.map_account(id, |account| account.assets.values().cloned().collect())
+        self.map_account(id, |account| account.assets().cloned().collect())
     }
 
     /// Returns a set of permission tokens granted to this account as part of roles and separately.
     #[allow(clippy::unused_self)]
-    pub fn account_permission_tokens(
-        &self,
-        account: &Account,
-    ) -> iroha_data_model::account::Permissions {
+    pub fn account_permission_tokens(&self, account: &Account) -> Vec<PermissionToken> {
         #[allow(unused_mut)]
-        let mut tokens = account.permission_tokens.clone();
+        let mut tokens: Vec<PermissionToken> = account.permissions().cloned().collect();
+
         #[cfg(feature = "roles")]
-        for role_id in &account.roles {
+        for role_id in account.roles() {
             if let Some(role) = self.world.roles.get(role_id) {
-                let mut role_tokens = role.permissions.clone();
-                tokens.append(&mut role_tokens);
+                tokens.append(&mut role.permissions().cloned().collect());
             }
         }
         tokens
@@ -327,8 +327,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, FindError> {
         self.map_account(&id.account_id, |account| -> Result<Asset, FindError> {
             account
-                .assets
-                .get(id)
+                .asset(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))
                 .map(Clone::clone)
         })?
@@ -354,23 +353,29 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if there is no account with such name.
+    #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
         &self,
         id: &<Asset as Identifiable>::Id,
         default_asset_value: impl Into<AssetValue>,
     ) -> Result<Asset, Error> {
+        if let Ok(asset) = self.asset(id) {
+            return Ok(asset);
+        }
+
         // This function is strictly infallible.
         self.modify_account(&id.account_id, |account| {
-            let _ = account
-                .assets
-                .entry(id.clone())
-                .or_insert_with(|| Asset::new(id.clone(), default_asset_value.into()));
+            assert!(account
+                .add_asset(Asset::new(id.clone(), default_asset_value.into()))
+                .is_none());
+
             Ok(AccountEvent::Asset(AssetEvent::Created(id.clone())))
         })
         .map_err(|err| {
             iroha_logger::warn!(?err);
             err
         })?;
+
         self.asset(id).map_err(Into::into)
     }
 
@@ -415,7 +420,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[inline]
     pub fn blocks(
         &self,
-    ) -> impl Iterator<Item = impl Deref<Target = VersionedCommittedBlock> + '_> + '_ {
+    ) -> impl Iterator<Item = impl Deref<Target = VersionedCommittedBlock> + '_> {
         self.blocks.iter()
     }
 
@@ -446,7 +451,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
-        let mut cur_events: SmallVec<[Event; 3]> = SmallVec(smallvec::smallvec![]);
+        let mut cur_events: SmallVec<[Event; 3]> = SmallVec::new();
         let event = f(&self.world)?;
 
         match event {
@@ -642,8 +647,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<T, FindError> {
         let domain = self.domain(&id.domain_id)?;
         let account = domain
-            .accounts
-            .get(id)
+            .account(id)
             .ok_or_else(|| FindError::Account(id.clone()))?;
         Ok(f(account))
     }
@@ -659,8 +663,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<(), Error> {
         self.modify_domain(&id.domain_id, |domain| {
             let account = domain
-                .accounts
-                .get_mut(id)
+                .account_mut(id)
                 .ok_or_else(|| FindError::Account(id.clone()))?;
             f(account).map(DomainEvent::Account)
         })
@@ -670,6 +673,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if there are no such asset or account
+    #[allow(clippy::missing_panics_doc)]
     pub fn modify_asset(
         &self,
         id: &<Asset as Identifiable>::Id,
@@ -677,13 +681,14 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<(), Error> {
         self.modify_account(&id.account_id, |account| {
             let asset = account
-                .assets
-                .get_mut(id)
+                .asset_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
+
             let event_result = f(asset);
-            if asset.value.is_zero_value() {
-                account.assets.remove(id);
+            if asset.value().is_zero_value() {
+                assert!(account.remove_asset(id).is_some());
             }
+
             event_result.map(AccountEvent::Asset)
         })
     }
@@ -699,8 +704,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<(), Error> {
         self.modify_domain(&id.domain_id, |domain| {
             let asset_definition_entry = domain
-                .asset_definitions
-                .get_mut(id)
+                .asset_definition_mut(id)
                 .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
             f(asset_definition_entry).map(DomainEvent::AssetDefinition)
         })
@@ -724,12 +728,11 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// - Asset definition entry not found
     pub fn asset_definition_entry(
         &self,
-        id: &<AssetDefinition as Identifiable>::Id,
+        asset_id: &<AssetDefinition as Identifiable>::Id,
     ) -> Result<AssetDefinitionEntry, FindError> {
-        self.domain(&id.domain_id)?
-            .asset_definitions
-            .get(id)
-            .ok_or_else(|| FindError::AssetDefinition(id.clone()))
+        self.domain(&asset_id.domain_id)?
+            .asset_definition(asset_id)
+            .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
             .map(Clone::clone)
     }
 

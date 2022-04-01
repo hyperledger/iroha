@@ -15,20 +15,17 @@ fn main() {
 
         let mut ret = small::SmallVec::new();
         for i in 0_u32..num {
-            ret.push(
-                GenesisTransaction::new(
-                    &format!("Alice-{}", i),
-                    &format!("wonderland-{}", i),
-                    &PublicKey::default(),
-                )
-                .expect("Failed to create Genesis"),
-            );
-            let asset_definition_id =
-                AssetDefinitionId::new(&format!("xor-{}", num), &format!("wonderland-{}", num))
-                    .expect("Valid");
-            let create_asset = RegisterBox::new(IdentifiableBox::from(
-                AssetDefinition::new_quantity(asset_definition_id.clone()),
+            ret.push(GenesisTransaction::new(
+                format!("Alice-{}", i).parse().expect("Valid"),
+                format!("wonderland-{}", i).parse().expect("Valid"),
+                PublicKey::default(),
             ));
+            let asset_definition_id = AssetDefinitionId::new(
+                format!("xor-{}", num).parse().expect("Valid"),
+                format!("wonderland-{}", num).parse().expect("Valid"),
+            );
+            let create_asset =
+                RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
             ret.push(GenesisTransaction {
                 isi: small::SmallVec(smallvec::smallvec![create_asset.into()]),
             });

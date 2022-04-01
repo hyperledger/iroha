@@ -21,7 +21,7 @@ pub use hash::*;
 use iroha_schema::IntoSchema;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode};
-use serde::{de::Error as SerdeError, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 pub use signature::*;
 #[cfg(feature = "std")]
 pub use ursa;
@@ -387,8 +387,10 @@ impl<'de> Deserialize<'de> for PublicKey {
         #[cfg(feature = "std")]
         use std::borrow::Cow;
 
+        use serde::de::Error as _;
+
         let public_key_str = <Cow<str>>::deserialize(deserializer)?;
-        PublicKey::from_str(&public_key_str).map_err(SerdeError::custom)
+        PublicKey::from_str(&public_key_str).map_err(D::Error::custom)
     }
 }
 

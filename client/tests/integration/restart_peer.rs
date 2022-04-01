@@ -30,9 +30,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
 
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     iroha_client.submit(create_asset)?;
     thread::sleep(pipeline_time * 2);
     //When
@@ -51,9 +49,9 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     let asset = iroha_client
         .request(client::asset::by_account_id(account_id.clone()))?
         .into_iter()
-        .find(|asset| asset.id.definition_id == asset_definition_id)
+        .find(|asset| asset.id().definition_id == asset_definition_id)
         .expect("Asset not found");
-    assert_eq!(AssetValue::Quantity(quantity), asset.value);
+    assert_eq!(AssetValue::Quantity(quantity), *asset.value());
 
     thread::sleep(Duration::from_millis(2000));
     drop(rt);
@@ -68,12 +66,12 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
             iroha_logger::error!(?assets);
             assets
                 .iter()
-                .any(|asset| asset.id.definition_id == asset_definition_id)
+                .any(|asset| asset.id().definition_id == asset_definition_id)
         })
         .into_iter()
-        .find(|asset| asset.id.definition_id == asset_definition_id)
+        .find(|asset| asset.id().definition_id == asset_definition_id)
         .unwrap();
 
-    assert_eq!(AssetValue::Quantity(quantity), account_asset.value);
+    assert_eq!(AssetValue::Quantity(quantity), *account_asset.value());
     Ok(())
 }

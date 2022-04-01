@@ -28,6 +28,8 @@ use crate::{
 };
 
 /// Used to validate transaction and thus move transaction lifecycle forward
+///
+/// Permission validation is skipped for genesis.
 #[derive(Clone)]
 pub struct TransactionValidator<W: WorldTrait> {
     transaction_limits: TransactionLimits,
@@ -58,6 +60,8 @@ impl<W: WorldTrait> TransactionValidator<W> {
 
     /// Move transaction lifecycle forward by checking if the
     /// instructions can be applied to the `WorldStateView`.
+    ///
+    /// Permission validation is skipped for genesis.
     ///
     /// # Errors
     /// Fails if validation of instruction fails (e.g. permissions mismatch).
@@ -97,19 +101,23 @@ impl<W: WorldTrait> TransactionValidator<W> {
         // Therefore, this instruction execution validates before actually executing
         let wsv = WorldStateView::clone(&self.wsv);
 
+        if !wsv
+            .domain(&account_id.domain_id)
+            .map_err(|_e| {
+                TransactionRejectionReason::NotPermitted(NotPermittedFail {
+                    reason: "Domain not found in Iroha".to_owned(),
+                })
+            })?
+            .contains_account(account_id)
+        {
+            return Err(TransactionRejectionReason::NotPermitted(NotPermittedFail {
+                reason: "Account not found in Iroha".to_owned(),
+            }));
+        }
+
         match &tx.payload.instructions {
             Executable::Instructions(instructions) => {
                 for instruction in instructions {
-                    instruction
-                        .clone()
-                        .execute(account_id.clone(), &wsv)
-                        .map_err(|reason| InstructionExecutionFail {
-                            instruction: instruction.clone(),
-                            reason: reason.to_string(),
-                        })
-                        .map_err(TransactionRejectionReason::InstructionExecution)?;
-
-                    // Permission validation is skipped for genesis.
                     if !is_genesis {
                         check_instruction_permissions(
                             account_id,
@@ -119,6 +127,15 @@ impl<W: WorldTrait> TransactionValidator<W> {
                             &wsv,
                         )?
                     }
+
+                    instruction
+                        .clone()
+                        .execute(account_id.clone(), &wsv)
+                        .map_err(|reason| InstructionExecutionFail {
+                            instruction: instruction.clone(),
+                            reason: reason.to_string(),
+                        })
+                        .map_err(TransactionRejectionReason::InstructionExecution)?;
                 }
             }
             Executable::Wasm(bytes) => {
@@ -275,17 +292,34 @@ impl AcceptedTransaction {
             .signatures
             .iter()
             .map(|signature| &signature.public_key)
-            .cloned()
-            .collect();
+            .cloned();
 
         wsv.map_account(account_id, |account| {
-            account
-                .check_signature_condition(signatories)
+            check_signature_condition(account, signatories)
                 .evaluate(wsv, &Context::new())
                 .map_err(|_err| FindError::Account(account_id.clone()))
         })?
         .wrap_err("Failed to find the account")
     }
+}
+
+/// Returns a prebuilt expression that when executed
+/// returns if the needed signatures are gathered.
+fn check_signature_condition(
+    account: &Account,
+    signatories: impl IntoIterator<Item = PublicKey>,
+) -> EvaluatesTo<bool> {
+    WhereBuilder::evaluate(account.signature_check_condition().as_expression().clone())
+        .with_value(
+            String::from(iroha_data_model::account::ACCOUNT_SIGNATORIES_VALUE),
+            account.signatories().cloned().collect::<Vec<_>>(),
+        )
+        .with_value(
+            String::from(iroha_data_model::account::TRANSACTION_SIGNATORIES_VALUE),
+            signatories.into_iter().collect::<Vec<_>>(),
+        )
+        .build()
+        .into()
 }
 
 impl Txn for AcceptedTransaction {
@@ -371,6 +405,8 @@ impl From<RejectedTransaction> for AcceptedTransaction {
 mod tests {
     #![allow(clippy::pedantic, clippy::restriction)]
 
+    use std::str::FromStr as _;
+
     use eyre::Result;
     use iroha_data_model::transaction::DEFAULT_MAX_INSTRUCTION_NUMBER;
 
@@ -383,7 +419,7 @@ mod tests {
         }
         .into();
         let tx = Transaction::new(
-            AccountId::new("root", "global").expect("Valid"),
+            AccountId::from_str("root@global").expect("Valid"),
             vec![inst; DEFAULT_MAX_INSTRUCTION_NUMBER as usize + 1].into(),
             1000,
         );

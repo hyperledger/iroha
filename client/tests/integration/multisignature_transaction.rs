@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::{thread, time::Duration};
+use std::{str::FromStr as _, thread, time::Duration};
 
 use iroha_client::{
     client::{self, Client},
@@ -19,20 +19,16 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new("domain").expect("Valid")).into(),
-    ));
-    let account_id = AccountId::new("account", "domain").expect("Valid");
+    let create_domain = RegisterBox::new(Domain::new(DomainId::from_str("domain").expect("Valid")));
+    let account_id = AccountId::from_str("account@domain").expect("Valid");
     let key_pair_1 = KeyPair::generate().expect("Failed to generate KeyPair.");
     let key_pair_2 = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let create_account = RegisterBox::new(IdentifiableBox::from(NewAccount::with_signatory(
+    let create_account = RegisterBox::new(Account::new(
         account_id.clone(),
-        key_pair_1.public_key.clone(),
-    )));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
-        asset_definition_id.clone(),
-    )));
+        [key_pair_1.public_key.clone()],
+    ));
+    let asset_definition_id = AssetDefinitionId::from_str("xor#domain").expect("Valid");
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     let set_signature_condition = MintBox::new(
         SignatureCheckCondition(
             ContainsAll::new(
@@ -113,5 +109,5 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     thread::sleep(pipeline_time);
     let assets = iroha_client_1.request(request).expect("Query failed.");
     assert!(!assets.is_empty());
-    assert_eq!(AssetValue::Quantity(quantity), assets[0].value);
+    assert_eq!(AssetValue::Quantity(quantity), *assets[0].value());
 }

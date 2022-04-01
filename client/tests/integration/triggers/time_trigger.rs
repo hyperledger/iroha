@@ -32,18 +32,16 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     let start_time = current_time();
 
-    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let asset_definition_id = "rose#wonderland".parse().expect("Valid");
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let prev_value = test_client
-        .request(client::asset::by_id(asset_id.clone()))?
-        .value;
+    let prev_value = test_client.request(client::asset::by_id(asset_id.clone()))?;
 
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
     let register_trigger =
-        build_register_mint_rose_trigger_isi(asset_id.clone(), ExecutionTime::Schedule(schedule))?;
+        build_register_mint_rose_trigger_isi(asset_id.clone(), ExecutionTime::Schedule(schedule));
     test_client.submit(register_trigger)?;
 
     submit_sample_isi_on_every_block_commit(&mut test_client, &account_id, 3)?;
@@ -75,14 +73,14 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_definition_id = "rose#wonderland".parse().expect("Valid");
+    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
     let mut prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     let register_trigger =
-        build_register_mint_rose_trigger_isi(asset_id.clone(), ExecutionTime::PreCommit)?;
+        build_register_mint_rose_trigger_isi(asset_id.clone(), ExecutionTime::PreCommit);
     test_client.submit(register_trigger)?;
 
     let block_filter =
@@ -104,8 +102,11 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
         prev_value = new_value;
 
         // ISI just to create a new block
-        let sample_isi =
-            SetKeyValueBox::new(account_id.clone(), Name::new("key")?, String::from("value"));
+        let sample_isi = SetKeyValueBox::new(
+            account_id.clone(),
+            "key".parse::<Name>()?,
+            String::from("value"),
+        );
         test_client.submit(sample_isi)?;
     }
 
@@ -115,24 +116,25 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 /// Get asset numeric value
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
-    Ok(*TryAsRef::<u32>::try_as_ref(&asset.value)?)
+    Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
 }
 
 /// Build register ISI for trigger which mints roses
 fn build_register_mint_rose_trigger_isi(
     asset_id: AssetId,
     execution_time: ExecutionTime,
-) -> Result<RegisterBox> {
+) -> RegisterBox {
     let instruction = MintBox::new(1_u32, asset_id.clone());
-    Ok(RegisterBox::new(IdentifiableBox::from(Trigger::new(
-        "mint_rose",
+
+    RegisterBox::new(Trigger::new(
+        "mint_rose".parse().expect("Valid"),
         Action::new(
-            Executable::from(vec![instruction.into()]),
+            Executable::from([instruction.into()]),
             Repeats::Indefinitely,
             asset_id.account_id,
             EventFilter::Time(TimeEventFilter(execution_time)),
         ),
-    )?)))
+    ))
 }
 
 /// Submit some sample ISIs to create new blocks
@@ -157,8 +159,11 @@ fn submit_sample_isi_on_every_block_commit(
     {
         std::thread::sleep(Duration::from_secs(1));
         // ISI just to create a new block
-        let sample_isi =
-            SetKeyValueBox::new(account_id.clone(), Name::new("key")?, String::from("value"));
+        let sample_isi = SetKeyValueBox::new(
+            account_id.clone(),
+            "key".parse::<Name>()?,
+            String::from("value"),
+        );
         test_client.submit(sample_isi)?;
     }
 
