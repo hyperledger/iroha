@@ -30,7 +30,7 @@ jobs:
       - name: Find common ancestor
         env:
           FORK_BASE_BRANCH: ${{ github.base_ref }}
-        run: git merge-base --fork-point origin/$BASE_BRANCH
+        run: git merge-base --fork-point origin/$FORK_BASE_BRANCH
       
       - 
         name: Get changed files
