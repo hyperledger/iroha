@@ -21,12 +21,11 @@ jobs:
           true
     
       - 
-        name: Checkout head
+        name: Checkout base
         uses: actions/checkout@v2
-        with: &step_checkout_with_head
-          ref:        ${{github.event.pull_request.head.ref}} 
-          repository: ${{github.event.pull_request.head.repo.full_name}} 
-          fetch-depth: 0
+        with: &step_checkout_with_base
+          ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
       - 
         name: Get changed files
         id: changed-files
