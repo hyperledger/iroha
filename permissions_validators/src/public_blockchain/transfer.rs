@@ -1,6 +1,6 @@
 //! Module with permission for transfering
 
-use std::str::FromStr as _;
+use std::{str::FromStr as _, sync::RwLock, time::Duration};
 
 use super::*;
 
@@ -101,5 +101,63 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
             return Err("Grant instruction is not for transfer permission.".to_owned());
         }
         check_asset_owner_for_token(&permission_token, authority)
+    }
+}
+
+/// Validator that checks `Transfer` instruction so that it can be used fixed number of times per
+/// set time. E.g. 5 times per day
+#[derive(Debug)]
+pub struct TransferOnlyFixedNumberOfTimesForPeriod {
+    count: u32,
+    period: Duration,
+    last_execution_time: RwLock<Option<Duration>>,
+    execution_count: RwLock<u32>,
+}
+
+impl_from_item_for_instruction_validator_box!(TransferOnlyFixedNumberOfTimesForPeriod);
+
+impl<W: WorldTrait> IsAllowed<W, Instruction> for TransferOnlyFixedNumberOfTimesForPeriod {
+    fn check(
+        &self,
+        _authority: &AccountId,
+        instruction: &Instruction,
+        _wsv: &WorldStateView<W>,
+    ) -> Result<(), DenialReason> {
+        if !matches!(instruction, Instruction::Transfer(_)) {
+            return Ok(());
+        };
+
+        let cur_time = current_time();
+        let execution_count = *self.execution_count.read().map_err(|e| e.to_string())?;
+        let mut execution_count_write = self.execution_count.write().map_err(|e| e.to_string())?;
+        if let Some(last) = *self.last_execution_time.read().map_err(|e| e.to_string())? {
+            if execution_count >= self.count {
+                if last + self.period < cur_time {
+                    return Err(DenialReason::from(
+                        "Transfer transaction limit for current period is exceed",
+                    ));
+                }
+                *execution_count_write = 0;
+            }
+        }
+
+        *execution_count_write += 1;
+        *self
+            .last_execution_time
+            .write()
+            .map_err(|e| e.to_string())? = Some(cur_time);
+        Ok(())
+    }
+}
+
+impl TransferOnlyFixedNumberOfTimesForPeriod {
+    /// Create new `TransferOnlyFixedNumberOfTimesForPeriod`
+    pub fn new(count: u32, period: Duration) -> Self {
+        Self {
+            count,
+            period,
+            last_execution_time: RwLock::new(None),
+            execution_count: RwLock::new(0),
+        }
     }
 }
