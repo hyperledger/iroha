@@ -1,11 +1,13 @@
 //! Module with permission for unregistering
 
+use std::str::FromStr as _;
+
 use super::*;
 
 #[allow(clippy::expect_used)]
 /// Can un-register asset with the corresponding asset definition.
 pub static CAN_UNREGISTER_ASSET_WITH_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::new("can_unregister_asset_with_definition").expect("Tested. Works."));
+    Lazy::new(|| Name::from_str("can_unregister_asset_with_definition").expect("Tested. Works."));
 
 /// Checks that account can un-register only the assets which were
 /// registered by this account in the first place.
@@ -33,7 +35,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyAssetsCreatedByThisAccount
         let asset_definition_id: AssetDefinitionId = try_into_or_exit!(object_id);
         let registered_by_signer_account = wsv
             .asset_definition_entry(&asset_definition_id)
-            .map(|asset_definition_entry| &asset_definition_entry.registered_by == authority)
+            .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
             return Err("Can't unregister assets registered by other accounts.".to_owned());

@@ -15,34 +15,24 @@ fn client_can_transfer_asset_to_another_account() {
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new("domain").expect("Valid")).into(),
+    let create_domain = RegisterBox::new(Domain::new("domain".parse().expect("Valid")));
+    let account1_id: AccountId = "account1@domain".parse().expect("Valid");
+    let account2_id: AccountId = "account2@domain".parse().expect("Valid");
+    let create_account1 = RegisterBox::new(Account::new(
+        account1_id.clone(),
+        [KeyPair::generate()
+            .expect("Failed to generate KeyPair.")
+            .public_key],
     ));
-    let account1_id = AccountId::new("account1", "domain").expect("Valid");
-    let account2_id = AccountId::new("account2", "domain").expect("Valid");
-    let create_account1 = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(
-            account1_id.clone(),
-            KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key,
-        )
-        .into(),
+    let create_account2 = RegisterBox::new(Account::new(
+        account2_id.clone(),
+        [KeyPair::generate()
+            .expect("Failed to generate KeyPair.")
+            .public_key],
     ));
-    let create_account2 = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(
-            account2_id.clone(),
-            KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key,
-        )
-        .into(),
-    ));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
     let quantity: u32 = 200;
-    let create_asset = RegisterBox::new(IdentifiableBox::from(AssetDefinition::new_quantity(
-        asset_definition_id.clone(),
-    )));
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     let mint_asset = MintBox::new(
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(
@@ -78,9 +68,9 @@ fn client_can_transfer_asset_to_another_account() {
         client::asset::by_account_id(account2_id.clone()),
         |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(quantity)
-                    && asset.id.account_id == account2_id
+                asset.id().definition_id == asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(quantity)
+                    && asset.id().account_id == account2_id
             })
         },
     );

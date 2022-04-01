@@ -253,18 +253,15 @@ impl RawGenesisBlock {
         ))
     }
 
-    /// Create a [`RawGenesisBlock`] with specified [`Domain`] and [`NewAccount`].
-    ///
-    /// # Errors
-    /// Fails if `account_name` or `domain_name` is invalid
-    pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Result<Self> {
-        Ok(RawGenesisBlock {
+    /// Create a [`RawGenesisBlock`] with specified [`Domain`] and [`Account`].
+    pub fn new(account_name: Name, domain_id: DomainId, public_key: PublicKey) -> Self {
+        RawGenesisBlock {
             transactions: SmallVec(smallvec::smallvec![GenesisTransaction::new(
                 account_name,
-                domain_name,
+                domain_id,
                 public_key,
-            )?]),
-        })
+            )]),
+        }
     }
 }
 
@@ -294,27 +291,18 @@ impl GenesisTransaction {
         VersionedAcceptedTransaction::from_transaction(transaction, limits)
     }
 
-    /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`NewAccount`].
-    ///
-    /// # Errors
-    /// Fails if `account_name` or `domain_name` is invalid
-    pub fn new(account_name: &str, domain_name: &str, public_key: &PublicKey) -> Result<Self> {
-        Ok(Self {
+    /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`Account`].
+    pub fn new(account_name: Name, domain_id: DomainId, public_key: PublicKey) -> Self {
+        Self {
             isi: SmallVec(smallvec::smallvec![
-                RegisterBox::new(IdentifiableBox::from(Domain::new(DomainId::new(
-                    domain_name,
-                )?)))
-                .into(),
-                RegisterBox::new(IdentifiableBox::NewAccount(
-                    NewAccount::with_signatory(
-                        iroha_data_model::account::Id::new(account_name, domain_name)?,
-                        public_key.clone(),
-                    )
-                    .into(),
+                RegisterBox::new(Domain::new(domain_id.clone())).into(),
+                RegisterBox::new(Account::new(
+                    AccountId::new(account_name, domain_id),
+                    [public_key],
                 ))
-                .into(),
+                .into()
             ]),
-        })
+        }
     }
 }
 

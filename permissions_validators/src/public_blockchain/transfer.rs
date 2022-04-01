@@ -1,11 +1,13 @@
 //! Module with permission for transfering
 
+use std::str::FromStr as _;
+
 use super::*;
 
 #[allow(clippy::expect_used)]
 /// Can transfer user's assets permission token name.
 pub static CAN_TRANSFER_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::new("can_transfer_user_assets").expect("Tested. Works.")); // See #1978
+    Lazy::new(|| Name::from_str("can_transfer_user_assets").expect("Tested. Works.")); // See #1978
 
 /// Checks that account transfers only the assets that he owns.
 #[derive(Debug, Copy, Clone)]

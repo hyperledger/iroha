@@ -37,7 +37,7 @@ impl TriggerSet {
                 IdBox::TriggerId(trigger.id),
             ));
         }
-        self.0.insert(trigger.id.clone(), trigger.action);
+        self.0.insert(trigger.id, trigger.action);
 
         Ok(())
     }

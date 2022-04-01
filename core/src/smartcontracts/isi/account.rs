@@ -28,9 +28,41 @@ pub mod isi {
             let public_key = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                account.signatories.push(public_key);
+                if account.contains_signatory(&public_key) {
+                    return Err(
+                        ValidationError::new("Account already contains this signatory").into(),
+                    );
+                }
 
+                account.add_signatory(public_key);
                 Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
+            })
+        }
+    }
+
+    impl<W: WorldTrait> Execute<W> for Burn<Account, PublicKey> {
+        type Error = Error;
+
+        #[metrics(+"burn_account_pubkey")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Self::Error> {
+            let account_id = self.destination_id;
+            let public_key = self.object;
+
+            wsv.modify_account(&account_id, |account| {
+                if account.signatories().len() < 2 {
+                    return Err(ValidationError::new(
+                        "Public keys cannot be burned to nothing. If you want to delete the account, please use an unregister instruction.",
+                    ).into());
+                }
+                if !account.remove_signatory(&public_key) {
+                    return Err(ValidationError::new("Public key not found").into())
+                }
+
+                Ok(AccountEvent::AuthenticationRemoved(account_id.clone()))
             })
         }
     }
@@ -48,40 +80,8 @@ pub mod isi {
             let signature_check_condition = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                account.signature_check_condition = signature_check_condition;
-
+                account.set_signature_check_condition(signature_check_condition);
                 Ok(AccountEvent::AuthenticationAdded(account_id.clone()))
-            })
-        }
-    }
-
-    impl<W: WorldTrait> Execute<W> for Burn<Account, PublicKey> {
-        type Error = Error;
-
-        #[metrics(+"burn_account_pubkey")]
-        fn execute(
-            self,
-            _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView<W>,
-        ) -> Result<(), Self::Error> {
-            let account_id = self.destination_id;
-            let public_key = &self.object;
-
-            wsv.modify_account(&account_id, |account| {
-                if account.signatories.len() < 2 {
-                    return Err(Self::Error::Validate(ValidationError::new(
-                        "Public keys cannot be burned to nothing. If you want to delete the account, please use an unregister instruction.",
-                    )));
-                }
-                if let Some(index) = account
-                    .signatories
-                    .iter()
-                    .position(|key| key == public_key)
-                {
-                    account.signatories.remove(index);
-                }
-
-                Ok(AccountEvent::AuthenticationRemoved(account_id.clone()))
             })
         }
     }
@@ -100,7 +100,7 @@ pub mod isi {
             wsv.modify_account(&account_id, |account| {
                 let account_metadata_limits = wsv.config.account_metadata_limits;
 
-                account.metadata.insert_with_limits(
+                account.metadata_mut().insert_with_limits(
                     self.key,
                     self.value,
                     account_metadata_limits,
@@ -124,7 +124,7 @@ pub mod isi {
 
             wsv.modify_account(&account_id, |account| {
                 account
-                    .metadata
+                    .metadata_mut()
                     .remove(&self.key)
                     .ok_or(FindError::MetadataKey(self.key))?;
 
@@ -145,10 +145,13 @@ pub mod isi {
             let account_id = self.destination_id;
             let permission = self.object;
 
-            wsv.modify_account(&account_id, |account| {
-                let _ = account.permission_tokens.insert(permission);
+            wsv.modify_account(&account_id.clone(), |account| {
+                if account.contains_permission(&permission) {
+                    return Err(ValidationError::new("Permission already exists").into());
+                }
 
-                Ok(AccountEvent::PermissionAdded(account_id.clone()))
+                account.add_permission(permission);
+                Ok(AccountEvent::PermissionAdded(account_id))
             })
         }
     }
@@ -163,10 +166,12 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let account_id = self.destination_id;
-            let permission = &self.object;
+            let permission = self.object;
 
             wsv.modify_account(&account_id, |account| {
-                let _ = account.permission_tokens.remove(permission);
+                if !account.remove_permission(&permission) {
+                    return Err(ValidationError::new("Permission not found").into());
+                }
 
                 Ok(AccountEvent::PermissionRemoved(account_id.clone()))
             })
@@ -183,17 +188,23 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let role = self.object;
+            let account_id = self.destination_id;
+            let role_id = self.object;
 
             wsv.world()
                 .roles
-                .get(&role)
-                .ok_or_else(|| FindError::Role(role.clone()))?;
+                .get(&role_id)
+                .ok_or_else(|| FindError::Role(role_id.clone()))?;
 
-            wsv.modify_account(&self.destination_id, |account| {
-                let _ = account.roles.insert(role);
+            wsv.modify_account(&account_id.clone(), |account| {
+                if !account.add_role(role_id.clone()) {
+                    return Err(Error::Repetition(
+                        InstructionType::Grant,
+                        IdBox::RoleId(role_id),
+                    ));
+                }
 
-                Ok(AccountEvent::PermissionAdded(self.destination_id.clone()))
+                Ok(AccountEvent::PermissionAdded(account_id))
             })
         }
     }
@@ -208,17 +219,20 @@ pub mod isi {
             _authority: AccountId,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let role = self.object;
+            let account_id = self.destination_id;
+            let role_id = self.object;
 
             wsv.world()
                 .roles
-                .get(&role)
-                .ok_or_else(|| FindError::Role(role.clone()))?;
+                .get(&role_id)
+                .ok_or_else(|| FindError::Role(role_id.clone()))?;
 
-            wsv.modify_account(&self.destination_id, |account| {
-                let _ = account.roles.remove(&role);
+            wsv.modify_account(&account_id.clone(), |account| {
+                if !account.remove_role(&role_id) {
+                    return Err(Error::Find(Box::new(FindError::Account(account_id))));
+                }
 
-                Ok(AccountEvent::PermissionRemoved(self.destination_id.clone()))
+                Ok(AccountEvent::PermissionRemoved(account_id))
             })
         }
     }
@@ -244,7 +258,7 @@ pub mod query {
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let roles = wsv.map_account(&account_id, |account| {
-                account.roles.iter().cloned().collect::<Vec<_>>()
+                account.roles().cloned().collect::<Vec<_>>()
             })?;
             Ok(roles)
         }
@@ -261,9 +275,6 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let tokens = wsv.map_account(&account_id, |account| {
                 wsv.account_permission_tokens(account)
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
             })?;
             Ok(tokens)
         }
@@ -275,7 +286,7 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts.values() {
+                for account in domain.accounts() {
                     vec.push(account.clone())
                 }
             }
@@ -307,8 +318,8 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for (id, account) in &domain.accounts {
-                    if id.name == name {
+                for account in domain.accounts() {
+                    if account.id().name == name {
                         vec.push(account.clone())
                     }
                 }
@@ -326,12 +337,7 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            Ok(wsv
-                .domain(&id)?
-                .accounts
-                .values()
-                .cloned()
-                .collect::<Vec<_>>())
+            Ok(wsv.domain(&id)?.accounts().cloned().collect::<Vec<_>>())
         }
     }
 
@@ -349,8 +355,10 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            wsv.map_account(&id, |account| account.metadata.get(&key).map(Clone::clone))?
-                .ok_or_else(|| query::Error::Find(Box::new(FindError::MetadataKey(key))))
+            wsv.map_account(&id, |account| {
+                account.metadata().get(&key).map(Clone::clone)
+            })?
+            .ok_or_else(|| query::Error::Find(Box::new(FindError::MetadataKey(key))))
         }
     }
 }

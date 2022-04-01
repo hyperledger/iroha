@@ -11,7 +11,7 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use super::{expression::EvaluatesTo, prelude::*, IdBox, IdentifiableBox, Value, ValueMarker};
+use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value, ValueMarker};
 
 /// Sized structure for all possible Instructions.
 #[derive(
@@ -96,7 +96,7 @@ pub struct RemoveKeyValueBox {
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct RegisterBox {
     /// The object that should be registered, should be uniquely identifiable by its id.
-    pub object: EvaluatesTo<IdentifiableBox>,
+    pub object: EvaluatesTo<RegistrableBox>,
 }
 
 /// Sized structure for all possible Unregisters.
@@ -233,7 +233,7 @@ where
     O: Identifiable,
 {
     /// The object that should be registered, should be uniquely identifiable by its id.
-    pub object: O,
+    pub object: O::RegisteredWith,
 }
 
 /// Generic instruction for an unregistration of an object from the identifiable destination.
@@ -375,7 +375,7 @@ where
     O: Identifiable,
 {
     /// Construct [`Register`].
-    pub fn new(object: O) -> Self {
+    pub fn new(object: O::RegisteredWith) -> Self {
         Register { object }
     }
 }
@@ -553,7 +553,7 @@ impl RegisterBox {
     }
 
     /// Construct [`Register`].
-    pub fn new<O: Into<EvaluatesTo<IdentifiableBox>>>(object: O) -> Self {
+    pub fn new<O: Into<EvaluatesTo<RegistrableBox>>>(object: O) -> Self {
         Self {
             object: object.into(),
         }

@@ -40,7 +40,7 @@ impl VerifiedQueryRequest {
         query_validator: &IsQueryAllowedBoxed<W>,
     ) -> Result<ValidQueryRequest, Error> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
-            account.signatories.contains(&self.signature.public_key)
+            account.contains_signatory(&self.signature.public_key)
         })?;
         if !account_has_public_key {
             return Err(Error::Signature(String::from(
@@ -201,7 +201,6 @@ impl<W: WorldTrait> ValidQuery<W> for QueryBox {
             FindTransactionByHash(query) => query.execute_into_value(wsv),
             FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
             FindAssetDefinitionKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
-
             #[cfg(feature = "roles")]
             FindAllRoles(query) => query.execute_into_value(wsv),
             #[cfg(feature = "roles")]
@@ -214,7 +213,7 @@ impl<W: WorldTrait> ValidQuery<W> for QueryBox {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::sync::Arc;
+    use std::{str::FromStr, sync::Arc};
 
     use iroha_crypto::{Hash, KeyPair};
     use iroha_data_model::transaction::TransactionLimits;
@@ -222,95 +221,86 @@ mod tests {
 
     use super::*;
     use crate::{
-        block::PendingBlock, prelude::AllowAll, tx::TransactionValidator, wsv::World, DomainsMap,
-        PeersIds,
+        block::PendingBlock, prelude::AllowAll, tx::TransactionValidator, wsv::World, PeersIds,
     };
 
     static ALICE_KEYS: Lazy<KeyPair> = Lazy::new(|| KeyPair::generate().unwrap());
     static ALICE_ID: Lazy<AccountId> =
-        Lazy::new(|| AccountId::new("alice", "wonderland").expect("Valid"));
+        Lazy::new(|| AccountId::from_str("alice@wonderland").expect("Valid"));
 
     fn world_with_test_domains() -> World {
-        let domains = DomainsMap::new();
-        let mut domain = Domain::new(DomainId::new("wonderland").expect("Valid"));
-        let mut account = Account::new(ALICE_ID.clone());
-        account.signatories.push(ALICE_KEYS.public_key.clone());
-        domain.accounts.insert(ALICE_ID.clone(), account);
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-        domain.asset_definitions.insert(
-            asset_definition_id.clone(),
-            AssetDefinitionEntry::new(
+        let domain_id = DomainId::from_str("wonderland").expect("Valid");
+        let mut domain = Domain::new(domain_id).build();
+        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
+        assert!(domain.add_account(account).is_none());
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
+        assert!(domain
+            .add_asset_definition(
                 AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
                 ALICE_ID.clone(),
-            ),
-        );
-        domains.insert(DomainId::new("wonderland").expect("Valid"), domain);
-        World::with(domains, PeersIds::new())
+            )
+            .is_none());
+        World::with([domain], PeersIds::new())
     }
 
     fn world_with_test_asset_with_metadata() -> World {
-        let domains = DomainsMap::new();
-        let mut domain = Domain::new(DomainId::new("wonderland").expect("Valid"));
-        let mut account = Account::new(ALICE_ID.clone());
-        account.signatories.push(ALICE_KEYS.public_key.clone());
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-        domain.asset_definitions.insert(
-            asset_definition_id.clone(),
-            AssetDefinitionEntry::new(
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
+        let mut domain = Domain::new(DomainId::from_str("wonderland").expect("Valid")).build();
+        let mut account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
+        assert!(domain
+            .add_asset_definition(
                 AssetDefinition::new(asset_definition_id.clone(), AssetValueType::Quantity, true),
                 ALICE_ID.clone(),
-            ),
-        );
+            )
+            .is_none());
 
         let mut store = Metadata::new();
         store
             .insert_with_limits(
-                Name::new("Bytes").expect("Valid"),
+                Name::from_str("Bytes").expect("Valid"),
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             )
             .unwrap();
-        let asset_id = AssetId::new(asset_definition_id, account.id.clone());
+        let asset_id = AssetId::new(asset_definition_id, account.id().clone());
         let asset = Asset::new(asset_id, AssetValue::Store(store));
-        account.assets.insert(asset.id.clone(), asset);
 
-        domain.accounts.insert(ALICE_ID.clone(), account);
-        let domain_id = DomainId::new("wonderland").expect("Valid");
-        domains.insert(domain_id, domain);
-        World::with(domains, PeersIds::new())
+        assert!(account.add_asset(asset).is_none());
+        assert!(domain.add_account(account).is_none());
+        World::with([domain], PeersIds::new())
     }
 
     fn world_with_test_account_with_metadata() -> Result<World> {
-        let domains = DomainsMap::new();
-        let mut domain = Domain::new(DomainId::new("wonderland")?);
-        let mut account = Account::new(ALICE_ID.clone());
-        account.signatories.push(ALICE_KEYS.public_key.clone());
-        account.metadata.insert_with_limits(
-            Name::new("Bytes")?,
+        let mut metadata = Metadata::new();
+        metadata.insert_with_limits(
+            Name::from_str("Bytes")?,
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
             MetadataLimits::new(10, 100),
         )?;
-        domain.accounts.insert(ALICE_ID.clone(), account);
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-        domain.asset_definitions.insert(
-            asset_definition_id.clone(),
-            AssetDefinitionEntry::new(
+
+        let mut domain = Domain::new(DomainId::from_str("wonderland")?).build();
+        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()])
+            .with_metadata(metadata)
+            .build();
+        assert!(domain.add_account(account).is_none());
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
+        assert!(domain
+            .add_asset_definition(
                 AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
                 ALICE_ID.clone(),
-            ),
-        );
-        domains.insert(DomainId::new("wonderland")?, domain);
-        Ok(World::with(domains, PeersIds::new()))
+            )
+            .is_none());
+        Ok(World::with([domain], PeersIds::new()))
     }
 
     #[test]
     fn asset_store() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_asset_with_metadata());
 
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
         let bytes =
-            FindAssetKeyValueByIdAndKey::new(asset_id, Name::new("Bytes")?).execute(&wsv)?;
+            FindAssetKeyValueByIdAndKey::new(asset_id, Name::from_str("Bytes")?).execute(&wsv)?;
         assert_eq!(
             bytes,
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
@@ -322,7 +312,7 @@ mod tests {
     fn account_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_account_with_metadata()?);
 
-        let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::new("Bytes")?)
+        let bytes = FindAccountKeyValueByIdAndKey::new(ALICE_ID.clone(), Name::from_str("Bytes")?)
             .execute(&wsv)?;
         assert_eq!(
             bytes,
@@ -378,30 +368,29 @@ mod tests {
     #[test]
     fn domain_metadata() -> Result<()> {
         let wsv = {
-            let domains = DomainsMap::new();
-            let mut domain = Domain::new(DomainId::new("wonderland")?);
-            domain.metadata.insert_with_limits(
-                Name::new("Bytes")?,
+            let mut metadata = Metadata::new();
+            metadata.insert_with_limits(
+                Name::from_str("Bytes")?,
                 Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)]),
                 MetadataLimits::new(10, 100),
             )?;
-            let mut account = Account::new(ALICE_ID.clone());
-            account.signatories.push(ALICE_KEYS.public_key.clone());
-            domain.accounts.insert(ALICE_ID.clone(), account);
-            let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
-            domain.asset_definitions.insert(
-                asset_definition_id.clone(),
-                AssetDefinitionEntry::new(
+            let mut domain = Domain::new(DomainId::from_str("wonderland")?)
+                .with_metadata(metadata)
+                .build();
+            let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
+            assert!(domain.add_account(account).is_none());
+            let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
+            assert!(domain
+                .add_asset_definition(
                     AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
                     ALICE_ID.clone(),
-                ),
-            );
-            domains.insert(DomainId::new("wonderland")?, domain);
-            WorldStateView::new(World::with(domains, PeersIds::new()))
+                )
+                .is_none());
+            WorldStateView::new(World::with([domain], PeersIds::new()))
         };
 
-        let domain_id = DomainId::new("wonderland")?;
-        let key = Name::new("Bytes")?;
+        let domain_id = DomainId::from_str("wonderland")?;
+        let key = Name::from_str("Bytes")?;
         let bytes = FindDomainKeyValueByIdAndKey::new(domain_id, key).execute(&wsv)?;
         assert_eq!(
             bytes,

@@ -13,7 +13,7 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::{Deref, DerefMut};
 use iroha_schema::prelude::*;
-use parity_scale_codec::{Decode, Encode, Error as ScaleError, Input};
+use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
 use ursa::{
@@ -286,7 +286,7 @@ impl<'de, T> Deserialize<'de> for SignaturesOf<T> {
     }
 }
 impl<T> Decode for SignaturesOf<T> {
-    fn decode<I: Input>(input: &mut I) -> Result<Self, ScaleError> {
+    fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
         let signatures = <btree_map::BTreeMap<PublicKey, SignatureOf<T>>>::decode(input)?;
 
         if signatures.is_empty() {
@@ -403,7 +403,7 @@ impl<T> SignaturesOf<T> {
     }
 
     /// Returns all signatures.
-    pub fn iter(&self) -> impl Iterator<Item = &SignatureOf<T>> {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &SignatureOf<T>> {
         self.into_iter()
     }
 
@@ -580,8 +580,6 @@ mod tests {
     #[test]
     #[cfg(feature = "std")]
     fn deserialize_signatures_of() -> Result<(), serde_json::Error> {
-        use serde_json;
-
         let no_signatures: SignaturesOf<i32> = SignaturesOf {
             signatures: btree_map::BTreeMap::new(),
         };

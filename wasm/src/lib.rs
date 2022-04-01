@@ -245,13 +245,13 @@ mod tests {
     }
 
     fn get_test_instruction() -> Instruction {
-        let new_account_id = AccountId::new("mad_hatter", "wonderland").expect("Valid");
-        let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+        let new_account_id = "mad_hatter@wonderland".parse().expect("Valid");
+        let register_isi = RegisterBox::new(Account::new(new_account_id, []));
 
         Instruction::Register(register_isi)
     }
     fn get_test_query() -> QueryBox {
-        let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+        let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
         FindAccountById::new(account_id).into()
     }
 

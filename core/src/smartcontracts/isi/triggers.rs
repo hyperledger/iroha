@@ -43,7 +43,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let new_trigger = self.object.clone();
+            let new_trigger = self.object;
 
             if new_trigger.action.occurs_exactly_at_time()
                 && !matches!(&new_trigger.action.repeats, Repeats::Exactly(1))
@@ -52,8 +52,9 @@ pub mod isi {
             }
 
             wsv.modify_triggers(|triggers| {
+                let trigger_id = new_trigger.id.clone();
                 triggers.add(new_trigger)?;
-                Ok(TriggerEvent::Created(self.object.id))
+                Ok(TriggerEvent::Created(trigger_id))
             })
         }
     }

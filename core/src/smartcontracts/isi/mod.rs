@@ -68,16 +68,16 @@ pub mod error {
         Unsupported(InstructionType),
         /// [`FailBox`] error
         #[error("Execution failed {0}")]
-        FailBox(std::string::String),
+        FailBox(String),
         /// Conversion Error
         #[error("Conversion Error: {0}")]
-        Conversion(std::string::String),
+        Conversion(String),
         /// Repeated instruction
         #[error("Repetition")]
         Repetition(InstructionType, IdBox),
         /// Failed to validate.
         #[error("Failed to validate: {0}")]
-        Validate(#[source] ValidationError),
+        Validate(#[from] ValidationError),
     }
 
     // The main reason these are needed is because `FromVariant` can
@@ -150,10 +150,6 @@ pub mod error {
         /// Failed to find metadata key
         #[error("Failed to find metadata key")]
         MetadataKey(Name),
-        /// Failed to find Role by id.
-        #[cfg(feature = "roles")]
-        #[error("Failed to find role by id: `{0}`")]
-        Role(RoleId),
         /// Block with supplied parent hash not found. More description in a string.
         #[error("Block not found")]
         Block(#[source] ParentHashNotFound),
@@ -169,6 +165,10 @@ pub mod error {
         /// Trigger not found.
         #[error("Trigger not found.")]
         Trigger(TriggerId),
+        /// Failed to find Role by id.
+        #[cfg(feature = "roles")]
+        #[error("Failed to find role by id: `{0}`")]
+        Role(RoleId),
     }
 
     /// Mintability logic error
@@ -310,18 +310,19 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
     #[log]
     fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
+
         match self.object.evaluate(wsv, &context)? {
-            IdentifiableBox::NewAccount(account) => {
-                Register::<NewAccount>::new(*account).execute(authority, wsv)
-            }
-            IdentifiableBox::AssetDefinition(asset_definition) => {
-                Register::<AssetDefinition>::new(*asset_definition).execute(authority, wsv)
-            }
-            IdentifiableBox::Domain(domain) => {
+            RegistrableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
+            RegistrableBox::Domain(domain) => {
                 Register::<Domain>::new(*domain).execute(authority, wsv)
             }
-            IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
-            IdentifiableBox::Trigger(trigger) => {
+            RegistrableBox::Account(account) => {
+                Register::<Account>::new(*account).execute(authority, wsv)
+            }
+            RegistrableBox::AssetDefinition(asset_definition) => {
+                Register::<AssetDefinition>::new(*asset_definition).execute(authority, wsv)
+            }
+            RegistrableBox::Trigger(trigger) => {
                 Register::<Trigger>::new(*trigger).execute(authority, wsv)
             }
             _ => Err(Error::Unsupported(InstructionType::Register)),
@@ -630,43 +631,43 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use core::str::FromStr;
+
     use iroha_crypto::KeyPair;
 
     use super::*;
-    use crate::{wsv::World, DomainsMap, PeersIds};
+    use crate::{wsv::World, PeersIds};
 
     fn world_with_test_domains() -> Result<World> {
-        let domains = DomainsMap::new();
-        let mut domain = Domain::new(DomainId::new("wonderland")?);
-        let account_id = AccountId::new("alice", "wonderland")?;
-        let mut account = Account::new(account_id.clone());
+        let mut domain = Domain::new(DomainId::from_str("wonderland")?).build();
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let key_pair = KeyPair::generate()?;
-        account.signatories.push(key_pair.public_key);
-        domain.accounts.insert(account_id.clone(), account);
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
-        domain.asset_definitions.insert(
-            asset_definition_id.clone(),
-            AssetDefinitionEntry::new(AssetDefinition::new_store(asset_definition_id), account_id),
-        );
-        domains.insert(DomainId::new("wonderland")?, domain);
-        Ok(World::with(domains, PeersIds::new()))
+        let account = Account::new(account_id.clone(), [key_pair.public_key]).build();
+        assert!(domain.add_account(account).is_none());
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
+        assert!(domain
+            .add_asset_definition(AssetDefinition::new_store(asset_definition_id), account_id)
+            .is_none());
+        Ok(World::with([domain], PeersIds::new()))
     }
 
     #[test]
     fn asset_store() -> Result<()> {
         let wsv = WorldStateView::<World>::new(world_with_test_domains()?);
-        let account_id = AccountId::new("alice", "wonderland")?;
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
         SetKeyValueBox::new(
             IdBox::from(asset_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
         let asset = wsv.asset(&asset_id)?;
         let metadata: &Metadata = asset.try_as_ref()?;
-        let bytes = metadata.get(&Name::new("Bytes").expect("Valid")).cloned();
+        let bytes = metadata
+            .get(&Name::from_str("Bytes").expect("Valid"))
+            .cloned();
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
@@ -681,17 +682,17 @@ mod tests {
     #[test]
     fn account_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id.clone(), &wsv)?;
         let bytes = wsv.map_account(&account_id, |account| {
             account
-                .metadata
-                .get(&Name::new("Bytes").expect("Valid"))
+                .metadata()
+                .get(&Name::from_str("Bytes").expect("Valid"))
                 .cloned()
         })?;
         assert_eq!(
@@ -708,19 +709,19 @@ mod tests {
     #[test]
     fn asset_definition_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
-        let definition_id = AssetDefinitionId::new("rose", "wonderland")?;
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(definition_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
         let bytes = wsv
             .asset_definition_entry(&definition_id)?
-            .definition
-            .metadata
-            .get(&Name::new("Bytes")?)
+            .definition()
+            .metadata()
+            .get(&Name::from_str("Bytes")?)
             .cloned();
         assert_eq!(
             bytes,
@@ -736,18 +737,18 @@ mod tests {
     #[test]
     fn domain_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
-        let domain_id = DomainId::new("wonderland")?;
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let domain_id = DomainId::from_str("wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(domain_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
         let bytes = wsv
             .domain(&domain_id)?
-            .metadata
-            .get(&Name::new("Bytes")?)
+            .metadata()
+            .get(&Name::from_str("Bytes")?)
             .cloned();
         assert_eq!(
             bytes,

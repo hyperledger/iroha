@@ -1,15 +1,23 @@
 //! Structures, traits and impls related to `Permission`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_map, format, string::String, vec::Vec};
+use alloc::{
+    collections::{btree_map, btree_set},
+    format,
+    string::String,
+    vec::Vec,
+};
 #[cfg(feature = "std")]
-use std::collections::btree_map;
+use std::collections::{btree_map, btree_set};
 
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{Name, Value};
+
+/// Collection of [`PermissionToken`]s
+pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 
 /// Stored proof of the account having a permission for a certain action.
 #[derive(

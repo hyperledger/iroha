@@ -1,15 +1,17 @@
 //! Module with permission for burning
 
+use std::str::FromStr as _;
+
 use super::*;
 
 /// Can burn asset with the corresponding asset definition.
 #[allow(clippy::expect_used)]
 pub static CAN_BURN_ASSET_WITH_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::new("can_burn_asset_with_definition").expect("normal name"));
+    Lazy::new(|| Name::from_str("can_burn_asset_with_definition").expect("normal name"));
 #[allow(clippy::expect_used)]
 /// Can burn user's assets permission token name.
 pub static CAN_BURN_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::new("can_burn_user_assets").expect("normal name"));
+    Lazy::new(|| Name::from_str("can_burn_user_assets").expect("normal name"));
 
 /// Checks that account can burn only the assets which were registered by this account.
 #[derive(Debug, Copy, Clone)]
@@ -36,7 +38,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyAssetsCreatedByThisAccount
         let asset_id: AssetId = try_into_or_exit!(destination_id);
         let registered_by_signer_account = wsv
             .asset_definition_entry(&asset_id.definition_id)
-            .map(|asset_definition_entry| &asset_definition_entry.registered_by == authority)
+            .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
             .unwrap_or(false);
         if !registered_by_signer_account {
             return Err("Can't burn assets registered by other accounts.".to_owned());

@@ -102,7 +102,7 @@ impl Default for Configuration {
         Self {
             public_key: PublicKey::default(),
             private_key: PrivateKey::default(),
-            account_id: AccountId::new("", "").expect("Empty strings are valid"),
+            account_id: AccountId::from_str("").expect("Empty strings are valid"),
             basic_auth: None,
             torii_api_url: small::SmallStr::from_str(uri::DEFAULT_API_URL),
             torii_telemetry_url: small::SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL),

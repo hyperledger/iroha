@@ -17,11 +17,9 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("xor", "wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
+    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
     let key_pair = KeyPair::generate()?;
     let add_signatory = MintBox::new(
         key_pair.public_key.clone(),
@@ -44,8 +42,8 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
         client::asset::by_account_id(account_id),
         |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(quantity)
+                asset.id().definition_id == asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(quantity)
             })
         },
     );

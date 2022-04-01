@@ -11,34 +11,47 @@ use core::{
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
+use getset::{Getters, MutGetters, Setters};
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    account::prelude::*,
-    domain::prelude::*,
-    fixed,
-    fixed::Fixed,
-    metadata::{Error as MetadataError, Limits as MetadataLimits, Metadata},
-    Identifiable, Name, ParseError, TryAsMut, TryAsRef, Value,
+    account::prelude::*, domain::prelude::*, fixed, fixed::Fixed, metadata::Metadata, Identifiable,
+    Name, ParseError, TryAsMut, TryAsRef, Value,
 };
 
 /// [`AssetsMap`] provides an API to work with collection of key ([`Id`]) - value
 /// ([`Asset`]) pairs.
-pub type AssetsMap = btree_map::BTreeMap<Id, Asset>;
+pub type AssetsMap = btree_map::BTreeMap<<Asset as Identifiable>::Id, Asset>;
+
 /// [`AssetDefinitionsMap`] provides an API to work with collection of key ([`DefinitionId`]) - value
 /// (`AssetDefinition`) pairs.
-pub type AssetDefinitionsMap = btree_map::BTreeMap<DefinitionId, AssetDefinitionEntry>;
+pub type AssetDefinitionsMap =
+    btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, AssetDefinitionEntry>;
 
 /// An entry in [`AssetDefinitionsMap`].
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Getters,
+    MutGetters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+)]
+#[getset(get = "pub")]
 pub struct AssetDefinitionEntry {
     /// Asset definition.
-    pub definition: AssetDefinition,
+    #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
+    definition: AssetDefinition,
     /// The account that registered this asset.
-    pub registered_by: AccountId,
+    registered_by: <Account as Identifiable>::Id,
 }
 
 impl PartialOrd for AssetDefinitionEntry {
@@ -57,7 +70,10 @@ impl Ord for AssetDefinitionEntry {
 
 impl AssetDefinitionEntry {
     /// Constructor.
-    pub const fn new(definition: AssetDefinition, registered_by: AccountId) -> Self {
+    pub const fn new(
+        definition: AssetDefinition,
+        registered_by: <Account as Identifiable>::Id,
+    ) -> Self {
         Self {
             definition,
             registered_by,
@@ -67,27 +83,45 @@ impl AssetDefinitionEntry {
 
 /// Asset definition defines type of that asset.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    MutGetters,
+    Setters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
+#[getset(get = "pub")]
 pub struct AssetDefinition {
-    /// Type of [`AssetValue`]
-    pub value_type: AssetValueType,
     /// An Identification of the [`AssetDefinition`].
-    pub id: DefinitionId,
-    /// Metadata of this asset definition as a key-value store.
-    pub metadata: Metadata,
+    id: <AssetDefinition as Identifiable>::Id,
+    /// Type of [`AssetValue`]
+    value_type: AssetValueType,
     /// Is the asset mintable
-    pub mintable: bool,
+    mintable: bool,
+    /// Metadata of this asset definition as a key-value store.
+    #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
+    metadata: Metadata,
 }
 
 /// Asset represents some sort of commodity or value.
 /// All possible variants of [`Asset`] entity's components.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[getset(get = "pub")]
 pub struct Asset {
     /// Component Identification.
-    pub id: Id,
+    id: <Asset as Identifiable>::Id,
     /// Asset's Quantity.
-    pub value: AssetValue,
+    value: AssetValue,
 }
 
 /// Asset's inner value type.
@@ -167,6 +201,20 @@ impl AssetValue {
     }
 }
 
+impl PartialOrd for Asset {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.id.cmp(&other.id))
+    }
+}
+
+impl Ord for Asset {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
 macro_rules! impl_try_as_for_asset_value {
     ( $($variant:ident( $ty:ty ),)* ) => {$(
         impl TryAsMut<$ty> for AssetValue {
@@ -202,20 +250,6 @@ impl_try_as_for_asset_value! {
     Store(Metadata),
 }
 
-impl PartialOrd for Asset {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.id.cmp(&other.id))
-    }
-}
-
-impl Ord for Asset {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.id.cmp(&other.id)
-    }
-}
-
 /// Identification of an Asset Definition. Consists of Asset's name and Domain's name.
 ///
 /// # Example
@@ -223,7 +257,7 @@ impl Ord for Asset {
 /// ```
 /// use iroha_data_model::asset::DefinitionId;
 ///
-/// let definition_id = DefinitionId::new("xor", "soramitsu");
+/// let definition_id = "xor#soramitsu".parse::<DefinitionId>().expect("Valid");
 /// ```
 #[derive(
     Debug,
@@ -263,121 +297,109 @@ pub struct DefinitionId {
 )]
 pub struct Id {
     /// Entity Identification.
-    pub definition_id: DefinitionId,
+    pub definition_id: <AssetDefinition as Identifiable>::Id,
     /// Account Identification.
-    pub account_id: AccountId,
+    pub account_id: <Account as Identifiable>::Id,
 }
 
 impl AssetDefinition {
     /// Construct [`AssetDefinition`].
-    #[inline]
-    pub fn new(id: DefinitionId, value_type: AssetValueType, mintable: bool) -> Self {
+    pub fn new(
+        id: <AssetDefinition as Identifiable>::Id,
+        value_type: AssetValueType,
+        mintable: bool,
+    ) -> <Self as Identifiable>::RegisteredWith {
         Self {
-            value_type,
             id,
-            metadata: Metadata::new(),
+            value_type,
             mintable,
+            metadata: Metadata::new(),
         }
+    }
+
+    /// Add [`Metadata`] to the asset definition replacing previously defined
+    #[inline]
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
     }
 
     /// Asset definition with quantity asset value type.
     #[inline]
-    pub fn new_quantity(id: DefinitionId) -> Self {
+    pub fn new_quantity(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::Quantity, true)
     }
 
     /// Token definition with quantity asset value type.
     #[inline]
-    pub fn new_quantity_token(id: DefinitionId) -> Self {
+    pub fn new_quantity_token(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::BigQuantity, true)
     }
 
     /// Asset definition with big quantity asset value type.
     #[inline]
-    pub fn new_big_quantity(id: DefinitionId) -> Self {
+    pub fn new_big_quantity(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::BigQuantity, true)
     }
 
     /// Token definition with big quantity asset value type.
     #[inline]
-    pub fn new_bin_quantity_token(id: DefinitionId) -> Self {
+    pub fn new_bin_quantity_token(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::BigQuantity, false)
     }
 
     /// Asset definition with decimal quantity asset value type.
     #[inline]
-    pub fn with_precision(id: DefinitionId) -> Self {
+    pub fn new_fixed_precision(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::Fixed, true)
     }
 
     /// Token definition with decimal quantity asset value type.
     #[inline]
-    pub fn with_precision_token(id: DefinitionId) -> Self {
+    pub fn new_fixed_precision_token(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::Fixed, true)
     }
 
     /// Asset definition with store asset value type.
     #[inline]
-    pub fn new_store(id: DefinitionId) -> Self {
+    pub fn new_store(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::Store, true)
     }
 
     /// Token definition with store asset value type.
     #[inline]
-    pub fn new_store_token(id: DefinitionId) -> Self {
+    pub fn new_store_token(
+        id: <AssetDefinition as Identifiable>::Id,
+    ) -> <Self as Identifiable>::RegisteredWith {
         AssetDefinition::new(id, AssetValueType::Store, false)
     }
 }
 
 impl Asset {
     /// Constructor
-    pub fn new<V: Into<AssetValue>>(id: Id, value: V) -> Self {
+    pub fn new<V: Into<AssetValue>>(
+        id: <Asset as Identifiable>::Id,
+        value: V,
+    ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id,
             value: value.into(),
         }
-    }
-
-    /// `Asset` with `quantity` value constructor.
-    #[inline]
-    pub fn with_quantity(id: Id, quantity: u32) -> Self {
-        Self {
-            id,
-            value: quantity.into(),
-        }
-    }
-
-    /// `Asset` with `big_quantity` value constructor.
-    #[inline]
-    pub fn with_big_quantity(id: Id, big_quantity: u128) -> Self {
-        Self {
-            id,
-            value: big_quantity.into(),
-        }
-    }
-
-    /// `Asset` with a `parameter` inside `store` value constructor.
-    ///
-    /// # Errors
-    /// Fails if limit check fails
-    pub fn with_parameter(
-        id: Id,
-        key: Name,
-        value: Value,
-        limits: MetadataLimits,
-    ) -> Result<Self, MetadataError> {
-        let mut store = Metadata::new();
-        store.insert_with_limits(key, value, limits)?;
-
-        Ok(Self {
-            id,
-            value: store.into(),
-        })
-    }
-
-    /// Returns the asset type as a string.
-    pub const fn value_type(&self) -> AssetValueType {
-        self.value.value_type()
     }
 }
 
@@ -411,18 +433,25 @@ impl DefinitionId {
     /// # Errors
     /// Fails if any sub-construction fails
     #[inline]
-    pub fn new(name: &str, domain_name: &str) -> Result<Self, ParseError> {
-        Ok(Self {
-            name: Name::new(name)?,
-            domain_id: DomainId::new(domain_name)?,
-        })
+    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
+        Self { name, domain_id }
+    }
+
+    pub(crate) const fn empty() -> Self {
+        Self {
+            name: Name::empty(),
+            domain_id: DomainId::empty(),
+        }
     }
 }
 
 impl Id {
     /// Construct [`Id`] from [`DefinitionId`] and [`AccountId`].
     #[inline]
-    pub const fn new(definition_id: DefinitionId, account_id: AccountId) -> Self {
+    pub const fn new(
+        definition_id: <AssetDefinition as Identifiable>::Id,
+        account_id: <Account as Identifiable>::Id,
+    ) -> Self {
         Self {
             definition_id,
             account_id,
@@ -432,10 +461,12 @@ impl Id {
 
 impl Identifiable for Asset {
     type Id = Id;
+    type RegisteredWith = Self;
 }
 
 impl Identifiable for AssetDefinition {
     type Id = DefinitionId;
+    type RegisteredWith = Self;
 }
 
 impl FromIterator<Asset> for Value {
@@ -461,6 +492,10 @@ impl FromStr for DefinitionId {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
+        if string.is_empty() {
+            return Ok(Self::empty());
+        }
+
         let vector: Vec<&str> = string.split('#').collect();
         if vector.len() != 2 {
             return Err(ParseError {
@@ -468,8 +503,8 @@ impl FromStr for DefinitionId {
             });
         }
         Ok(Self {
-            name: Name::new(vector[0])?,
-            domain_id: DomainId::new(vector[1])?,
+            name: Name::from_str(vector[0])?,
+            domain_id: DomainId::from_str(vector[1])?,
         })
     }
 }

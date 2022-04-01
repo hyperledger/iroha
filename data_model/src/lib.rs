@@ -17,7 +17,7 @@ use iroha_data_primitives::small::SmallVec;
 pub use iroha_data_primitives::{fixed, small};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -72,30 +72,13 @@ impl ValidationError {
 /// `Name` struct represents type for Iroha Entities names, like
 /// [`Domain`](`domain::Domain`)'s name or
 /// [`Account`](`account::Account`)'s name.
-#[derive(
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Display,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
-)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display, Encode, Serialize, IntoSchema)]
+#[repr(transparent)]
 pub struct Name(String);
 
 impl Name {
-    /// Construct [`Name`] if `name` is valid.
-    ///
-    /// # Errors
-    /// Fails if parsing fails
-    #[inline]
-    pub fn new(name: &str) -> Result<Self, ParseError> {
-        Self::from_str(name)
+    pub(crate) const fn empty() -> Self {
+        Self(String::new())
     }
 
     /// Check if `range` contains the number of chars in the inner `String` of this [`Name`].
@@ -128,8 +111,11 @@ impl AsRef<str> for Name {
 impl FromStr for Name {
     type Err = ParseError;
 
-    // TODO: This can be made into a constant function eventually.
     fn from_str(candidate: &str) -> Result<Self, Self::Err> {
+        if candidate.is_empty() {
+            return Ok(Self::empty());
+        }
+
         if candidate.chars().any(char::is_whitespace) {
             return Err(ParseError {
                 reason: "White space not allowed in `Name` constructs",
@@ -151,8 +137,28 @@ impl Debug for Name {
     }
 }
 
-/// Represents a sequence of bytes. Used for storing encoded data.
-pub type Bytes = Vec<u8>;
+impl<'de> Deserialize<'de> for Name {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[cfg(not(feature = "std"))]
+        use alloc::borrow::Cow;
+        #[cfg(feature = "std")]
+        use std::borrow::Cow;
+
+        use serde::de::Error as _;
+
+        let name = <Cow<str>>::deserialize(deserializer)?;
+        Self::from_str(&name).map_err(D::Error::custom)
+    }
+}
+impl Decode for Name {
+    fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
+        let name = String::decode(input)?;
+        Self::from_str(&name).map_err(|error| error.reason.into())
+    }
+}
 
 #[allow(clippy::missing_errors_doc)]
 /// [`AsMut`] but reference conversion can fail.
@@ -244,23 +250,54 @@ pub enum Parameter {
 )]
 #[allow(clippy::enum_variant_names)]
 pub enum IdBox {
-    /// [`AccountId`](`account::Id`) variant.
-    AccountId(account::Id),
-    /// [`AssetId`](`asset::Id`) variant.
-    AssetId(asset::Id),
-    /// [`AssetDefinitionId`](`asset::DefinitionId`) variant.
-    AssetDefinitionId(asset::DefinitionId),
     /// [`DomainId`](`domain::Id`) variant.
-    DomainId(domain::Id),
+    DomainId(<domain::Domain as Identifiable>::Id),
+    /// [`AccountId`](`account::Id`) variant.
+    AccountId(<account::Account as Identifiable>::Id),
+    /// [`AssetDefinitionId`](`asset::DefinitionId`) variant.
+    AssetDefinitionId(<asset::AssetDefinition as Identifiable>::Id),
+    /// [`AssetId`](`asset::Id`) variant.
+    AssetId(<asset::Asset as Identifiable>::Id),
     /// [`PeerId`](`peer::Id`) variant.
-    PeerId(peer::Id),
+    PeerId(<peer::Peer as Identifiable>::Id),
+    /// [`TriggerId`](trigger::Id) variant.
+    TriggerId(<trigger::Trigger as Identifiable>::Id),
     /// [`RoleId`](`role::Id`) variant.
     #[cfg(feature = "roles")]
-    RoleId(role::Id),
-    /// [`TriggerId`](trigger::Id) variant.
-    TriggerId(trigger::Id),
-    /// `World`.
-    WorldId,
+    RoleId(<role::Role as Identifiable>::Id),
+}
+
+/// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+)]
+pub enum RegistrableBox {
+    /// [`Peer`](`peer::Peer`) variant.
+    Peer(Box<<peer::Peer as Identifiable>::RegisteredWith>),
+    /// [`Domain`](`domain::Domain`) variant.
+    Domain(Box<<domain::Domain as Identifiable>::RegisteredWith>),
+    /// [`Account`](`account::Account`) variant.
+    Account(Box<<account::Account as Identifiable>::RegisteredWith>),
+    /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
+    AssetDefinition(Box<<asset::AssetDefinition as Identifiable>::RegisteredWith>),
+    /// [`Asset`](`asset::Asset`) variant.
+    Asset(Box<<asset::Asset as Identifiable>::RegisteredWith>),
+    /// [`Trigger`](`trigger::Trigger`) variant.
+    Trigger(Box<<trigger::Trigger as Identifiable>::RegisteredWith>),
+    /// [`Role`](`role::Role`) variant.
+    #[cfg(feature = "roles")]
+    Role(Box<<role::Role as Identifiable>::RegisteredWith>),
 }
 
 /// Sized container for all possible entities.
@@ -279,25 +316,25 @@ pub enum IdBox {
     IntoSchema,
 )]
 pub enum IdentifiableBox {
-    /// [`Account`](`account::Account`) variant.
-    Account(Box<account::Account>),
-    /// [`NewAccount`](`account::NewAccount`) variant.
-    NewAccount(Box<account::NewAccount>),
-    /// [`Asset`](`asset::Asset`) variant.
-    Asset(Box<asset::Asset>),
-    /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
-    AssetDefinition(Box<asset::AssetDefinition>),
-    /// [`Domain`](`domain::Domain`) variant.
-    Domain(Box<domain::Domain>),
     /// [`Peer`](`peer::Peer`) variant.
     Peer(Box<peer::Peer>),
+    /// [`NewDomain`](`domain::NewDomain`) variant.
+    NewDomain(Box<<domain::Domain as Identifiable>::RegisteredWith>),
+    /// [`NewAccount`](`account::NewAccount`) variant.
+    NewAccount(Box<<account::Account as Identifiable>::RegisteredWith>),
+    /// [`Domain`](`domain::Domain`) variant.
+    Domain(Box<domain::Domain>),
+    /// [`Account`](`account::Account`) variant.
+    Account(Box<account::Account>),
+    /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
+    AssetDefinition(Box<asset::AssetDefinition>),
+    /// [`Asset`](`asset::Asset`) variant.
+    Asset(Box<asset::Asset>),
+    /// [`Trigger`](`trigger::Trigger`) variant.
+    Trigger(Box<trigger::Trigger>),
     /// [`Role`](`role::Role`) variant.
     #[cfg(feature = "roles")]
     Role(Box<role::Role>),
-    /// [`Trigger`](`trigger::Trigger`) variant.
-    Trigger(Box<trigger::Trigger>),
-    /// `World`.
-    World,
 }
 
 /// Boxed [`Value`].
@@ -383,13 +420,16 @@ where
         // This looks inefficient, but `Value` can only hold a
         // heap-allocated `Vec` (it's recursive) and the vector
         // conversions only do a heap allocation (if that).
-        let vec: Vec<_> = sv.0.into_vec();
+        let vec: Vec<_> = sv.into_vec();
         vec.into()
     }
 }
 
+// TODO: This macro looks very similar to `from_and_try_from_value_identifiable`
+// and `from_and_try_from_value_identifiablebox` macros. It should be possible to
+// generalize them under one macro
 macro_rules! from_and_try_from_value_idbox {
-    ( $($variant:ident( $ty:ty ),)* ) => {
+    ( $($variant:ident( $ty:ty ),)* $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
                 type Error = ErrorTryFromEnum<Self, Value>;
@@ -413,17 +453,21 @@ macro_rules! from_and_try_from_value_idbox {
 }
 
 from_and_try_from_value_idbox!(
+    PeerId(peer::Id),
+    DomainId(domain::Id),
     AccountId(account::Id),
     AssetId(asset::Id),
     AssetDefinitionId(asset::DefinitionId),
-    DomainId(domain::Id),
-    PeerId(peer::Id),
+    TriggerId(trigger::Id),
 );
+#[cfg(feature = "roles")]
+from_and_try_from_value_idbox!(RoleId(role::Id),);
+
 // TODO: Should we wrap String with new type in order to convert like here?
 //from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
 
 macro_rules! from_and_try_from_value_identifiablebox {
-    ( $( $variant:ident( Box< $ty:ty > ),)* ) => {
+    ( $( $variant:ident( Box< $ty:ty > ),)* $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
                 type Error = ErrorTryFromEnum<Self, Value>;
@@ -446,7 +490,7 @@ macro_rules! from_and_try_from_value_identifiablebox {
     };
 }
 macro_rules! from_and_try_from_value_identifiable {
-    ( $( $variant:ident( $ty:ty ), )* ) => {
+    ( $( $variant:ident( $ty:ty ), )* $(,)? ) => {
         $(
             impl TryFrom<Value> for $ty {
                 type Error = ErrorTryFromEnum<Self, Value>;
@@ -470,21 +514,88 @@ macro_rules! from_and_try_from_value_identifiable {
 }
 
 from_and_try_from_value_identifiablebox!(
-    Account(Box<account::Account>),
+    NewDomain(Box<domain::NewDomain>),
     NewAccount(Box<account::NewAccount>),
-    Asset(Box<asset::Asset>),
-    AssetDefinition(Box<asset::AssetDefinition>),
-    Domain(Box<domain::Domain>),
     Peer(Box<peer::Peer>),
+    Domain(Box<domain::Domain>),
+    Account(Box<account::Account>),
+    AssetDefinition(Box<asset::AssetDefinition>),
+    Asset(Box<asset::Asset>),
+    Trigger(Box<trigger::Trigger>),
 );
+#[cfg(feature = "roles")]
+from_and_try_from_value_identifiablebox!(Role(Box<role::Role>),);
+
 from_and_try_from_value_identifiable!(
-    Account(Box<account::Account>),
+    NewDomain(Box<domain::NewDomain>),
     NewAccount(Box<account::NewAccount>),
-    Asset(Box<asset::Asset>),
-    AssetDefinition(Box<asset::AssetDefinition>),
-    Domain(Box<domain::Domain>),
     Peer(Box<peer::Peer>),
+    Domain(Box<domain::Domain>),
+    Account(Box<account::Account>),
+    AssetDefinition(Box<asset::AssetDefinition>),
+    Asset(Box<asset::Asset>),
+    Trigger(Box<trigger::Trigger>),
 );
+#[cfg(feature = "roles")]
+from_and_try_from_value_identifiable!(Role(Box<role::Role>),);
+
+impl TryFrom<Value> for RegistrableBox {
+    type Error = ErrorTryFromEnum<Self, Value>;
+
+    fn try_from(source: Value) -> Result<Self, Self::Error> {
+        if let Value::Identifiable(identifiable) = source {
+            identifiable
+                .try_into()
+                .map_err(|_err| Self::Error::default())
+        } else {
+            Err(Self::Error::default())
+        }
+    }
+}
+
+impl From<RegistrableBox> for Value {
+    fn from(source: RegistrableBox) -> Self {
+        let identifiable = source.into();
+        Value::Identifiable(identifiable)
+    }
+}
+
+impl TryFrom<IdentifiableBox> for RegistrableBox {
+    type Error = ErrorTryFromEnum<Self, IdentifiableBox>;
+
+    fn try_from(source: IdentifiableBox) -> Result<Self, Self::Error> {
+        use IdentifiableBox::*;
+
+        match source {
+            Peer(peer) => Ok(RegistrableBox::Peer(peer)),
+            NewDomain(domain) => Ok(RegistrableBox::Domain(domain)),
+            NewAccount(account) => Ok(RegistrableBox::Account(account)),
+            AssetDefinition(asset) => Ok(RegistrableBox::AssetDefinition(asset)),
+            Asset(asset) => Ok(RegistrableBox::Asset(asset)),
+            Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
+            #[cfg(feature = "roles")]
+            Role(role) => Ok(RegistrableBox::Role(role)),
+            _ => Err(Self::Error::default()),
+        }
+    }
+}
+
+impl From<RegistrableBox> for IdentifiableBox {
+    fn from(registrable: RegistrableBox) -> Self {
+        use RegistrableBox::*;
+
+        match registrable {
+            Peer(peer) => IdentifiableBox::Peer(peer),
+            Domain(domain) => IdentifiableBox::NewDomain(domain),
+            Account(account) => IdentifiableBox::NewAccount(account),
+            AssetDefinition(asset) => IdentifiableBox::AssetDefinition(asset),
+            Asset(asset) => IdentifiableBox::Asset(asset),
+            Trigger(trigger) => IdentifiableBox::Trigger(trigger),
+            #[cfg(feature = "roles")]
+            Role(role) => IdentifiableBox::Role(role),
+        }
+    }
+}
 
 impl<V: Into<Value>> From<Vec<V>> for Value {
     fn from(values: Vec<V>) -> Value {
@@ -536,11 +647,13 @@ impl<V: Into<Value> + Debug + Clone> ValueMarker for V {}
 
 /// This trait marks entity that implement it as identifiable with an `Id` type to find them by.
 pub trait Identifiable: Debug + Clone {
-    /// Defines the type of entity's identification.
+    /// Type of entity's identification.
     type Id: Into<IdBox> + Debug + Clone + Eq + Ord;
+    /// Type used to register `Identifiable` entity
+    type RegisteredWith: Into<RegistrableBox>;
 }
 
-/// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::NewAccount`], [`asset::AssetDefinition`]) in number of chars
+/// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
 pub struct LengthLimits {
     /// Minimal length in number of chars (inclusive).
@@ -582,13 +695,44 @@ pub mod prelude {
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, fixed::prelude::*,
-        pagination::prelude::*, peer::prelude::*, trigger::prelude::*, uri, Bytes, EnumTryAsError,
-        IdBox, Identifiable, IdentifiableBox, Name, Parameter, TryAsMut, TryAsRef, ValidationError,
-        Value,
+        pagination::prelude::*, peer::prelude::*, trigger::prelude::*, uri, EnumTryAsError, IdBox,
+        Identifiable, IdentifiableBox, Name, Parameter, RegistrableBox, TryAsMut, TryAsRef,
+        ValidationError, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
         permissions::prelude::*, query::prelude::*, small, transaction::prelude::*,
         trigger::prelude::*,
     };
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::restriction)]
+
+    use super::*;
+
+    const INVALID_NAMES: [&str; 3] = [" ", "@", "#"];
+
+    #[test]
+    fn deserialize_name() {
+        for invalid_name in INVALID_NAMES {
+            let invalid_name = Name(invalid_name.to_owned());
+            let serialized = serde_json::to_string(&invalid_name).expect("Valid");
+            let name = serde_json::from_str::<Name>(serialized.as_str());
+
+            assert!(name.is_err());
+        }
+    }
+
+    #[test]
+    fn decode_name() {
+        for invalid_name in INVALID_NAMES {
+            let invalid_name = Name(invalid_name.to_owned());
+            let bytes = invalid_name.encode();
+            let name = Name::decode(&mut &bytes[..]);
+
+            assert!(name.is_err());
+        }
+    }
 }

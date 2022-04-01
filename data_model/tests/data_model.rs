@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_lines, clippy::restriction)]
 
-use std::{str::FromStr, thread, time::Duration};
+use std::{str::FromStr as _, thread, time::Duration};
 
 use iroha::samples::*;
 use iroha_client::{client::Client, samples::get_client_config};
@@ -20,8 +20,14 @@ fn asset_id_new(
     account_domain: &str,
 ) -> AssetId {
     AssetId::new(
-        AssetDefinitionId::new(definition_name, definition_domain).expect("Valid"),
-        AccountId::new(account_name, account_domain).expect("Valid"),
+        AssetDefinitionId::new(
+            definition_name.parse().expect("Valid"),
+            definition_domain.parse().expect("Valid"),
+        ),
+        AccountId::new(
+            account_name.parse().expect("Valid"),
+            account_domain.parse().expect("Valid"),
+        ),
     )
 }
 
@@ -92,12 +98,10 @@ impl FindRateAndCheckItGreaterThanValue {
         IfInstruction::new(
             Not::new(Greater::new(
                 QueryBox::from(FindAssetQuantityById::new(AssetId::new(
-                    AssetDefinitionId::new(
-                        &format!("{}2{}_rate", self.from_currency, self.to_currency),
-                        "exchange",
-                    )
-                    .expect("Should be valid"),
-                    AccountId::new("dex", "exchange").expect("Valid"),
+                    format!("{}2{}_rate#exchange", self.from_currency, self.to_currency)
+                        .parse()
+                        .expect("Valid"),
+                    AccountId::from_str("dex@exchange").expect("Valid"),
                 ))),
                 self.value,
             )),
@@ -115,24 +119,24 @@ mod register {
     use super::*;
 
     pub fn domain(name: &str) -> RegisterBox {
-        RegisterBox::new(IdentifiableBox::Domain(
-            Domain::new(DomainId::new(name).expect("Valid")).into(),
-        ))
+        RegisterBox::new(Domain::new(DomainId::from_str(name).expect("Valid")))
     }
 
     pub fn account(account_name: &str, domain_name: &str) -> RegisterBox {
-        RegisterBox::new(IdentifiableBox::NewAccount(
-            NewAccount::new(AccountId::new(account_name, domain_name).expect("Valid")).into(),
+        RegisterBox::new(Account::new(
+            AccountId::new(
+                account_name.parse().expect("Valid"),
+                domain_name.parse().expect("Valid"),
+            ),
+            [],
         ))
     }
 
     pub fn asset_definition(asset_name: &str, domain_name: &str) -> RegisterBox {
-        RegisterBox::new(IdentifiableBox::AssetDefinition(
-            AssetDefinition::new_quantity(
-                AssetDefinitionId::new(asset_name, domain_name).expect("Valid"),
-            )
-            .into(),
-        ))
+        RegisterBox::new(AssetDefinition::new_quantity(AssetDefinitionId::new(
+            asset_name.parse().expect("Valid"),
+            domain_name.parse().expect("Valid"),
+        )))
     }
 }
 
@@ -156,8 +160,11 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     // Given
     let genesis = GenesisNetwork::from_configuration(
         true,
-        RawGenesisBlock::new("alice", "wonderland", &kp.public_key)
-            .expect("Valid names never fail to parse"),
+        RawGenesisBlock::new(
+            "alice".parse().expect("Valid"),
+            "wonderland".parse().expect("Valid"),
+            kp.public_key,
+        ),
         &configuration.genesis,
         &configuration.sumeragi.transaction_limits,
     )

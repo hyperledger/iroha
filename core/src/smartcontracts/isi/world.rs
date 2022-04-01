@@ -29,6 +29,7 @@ pub mod isi {
                         IdBox::PeerId(peer_id),
                     ));
                 }
+
                 Ok(PeerEvent::Added(peer_id).into())
             })
         }
@@ -48,6 +49,7 @@ pub mod isi {
                 if world.trusted_peers_ids.remove(&peer_id).is_none() {
                     return Err(FindError::Peer(peer_id).into());
                 }
+
                 Ok(PeerEvent::Removed(peer_id).into())
             })
         }
@@ -62,14 +64,22 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let domain = self.object;
-            let domain_id = domain.id.clone();
+            let domain: Domain = self.object.build();
+            let domain_id = domain.id().clone();
+
             domain_id
                 .name
                 .validate_len(wsv.config.ident_length_limits)
                 .map_err(Error::Validate)?;
 
             wsv.modify_world(|world| {
+                if world.domains.contains_key(&domain_id) {
+                    return Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::DomainId(domain_id),
+                    ));
+                }
+
                 world.domains.insert(domain_id.clone(), domain);
                 Ok(DomainEvent::Created(domain_id).into())
             })?;
@@ -89,8 +99,12 @@ pub mod isi {
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let domain_id = self.object_id;
+
             wsv.modify_world(|world| {
-                world.domains.remove(&domain_id);
+                if world.domains.remove(&domain_id).is_none() {
+                    return Err(FindError::Domain(domain_id).into());
+                }
+
                 Ok(DomainEvent::Deleted(domain_id).into())
             })?;
 
@@ -109,10 +123,19 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let role_id = self.object.id.clone();
+            let role = self.object;
 
             wsv.modify_world(|world| {
-                world.roles.insert(role_id.clone(), self.object);
+                let role_id = role.id().clone();
+
+                if world.roles.contains_key(&role_id) {
+                    return Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::RoleId(role_id),
+                    ));
+                }
+
+                world.roles.insert(role_id.clone(), role);
                 Ok(RoleEvent::Created(role_id).into())
             })
         }
@@ -122,22 +145,49 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Unregister<Role> {
         type Error = Error;
 
-        #[metrics("unregister_peer")]
+        #[metrics("unregister_role")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let role_id = self.object_id;
+
+            let mut accounts_with_role = vec![];
+            for domain in wsv.domains().iter() {
+                let account_ids = domain.accounts().filter_map(|account| {
+                    if account.contains_role(&role_id) {
+                        return Some(account.id().clone());
+                    }
+
+                    None
+                });
+
+                accounts_with_role.extend(account_ids);
+            }
+
+            for account_id in accounts_with_role {
+                wsv.modify_account(&account_id.clone(), |account| {
+                    if !account.remove_role(&role_id) {
+                        error!(%role_id, "role not found - this is a bug");
+                    }
+
+                    Ok(AccountEvent::PermissionRemoved(account_id))
+                })?;
+            }
+
             wsv.modify_world(|world| {
-                world.roles.remove(&role_id);
                 for mut domain in world.domains.iter_mut() {
-                    for account in domain.accounts.values_mut() {
-                        let _ = account.roles.remove(&role_id);
+                    for account in domain.accounts_mut() {
+                        account.remove_role(&role_id);
                     }
                 }
 
-                Ok(RoleEvent::Deleted(role_id).into())
+                if world.roles.remove(&role_id).is_none() {
+                    return Ok(RoleEvent::Deleted(role_id).into());
+                }
+
+                Err(Error::Find(Box::new(FindError::Role(role_id))))
             })
         }
     }
