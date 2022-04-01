@@ -20,13 +20,13 @@ jobs:
         run: |
           true
     
-      - &step_checkout_head
+      - 
         name: Checkout head
         uses: actions/checkout@v2
         with: &step_checkout_with_head
           ref:        ${{github.event.pull_request.head.ref}} 
           repository: ${{github.event.pull_request.head.repo.full_name}} 
-      
+          fetch-depth: 0
       - 
         name: Get changed files
         id: changed-files
@@ -73,8 +73,7 @@ jobs:
               "PR_NUM="+(.number|tostring),
               "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
       - *step_show_context
-      #- &step_checkout_head
-      -
+      - &step_checkout_head
         name: Checkout head
         uses: actions/checkout@v2
         with: &step_checkout_with_head
