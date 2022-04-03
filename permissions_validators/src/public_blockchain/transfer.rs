@@ -7,11 +7,19 @@ use super::*;
 #[allow(clippy::expect_used)]
 /// Can transfer user's assets permission token name.
 pub static CAN_TRANSFER_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_transfer_user_assets").expect("Tested. Works.")); // See #1978
+    Lazy::new(|| Name::from_str("can_transfer_user_assets").expect("Valid")); // See #1978
+
 #[allow(clippy::expect_used)]
-/// Can transfer user's assets permission token name.
-pub static CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_transfer_user_assets").expect("Tested. Works.")); // See #1978
+/// Can transfer only fixed number of times per some time period
+pub static CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD: Lazy<Name> = Lazy::new(|| {
+    Name::from_str("can_transfer_only_fixed_number_of_times_per_period").expect("Valid")
+});
+#[allow(clippy::expect_used)]
+/// Name of `period` param for `CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD`
+pub static PERIOD_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::from_str("period").expect("Valid"));
+#[allow(clippy::expect_used)]
+/// Name of `count` param for `CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD`
+pub static COUNT_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::from_str("count").expect("Valid"));
 
 /// Checks that account transfers only the assets that he owns.
 #[derive(Debug, Copy, Clone)]
@@ -143,29 +151,29 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
             None => return Ok(()),
         };
 
-        let period_key = Name::from_str("period").map_err(|e| e.to_string())?;
-        let count_key = Name::from_str("count").map_err(|e| e.to_string())?;
         let period = match params
-            .get(&period_key)
-            .ok_or_else(|| DenialReason::from("Expected `period` parameter"))?
+            .get(&*PERIOD_PARAM_NAME)
+            .ok_or_else(|| format!("Expected `{}` parameter", *PERIOD_PARAM_NAME))?
         {
             Value::U128(period) => {
                 Duration::from_millis(u64::try_from(*period).map_err(|e| e.to_string())?)
             }
             _ => {
-                return Err(DenialReason::from(
-                    "`period` parameter has wrong value type. Expected `u128`",
+                return Err(format!(
+                    "`{}` parameter has wrong value type. Expected `u128`",
+                    *PERIOD_PARAM_NAME
                 ))
             }
         };
         let count = match params
-            .get(&count_key)
-            .ok_or_else(|| DenialReason::from("Expected `count` parameter"))?
+            .get(&*COUNT_PARAM_NAME)
+            .ok_or_else(|| format!("Expected `{}` parameter", *COUNT_PARAM_NAME))?
         {
             Value::U32(count) => count,
             _ => {
-                return Err(DenialReason::from(
-                    "`count` parameter has wrong value type. Expected `u32`",
+                return Err(format!(
+                    "`{}` parameter has wrong value type. Expected `u32`",
+                    *COUNT_PARAM_NAME
                 ))
             }
         };
@@ -201,7 +209,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
             })
             .sum();
 
-        if execution_count > *count {
+        if execution_count >= *count {
             return Err(DenialReason::from(
                 "Transfer transaction limit for current period is exceed",
             ));
