@@ -5,6 +5,7 @@ use alloc::{boxed::Box, collections::btree_set, string::String};
 use core::fmt;
 #[cfg(feature = "std")]
 use std::collections::btree_set;
+use std::str::FromStr;
 
 use getset::Getters;
 use iroha_schema::IntoSchema;
@@ -13,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     permissions::{PermissionToken, Permissions},
-    Identifiable, Name,
+    Identifiable, Name, ParseError,
 };
 
 /// Collection of [`RoleId`]s
@@ -42,14 +43,24 @@ pub struct Id {
 impl Id {
     /// Construct role id
     #[inline]
-    pub fn new(name: impl Into<Name>) -> Self {
-        Self { name: name.into() }
+    pub fn new(name: Name) -> Self {
+        Self { name }
     }
 }
 
 impl fmt::Display for Id {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)
+    }
+}
+
+impl FromStr for Id {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self {
+            name: Name::from_str(s)?,
+        })
     }
 }
 
@@ -81,11 +92,11 @@ impl Role {
     /// Constructor.
     #[inline]
     pub fn new(
-        id: impl Into<Id>,
+        id: <Self as Identifiable>::Id,
         permissions: impl Into<Permissions>,
     ) -> <Self as Identifiable>::RegisteredWith {
         Self {
-            id: id.into(),
+            id,
             permissions: permissions.into(),
         }
     }
