@@ -42,6 +42,7 @@ pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
     ValidatorBuilder::new()
         .with_recursive_validator(grant_instruction_validator)
         .with_recursive_validator(transfer::OnlyOwnedAssets.or(transfer::GrantedByAssetOwner))
+        .with_recursive_validator(transfer::ExecutionCountFitsInLimit)
         .with_recursive_validator(
             unregister::OnlyAssetsCreatedByThisAccount.or(unregister::GrantedByAssetCreator),
         )

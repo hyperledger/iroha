@@ -1,12 +1,16 @@
 //! Module with permission for transfering
 
-use std::{str::FromStr as _, sync::RwLock, time::Duration};
+use std::{str::FromStr as _, time::Duration};
 
 use super::*;
 
 #[allow(clippy::expect_used)]
 /// Can transfer user's assets permission token name.
 pub static CAN_TRANSFER_USER_ASSETS_TOKEN: Lazy<Name> =
+    Lazy::new(|| Name::from_str("can_transfer_user_assets").expect("Tested. Works.")); // See #1978
+#[allow(clippy::expect_used)]
+/// Can transfer user's assets permission token name.
+pub static CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD: Lazy<Name> =
     Lazy::new(|| Name::from_str("can_transfer_user_assets").expect("Tested. Works.")); // See #1978
 
 /// Checks that account transfers only the assets that he owns.
@@ -104,60 +108,104 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
     }
 }
 
-/// Validator that checks `Transfer` instruction so that it can be used fixed number of times per
-/// set time. E.g. 5 times per day
-#[derive(Debug)]
-pub struct TransferOnlyFixedNumberOfTimesForPeriod {
-    count: u32,
-    period: Duration,
-    last_execution_time: RwLock<Option<Duration>>,
-    execution_count: RwLock<u32>,
-}
+/// Validator that checks that `Transfer` instruction execution count
+/// fits well in some time period
+#[derive(Debug, Clone, Copy)]
+pub struct ExecutionCountFitsInLimit;
 
-impl_from_item_for_instruction_validator_box!(TransferOnlyFixedNumberOfTimesForPeriod);
+impl_from_item_for_instruction_validator_box!(ExecutionCountFitsInLimit);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for TransferOnlyFixedNumberOfTimesForPeriod {
+impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
     fn check(
         &self,
-        _authority: &AccountId,
+        authority: &AccountId,
         instruction: &Instruction,
-        _wsv: &WorldStateView<W>,
+        wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
         if !matches!(instruction, Instruction::Transfer(_)) {
             return Ok(());
         };
 
-        let cur_time = current_time();
-        let execution_count = *self.execution_count.read().map_err(|e| e.to_string())?;
-        let mut execution_count_write = self.execution_count.write().map_err(|e| e.to_string())?;
-        if let Some(last) = *self.last_execution_time.read().map_err(|e| e.to_string())? {
-            if execution_count >= self.count {
-                if last + self.period < cur_time {
-                    return Err(DenialReason::from(
-                        "Transfer transaction limit for current period is exceed",
-                    ));
-                }
-                *execution_count_write = 0;
+        let params = wsv
+            .map_account(authority, |account| {
+                wsv.account_permission_tokens(account)
+                    .iter()
+                    .filter(|token| {
+                        token.name == *CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD
+                    })
+                    .map(|token| token.params.clone())
+                    .next()
+            })
+            .map_err(|e| e.to_string())?;
+
+        let params = match params {
+            Some(params) => params,
+            None => return Ok(()),
+        };
+
+        let period_key = Name::from_str("period").map_err(|e| e.to_string())?;
+        let count_key = Name::from_str("count").map_err(|e| e.to_string())?;
+        let period = match params
+            .get(&period_key)
+            .ok_or_else(|| DenialReason::from("Expected `period` parameter"))?
+        {
+            Value::U128(period) => {
+                Duration::from_millis(u64::try_from(*period).map_err(|e| e.to_string())?)
             }
-        }
+            _ => {
+                return Err(DenialReason::from(
+                    "`period` parameter has wrong value type. Expected `u128`",
+                ))
+            }
+        };
+        let count = match params
+            .get(&count_key)
+            .ok_or_else(|| DenialReason::from("Expected `count` parameter"))?
+        {
+            Value::U32(count) => count,
+            _ => {
+                return Err(DenialReason::from(
+                    "`count` parameter has wrong value type. Expected `u32`",
+                ))
+            }
+        };
 
-        *execution_count_write += 1;
-        *self
-            .last_execution_time
-            .write()
-            .map_err(|e| e.to_string())? = Some(cur_time);
+        let period_start_ms = current_time().saturating_sub(period).as_millis();
+        let execution_count: u32 = wsv
+            .blocks()
+            .rev()
+            .take_while(|block| block.header().timestamp > period_start_ms)
+            .map(|block| -> u32 {
+                #[allow(clippy::expect_used)]
+                block
+                    .as_v1()
+                    .transactions
+                    .iter()
+                    .filter_map(|tx| {
+                        let payload = tx.payload();
+                        if payload.account_id == *authority {
+                            if let Executable::Instructions(instructions) = &payload.instructions {
+                                return Some(
+                                    instructions
+                                        .iter()
+                                        .filter(|isi| matches!(isi, Instruction::Transfer(_)))
+                                        .count(),
+                                );
+                            }
+                        }
+                        None
+                    })
+                    .sum::<usize>()
+                    .try_into()
+                    .expect("`usize` should always fit in `u32`")
+            })
+            .sum();
+
+        if execution_count > *count {
+            return Err(DenialReason::from(
+                "Transfer transaction limit for current period is exceed",
+            ));
+        }
         Ok(())
-    }
-}
-
-impl TransferOnlyFixedNumberOfTimesForPeriod {
-    /// Create new `TransferOnlyFixedNumberOfTimesForPeriod`
-    pub fn new(count: u32, period: Duration) -> Self {
-        Self {
-            count,
-            period,
-            last_execution_time: RwLock::new(None),
-            execution_count: RwLock::new(0),
-        }
     }
 }
