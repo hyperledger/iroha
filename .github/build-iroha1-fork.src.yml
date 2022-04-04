@@ -27,10 +27,18 @@ jobs:
           ref:        ${{github.event.pull_request.head.ref}} 
           repository: ${{github.event.pull_request.head.repo.full_name}} 
       
+      - 
+        name: Set second remote
+        with:
+          url: ${{github.event.pull_request.base.repo.ssh_url}}
+        run: |
+          git remote add base {{url}}
+
+
       - name: Find common ancestor
         env:
           FORK_BASE_BRANCH: ${{ github.base_ref }}
-        run: git merge-base --fork-point origin/$FORK_BASE_BRANCH
+        run: git merge-base --fork-point base/$FORK_BASE_BRANCH
       
       - 
         name: Get changed files
