@@ -12,8 +12,8 @@ The following is a short set of guidelines for contributing to Iroha.
 * Fork [Iroha](https://github.com/hyperledger/iroha/tree/iroha2-dev).
 * Fix your issue of choice.
 * Write [tests](https://doc.rust-lang.org/cargo/commands/cargo-test.html). Ensure they all pass (`cargo test`).
-* Fix [`clippy`](https://lib.rs/crates/cargo-lints) warnings: `cargo lints clippy --workspace --tests --benches`
-* Format code `cargo fmt --all` and generate docs `cargo run --bin iroha_docs >"docs/source/references/config.md" && git add "docs/source/references/config.md"`
+* Fix [`clippy`](https://lib.rs/crates/cargo-lints) warnings: `cargo lints clippy --workspace --benches --tests --examples --all-features`
+* Format code `cargo +nightly fmt --all` and generate docs `cargo run --bin iroha_docs >"docs/source/references/config.md" && git add "docs/source/references/config.md"`
 * `git pull -r hyperledger iroha2-dev`, `git commit -s`, `git push <your-fork>`, and [create a pull request](https://github.com/hyperledger/iroha/compare) to the `iroha2-dev` branch on GitHub.
 
 ### Reporting Bugs
