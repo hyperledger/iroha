@@ -134,86 +134,114 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
             return Ok(());
         };
 
-        let params = wsv
-            .map_account(authority, |account| {
-                wsv.account_permission_tokens(account)
-                    .iter()
-                    .filter(|token| {
-                        token.name == *CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD
-                    })
-                    .map(|token| token.params.clone())
-                    .next()
-            })
-            .map_err(|e| e.to_string())?;
-
-        let params = match params {
+        let params = match retrieve_permission_params(wsv, authority)? {
             Some(params) => params,
             None => return Ok(()),
         };
 
-        let period = match params
-            .get(&*PERIOD_PARAM_NAME)
-            .ok_or_else(|| format!("Expected `{}` parameter", *PERIOD_PARAM_NAME))?
-        {
-            Value::U128(period) => {
-                Duration::from_millis(u64::try_from(*period).map_err(|e| e.to_string())?)
-            }
-            _ => {
-                return Err(format!(
-                    "`{}` parameter has wrong value type. Expected `u128`",
-                    *PERIOD_PARAM_NAME
-                ))
-            }
-        };
-        let count = match params
-            .get(&*COUNT_PARAM_NAME)
-            .ok_or_else(|| format!("Expected `{}` parameter", *COUNT_PARAM_NAME))?
-        {
-            Value::U32(count) => count,
-            _ => {
-                return Err(format!(
-                    "`{}` parameter has wrong value type. Expected `u32`",
-                    *COUNT_PARAM_NAME
-                ))
-            }
-        };
+        let period = retrieve_period(&params)?;
+        let count = retrieve_count(&params)?;
 
-        let period_start_ms = current_time().saturating_sub(period).as_millis();
-        let execution_count: u32 = wsv
-            .blocks()
-            .rev()
-            .take_while(|block| block.header().timestamp > period_start_ms)
-            .map(|block| -> u32 {
-                #[allow(clippy::expect_used)]
-                block
-                    .as_v1()
-                    .transactions
-                    .iter()
-                    .filter_map(|tx| {
-                        let payload = tx.payload();
-                        if payload.account_id == *authority {
-                            if let Executable::Instructions(instructions) = &payload.instructions {
-                                return Some(
-                                    instructions
-                                        .iter()
-                                        .filter(|isi| matches!(isi, Instruction::Transfer(_)))
-                                        .count(),
-                                );
-                            }
-                        }
-                        None
-                    })
-                    .sum::<usize>()
-                    .try_into()
-                    .expect("`usize` should always fit in `u32`")
-            })
-            .sum();
-
-        if execution_count >= *count {
+        if count_executions(wsv, authority, period) >= count {
             return Err(DenialReason::from(
                 "Transfer transaction limit for current period is exceed",
             ));
         }
         Ok(())
     }
+}
+
+/// Retrieve permission parameters for `ExecutionCountFitsInLimit` validator.
+/// Returns Some if there is a suitable token and None if not
+///
+/// # Errors
+/// - Account doesn't exist
+fn retrieve_permission_params<W: WorldTrait>(
+    wsv: &WorldStateView<W>,
+    authority: &AccountId,
+) -> Result<Option<BTreeMap<Name, Value>>, DenialReason> {
+    wsv.map_account(authority, |account| {
+        wsv.account_permission_tokens(account)
+            .iter()
+            .filter(|token| token.name == *CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD)
+            .map(|token| token.params.clone())
+            .next()
+    })
+    .map_err(|e| e.to_string())
+}
+
+/// Retrieve period from `params`
+///
+/// # Errors
+/// - There is no period parameter
+/// - Period has wrong value type
+fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration, DenialReason> {
+    match params
+        .get(&*PERIOD_PARAM_NAME)
+        .ok_or_else(|| format!("Expected `{}` parameter", *PERIOD_PARAM_NAME))?
+    {
+        Value::U128(period) => Ok(Duration::from_millis(
+            u64::try_from(*period).map_err(|e| e.to_string())?,
+        )),
+        _ => Err(format!(
+            "`{}` parameter has wrong value type. Expected `u128`",
+            *PERIOD_PARAM_NAME
+        )),
+    }
+}
+
+/// Retrieve count from `params`
+///
+/// # Errors
+/// - There is no count parameter
+/// - Count has wrong value type
+fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32, DenialReason> {
+    match params
+        .get(&*COUNT_PARAM_NAME)
+        .ok_or_else(|| format!("Expected `{}` parameter", *COUNT_PARAM_NAME))?
+    {
+        Value::U32(count) => Ok(*count),
+        _ => Err(format!(
+            "`{}` parameter has wrong value type. Expected `u32`",
+            *COUNT_PARAM_NAME
+        )),
+    }
+}
+
+/// Find number of `Transfer` execution count which happened in last `period`
+fn count_executions<W: WorldTrait>(
+    wsv: &WorldStateView<W>,
+    authority: &AccountId,
+    period: Duration,
+) -> u32 {
+    let period_start_ms = current_time().saturating_sub(period).as_millis();
+
+    wsv.blocks()
+        .rev()
+        .take_while(|block| block.header().timestamp > period_start_ms)
+        .map(|block| -> u32 {
+            #[allow(clippy::expect_used)]
+            block
+                .as_v1()
+                .transactions
+                .iter()
+                .filter_map(|tx| {
+                    let payload = tx.payload();
+                    if payload.account_id == *authority {
+                        if let Executable::Instructions(instructions) = &payload.instructions {
+                            return Some(
+                                instructions
+                                    .iter()
+                                    .filter(|isi| matches!(isi, Instruction::Transfer(_)))
+                                    .count(),
+                            );
+                        }
+                    }
+                    None
+                })
+                .sum::<usize>()
+                .try_into()
+                .expect("`usize` should always fit in `u32`")
+        })
+        .sum()
 }
