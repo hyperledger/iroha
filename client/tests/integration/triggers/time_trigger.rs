@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use eyre::Result;
 use iroha_client::client::{self, Client};
@@ -42,14 +42,14 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
     let instruction = MintBox::new(1_u32, asset_id.clone());
     let register_trigger = RegisterBox::new(IdentifiableBox::from(Trigger::new(
-        "mint_rose",
+        "mint_rose".parse()?,
         Action::new(
             Executable::from(vec![instruction.into()]),
             Repeats::Indefinitely,
             account_id.clone(),
             EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),
-    )?));
+    )));
     test_client.submit(register_trigger)?;
 
     submit_sample_isi_on_every_block_commit(&mut test_client, &account_id, 3)?;
@@ -81,21 +81,22 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     let start_time = current_time();
 
-    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-    let key = Name::new("petal")?;
+    let asset_definition_id =
+        <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland").expect("Valid");
+    let account_id = <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
+    let key = Name::from_str("petal")?;
 
     let schedule = TimeSchedule::starting_at(start_time + Duration::from_millis(PERIOD_MS));
     let instruction = SetKeyValueBox::new(asset_definition_id.clone(), key.clone(), Value::U32(3));
     let register_trigger = RegisterBox::new(IdentifiableBox::from(Trigger::new(
-        "change_rose_metadata",
+        "change_rose_metadata".parse().expect("Valid"),
         Action::new(
             Executable::from(vec![instruction.into()]),
             Repeats::Exactly(1),
             account_id.clone(),
             EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),
-    )?));
+    )));
     test_client.submit(register_trigger)?;
     submit_sample_isi_on_every_block_commit(
         &mut test_client,
@@ -119,22 +120,22 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+    let asset_definition_id = "rose#wonderland".parse().expect("Valid");
+    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
     let mut prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     let instruction = MintBox::new(1_u32, asset_id.clone());
     let register_trigger = RegisterBox::new(IdentifiableBox::from(Trigger::new(
-        "mint_rose",
+        "mint_rose".parse()?,
         Action::new(
             Executable::from(vec![instruction.into()]),
             Repeats::Indefinitely,
             account_id.clone(),
             EventFilter::Time(TimeEventFilter(ExecutionTime::PreCommit)),
         ),
-    )?));
+    )));
     test_client.submit(register_trigger)?;
 
     let block_filter =
@@ -156,8 +157,11 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
         prev_value = new_value;
 
         // ISI just to create a new block
-        let sample_isi =
-            SetKeyValueBox::new(account_id.clone(), Name::new("key")?, String::from("value"));
+        let sample_isi = SetKeyValueBox::new(
+            account_id.clone(),
+            "key".parse::<Name>()?,
+            String::from("value"),
+        );
         test_client.submit(sample_isi)?;
     }
 
@@ -167,7 +171,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 /// Get asset numeric value
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
-    Ok(*TryAsRef::<u32>::try_as_ref(&asset.value)?)
+    Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
 }
 
 /// Submit some sample ISIs to create new blocks
