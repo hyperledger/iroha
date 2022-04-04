@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::{str::FromStr, time::Duration};
+use std::{str::FromStr as _, time::Duration};
 
 use eyre::Result;
 use iroha_client::client::{self, Client};
@@ -41,7 +41,7 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
     let instruction = MintBox::new(1_u32, asset_id.clone());
-    let register_trigger = RegisterBox::new(IdentifiableBox::from(Trigger::new(
+    let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
             Executable::from(vec![instruction.into()]),
@@ -49,7 +49,7 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
             account_id.clone(),
             EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),
-    )));
+    ));
     test_client.submit(register_trigger)?;
 
     submit_sample_isi_on_every_block_commit(&mut test_client, &account_id, 3)?;
@@ -88,7 +88,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
 
     let schedule = TimeSchedule::starting_at(start_time + Duration::from_millis(PERIOD_MS));
     let instruction = SetKeyValueBox::new(asset_definition_id.clone(), key.clone(), Value::U32(3));
-    let register_trigger = RegisterBox::new(IdentifiableBox::from(Trigger::new(
+    let register_trigger = RegisterBox::new(Trigger::new(
         "change_rose_metadata".parse().expect("Valid"),
         Action::new(
             Executable::from(vec![instruction.into()]),
@@ -96,7 +96,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
             account_id.clone(),
             EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),
-    )));
+    ));
     test_client.submit(register_trigger)?;
     submit_sample_isi_on_every_block_commit(
         &mut test_client,
@@ -127,7 +127,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     let mut prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     let instruction = MintBox::new(1_u32, asset_id.clone());
-    let register_trigger = RegisterBox::new(IdentifiableBox::from(Trigger::new(
+    let register_trigger = RegisterBox::new(Trigger::new(
         "mint_rose".parse()?,
         Action::new(
             Executable::from(vec![instruction.into()]),
@@ -135,7 +135,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
             account_id.clone(),
             EventFilter::Time(TimeEventFilter(ExecutionTime::PreCommit)),
         ),
-    )));
+    ));
     test_client.submit(register_trigger)?;
 
     let block_filter =
