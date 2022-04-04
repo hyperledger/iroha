@@ -124,6 +124,7 @@ pub struct ExecutionCountFitsInLimit;
 impl_from_item_for_instruction_validator_box!(ExecutionCountFitsInLimit);
 
 impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn check(
         &self,
         authority: &AccountId,
@@ -134,15 +135,17 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
             return Ok(());
         };
 
-        let params = match retrieve_permission_params(wsv, authority)? {
-            Some(params) => params,
-            None => return Ok(()),
-        };
+        let params = retrieve_permission_params(wsv, authority)?;
+        if params.is_empty() {
+            return Ok(());
+        }
 
         let period = retrieve_period(&params)?;
         let count = retrieve_count(&params)?;
-
-        if count_executions(wsv, authority, period) >= count {
+        let executions_count: u32 = count_executions(wsv, authority, period)
+            .try_into()
+            .expect("`usize` should always fit in `u32`");
+        if executions_count >= count {
             return Err(DenialReason::from(
                 "Transfer transaction limit for current period is exceed",
             ));
@@ -152,20 +155,21 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
 }
 
 /// Retrieve permission parameters for `ExecutionCountFitsInLimit` validator.
-/// Returns Some if there is a suitable token and None if not
+/// Returns empty collection if nothing found
 ///
 /// # Errors
 /// - Account doesn't exist
 fn retrieve_permission_params<W: WorldTrait>(
     wsv: &WorldStateView<W>,
     authority: &AccountId,
-) -> Result<Option<BTreeMap<Name, Value>>, DenialReason> {
+) -> Result<BTreeMap<Name, Value>, DenialReason> {
     wsv.map_account(authority, |account| {
         wsv.account_permission_tokens(account)
             .iter()
             .filter(|token| token.name == *CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD)
             .map(|token| token.params.clone())
             .next()
+            .unwrap_or_default()
     })
     .map_err(|e| e.to_string())
 }
@@ -175,6 +179,7 @@ fn retrieve_permission_params<W: WorldTrait>(
 /// # Errors
 /// - There is no period parameter
 /// - Period has wrong value type
+/// - Failed conversion from `u128` to `u64`
 fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration, DenialReason> {
     match params
         .get(&*PERIOD_PARAM_NAME)
@@ -208,19 +213,18 @@ fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32, DenialReason> {
     }
 }
 
-/// Find number of `Transfer` execution count which happened in last `period`
+/// Counts the number of `Transfer`s  which happened in the last `period`
 fn count_executions<W: WorldTrait>(
     wsv: &WorldStateView<W>,
     authority: &AccountId,
     period: Duration,
-) -> u32 {
+) -> usize {
     let period_start_ms = current_time().saturating_sub(period).as_millis();
 
     wsv.blocks()
         .rev()
         .take_while(|block| block.header().timestamp > period_start_ms)
-        .map(|block| -> u32 {
-            #[allow(clippy::expect_used)]
+        .map(|block| -> usize {
             block
                 .as_v1()
                 .transactions
@@ -239,9 +243,7 @@ fn count_executions<W: WorldTrait>(
                     }
                     None
                 })
-                .sum::<usize>()
-                .try_into()
-                .expect("`usize` should always fit in `u32`")
+                .sum()
         })
         .sum()
 }
