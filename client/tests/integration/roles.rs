@@ -15,6 +15,8 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     const PERIOD_MS: u64 = 5000;
     const COUNT: u32 = 2;
 
+    // Setting up client and peer.
+    // Peer has a special permission validator we need for this test
     let rt = Runtime::test();
     let (_peer, mut test_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
         ValidatorBuilder::new()
@@ -32,6 +34,8 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     let bob_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, bob_id.clone());
     let role_id = <Role as Identifiable>::Id::from_str("non_privileged_user")?;
     let rose_value = get_asset_value(&mut test_client, alice_rose_id.clone())?;
+
+    // Alice already has roses from genesis
     assert!(rose_value > COUNT + 1);
 
     // Registering Bob
