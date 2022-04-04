@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::time::Duration;
+use std::{str::FromStr as _, time::Duration};
 
 use eyre::Result;
 use iroha_client::client::{self, Client};
@@ -36,12 +36,20 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     let asset_definition_id = "rose#wonderland".parse().expect("Valid");
     let asset_id = AssetId::new(asset_definition_id, account_id.clone());
 
-    let prev_value = test_client.request(client::asset::by_id(asset_id.clone()))?;
+    let prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(PERIOD_MS));
-    let register_trigger =
-        build_register_mint_rose_trigger_isi(asset_id.clone(), ExecutionTime::Schedule(schedule));
+    let instruction = MintBox::new(1_u32, asset_id.clone());
+    let register_trigger = RegisterBox::new(Trigger::new(
+        "mint_rose".parse()?,
+        Action::new(
+            Executable::from(vec![instruction.into()]),
+            Repeats::Indefinitely,
+            account_id.clone(),
+            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+        ),
+    ));
     test_client.submit(register_trigger)?;
 
     submit_sample_isi_on_every_block_commit(&mut test_client, &account_id, 3)?;
@@ -50,9 +58,8 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     let finish_time = current_time();
     let average_count = finish_time.saturating_sub(start_time).as_millis() / u128::from(PERIOD_MS);
 
-    let output_asset = test_client.request(client::asset::by_id(asset_id))?;
-    let actual_value = *TryAsRef::<u32>::try_as_ref(&output_asset)?;
-    let expected_value = TryAsRef::<u32>::try_as_ref(&prev_value)? + u32::try_from(average_count)?;
+    let actual_value = get_asset_value(&mut test_client, asset_id)?;
+    let expected_value = prev_value + u32::try_from(average_count)?;
     let acceptable_error = expected_value as f32 * (f32::from(ACCEPTABLE_ERROR_PERCENT) / 100.0);
     let error = (core::cmp::max(actual_value, expected_value)
         - core::cmp::min(actual_value, expected_value)) as f32;
@@ -62,6 +69,46 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
         error,
         acceptable_error
     );
+
+    Ok(())
+}
+
+#[test]
+fn change_asset_metadata_after_1_sec() -> Result<()> {
+    const PERIOD_MS: u64 = 1000;
+
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let start_time = current_time();
+
+    let asset_definition_id =
+        <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland").expect("Valid");
+    let account_id = <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
+    let key = Name::from_str("petal")?;
+
+    let schedule = TimeSchedule::starting_at(start_time + Duration::from_millis(PERIOD_MS));
+    let instruction = SetKeyValueBox::new(asset_definition_id.clone(), key.clone(), Value::U32(3));
+    let register_trigger = RegisterBox::new(Trigger::new(
+        "change_rose_metadata".parse().expect("Valid"),
+        Action::new(
+            Executable::from(vec![instruction.into()]),
+            Repeats::Exactly(1),
+            account_id.clone(),
+            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+        ),
+    ));
+    test_client.submit(register_trigger)?;
+    submit_sample_isi_on_every_block_commit(
+        &mut test_client,
+        &account_id,
+        usize::try_from(PERIOD_MS / DEFAULT_CONSENSUS_ESTIMATION_MS + 1)?,
+    )?;
+
+    let value = test_client.request(FindAssetDefinitionKeyValueByIdAndKey {
+        id: asset_definition_id.into(),
+        key: key.into(),
+    })?;
+    assert!(matches!(value, Value::U32(3)));
 
     Ok(())
 }
@@ -79,8 +126,16 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 
     let mut prev_value = get_asset_value(&mut test_client, asset_id.clone())?;
 
-    let register_trigger =
-        build_register_mint_rose_trigger_isi(asset_id.clone(), ExecutionTime::PreCommit);
+    let instruction = MintBox::new(1_u32, asset_id.clone());
+    let register_trigger = RegisterBox::new(Trigger::new(
+        "mint_rose".parse()?,
+        Action::new(
+            Executable::from(vec![instruction.into()]),
+            Repeats::Indefinitely,
+            account_id.clone(),
+            EventFilter::Time(TimeEventFilter(ExecutionTime::PreCommit)),
+        ),
+    ));
     test_client.submit(register_trigger)?;
 
     let block_filter =
@@ -117,24 +172,6 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
-}
-
-/// Build register ISI for trigger which mints roses
-fn build_register_mint_rose_trigger_isi(
-    asset_id: AssetId,
-    execution_time: ExecutionTime,
-) -> RegisterBox {
-    let instruction = MintBox::new(1_u32, asset_id.clone());
-
-    RegisterBox::new(Trigger::new(
-        "mint_rose".parse().expect("Valid"),
-        Action::new(
-            Executable::from([instruction.into()]),
-            Repeats::Indefinitely,
-            asset_id.account_id,
-            EventFilter::Time(TimeEventFilter(execution_time)),
-        ),
-    ))
 }
 
 /// Submit some sample ISIs to create new blocks
