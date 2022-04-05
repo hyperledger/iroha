@@ -33,8 +33,9 @@ jobs:
         run: |
           git remote add base ${{github.event.pull_request.base.repo.svn_url}}
           git fetch base
-          git merge-base base/$FORK_BASE_BRANCH origin/$FORK_HEAD_BRANCH
-          echo "::set-output name=ancestor_sha::$(!!)"
+          export COMMAND="git merge-base base/$FORK_BASE_BRANCH origin/$FORK_HEAD_BRANCH"
+        #echo "git merge-base base/$FORK_BASE_BRANCH origin/$FORK_HEAD_BRANCH" | sh          
+          echo "::set-output name=ancestor_sha::$(echo $COMMAND | sh)"
         env:
           FORK_BASE_BRANCH: ${{ github.base_ref }}
           FORK_HEAD_BRANCH: ${{ github.head_ref }}
