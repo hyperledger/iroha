@@ -23,10 +23,8 @@ jobs:
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
       - name: Set second remote
-        with:
-          url: ${{github.event.pull_request.base.repo.ssh_url}}
         run: |
-          git remote add base {{url}}
+          git remote add base {{github.event.pull_request.base.repo.ssh_url}}
       - name: Find common ancestor
         env:
           FORK_BASE_BRANCH: ${{ github.base_ref }}
