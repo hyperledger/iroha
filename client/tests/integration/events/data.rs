@@ -81,8 +81,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
 
             ;; Function which starts the smartcontract execution
             (func (export "{main_fn_name}") (param i32 i32)
-                {isi_calls})
-        )
+                {isi_calls}))
         "#,
         main_fn_name = wasm::WASM_MAIN_FN_NAME,
         wasm_template = wasm_template(&isi_hex.concat()),
@@ -95,8 +94,9 @@ fn wasm_execution_should_produce_events() -> Result<()> {
 }
 
 fn transaction_execution_should_produce_events(executable: Executable) -> Result<()> {
-    let (_rt, _peer, mut client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
+
     let pipeline_time = Configuration::pipeline_time();
 
     // spawn event reporter

@@ -193,7 +193,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_transaction(
-        &mut self,
+        &self,
         transaction: Transaction,
     ) -> Result<HashOf<VersionedTransaction>> {
         transaction.check_limits(&self.transaction_limits)?;
@@ -319,7 +319,7 @@ impl Client {
     /// Fails if sending request fails
     #[log]
     pub fn request_with_pagination<R>(
-        &mut self,
+        &self,
         request: R,
         pagination: Pagination,
     ) -> Result<R::Output>
@@ -355,7 +355,7 @@ impl Client {
     /// # Errors
     /// Fails if sending request fails
     #[log]
-    pub fn request<R>(&mut self, request: R) -> Result<R::Output>
+    pub fn request<R>(&self, request: R) -> Result<R::Output>
     where
         R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
@@ -385,7 +385,7 @@ impl Client {
     /// # Errors
     /// Fails if subscribing to websocket fails
     pub fn get_original_transaction_with_pagination(
-        &mut self,
+        &self,
         transaction: &Transaction,
         retry_count: u32,
         retry_in: Duration,
@@ -431,7 +431,7 @@ impl Client {
     /// # Errors
     /// Fails if sending request fails
     pub fn get_original_transaction(
-        &mut self,
+        &self,
         transaction: &Transaction,
         retry_count: u32,
         retry_in: Duration,
