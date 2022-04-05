@@ -413,6 +413,7 @@ mod account {
 
 mod asset {
     use iroha_client::client::{self, asset, Client};
+    use iroha_data_model::asset::definition_builder::NewAssetDefinition;
 
     use super::*;
 
@@ -466,7 +467,7 @@ mod asset {
                 metadata: Metadata(metadata),
             } = self;
             submit(
-                RegisterBox::new(AssetDefinition::new(id, value_type, !unmintable)),
+                RegisterBox::new(NewAssetDefinition::new(id, value_type, !unmintable).build()),
                 cfg,
                 metadata,
             )

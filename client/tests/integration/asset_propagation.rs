@@ -25,7 +25,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
         [KeyPair::generate()?.public_key],
     ));
     let asset_definition_id = AssetDefinitionId::from_str("xor#domain")?;
-    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     iroha_client.submit_all(vec![
         create_domain.into(),
         create_account.into(),

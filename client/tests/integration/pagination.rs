@@ -17,9 +17,11 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
     let register: Vec<Instruction> = ('a'..'z')
         .map(|c| c.to_string())
         .map(|name| (name + "#wonderland").parse().expect("Valid"))
-        .map(AssetDefinition::new_quantity)
-        .map(RegisterBox::new)
-        .map(Instruction::Register)
+        .map(|asset_definition_id| {
+            Instruction::Register(RegisterBox::new(
+                AssetDefinition::quantity(asset_definition_id).build(),
+            ))
+        })
         .collect();
     iroha_client
         .submit_all(register)

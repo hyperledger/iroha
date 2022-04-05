@@ -15,9 +15,11 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::from(
-        AssetDefinition::new_quantity_token(asset_definition_id.clone()),
-    ));
+    let create_asset = RegisterBox::new(
+        AssetDefinition::quantity(asset_definition_id.clone())
+            .mintable_once()
+            .build(),
+    );
 
     let metadata = UnlimitedMetadata::default();
 
@@ -29,7 +31,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
         )),
     );
 
-    let instructions: Vec<Instruction> = vec![create_asset.into(), mint.clone().into()];
+    let instructions: [Instruction; 2] = [create_asset.into(), mint.clone().into()];
     let tx = test_client.build_transaction(instructions.into(), metadata)?;
 
     // We can register and mint the non-mintable token
@@ -42,7 +44,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     })?;
 
     // We can submit the request to mint again.
-    test_client.submit_all(vec![mint.into()])?;
+    test_client.submit_all([mint.into()])?;
 
     // However, this will fail
     assert!(test_client

@@ -107,7 +107,8 @@ fn init() -> Result<(
         [KeyPair::generate()?.public_key],
     ));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     client.submit_all(vec![
         create_domain.into(),
         create_account.into(),

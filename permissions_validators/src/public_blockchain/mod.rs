@@ -178,7 +178,7 @@ mod tests {
     use super::*;
 
     fn new_xor_definition(xor_id: &AssetDefinitionId) -> AssetDefinition {
-        AssetDefinition::new_quantity(xor_id.clone())
+        AssetDefinition::quantity(xor_id.clone()).build()
     }
 
     #[test]

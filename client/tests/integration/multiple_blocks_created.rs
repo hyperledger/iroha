@@ -28,7 +28,8 @@ fn long_multiple_blocks_created() {
             .public_key],
     ));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
 
     iroha_client
         .submit_all(vec![

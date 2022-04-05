@@ -35,7 +35,9 @@ pub mod error {
     };
 
     use iroha_crypto::HashOf;
-    use iroha_data_model::{fixed::FixedPointOperationError, metadata, prelude::*};
+    use iroha_data_model::{
+        fixed::FixedPointOperationError, metadata, prelude::*, MintabilityError,
+    };
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use thiserror::Error;
@@ -53,7 +55,7 @@ pub mod error {
         Type(#[source] TypeError),
         /// Failed to assert mintability
         #[error("Mintability violation. {0}")]
-        Mintability(#[source] MintabilityError),
+        Mintability(#[from] MintabilityError),
         /// Failed due to math exception
         #[error("Math error. {0}")]
         Math(#[source] MathError),
@@ -169,14 +171,6 @@ pub mod error {
         #[cfg(feature = "roles")]
         #[error("Failed to find role by id: `{0}`")]
         Role(RoleId),
-    }
-
-    /// Mintability logic error
-    #[derive(Debug, Clone, Error, Copy, PartialEq, Eq)]
-    pub enum MintabilityError {
-        /// Tried to mint an Un-mintable asset.
-        #[error("Minting of this asset is forbidden")]
-        MintUnmintableError,
     }
 
     /// Type assertion error
@@ -648,7 +642,10 @@ mod tests {
         assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         assert!(domain
-            .add_asset_definition(AssetDefinition::new_store(asset_definition_id), account_id)
+            .add_asset_definition(
+                AssetDefinition::store(asset_definition_id).build(),
+                account_id
+            )
             .is_none());
         Ok(World::with([domain], PeersIds::new()))
     }
