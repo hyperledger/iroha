@@ -149,7 +149,7 @@ pub fn submit(
     metadata: UnlimitedMetadata,
 ) -> Result<()> {
     let instruction = instruction.into();
-    let mut iroha_client = Client::new(cfg);
+    let iroha_client = Client::new(cfg);
     #[cfg(debug_assertions)]
     let err_msg = format!(
         "Failed to build transaction from instruction {:?}",
@@ -274,7 +274,7 @@ mod domain {
 
     impl RunArgs for List {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            let mut client = Client::new(cfg);
+            let client = Client::new(cfg);
 
             let vec = match self {
                 Self::All => client
@@ -398,7 +398,7 @@ mod account {
 
     impl RunArgs for List {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            let mut client = Client::new(cfg);
+            let client = Client::new(cfg);
 
             let vec = match self {
                 Self::All => client
@@ -559,7 +559,7 @@ mod asset {
     impl RunArgs for Get {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
             let Self { account, asset } = self;
-            let mut iroha_client = Client::new(cfg);
+            let iroha_client = Client::new(cfg);
             let asset_id = AssetId::new(asset, account);
             let value = iroha_client
                 .request(asset::by_id(asset_id))
@@ -578,7 +578,7 @@ mod asset {
 
     impl RunArgs for List {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            let mut client = Client::new(cfg);
+            let client = Client::new(cfg);
 
             let vec = match self {
                 Self::All => client
