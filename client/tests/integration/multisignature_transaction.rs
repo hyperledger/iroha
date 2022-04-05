@@ -28,7 +28,8 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         [key_pair_1.public_key.clone()],
     ));
     let asset_definition_id = AssetDefinitionId::from_str("xor#domain").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     let set_signature_condition = MintBox::new(
         SignatureCheckCondition(
             ContainsAll::new(

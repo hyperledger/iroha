@@ -649,7 +649,7 @@ impl From<&ValidBlock> for Vec<Event> {
         block
             .transactions
             .iter()
-            .map(|transaction| {
+            .map(|transaction| -> Event {
                 PipelineEvent::new(
                     PipelineEntityKind::Transaction,
                     PipelineStatus::Validating,

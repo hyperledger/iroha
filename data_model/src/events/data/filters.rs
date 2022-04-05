@@ -276,6 +276,7 @@ mod asset {
     pub enum AssetDefinitionEventFilter {
         ByCreated,
         ByDeleted,
+        ByMintabilityChanged,
         ByMetadataInserted,
         ByMetadataRemoved,
     }
@@ -295,6 +296,10 @@ mod asset {
                     | (
                         Self::ByMetadataRemoved,
                         AssetDefinitionEvent::MetadataRemoved(_)
+                    )
+                    | (
+                        Self::ByMintabilityChanged,
+                        AssetDefinitionEvent::MintabilityChanged(_)
                     )
             )
         }

@@ -236,7 +236,7 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
             .add_asset_definition(
-                AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
+                AssetDefinition::quantity(asset_definition_id).build(),
                 ALICE_ID.clone(),
             )
             .is_none());
@@ -249,7 +249,7 @@ mod tests {
         let mut account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
         assert!(domain
             .add_asset_definition(
-                AssetDefinition::new(asset_definition_id.clone(), AssetValueType::Quantity, true),
+                AssetDefinition::quantity(asset_definition_id.clone()).build(),
                 ALICE_ID.clone(),
             )
             .is_none());
@@ -286,7 +286,7 @@ mod tests {
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
             .add_asset_definition(
-                AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
+                AssetDefinition::quantity(asset_definition_id).build(),
                 ALICE_ID.clone(),
             )
             .is_none());
@@ -382,7 +382,7 @@ mod tests {
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             assert!(domain
                 .add_asset_definition(
-                    AssetDefinition::new(asset_definition_id, AssetValueType::Quantity, true),
+                    AssetDefinition::quantity(asset_definition_id).build(),
                     ALICE_ID.clone(),
                 )
                 .is_none());

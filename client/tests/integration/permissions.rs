@@ -41,7 +41,8 @@ fn permissions_disallow_asset_transfer() {
     let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
@@ -100,7 +101,8 @@ fn permissions_disallow_asset_burn() {
     let alice_id = "alice@wonderland".parse().expect("Valid");
     let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);

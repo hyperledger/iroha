@@ -7,7 +7,7 @@ use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref,
 use eyre::{eyre, Result, WrapErr};
 use iroha_actor::Addr;
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{asset::AssetDefinition, prelude::*};
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
 use small::SmallVec;
@@ -418,6 +418,7 @@ impl RawGenesisDomainBuilder {
             transaction: self.transaction,
         }
     }
+
     /// Add an account to this domain without a public key.
     /// Should only be used for testing.
     #[must_use]
@@ -427,6 +428,7 @@ impl RawGenesisDomainBuilder {
             .push(RegisterBox::new(AccountId::new(account_name, self.domain_id.clone())).into());
         self
     }
+
     /// Add an account to this domain
     #[must_use]
     pub fn with_account(mut self, account_name: Name, public_key: PublicKey) -> Self {
@@ -439,22 +441,13 @@ impl RawGenesisDomainBuilder {
         );
         self
     }
-    /// Add an asset to this domain.
+
+    /// Add [`AssetDefinition`] to current domain.
     #[must_use]
-    pub fn with_asset(
-        mut self,
-        asset_name: Name,
-        asset_value_type: AssetValueType,
-        asset_mintable: bool,
-    ) -> Self {
-        self.transaction.isi.push(
-            RegisterBox::new(AssetDefinition::new(
-                AssetDefinitionId::new(asset_name, self.domain_id.clone()),
-                asset_value_type,
-                asset_mintable,
-            ))
-            .into(),
-        );
+    pub fn with_asset(mut self, definition: AssetDefinition) -> Self {
+        self.transaction
+            .isi
+            .push(RegisterBox::new(definition).into());
         self
     }
 }
@@ -499,7 +492,7 @@ mod tests {
             .finish_domain()
             .domain("meadow".parse().unwrap())
             .with_account("Mad_Hatter".parse().unwrap(), public_key.parse().unwrap())
-            .with_asset("hats".parse().unwrap(), AssetValueType::BigQuantity, true)
+            .with_asset(AssetDefinition::big_quantity("hats#meadow".parse().unwrap()).build())
             .finish_domain();
 
         let finished_genesis_block = genesis_builder.build();
@@ -539,18 +532,16 @@ mod tests {
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[6],
                 RegisterBox::new(Account::new(
-                    AccountId::new("Mad_Hatter".parse().unwrap(), domain_id.clone()),
+                    AccountId::new("Mad_Hatter".parse().unwrap(), domain_id),
                     [public_key.parse().unwrap()],
                 ))
                 .into()
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[7],
-                RegisterBox::new(AssetDefinition::new(
-                    AssetDefinitionId::new("hats".parse().unwrap(), domain_id),
-                    AssetValueType::BigQuantity,
-                    true,
-                ))
+                RegisterBox::new(
+                    AssetDefinition::big_quantity("hats#meadow".parse().unwrap()).build()
+                )
                 .into()
             );
         }

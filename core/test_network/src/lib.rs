@@ -133,15 +133,21 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
             get_key_pair().public_key,
         );
         genesis.transactions[0].isi.push(
-            RegisterBox::new(AssetDefinition::new_quantity(
-                AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
-            ))
+            RegisterBox::new(
+                AssetDefinition::quantity(
+                    AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
+                )
+                .build(),
+            )
             .into(),
         );
         genesis.transactions[0].isi.push(
-            RegisterBox::new(AssetDefinition::new_quantity(
-                AssetDefinitionId::from_str("tulip#wonderland").expect("valid names"),
-            ))
+            RegisterBox::new(
+                AssetDefinition::quantity(
+                    AssetDefinitionId::from_str("tulip#wonderland").expect("valid names"),
+                )
+                .build(),
+            )
             .into(),
         );
         genesis.transactions[0].isi.push(
@@ -650,9 +656,6 @@ pub trait TestClient: Sized {
     fn test_with_key(api_url: &str, telemetry_url: &str, keys: KeyPair) -> Self;
 
     /// Creates test client from api url, keypair, and account id
-    ///
-    /// # Errors
-    /// If predicate is not satisfied, after maximum retries.
     fn test_with_account(
         api_url: &str,
         telemetry_url: &str,
