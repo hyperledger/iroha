@@ -27,12 +27,12 @@ jobs:
         run: |
           git remote add base {{github.event.pull_request.base.repo.ssh_url}}
           git fetch base
-          echo "::set-output ancestor_sha=ancestor_sha::$(git merge-base base/$FORK_BASE_BRANCH origin/$FORK_HEAD_BRANCH)"
+          echo "::set-output name=ancestor_sha::$(git merge-base base/$FORK_BASE_BRANCH origin/$FORK_HEAD_BRANCH)"
         env:
           FORK_BASE_BRANCH: ${{ github.base_ref }}
           FORK_HEAD_BRANCH: ${{ github.head_ref }}
-        outputs:
-          ancestor_sha: ${{steps.ancestor.outputs.ancestor_sha}}
+        # outputs:
+        #   ancestor_sha: ${{steps.ancestor.outputs.ancestor_sha}}
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v18.6
