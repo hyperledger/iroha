@@ -64,7 +64,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     client_configuration.account_id = account_id.clone();
     client_configuration.public_key = key_pair_1.public_key;
     client_configuration.private_key = key_pair_1.private_key;
-    let mut iroha_client = Client::new(&client_configuration);
+    let iroha_client = Client::new(&client_configuration);
     let instructions: Vec<Instruction> = vec![mint_asset.clone().into()];
     let transaction = iroha_client
         .build_transaction(instructions.into(), UnlimitedMetadata::new())
@@ -82,7 +82,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     client_configuration.torii_api_url = small::SmallStr::from_string(
         "http://".to_owned() + &network.peers.values().last().unwrap().api_address,
     );
-    let mut iroha_client_1 = Client::new(&client_configuration);
+    let iroha_client_1 = Client::new(&client_configuration);
     let request = client::asset::by_account_id(account_id);
     assert!(iroha_client_1
         .request(request.clone())
@@ -90,7 +90,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         .is_empty());
     client_configuration.public_key = key_pair_2.public_key;
     client_configuration.private_key = key_pair_2.private_key;
-    let mut iroha_client_2 = Client::new(&client_configuration);
+    let iroha_client_2 = Client::new(&client_configuration);
     let instructions: Vec<Instruction> = vec![mint_asset.into()];
     let transaction = iroha_client_2
         .build_transaction(instructions.into(), UnlimitedMetadata::new())

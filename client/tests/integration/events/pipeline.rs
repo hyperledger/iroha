@@ -37,7 +37,7 @@ fn test_with_instruction_and_status(
         let validating_event_received = Arc::new(RwLock::new([false; PEER_COUNT]));
         let rejected_event_received = Arc::new(RwLock::new([false; PEER_COUNT]));
         let peers: Vec<_> = network.peers().collect();
-        let mut submitter_client = Client::test(
+        let submitter_client = Client::test(
             &peers[submitting_peer].api_address,
             &peers[submitting_peer].telemetry_address,
         );
