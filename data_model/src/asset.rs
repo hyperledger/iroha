@@ -150,20 +150,30 @@ pub enum AssetValueType {
     Store,
 }
 
-impl FromStr for AssetValueType {
-    type Err = &'static str;
-
-    fn from_str(value_type: &str) -> Result<Self, Self::Err> {
-        // TODO: Could be implemented with some macro
-        match value_type {
-            "Quantity" => Ok(AssetValueType::Quantity),
-            "BigQuantity" => Ok(AssetValueType::BigQuantity),
-            "Fixed" => Ok(AssetValueType::Fixed),
-            "Store" => Ok(AssetValueType::Store),
-            _ => Err("Unknown variant"),
+/// A declarative macro that implements `FromStr` for a given
+/// C like enumeration. The macro is invoked like follows:
+/// `easy_from_str_impl! { NameOfEnum, EnumVariation1, EnumVariation2, ... }`
+macro_rules! easy_from_str_impl {
+    (eval_to $cmp:expr, $enum_type:ty, $enum_value:tt) => {
+        if $cmp == stringify!($enum_value) {
+            return Ok(<$enum_type>::$enum_value);
         }
-    }
+    };
+    ($enum_type:ty, $( $enum_value:tt ),+ ) => {
+        impl FromStr for $enum_type {
+            type Err = &'static str;
+
+            fn from_str(value_type: &str) -> Result<Self, Self::Err> {
+                $(
+                    easy_from_str_impl!{eval_to value_type, $enum_type, $enum_value}
+                )+
+                return Err(concat!("Unknown variant for type ", stringify!($enum_type)));
+            }
+        }
+    };
 }
+
+easy_from_str_impl! {AssetValueType, Quantity, BigQuantity, Fixed, Store}
 
 /// Asset's inner value.
 #[derive(
