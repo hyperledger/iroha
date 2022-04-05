@@ -17,6 +17,7 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
+use self::definition_builder::NewAssetDefinition;
 use crate::{
     account::prelude::*, domain::prelude::*, fixed, fixed::Fixed, metadata::Metadata, Identifiable,
     Name, ParseError, TryAsMut, TryAsRef, Value,
@@ -81,8 +82,11 @@ impl AssetDefinitionEntry {
     }
 
     /// Turn off minting for this asset.
+    ///
+    /// # Errors
+    /// If the asset was declared as `Mintable::Infinitely`
     #[cfg(feature = "mutable_api")]
-    pub fn forbid_minting(&mut self) {
+    pub fn forbid_minting(&mut self) -> Result<(), super::MintabilityError> {
         self.definition.forbid_minting()
     }
 }
@@ -117,6 +121,9 @@ pub struct AssetDefinition {
     metadata: Metadata,
 }
 
+/// An assets mintability scheme. `Infinitely` means elastic
+/// supply. `Once` is what you want to use. Don't use `Not` explicitly
+/// outside of smartcontracts.
 #[derive(
     Debug,
     Clone,
@@ -131,7 +138,6 @@ pub struct AssetDefinition {
     Serialize,
     IntoSchema,
 )]
-/// An assets mintability scheme. `Infinitely` means elastic supply. `Once` is what you want to use. Don't use `Not` explicitly outside of smartcontracts.
 pub enum Mintable {
     /// Regular asset with elastic supply. Can be minted and burned.
     Infinitely,
@@ -343,105 +349,144 @@ pub struct Id {
     pub account_id: <Account as Identifiable>::Id,
 }
 
-impl AssetDefinition {
-    /// Construct [`AssetDefinition`].
-    pub fn new(
-        id: <AssetDefinition as Identifiable>::Id,
-        value_type: AssetValueType,
-        mintable: bool,
-    ) -> <Self as Identifiable>::RegisteredWith {
-        Self {
-            id,
-            metadata: Metadata::new(),
-            mintable: if mintable {
+pub mod definition_builder {
+    //! Builder for [`AssetDefinition`].
+    use super::{AssetDefinition, AssetValueType, Mintable};
+    use crate::{metadata::Metadata, Identifiable};
+
+    type Id = <AssetDefinition as Identifiable>::Id;
+
+    /// Builder with all mandatory fields.
+    pub struct NewAssetDefinition {
+        pub(crate) id: Id,
+        pub(crate) value_type: AssetValueType,
+        pub(crate) mintable: Mintable,
+        pub(crate) metadata: Metadata,
+    }
+
+    impl NewAssetDefinition {
+        /// Make the builder create a [`Mintable::Once`] instance of [`AssetDefinition`]
+        #[must_use]
+        #[inline]
+        pub fn mintable_once(mut self) -> Self {
+            self.mintable = Mintable::Once;
+            self
+        }
+
+        /// Most general constructor for the case where
+        /// [`AssetValueType`], and mintability are known ahead of
+        /// time. Don't forget to build the resulting [`Self`].
+        pub fn new(
+            id: <AssetDefinition as Identifiable>::Id,
+            value_type: AssetValueType,
+            mintable: bool,
+        ) -> Self {
+            Self {
+                id,
+                value_type,
+                mintable: if mintable {
+                    Mintable::Infinitely
+                } else {
+                    Mintable::Once
+                },
+                metadata: Metadata::new(),
+            }
+        }
+
+        /// Change mintability in-place
+        #[inline]
+        pub fn mintable(&mut self, mintable: bool) {
+            self.mintable = if mintable {
                 Mintable::Infinitely
             } else {
                 Mintable::Once
-            },
-            value_type,
+            };
+        }
+
+        /// Add metadata to builder
+        #[must_use]
+        #[inline]
+        pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+            self.metadata = metadata;
+            self
+        }
+
+        /// Build [`AssetDefinition`]
+        #[must_use]
+        #[inline]
+        pub fn build(self) -> <AssetDefinition as Identifiable>::RegisteredWith {
+            let Self {
+                id,
+                value_type,
+                mintable,
+                metadata,
+            } = self;
+            AssetDefinition {
+                id,
+                value_type,
+                mintable,
+                metadata,
+            }
+        }
+    }
+}
+
+impl AssetDefinition {
+    /// Construct [`AssetDefinition`].
+    #[must_use]
+    #[inline]
+    pub fn quantity(id: <Self as Identifiable>::Id) -> NewAssetDefinition {
+        NewAssetDefinition {
+            id,
+            value_type: AssetValueType::Quantity,
+            mintable: Mintable::Infinitely,
+            metadata: Metadata::default(),
         }
     }
 
+    /// Construct [`AssetDefinition`].
+    #[must_use]
+    #[inline]
+    pub fn big_quantity(id: <Self as Identifiable>::Id) -> NewAssetDefinition {
+        NewAssetDefinition {
+            value_type: AssetValueType::BigQuantity,
+            ..Self::quantity(id)
+        }
+    }
+
+    /// Construct [`AssetDefinition`].
+    #[must_use]
+    #[inline]
+    pub fn fixed(id: <Self as Identifiable>::Id) -> NewAssetDefinition {
+        NewAssetDefinition {
+            value_type: AssetValueType::Fixed,
+            ..Self::quantity(id)
+        }
+    }
+
+    /// Construct [`AssetDefinition`].
+    #[must_use]
+    #[inline]
+    pub fn store(id: <Self as Identifiable>::Id) -> NewAssetDefinition {
+        NewAssetDefinition {
+            value_type: AssetValueType::Store,
+            ..Self::quantity(id)
+        }
+    }
+
+    /// Stop minting on the [`AssetDefinition`] globally.
+    ///
+    /// # Errors
+    /// If the [`AssetDefinition`] is not `Mintable::Once`.
     #[inline]
     #[cfg(feature = "mutable_api")]
-    pub fn forbid_minting(&mut self) {
-        if let Mintable::Once = self.mintable {
-            self.mintable = Mintable::Not
+    pub fn forbid_minting(&mut self) -> Result<(), super::MintabilityError> {
+        if self.mintable == Mintable::Once {
+            self.mintable = Mintable::Not;
+            Ok(())
         } else {
-            panic!("You shouldn't forbid minting on assets that are not Mintable::Once.")
+            Err(super::MintabilityError::ForbidMintOnMintable)
         }
-    }
-
-    /// Add [`Metadata`] to the asset definition replacing previously defined
-    #[inline]
-    #[must_use]
-    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
-        self.metadata = metadata;
-        self
-    }
-
-    /// Asset definition with quantity asset value type.
-    #[inline]
-    pub fn new_quantity(
-        id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::RegisteredWith {
-        AssetDefinition::new(id, AssetValueType::Quantity, true)
-    }
-
-    /// Token definition with quantity asset value type.
-    #[inline]
-    pub fn new_quantity_token(
-        id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::RegisteredWith {
-        AssetDefinition::new(id, AssetValueType::Quantity, false)
-    }
-
-    /// Asset definition with big quantity asset value type.
-    #[inline]
-    pub fn new_big_quantity(
-        id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::RegisteredWith {
-        AssetDefinition::new(id, AssetValueType::BigQuantity, true)
-    }
-
-    /// Token definition with big quantity asset value type.
-    #[inline]
-    pub fn new_big_quantity_token(
-        id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::RegisteredWith {
-        AssetDefinition::new(id, AssetValueType::BigQuantity, false)
-    }
-
-    /// Asset definition with decimal quantity asset value type.
-    #[inline]
-    pub fn new_fixed_precision(
-        id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::RegisteredWith {
-        AssetDefinition::new(id, AssetValueType::Fixed, true)
-    }
-
-    /// Token definition with decimal quantity asset value type.
-    #[inline]
-    pub fn with_precision_token(
-        id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::RegisteredWith {
-        AssetDefinition::new(id, AssetValueType::Fixed, false)
-    }
-
-    /// Asset definition with store asset value type.
-    #[inline]
-    pub fn new_store(
-        id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::RegisteredWith {
-        AssetDefinition::new(id, AssetValueType::Store, true)
-    }
-
-    /// Token definition with store asset value type.
-    #[inline]
-    pub fn new_store_token(
-        id: <AssetDefinition as Identifiable>::Id,
-    ) -> <Self as Identifiable>::RegisteredWith {
-        AssetDefinition::new(id, AssetValueType::Store, false)
     }
 }
 

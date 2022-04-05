@@ -36,7 +36,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
 
     let tea_definition_id = "tea#wonderland".parse()?;
     let register_tea_definition =
-        RegisterBox::new(AssetDefinition::new_quantity(tea_definition_id));
+        RegisterBox::new(AssetDefinition::quantity(tea_definition_id).build());
     test_client.submit_blocking(register_tea_definition)?;
 
     let new_value = get_asset_value(&mut test_client, asset_id)?;

@@ -8,7 +8,7 @@ use iroha_core::{
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     prelude::*,
 };
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, ParseError};
 use small::SmallStr;
 use test_network::{Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
@@ -133,10 +133,13 @@ mod register {
     }
 
     pub fn asset_definition(asset_name: &str, domain_name: &str) -> RegisterBox {
-        RegisterBox::new(AssetDefinition::new_quantity(AssetDefinitionId::new(
-            asset_name.parse().expect("Valid"),
-            domain_name.parse().expect("Valid"),
-        )))
+        RegisterBox::new(
+            AssetDefinition::quantity(AssetDefinitionId::new(
+                asset_name.parse().expect("Valid"),
+                domain_name.parse().expect("Valid"),
+            ))
+            .build(),
+        )
     }
 }
 
@@ -270,11 +273,8 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 }
 
 #[test]
-#[should_panic]
-fn cannot_forbid_minting_on_asset_mintable_infinitely() {
-    if let Ok(id) = "test".parse() {
-        let mut definition = AssetDefinition::new_quantity(id);
-        definition.forbid_minting();
-    }
-    // We should fail the test if it returns an error.
+fn cannot_forbid_minting_on_asset_mintable_infinitely() -> Result<(), ParseError> {
+    let mut definition = AssetDefinition::quantity("test#hello".parse()?).build();
+    assert!(definition.forbid_minting().is_err());
+    Ok(())
 }

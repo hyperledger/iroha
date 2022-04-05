@@ -42,6 +42,32 @@ pub mod transaction;
 pub mod trigger;
 pub mod uri;
 
+/// Mintability logic error
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MintabilityError {
+    /// Tried to mint an Un-mintable asset.
+    MintUnmintable,
+    /// Tried to forbid minting on assets that should be mintable.
+    ForbidMintOnMintable,
+}
+
+impl fmt::Display for MintabilityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            MintabilityError::MintUnmintable => {
+                "This asset cannot be minted more than once and it was already minted."
+            }
+            MintabilityError::ForbidMintOnMintable => {
+                "This asset was set as infinitely mintable. You cannot forbid its minting."
+            }
+        };
+        write!(f, "{}", message)
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for MintabilityError {}
+
 /// Error which occurs when parsing string into a data model entity
 #[derive(Debug, Display, Clone, Copy)]
 pub struct ParseError {

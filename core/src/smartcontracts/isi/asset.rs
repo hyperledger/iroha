@@ -11,7 +11,7 @@ use super::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
-    use iroha_data_model::asset::Mintable;
+    use iroha_data_model::{asset::Mintable, MintabilityError};
     use iroha_logger::prelude::*;
 
     use super::*;
@@ -44,10 +44,10 @@ pub mod isi {
         let definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
         match definition.mintable() {
             Mintable::Infinitely => Ok(()),
-            Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintableError)),
+            Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
             Mintable::Once => {
                 wsv.modify_asset_definition_entry(definition_id, |entry| {
-                    entry.forbid_minting();
+                    entry.forbid_minting()?;
                     Ok(AssetDefinitionEvent::MintabilityChanged(
                         definition_id.clone(),
                     ))

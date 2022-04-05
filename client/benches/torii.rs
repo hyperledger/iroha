@@ -59,7 +59,8 @@ fn query_requests(criterion: &mut Criterion) {
             .public_key],
     ));
     let asset_definition_id = AssetDefinitionId::new("xor".parse().expect("Valid"), domain_id);
-    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),

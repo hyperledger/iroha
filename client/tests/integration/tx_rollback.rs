@@ -19,7 +19,7 @@ fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes(
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let wrong_asset_definition_id = AssetDefinitionId::from_str("ksor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id));
+    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id).build());
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),

@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::{str::FromStr as _, time::Duration};
+use std::{collections::BTreeMap, str::FromStr as _, time::Duration};
 
 use eyre::{eyre, Result};
 use iroha_client::client::{self, Client};
@@ -9,8 +9,6 @@ use iroha_data_model::{permissions::Permissions, prelude::*};
 use iroha_permissions_validators::public_blockchain::transfer;
 use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
-use std::collections::BTreeMap;
-
 
 #[test]
 fn add_role_to_limit_transfer_count() -> Result<()> {
@@ -97,24 +95,20 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
 }
 
-
 #[test]
 fn register_empty_role() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = iroha_data_model::role::Id::new("root".parse::<Name>().expect("Valid"));
-    let register_role = RegisterBox::new(IdentifiableBox::from(Role::new(
-        role_id,
-        Permissions::new(),
-    )));
+    let register_role = RegisterBox::new(Role::new(role_id, Permissions::new()));
 
     test_client.submit(register_role)?;
     Ok(())
 }
 
 #[test]
-fn register_role_with_empty_token() -> Result<()> {
+fn register_role_with_empty_token_params() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -124,7 +118,7 @@ fn register_role_with_empty_token() -> Result<()> {
         name: "token".parse().expect("Valid"),
         params: BTreeMap::new(),
     });
-    let register_role = RegisterBox::new(IdentifiableBox::from(Role::new(role_id, permissions)));
+    let register_role = RegisterBox::new(Role::new(role_id, permissions));
 
     test_client.submit(register_role)?;
     Ok(())

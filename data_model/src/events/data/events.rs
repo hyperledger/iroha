@@ -51,6 +51,9 @@ mod asset {
         MetadataInserted(AssetDefinitionId),
         MetadataRemoved(AssetDefinitionId),
     }
+    // NOTE: Whenever you add a new event here, please also update the
+    // AssetDefinitionEventFilter enum and its `impl Filter for
+    // AssetDefinitionEventFilter`.
 
     impl IdTrait for AssetDefinitionEvent {
         type Id = AssetDefinitionId;

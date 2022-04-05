@@ -19,7 +19,8 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
     // Given
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::new_quantity(asset_definition_id.clone()));
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     let key_pair = KeyPair::generate()?;
     let add_signatory = MintBox::new(
         key_pair.public_key.clone(),

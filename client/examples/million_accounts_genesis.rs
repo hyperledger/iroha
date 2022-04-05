@@ -20,9 +20,12 @@ fn main() {
                     PublicKey::default(),
                 )
                 .with_asset(
-                    format!("xor-{}", i).parse().expect("Valid"),
-                    AssetValueType::Quantity,
-                    false,
+                    AssetDefinition::quantity(
+                        format!("xor-{}", i)
+                            .parse::<<AssetDefinition as Identifiable>::Id>()
+                            .expect("Valid"),
+                    )
+                    .build(),
                 )
                 .finish_domain();
         }
