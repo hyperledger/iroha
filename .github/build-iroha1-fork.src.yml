@@ -31,7 +31,7 @@ jobs:
         name: Find common ancestor
         id: ancestor
         run: |
-          git remote add base {{github.event.pull_request.base.repo.svn_url}}
+          git remote add base ${{github.event.pull_request.base.repo.ssh_url}}
           git fetch base
           echo "::set-output name=ancestor_sha::$(git merge-base base/$FORK_BASE_BRANCH origin/$FORK_HEAD_BRANCH)"
         env:
