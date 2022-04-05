@@ -1,0 +1,166 @@
+//! Module with `FromVariant` macro implementation
+
+use super::*;
+
+/// Attribute for skipping from attribute
+const SKIP_FROM_ATTR: &str = "skip_from";
+const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
+
+fn attrs_have_ident(attrs: &[syn::Attribute], ident: &str) -> bool {
+    attrs.iter().any(|attr| attr.path.is_ident(ident))
+}
+
+const CONTAINERS: &[&str] = &["Box", "RefCell", "Cell", "Rc", "Arc", "Mutex", "RwLock"];
+
+fn get_type_argument<'a, 'b>(
+    s: &'a str,
+    ty: &'b syn::TypePath,
+) -> Option<&'b syn::GenericArgument> {
+    let segments = &ty.path.segments;
+    if segments.len() != 1 || segments[0].ident != s {
+        return None;
+    }
+
+    if let syn::PathArguments::AngleBracketed(ref bracketed_arguments) = segments[0].arguments {
+        assert_eq!(bracketed_arguments.args.len(), 1);
+        Some(&bracketed_arguments.args[0])
+    } else {
+        unreachable!("No other arguments for types in enum variants possible")
+    }
+}
+
+fn from_container_variant_internal(
+    into_ty: &syn::Ident,
+    into_variant: &syn::Ident,
+    from_ty: &syn::GenericArgument,
+    container_ty: &syn::TypePath,
+) -> proc_macro2::TokenStream {
+    quote! {
+        impl From<#from_ty> for #into_ty {
+            fn from(origin: #from_ty) -> Self {
+                #into_ty :: #into_variant (#container_ty :: new(origin))
+            }
+        }
+    }
+}
+
+fn from_variant_internal(
+    into_ty: &syn::Ident,
+    into_variant: &syn::Ident,
+    from_ty: &syn::Type,
+) -> proc_macro2::TokenStream {
+    quote! {
+        impl From<#from_ty> for #into_ty {
+            fn from(origin: #from_ty) -> Self {
+                #into_ty :: #into_variant (origin)
+            }
+        }
+    }
+}
+
+fn from_variant(
+    into_ty: &syn::Ident,
+    into_variant: &syn::Ident,
+    from_ty: &syn::Type,
+) -> proc_macro2::TokenStream {
+    let from_orig = from_variant_internal(into_ty, into_variant, from_ty);
+
+    if let syn::Type::Path(path) = from_ty {
+        let mut code = from_orig;
+
+        for container in CONTAINERS {
+            if let Some(inner) = get_type_argument(container, path) {
+                let segments = path
+                    .path
+                    .segments
+                    .iter()
+                    .map(|segment| {
+                        let mut segment = segment.clone();
+                        segment.arguments = syn::PathArguments::default();
+                        segment
+                    })
+                    .collect::<syn::punctuated::Punctuated<_, syn::token::Colon2>>();
+                let path = syn::Path {
+                    segments,
+                    leading_colon: None,
+                };
+                let path = &syn::TypePath { path, qself: None };
+
+                let from_inner =
+                    from_container_variant_internal(into_ty, into_variant, inner, path);
+                code = quote! {
+                    #code
+                    #from_inner
+                };
+            }
+        }
+
+        return code;
+    }
+
+    from_orig
+}
+
+fn try_into_variant(
+    enum_ty: &syn::Ident,
+    variant: &syn::Ident,
+    variant_ty: &syn::Type,
+) -> proc_macro2::TokenStream {
+    quote! {
+        impl TryFrom<#enum_ty> for #variant_ty {
+            type Error = iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>;
+
+            fn try_from(origin: #enum_ty) -> core::result::Result<Self, iroha_macro::error::ErrorTryFromEnum<#enum_ty, Self>> {
+                if let #enum_ty :: #variant(variant) = origin {
+                    Ok(variant)
+                } else {
+                    Err(iroha_macro::error::ErrorTryFromEnum::default())
+                }
+            }
+        }
+    }
+}
+
+pub fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
+    let name = &ast.ident;
+
+    let froms = if let syn::Data::Enum(data_enum) = &ast.data {
+        &data_enum.variants
+    } else {
+        panic!("Only enums are supported")
+    }
+    .iter()
+    .filter_map(|variant| {
+        if let syn::Fields::Unnamed(ref unnamed) = variant.fields {
+            if unnamed.unnamed.len() == 1 {
+                let variant_type = &unnamed
+                    .unnamed
+                    .first()
+                    .expect("Won't fail as we have more than one argument for variant")
+                    .ty;
+
+                let try_into = if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_TRY_FROM_ATTR) {
+                    quote!()
+                } else {
+                    try_into_variant(name, &variant.ident, variant_type)
+                };
+                let from = if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_FROM_ATTR) {
+                    quote!()
+                } else {
+                    from_variant(name, &variant.ident, variant_type)
+                };
+
+                return Some(quote!(
+                    #try_into
+                    #from
+                ));
+            }
+        }
+        None
+    });
+
+    let gen = quote! {
+        #(#froms)*
+    };
+    gen.into()
+}
