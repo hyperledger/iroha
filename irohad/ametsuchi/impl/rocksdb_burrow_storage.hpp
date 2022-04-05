@@ -9,11 +9,13 @@
 #include "ametsuchi/burrow_storage.hpp"
 
 #include <string_view>
+#include <utility>
 
 #include "interfaces/common_objects/types.hpp"
-#include "ametsuchi/impl/rocksdb_common.hpp"
 
 namespace iroha::ametsuchi {
+  struct RocksDBContext;
+
   class RocksdbBurrowStorage : public BurrowStorage {
    public:
     RocksdbBurrowStorage(
@@ -45,11 +47,11 @@ namespace iroha::ametsuchi {
 
    private:
     std::shared_ptr<RocksDBContext> db_context_;
-    std::string_view  tx_hash_;
+    std::string_view tx_hash_;
     shared_model::interface::types::CommandIndexType cmd_index_;
-    std::optional<size_t> call_id_cache_;
+    std::optional<std::pair<size_t, size_t>> call_id_cache_;
   };
 
 }  // namespace iroha::ametsuchi
 
-#endif//IROHA_RDB_BURROW_STORAGE_HPP
+#endif  // IROHA_RDB_BURROW_STORAGE_HPP

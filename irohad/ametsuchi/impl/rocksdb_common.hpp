@@ -289,6 +289,11 @@ namespace iroha::ametsuchi::fmtstrings {
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
                      RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_TIMESTAMP)};
 
+  // address
+  static auto constexpr kPathEngineStorage{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_ACCOUNT_KV /**/ RDB_XXX)};
+
   // account
   static auto constexpr kPathTransactionByPosition{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
@@ -759,7 +764,7 @@ namespace iroha::ametsuchi {
 #define RDB_ERROR_CHECK_TO_STR(...)            \
   if (auto _tmp_gen_var = (__VA_ARGS__);       \
       iroha::expected::hasError(_tmp_gen_var)) \
-  return _tmp_gen_var.assumeError().description
+  return iroha::expected::makeError(_tmp_gen_var.assumeError().description)
 
 #define RDB_TRY_GET_VALUE(name, ...)                   \
   typename decltype(__VA_ARGS__)::ValueInnerType name; \
@@ -769,12 +774,12 @@ namespace iroha::ametsuchi {
   else                                                 \
     name = std::move(_tmp_gen_var.assumeValue())
 
-#define RDB_TRY_GET_VALUE_OR_STR_ERR(name, ...)        \
-  typename decltype(__VA_ARGS__)::ValueInnerType name; \
-  if (auto _tmp_gen_var = (__VA_ARGS__);               \
-      iroha::expected::hasError(_tmp_gen_var))         \
-    return _tmp_gen_var.assumeError().description;     \
-  else                                                 \
+#define RDB_TRY_GET_VALUE_OR_STR_ERR(name, ...)                                \
+  typename decltype(__VA_ARGS__)::ValueInnerType name;                         \
+  if (auto _tmp_gen_var = (__VA_ARGS__);                                       \
+      iroha::expected::hasError(_tmp_gen_var))                                 \
+    return iroha::expected::makeError(_tmp_gen_var.assumeError().description); \
+  else                                                                         \
     name = std::move(_tmp_gen_var.assumeValue())
 
   /**
@@ -1302,8 +1307,17 @@ namespace iroha::ametsuchi {
         kOp != kDbOperation::kDel || kSc != kDbEntry::kMustExist,
         "Delete operation does not report if key existed before deletion!");
 
-    RDB_ERROR_CHECK(checkStatus<kSc>(
-        status, std::forward<OperationDescribtionF>(op_formatter)));
+    if constexpr (kOp == kDbOperation::kPut) {
+      RDB_ERROR_CHECK(checkStatus<kDbEntry::kMustExist>(
+          status, std::forward<OperationDescribtionF>(op_formatter)));
+    } else if constexpr (kOp == kDbOperation::kDel) {
+      RDB_ERROR_CHECK(checkStatus<kDbEntry::kCanExist>(
+          status, std::forward<OperationDescribtionF>(op_formatter)));
+    } else {
+      RDB_ERROR_CHECK(checkStatus<kSc>(
+          status, std::forward<OperationDescribtionF>(op_formatter)));
+    }
+
     return status;
   }
 
@@ -1697,12 +1711,12 @@ namespace iroha::ametsuchi {
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
-  forCallEngineAccount(RocksDbCommon &common,
-                       std::string_view address) {
+  forCallEngineAccount(RocksDbCommon &common, std::string_view address) {
     return dbCall<std::string_view, kOp, kSc>(
         common,
         RocksDBPort::ColumnFamilyType::kWsv,
-        fmtstrings::kEngineAccount, address);
+        fmtstrings::kEngineAccount,
+        address);
   }
 
   /**
@@ -1718,11 +1732,14 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
   forCallEngineStorage(RocksDbCommon &common,
-                       std::string_view address, std::string_view key) {
+                       std::string_view address,
+                       std::string_view key) {
     return dbCall<std::string_view, kOp, kSc>(
         common,
         RocksDBPort::ColumnFamilyType::kWsv,
-        fmtstrings::kEngineStorage, address, key);
+        fmtstrings::kEngineStorage,
+        address,
+        key);
   }
 
   /**
@@ -1738,11 +1755,13 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError>
   forCallEngineCallIds(RocksDbCommon &common,
-                       std::string_view hash, uint32_t cmd_index) {
-    return dbCall<uint64_t, kOp, kSc>(
-        common,
-        RocksDBPort::ColumnFamilyType::kWsv,
-        fmtstrings::kEngineCallId, hash, cmd_index);
+                       std::string_view hash,
+                       uint32_t cmd_index) {
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kEngineCallId,
+                                      hash,
+                                      cmd_index);
   }
 
   /**
@@ -1756,12 +1775,12 @@ namespace iroha::ametsuchi {
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
-  forCallEngineDeploy(RocksDbCommon &common,
-                       uint64_t call_id) {
+  forCallEngineDeploy(RocksDbCommon &common, uint64_t call_id) {
     return dbCall<std::string_view, kOp, kSc>(
         common,
         RocksDBPort::ColumnFamilyType::kWsv,
-        fmtstrings::kEngineDeploy, call_id);
+        fmtstrings::kEngineDeploy,
+        call_id);
   }
 
   /**
@@ -1775,14 +1794,13 @@ namespace iroha::ametsuchi {
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
-  forCallEngineCallResponse(RocksDbCommon &common,
-                       uint64_t call_id) {
+  forCallEngineCallResponse(RocksDbCommon &common, uint64_t call_id) {
     return dbCall<std::string_view, kOp, kSc>(
         common,
         RocksDBPort::ColumnFamilyType::kWsv,
-        fmtstrings::kEngineCallResponse, call_id);
+        fmtstrings::kEngineCallResponse,
+        call_id);
   }
-
 
   /**
    * Access to Call Engine Topics data
@@ -1796,12 +1814,13 @@ namespace iroha::ametsuchi {
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
-  forCallEngineTopics(RocksDbCommon &common,
-                       uint64_t log_ix, uint64_t ix) {
+  forCallEngineTopics(RocksDbCommon &common, uint64_t log_ix, uint64_t ix) {
     return dbCall<std::string_view, kOp, kSc>(
         common,
         RocksDBPort::ColumnFamilyType::kWsv,
-        fmtstrings::kEngineCallTopics, log_ix, ix);
+        fmtstrings::kEngineCallTopics,
+        log_ix,
+        ix);
   }
 
   /**
@@ -1816,12 +1835,13 @@ namespace iroha::ametsuchi {
   template <kDbOperation kOp = kDbOperation::kGet,
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<std::string_view>, DbError>
-  forCallEngineLogs(RocksDbCommon &common,
-                       uint64_t call_id, uint64_t ix) {
+  forCallEngineLogs(RocksDbCommon &common, uint64_t call_id, uint64_t ix) {
     return dbCall<std::string_view, kOp, kSc>(
         common,
         RocksDBPort::ColumnFamilyType::kWsv,
-        fmtstrings::kEngineCallLogs, call_id, ix);
+        fmtstrings::kEngineCallLogs,
+        call_id,
+        ix);
   }
 
   /**
@@ -1835,10 +1855,9 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError>
   forCallEngineNextCallIds(RocksDbCommon &common) {
-    return dbCall<uint64_t, kOp, kSc>(
-        common,
-        RocksDBPort::ColumnFamilyType::kWsv,
-        fmtstrings::kEngineNextCallId);
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kEngineNextCallId);
   }
 
   /**
@@ -1852,10 +1871,9 @@ namespace iroha::ametsuchi {
             kDbEntry kSc = kDbEntry::kMustExist>
   inline expected::Result<std::optional<uint64_t>, DbError>
   forCallEngineNextLogIx(RocksDbCommon &common) {
-    return dbCall<uint64_t, kOp, kSc>(
-        common,
-        RocksDBPort::ColumnFamilyType::kWsv,
-        fmtstrings::kEngineNextLogId);
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kEngineNextLogId);
   }
 
   /**
