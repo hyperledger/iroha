@@ -8,6 +8,7 @@ Configure
       :maxdepth: 1
 
       torii-tls.rst
+      db.rst
 
 In this section we will understand how to configure Iroha.
 Some configuration parameters must be the same in all the nodes (they are marked with \*) and some can differ.
@@ -43,10 +44,11 @@ Deployment-specific parameters
 - ``utility_service`` (optional) endpoint for maintenance tasks.
   If present, must include ``ip`` address and ``port`` to bind to.
   See `shepherd docs <../maintenance/shepherd.html>`_ for an example usage of maintenance endpoint.
-- ``metrics`` (optional) endpoint to monitor iroha's metrics. Prometheus HTTP server listens on this endpoint.
+- ``metrics`` (optional) endpoint to monitor Iroha's metrics. Prometheus HTTP server listens on this endpoint.
   If present, must correspond format "[addr]:<port>" and could be for example "127.0.0.1:8080", "9090", or ":1234".
   Wrong values implicitly disables Prometheus metrics server. There are also cmdline options ```--metrics_port`` and
   ``--metrics_addr`` to override this parameter.
+- ``healthcheck_port`` (optional) endpoint for Iroha healthcheck. Sending a request to this endpoint in the form of ``http://<host>:<healthcheck_port>/healthcheck`` will return you information about the status of the node: current memory consumption (``memory_consumption``), current number of blocks (``last_block_round``), current count of reject rounds (``last_reject_round``), if the node is syncing information with a remote node at the moment (``is_syncing``), if the node is currently up (``status``). 
 
 There is also an optional ``torii_tls_params`` parameter, which could be included
 in the config to enable TLS support for client communication.

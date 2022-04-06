@@ -57,6 +57,7 @@ It is based on JS Wallet but is up-to-date.
 
 [Iroha Explorer](https://codeberg.org/diva.exchange/iroha-explorer)
 [Iroha Docker container with Postgres 10](https://hub.docker.com/r/divax/iroha) and it's [source code](https://codeberg.org/diva.exchange/iroha)
+[Tool to deploy Iroha instances](https://github.com/kuvaldini/iroha-swarm)
 
 ### Want to help us develop Iroha?
 
