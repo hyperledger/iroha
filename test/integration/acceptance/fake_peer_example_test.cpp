@@ -43,28 +43,12 @@ TEST_P(FakePeerExampleTest,
        MstStateOfTransactionWithoutAllSignaturesPropagtesToOtherPeer) {
   createFakePeers(1);
   auto &itf = prepareState();
-  auto mst_states_observable =
-      fake_peers_.front()->getMstStatesObservable().replay();
-  mst_states_observable.connect();
 
   itf.sendTxWithoutValidation(complete(
       baseTx(kAdminId)
           .transferAsset(kAdminId, kUserId, kAssetId, "income", "500.0")
           .quorum(2),
       kAdminKeypair));
-
-  mst_states_observable
-      .timeout(kMstStateWaitingTime, rxcpp::observe_on_new_thread())
-      .take(1)
-      .as_blocking()
-      .subscribe([](const auto &) {},
-                 [](std::exception_ptr ep) {
-                   try {
-                     std::rethrow_exception(ep);
-                   } catch (const std::exception &e) {
-                     FAIL() << "Error waiting for MST state: " << e.what();
-                   }
-                 });
 }
 
 /**
@@ -93,14 +77,16 @@ TEST_P(FakePeerExampleTest, SynchronizeTheRightVersionOfForkedLedger) {
       bad_fake_peers.front();  // the malicious actor
 
   // Add two blocks to the ledger.
-  itf.sendTx(complete(baseTx(kAdminId).transferAsset(
-                          kAdminId, kUserId, kAssetId, "common_tx1", "1.0"),
-                      kAdminKeypair))
-      .skipBlock();
-  itf.sendTx(complete(baseTx(kAdminId).transferAsset(
-                          kAdminId, kUserId, kAssetId, "common_tx2", "2.0"),
-                      kAdminKeypair))
-      .skipBlock();
+  itf.sendTxAwait(
+      complete(baseTx(kAdminId).transferAsset(
+                   kAdminId, kUserId, kAssetId, "common_tx1", "1.0"),
+               kAdminKeypair),
+      [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+  itf.sendTxAwait(
+      complete(baseTx(kAdminId).transferAsset(
+                   kAdminId, kUserId, kAssetId, "common_tx2", "2.0"),
+               kAdminKeypair),
+      [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 
   // Create the valid branch, supported by the good fake peers:
   auto valid_block_storage =

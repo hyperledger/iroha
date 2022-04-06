@@ -171,7 +171,7 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposal) {
                       SetArgPointee<2>(response),
                       Return(grpc::Status::OK)));
 
-  client->onRequestProposal(round);
+  client->onRequestProposal(round, std::nullopt);
 
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);
@@ -199,7 +199,7 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposalNone) {
                       SetArgPointee<2>(response),
                       Return(grpc::Status::OK)));
 
-  client->onRequestProposal(round);
+  client->onRequestProposal(round, std::nullopt);
 
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);

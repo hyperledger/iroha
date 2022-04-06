@@ -87,13 +87,7 @@ Environment-specific parameters
   ``10``. However, we recommend to increase this number if you have a lot of
   transactions per second.
 
-    **This parameter affects performance.** Increase this parameter, if your network has a big number of transactions going. If you increase ``max_proposal_size`` due to an inreased throughput, you can increase it independently. But if the speed stays approximately the same, you need to also increase ``proposal_delay`` to allow all these transactions to get into this one big proposal. By increasing this parameter you can improve the performance but note that at some point increasing this value can lead to degradation of the performance.
-
-
-- ``proposal_delay`` is a timeout in milliseconds that a peer waits a response
-  from the orderding service with a proposal. **Important: proposal_delay must be bigger than proposal_creation_timeout. Not following this rule will lead to unstable system.**
-
-    **This parameter affects performance.** If you want bigger proposal size, you will need to give the system time to collect this increased number of transactions into one proposal.
+    **This parameter affects performance.** Increase this parameter, if your network has a big number of transactions going. If you increase ``max_proposal_size`` due to an inreased throughput, you can increase it independently. By increasing this parameter you can improve the performance but note that at some point increasing this value can lead to degradation of the performance.
 
 - ``vote_delay`` \* is a waiting time in milliseconds before sending vote to the
   next peer. Optimal value depends heavily on the amount of Iroha peers in the
@@ -123,7 +117,6 @@ Environment-specific parameters
   long idle time.
   This parameter allows users to find an optimal value in a tradeoff between
   resource consumption and the delay of getting back to work after an idle
-  period. **Important: proposal_delay must be bigger than proposal_creation_timeout. Not following this rule will lead to unstable system.**
 
     **This parameter affects resource consumption.** When you can expect Iroha to stay idle for longer periods of time and would like to save some resources, increase this value - it will make Iroha check for new transactions more rarely. NB: the first transaction after idle period might be a little delayed due to that. Second and further blocks will be processed quicker.
 
@@ -165,7 +158,6 @@ Here is the configuration we used:
 .. code-block:: javascript
 
   "max_proposal_size" : 10000,
-  "proposal_delay" : 1000,
   "vote_delay" : 1000,
   "mst_enable" : true,
   "mst_expiration_time": 1440,
@@ -192,7 +184,6 @@ Unix
   export IROHA_INTERNAL_PORT=10001
   export IROHA_PG_OPT="host=172.19.0.2 port=5432 user=iroha password=helloworld"
   export IROHA_MAX_PROPOSAL_SIZE=10
-  export IROHA_PROPOSAL_DELAY=5000
   export IROHA_VOTE_DELAY=5000
   export IROHA_MST_ENABLE=false
   export IROHA_MST_EXPIRATION_TIME=1440

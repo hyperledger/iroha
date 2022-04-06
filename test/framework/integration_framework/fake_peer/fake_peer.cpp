@@ -21,7 +21,6 @@
 #include "framework/integration_framework/fake_peer/behaviour/behaviour.hpp"
 #include "framework/integration_framework/fake_peer/block_storage.hpp"
 #include "framework/integration_framework/fake_peer/network/loader_grpc.hpp"
-#include "framework/integration_framework/fake_peer/network/mst_network_notifier.hpp"
 #include "framework/integration_framework/fake_peer/network/on_demand_os_network_notifier.hpp"
 #include "framework/integration_framework/fake_peer/network/ordering_gate_network_notifier.hpp"
 #include "framework/integration_framework/fake_peer/network/ordering_service_network_notifier.hpp"
@@ -34,7 +33,6 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/server_runner.hpp"
-#include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 #include "network/impl/async_grpc_client.hpp"
 #include "network/impl/client_factory.hpp"
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
@@ -105,23 +103,10 @@ FakePeer::FakePeer(
           log_manager_->getChild("AsyncNetworkClient")->getLogger())),
       client_factory_(
           iroha::network::getTestInsecureClientFactory(std::nullopt)),
-      mst_transport_(std::make_shared<MstTransport>(
-          async_call_,
-          transaction_factory,
-          batch_parser,
-          transaction_batch_factory,
-          tx_presence_cache,
-          std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0)),
-          PublicKeyHexStringView{keypair_->publicKey()},
-          mst_log_manager_->getChild("State")->getLogger(),
-          mst_log_manager_->getChild("Transport")->getLogger(),
-          iroha::network::makeTransportClientFactory<MstTransport>(
-              client_factory_))),
       yac_transport_client_(std::make_shared<YacTransportClient>(
           iroha::network::makeTransportClientFactory<YacTransportClient>(
               client_factory_),
           consensus_log_manager_->getChild("Transport")->getLogger())),
-      mst_network_notifier_(std::make_shared<MstNetworkNotifier>()),
       yac_network_notifier_(std::make_shared<YacNetworkNotifier>()),
       os_network_notifier_(std::make_shared<OsNetworkNotifier>()),
       og_network_notifier_(std::make_shared<OgNetworkNotifier>()),
@@ -138,7 +123,6 @@ FakePeer::FakePeer(
           })),
       yac_crypto_(std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(
           *keypair_, consensus_log_manager_->getChild("Crypto")->getLogger())) {
-  mst_transport_->subscribe(mst_network_notifier_);
 }
 
 FakePeer::~FakePeer() {
@@ -218,7 +202,6 @@ std::unique_ptr<iroha::network::ServerRunner> FakePeer::run(bool reuse_port) {
       log_manager_->getChild("InternalServer")->getLogger(),
       reuse_port);
   internal_server->append(yac_transport_server_)
-      .append(mst_transport_)
       .append(od_os_transport_)
       .append(synchronizer_transport_)
       .run()
@@ -249,11 +232,6 @@ const Keypair &FakePeer::getKeypair() const {
 
 std::shared_ptr<shared_model::interface::Peer> FakePeer::getThisPeer() const {
   return this_peer_;
-}
-
-rxcpp::observable<std::shared_ptr<integration_framework::fake_peer::MstMessage>>
-FakePeer::getMstStatesObservable() {
-  return mst_network_notifier_->getObservable();
 }
 
 rxcpp::observable<
@@ -319,10 +297,6 @@ iroha::consensus::yac::VoteMessage FakePeer::makeVote(
   my_yac_hash.block_signature = makeSignature(
       shared_model::crypto::Blob(yac_hash.vote_hashes.block_hash));
   return yac_crypto_->getVote(my_yac_hash);
-}
-
-void FakePeer::sendMstState(const iroha::MstState &state) {
-  mst_transport_->sendState(real_peer_, state);
 }
 
 void FakePeer::sendYacState(

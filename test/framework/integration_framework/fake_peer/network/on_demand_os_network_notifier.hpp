@@ -37,6 +37,10 @@ namespace integration_framework::fake_peer {
             iroha::ordering::OnDemandOrderingService::BatchesSetType &)> const
             &f) override;
 
+    std::optional<std::shared_ptr<const ProposalType>> waitForLocalProposal(
+        iroha::consensus::Round const &round,
+        std::chrono::milliseconds const &delay) override;
+
     bool isEmptyBatchesCache() override;
 
     bool hasEnoughBatchesInCache() const override;

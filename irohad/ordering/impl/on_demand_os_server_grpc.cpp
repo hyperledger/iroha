@@ -68,46 +68,30 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   consensus::Round round{request->round().block_round(),
                          request->round().reject_round()};
   log_->info("Received RequestProposal for {} from {}", round, context->peer());
-  if (not ordering_service_->hasProposal(round)
-      and not ordering_service_->hasEnoughBatchesInCache()) {
-    auto scheduler = std::make_shared<subscription::SchedulerBase>();
-    auto tid = getSubscription()->dispatcher()->bind(scheduler);
-
-    auto batches_subscription = SubscriberCreator<
-        bool,
-        std::shared_ptr<shared_model::interface::TransactionBatch>>::
-        template create<EventTypes::kOnTxsEnoughForProposal>(
-            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
-            [scheduler(utils::make_weak(scheduler))](auto, auto) {
-              if (auto maybe_scheduler = scheduler.lock())
-                maybe_scheduler->dispose();
-            });
-    auto proposals_subscription =
-        SubscriberCreator<bool, consensus::Round>::template create<
-            EventTypes::kOnPackProposal>(
-            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
-            [round, scheduler(utils::make_weak(scheduler))](auto,
-                                                            auto packed_round) {
-              if (auto maybe_scheduler = scheduler.lock();
-                  maybe_scheduler and round == packed_round)
-                maybe_scheduler->dispose();
-            });
-    scheduler->addDelayed(delay_, [scheduler(utils::make_weak(scheduler))] {
-      if (auto maybe_scheduler = scheduler.lock()) {
-        maybe_scheduler->dispose();
-      }
-    });
-
-    scheduler->process();
-
-    getSubscription()->dispatcher()->unbind(*tid);
+  auto maybe_proposal = ordering_service_->waitForLocalProposal(round, delay_);
+  if (maybe_proposal.has_value()) {
+    if (request->has_ref_proposal_hash()
+        && maybe_proposal.value()->hash()
+            == shared_model::crypto::Hash(request->ref_proposal_hash()))
+      response->set_same_proposal_hash(request->ref_proposal_hash());
+    else
+      *response->mutable_proposal() =
+          static_cast<const shared_model::proto::Proposal *>(
+              maybe_proposal->get())
+              ->getTransport();
   }
 
-  if (auto maybe_proposal = ordering_service_->onRequestProposal(round)) {
-    *response->mutable_proposal() =
-        static_cast<const shared_model::proto::Proposal *>(
-            maybe_proposal->get())
-            ->getTransport();
-  }
+  log_->debug(
+      "Responding for {} with {}: our proposal {}",
+      round,
+      request->has_ref_proposal_hash() ? request->ref_proposal_hash()
+                                       : "NO REFERENCE PROPOSAL HASH",
+      response->optional_proposal_case() == response->kProposal
+          ? fmt::format("has DIFFERENT hash {}, sending full proposal",
+                        maybe_proposal.value()->hash().hex())
+          : response->optional_proposal_case() == response->kSameProposalHash
+              ? "has SAME hash, sending only hash"
+              : "is EMPTY");
+
   return ::grpc::Status::OK;
 }

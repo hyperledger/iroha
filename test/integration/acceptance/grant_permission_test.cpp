@@ -14,7 +14,7 @@ using namespace shared_model::interface::permissions;
 using namespace common_constants;
 
 struct GrantPermissionFx : GrantablePermissionsFixture,
-                         ::testing::WithParamInterface<StorageType> {};
+                           ::testing::WithParamInterface<StorageType> {};
 INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(GrantPermissionFx);
 
 /**
@@ -301,20 +301,16 @@ TEST_P(GrantPermissionFx, GrantMoreThanOnce) {
   IntegrationTestFramework itf(1, GetParam());
   itf.setInitialState(kAdminKeypair);
   createTwoAccounts(itf, {kCanGrantAll}, {Role::kReceive})
-      .sendTx(grantPermission(kAccount1,
-                              kAccount1Keypair,
-                              kAccount2,
-                              permissions::Grantable::kAddMySignatory))
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(grantPermission(kAccount1,
-                              kAccount1Keypair,
-                              kAccount2,
-                              permissions::Grantable::kAddMySignatory))
-      .skipProposal()
-      .checkVerifiedProposal(
-          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
-      .checkBlock(
+      .sendTxAwait(
+          grantPermission(kAccount1,
+                          kAccount1Keypair,
+                          kAccount2,
+                          permissions::Grantable::kAddMySignatory),
+          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
+      .sendTxAwait(
+          grantPermission(kAccount1,
+                          kAccount1Keypair,
+                          kAccount2,
+                          permissions::Grantable::kAddMySignatory),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
 }

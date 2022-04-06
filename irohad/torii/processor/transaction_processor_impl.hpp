@@ -12,7 +12,6 @@
 #include "interfaces/iroha_internal/tx_status_factory.hpp"
 #include "interfaces/transaction_responses/tx_response.hpp"
 #include "logger/logger_fwd.hpp"
-#include "multi_sig_transactions/mst_processor.hpp"
 #include "network/peer_communication_service.hpp"
 #include "torii/status_bus.hpp"
 #include "validation/stateful_validator_common.hpp"
@@ -30,7 +29,6 @@ namespace iroha {
        */
       TransactionProcessorImpl(
           std::shared_ptr<network::PeerCommunicationService> pcs,
-          std::shared_ptr<MstProcessor> mst_processor,
           std::shared_ptr<iroha::torii::StatusBus> status_bus,
           std::shared_ptr<shared_model::interface::TxStatusFactory>
               status_factory,
@@ -47,12 +45,12 @@ namespace iroha {
           std::shared_ptr<const shared_model::interface::Block> const &block)
           override;
 
-      void processStateUpdate(std::shared_ptr<MstState> const &state) override;
-
+      void processStateUpdate(
+          std::shared_ptr<shared_model::interface::TransactionBatch> const
+              &batch) override;
       void processPreparedBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) override;
-
       void processExpiredBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> const
               &batch) override;
@@ -60,9 +58,6 @@ namespace iroha {
      private:
       // connections
       std::shared_ptr<network::PeerCommunicationService> pcs_;
-
-      // processing
-      std::shared_ptr<MstProcessor> mst_processor_;
 
       std::shared_ptr<iroha::torii::StatusBus> status_bus_;
 
@@ -100,15 +95,6 @@ namespace iroha {
                          const shared_model::crypto::Hash &hash,
                          const validation::CommandError &cmd_error =
                              validation::CommandError{}) const;
-
-      /**
-       * Publish kEnoughSignaturesCollected status for each transaction in
-       * collection
-       * @param txs - collection of those transactions
-       */
-      void publishEnoughSignaturesStatus(
-          const shared_model::interface::types::SharedTxsCollectionType &txs)
-          const;
     };
   }  // namespace torii
 }  // namespace iroha
