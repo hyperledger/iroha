@@ -37,25 +37,26 @@ jobs:
           #     FORK_HEAD_BRANCH: ${{ github.head_ref }}
         # outputs:
         #   ancestor_sha: ${{steps.ancestor.outputs.ancestor_sha}}
-      - id: files
-        uses: jitterbit/get-changed-files@v1
-      - run: |
-          for changed_file in ${{ steps.files.outputs.all }}; do
-            echo "Do something with this ${changed_file}."
-          done
-        # - 
-        #   name: Get changed files
-        #   id: changed-files
-        #   uses: tj-actions/changed-files@v18.6
-        #   with:
-        #     base_sha: ${{ needs.ancestor.outputs.ancestor_sha }}
+      - name: Filter files
+        uses: dorny/paths-filter@v2
+        id: filter
+      - name: backend tests
+        run: echo "$files"
+        with:
+          files: ${{ steps.filter.outputs.changed_files }}
+          # - 
+          #   name: Get changed files
+          #   id: changed-files
+          #   uses: tj-actions/changed-files@v18.6
+          #   with:
+          #     base_sha: ${{ needs.ancestor.outputs.ancestor_sha }}
 
-        # - 
-        #   name: List all changed files
-        #   run: |
-        #     for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
-        #       echo "$file was changed"
-        #     done
+          # - 
+          #   name: List all changed files
+          #   run: |
+          #     for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+          #       echo "$file was changed"
+          #     done
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,

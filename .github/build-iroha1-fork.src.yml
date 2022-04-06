@@ -43,12 +43,17 @@ jobs:
         # outputs:
         #   ancestor_sha: ${{steps.ancestor.outputs.ancestor_sha}}
 
-      - id: files
-        uses: jitterbit/get-changed-files@v1
-      - run: |
-          for changed_file in ${{ steps.files.outputs.all }}; do
-            echo "Do something with this ${changed_file}."
-          done
+      - 
+        name: Filter files
+        uses: dorny/paths-filter@v2
+        id: filter
+        
+      - 
+        name: backend tests
+        run:
+          echo "$files"
+        with:
+          files: ${{ steps.filter.outputs.changed_files }}
 
       # - 
       #   name: Get changed files
