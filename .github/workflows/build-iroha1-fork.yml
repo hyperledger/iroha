@@ -28,7 +28,6 @@ jobs:
           git remote add base ${{github.event.pull_request.base.repo.svn_url}}
           git fetch base
           git merge-base base/$FORK_BASE_BRANCH origin/$FORK_HEAD_BRANCH > command.sh
-          cat command.sh
         env:
           FORK_BASE_BRANCH: ${{ github.base_ref }}
           FORK_HEAD_BRANCH: ${{ github.head_ref }}
