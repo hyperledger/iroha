@@ -1,13 +1,25 @@
 //! Module with permission for transfering
 
-use std::str::FromStr as _;
+use std::{str::FromStr as _, time::Duration};
 
 use super::*;
 
 #[allow(clippy::expect_used)]
 /// Can transfer user's assets permission token name.
 pub static CAN_TRANSFER_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_transfer_user_assets").expect("Tested. Works.")); // See #1978
+    Lazy::new(|| Name::from_str("can_transfer_user_assets").expect("Valid")); // See #1978
+
+#[allow(clippy::expect_used)]
+/// Can transfer only fixed number of times per some time period
+pub static CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD: Lazy<Name> = Lazy::new(|| {
+    Name::from_str("can_transfer_only_fixed_number_of_times_per_period").expect("Valid")
+});
+#[allow(clippy::expect_used)]
+/// Name of `period` param for `CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD`
+pub static PERIOD_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::from_str("period").expect("Valid"));
+#[allow(clippy::expect_used)]
+/// Name of `count` param for `CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD`
+pub static COUNT_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::from_str("count").expect("Valid"));
 
 /// Checks that account transfers only the assets that he owns.
 #[derive(Debug, Copy, Clone)]
@@ -102,4 +114,136 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
         }
         check_asset_owner_for_token(&permission_token, authority)
     }
+}
+
+/// Validator that checks that `Transfer` instruction execution count
+/// fits well in some time period
+#[derive(Debug, Clone, Copy)]
+pub struct ExecutionCountFitsInLimit;
+
+impl_from_item_for_instruction_validator_box!(ExecutionCountFitsInLimit);
+
+impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    fn check(
+        &self,
+        authority: &AccountId,
+        instruction: &Instruction,
+        wsv: &WorldStateView<W>,
+    ) -> Result<(), DenialReason> {
+        if !matches!(instruction, Instruction::Transfer(_)) {
+            return Ok(());
+        };
+
+        let params = retrieve_permission_params(wsv, authority)?;
+        if params.is_empty() {
+            return Ok(());
+        }
+
+        let period = retrieve_period(&params)?;
+        let count = retrieve_count(&params)?;
+        let executions_count: u32 = count_executions(wsv, authority, period)
+            .try_into()
+            .expect("`usize` should always fit in `u32`");
+        if executions_count >= count {
+            return Err(DenialReason::from(
+                "Transfer transaction limit for current period is exceed",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Retrieve permission parameters for `ExecutionCountFitsInLimit` validator.
+/// Returns empty collection if nothing found
+///
+/// # Errors
+/// - Account doesn't exist
+fn retrieve_permission_params<W: WorldTrait>(
+    wsv: &WorldStateView<W>,
+    authority: &AccountId,
+) -> Result<BTreeMap<Name, Value>, DenialReason> {
+    wsv.map_account(authority, |account| {
+        wsv.account_permission_tokens(account)
+            .iter()
+            .filter(|token| token.name == *CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD)
+            .map(|token| token.params.clone())
+            .next()
+            .unwrap_or_default()
+    })
+    .map_err(|e| e.to_string())
+}
+
+/// Retrieve period from `params`
+///
+/// # Errors
+/// - There is no period parameter
+/// - Period has wrong value type
+/// - Failed conversion from `u128` to `u64`
+fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration, DenialReason> {
+    match params
+        .get(&*PERIOD_PARAM_NAME)
+        .ok_or_else(|| format!("Expected `{}` parameter", *PERIOD_PARAM_NAME))?
+    {
+        Value::U128(period) => Ok(Duration::from_millis(
+            u64::try_from(*period).map_err(|e| e.to_string())?,
+        )),
+        _ => Err(format!(
+            "`{}` parameter has wrong value type. Expected `u128`",
+            *PERIOD_PARAM_NAME
+        )),
+    }
+}
+
+/// Retrieve count from `params`
+///
+/// # Errors
+/// - There is no count parameter
+/// - Count has wrong value type
+fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32, DenialReason> {
+    match params
+        .get(&*COUNT_PARAM_NAME)
+        .ok_or_else(|| format!("Expected `{}` parameter", *COUNT_PARAM_NAME))?
+    {
+        Value::U32(count) => Ok(*count),
+        _ => Err(format!(
+            "`{}` parameter has wrong value type. Expected `u32`",
+            *COUNT_PARAM_NAME
+        )),
+    }
+}
+
+/// Counts the number of `Transfer`s  which happened in the last `period`
+fn count_executions<W: WorldTrait>(
+    wsv: &WorldStateView<W>,
+    authority: &AccountId,
+    period: Duration,
+) -> usize {
+    let period_start_ms = current_time().saturating_sub(period).as_millis();
+
+    wsv.blocks()
+        .rev()
+        .take_while(|block| block.header().timestamp > period_start_ms)
+        .map(|block| -> usize {
+            block
+                .as_v1()
+                .transactions
+                .iter()
+                .filter_map(|tx| {
+                    let payload = tx.payload();
+                    if payload.account_id == *authority {
+                        if let Executable::Instructions(instructions) = &payload.instructions {
+                            return Some(
+                                instructions
+                                    .iter()
+                                    .filter(|isi| matches!(isi, Instruction::Transfer(_)))
+                                    .count(),
+                            );
+                        }
+                    }
+                    None
+                })
+                .sum()
+        })
+        .sum()
 }

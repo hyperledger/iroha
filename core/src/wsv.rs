@@ -418,9 +418,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// **Locking behaviour**: Holding references to blocks stored in the blockchain can induce
     /// deadlock. This limitation is imposed by the fact that blockchain is backed by [`dashmap::DashMap`]
     #[inline]
-    pub fn blocks(
-        &self,
-    ) -> impl Iterator<Item = impl Deref<Target = VersionedCommittedBlock> + '_> {
+    pub fn blocks(&self) -> crate::block::ChainIterator {
         self.blocks.iter()
     }
 
