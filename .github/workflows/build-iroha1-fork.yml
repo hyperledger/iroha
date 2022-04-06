@@ -29,7 +29,6 @@ jobs:
           git fetch base
           git merge-base base/$FORK_BASE_BRANCH origin/$FORK_HEAD_BRANCH > command.sh
           cat command.sh
-          echo "::set-output name=ancestor_sha::$(cat command.sh)"
         env:
           FORK_BASE_BRANCH: ${{ github.base_ref }}
           FORK_HEAD_BRANCH: ${{ github.head_ref }}
