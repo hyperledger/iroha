@@ -49,7 +49,7 @@ jobs:
             dockerfile:
               - "**/Dockerfile"
               - "docker/release/entrypoint.sh"
-              - "docker/release/wait-for-it.sh"
+        # - "docker/release/wait-for-it.sh"
             
       - name: verify .github folder is not changed
         if: steps.filter.outputs.github == 'true'
