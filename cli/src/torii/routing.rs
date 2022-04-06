@@ -2,6 +2,8 @@
 //! Iroha you should add it here by creating a `handle_*` function,
 //! and add it to impl Torii. This module also defines the `VerifiedQueryRequest`,
 //! which is the only kind of query that is permitted to execute.
+use std::num::TryFromIntError;
+
 use eyre::WrapErr;
 use iroha_actor::Addr;
 use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
@@ -95,7 +97,7 @@ pub(crate) async fn handle_instructions<W: WorldTrait>(
     #[allow(clippy::map_err_ignore)]
     let push_result = queue.push(transaction).map_err(|(_, err)| err);
     if let Err(ref error) = push_result {
-        iroha_logger::warn!(%error, "Failed to push to queue")
+        iroha_logger::warn!(%error, "Failed to push into queue")
     }
     push_result
         .map_err(Box::new)
@@ -109,17 +111,27 @@ pub(crate) async fn handle_queries<W: WorldTrait>(
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
-) -> Result<Scale<VersionedQueryResult>, warp::http::Response<warp::hyper::Body>> {
+) -> Result<Scale<VersionedPaginatedQueryResult>, warp::http::Response<warp::hyper::Body>> {
     let valid_request = request
         .validate(&wsv, &query_validator)
         .map_err(into_reply)?;
-    let result = valid_request.execute(&wsv).map_err(into_reply)?;
-    let result = QueryResult(if let Value::Vec(value) = result {
+    let original_result = valid_request.execute(&wsv).map_err(into_reply)?;
+    let total: u64 = original_result
+        .len()
+        .try_into()
+        .map_err(|e: TryFromIntError| QueryError::Conversion(e.to_string()))
+        .map_err(into_reply)?;
+    let result = QueryResult(if let Value::Vec(value) = original_result {
         Value::Vec(value.into_iter().paginate(pagination).collect())
     } else {
-        result
+        original_result
     });
-    Ok(Scale(result.into()))
+    let paginated_result = PaginatedQueryResult {
+        result,
+        pagination,
+        total,
+    };
+    Ok(Scale(paginated_result.into()))
 }
 
 #[allow(clippy::needless_pass_by_value)] // Required for `map_err`.

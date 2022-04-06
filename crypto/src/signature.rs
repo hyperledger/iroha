@@ -348,9 +348,9 @@ impl<T> IntoIterator for SignaturesOf<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a SignaturesOf<T> {
-    type Item = &'a SignatureOf<T>;
-    type IntoIter = btree_map::Values<'a, PublicKey, SignatureOf<T>>;
+impl<'itm, T> IntoIterator for &'itm SignaturesOf<T> {
+    type Item = &'itm SignatureOf<T>;
+    type IntoIter = btree_map::Values<'itm, PublicKey, SignatureOf<T>>;
     fn into_iter(self) -> Self::IntoIter {
         self.signatures.values()
     }
@@ -406,7 +406,7 @@ impl<T> SignaturesOf<T> {
     /// # Warning:
     ///
     /// This method uses [`core::mem::transmute`] internally
-    #[allow(unsafe_code)]
+    #[allow(unsafe_code, clippy::transmute_undefined_repr)]
     pub fn transmute<F>(self) -> SignaturesOf<F> {
         // SAFETY: Safe because we are transmuting to a pointer of
         // type `<F>` which is related to type `<T>`.

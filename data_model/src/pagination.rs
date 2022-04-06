@@ -4,6 +4,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{
     collections::btree_map,
+    format,
     string::{String, ToString as _},
     vec,
     vec::Vec,
@@ -13,6 +14,7 @@ use core::fmt;
 use std::collections::btree_map;
 
 use iroha_schema::IntoSchema;
+use iroha_version::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "warp")]
 use warp::{
@@ -71,7 +73,9 @@ impl<I: Iterator> Iterator for Paginated<I> {
 }
 
 /// Structure for pagination requests
-#[derive(Clone, Eq, PartialEq, Debug, Default, Copy, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, Decode, Encode, IntoSchema,
+)]
 pub struct Pagination {
     /// start of indexing
     pub start: Option<u32>,

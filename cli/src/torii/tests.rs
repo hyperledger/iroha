@@ -105,8 +105,11 @@ async fn torii_pagination() {
         )
         .map(|result| {
             let Scale(query_result) = result.unwrap();
-            if let VersionedQueryResult::V1(QueryResult(Value::Vec(domain))) = query_result {
-                domain
+            let VersionedPaginatedQueryResult::V1(PaginatedQueryResult { result, .. }) =
+                query_result;
+
+            if let QueryResult(Value::Vec(domains)) = result {
+                domains
             } else {
                 unreachable!()
             }

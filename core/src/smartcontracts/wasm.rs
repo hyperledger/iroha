@@ -68,7 +68,7 @@ impl From<ParseError> for Error {
     }
 }
 
-struct Validator<'a, W: WorldTrait> {
+struct Validator<'wrld, W: WorldTrait> {
     /// Number of instructions in the smartcontract
     instruction_count: u64,
     /// Max allowed number of instructions in the smartcontract
@@ -78,7 +78,7 @@ struct Validator<'a, W: WorldTrait> {
     /// If this particular query is allowed
     is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
     /// Current [`WorldStateview`]
-    wsv: &'a WorldStateView<W>,
+    wsv: &'wrld WorldStateView<W>,
 }
 
 impl<W: WorldTrait> Validator<'_, W> {
@@ -125,16 +125,16 @@ impl<W: WorldTrait> Validator<'_, W> {
     }
 }
 
-struct State<'a, W: WorldTrait> {
+struct State<'wrld, W: WorldTrait> {
     account_id: AccountId,
     /// Ensures smartcontract adheres to limits
-    validator: Option<Validator<'a, W>>,
+    validator: Option<Validator<'wrld, W>>,
     store_limits: StoreLimits,
-    wsv: &'a WorldStateView<W>,
+    wsv: &'wrld WorldStateView<W>,
 }
 
-impl<'a, W: WorldTrait> State<'a, W> {
-    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId, config: Configuration) -> Self {
+impl<'wrld, W: WorldTrait> State<'wrld, W> {
+    fn new(wsv: &'wrld WorldStateView<W>, account_id: AccountId, config: Configuration) -> Self {
         Self {
             wsv,
             account_id,
@@ -171,13 +171,13 @@ impl<'a, W: WorldTrait> State<'a, W> {
 }
 
 /// `WebAssembly` virtual machine
-pub struct Runtime<'a, W: WorldTrait> {
+pub struct Runtime<'wrld, W: WorldTrait> {
     engine: Engine,
-    linker: Linker<State<'a, W>>,
+    linker: Linker<State<'wrld, W>>,
     config: Configuration,
 }
 
-impl<'a, W: WorldTrait> Runtime<'a, W> {
+impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
     /// `Runtime` constructor with default configuration.
     ///
     /// # Errors
@@ -344,7 +344,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         Ok(())
     }
 
-    fn create_linker(engine: &Engine) -> Result<Linker<State<'a, W>>, Error> {
+    fn create_linker(engine: &Engine) -> Result<Linker<State<'wrld, W>>, Error> {
         let mut linker = Linker::new(engine);
 
         linker

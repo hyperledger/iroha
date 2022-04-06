@@ -46,7 +46,7 @@
 | Evaluate err.   |    400 | `QueryError::Evaluate(String)` |
 | Find err.       |    404 | `QueryError::Find(Box<FindError>)` |
 | Conversion err. |    400 | `QueryError::Conversion(String)` |
-| Success         |    200 | `VersionedQueryResult` |
+| Success         |    200 | `VersionedPaginatedQueryResult` |
 
 #### Asset Not Found 404
 Whether each prerequisite object was found and `FindError`:

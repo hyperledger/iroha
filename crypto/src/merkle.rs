@@ -61,8 +61,8 @@ pub enum Node<T> {
 
 #[derive(Debug)]
 /// BFS iterator over the Merkle tree
-pub struct BreadthFirstIter<'a, T> {
-    queue: Vec<&'a Node<T>>,
+pub struct BreadthFirstIter<'itm, T> {
+    queue: Vec<&'itm Node<T>>,
 }
 
 #[cfg(feature = "std")]
@@ -196,8 +196,8 @@ impl<T> Node<T> {
     }
 }
 
-impl<'a, T> BreadthFirstIter<'a, T> {
-    fn new(root_node: &'a Node<T>) -> Self {
+impl<'itm, T> BreadthFirstIter<'itm, T> {
+    fn new(root_node: &'itm Node<T>) -> Self {
         BreadthFirstIter {
             queue: vec![root_node],
         }
@@ -208,8 +208,8 @@ impl<'a, T> BreadthFirstIter<'a, T> {
 /// `'a` lifetime specified for `Node`. Because `Node` is recursive data structure with self
 /// composition in case of `Node::Subtree` we use `Box` to know size of each `Node` object in
 /// memory.
-impl<'a, T> Iterator for BreadthFirstIter<'a, T> {
-    type Item = &'a Node<T>;
+impl<'itm, T> Iterator for BreadthFirstIter<'itm, T> {
+    type Item = &'itm Node<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &self.queue.pop() {
@@ -225,9 +225,9 @@ impl<'a, T> Iterator for BreadthFirstIter<'a, T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a MerkleTree<T> {
-    type Item = &'a Node<T>;
-    type IntoIter = BreadthFirstIter<'a, T>;
+impl<'itm, T> IntoIterator for &'itm MerkleTree<T> {
+    type Item = &'itm Node<T>;
+    type IntoIter = BreadthFirstIter<'itm, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         BreadthFirstIter::new(&self.root_node)
