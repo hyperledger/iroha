@@ -26,9 +26,7 @@ RocksdbBurrowStorage::RocksdbBurrowStorage(
     RocksDbCommon &common,
     std::string_view tx_hash,
     shared_model::interface::types::CommandIndexType cmd_index)
-    : common_(common),
-      tx_hash_(tx_hash),
-      cmd_index_(cmd_index) {}
+    : common_(common), tx_hash_(tx_hash), cmd_index_(cmd_index) {}
 
 Result<std::optional<std::string>, std::string>
 RocksdbBurrowStorage::getAccount(std::string_view address) {
@@ -61,9 +59,9 @@ Result<void, std::string> RocksdbBurrowStorage::removeAccount(
 
   auto const &[_, status] =
       common_.filterDelete(std::numeric_limits<uint64_t>::max(),
-                          RocksDBPort::ColumnFamilyType::kWsv,
-                          fmtstrings::kPathEngineStorage,
-                          address_lc);
+                           RocksDBPort::ColumnFamilyType::kWsv,
+                           fmtstrings::kPathEngineStorage,
+                           address_lc);
 
   if (!status.ok() && !status.IsNotFound())
     return expected::makeError(fmt::format(
@@ -119,8 +117,8 @@ Result<void, std::string> RocksdbBurrowStorage::initCallId() {
       call_id_cache_ = std::make_pair(0ull, 0ull);
 
     common_.encode(call_id_cache_->first);
-    RDB_ERROR_CHECK_TO_STR(
-        forCallEngineCallIds<kDbOperation::kPut>(common_, tx_hash_, cmd_index_));
+    RDB_ERROR_CHECK_TO_STR(forCallEngineCallIds<kDbOperation::kPut>(
+        common_, tx_hash_, cmd_index_));
 
     common_.encode(call_id_cache_->first + 1ull);
     RDB_ERROR_CHECK_TO_STR(

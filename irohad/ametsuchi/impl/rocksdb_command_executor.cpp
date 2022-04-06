@@ -10,9 +10,9 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/variant/apply_visitor.hpp>
 #include "ametsuchi/impl/executor_common.hpp"
-#include "ametsuchi/setting_query.hpp"
 #include "ametsuchi/impl/rocksdb_burrow_storage.hpp"
 #include "ametsuchi/impl/rocksdb_specific_query_executor.hpp"
+#include "ametsuchi/setting_query.hpp"
 #include "ametsuchi/vm_caller.hpp"
 #include "common/to_lower.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
@@ -30,13 +30,13 @@
 #include "interfaces/commands/grant_permission.hpp"
 #include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
-#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/commands/revoke_permission.hpp"
 #include "interfaces/commands/set_account_detail.hpp"
 #include "interfaces/commands/set_quorum.hpp"
 #include "interfaces/commands/set_setting_value.hpp"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "main/rdb_status.hpp"
 #include "main/subscription.hpp"
 
@@ -52,8 +52,7 @@ using shared_model::interface::RolePermissionSet;
 RocksDbCommandExecutor::RocksDbCommandExecutor(
     std::shared_ptr<RocksDBContext> db_context,
     std::shared_ptr<shared_model::interface::PermissionToString> perm_converter,
-    std::shared_ptr<RocksDbSpecificQueryExecutor>
-    specific_query_executor,
+    std::shared_ptr<RocksDbSpecificQueryExecutor> specific_query_executor,
     std::optional<std::reference_wrapper<const VmCaller>> vm_caller)
     : db_context_(std::move(db_context)),
       perm_converter_{std::move(perm_converter)},

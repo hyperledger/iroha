@@ -14,7 +14,7 @@
 #include "interfaces/common_objects/types.hpp"
 
 namespace iroha::ametsuchi {
-    class RocksDbCommon;
+  class RocksDbCommon;
 
   class RocksdbBurrowStorage : public BurrowStorage {
    public:
@@ -46,9 +46,9 @@ namespace iroha::ametsuchi {
         std::vector<std::string_view> topics) override;
 
     std::optional<size_t> getCallId() const {
-        if (call_id_cache_)
-            return call_id_cache_->first;
-        return std::nullopt;
+      if (call_id_cache_)
+        return call_id_cache_->first;
+      return std::nullopt;
     }
 
     expected::Result<void, std::string> initCallId();

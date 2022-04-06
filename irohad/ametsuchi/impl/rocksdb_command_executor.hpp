@@ -52,7 +52,7 @@ namespace iroha::ametsuchi {
     using ExecutionResult = expected::Result<void, DbError>;
 
     enum ErrorCodes {
-      kNotConfigured = 1,  
+      kNotConfigured = 1,
       kNoPermissions = 2,
       kNoAccount = 3,
       kInvalidAmount = 3,
@@ -76,8 +76,7 @@ namespace iroha::ametsuchi {
         std::shared_ptr<RocksDBContext> db_context,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
-        std::shared_ptr<RocksDbSpecificQueryExecutor>
-        specific_query_executor,
+        std::shared_ptr<RocksDbSpecificQueryExecutor> specific_query_executor,
         std::optional<std::reference_wrapper<const VmCaller>> vm_caller);
 
     ~RocksDbCommandExecutor();

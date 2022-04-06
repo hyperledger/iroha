@@ -122,8 +122,8 @@
  *                |               +-|EC_DEPLOYS|-+-<call_id_1, address1>
  *                |               |              +-<call_id_2, address2>
  *                |               |
- *                |               +-|EC_CON_CALLS|-+-<call_id_1, callee\0engine_response>
- *                |               |                +-<call_id_2, callee\0engine_response>
+ *                |               +-|EC_CON_CALLS|-+-<call_id_1, callee|engine_response>
+ *                |               |                +-<call_id_2, callee|engine_response>
  *                |               |
  *                |               +-|ACCOUNT|-+-<address1,account1>
  *                |               |           +-<address2,account2>
@@ -276,6 +276,11 @@ namespace iroha::ametsuchi::fmtstrings {
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/
                      RDB_ADDRESS)};
 
+  // hash ➡️ call_id
+  static auto constexpr kPathEngineCallIds{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_ENGINE_CALLS /**/ RDB_XXX)};
+
   // domain_id/account_name
   static auto constexpr kPathSignatories{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_SIGNATORIES)};
@@ -283,6 +288,11 @@ namespace iroha::ametsuchi::fmtstrings {
   // no param
   static auto constexpr kPathRoles{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_ROLES)};
+
+  // call_id ➡️ log_ix/address/data
+  static auto constexpr kPathEngineLogs{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_LOGS /**/ RDB_XXX)};
 
   // account
   static auto constexpr kPathTransactionByTs{
@@ -306,6 +316,11 @@ namespace iroha::ametsuchi::fmtstrings {
   // account_domain_id/account_name/asset_id
   static auto constexpr kPathAccountAssets{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_ASSETS)};
+
+  // log_ix ➡️ topic
+  static auto constexpr kPathEngineTopics{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_TOPICS /**/ RDB_XXX)};
 
   /**
    * ######################################
