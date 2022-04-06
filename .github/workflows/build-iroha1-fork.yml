@@ -26,6 +26,7 @@ jobs:
         id: ancestor
         run: |
           git remote add base ${{github.event.pull_request.base.repo.svn_url}}
+          git remote add origin ${{github.event.pull_request.head.repo.svn_url}}
           git fetch base
           git merge-base base/feature/DOPS-1651/enable-fork-build origin/main
         env:
