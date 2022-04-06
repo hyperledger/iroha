@@ -6,7 +6,7 @@ permissions:
   actions: read
   checks: read
   contents: read
-  deployments: write
+  deployments: none
   issues: read
   packages: write
   pull-requests: read
