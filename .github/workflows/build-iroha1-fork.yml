@@ -2,6 +2,17 @@
 ## Generated from build-iroha1-fork.src.yml with make-workflows.sh
 
 name: Iroha1-fork
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  deployments: read
+  issues: read
+  packages: read
+  pull-requests: read
+  repository-projects: read
+  security-events: read
+  statuses: read
 ## This workflow is created for pull requests from forks only and has less permissions than build-iroha1 workflow
 on:
   pull_request_target:
