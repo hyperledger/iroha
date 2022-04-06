@@ -40,6 +40,10 @@ jobs:
       - name: Filter files
         uses: dorny/paths-filter@v2
         id: filter
+        with:
+          filters: |
+            github:
+              - '.github/**'
       - name: backend tests
         run: echo "$changed_files"
         env:
