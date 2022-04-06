@@ -41,9 +41,9 @@ jobs:
         uses: dorny/paths-filter@v2
         id: filter
       - name: backend tests
-        run: echo "$files"
-        with:
-          files: ${{ steps.filter.outputs.changed_files }}
+        run: echo "$changed_files"
+        env:
+          changed_files: ${{ steps.filter.outputs.changed_files }}
           # - 
           #   name: Get changed files
           #   id: changed-files

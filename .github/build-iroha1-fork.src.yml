@@ -51,9 +51,9 @@ jobs:
       - 
         name: backend tests
         run:
-          echo "$files"
-        with:
-          files: ${{ steps.filter.outputs.changed_files }}
+          echo "$changed_files"
+        env:
+          changed_files: ${{ steps.filter.outputs.changed_files }}
 
       # - 
       #   name: Get changed files
