@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+echo "Malicious code"
+
 # if first arg looks like a flag, assume we want to run irohad server
 if [ "${1:0:1}" = '-' ]; then
   set -- irohad "$@"
