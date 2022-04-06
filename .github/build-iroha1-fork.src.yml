@@ -49,14 +49,14 @@ jobs:
           echo "Pull requests from forks are not allowed to change Dockerfiles"
           false
       
-  ## GitHub Actions Workflow does not support yaml anchors
-  ## and that is why there is a workaround with make-workflows.sh
-  ## You should `pre-commit install` or use `pre-commit-hook.sh`,
-  ## anyway please read .github/README.md
-  check_workflow_yaml_coressponds_to_src_yaml:
+
+  generate_matrixes:
     runs-on: ubuntu-20.04 #ubuntu-latest
-    name: Check if github workflows were properly made from sources
     needs: check_if_pull_request_comes_from_fork
+    #container: ubuntu:latest
+    if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
+          github.event.issue.pull_request &&
+          startsWith(github.event.comment.body, '/build') ) }}
     steps:
       - &step_show_context
         name: Show context
@@ -82,27 +82,6 @@ jobs:
               "PR_SHA="+.head.sha,
               "PR_NUM="+(.number|tostring),
               "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
-      - *step_show_context
-      - *step_checkout_head
-      -
-        run: sudo snap install yq
-      -
-        name: Check if .github/workflows/*.yml correspond to *.src.yml
-        run: |
-          set -x
-          [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
-
-
-  generate_matrixes:
-    runs-on: ubuntu-20.04 #ubuntu-latest
-    needs: check_if_pull_request_comes_from_fork
-    #container: ubuntu:latest
-    if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
-          github.event.issue.pull_request &&
-          startsWith(github.event.comment.body, '/build') ) }}
-    steps:
-      - *step_show_context
-      - *step_detect_commented_pr
       - *step_checkout_head
       -
         name: Generate matrix for build triggered by chat-ops - comment to PR
@@ -184,7 +163,7 @@ jobs:
       matrix_dockerimage_debug:   ${{steps.matrixes.outputs.matrix_dockerimage_debug}}
 
   Docker-iroha-builder:
-    needs: check_workflow_yaml_coressponds_to_src_yaml
+    needs: check_if_pull_request_comes_from_fork
     runs-on: ubuntu-20.04 #ubuntu-latest #[ self-hosted, Linux ]
     steps:
       - *step_show_context
@@ -292,9 +271,6 @@ jobs:
           push: ${{ steps.docker_login.outcome == 'success' }}
           tags:   ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-        # env:
-        #   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        #   DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
       - &step_docker_build_and_push_ghcr
         <<: *step_docker_build_and_push
         id: build_and_push_ghcr
@@ -304,9 +280,6 @@ jobs:
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo == github.event.pull_request.base.repo }}
           tags:   ${{ steps.meta_ghcr.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
-        # env:
-        #   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        #   DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
       - &step_docker_move_cache
         # Temp fix
         # https://github.com/docker/build-push-action/issues/252
@@ -339,7 +312,6 @@ jobs:
       - Docker-iroha-builder
       - generate_matrixes
     runs-on: [ self-hosted, Linux ]
-    #runs-on: ubuntu-20.04 
     container: ## Container is taken from previous job
       image: &container_image ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
@@ -619,7 +591,7 @@ jobs:
 
   ## Just to align picture
   prepare-macos-env:
-    needs: check_workflow_yaml_coressponds_to_src_yaml
+    needs: check_if_pull_request_comes_from_fork
     runs-on: macos-latest
     steps:
       - *step_show_context
@@ -687,7 +659,7 @@ jobs:
 
   ## Just to align picture
   prepare-windows-env:
-    needs: check_workflow_yaml_coressponds_to_src_yaml
+    needs: check_if_pull_request_comes_from_fork
     runs-on: windows-latest
     steps:
       - *step_show_context
@@ -762,9 +734,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_release ) }}
     if:       ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_release ).include[0] }}
-    #env: &env_dockerhub_release
-    #  <<: *env_dockerhub
-    #  IMAGE_NAME: iroha
     env:
       IMAGE_NAME: iroha
     steps:
