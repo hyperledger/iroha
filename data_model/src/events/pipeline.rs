@@ -40,12 +40,14 @@ pub struct EventFilter {
 impl EventFilter {
     /// Construct [`EventFilter`].
     #[must_use]
+    #[inline]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Filter by [`EntityKind`].
     #[must_use]
+    #[inline]
     pub const fn entity_kind(mut self, entity_kind: EntityKind) -> Self {
         self.entity_kind = Some(entity_kind);
         self
@@ -53,6 +55,7 @@ impl EventFilter {
 
     /// Filter by [`StatusKind`].
     #[must_use]
+    #[inline]
     pub const fn status_kind(mut self, status_kind: StatusKind) -> Self {
         self.status_kind = Some(status_kind);
         self
@@ -60,12 +63,14 @@ impl EventFilter {
 
     /// Filter by [`Hash`].
     #[must_use]
+    #[inline]
     pub const fn hash(mut self, hash: Hash) -> Self {
         self.hash = Some(hash);
         self
     }
 
     /// Check if `self` accepts the `event`.
+    #[inline]
     pub fn matches(&self, event: &Event) -> bool {
         [
             Self::field_matches(&self.entity_kind, &event.entity_kind),
@@ -76,6 +81,7 @@ impl EventFilter {
         .all(core::convert::identity)
     }
 
+    #[inline]
     fn field_matches<T: Eq>(filter: &Option<T>, event: &T) -> bool {
         filter.as_ref().map_or(true, |field| field == event)
     }

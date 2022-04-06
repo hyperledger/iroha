@@ -19,7 +19,7 @@
     ```
     cargo bench --bench tps-dev
     ```
-    * CAUTION: "improved" and "regressed" message are reversed due to the nature of Criterion.rs, which is supposed to measure time
+    * CAUTION: "improved" and "regressed" message are reversed due to the nature of Criterion.rs, which is supposed to measure time instead of throughput by default
 
 3. See [the report](../../../target/criterion/report/index.html)
 
