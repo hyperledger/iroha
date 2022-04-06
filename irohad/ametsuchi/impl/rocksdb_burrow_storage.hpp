@@ -14,12 +14,12 @@
 #include "interfaces/common_objects/types.hpp"
 
 namespace iroha::ametsuchi {
-  struct RocksDBContext;
+    class RocksDbCommon;
 
   class RocksdbBurrowStorage : public BurrowStorage {
    public:
     RocksdbBurrowStorage(
-        std::shared_ptr<RocksDBContext> db_context,
+        RocksDbCommon &common,
         std::string_view tx_hash,
         shared_model::interface::types::CommandIndexType cmd_index);
 
@@ -45,8 +45,16 @@ namespace iroha::ametsuchi {
         std::string_view data,
         std::vector<std::string_view> topics) override;
 
+    std::optional<size_t> getCallId() const {
+        if (call_id_cache_)
+            return call_id_cache_->first;
+        return std::nullopt;
+    }
+
+    expected::Result<void, std::string> initCallId();
+
    private:
-    std::shared_ptr<RocksDBContext> db_context_;
+    RocksDbCommon &common_;
     std::string_view tx_hash_;
     shared_model::interface::types::CommandIndexType cmd_index_;
     std::optional<std::pair<size_t, size_t>> call_id_cache_;

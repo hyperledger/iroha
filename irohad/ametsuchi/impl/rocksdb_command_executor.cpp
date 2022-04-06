@@ -11,6 +11,8 @@
 #include <boost/variant/apply_visitor.hpp>
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/setting_query.hpp"
+#include "ametsuchi/impl/rocksdb_burrow_storage.hpp"
+#include "ametsuchi/impl/rocksdb_specific_query_executor.hpp"
 #include "ametsuchi/vm_caller.hpp"
 #include "common/to_lower.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
@@ -28,6 +30,7 @@
 #include "interfaces/commands/grant_permission.hpp"
 #include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/commands/revoke_permission.hpp"
 #include "interfaces/commands/set_account_detail.hpp"
 #include "interfaces/commands/set_quorum.hpp"
@@ -49,9 +52,12 @@ using shared_model::interface::RolePermissionSet;
 RocksDbCommandExecutor::RocksDbCommandExecutor(
     std::shared_ptr<RocksDBContext> db_context,
     std::shared_ptr<shared_model::interface::PermissionToString> perm_converter,
+    std::shared_ptr<RocksDbSpecificQueryExecutor>
+    specific_query_executor,
     std::optional<std::reference_wrapper<const VmCaller>> vm_caller)
     : db_context_(std::move(db_context)),
       perm_converter_{std::move(perm_converter)},
+      specific_query_executor_{std::move(specific_query_executor)},
       vm_caller_{vm_caller},
       db_transaction_(db_context_) {
   assert(db_context_);
@@ -342,10 +348,85 @@ RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
     const shared_model::interface::CallEngine &command,
     const shared_model::interface::types::AccountIdType &creator_account_id,
     const std::string &tx_hash,
-    shared_model::interface::types::CommandIndexType /*cmd_index*/,
-    bool /*do_validation*/,
+    shared_model::interface::types::CommandIndexType cmd_index,
+    bool do_validation,
     shared_model::interface::RolePermissionSet const &creator_permissions) {
-  return makeError<void>(ErrorCodes::kNoImplementation, "Not implemented");
+  if (!vm_caller_)
+    return makeError<void>(ErrorCodes::kNotConfigured,
+                           "Engine is not configured.");
+
+  auto const &[creator_account_name, creator_domain_id] =
+      staticSplitId<2>(creator_account_id);
+
+  GrantablePermissionSet granted_account_permissions;
+  RDB_TRY_GET_VALUE(
+      opt_permissions,
+      forGrantablePermissions<kDbOperation::kGet, kDbEntry::kCanExist>(
+          common, creator_account_name, creator_domain_id, command.caller()));
+  if (opt_permissions)
+    granted_account_permissions = *opt_permissions;
+
+  if (do_validation)
+    RDB_ERROR_CHECK(checkPermissions(creator_permissions,
+                                     granted_account_permissions,
+                                     Role::kCallEngine,
+                                     Grantable::kCallEngineOnMyBehalf));
+
+  RocksdbBurrowStorage burrow_storage(common, tx_hash, cmd_index);
+  return vm_caller_->get()
+      .call(
+          tx_hash,
+          cmd_index,
+          shared_model::interface::types::EvmCodeHexStringView{command.input()},
+          command.caller(),
+          command.callee()
+              ? std::optional<shared_model::interface::types::
+                                  EvmCalleeHexStringView>{command.callee()
+                                                              ->get()}
+              : std::optional<shared_model::interface::types::
+                                  EvmCalleeHexStringView>{std::nullopt},
+          burrow_storage,
+          *this,
+          *specific_query_executor_)
+      .match(
+          [&](const auto &value) -> RocksDbCommandExecutor::ExecutionResult {
+            if (!burrow_storage.getCallId())
+              if (auto result = burrow_storage.initCallId();
+                  expected::hasError(result))
+                return makeError<void>(ErrorCodes::kNotConfigured,
+                                       "initCallId error: {}",
+                                       result.assumeError());
+
+            assert(burrow_storage.getCallId());
+            if (command.callee()) {
+              common.valueBuffer() = *command.callee();
+              common.valueBuffer() += '|';
+              if (value.value)
+                common.valueBuffer() += *value.value;
+              if (auto result = forCallEngineCallResponse<kDbOperation::kPut>(
+                      common, *burrow_storage.getCallId());
+                  expected::hasError(result))
+                return makeError<void>(
+                    result.template assumeError().code,
+                    "CallEngineResponse: {}",
+                    result.template assumeError().description);
+            } else {
+              if (value.value)
+                common.valueBuffer() = *value.value;
+              if (auto result = forCallEngineDeploy<kDbOperation::kPut>(
+                      common, *burrow_storage.getCallId());
+                  expected::hasError(result))
+                return makeError<void>(
+                    result.template assumeError().code,
+                    "CallEngineDeploy: {}",
+                    result.template assumeError().description);
+            }
+
+            return {};
+          },
+          [](auto &&error) -> RocksDbCommandExecutor::ExecutionResult {
+            return makeError<void>(3, "CallEngine: {}", std::move(error.error));
+          });
 }
 
 RocksDbCommandExecutor::ExecutionResult RocksDbCommandExecutor::operator()(
