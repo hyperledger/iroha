@@ -19,6 +19,7 @@ maintenance = { status = "actively-developed" }
 [features]
 default = ["std"]
 std = []
+dump_decoded = ["iroha_derive/dump_decoded", "iroha_macro_traits/dump_decoded"]
 
 [dependencies]
 iroha_derive = { version = "=2.0.0-pre-rc.3", path = "derive" }
