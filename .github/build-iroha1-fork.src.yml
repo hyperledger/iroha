@@ -1,5 +1,7 @@
 name: Iroha1-fork
 
+## This workflow is created for pull requests from forks only and has less permissions than build-iroha1 workflow
+
 on:
   pull_request_target:
     branches: [ main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build ] ## target branches
@@ -9,21 +11,21 @@ env:
 
 jobs:
 
-  ## This workflow is created for pull requests from forks only and has less permissions
+  
   ## This step allows to skip the workflow completely for pull_requests from the same repo
+  ## Also it checks that that .github folder and Dockerfiles are not changed
   check_if_pull_request_comes_from_fork:
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Pull requests from forks should use other workflow
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name }}
     steps:
- 
-      - 
+
+      - &step_checkout_head
         name: Checkout head
-        uses: actions/checkout@v3
-        with:
+        uses: actions/checkout@v2
+        with: &step_checkout_with_head
           ref:        ${{github.event.pull_request.head.ref}} 
-          repository: ${{github.event.pull_request.head.repo.full_name}} 
-      
+          repository: ${{github.event.pull_request.head.repo.full_name}}       
       - 
         name: Filter files
         uses: dorny/paths-filter@v2
@@ -47,7 +49,6 @@ jobs:
           echo "Pull requests from forks are not allowed to change Dockerfiles"
           false
       
-
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
@@ -82,12 +83,7 @@ jobs:
               "PR_NUM="+(.number|tostring),
               "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
       - *step_show_context
-      - &step_checkout_head
-        name: Checkout head
-        uses: actions/checkout@v2
-        with: &step_checkout_with_head
-          ref:        ${{github.event.pull_request.head.ref}} 
-          repository: ${{github.event.pull_request.head.repo.full_name}} 
+      - *step_checkout_head
       -
         run: sudo snap install yq
       -

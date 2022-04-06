@@ -1,5 +1,9 @@
 name: Iroha1
 
+## IMPORTANT
+## This workflow is not run for forks, check build-iroha1-fork for pull_requests from forks 
+
+
 ## TODO IMPORTANT DISALLOW deploying tags and main and develop builds where skip_testing was set.
 ## TODO 1. [vcpkg,optimization-space,optimization-speed]
 ##         Build only Debug or only Release - reduce vcpkg build duration and output size 2times
@@ -22,13 +26,7 @@ name: Iroha1
 ## TODO [cmake,dockerimage,iroha-builder] To improve speed of vcpkg step install to iroha-builder
 ##      docker image cmake 3.20.1 or later and ninja 1.10.1 or later.
 ## TODO actions/create-release for tags
-## TODO use event pull_request_target to handle PRs from authorized forks,
-##      assert they do not change workflow.yml because it is not applied.
 
-## CHEAT SHEET
-## check if PR head repo is fork: ${{ github.event.pull_request.head.repo.fork }}
-## check if PR is from other repo: ${{ github.event.pull_request.head.repo == github.event.pull_request.base.repo }} in this case secrets are empty
-## ternary: ${{ fromJSON('["no", "yes"]')[github.ref != 'refs/heads/master'] }}
 
 ## PITFAILS
 ##  * checkout issue on self-hosted runner with Docker, see https://github.com/actions/runner/issues/434
@@ -42,7 +40,6 @@ name: Iroha1
 ##  * AWS-hosted runners could respond slowly, it often takes about 1 minute or more to prepare runner, if it was not idling.
 ##  * AWS-hosted runners has maximum active runners quote, ask @bulat5 or @Sofiane_bnh to increase if required.
 ##  * Our AWS-hosted runners are shared with Iroha2
-##  * Secrets are inaccessable for PRs from public forks. GH-token is read-only. No way to push dockerimages when PR is from fork.
 ##  * Docker containers must run as root, see checkout issue https://github.com/actions/runner/issues/434
 
 ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'

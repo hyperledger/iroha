@@ -2,21 +2,22 @@
 ## Generated from build-iroha1-fork.src.yml with make-workflows.sh
 
 name: Iroha1-fork
+## This workflow is created for pull requests from forks only and has less permissions than build-iroha1 workflow
 on:
   pull_request_target:
     branches: [main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build] ## target branches
 env:
   DOCKERHUB_ORG: hyperledger
 jobs:
-  ## This workflow is created for pull requests from forks only and has less permissions
   ## This step allows to skip the workflow completely for pull_requests from the same repo
+  ## Also it checks that that .github folder and Dockerfiles are not changed
   check_if_pull_request_comes_from_fork:
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Pull requests from forks should use other workflow
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name }}
     steps:
       - name: Checkout head
-        uses: actions/checkout@v3
+        uses: actions/checkout@v2
         with:
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
