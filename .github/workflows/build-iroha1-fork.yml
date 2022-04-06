@@ -40,58 +40,6 @@ jobs:
         run: |
           echo "Pull requests from forks are not allowed to change Dockerfiles"
           false
-  ## GitHub Actions Workflow does not support yaml anchors
-  ## and that is why there is a workaround with make-workflows.sh
-  ## You should `pre-commit install` or use `pre-commit-hook.sh`,
-  ## anyway please read .github/README.md
-  check_workflow_yaml_coressponds_to_src_yaml:
-    runs-on: ubuntu-20.04 #ubuntu-latest
-    name: Check if github workflows were properly made from sources
-    needs: check_if_pull_request_comes_from_fork
-    steps:
-      - name: Show context
-        run: |
-          echo "::group::GitHub context"
-          cat <<'END'
-          ${{ toJson(github) }}
-          END
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          cat <<'END'
-          ${{ toJson(needs) }}
-          END
-          echo "::endgroup::"
-      - name: REF and SHA of commented PR to ENV
-        if: github.event.comment
-        run: >
-          curl -fsSL ${{github.event.issue.pull_request.url}} -H "Authorization: token ${{github.token}}" | jq -r '
-
-            "PR_REF="+.head.ref,
-            "PR_SHA="+.head.sha,
-            "PR_NUM="+(.number|tostring),
-            "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
-      - name: Show context
-        run: |
-          echo "::group::GitHub context"
-          cat <<'END'
-          ${{ toJson(github) }}
-          END
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          cat <<'END'
-          ${{ toJson(needs) }}
-          END
-          echo "::endgroup::"
-      - name: Checkout head
-        uses: actions/checkout@v2
-        with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
-      - run: sudo snap install yq
-      - name: Check if .github/workflows/*.yml correspond to *.src.yml
-        run: |
-          set -x
-          [[ $(./.github/make-workflows.sh -x --worktree) = *"everything is up to date" ]]
   generate_matrixes:
     runs-on: ubuntu-20.04 #ubuntu-latest
     needs: check_if_pull_request_comes_from_fork
@@ -198,7 +146,7 @@ jobs:
       matrix_dockerimage_release: ${{steps.matrixes.outputs.matrix_dockerimage_release}}
       matrix_dockerimage_debug: ${{steps.matrixes.outputs.matrix_dockerimage_debug}}
   Docker-iroha-builder:
-    needs: check_workflow_yaml_coressponds_to_src_yaml
+    needs: check_if_pull_request_comes_from_fork
     runs-on: ubuntu-20.04 #ubuntu-latest #[ self-hosted, Linux ]
     steps:
       - name: Show context
@@ -325,9 +273,6 @@ jobs:
           push: ${{ steps.docker_login.outcome == 'success' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # env:
-          #   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          #   DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/build-push-action@v2
         id: build_and_push_ghcr
         name: Build and push to GHCR
@@ -338,9 +283,6 @@ jobs:
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo == github.event.pull_request.base.repo }}
           tags: ${{ steps.meta_ghcr.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
-          # env:
-          #   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          #   DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
       - # Temp fix
         # https://github.com/docker/build-push-action/issues/252
         # https://github.com/moby/buildkit/issues/1896
@@ -369,7 +311,6 @@ jobs:
       - Docker-iroha-builder
       - generate_matrixes
     runs-on: [self-hosted, Linux]
-    #runs-on: ubuntu-20.04 
     container: ## Container is taken from previous job
       image: ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
@@ -656,7 +597,6 @@ jobs:
       - Docker-iroha-builder
       - generate_matrixes
     runs-on: [self-hosted, Linux]
-    #runs-on: ubuntu-20.04 
     container: ## Container is taken from previous job
       image: ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
@@ -939,7 +879,7 @@ jobs:
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_ubuntu_release ).include[0] }}
   ## Just to align picture
   prepare-macos-env:
-    needs: check_workflow_yaml_coressponds_to_src_yaml
+    needs: check_if_pull_request_comes_from_fork
     runs-on: macos-latest
     steps:
       - name: Show context
@@ -1238,7 +1178,7 @@ jobs:
         timeout-minutes: 70
   ## Just to align picture
   prepare-windows-env:
-    needs: check_workflow_yaml_coressponds_to_src_yaml
+    needs: check_if_pull_request_comes_from_fork
     runs-on: windows-latest
     steps:
       - name: Show context
@@ -1353,9 +1293,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_release ) }}
     if: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_dockerimage_release ).include[0] }}
-    #env: &env_dockerhub_release
-    #  <<: *env_dockerhub
-    #  IMAGE_NAME: iroha
     env:
       IMAGE_NAME: iroha
     steps:
@@ -1508,10 +1445,6 @@ jobs:
           cache-to: type=local,dest=/tmp/.buildx-cache-new
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # env:
-          #   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          #   DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
-
           context: docker/release/
           push: ${{ steps.docker_login.outcome == 'success' }}
       - uses: docker/build-push-action@v2
@@ -1523,10 +1456,6 @@ jobs:
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo == github.event.pull_request.base.repo }}
           tags: ${{ steps.meta_ghcr.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
-          # env:
-          #   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          #   DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
-
           context: docker/release/
       - # Temp fix
         # https://github.com/docker/build-push-action/issues/252
@@ -1537,9 +1466,6 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
   docker-D:
     runs-on: [self-hosted, Linux] #ubuntu-latest
-    #env: &env_dockerhub_release
-    #  <<: *env_dockerhub
-    #  IMAGE_NAME: iroha
     env:
       IMAGE_NAME: iroha
     steps:
@@ -1692,10 +1618,6 @@ jobs:
           cache-to: type=local,dest=/tmp/.buildx-cache-new
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # env:
-          #   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          #   DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
-
           context: docker/release/
           push: ${{ steps.docker_login.outcome == 'success' }}
       - uses: docker/build-push-action@v2
@@ -1707,10 +1629,6 @@ jobs:
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo == github.event.pull_request.base.repo }}
           tags: ${{ steps.meta_ghcr.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
-          # env:
-          #   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          #   DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
-
           context: docker/release/
       - # Temp fix
         # https://github.com/docker/build-push-action/issues/252
