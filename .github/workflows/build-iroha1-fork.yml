@@ -28,6 +28,7 @@ jobs:
           git remote add base ${{github.event.pull_request.base.repo.svn_url}}
           git remote add head ${{github.event.pull_request.head.repo.svn_url}}
           git fetch base
+          git fetch head
           git merge-base base/feature/DOPS-1651/enable-fork-build head/main
         env:
           FORK_BASE_BRANCH: ${{ github.base_ref }}
