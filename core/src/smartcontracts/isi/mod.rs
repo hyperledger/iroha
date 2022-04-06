@@ -325,6 +325,8 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
             RegistrableBox::Trigger(trigger) => {
                 Register::<Trigger>::new(*trigger).execute(authority, wsv)
             }
+            #[cfg(feature = "roles")]
+            RegistrableBox::Role(role) => Register::<Role>::new(*role).execute(authority, wsv),
             _ => Err(Error::Unsupported(InstructionType::Register)),
         }
     }
