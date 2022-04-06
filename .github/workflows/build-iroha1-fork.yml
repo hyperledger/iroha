@@ -6,9 +6,9 @@ permissions:
   actions: read
   checks: read
   contents: read
-  deployments: read
+  deployments: write
   issues: read
-  packages: read
+  packages: write
   pull-requests: read
   repository-projects: read
   security-events: read
