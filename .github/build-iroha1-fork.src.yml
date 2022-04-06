@@ -1,5 +1,6 @@
 name: Iroha1-fork
 
+# The only write permission requird is packages
 permissions:
   actions: read
   checks: read

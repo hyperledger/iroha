@@ -3,7 +3,7 @@
 
 name: Iroha1
 ## IMPORTANT
-## This workflow is not run for forks, check build-iroha1-fork for pull_requests from forks 
+## This workflow does not run for forks, check build-iroha1-fork for pull requests from forks 
 
 ## TODO IMPORTANT DISALLOW deploying tags and main and develop builds where skip_testing was set.
 ## TODO 1. [vcpkg,optimization-space,optimization-speed]
@@ -102,8 +102,6 @@ jobs:
           ${{ toJson(needs) }}
           END
           echo "::endgroup::"
-      - run: |
-          true
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
   ## You should `pre-commit install` or use `pre-commit-hook.sh`,
