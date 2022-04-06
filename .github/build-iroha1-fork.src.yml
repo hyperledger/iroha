@@ -48,7 +48,7 @@ jobs:
               - ".github/**"
             dockerfile:
               - "**/Dockerfile"
-              - "docker/release/entrypoint.sh"
+        # - "docker/release/entrypoint.sh"
         # - "docker/release/wait-for-it.sh"
             
       - name: verify .github folder is not changed
