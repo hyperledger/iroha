@@ -48,6 +48,8 @@ jobs:
               - '.github/**'
             dockerfile:
               - '**/Dockerfile'
+              - 'docker/release/entrypoint.sh'
+              - 'docker/release/wait-for-it.sh'
             
       - name: verify .github folder is not changed
         if: steps.filter.outputs.github == 'true'
@@ -738,7 +740,7 @@ jobs:
   docker-R: &job_docker_image_release
     needs:
       - build-UR
-      - generate_matrixes
+      - generate_matrixespackages: write
     runs-on: [ self-hosted, Linux ] #ubuntu-latest
     # strategy: *strategy_ubuntu_release
     # if: *if_ubuntu_release
