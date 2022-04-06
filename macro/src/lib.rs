@@ -4,6 +4,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub use iroha_derive::*;
+pub use iroha_macro_traits::*;
 
 /// Crate with errors
 pub mod error {
