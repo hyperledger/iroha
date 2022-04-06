@@ -16,4 +16,7 @@ In order to form a block, which includes more than a single peer, or requires cu
 Automated
 ---------
 
-Follow `this guide <https://github.com/hyperledger/iroha-deploy/blob/master/ansible/roles/iroha-docker/README.md>`__
+Here is a `community provided tool <https://github.com/kuvaldini/iroha-swarm>`_ to easily deploy Iroha instances.
+
+
+Here is also `a guide <https://github.com/hyperledger/iroha-deploy/blob/master/ansible/roles/iroha-docker/README.md>`__ that might be outdated but could provide some helpful information.
