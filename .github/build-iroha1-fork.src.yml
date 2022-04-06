@@ -35,6 +35,18 @@ jobs:
             dockerfile:
               - '**/Dockerfile'
             
+      - name: verify .github folder is not changed
+        if: steps.filter.outputs.github == 'true'
+        run: |
+          echo "Pull requests from forks are not allowed to change .github folder"
+          false
+        
+      - name: verify Dockerfiles are not changed
+        if: steps.filter.outputs.dockerfile == 'true'
+        run: |
+          echo "Pull requests from forks are not allowed to change Dockerfiles"
+          false
+      
 
   ## GitHub Actions Workflow does not support yaml anchors
   ## and that is why there is a workaround with make-workflows.sh
