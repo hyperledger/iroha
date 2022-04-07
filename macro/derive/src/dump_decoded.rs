@@ -23,7 +23,14 @@ pub fn impl_dump_decoded(ast: &syn::DeriveInput) -> TokenStream {
         };
 
         let name = &ast.ident;
-        types.push(name.to_string());
+        let name_string = name.to_string();
+        if types.contains(&name_string) {
+            panic!(
+                "Type with the same name already implements DumpDecoded. \
+                 Consider using `#[dump_decoded(name = \"AnotherName\")`"
+            )
+        }
+        types.push(name_string);
 
         let gen = quote! {
             #[cfg(feature = "dump_decoded")]

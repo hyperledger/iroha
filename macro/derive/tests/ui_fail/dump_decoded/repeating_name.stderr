@@ -1,0 +1,19 @@
+error: proc-macro derive panicked
+  --> tests/ui_fail/dump_decoded/repeating_name.rs:13:29
+   |
+13 |     #[derive(Debug, Decode, iroha_derive::DumpDecoded)]
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: message: Type with the same name already implements DumpDecoded. Consider using `#[dump_decoded(name = "AnotherName")`
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui_fail/dump_decoded/repeating_name.rs:1:1
+   |
+1  | / use parity_scale_codec::Decode;
+2  | |
+3  | | mod a {
+4  | |     use super::*;
+...  |
+14 | |     struct Struct;
+15 | | }
+   | |_^ consider adding a `main` function to `$DIR/tests/ui_fail/dump_decoded/repeating_name.rs`
