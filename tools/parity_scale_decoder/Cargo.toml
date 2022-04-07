@@ -9,6 +9,6 @@ edition = "2021"
 [dependencies]
 clap = { version = "3.1.8", features = ["derive", "cargo"] }
 eyre = "0.6.8"
-iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../../data_model"}
+iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../../data_model", features = ["dump_decoded", "mutable_api"]}
 iroha_macro = { version = "=2.0.0-pre-rc.3", path = "../../macro", features = ["dump_decoded"]}
 parity-scale-codec = { version = "2.3.1", default-features = false }

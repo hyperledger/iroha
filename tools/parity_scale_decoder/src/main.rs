@@ -4,7 +4,8 @@ use std::{fs, io, path::PathBuf};
 
 use clap::Parser;
 use eyre::{eyre, Result};
-use iroha_macro::DumpDecodedMap;
+use iroha_data_model::prelude::*;
+use iroha_macro::{get_dump_decoded_map, DumpDecodedMap};
 
 /// Parity Scale decoder tool for Iroha structs
 #[derive(Debug, Parser)]
@@ -25,13 +26,13 @@ fn main() -> Result<()> {
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
 
-    let map = DumpDecodedMap::new(); //iroha_macro::get_dump_decoded_map!();
+    let map = get_dump_decoded_map!();
 
     if let Some(type_id) = args.type_id {
-        return decode_by_type(&map, &type_id, &bytes, &mut writer);
+        return decode_by_type(map, &type_id, &bytes, &mut writer);
     }
 
-    decode_by_guess(&map, &bytes, &mut writer)
+    decode_by_guess(map, &bytes, &mut writer)
 }
 
 fn decode_by_type<W: io::Write>(
@@ -42,14 +43,19 @@ fn decode_by_type<W: io::Write>(
 ) -> Result<()> {
     map.get(type_id).map_or_else(
         || Err(eyre!("Unknown type: `{type_id}`")),
-        |f| f(bytes, writer),
+        |dump_decoded| dump_decoded(bytes, writer),
     )
 }
 
 fn decode_by_guess<W: io::Write>(map: &DumpDecodedMap, bytes: &[u8], writer: &mut W) -> Result<()> {
-    let count = map.values().filter_map(|f| f(bytes, writer).ok()).count();
+    let count = map
+        .values()
+        .filter_map(|dump_decoded| dump_decoded(bytes, writer).ok().and(writeln!(writer).ok()))
+        .count();
     if count == 0 {
         return Err(eyre!("No compatible types found"));
+    } else if count == 1 {
+        return writeln!(writer, "1 compatible type found").map_err(Into::into);
     }
-    writeln!(writer, "\nFound {count} compatible types").map_err(Into::into)
+    writeln!(writer, "{count} compatible types found").map_err(Into::into)
 }
