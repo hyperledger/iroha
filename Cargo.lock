@@ -464,9 +464,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.0.7"
+version = "3.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12e8611f9ae4e068fa3e56931fded356ff745e70987ff76924a6e0ab1c8ef2e3"
+checksum = "71c47df61d9e16dc010b55dba1952a57d8c215dbb533fd13cdd13369aac73b1c"
 dependencies = [
  "atty",
  "bitflags",
@@ -476,14 +476,14 @@ dependencies = [
  "os_str_bytes",
  "strsim 0.10.0",
  "termcolor",
- "textwrap 0.14.2",
+ "textwrap 0.15.0",
 ]
 
 [[package]]
 name = "clap_derive"
-version = "3.0.6"
+version = "3.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "517358c28fcef6607bf6f76108e02afad7e82297d132a6b846dcc1fc3efcd153"
+checksum = "a3aab4734e083b809aaf5794e14e756d1c798d2c69c7f7de7a09a2f5214993c1"
 dependencies = [
  "heck 0.4.0",
  "proc-macro-error",
@@ -1056,9 +1056,9 @@ dependencies = [
 
 [[package]]
 name = "eyre"
-version = "0.6.6"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc225d8f637923fe585089fcf03e705c222131232d2c1fb622e84ecf725d0eb8"
+checksum = "4c2b6b5a29c02cdc822728b7d7b8ae1bab3e3b05d44522770ddd49722eeac7eb"
 dependencies = [
  "indenter",
  "once_cell",
@@ -1863,7 +1863,11 @@ dependencies = [
 name = "iroha_derive"
 version = "2.0.0-pre-rc.3"
 dependencies = [
+ "eyre",
  "iroha_macro",
+ "iroha_macro_traits",
+ "once_cell",
+ "parity-scale-codec",
  "proc-macro2",
  "quote",
  "syn",
@@ -1926,6 +1930,15 @@ name = "iroha_macro"
 version = "2.0.0-pre-rc.3"
 dependencies = [
  "iroha_derive",
+ "iroha_macro_traits",
+]
+
+[[package]]
+name = "iroha_macro_traits"
+version = "2.0.0-pre-rc.3"
+dependencies = [
+ "eyre",
+ "parity-scale-codec",
 ]
 
 [[package]]
@@ -2130,7 +2143,7 @@ checksum = "67c21572b4949434e4fc1e1978b99c5f77064153c59d998bf13ecd96fb5ecba7"
 name = "kura_inspector"
 version = "2.0.0-pre-rc.3"
 dependencies = [
- "clap 3.0.7",
+ "clap 3.1.8",
  "futures-util",
  "iroha_config",
  "iroha_core",
@@ -2493,6 +2506,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "parity_scale_decoder"
+version = "2.0.0-pre-rc.3"
+dependencies = [
+ "clap 3.1.8",
+ "eyre",
+ "iroha_data_model",
+ "iroha_macro",
+ "parity-scale-codec",
 ]
 
 [[package]]
@@ -3488,9 +3512,9 @@ dependencies = [
 
 [[package]]
 name = "textwrap"
-version = "0.14.2"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0066c8d12af8b5acd21e00547c3797fde4e8677254a7ee429176ccebbe93dd80"
+checksum = "b1141d4d61095b28419e22cb0bbf02755f5e54e0526f97f1e3d1d160e60885fb"
 
 [[package]]
 name = "thiserror"
