@@ -7,6 +7,8 @@ pub use dump_decoded::*;
 mod dump_decoded {
     use std::{collections::HashMap, fmt::Debug, io::Write};
 
+    pub use eyre;
+    pub use once_cell;
     use parity_scale_codec::Decode;
 
     /// Function pointer to [`DumpDecoded::dump_decoded()`]
@@ -29,7 +31,7 @@ mod dump_decoded {
         fn dump_decoded(mut input: &[u8], w: &mut dyn Write) -> Result<(), eyre::Error> {
             let obj = <Self as Decode>::decode(&mut input)?;
             #[allow(clippy::use_debug)]
-            writeln!(w, "{:?}", obj)?;
+            writeln!(w, "{:#?}", obj)?;
             Ok(())
         }
     }

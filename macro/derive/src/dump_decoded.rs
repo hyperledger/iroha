@@ -27,7 +27,7 @@ pub fn impl_dump_decoded(ast: &syn::DeriveInput) -> TokenStream {
 
         let gen = quote! {
             #[cfg(feature = "dump_decoded")]
-            impl iroha_macro_traits::DumpDecoded for #name {}
+            impl iroha_macro::DumpDecoded for #name {}
         };
         gen.into()
     }
@@ -52,9 +52,9 @@ pub fn impl_generate_dump_decoded_map() -> TokenStream {
             let type_ident: syn::Ident = syn::parse_str(t).unwrap();
             let pair = quote! {
                 (
-                    stringify!(#type_ident).to_string(),
+                    stringify!(#type_ident).to_owned(),
                     <#type_ident as iroha_macro::DumpDecoded>::dump_decoded
-                        as fn(&[u8], &mut dyn std::io::Write) -> Result<(), eyre::Error>
+                        as fn(&[u8], &mut dyn std::io::Write) -> Result<(), iroha_macro::eyre::Error>
                 ),
             };
             pairs.extend(pair);
@@ -62,18 +62,16 @@ pub fn impl_generate_dump_decoded_map() -> TokenStream {
 
         quote! {
             #[cfg(feature = "dump_decoded")]
+            #[allow(missing_docs)]
             pub mod _dump_decoded_private {
                 use super::*;
 
                 use std::io::Write;
                 use std::collections::HashMap;
 
-                use iroha_macro::DumpDecodedMap;
+                use iroha_macro::{once_cell::sync::Lazy, DumpDecodedMap};
 
-                use once_cell::sync::Lazy;
-
-                pub static MAP: Lazy<DumpDecodedMap> =
-                    Lazy::new(|| HashMap::from([#pairs]));
+                pub static MAP: Lazy<DumpDecodedMap> = Lazy::new(|| HashMap::from([#pairs]));
             }
         }
         .into()
