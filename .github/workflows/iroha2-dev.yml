@@ -58,6 +58,18 @@ jobs:
             PROFILE=--release
             BIN=iroha_crypto_cli
 
+      - name: Build and push load-rs:dev docker image
+        run: |          
+          sleep 10s
+          echo "wait to other workflow"
+      - uses: convictional/trigger-workflow-and-wait@v1.6.0
+        with:
+          owner: soramitsu
+          repo: iroha2-longevity-load-rs
+          github_token: ${{ secrets.G_ACCESS_TOKEN }}
+          workflow_file_name: load-rs-push-from-dev.yaml
+          ref: dev
+
   build-ci-image:
     runs-on: ubuntu-latest
     container:
