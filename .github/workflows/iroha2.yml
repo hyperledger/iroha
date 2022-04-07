@@ -28,7 +28,6 @@ jobs:
         with:
           file: lcov.info
 
-
   deploy:
     runs-on: ubuntu-latest
     container:
@@ -76,3 +75,14 @@ jobs:
             PROFILE=--release
             BIN=iroha_crypto_cli
 
+      - name: Build and push load-rs:release docker image
+        run: |          
+          sleep 10s
+          echo "wait to finish other workflow"
+      - uses: convictional/trigger-workflow-and-wait@v1.6.0
+        with:
+          owner: soramitsu
+          repo: iroha2-longevity-load-rs
+          github_token: ${{ secrets.G_ACCESS_TOKEN }}
+          workflow_file_name: load-rs-push-from-release.yaml
+          ref: release      
