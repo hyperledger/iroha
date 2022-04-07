@@ -1,0 +1,7 @@
+{
+    "peers": 4,
+    "interval_us_per_tx": 80000,
+    "max_txs_per_block": 8192,
+    "blocks": 5,
+    "sample_size": 10
+}
