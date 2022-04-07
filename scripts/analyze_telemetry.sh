@@ -11,9 +11,9 @@ json_top() { jq -s "[sort_by(.duration) | reverse[]] | .[range($1)]"; }
 
 # Prints top $1 of items
 top() {
-	echo "|Function Name|id of future|Poll duration (in ms)|"
-	echo "--------------------------------------------------"
-	json_top $1 | jq -r '"|\(.name)|\(.id)|\(.duration)|"'
+    echo "|Function Name|id of future|Poll duration (in ms)|"
+    echo "--------------------------------------------------"
+    json_top $1 | jq -r '"|\(.name)|\(.id)|\(.duration)|"'
 }
 
 get_func() { jq -r "select(.name == \"$1\")"; }
@@ -23,14 +23,14 @@ max()  { jq -sr '[.[].duration] | max'; }
 min()  { jq -sr '[.[].duration] | min'; }
 
 top_info() {
-	echo "|Function Name|Max time|Average time|Min time|"
-	echo "----------------------------------------------"
-	json_top $1 <$2 | jq -r '.name' | sort | uniq | while read func; do
-		MEAN=$(get_func $func <$2 | mean)
-		MAX=$(get_func $func <$2 | max)
-		MIN=$(get_func $func <$2 | min)
-		printf "|%s|%s|%s|%s|\n" $func $MAX $MEAN $MIN
-	done
+    echo "|Function Name|Max time|Average time|Min time|"
+    echo "----------------------------------------------"
+    json_top $1 <$2 | jq -r '.name' | sort | uniq | while read func; do
+        MEAN=$(get_func $func <$2 | mean)
+        MAX=$(get_func $func <$2 | max)
+        MIN=$(get_func $func <$2 | min)
+        printf "|%s|%s|%s|%s|\n" $func $MAX $MEAN $MIN
+    done
 }
 
 get_entries $1 >raw_entries

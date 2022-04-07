@@ -141,7 +141,7 @@ impl ToTokens for MetricSpec {
 ///
 /// #[metrics(+"test_query", "another_test_query_without_timing")]
 /// fn execute(wsv: &WorldStateView<World>) -> Result<(), ()> {
-///		Ok(())
+///     Ok(())
 /// }
 /// ```
 #[proc_macro_error]

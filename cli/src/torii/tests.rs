@@ -753,9 +753,9 @@ async fn test_subscription_websocket_clean_closing() {
         .unwrap();
 
     // Subscribing
-    let event_filter = EventFilter::Pipeline(pipeline::EventFilter::by_entity(
-        pipeline::EntityType::Block,
-    ));
+    let event_filter = EventFilter::Pipeline(
+        pipeline::EventFilter::new().entity_kind(pipeline::EntityKind::Block),
+    );
     let subscribe_message = VersionedEventSubscriberMessage::from(
         EventSubscriberMessage::SubscriptionRequest(event_filter),
     );

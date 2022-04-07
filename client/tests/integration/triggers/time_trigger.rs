@@ -138,18 +138,13 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     ));
     test_client.submit(register_trigger)?;
 
-    let block_filter =
-        EventFilter::Pipeline(PipelineEventFilter::by_entity(PipelineEntityType::Block));
+    let block_filter = EventFilter::Pipeline(
+        PipelineEventFilter::new()
+            .entity_kind(PipelineEntityKind::Block)
+            .status_kind(PipelineStatusKind::Committed),
+    );
     for _ in test_client
         .listen_for_events(block_filter)?
-        .filter(|event| {
-            if let Ok(Event::Pipeline(event)) = event {
-                if event.status == PipelineStatus::Committed {
-                    return true;
-                }
-            }
-            false
-        })
         .take(CHECKS_COUNT)
     {
         let new_value = get_asset_value(&mut test_client, asset_id.clone())?;
@@ -181,7 +176,7 @@ fn submit_sample_isi_on_every_block_commit(
     times: usize,
 ) -> Result<()> {
     let block_filter =
-        EventFilter::Pipeline(PipelineEventFilter::by_entity(PipelineEntityType::Block));
+        EventFilter::Pipeline(PipelineEventFilter::new().entity_kind(PipelineEntityKind::Block));
     for _ in test_client
         .listen_for_events(block_filter)?
         .filter(|event| {

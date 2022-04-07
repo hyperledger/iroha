@@ -232,7 +232,8 @@ Also returns current status of peer in json string:
 {
     "peers": 3,
     "blocks": 1,
-    "txs": 3,
+    "txs_accepted": 3,
+    "txs_rejected": 0,
     "uptime": 3200,
 }
 ```

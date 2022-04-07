@@ -16,8 +16,8 @@ Which produces (for example)
 ```json
 "public_key": "ed0120bd15eea359982041771da5567c1fcb761aa22f397ad326a79246d2fd97d91b70",
 "private_key": {
-	"digest_function": "ed25519",
-	"payload": "5b8b080aa327c403e81312f32a985635b52e2a7f88d034f41caf504a4e1743eabd15eea359982041771da5567c1fcb761aa22f397ad326a79246d2fd97d91b70"
+    "digest_function": "ed25519",
+    "payload": "5b8b080aa327c403e81312f32a985635b52e2a7f88d034f41caf504a4e1743eabd15eea359982041771da5567c1fcb761aa22f397ad326a79246d2fd97d91b70"
 }
 ```
 
