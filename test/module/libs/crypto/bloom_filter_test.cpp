@@ -21,6 +21,11 @@ struct BloomFilterTest : public ::testing::Test {
   std::shared_ptr<iroha::ordering::BloomFilter256> filter_;
 };
 
+/**
+ * @given Bloom-filter
+ * @when set Hash there
+ * @then test of that Hash will return true
+ */
 TEST_F(BloomFilterTest, SimplePos) {
   filter_->set(shared_model::crypto::Hash::fromHexString(
       "0000000000000001000000000000000000000000000000000000000000000000"));
@@ -28,6 +33,11 @@ TEST_F(BloomFilterTest, SimplePos) {
       "0000000000000001000000000000000000000000000000000000000000000000")));
 }
 
+/**
+ * @given Bloom-filter
+ * @when set Hash there
+ * @then test of the other Hash will return false
+ */
 TEST_F(BloomFilterTest, SimpleNeg) {
   filter_->set(shared_model::crypto::Hash::fromHexString(
       "0000000000000001000000000000000000000000000000000000000000000000"));
@@ -35,6 +45,12 @@ TEST_F(BloomFilterTest, SimpleNeg) {
       "0000000000000002000000000000000000000000000000000000000000000000")));
 }
 
+/**
+ * @given Bloom-filter
+ * @when set multiple Hashes
+ * @then test of the Hashes which are not present should return false(remember
+ * false-positive)
+ */
 TEST_F(BloomFilterTest, RandomNeg) {
   filter_->set(shared_model::crypto::Hash::fromHexString(
       "1111111111111111111111111111111111111111111111111111111111111111"));
@@ -56,6 +72,11 @@ TEST_F(BloomFilterTest, RandomNeg) {
       "0111111111111111111111111111111111111111111111111111111111111111")));
 }
 
+/**
+ * @given Bloom-filter
+ * @when set multiple Hashes there
+ * @then test the ones that are present will always return true
+ */
 TEST_F(BloomFilterTest, RandomPos) {
   filter_->set(shared_model::crypto::Hash::fromHexString(
       "1111111111111111111111111111111111111111111111111111111111111111"));
@@ -77,6 +98,12 @@ TEST_F(BloomFilterTest, RandomPos) {
       "1298367587946526947123063707196892848236917480679537296387464598")));
 }
 
+/**
+ * @given Bloom-filter
+ * @when set Hash there
+ * @and make clean after that
+ * @then test of this Hash will return false
+ */
 TEST_F(BloomFilterTest, ClearTest) {
   filter_->set(shared_model::crypto::Hash::fromHexString(
       "1111111111111111111111111111111111111111111111111111111111111111"));
@@ -85,6 +112,13 @@ TEST_F(BloomFilterTest, ClearTest) {
       "1111111111111111111111111111111111111111111111111111111111111111")));
 }
 
+/**
+ * @given Bloom-filter
+ * @when set Hash1 there
+ * @and make clear after that
+ * @and add another Hash2 in BF
+ * @then test of the Hash1 will return false and test Hash 2 will return true
+ */
 TEST_F(BloomFilterTest, Clear2Test) {
   filter_->set(shared_model::crypto::Hash::fromHexString(
       "9123594865892659791270573928567890379843798672987395677893427597"));
@@ -99,6 +133,11 @@ TEST_F(BloomFilterTest, Clear2Test) {
       "1298367587946526947123063707196892848236917480679537296387464598")));
 }
 
+/**
+ * @given Bloom-filter
+ * @when call load
+ * @then the result data should be the appropriate size
+ */
 TEST_F(BloomFilterTest, LoadTest) {
   filter_->set(shared_model::crypto::Hash::fromHexString(
       "9123594865892659791270573928567890379843798672987395677893427597"));
@@ -106,6 +145,14 @@ TEST_F(BloomFilterTest, LoadTest) {
   ASSERT_EQ(value.size(), iroha::ordering::BloomFilter256::kBytesCount);
 }
 
+/**
+ * @given Bloom-filter
+ * @when set Hash there
+ * @and after that load data from the filter to string
+ * @and after thar clear the filter
+ * @and after that store this data in filter again
+ * @then test of the Hash should return true
+ */
 TEST_F(BloomFilterTest, ReloadTest) {
   filter_->set(shared_model::crypto::Hash::fromHexString(
       "1298367587946526947123063707196892848236917480679537296387464598"));
@@ -121,6 +168,16 @@ TEST_F(BloomFilterTest, ReloadTest) {
       "1298367587946526947123063707196892848236917480679537296387464598")));
 }
 
+/**
+ * @given Bloom-filter
+ * @when set Hash1 there
+ * @and after that load data from the filter to string
+ * @and after thar clear the filter
+ * @and after that set another Hash2 to the filter
+ * @and after that store the BF from the string to the BF
+ * @then BF will be updated: Hash1 test will return true and Hash2 will be
+ * overriten and return false
+ */
 TEST_F(BloomFilterTest, ReloadTest2) {
   filter_->set(shared_model::crypto::Hash::fromHexString(
       "9123594865892659791270573928567890379843798672987395677893427597"));
