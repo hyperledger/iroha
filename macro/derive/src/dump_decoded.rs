@@ -68,10 +68,11 @@ pub fn impl_generate_dump_decoded_map() -> TokenStream {
                 use std::io::Write;
                 use std::collections::HashMap;
 
+                use iroha_macro::DumpDecodedMap;
+
                 use once_cell::sync::Lazy;
 
-                pub type DumpDecodedPtr = fn(&[u8], &mut dyn Write) -> Result<(), eyre::Error>;
-                pub static MAP: Lazy<HashMap<String, DumpDecodedPtr>> =
+                pub static MAP: Lazy<DumpDecodedMap> =
                     Lazy::new(|| HashMap::from([#pairs]));
             }
         }
