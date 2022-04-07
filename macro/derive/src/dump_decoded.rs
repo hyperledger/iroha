@@ -53,8 +53,8 @@ pub fn impl_generate_dump_decoded_map() -> TokenStream {
             let pair = quote! {
                 (
                     stringify!(#type_ident).to_string(),
-                    <#type_ident as iroha_macro_traits::DumpDecoded>::dump_decoded
-                        as fn(&[u8], &mut dyn std::fmt::Write) -> Result<(), eyre::Error>
+                    <#type_ident as iroha_macro::DumpDecoded>::dump_decoded
+                        as fn(&[u8], &mut dyn std::io::Write) -> Result<(), eyre::Error>
                 ),
             };
             pairs.extend(pair);
@@ -65,7 +65,7 @@ pub fn impl_generate_dump_decoded_map() -> TokenStream {
             pub mod _dump_decoded_private {
                 use super::*;
 
-                use std::fmt::{Formatter, Write};
+                use std::io::Write;
                 use std::collections::HashMap;
 
                 use once_cell::sync::Lazy;

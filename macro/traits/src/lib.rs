@@ -1,7 +1,8 @@
 //! Contains traits that is needed for macro implementation
 
 #[cfg(feature = "dump_decoded")]
-use std::fmt::{Debug, Write};
+use std::fmt::Debug;
+use std::io::Write;
 
 #[cfg(feature = "dump_decoded")]
 use parity_scale_codec::Decode;
