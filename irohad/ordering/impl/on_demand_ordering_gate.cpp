@@ -40,23 +40,28 @@ OnDemandOrderingGate::OnDemandOrderingGate(
       network_client_(std::move(network_client)),
       proposal_factory_(std::move(factory)),
       tx_cache_(std::move(tx_cache)),
-      syncing_mode_(syncing_mode) {
+      syncing_mode_(syncing_mode) {}
+
+void OnDemandOrderingGate::initialize() {
   failed_proposal_response_ =
       SubscriberCreator<bool, ProposalEvent>::template create<
           EventTypes::kOnProposalResponseFailed>(
           SubscriptionEngineHandlers::kYac,
-          [this](
-              auto,
-              auto ev) {  /// TODO(iceseer): remove `this` from lambda context
-            std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
-            if (stop_requested_) {
-              log_->warn("Not doing anything because stop was requested.");
-              return;
-            }
+          [_w_this{weak_from_this()}](auto, auto ev) {
+            if (auto _this = _w_this.lock()) {
+              std::shared_lock<std::shared_timed_mutex> stop_lock(
+                  _this->stop_mutex_);
+              if (_this->stop_requested_) {
+                _this->log_->warn(
+                    "Not doing anything because stop was requested.");
+                return;
+              }
 
-            if (!syncing_mode_) {
-              assert(network_client_);
-              network_client_->onRequestProposal(ev.round, std::nullopt);
+              if (!_this->syncing_mode_) {
+                assert(_this->network_client_);
+                _this->network_client_->onRequestProposal(ev.round,
+                                                          std::nullopt);
+              }
             }
           });
 }

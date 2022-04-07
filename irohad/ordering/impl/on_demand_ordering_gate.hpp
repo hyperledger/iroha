@@ -8,6 +8,7 @@
 
 #include "network/ordering_gate.hpp"
 
+#include <memory>
 #include <shared_mutex>
 
 #include "interfaces/common_objects/types.hpp"
@@ -31,7 +32,9 @@ namespace iroha {
      * Ordering gate which requests proposals from the ordering service
      * votes for proposals, and passes committed proposals to the pipeline
      */
-    class OnDemandOrderingGate : public network::OrderingGate {
+    class OnDemandOrderingGate
+        : public network::OrderingGate,
+          public std::enable_shared_from_this<OnDemandOrderingGate> {
      public:
       OnDemandOrderingGate(
           std::shared_ptr<OnDemandOrderingService> ordering_service,
@@ -44,6 +47,8 @@ namespace iroha {
           bool syncing_mode);
 
       ~OnDemandOrderingGate() override;
+
+      void initialize();
 
       void propagateBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)

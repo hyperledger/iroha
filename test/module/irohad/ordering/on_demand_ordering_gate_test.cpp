@@ -59,6 +59,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
                                                1000,
                                                getTestLogger("OrderingGate"),
                                                false);
+    ordering_gate->initialize();
 
     auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<LedgerState>(

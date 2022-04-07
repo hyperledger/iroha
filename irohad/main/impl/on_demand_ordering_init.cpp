@@ -83,7 +83,7 @@ auto OnDemandOrderingInit::createGate(
     size_t max_number_of_transactions,
     const logger::LoggerManagerTreePtr &ordering_log_manager,
     bool syncing_mode) {
-  return std::make_shared<OnDemandOrderingGate>(
+  auto og = std::make_shared<OnDemandOrderingGate>(
       std::move(ordering_service),
       std::move(network_client),
       std::move(proposal_factory),
@@ -91,6 +91,8 @@ auto OnDemandOrderingInit::createGate(
       max_number_of_transactions,
       ordering_log_manager->getChild("Gate")->getLogger(),
       syncing_mode);
+  og->initialize();
+  return og;
 }
 
 auto OnDemandOrderingInit::createService(
