@@ -122,7 +122,7 @@ pub fn impl_generate_dump_decoded_map() -> TokenStream {
         let mut pairs = proc_macro2::TokenStream::default();
         for t in types {
             let type_path: syn::Path =
-                syn::parse_str(t).unwrap_or_else(|_| panic!("{} is not an identifier", t));
+                syn::parse_str(t).unwrap_or_else(|_| panic!("{} is not a path to identifier", t));
             let pair = quote! {
                 (
                     #t.to_owned(),

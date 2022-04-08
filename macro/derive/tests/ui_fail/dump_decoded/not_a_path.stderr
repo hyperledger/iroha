@@ -1,0 +1,19 @@
+error: proc macro panicked
+  --> tests/ui_fail/dump_decoded/not_a_path.rs:11:1
+   |
+11 | iroha_macro::generate_dump_decoded_map!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: message: -AnotherStruct_0; is not a path to identifier
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui_fail/dump_decoded/not_a_path.rs:1:1
+   |
+1  | / use parity_scale_codec::Decode;
+2  | |
+3  | | mod a {
+4  | |     use super::*;
+...  |
+10 | |
+11 | | iroha_macro::generate_dump_decoded_map!();
+   | |__________________________________________^ consider adding a `main` function to `$DIR/tests/ui_fail/dump_decoded/not_a_path.rs`
