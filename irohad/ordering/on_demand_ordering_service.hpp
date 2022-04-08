@@ -12,6 +12,7 @@
 #include "consensus/round.hpp"
 #include "cryptography/hash.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "ordering/ordering_types.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -48,6 +49,9 @@ namespace iroha {
           std::set<std::shared_ptr<shared_model::interface::TransactionBatch>,
                    shared_model::interface::BatchHashLess>;
 
+      using PackedProposalData = std::optional<
+          std::pair<std::shared_ptr<ProposalType const>, BloomFilter256>>;
+
       /**
        * Type of stored transaction batches
        */
@@ -65,8 +69,7 @@ namespace iroha {
        */
       virtual void onBatches(CollectionType batches) = 0;
 
-      virtual std::optional<std::shared_ptr<const ProposalType>>
-      onRequestProposal(consensus::Round round) = 0;
+      virtual PackedProposalData onRequestProposal(consensus::Round round) = 0;
 
       using HashesSetType =
           std::unordered_set<shared_model::crypto::Hash,
@@ -95,9 +98,9 @@ namespace iroha {
        * @param round which proposal to wait
        * @param delay time to wait
        */
-      virtual std::optional<std::shared_ptr<const ProposalType>>
-      waitForLocalProposal(consensus::Round const &round,
-                           std::chrono::milliseconds const &delay) = 0;
+      virtual PackedProposalData waitForLocalProposal(
+          consensus::Round const &round,
+          std::chrono::milliseconds const &delay) = 0;
 
       /**
        * Method to get betches under lock

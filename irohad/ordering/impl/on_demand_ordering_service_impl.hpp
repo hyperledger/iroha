@@ -16,6 +16,7 @@
 #include "logger/logger_fwd.hpp"
 #include "ordering/impl/batches_cache.hpp"
 // TODO 2019-03-15 andrei: IR-403 Separate BatchHashEquality and MstState
+#include "main/subscription.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 
 namespace iroha {
@@ -26,8 +27,7 @@ namespace iroha {
     namespace detail {
       using ProposalMapType =
           std::map<consensus::Round,
-                   std::optional<std::shared_ptr<
-                       const OnDemandOrderingService::ProposalType>>>;
+                   OnDemandOrderingService::PackedProposalData>;
     }  // namespace detail
 
     class OnDemandOrderingServiceImpl : public OnDemandOrderingService {
@@ -50,12 +50,13 @@ namespace iroha {
           logger::LoggerPtr log,
           size_t number_of_proposals = 3);
 
+      ~OnDemandOrderingServiceImpl() override;
+
       // --------------------- | OnDemandOrderingService |_---------------------
 
       void onBatches(CollectionType batches) override;
 
-      std::optional<std::shared_ptr<const ProposalType>> onRequestProposal(
-          consensus::Round round) override;
+      PackedProposalData onRequestProposal(consensus::Round round) override;
 
       void onCollaborationOutcome(consensus::Round round) override;
 
@@ -69,7 +70,7 @@ namespace iroha {
 
       void processReceivedProposal(CollectionType batches) override;
 
-      std::optional<std::shared_ptr<const ProposalType>> waitForLocalProposal(
+      PackedProposalData waitForLocalProposal(
           consensus::Round const &round,
           std::chrono::milliseconds const &delay) override;
 
@@ -78,8 +79,7 @@ namespace iroha {
        * Packs new proposals and creates new rounds
        * Note: method is not thread-safe
        */
-      std::optional<std::shared_ptr<shared_model::interface::Proposal>>
-      packNextProposals(const consensus::Round &round);
+      PackedProposalData packNextProposals(const consensus::Round &round);
 
       using TransactionsCollectionType =
           std::vector<std::shared_ptr<shared_model::interface::Transaction>>;
@@ -158,6 +158,10 @@ namespace iroha {
        * Current round
        */
       consensus::Round current_round_;
+
+      std::shared_ptr<
+          iroha::BaseSubscriber<bool, RemoteProposalDownloadedEvent>>
+          remote_proposal_observer_;
     };
   }  // namespace ordering
 }  // namespace iroha
