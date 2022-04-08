@@ -151,11 +151,10 @@ pub fn impl_generate_dump_decoded_map() -> TokenStream {
                 use super::*;
 
                 use std::io::Write;
-                use std::collections::HashMap;
 
                 use iroha_macro::{once_cell::sync::Lazy, DumpDecodedMap};
 
-                pub static MAP: Lazy<DumpDecodedMap> = Lazy::new(|| HashMap::from([#pairs]));
+                pub static MAP: Lazy<DumpDecodedMap> = Lazy::new(|| DumpDecodedMap::from([#pairs]));
             }
         }
         .into()

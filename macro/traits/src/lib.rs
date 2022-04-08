@@ -5,7 +5,7 @@ pub use dump_decoded::*;
 
 #[cfg(feature = "dump_decoded")]
 mod dump_decoded {
-    use std::{collections::HashMap, fmt::Debug, io::Write};
+    use std::{collections::BTreeMap, fmt::Debug, io::Write};
 
     pub use eyre;
     pub use once_cell;
@@ -18,7 +18,7 @@ mod dump_decoded {
     pub type DumpDecodedPtr = fn(&[u8], &mut dyn Write) -> Result<(), eyre::Error>;
 
     /// Map (Type Name -> `dump_decode()` ptr)
-    pub type DumpDecodedMap = HashMap<String, DumpDecodedPtr>;
+    pub type DumpDecodedMap = BTreeMap<String, DumpDecodedPtr>;
 
     /// Types implementing this trait can be decoded from bytes
     /// with *Parity Scale Codec* and dumped to something implementing [`Write`]
