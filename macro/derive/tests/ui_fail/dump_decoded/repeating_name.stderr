@@ -4,7 +4,7 @@ error: proc-macro derive panicked
 13 |     #[derive(Debug, Decode, iroha_derive::DumpDecoded)]
    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: message: Type with the same name already implements DumpDecoded. Consider using `#[dump_decoded(name = "AnotherName")`
+   = help: message: Type with the same name already implements DumpDecoded. Consider using `#[dump_decoded(rename = "AnotherName")`
 
 error[E0601]: `main` function not found in crate `$CRATE`
   --> tests/ui_fail/dump_decoded/repeating_name.rs:1:1

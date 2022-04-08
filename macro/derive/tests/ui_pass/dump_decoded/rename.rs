@@ -4,7 +4,7 @@ mod a {
     use super::*;
 
     #[derive(Debug, Decode, iroha_derive::DumpDecoded)]
-    #[dump_decoded(name = "a::Struct")]
+    #[dump_decoded(rename = "a::Struct")]
     pub struct Struct;
 }
 

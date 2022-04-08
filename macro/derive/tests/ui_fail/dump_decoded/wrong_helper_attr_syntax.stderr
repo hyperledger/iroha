@@ -12,7 +12,7 @@ error: proc-macro derive panicked
 7 | #[derive(Debug, Decode, iroha_derive::DumpDecoded)]
   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^
   |
-  = help: message: Only `name` attribute is supported
+  = help: message: Only `rename` attribute is supported
 
 error[E0601]: `main` function not found in crate `$CRATE`
  --> tests/ui_fail/dump_decoded/wrong_helper_attr_syntax.rs:1:1
@@ -20,8 +20,8 @@ error[E0601]: `main` function not found in crate `$CRATE`
 1 | / use parity_scale_codec::Decode;
 2 | |
 3 | | #[derive(Debug, Decode, iroha_derive::DumpDecoded)]
-4 | | #[dump_decoded(name = AnotherStruct)]
+4 | | #[dump_decoded(rename = AnotherStruct)]
 ... |
-8 | | #[dump_decoded(rename = "AnotherStruct2")]
+8 | | #[dump_decoded(newname = "AnotherStruct2")]
 9 | | struct Struct2;
   | |_______________^ consider adding a `main` function to `$DIR/tests/ui_fail/dump_decoded/wrong_helper_attr_syntax.rs`

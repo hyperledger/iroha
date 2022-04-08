@@ -5,7 +5,7 @@ use super::*;
 #[cfg(feature = "dump_decoded")]
 static mut TYPES: Option<Vec<String>> = None;
 const HELPER_ATTR: &str = "dump_decoded";
-const NAME_ATTR: &str = "name";
+const RENAME_ATTR: &str = "rename";
 
 /// Macro to easily check if token matches concrete variant and panic if not
 macro_rules! match_token {
@@ -48,8 +48,8 @@ fn parse_name_attr(attr: &syn::Attribute) -> String {
     match_token!(tokens.next(), Some(Punct(punct)) if punct.as_char() == '=' => ());
     let attr_value = match_token!(tokens.next(), Some(Literal(literal)) => literal);
 
-    if attr_name != NAME_ATTR {
-        panic!("Only `{}` attribute is supported", NAME_ATTR)
+    if attr_name != RENAME_ATTR {
+        panic!("Only `{}` attribute is supported", RENAME_ATTR)
     }
 
     let name = attr_value.to_string();
@@ -88,7 +88,7 @@ pub fn impl_dump_decoded(ast: &syn::DeriveInput) -> TokenStream {
             panic!(
                 "Type with the same name already implements DumpDecoded. \
                  Consider using `#[{}({} = \"AnotherName\")`",
-                HELPER_ATTR, NAME_ATTR
+                HELPER_ATTR, RENAME_ATTR
             )
         }
         types.push(type_name_string);
