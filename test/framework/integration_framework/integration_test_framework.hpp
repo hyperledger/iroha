@@ -453,6 +453,8 @@ namespace integration_framework {
                         const WaitTime &wait,
                         const std::string &error_reason);
 
+    std::shared_ptr<iroha::Subscription> subscription;
+
     logger::LoggerPtr log_;
     logger::LoggerManagerTreePtr log_manager_;
 

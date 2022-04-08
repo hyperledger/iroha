@@ -8,12 +8,14 @@
 
 #include "network/ordering_gate.hpp"
 
+#include <memory>
 #include <shared_mutex>
 
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/subscription.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/round_switch.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
@@ -30,7 +32,9 @@ namespace iroha {
      * Ordering gate which requests proposals from the ordering service
      * votes for proposals, and passes committed proposals to the pipeline
      */
-    class OnDemandOrderingGate : public network::OrderingGate {
+    class OnDemandOrderingGate
+        : public network::OrderingGate,
+          public std::enable_shared_from_this<OnDemandOrderingGate> {
      public:
       OnDemandOrderingGate(
           std::shared_ptr<OnDemandOrderingService> ordering_service,
@@ -43,6 +47,8 @@ namespace iroha {
           bool syncing_mode);
 
       ~OnDemandOrderingGate() override;
+
+      void initialize();
 
       void propagateBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
@@ -96,6 +102,8 @@ namespace iroha {
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;
       consensus::Round current_round_;
       std::shared_ptr<const LedgerState> current_ledger_state_;
+      std::shared_ptr<iroha::BaseSubscriber<bool, ProposalEvent>>
+          failed_proposal_response_;
 
       std::shared_timed_mutex stop_mutex_;
       bool stop_requested_{false};

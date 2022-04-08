@@ -20,6 +20,7 @@ namespace shared_model {
        * @return transactions
        */
       virtual types::TransactionsCollectionType transactions() const = 0;
+      virtual types::TransactionsCollectionType mut_transactions() = 0;
 
       /**
        * @return the height

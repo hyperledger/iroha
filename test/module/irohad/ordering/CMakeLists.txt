@@ -37,6 +37,7 @@ target_link_libraries(on_demand_ordering_gate_test
     shared_model_interfaces_factories
     test_logger
     shared_model_proto_backend
+    sync_subscription
     )
 
 addtest(mst_processing_test mst_processing_test.cpp)

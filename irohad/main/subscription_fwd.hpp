@@ -11,6 +11,9 @@
 namespace iroha {
   enum SubscriptionEngineHandlers {
     kYac = 0,
+    kRequestProposal,
+    kVoteProcess,
+    kProposalProcessing,
     kMetrics,
     kNotifications,
     //---------------
@@ -38,9 +41,12 @@ namespace iroha {
     kOnTxsEnoughForProposal,
     kOnPackProposal,
     kOnProposalResponse,
+    kOnProposalResponseFailed,
     kOnTransactionResponse,
     kOnConsensusGateEvent,
     kSendBatchComplete,
+
+    kRemoteProposalDiff,
 
     // RDB
     kOnRdbStats,
