@@ -33,25 +33,6 @@ struct FakePeerExampleTest : FakePeerFixture {};
 INSTANTIATE_TEST_SUITE_P_DifferentStorageTypes(FakePeerExampleTest);
 
 /**
- * Check that after sending a not fully signed transaction, an MST state
- * propagates to another peer
- * @given a not fully signed transaction
- * @when such transaction is sent to one of two iroha peers in the network
- * @then that peer propagates MST state to another peer
- */
-TEST_P(FakePeerExampleTest,
-       MstStateOfTransactionWithoutAllSignaturesPropagtesToOtherPeer) {
-  createFakePeers(1);
-  auto &itf = prepareState();
-
-  itf.sendTxWithoutValidation(complete(
-      baseTx(kAdminId)
-          .transferAsset(kAdminId, kUserId, kAssetId, "income", "500.0")
-          .quorum(2),
-      kAdminKeypair));
-}
-
-/**
  * Check that Irohad loads correct block version when having a malicious fork on
  * the network.
  * @given a less then 1/3 of peers having a malicious fork of the ledger
@@ -233,47 +214,4 @@ TEST_P(FakePeerExampleTest, SynchronizeTheRightVersionOfForkedLedger) {
           });
   ASSERT_TRUE(completed.wait(kSynchronizerWaitingTime))
       << "Error waiting for synchronization";
-}
-
-/**
- * Check that after receiving a valid command the ITF peer provides a proposal
- * containing it.
- *
- * \attention this code is nothing more but an example of Fake Peer usage
- *
- * @given a network of one real and one fake peers
- * @when fake peer provides a proposal with valid tx
- * @then the real peer must commit the transaction from that proposal
- */
-TEST_P(FakePeerExampleTest, OnDemandOrderingProposalAfterValidCommandReceived) {
-  // Create the tx:
-  const auto tx = complete(
-      baseTx(kAdminId).transferAsset(kAdminId, kUserId, kAssetId, "tx1", "1.0"),
-      kAdminKeypair);
-
-  createFakePeers(1);
-
-  prepareState();
-
-  // provide the proposal
-  fake_peers_.front()->getProposalStorage().addTransactions({clone(tx)});
-
-  // watch the proposal requests to fake peer
-  constexpr std::chrono::seconds kCommitWaitingTime(20);
-  iroha::utils::WaitForSingleObject completed;
-  auto subscriber = iroha::SubscriberCreator<
-      bool,
-      std::shared_ptr<shared_model::interface::Block const>>::
-      template create<iroha::EventTypes::kOnBlock>(
-          static_cast<iroha::SubscriptionEngineHandlers>(
-              iroha::getSubscription()->dispatcher()->kExecuteInPool),
-          [&completed, my_hash = tx.reducedHash()](auto, auto block) {
-            for (const auto &tx : block->transactions()) {
-              if (my_hash == tx.reducedHash()) {
-                completed.set();
-              }
-            }
-          });
-  ASSERT_TRUE(completed.wait(kCommitWaitingTime))
-      << "Error waiting for the commit";
 }

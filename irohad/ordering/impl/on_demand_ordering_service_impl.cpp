@@ -5,6 +5,7 @@
 
 #include "ordering/impl/on_demand_ordering_service_impl.hpp"
 
+#include <string_view>
 #include <unordered_set>
 
 #include <boost/range/adaptor/indirected.hpp>
@@ -15,12 +16,52 @@
 #include "datetime/time.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "interfaces/iroha_internal/transaction_batch_impl.hpp"
+#include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "main/subscription.hpp"
+#include "ordering/ordering_types.hpp"
 #include "subscription/scheduler_impl.hpp"
 
 using iroha::ordering::OnDemandOrderingServiceImpl;
+
+namespace {
+  auto parseProposal(
+      shared_model::interface::types::TransactionsCollectionType const &txs) {
+    shared_model::interface::types::SharedTxsCollectionType transactions;
+    for (auto const &transaction : txs)
+      transactions.push_back(clone(transaction));
+
+    return shared_model::interface::TransactionBatchParserImpl().parseBatches(
+        transactions);
+  }
+
+  void uploadBatches(
+      iroha::ordering::BatchesCache::BatchesSetType &batches,
+      shared_model::interface::types::TransactionsCollectionType const &txs) {
+    auto batch_txs = parseProposal(txs);
+    for (auto &txs : batch_txs) {
+      batches.insert(
+          std::make_shared<shared_model::interface::TransactionBatchImpl>(
+              std::move(txs)));
+    }
+  }
+
+  void uploadBatchesWithFilter(
+      iroha::ordering::BloomFilter256 const &bf,
+      iroha::ordering::BatchesCache::BatchesSetType &batches,
+      shared_model::interface::types::TransactionsCollectionType const &txs) {
+    auto batch_txs = parseProposal(txs);
+    for (auto &txs : batch_txs) {
+      auto batch =
+          std::make_shared<shared_model::interface::TransactionBatchImpl>(
+              std::move(txs));
+      if (bf.test(batch->reducedHash()))
+        batches.insert(batch);
+    }
+  }
+}  // namespace
 
 OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t transaction_limit,
@@ -33,7 +74,66 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
       number_of_proposals_(number_of_proposals),
       proposal_factory_(std::move(proposal_factory)),
       tx_cache_(std::move(tx_cache)),
-      log_(std::move(log)) {}
+      log_(std::move(log)) {
+  remote_proposal_observer_ =
+      SubscriberCreator<bool, RemoteProposalDownloadedEvent>::template create<
+          iroha::EventTypes::kRemoteProposalDiff>(
+          iroha::SubscriptionEngineHandlers::kProposalProcessing,
+          [this](
+              auto,
+              auto ev) {  /// TODO(iceseer): remove `this` from lambda context
+            BatchesCache::BatchesSetType batches;
+            uploadBatches(batches, ev.remote->transactions());
+
+            if (ev.bloom_filter.size() == BloomFilter256::kBytesCount) {
+              BloomFilter256 bf;
+              bf.store(ev.bloom_filter);
+              uploadBatchesWithFilter(bf, batches, ev.local->transactions());
+            }
+
+            std::vector<std::shared_ptr<shared_model::interface::Transaction>>
+                collection;
+            for (auto const &batch : batches) {
+              collection.insert(std::end(collection),
+                                std::begin(batch->transactions()),
+                                std::end(batch->transactions()));
+            }
+            if (auto result =
+                    tryCreateProposal(ev.round, collection, ev.created_time);
+                result
+                && result.value()->hash()
+                    == shared_model::crypto::Hash(ev.remote_proposal_hash)) {
+              log_->debug("Local correct proposal: {}, while remote {}",
+                          result.value()->hash(),
+                          shared_model::crypto::Hash(ev.remote_proposal_hash));
+              iroha::getSubscription()->notify(
+                  iroha::EventTypes::kOnProposalResponse,
+                  ProposalEvent{std::move(result).value(), ev.round});
+            } else {
+              if (result)
+                log_->debug(
+                    "Local incorrect proposal: {}\nwhile remote {}\nremote "
+                    "proposal: {}\nlocal proposal: {}",
+                    result.value()->hash(),
+                    shared_model::crypto::Hash(ev.remote_proposal_hash),
+                    *ev.remote,
+                    **result);
+              else
+                log_->debug(
+                    "Local proposal was not created while remote hash "
+                    "{}\nremote proposal: {}",
+                    shared_model::crypto::Hash(ev.remote_proposal_hash),
+                    *ev.remote);
+              iroha::getSubscription()->notify(
+                  iroha::EventTypes::kOnProposalResponseFailed,
+                  ProposalEvent{std::nullopt, ev.round});
+            }
+          });
+}
+
+OnDemandOrderingServiceImpl::~OnDemandOrderingServiceImpl() {
+  remote_proposal_observer_->unsubscribe();
+}
 
 // -------------------------| OnDemandOrderingService |-------------------------
 
@@ -85,7 +185,7 @@ void OnDemandOrderingServiceImpl::forCachedBatches(
   batches_cache_.forCachedBatches(f);
 }
 
-std::optional<std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+OnDemandOrderingServiceImpl::PackedProposalData
 OnDemandOrderingServiceImpl::waitForLocalProposal(
     consensus::Round const &round, std::chrono::milliseconds const &delay) {
   if (!hasProposal(round) && !hasEnoughBatchesInCache()) {
@@ -124,12 +224,10 @@ OnDemandOrderingServiceImpl::waitForLocalProposal(
   return onRequestProposal(round);
 }
 
-std::optional<std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+OnDemandOrderingServiceImpl::PackedProposalData
 OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
   log_->debug("Requesting a proposal for round {}", round);
-  std::optional<
-      std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
-      result;
+  OnDemandOrderingServiceImpl::PackedProposalData result;
   do {
     std::lock_guard<std::mutex> lock(proposals_mutex_);
     auto it = proposal_map_.find(round);
@@ -146,10 +244,12 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
 
     if (is_current_round_or_next2) {
       result = packNextProposals(round);
+      proposal_map_.emplace(round, result);
       getSubscription()->notify(EventTypes::kOnPackProposal, round);
     }
   } while (false);
-  log_->debug("uploadProposal, {}, {}returning a proposal.",
+
+  log_->debug("uploadProposal, {}, {} returning a proposal.",
               round,
               result ? "" : "NOT ");
   return result;
@@ -173,25 +273,27 @@ OnDemandOrderingServiceImpl::tryCreateProposal(
     proposal = std::nullopt;
     log_->debug("No transactions to create a proposal for {}", round);
   }
-
-  assert(proposal_map_.find(round) == proposal_map_.end());
-  proposal_map_.emplace(round, proposal);
   return proposal;
 }
 
-std::optional<std::shared_ptr<shared_model::interface::Proposal>>
+OnDemandOrderingServiceImpl::PackedProposalData
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   auto now = iroha::time::now();
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
+  BloomFilter256 bf;
+
   if (!isEmptyBatchesCache())
     batches_cache_.getTransactions(
-        transaction_limit_, txs, [&](auto const &batch) {
+        transaction_limit_, txs, bf, [&](auto const &batch) {
           assert(batch);
           return batchAlreadyProcessed(*batch);
         });
 
   log_->debug("Packed proposal contains: {} transactions.", txs.size());
-  return tryCreateProposal(round, txs, now);
+  if (auto result = tryCreateProposal(round, txs, now))
+    return std::make_pair(std::move(result).value(), bf);
+
+  return std::nullopt;
 }
 
 void OnDemandOrderingServiceImpl::tryErase(

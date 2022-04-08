@@ -231,7 +231,8 @@ IntegrationTestFramework::IntegrationTestFramework(
     logger::LoggerManagerTreePtr log_manager,
     std::string db_wsv_path,
     std::string db_store_path)
-    : log_(log_manager->getLogger()),
+    : subscription{iroha::getSubscription()},
+      log_(log_manager->getLogger()),
       log_manager_(std::move(log_manager)),
       proposal_queue_(
           std::make_unique<CheckerQueue<
