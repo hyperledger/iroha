@@ -47,7 +47,7 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
         .add_account(
             Account::new(
                 AccountId::from_str("alice@wonderland").expect("Valid"),
-                [keys.public_key.clone()],
+                [keys.public_key().clone()],
             )
             .build()
         )
@@ -250,9 +250,10 @@ fn register_domain() -> Instruction {
 }
 
 fn register_account(name: &str) -> Instruction {
+    let (public_key, _) = KeyPair::generate().unwrap().into();
     RegisterBox::new(Account::new(
         AccountId::new(name.parse().expect("Valid"), DOMAIN.parse().expect("Valid")),
-        [KeyPair::generate().unwrap().public_key],
+        [public_key],
     ))
     .into()
 }
@@ -702,11 +703,11 @@ fn domains(
 fn hash_should_be_the_same() {
     let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
     let mut config = get_config(
-        get_trusted_peers(Some(&key_pair.public_key)),
+        get_trusted_peers(Some(key_pair.public_key())),
         Some(key_pair.clone()),
     );
-    config.genesis.account_private_key = Some(key_pair.private_key.clone());
-    config.genesis.account_public_key = Some(key_pair.public_key.clone());
+    config.genesis.account_private_key = Some(key_pair.private_key().clone());
+    config.genesis.account_public_key = Some(key_pair.public_key().clone());
 
     let tx = Transaction::new(
         AccountId::new(

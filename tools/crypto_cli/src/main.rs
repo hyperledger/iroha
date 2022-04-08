@@ -73,11 +73,13 @@ fn main() -> Result<(), Report> {
                 },
                 |private_key| {
                     KeyPair::generate_with_configuration(
-                        key_gen_configuration.clone().use_private_key(PrivateKey {
-                            digest_function: algorithm.to_string(),
-                            payload: hex::decode(private_key)
-                                .wrap_err("Failed to decode private key.")?,
-                        }),
+                        key_gen_configuration
+                            .clone()
+                            .use_private_key(PrivateKey::new(
+                                algorithm.to_string(),
+                                hex::decode(private_key)
+                                    .wrap_err("Failed to decode private key.")?,
+                            )),
                     )
                     .wrap_err("Failed to generate key pair")
                 },
@@ -99,9 +101,12 @@ fn main() -> Result<(), Report> {
             serde_json::to_string_pretty(&keypair).wrap_err("Failed to serialize to json.")?;
         println!("{}", json);
     } else {
-        println!("Public key (multihash): {}", &keypair.public_key);
-        println!("Private key: {}", &keypair.private_key);
-        println!("Digest function: {}", &keypair.public_key.digest_function);
+        println!("Public key (multihash): {}", keypair.public_key());
+        println!("Private key: {}", keypair.private_key());
+        println!(
+            "Digest function: {}",
+            keypair.public_key().digest_function()
+        );
     }
 
     Ok(())

@@ -239,7 +239,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         // Store length as byte array in front of encoding
         for (i, byte) in WasmUsize::try_from(r.len())
             .map_err(|e| Trap::new(e.to_string()))?
-            .to_be_bytes()
+            .to_le_bytes()
             .into_iter()
             .enumerate()
         {
@@ -535,7 +535,7 @@ mod tests {
 
     fn world_with_test_account(account_id: AccountId) -> World {
         let domain_id = account_id.domain_id.clone();
-        let public_key = KeyPair::generate().unwrap().public_key;
+        let (public_key, _) = KeyPair::generate().unwrap().into();
         let account = Account::new(account_id, [public_key]).build();
         let mut domain = Domain::new(domain_id).build();
         assert!(domain.add_account(account).is_none());

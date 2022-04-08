@@ -18,18 +18,14 @@ fn client_can_transfer_asset_to_another_account() {
     let create_domain = RegisterBox::new(Domain::new("domain".parse().expect("Valid")));
     let account1_id: AccountId = "account1@domain".parse().expect("Valid");
     let account2_id: AccountId = "account2@domain".parse().expect("Valid");
-    let create_account1 = RegisterBox::new(Account::new(
-        account1_id.clone(),
-        [KeyPair::generate()
-            .expect("Failed to generate KeyPair.")
-            .public_key],
-    ));
-    let create_account2 = RegisterBox::new(Account::new(
-        account2_id.clone(),
-        [KeyPair::generate()
-            .expect("Failed to generate KeyPair.")
-            .public_key],
-    ));
+    let (public_key1, _) = KeyPair::generate()
+        .expect("Failed to generate KeyPair")
+        .into();
+    let (public_key2, _) = KeyPair::generate()
+        .expect("Failed to generate KeyPair")
+        .into();
+    let create_account1 = RegisterBox::new(Account::new(account1_id.clone(), [public_key1]));
+    let create_account2 = RegisterBox::new(Account::new(account2_id.clone(), [public_key2]));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
     let quantity: u32 = 200;
     let create_asset =

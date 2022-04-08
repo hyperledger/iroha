@@ -191,7 +191,7 @@ impl Domain {
         self.asset_definitions.get(asset_definition_id)
     }
 
-    /// Get an iterator over [`Account`] of the `Domain`
+    /// Get an iterator over [`Account`]s of the `Domain`
     #[inline]
     pub fn accounts(&self) -> impl ExactSizeIterator<Item = &Account> {
         self.accounts.values()

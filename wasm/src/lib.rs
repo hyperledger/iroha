@@ -237,7 +237,7 @@ mod tests {
         res.encode_to(&mut r);
 
         // Store length of encoded object as byte array at the beginning of the vec
-        for (i, byte) in (r.len() as WasmUsize).to_be_bytes().into_iter().enumerate() {
+        for (i, byte) in (r.len() as WasmUsize).to_le_bytes().into_iter().enumerate() {
             r[i] = byte;
         }
 

@@ -184,16 +184,16 @@ impl GenesisNetworkTrait for GenesisNetwork {
                 .transactions
                 .iter()
                 .map(|raw_transaction| {
-                    let genesis_key_pair = KeyPair {
-                        public_key: genesis_config
+                    let genesis_key_pair = KeyPair::new(
+                        genesis_config
                             .account_public_key
                             .clone()
                             .ok_or_else(|| eyre!("Genesis account public key is empty."))?,
-                        private_key: genesis_config
+                        genesis_config
                             .account_private_key
                             .clone()
                             .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
-                    };
+                    );
 
                     raw_transaction.sign_and_accept(genesis_key_pair, tx_limits)
                 })
@@ -458,7 +458,7 @@ mod tests {
 
     #[test]
     fn load_default_genesis_block() -> Result<()> {
-        let genesis_key_pair = KeyPair::generate()?;
+        let (public_key, private_key) = KeyPair::generate()?.into();
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
@@ -467,8 +467,8 @@ mod tests {
             true,
             RawGenesisBlock::default(),
             &GenesisConfiguration {
-                account_public_key: Some(genesis_key_pair.public_key),
-                account_private_key: Some(genesis_key_pair.private_key),
+                account_public_key: Some(public_key),
+                account_private_key: Some(private_key),
                 ..GenesisConfiguration::default()
             },
             &tx_limits,

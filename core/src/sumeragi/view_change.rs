@@ -4,7 +4,7 @@
 use std::{collections::HashSet, fmt::Display};
 
 use eyre::{Context, Result};
-use iroha_crypto::{HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
+use iroha_crypto::{Hash, HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
 use iroha_data_model::prelude::PeerId;
 use iroha_macro::*;
 use iroha_schema::IntoSchema;
@@ -22,7 +22,7 @@ pub struct Proof {
 impl Proof {
     /// Hash of this proof.
     pub fn hash(&self) -> HashOf<Self> {
-        HashOf::new(&self.payload).transmute()
+        Hash::new(self.payload.encode()).into()
     }
 
     fn from_payload(payload: ProofPayload, key_pair: KeyPair) -> Result<Self> {
@@ -98,7 +98,7 @@ impl Proof {
     /// Adds verified signatures of `other` to self.
     pub fn merge_signatures(&mut self, other: SignaturesOf<Proof>) {
         self.signatures
-            .extend(other.into_verified_by_hash(self.hash()))
+            .extend(other.into_verified_by_hash(&self.hash()))
     }
 
     /// Verify if the proof is valid, given the peers in `topology`.
@@ -110,7 +110,7 @@ impl Proof {
         let n_signatures = self
             .signatures
             .verified_by_hash(self.hash())
-            .filter(|signature| peer_public_keys.contains(&signature.public_key))
+            .filter(|signature| peer_public_keys.contains(signature.public_key()))
             .count();
         // See Whitepaper for the information on this limit.
         #[allow(clippy::int_plus_one)]
@@ -246,8 +246,6 @@ impl ProofChain {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use iroha_crypto::{Hash, HashOf};
-
     use super::*;
 
     #[test]
@@ -255,14 +253,14 @@ mod tests {
         let key_pair_1 = KeyPair::generate()?;
         let key_pair_2 = KeyPair::generate()?;
         let proof = Proof::commit_timeout(
-            HashOf::from_hash(Hash([1_u8; 32])),
-            HashOf::from_hash(Hash([2_u8; 32])),
-            HashOf::from_hash(Hash([3_u8; 32])),
+            Hash::new([1_u8; Hash::LENGTH]).into(),
+            Hash::new([2_u8; Hash::LENGTH]).into(),
+            Hash::new([3_u8; Hash::LENGTH]).into(),
             key_pair_1.clone(),
         )?
         .sign(key_pair_2.clone())?;
-        let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
-        let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
+        let peer_1 = PeerId::new("127.0.0.1:1001", key_pair_1.public_key());
+        let peer_2 = PeerId::new("127.0.0.1:1002", key_pair_2.public_key());
         let peers = [peer_1, peer_2].into();
         assert!(proof.verify(&peers, 1));
         Ok(())
@@ -273,13 +271,13 @@ mod tests {
         let key_pair_1 = KeyPair::generate()?;
         let key_pair_2 = KeyPair::generate()?;
         let proof = Proof::commit_timeout(
-            HashOf::from_hash(Hash([1_u8; 32])),
-            HashOf::from_hash(Hash([2_u8; 32])),
-            HashOf::from_hash(Hash([3_u8; 32])),
+            Hash::new([1_u8; Hash::LENGTH]).into(),
+            Hash::new([2_u8; Hash::LENGTH]).into(),
+            Hash::new([3_u8; Hash::LENGTH]).into(),
             key_pair_1.clone(),
         )?;
-        let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
-        let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
+        let peer_1 = PeerId::new("127.0.0.1:1001", key_pair_1.public_key());
+        let peer_2 = PeerId::new("127.0.0.1:1002", key_pair_2.public_key());
         let peers = [peer_1, peer_2].into();
         assert!(!proof.verify(&peers, 1));
         Ok(())
@@ -291,14 +289,14 @@ mod tests {
         let key_pair_2 = KeyPair::generate()?;
         let key_pair_3 = KeyPair::generate()?;
         let proof = Proof::commit_timeout(
-            HashOf::from_hash(Hash([1_u8; 32])),
-            HashOf::from_hash(Hash([2_u8; 32])),
-            HashOf::from_hash(Hash([3_u8; 32])),
+            Hash::new([1_u8; Hash::LENGTH]).into(),
+            Hash::new([2_u8; Hash::LENGTH]).into(),
+            Hash::new([3_u8; Hash::LENGTH]).into(),
             key_pair_1.clone(),
         )?
         .sign(key_pair_3)?;
-        let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
-        let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
+        let peer_1 = PeerId::new("127.0.0.1:1001", key_pair_1.public_key());
+        let peer_2 = PeerId::new("127.0.0.1:1002", key_pair_2.public_key());
         let peers = [peer_1, peer_2].into();
         assert!(!proof.verify(&peers, 1));
         Ok(())
@@ -309,12 +307,12 @@ mod tests {
         let mut proof_chain = ProofChain::empty();
         let key_pair_1 = KeyPair::generate()?;
         let key_pair_2 = KeyPair::generate()?;
-        let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
-        let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
-        let latest_block = HashOf::from_hash(Hash([3_u8; 32]));
+        let peer_1 = PeerId::new("127.0.0.1:1001", key_pair_1.public_key());
+        let peer_2 = PeerId::new("127.0.0.1:1002", key_pair_2.public_key());
+        let latest_block = Hash::new([3_u8; Hash::LENGTH]).into();
         for i in 0..10 {
             let proof = Proof::commit_timeout(
-                HashOf::from_hash(Hash([i; 32])),
+                Hash::new([i; Hash::LENGTH]).into(),
                 proof_chain.latest_hash(),
                 latest_block,
                 key_pair_1.clone(),
@@ -332,17 +330,17 @@ mod tests {
         let mut proof_chain = ProofChain::empty();
         let key_pair_1 = KeyPair::generate()?;
         let key_pair_2 = KeyPair::generate()?;
-        let peer_1 = PeerId::new("127.0.0.1:1001", &key_pair_1.public_key);
-        let peer_2 = PeerId::new("127.0.0.1:1002", &key_pair_2.public_key);
-        let latest_block = HashOf::from_hash(Hash([3_u8; 32]));
+        let peer_1 = PeerId::new("127.0.0.1:1001", key_pair_1.public_key());
+        let peer_2 = PeerId::new("127.0.0.1:1002", key_pair_2.public_key());
+        let latest_block = Hash::new([3_u8; Hash::LENGTH]).into();
         for i in 0..10 {
             let latest_proof_hash = if i == 2 {
-                HashOf::from_hash(Hash([0_u8; 32]))
+                Hash::new([1_u8; Hash::LENGTH]).into()
             } else {
                 proof_chain.latest_hash()
             };
             let proof = Proof::commit_timeout(
-                HashOf::from_hash(Hash([i; 32])),
+                Hash::new([i; Hash::LENGTH]).into(),
                 latest_proof_hash,
                 latest_block,
                 key_pair_1.clone(),

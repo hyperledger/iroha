@@ -44,16 +44,15 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
 
     // Registering new role which sets `Transfer` execution count limit to
     // `COUNT` for every `PERIOD_MS` milliseconds
-    let permission_token = PermissionToken::new(
-        transfer::CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD.clone(),
-        [
-            (
-                transfer::PERIOD_PARAM_NAME.clone(),
-                Value::U128(PERIOD_MS.into()),
-            ),
-            (transfer::COUNT_PARAM_NAME.clone(), Value::U32(COUNT)),
-        ],
-    );
+    let permission_token =
+        PermissionToken::new(transfer::CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD.clone())
+            .with_params([
+                (
+                    transfer::PERIOD_PARAM_NAME.clone(),
+                    Value::U128(PERIOD_MS.into()),
+                ),
+                (transfer::COUNT_PARAM_NAME.clone(), Value::U32(COUNT)),
+            ]);
     let permissions = Permissions::from([permission_token]);
     let register_role = RegisterBox::new(Role::new(role_id.clone(), permissions));
     test_client.submit_blocking(register_role)?;

@@ -28,8 +28,8 @@ pub fn sort_peers_by_hash_and_counter(
 ) -> Vec<PeerId> {
     peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
     let mut bytes: Vec<u8> = counter.to_le_bytes().to_vec();
-    bytes.append(hash.as_ref().to_vec().as_mut());
-    let Hash(bytes) = Hash::new(&bytes);
+    bytes.extend(hash.as_ref());
+    let bytes = Hash::new(bytes).into();
     let mut rng = StdRng::from_seed(bytes);
     peers.shuffle(&mut rng);
     peers
@@ -352,7 +352,7 @@ impl Topology {
         if role
             .peers(self)
             .iter()
-            .any(|peer| peer.public_key == signature.public_key)
+            .any(|peer| peer.public_key == *signature.public_key())
         {
             Ok(())
         } else {
@@ -379,7 +379,7 @@ impl Topology {
             .collect();
         signatures
             .into_iter()
-            .filter(|signature| public_keys.contains(&signature.public_key))
+            .filter(|signature| public_keys.contains(signature.public_key()))
             .cloned()
             .collect()
     }
@@ -451,19 +451,22 @@ mod tests {
             address: "127.0.0.1".to_owned(),
             public_key: KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
-                .public_key,
+                .public_key()
+                .clone(),
         };
         let peer_2: PeerId = PeerId {
             address: "127.0.0.2".to_owned(),
             public_key: KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
-                .public_key,
+                .public_key()
+                .clone(),
         };
         let peer_3: PeerId = PeerId {
             address: "127.0.0.3".to_owned(),
             public_key: KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
-                .public_key,
+                .public_key()
+                .clone(),
         };
         // set_a.len() = 2, is wrong as it is not possible to get integer f in: 2f + 1 = 2
         let set_a: HashSet<_> = vec![peer_1.clone(), peer_2].into_iter().collect();
@@ -499,25 +502,29 @@ mod tests {
                 address: "127.0.0.1:7878".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
-                    .public_key,
+                    .public_key()
+                    .clone(),
             },
             PeerId {
                 address: "127.0.0.1:7879".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
-                    .public_key,
+                    .public_key()
+                    .clone(),
             },
             PeerId {
                 address: "127.0.0.1:7880".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
-                    .public_key,
+                    .public_key()
+                    .clone(),
             },
             PeerId {
                 address: "127.0.0.1:7881".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
-                    .public_key,
+                    .public_key()
+                    .clone(),
             },
         ]
         .into_iter()
@@ -527,36 +534,42 @@ mod tests {
     #[test]
     fn different_order() {
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash(peers.clone(), &HashOf::from_hash(Hash([1_u8; 32])));
-        let peers_2 = sort_peers_by_hash(peers, &HashOf::from_hash(Hash([2_u8; 32])));
+        let peers_1 = sort_peers_by_hash(peers.clone(), &Hash::new([1_u8; Hash::LENGTH]).into());
+        let peers_2 = sort_peers_by_hash(peers, &Hash::new([2_u8; Hash::LENGTH]).into());
         assert_ne!(peers_1, peers_2);
     }
 
     #[test]
     fn same_order() {
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash(peers.clone(), &HashOf::from_hash(Hash([2_u8; 32])));
-        let peers_2 = sort_peers_by_hash(peers, &HashOf::from_hash(Hash([2_u8; 32])));
+        let peers_1 = sort_peers_by_hash(peers.clone(), &Hash::new([2_u8; Hash::LENGTH]).into());
+        let peers_2 = sort_peers_by_hash(peers, &Hash::new([2_u8; Hash::LENGTH]).into());
         assert_eq!(peers_1, peers_2);
     }
 
     #[test]
     fn same_order_by_hash_and_counter() {
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 =
-            sort_peers_by_hash_and_counter(peers.clone(), &HashOf::from_hash(Hash([2_u8; 32])), 1);
+        let peers_1 = sort_peers_by_hash_and_counter(
+            peers.clone(),
+            &Hash::new([2_u8; Hash::LENGTH]).into(),
+            1,
+        );
         let peers_2 =
-            sort_peers_by_hash_and_counter(peers, &HashOf::from_hash(Hash([2_u8; 32])), 1);
+            sort_peers_by_hash_and_counter(peers, &Hash::new([2_u8; Hash::LENGTH]).into(), 1);
         assert_eq!(peers_1, peers_2);
     }
 
     #[test]
     fn different_order_by_hash_and_counter() {
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 =
-            sort_peers_by_hash_and_counter(peers.clone(), &HashOf::from_hash(Hash([2_u8; 32])), 1);
+        let peers_1 = sort_peers_by_hash_and_counter(
+            peers.clone(),
+            &Hash::new([2_u8; Hash::LENGTH]).into(),
+            1,
+        );
         let peers_2 =
-            sort_peers_by_hash_and_counter(peers, &HashOf::from_hash(Hash([2_u8; 32])), 2);
+            sort_peers_by_hash_and_counter(peers, &Hash::new([2_u8; Hash::LENGTH]).into(), 2);
         assert_ne!(peers_1, peers_2);
     }
 }

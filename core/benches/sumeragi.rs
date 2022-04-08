@@ -2,7 +2,7 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::sumeragi::network_topology;
-use iroha_crypto::{Hash, HashOf, KeyPair};
+use iroha_crypto::{Hash, KeyPair};
 use iroha_data_model::prelude::*;
 
 const N_PEERS: usize = 255;
@@ -13,7 +13,8 @@ fn get_n_peers(n: usize) -> Vec<PeerId> {
             address: format!("127.0.0.{}", i),
             public_key: KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
-                .public_key,
+                .public_key()
+                .clone(),
         })
         .collect()
 }
@@ -21,7 +22,7 @@ fn get_n_peers(n: usize) -> Vec<PeerId> {
 fn sort_peers(criterion: &mut Criterion) {
     let peers = get_n_peers(N_PEERS);
     let _ = criterion.bench_function("sort_peers", |b| {
-        let hash = HashOf::from_hash(Hash([0_u8; 32]));
+        let hash = Hash::new([1_u8; Hash::LENGTH]).into();
         b.iter(|| network_topology::sort_peers_by_hash(peers.clone(), &hash));
     });
 }

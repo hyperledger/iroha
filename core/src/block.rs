@@ -10,7 +10,7 @@ use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{eyre, Context, Result};
-use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
+use iroha_crypto::{Hash, HashOf, KeyPair, SignatureOf, SignaturesOf};
 use iroha_data_model::{
     current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*,
 };
@@ -49,7 +49,7 @@ impl<T> Default for EmptyChainHash<T> {
 
 impl<T> From<EmptyChainHash<T>> for HashOf<T> {
     fn from(EmptyChainHash(PhantomData): EmptyChainHash<T>) -> Self {
-        Self::from_hash(Hash([0_u8; 32]))
+        Hash::zeroed().into()
     }
 }
 
@@ -220,8 +220,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: height + 1,
                 previous_block_hash,
-                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
-                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                transactions_hash: Hash::zeroed().into(),
+                rejected_transactions_hash: Hash::zeroed().into(),
                 view_change_proofs,
                 invalidated_blocks_hashes,
                 genesis_topology: None,
@@ -239,8 +239,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
-                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
-                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                transactions_hash: Hash::zeroed().into(),
+                rejected_transactions_hash: Hash::zeroed().into(),
                 view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: Some(genesis_topology),
@@ -258,8 +258,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
-                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
-                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                transactions_hash: Hash::zeroed().into(),
+                rejected_transactions_hash: Hash::zeroed().into(),
                 view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,
@@ -358,7 +358,7 @@ impl ChainedBlock {
 
     /// Calculate hash of the current block.
     pub fn hash(&self) -> HashOf<Self> {
-        HashOf::new(&self.header).transmute()
+        Hash::new(self.header.encode()).into()
     }
 }
 
@@ -571,7 +571,7 @@ impl ValidBlock {
 
     /// Calculate hash of the current block.
     pub fn hash(&self) -> HashOf<Self> {
-        HashOf::new(&self.header).transmute()
+        Hash::new(self.header.encode()).into()
     }
 
     /// Sign this block and get `ValidBlock`.
@@ -741,7 +741,7 @@ impl CommittedBlock {
     /// Calculate hash of the current block.
     /// `CommitedBlock` should have the same hash as `ValidBlock`.
     pub fn hash(&self) -> HashOf<Self> {
-        HashOf::new(&self.header).transmute()
+        Hash::new(self.header.encode()).into()
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.

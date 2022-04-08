@@ -31,16 +31,21 @@ use ursa::blake2::{
     Serialize,
     IntoSchema,
 )]
-pub struct Hash(pub [u8; Self::LENGTH]);
+pub struct Hash([u8; Self::LENGTH]);
 
 impl Hash {
     /// Length of hash
     pub const LENGTH: usize = 32;
 
+    /// Construct zeroed hash
+    pub const fn zeroed() -> Self {
+        Hash([0; Self::LENGTH])
+    }
+
     /// new hash from bytes
     #[cfg(feature = "std")]
     #[allow(clippy::expect_used)]
-    pub fn new(bytes: &[u8]) -> Self {
+    pub fn new(bytes: impl AsRef<[u8]>) -> Self {
         let vec_hash = VarBlake2b::new(Self::LENGTH)
             .expect("Failed to initialize variable size hash")
             .chain(bytes)
@@ -65,10 +70,24 @@ impl Debug for Hash {
     }
 }
 
-impl AsRef<[u8]> for Hash {
-    fn as_ref(&self) -> &[u8] {
-        let Hash(bytes) = self;
+impl From<Hash> for [u8; Hash::LENGTH] {
+    #[inline]
+    fn from(Hash(bytes): Hash) -> Self {
         bytes
+    }
+}
+
+impl AsRef<[u8; Hash::LENGTH]> for Hash {
+    #[inline]
+    fn as_ref(&self) -> &[u8; Hash::LENGTH] {
+        &self.0
+    }
+}
+
+impl<T> From<HashOf<T>> for Hash {
+    #[inline]
+    fn from(HashOf(hash, _): HashOf<T>) -> Self {
+        hash
     }
 }
 
@@ -94,6 +113,7 @@ impl<T> fmt::Debug for HashOf<T> {
 }
 
 impl<T> Clone for HashOf<T> {
+    #[inline]
     fn clone(&self) -> Self {
         Self(self.0, PhantomData)
     }
@@ -101,6 +121,7 @@ impl<T> Clone for HashOf<T> {
 impl<T> Copy for HashOf<T> {}
 
 impl<T> PartialEq for HashOf<T> {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
@@ -108,51 +129,50 @@ impl<T> PartialEq for HashOf<T> {
 impl<T> Eq for HashOf<T> {}
 
 impl<T> PartialOrd for HashOf<T> {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.0.partial_cmp(&other.0)
     }
 }
 impl<T> Ord for HashOf<T> {
+    #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.0.cmp(&other.0)
     }
 }
 
 impl<T> hash::Hash for HashOf<T> {
+    #[inline]
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state)
     }
 }
 
-impl<T> AsRef<[u8]> for HashOf<T> {
-    fn as_ref(&self) -> &[u8] {
-        Hash::as_ref(&self.0)
+impl<T> From<HashOf<T>> for [u8; Hash::LENGTH] {
+    #[inline]
+    fn from(HashOf(bytes, _): HashOf<T>) -> Self {
+        bytes.into()
     }
 }
 
-impl<T> From<HashOf<T>> for Hash {
-    fn from(HashOf(hash, _): HashOf<T>) -> Self {
-        hash
+impl<T> AsRef<[u8; Hash::LENGTH]> for HashOf<T> {
+    #[inline]
+    fn as_ref(&self) -> &[u8; Hash::LENGTH] {
+        self.0.as_ref()
+    }
+}
+
+impl<T> From<Hash> for HashOf<T> {
+    fn from(hash: Hash) -> Self {
+        Self(hash, PhantomData)
     }
 }
 
 impl<T> HashOf<T> {
-    /// Unsafe constructor for typed hash
-    pub const fn from_hash(hash: Hash) -> Self {
-        Self(hash, PhantomData)
-    }
-
     /// Transmutes hash to some specific type
+    #[inline]
     pub const fn transmute<F>(self) -> HashOf<F> {
         HashOf(self.0, PhantomData)
-    }
-}
-
-impl<T: Encode> HashOf<T> {
-    /// Constructor for typed hash
-    #[cfg(feature = "std")]
-    pub fn new(value: &T) -> Self {
-        Self(Hash::new(&value.encode()), PhantomData)
     }
 }
 

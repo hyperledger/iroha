@@ -93,7 +93,7 @@ impl<T> MerkleTree<T> {
     }
 
     /// Return the `Hash` of the root node.
-    pub const fn root_hash(&self) -> HashOf<Self> {
+    pub fn root_hash(&self) -> HashOf<Self> {
         self.root_node.hash().transmute()
     }
 
@@ -152,11 +152,11 @@ impl<T> Node<T> {
     }
 
     /// Return the `Hash` of the root node.
-    pub const fn hash(&self) -> HashOf<Self> {
+    pub fn hash(&self) -> HashOf<Self> {
         match self {
             Node::Subtree(Subtree { hash, .. }) => *hash,
             Node::Leaf(Leaf { hash }) => (*hash).transmute(),
-            Node::Empty => HashOf::from_hash(Hash([0; 32])),
+            Node::Empty => Hash::zeroed().into(),
         }
     }
 
@@ -178,9 +178,8 @@ impl<T> Node<T> {
             .iter()
             .zip(right_hash.as_ref().iter())
             .map(|(l, r)| l.saturating_add(*r))
-            .take(32)
             .collect();
-        HashOf::from_hash(Hash::new(&sum))
+        Hash::new(sum).into()
     }
 }
 
@@ -228,28 +227,28 @@ mod tests {
 
     #[test]
     fn tree_with_two_layers_should_reach_all_nodes() {
-        let tree = MerkleTree {
+        let tree = MerkleTree::<()> {
             root_node: Node::Subtree(Subtree {
                 left: Box::new(Node::Leaf(Leaf {
-                    hash: HashOf::<()>::from_hash(Hash([0; 32])),
+                    hash: Hash::new([1; Hash::LENGTH]).into(),
                 })),
                 right: Box::new(Node::Leaf(Leaf {
-                    hash: HashOf::from_hash(Hash([0; 32])),
+                    hash: Hash::new([2; Hash::LENGTH]).into(),
                 })),
-                hash: HashOf::from_hash(Hash([0; 32])),
+                hash: Hash::new([3; Hash::LENGTH]).into(),
             }),
         };
         assert_eq!(3, tree.into_iter().count());
     }
 
-    fn get_hashes(hash: Hash) -> impl Iterator<Item = HashOf<()>> {
-        let hash = HashOf::<()>::from_hash(hash);
+    fn get_hashes(hash: [u8; Hash::LENGTH]) -> impl Iterator<Item = HashOf<()>> {
+        let hash = Hash::new(hash).into();
         std::iter::repeat_with(move || hash)
     }
 
     #[test]
     fn four_hashes_should_built_seven_nodes() {
-        let merkle_tree = get_hashes(Hash([1_u8; 32]))
+        let merkle_tree = get_hashes([1_u8; Hash::LENGTH])
             .take(4)
             .collect::<MerkleTree<_>>();
         assert_eq!(7, merkle_tree.into_iter().count());
@@ -257,7 +256,7 @@ mod tests {
 
     #[test]
     fn three_hashes_should_built_seven_nodes() {
-        let merkle_tree = get_hashes(Hash([1_u8; 32]))
+        let merkle_tree = get_hashes([1_u8; Hash::LENGTH])
             .take(3)
             .collect::<MerkleTree<_>>();
         assert_eq!(7, merkle_tree.into_iter().count());
@@ -265,68 +264,78 @@ mod tests {
 
     #[test]
     fn same_root_hash_for_same_hashes() {
-        let merkle_tree_1 = vec![
-            HashOf::<()>::from_hash(Hash([1_u8; 32])),
-            HashOf::from_hash(Hash([2_u8; 32])),
-            HashOf::from_hash(Hash([3_u8; 32])),
+        let merkle_tree_1 = [
+            Hash::new([1_u8; Hash::LENGTH]),
+            Hash::new([2_u8; Hash::LENGTH]),
+            Hash::new([3_u8; Hash::LENGTH]),
         ]
         .into_iter()
-        .collect::<MerkleTree<_>>();
-        let merkle_tree_2 = vec![
-            HashOf::<()>::from_hash(Hash([2_u8; 32])),
-            HashOf::from_hash(Hash([1_u8; 32])),
-            HashOf::from_hash(Hash([3_u8; 32])),
+        .map(Into::into)
+        .collect::<MerkleTree<()>>();
+        let merkle_tree_2 = [
+            Hash::new([2_u8; Hash::LENGTH]),
+            Hash::new([1_u8; Hash::LENGTH]),
+            Hash::new([3_u8; Hash::LENGTH]),
         ]
         .into_iter()
-        .collect::<MerkleTree<_>>();
+        .map(Into::into)
+        .collect::<MerkleTree<()>>();
         assert_eq!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
 
     #[test]
     fn different_root_hash_for_different_hashes() {
-        let merkle_tree_1 = vec![
-            HashOf::<()>::from_hash(Hash([1_u8; 32])),
-            HashOf::from_hash(Hash([2_u8; 32])),
-            HashOf::from_hash(Hash([3_u8; 32])),
+        let merkle_tree_1 = [
+            Hash::new([1_u8; Hash::LENGTH]),
+            Hash::new([2_u8; Hash::LENGTH]),
+            Hash::new([3_u8; Hash::LENGTH]),
         ]
         .into_iter()
-        .collect::<MerkleTree<_>>();
-        let merkle_tree_2 = vec![
-            HashOf::<()>::from_hash(Hash([1_u8; 32])),
-            HashOf::from_hash(Hash([4_u8; 32])),
-            HashOf::from_hash(Hash([5_u8; 32])),
+        .map(Into::into)
+        .collect::<MerkleTree<()>>();
+        let merkle_tree_2 = [
+            Hash::new([1_u8; Hash::LENGTH]),
+            Hash::new([4_u8; Hash::LENGTH]),
+            Hash::new([5_u8; Hash::LENGTH]),
         ]
         .into_iter()
-        .collect::<MerkleTree<_>>();
+        .map(Into::into)
+        .collect::<MerkleTree<()>>();
         assert_ne!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
 
     #[test]
     fn get_leaf() {
-        let tree = vec![
-            HashOf::<()>::from_hash(Hash([1; 32])),
-            HashOf::from_hash(Hash([2; 32])),
-            HashOf::from_hash(Hash([3; 32])),
-        ]
-        .into_iter()
-        .collect::<MerkleTree<_>>();
-        assert_eq!(tree.get_leaf(0), Some(HashOf::from_hash(Hash([1; 32]))));
-        assert_eq!(tree.get_leaf(1), Some(HashOf::from_hash(Hash([2; 32]))));
-        assert_eq!(tree.get_leaf(2), Some(HashOf::from_hash(Hash([3; 32]))));
+        let hash1 = Hash::new([1; Hash::LENGTH]).into();
+        let hash2 = Hash::new([2; Hash::LENGTH]).into();
+        let hash3 = Hash::new([3; Hash::LENGTH]).into();
+        assert!(hash2 < hash1 && hash1 < hash3);
+
+        let tree = [hash1, hash2, hash3]
+            .into_iter()
+            .collect::<MerkleTree<()>>();
+        assert_eq!(tree.get_leaf(0), Some(hash2));
+        assert_eq!(tree.get_leaf(1), Some(hash1));
+        assert_eq!(tree.get_leaf(2), Some(hash3));
         assert_eq!(tree.get_leaf(3), None);
     }
 
     #[test]
     fn add() {
-        let tree = vec![Hash([1_u8; 32]), Hash([2_u8; 32]), Hash([4_u8; 32])]
+        let hash1 = Hash::new([1; Hash::LENGTH]).into();
+        let hash2 = Hash::new([2; Hash::LENGTH]).into();
+        let hash3 = Hash::new([3; Hash::LENGTH]).into();
+        let hash4 = Hash::new([4; Hash::LENGTH]).into();
+        assert!(hash4 < hash2 && hash2 < hash1 && hash1 < hash3);
+
+        let tree = [hash1, hash2, hash4]
             .into_iter()
-            .map(HashOf::<()>::from_hash)
-            .collect::<MerkleTree<_>>();
-        let tree = tree.add(HashOf::from_hash(Hash([3_u8; 32])));
-        assert_eq!(tree.get_leaf(0), Some(HashOf::from_hash(Hash([1; 32]))));
-        assert_eq!(tree.get_leaf(1), Some(HashOf::from_hash(Hash([2; 32]))));
-        assert_eq!(tree.get_leaf(2), Some(HashOf::from_hash(Hash([3; 32]))));
-        assert_eq!(tree.get_leaf(3), Some(HashOf::from_hash(Hash([4; 32]))));
+            .collect::<MerkleTree<()>>();
+        let tree = tree.add(hash3);
+        assert_eq!(tree.get_leaf(0), Some(hash4));
+        assert_eq!(tree.get_leaf(1), Some(hash2));
+        assert_eq!(tree.get_leaf(2), Some(hash1));
+        assert_eq!(tree.get_leaf(3), Some(hash3));
         assert_eq!(tree.get_leaf(4), None);
     }
 }

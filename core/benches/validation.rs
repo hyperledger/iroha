@@ -26,14 +26,15 @@ fn build_test_transaction(keys: KeyPair) -> Transaction {
     let domain_id = DomainId::from_str(domain_name).expect("does not panic");
     let create_domain = RegisterBox::new(Domain::new(domain_id));
     let account_name = "account";
+    let (public_key, _) = KeyPair::generate()
+        .expect("Failed to generate KeyPair.")
+        .into();
     let create_account = RegisterBox::new(Account::new(
         AccountId::new(
             account_name.parse().expect("Valid"),
             domain_name.parse().expect("Valid"),
         ),
-        [KeyPair::generate()
-            .expect("Failed to generate KeyPair.")
-            .public_key],
+        [public_key],
     ));
     let asset_definition_id = AssetDefinitionId::new(
         "xor".parse().expect("Valid"),
@@ -58,6 +59,8 @@ fn build_test_transaction(keys: KeyPair) -> Transaction {
 }
 
 fn build_test_wsv(keys: KeyPair) -> WorldStateView<World> {
+    let (public_key, _) = keys.into();
+
     WorldStateView::new({
         let domain_id = DomainId::from_str(START_DOMAIN).expect("Valid");
         let mut domain = Domain::new(domain_id).build();
@@ -65,7 +68,7 @@ fn build_test_wsv(keys: KeyPair) -> WorldStateView<World> {
             START_ACCOUNT.parse().expect("Valid"),
             START_DOMAIN.parse().expect("Valid"),
         );
-        let account = Account::new(account_id, [keys.public_key]).build();
+        let account = Account::new(account_id, [public_key]).build();
         assert!(domain.add_account(account).is_none());
         World::with([domain], BTreeSet::new())
     })
@@ -199,7 +202,8 @@ fn validate_blocks(criterion: &mut Criterion) {
         "root".parse().expect("Valid"),
         domain_name.parse().expect("Valid"),
     );
-    let account = Account::new(account_id, [key_pair.public_key]).build();
+    let (public_key, _) = key_pair.into();
+    let account = Account::new(account_id, [public_key]).build();
     let domain_id = DomainId::from_str(domain_name).expect("is valid");
     let mut domain = Domain::new(domain_id).build();
     assert!(domain.add_account(account).is_none());

@@ -20,10 +20,8 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
 
     let create_domain = RegisterBox::new(Domain::new(DomainId::from_str("domain")?));
     let account_id = AccountId::from_str("account@domain")?;
-    let create_account = RegisterBox::new(Account::new(
-        account_id.clone(),
-        [KeyPair::generate()?.public_key],
-    ));
+    let (public_key, _) = KeyPair::generate()?.into();
+    let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id = AssetDefinitionId::from_str("xor#domain")?;
     let create_asset =
         RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());

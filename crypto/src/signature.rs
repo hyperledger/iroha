@@ -12,6 +12,7 @@ use core::{fmt, marker::PhantomData};
 use std::collections::{btree_map, btree_set};
 
 use derive_more::{Deref, DerefMut};
+use getset::Getters;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
@@ -27,18 +28,30 @@ use ursa::{
 };
 
 #[cfg(feature = "std")]
-use crate::{Algorithm, HashOf, KeyPair};
+use crate::{Algorithm, Hash, HashOf, KeyPair};
 use crate::{Error, PublicKey};
 
 /// Represents signature of the data (`Block` or `Transaction` for example).
 #[derive(
-    Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Decode, Serialize, Deserialize, IntoSchema,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    Encode,
+    Decode,
+    Serialize,
+    Deserialize,
+    IntoSchema,
 )]
+#[getset(get = "pub")]
 pub struct Signature {
     /// Public key that is used for verification. Payload is verified by algorithm
     /// that corresponds with the public key's digest function.
-    pub public_key: PublicKey,
+    public_key: PublicKey,
     /// Actual signature payload is placed here.
+    #[getset(skip)]
     signature: Vec<u8>,
 }
 
@@ -211,7 +224,8 @@ impl<T: Encode> SignatureOf<T> {
     /// # Errors
     /// Fails if decoding digest of key pair fails
     pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
-        Self::from_hash(key_pair, &HashOf::new(value))
+        let hash = Hash::new(value.encode());
+        Self::from_hash(key_pair, &hash.into())
     }
 
     /// Verifies signature for this item
@@ -219,7 +233,8 @@ impl<T: Encode> SignatureOf<T> {
     /// # Errors
     /// Fails if verification fails
     pub fn verify(&self, value: &T) -> Result<(), Error> {
-        self.verify_hash(&HashOf::new(value))
+        let hash = Hash::new(value.encode());
+        self.verify_hash(&hash.into())
     }
 }
 
@@ -364,6 +379,7 @@ impl<T> SignaturesOf<T> {
     ///
     /// This method uses [`core::mem::transmute`] internally
     #[allow(unsafe_code)]
+    #[inline]
     pub fn transmute<F>(self) -> SignaturesOf<F> {
         // SAFETY: Safe because we are transmuting to a pointer of
         // type `<F>` which is related to type `<T>`.
@@ -372,7 +388,7 @@ impl<T> SignaturesOf<T> {
     }
 
     /// Builds container using single signature
-    pub fn from_signature(sign: SignatureOf<T>) -> Self {
+    fn from_signature(sign: SignatureOf<T>) -> Self {
         let mut me = Self {
             signatures: btree_map::BTreeMap::new(),
         };
@@ -396,23 +412,29 @@ impl<T> SignaturesOf<T> {
 
     /// Returns signatures that have passed verification.
     #[cfg(feature = "std")]
-    pub fn into_verified_by_hash(self, hash: HashOf<T>) -> impl Iterator<Item = SignatureOf<T>> {
+    pub fn into_verified_by_hash(
+        self,
+        hash: &HashOf<T>,
+    ) -> impl Iterator<Item = SignatureOf<T>> + '_ {
         self.signatures
             .into_values()
-            .filter(move |sign| sign.verify_hash(&hash).is_ok())
+            .filter(move |sign| sign.verify_hash(hash).is_ok())
     }
 
     /// Returns all signatures.
+    #[inline]
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &SignatureOf<T>> {
         self.into_iter()
     }
 
     /// Number of signatures.
+    #[inline]
     pub fn len(&self) -> usize {
         self.signatures.len()
     }
 
     /// Number of signatures.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.signatures.is_empty()
     }
@@ -446,14 +468,14 @@ impl<T: Encode> SignaturesOf<T> {
     /// # Errors
     /// Fails if validation of any signature fails
     pub fn verify(&self, item: &T) -> Result<(), SignatureVerificationFail<T>> {
-        let hash = HashOf::new(item);
-        self.verify_hash(&hash)
+        let hash = Hash::new(item.encode());
+        self.verify_hash(&hash.into())
     }
 
     /// Returns signatures that have passed verification.
     pub fn verified(&self, value: &T) -> impl Iterator<Item = &SignatureOf<T>> {
-        let hash = HashOf::new(value);
-        self.verified_by_hash(hash)
+        let hash = Hash::new(value.encode());
+        self.verified_by_hash(hash.into())
     }
 }
 

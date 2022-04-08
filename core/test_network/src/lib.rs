@@ -103,18 +103,16 @@ impl std::cmp::Eq for Peer {}
 /// # Panics
 /// Programmer error. The key must be given in Multihash format.
 pub fn get_key_pair() -> KeyPair {
-    KeyPair {
-        public_key: PublicKey::from_str(
+    KeyPair::new(
+        PublicKey::from_str(
             r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,
         )
         .expect("Works"),
-        private_key: PrivateKey {
-            digest_function: "ed25519".to_string(),
-            payload: hex_literal::hex!("9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0"
-            )
-            .into(),
-        },
-    }
+        PrivateKey::new(
+            "ed25519".to_owned(),
+            hex_literal::hex!("9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0").into(),
+        )
+    )
 }
 
 /// Trait used to differentiate a test instance of `genesis`.
@@ -130,7 +128,7 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
         let mut genesis = RawGenesisBlock::new(
             "alice".parse().expect("Valid"),
             "wonderland".parse().expect("Valid"),
-            get_key_pair().public_key,
+            get_key_pair().public_key().clone(),
         );
         genesis.transactions[0].isi.push(
             RegisterBox::new(
@@ -426,8 +424,8 @@ where
             logger: LoggerConfiguration {
                 ..configuration.logger
             },
-            public_key: self.key_pair.public_key.clone(),
-            private_key: self.key_pair.private_key.clone(),
+            public_key: self.key_pair.public_key().clone(),
+            private_key: self.key_pair.private_key().clone(),
             disable_panic_terminal_colors: true,
             ..configuration
         }
@@ -565,7 +563,7 @@ where
         let telemetry_address = local_unique_port()?;
         let id = PeerId {
             address: p2p_address.clone(),
-            public_key: key_pair.public_key.clone(),
+            public_key: key_pair.public_key().clone(),
         };
         let shutdown = None;
         Ok(Self {
@@ -775,9 +773,9 @@ impl TestConfiguration for Configuration {
         configuration
             .load_environment()
             .expect("Failed to load configuration from environment");
-        let keypair = KeyPair::generate().unwrap();
-        configuration.public_key = keypair.public_key;
-        configuration.private_key = keypair.private_key;
+        let (public_key, private_key) = KeyPair::generate().unwrap().into();
+        configuration.public_key = public_key;
+        configuration.private_key = private_key;
         configuration
     }
 
@@ -814,8 +812,9 @@ impl TestClient for Client {
 
     fn test_with_key(api_url: &str, telemetry_url: &str, keys: KeyPair) -> Self {
         let mut configuration = ClientConfiguration::test(api_url, telemetry_url);
-        configuration.public_key = keys.public_key;
-        configuration.private_key = keys.private_key;
+        let (public_key, private_key) = keys.into();
+        configuration.public_key = public_key;
+        configuration.private_key = private_key;
         Client::new(&configuration)
     }
 
@@ -827,8 +826,9 @@ impl TestClient for Client {
     ) -> Self {
         let mut configuration = ClientConfiguration::test(api_url, telemetry_url);
         configuration.account_id = account_id.clone();
-        configuration.public_key = keys.public_key;
-        configuration.private_key = keys.private_key;
+        let (public_key, private_key) = keys.into();
+        configuration.public_key = public_key;
+        configuration.private_key = private_key;
         Client::new(&configuration)
     }
 

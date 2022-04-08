@@ -10,6 +10,7 @@ use alloc::{
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
 
+use getset::Getters;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -21,22 +22,56 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 
 /// Stored proof of the account having a permission for a certain action.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
+#[getset(get = "pub")]
 pub struct PermissionToken {
     /// Name of the permission rule given to account.
-    pub name: Name,
+    name: Name,
     /// Params identifying how this rule applies.
-    pub params: btree_map::BTreeMap<Name, Value>,
+    #[getset(skip)]
+    params: btree_map::BTreeMap<Name, Value>,
 }
 
 impl PermissionToken {
     /// Constructor.
     #[inline]
-    pub fn new(name: impl Into<Name>, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
-        let params = params.into_iter().collect();
-        let name = name.into();
-        Self { name, params }
+    pub fn new(name: Name) -> Self {
+        Self {
+            name,
+            params: btree_map::BTreeMap::default(),
+        }
+    }
+
+    /// Add parameters to the `PermissionToken` replacing any previously defined
+    #[inline]
+    #[must_use]
+    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
+        self.params = params.into_iter().collect();
+        self
+    }
+
+    /// Return a reference to the parameter corresponding to the given name
+    #[inline]
+    pub fn get_param(&self, name: &Name) -> Option<&Value> {
+        self.params.get(name)
+    }
+
+    /// Get an iterator over parameters of the `PermissionToken`
+    #[inline]
+    pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
+        self.params.iter()
     }
 }
 

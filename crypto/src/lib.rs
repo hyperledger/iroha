@@ -17,6 +17,7 @@ use core::{fmt, str::FromStr};
 #[cfg(feature = "base64")]
 pub use base64;
 use derive_more::Display;
+use getset::Getters;
 pub use hash::*;
 use iroha_schema::IntoSchema;
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
@@ -157,12 +158,13 @@ impl KeyGenConfiguration {
 }
 
 /// Pair of Public and Private keys.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Getters, Deserialize, Serialize)]
+#[getset(get = "pub")]
 pub struct KeyPair {
     /// Public Key.
-    pub public_key: PublicKey,
+    public_key: PublicKey,
     /// Private Key.
-    pub private_key: PrivateKey,
+    private_key: PrivateKey,
 }
 
 impl From<(PublicKey, PrivateKey)> for KeyPair {
@@ -216,6 +218,14 @@ impl std::error::Error for Error {}
 
 #[cfg(feature = "std")]
 impl KeyPair {
+    /// Construct `KeyPair`
+    pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Self {
+        Self {
+            public_key,
+            private_key,
+        }
+    }
+
     /// Generates a pair of Public and Private key with [`Algorithm::default()`] selected as generation algorithm.
     ///
     /// # Errors
@@ -284,12 +294,13 @@ impl From<multihash::ConvertError> for KeyParseError {
 impl std::error::Error for KeyParseError {}
 
 /// Public Key used in signatures.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Decode, Encode, IntoSchema)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Decode, Encode, IntoSchema)]
+#[getset(get = "pub")]
 pub struct PublicKey {
     /// Digest function
-    pub digest_function: String,
+    digest_function: String,
     /// payload of key
-    pub payload: Vec<u8>,
+    payload: Vec<u8>,
 }
 
 impl FromStr for PublicKey {
@@ -395,13 +406,24 @@ impl<'de> Deserialize<'de> for PublicKey {
 }
 
 /// Private Key used in signatures.
-#[derive(Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Default, PartialEq, Eq, Getters, Deserialize, Serialize)]
+#[getset(get = "pub")]
 pub struct PrivateKey {
     /// Digest function
-    pub digest_function: String,
+    digest_function: String,
     /// key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
     #[serde(with = "hex::serde")]
-    pub payload: Vec<u8>,
+    payload: Vec<u8>,
+}
+
+impl PrivateKey {
+    /// Construct `PrivateKey`
+    pub fn new(digest_function: String, payload: Vec<u8>) -> Self {
+        Self {
+            digest_function,
+            payload,
+        }
+    }
 }
 
 impl fmt::Debug for PrivateKey {

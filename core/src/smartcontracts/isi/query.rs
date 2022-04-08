@@ -40,7 +40,7 @@ impl VerifiedQueryRequest {
         query_validator: &IsQueryAllowedBoxed<W>,
     ) -> Result<ValidQueryRequest, Error> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
-            account.contains_signatory(&self.signature.public_key)
+            account.contains_signatory(self.signature.public_key())
         })?;
         if !account_has_public_key {
             return Err(Error::Signature(String::from(
@@ -231,7 +231,7 @@ mod tests {
     fn world_with_test_domains() -> World {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build();
-        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
+        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build();
         assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
@@ -246,7 +246,7 @@ mod tests {
     fn world_with_test_asset_with_metadata() -> World {
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         let mut domain = Domain::new(DomainId::from_str("wonderland").expect("Valid")).build();
-        let mut account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
+        let mut account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build();
         assert!(domain
             .add_asset_definition(
                 AssetDefinition::quantity(asset_definition_id.clone()).build(),
@@ -279,7 +279,7 @@ mod tests {
         )?;
 
         let mut domain = Domain::new(DomainId::from_str("wonderland")?).build();
-        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()])
+        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()])
             .with_metadata(metadata)
             .build();
         assert!(domain.add_account(account).is_none());
@@ -351,14 +351,14 @@ mod tests {
             .commit();
         wsv.apply(vcb).await?;
 
-        let wrong_hash = Hash::new(&[2_u8]);
+        let wrong_hash = Hash::new([2_u8]);
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
         assert!(matches!(not_found, Err(_)));
 
         let found_accepted = FindTransactionByHash::new(Hash::from(va_tx.hash())).execute(&wsv)?;
         match found_accepted {
             TransactionValue::Transaction(tx) => {
-                assert_eq!(Hash::from(va_tx.hash()), Hash::from(tx.hash()))
+                assert_eq!(va_tx.hash().transmute(), tx.hash())
             }
             TransactionValue::RejectedTransaction(_) => {}
         }
@@ -377,7 +377,7 @@ mod tests {
             let mut domain = Domain::new(DomainId::from_str("wonderland")?)
                 .with_metadata(metadata)
                 .build();
-            let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
+            let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build();
             assert!(domain.add_account(account).is_none());
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             assert!(domain

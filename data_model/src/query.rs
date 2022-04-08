@@ -116,7 +116,7 @@ impl Payload {
     /// Hash of this payload.
     #[cfg(feature = "std")]
     pub fn hash(&self) -> Hash {
-        Hash::new(&self.encode())
+        Hash::new(self.encode())
     }
 }
 
