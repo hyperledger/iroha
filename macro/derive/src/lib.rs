@@ -43,7 +43,7 @@ pub fn from_variant_derive(input: TokenStream) -> TokenStream {
 /// to achieve searching for type by string
 ///
 /// This macro will produce code only if `dump_decoded` feature is enabled
-#[proc_macro_derive(DumpDecoded)]
+#[proc_macro_derive(DumpDecoded, attributes(dump_decoded))]
 pub fn dump_decoded_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
     dump_decoded::impl_dump_decoded(&ast)
