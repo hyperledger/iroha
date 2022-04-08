@@ -1,0 +1,27 @@
+error: proc-macro derive panicked
+ --> tests/ui_fail/dump_decoded/wrong_helper_attr_syntax.rs:3:25
+  |
+3 | #[derive(Debug, Decode, iroha_derive::DumpDecoded)]
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: message: Invalid attribute syntax. Supported: #[dump_decoded(<attr> = "<value>")]
+
+error: proc-macro derive panicked
+ --> tests/ui_fail/dump_decoded/wrong_helper_attr_syntax.rs:7:25
+  |
+7 | #[derive(Debug, Decode, iroha_derive::DumpDecoded)]
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: message: Only `name` attribute is supported
+
+error[E0601]: `main` function not found in crate `$CRATE`
+ --> tests/ui_fail/dump_decoded/wrong_helper_attr_syntax.rs:1:1
+  |
+1 | / use parity_scale_codec::Decode;
+2 | |
+3 | | #[derive(Debug, Decode, iroha_derive::DumpDecoded)]
+4 | | #[dump_decoded(name = AnotherStruct)]
+... |
+8 | | #[dump_decoded(rename = "AnotherStruct2")]
+9 | | struct Struct2;
+  | |_______________^ consider adding a `main` function to `$DIR/tests/ui_fail/dump_decoded/wrong_helper_attr_syntax.rs`
