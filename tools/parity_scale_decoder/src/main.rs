@@ -1,13 +1,15 @@
+//! Parity Scale decoder tool for Iroha data types. For usage run with `--help`
+
 #![allow(clippy::print_stdout, clippy::use_debug, clippy::unnecessary_wraps)]
 
-use std::{collections::BTreeSet, fs, io, path::PathBuf};
+use std::{fs, io, path::PathBuf};
 
 use clap::Parser;
 use eyre::{eyre, Result};
 use iroha_data_model::prelude::*;
 use iroha_macro::{get_dump_decoded_map, DumpDecodedMap};
 
-/// Parity Scale decoder tool for Iroha structs
+/// Parity Scale decoder tool for Iroha data types
 #[derive(Debug, Parser)]
 #[clap(version, about, author)]
 enum Args {
@@ -64,19 +66,22 @@ fn decode_by_type<W: io::Write>(
 fn decode_by_guess<W: io::Write>(map: &DumpDecodedMap, bytes: &[u8], writer: &mut W) -> Result<()> {
     let count = map
         .values()
-        .filter_map(|dump_decoded| dump_decoded(bytes, writer).ok().and(writeln!(writer).ok()))
+        .filter_map(|dump_decoded| {
+            dump_decoded(bytes, writer)
+                .ok()
+                .and_then(|_| writeln!(writer).ok())
+        })
         .count();
-    if count == 0 {
-        return Err(eyre!("No compatible types found"));
-    } else if count == 1 {
-        return writeln!(writer, "1 compatible type found").map_err(Into::into);
+    match count {
+        0 => writeln!(writer, "No compatible types found"),
+        1 => writeln!(writer, "1 compatible type found"),
+        n => writeln!(writer, "{n} compatible types found"),
     }
-    writeln!(writer, "{count} compatible types found").map_err(Into::into)
+    .map_err(Into::into)
 }
 
 fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> {
-    let sorted = map.keys().collect::<BTreeSet<_>>();
-    for key in sorted {
+    for key in map.keys() {
         writeln!(writer, "{key}")?;
     }
 
