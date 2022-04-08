@@ -11,7 +11,7 @@ use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::prelude::*;
+use crate::{prelude::*, DumpDecoded};
 
 mod events;
 mod filters;

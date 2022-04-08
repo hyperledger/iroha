@@ -9,6 +9,7 @@ use iroha_schema::prelude::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
+use super::DumpDecoded;
 pub use crate::transaction::RejectionReason as PipelineRejectionReason;
 
 /// [`Event`] filter.
@@ -27,7 +28,9 @@ pub use crate::transaction::RejectionReason as PipelineRejectionReason;
     Hash,
     Serialize,
     Deserialize,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "PipelineEventFilter")]
 pub struct EventFilter {
     /// If `Some::<EntityKind>` filters by the [`EntityKind`]. If `None` accepts all the [`EntityKind`].
     pub entity_kind: Option<EntityKind>,
@@ -102,16 +105,19 @@ impl EventFilter {
     Hash,
     Serialize,
     Deserialize,
+    DumpDecoded,
 )]
-pub enum EntityKind {
+#[dump_decoded(rename = "PipelineEntityType")]
+pub enum EntityType {
     /// Block.
     Block,
     /// Transaction.
     Transaction,
 }
 
-/// Strongly-typed [`Event`], which tells the receiver the kind of entity that changed, the change, and the hash of the entity.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
+/// Entity type to filter events.
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, DumpDecoded)]
+#[dump_decoded(rename = "PipelineEvent")]
 pub struct Event {
     /// [`EntityKind`] of the entity that caused this [`Event`].
     pub entity_kind: EntityKind,
@@ -132,8 +138,9 @@ impl Event {
     }
 }
 
-/// [`Status`] of the entity.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, FromVariant, IntoSchema)]
+/// Entity type to filter events.
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, FromVariant, IntoSchema, DumpDecoded)]
+#[dump_decoded(rename = "PipelineStatus")]
 pub enum Status {
     /// Entity has been seen in blockchain, but has not passed validation.
     Validating,

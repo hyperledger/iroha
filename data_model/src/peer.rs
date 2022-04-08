@@ -12,11 +12,22 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{Identifiable, PublicKey, Value};
+use crate::{DumpDecoded, Identifiable, PublicKey, Value};
 
 /// Peer represents Iroha instance.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    DumpDecoded,
 )]
 pub struct Peer {
     /// Peer Identification.
@@ -27,7 +38,10 @@ pub struct Peer {
 ///
 /// Equality is tested by `public_key` field only.
 /// Each peer should have a unique public key.
-#[derive(Debug, Default, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Default, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
+#[dump_decoded(rename = "PeerId")]
 pub struct Id {
     /// Address of the [`Peer`]'s entrypoint.
     pub address: String,

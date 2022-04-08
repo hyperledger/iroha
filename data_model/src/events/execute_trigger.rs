@@ -1,10 +1,11 @@
 //! Trigger execution event and filter
 
 use super::*;
-use crate::prelude::*;
+use crate::{prelude::*, DumpDecoded};
 
 /// Trigger execution event. Produced every time [`ExecuteTrigger`] instruction is executed
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, DumpDecoded)]
+#[dump_decoded(rename = "ExecuteTriggerEvent")]
 pub struct Event {
     /// Id of trigger to be executed
     trigger_id: TriggerId,
@@ -36,7 +37,9 @@ impl Event {
     Hash,
     Serialize,
     Deserialize,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "ExecuteTriggerEventFilter")]
 pub struct EventFilter {
     /// Id of trigger catch executions of
     trigger_id: TriggerId,

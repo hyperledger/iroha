@@ -15,14 +15,14 @@ use crate::{
     asset::AssetDefinitionsMap,
     metadata::Metadata,
     prelude::{AssetDefinition, AssetDefinitionEntry},
-    Identifiable, Name, ParseError,
+    DumpDecoded, Identifiable, Name, ParseError,
 };
 
 /// Genesis domain name. Genesis domain should contain only genesis account.
 pub const GENESIS_DOMAIN_NAME: &str = "genesis";
 
 /// Genesis domain. It will contain only one `genesis` account.
-#[derive(Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded)]
 pub struct GenesisDomain {
     genesis_key: PublicKey,
 }
@@ -132,6 +132,7 @@ impl NewDomain {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
@@ -387,7 +388,9 @@ impl Decode for IpfsPath {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "DomainId")]
 pub struct Id {
     /// [`Name`] unique to a [`Domain`] e.g. company name
     pub name: Name,

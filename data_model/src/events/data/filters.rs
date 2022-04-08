@@ -70,6 +70,7 @@ mod role {
             Serialize,
             IntoSchema,
             Hash,
+            DumpDecoded,
         )]
         pub struct RoleFilter {
             type EventType = RoleEvent;
@@ -91,6 +92,7 @@ mod role {
         Serialize,
         IntoSchema,
         Hash,
+        DumpDecoded,
     )]
     #[allow(missing_docs)]
     pub enum RoleEventFilter {
@@ -129,6 +131,7 @@ mod peer {
             Serialize,
             IntoSchema,
             Hash,
+            DumpDecoded,
         )]
         pub struct PeerFilter {
             type EventType = PeerEvent;
@@ -150,6 +153,7 @@ mod peer {
         Serialize,
         IntoSchema,
         Hash,
+        DumpDecoded,
     )]
     #[allow(missing_docs)]
     pub enum PeerEventFilter {
@@ -188,6 +192,7 @@ mod asset {
             Serialize,
             IntoSchema,
             Hash,
+            DumpDecoded,
         )]
         pub struct AssetFilter {
             type EventType = AssetEvent;
@@ -209,6 +214,7 @@ mod asset {
             Serialize,
             IntoSchema,
             Hash,
+            DumpDecoded,
         )]
         pub struct AssetDefinitionFilter {
             type EventType = AssetDefinitionEvent;
@@ -230,6 +236,7 @@ mod asset {
         Serialize,
         IntoSchema,
         Hash,
+        DumpDecoded,
     )]
     #[allow(missing_docs, clippy::enum_variant_names)]
     pub enum AssetEventFilter {
@@ -271,6 +278,7 @@ mod asset {
         Serialize,
         IntoSchema,
         Hash,
+        DumpDecoded,
     )]
     #[allow(missing_docs, clippy::enum_variant_names)]
     pub enum AssetDefinitionEventFilter {
@@ -320,6 +328,7 @@ mod domain {
             Serialize,
             IntoSchema,
             Hash,
+            DumpDecoded,
         )]
         pub struct DomainFilter {
             type EventType = DomainEvent;
@@ -341,6 +350,7 @@ mod domain {
         FromVariant,
         IntoSchema,
         Hash,
+        DumpDecoded,
     )]
     #[allow(clippy::enum_variant_names)]
     /// Filter for Domain events
@@ -402,6 +412,7 @@ mod account {
             Serialize,
             IntoSchema,
             Hash,
+            DumpDecoded,
         )]
         pub struct AccountFilter {
             type EventType = AccountEvent;
@@ -423,6 +434,7 @@ mod account {
         FromVariant,
         IntoSchema,
         Hash,
+        DumpDecoded,
     )]
     #[allow(clippy::enum_variant_names)]
     /// Filter for Account events
@@ -489,6 +501,7 @@ mod trigger {
             Serialize,
             IntoSchema,
             Hash,
+            DumpDecoded,
         )]
         pub struct TriggerFilter {
             type EventType = TriggerEvent;
@@ -511,6 +524,7 @@ mod trigger {
         FromVariant,
         IntoSchema,
         Hash,
+        DumpDecoded,
     )]
     #[allow(missing_docs, clippy::enum_variant_names)]
     pub enum TriggerEventFilter {
@@ -536,7 +550,31 @@ mod trigger {
 }
 
 /// Filter for all events
-pub type EventFilter = FilterOpt<EntityFilter>;
+#[derive(
+    Clone,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    Hash,
+    DumpDecoded,
+)]
+#[dump_decoded(rename = "DataEventFilter")]
+pub struct EventFilter(pub FilterOpt<EntityFilter>);
+
+impl Filter for EventFilter {
+    type EventType = Event;
+
+    fn matches(&self, item: &Self::EventType) -> bool {
+        self.0.matches(item)
+    }
+}
 
 /// Trait for filters
 pub trait Filter {
@@ -600,8 +638,10 @@ impl<F: Filter> Filter for FilterOpt<F> {
     FromVariant,
     IntoSchema,
     Hash,
+    DumpDecoded,
 )]
 #[allow(clippy::enum_variant_names)]
+#[dump_decoded(rename = "DataEntityFilter")]
 /// Filters event by entity
 pub enum EntityFilter {
     /// Filter by Peer entity. `AcceptAll` value will accept all `Peer` events

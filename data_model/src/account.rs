@@ -25,7 +25,7 @@ use crate::{
     metadata::Metadata,
     permissions::{PermissionToken, Permissions},
     prelude::Asset,
-    Identifiable, Name, ParseError, PublicKey,
+    DumpDecoded, Identifiable, Name, ParseError, PublicKey,
 };
 
 /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
@@ -73,7 +73,18 @@ impl From<GenesisAccount> for Account {
 
 /// Condition which checks if the account has the right signatures.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    DumpDecoded,
 )]
 pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
@@ -179,6 +190,7 @@ impl NewAccount {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
@@ -385,7 +397,9 @@ impl FromIterator<Account> for crate::Value {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "AccountId")]
 pub struct Id {
     /// [`Account`]'s name.
     pub name: Name,

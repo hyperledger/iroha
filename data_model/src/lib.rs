@@ -15,7 +15,7 @@ use derive_more::Display;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_data_primitives::small::SmallVec;
 pub use iroha_data_primitives::{fixed, small};
-use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
+use iroha_macro::{error::ErrorTryFromEnum, DumpDecoded, FromVariant};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
@@ -704,6 +704,8 @@ pub mod prelude {
         permissions::prelude::*, query::prelude::*, small, transaction::prelude::*,
         trigger::prelude::*,
     };
+
+    iroha_macro::generate_dump_decoded_map!();
 }
 
 #[cfg(test)]

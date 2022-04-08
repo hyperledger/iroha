@@ -9,13 +9,24 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    metadata::Metadata, prelude::EventFilter, transaction::Executable, Identifiable, Name,
-    ParseError,
+    metadata::Metadata, prelude::EventFilter, transaction::Executable, DumpDecoded, Identifiable,
+    Name, ParseError,
 };
 
 /// Type which is used for registering a `Trigger`.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    DumpDecoded,
 )]
 pub struct Trigger {
     /// [`Id`] of the [`Trigger`].
@@ -64,7 +75,9 @@ impl Identifiable for Trigger {
 /// triggers without gaps, the `Executable` wrapped in the action must
 /// be run before any of the ISIs are pushed into the queue of the
 /// next block.
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema, DumpDecoded,
+)]
 pub struct Action {
     /// The executable linked to this action
     pub executable: Executable,
@@ -131,6 +144,7 @@ impl Ord for Action {
     Serialize,
     Deserialize,
     IntoSchema,
+    DumpDecoded,
 )]
 pub enum Repeats {
     /// Repeat indefinitely, until the trigger is unregistered.
@@ -159,7 +173,9 @@ impl From<u32> for Repeats {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "TriggerId")]
 pub struct Id {
     /// Name given to trigger by its creator.
     pub name: Name,

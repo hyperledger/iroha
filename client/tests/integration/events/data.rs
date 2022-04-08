@@ -103,7 +103,7 @@ fn transaction_execution_should_produce_events(executable: Executable) -> Result
     let mut listener = client.clone();
     let (init_sender, init_receiver) = mpsc::channel();
     let (event_sender, event_receiver) = mpsc::channel();
-    let event_filter = DataEventFilter::AcceptAll.into();
+    let event_filter = DataEventFilter(AcceptAll).into();
     thread::spawn(move || -> Result<()> {
         let event_iterator = listener.listen_for_events(event_filter)?;
         init_sender.send(())?;

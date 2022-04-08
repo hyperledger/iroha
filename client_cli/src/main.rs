@@ -200,8 +200,8 @@ mod events {
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
             let filter = match self {
-                Args::Pipeline => EventFilter::Pipeline(PipelineEventFilter::new()),
-                Args::Data => EventFilter::Data(DataEventFilter::AcceptAll),
+                Args::Pipeline => EventFilter::Pipeline(PipelineEventFilter::default()),
+                Args::Data => EventFilter::Data(DataEventFilter(AcceptAll)),
             };
             listen(filter, cfg)
         }

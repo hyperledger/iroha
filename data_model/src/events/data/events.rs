@@ -14,7 +14,9 @@ mod asset {
 
     use super::*;
 
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+    )]
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum AssetEvent {
@@ -41,7 +43,9 @@ mod asset {
         }
     }
 
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+    )]
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum AssetDefinitionEvent {
@@ -70,7 +74,9 @@ mod peer {
 
     use super::*;
 
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+    )]
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum PeerEvent {
@@ -95,7 +101,9 @@ mod role {
 
     use super::*;
 
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+    )]
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum RoleEvent {
@@ -120,7 +128,9 @@ mod account {
     use super::*;
 
     /// Account event
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+    )]
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum AccountEvent {
@@ -160,7 +170,9 @@ mod domain {
     use super::*;
 
     /// Domain Event
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+    )]
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum DomainEvent {
@@ -194,7 +206,9 @@ mod trigger {
     use super::*;
 
     /// Trigger Event
-    #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+    )]
     #[non_exhaustive]
     #[allow(missing_docs)]
     pub enum TriggerEvent {
@@ -235,8 +249,19 @@ pub enum WorldEvent {
 
 /// Event
 #[derive(
-    Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Clone,
+    PartialEq,
+    Eq,
+    Debug,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "DataEvent")]
 pub enum Event {
     /// Peer event
     Peer(peer::PeerEvent),

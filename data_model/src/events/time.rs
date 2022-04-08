@@ -7,7 +7,8 @@ use super::*;
 /// Special event that is emitted when `WSV` is ready for handling time-triggers
 ///
 /// Contains time interval which is used to identify time-triggers to be executed
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, DumpDecoded)]
+#[dump_decoded(rename = "TimeEvent")]
 pub struct Event {
     /// Previous block timestamp and consensus durations estimation.
     /// `None` if it's first block commit
@@ -41,7 +42,9 @@ impl Event {
     Hash,
     Serialize,
     Deserialize,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "TimeEventFilter")]
 pub struct EventFilter(pub ExecutionTime);
 
 impl EventFilter {
@@ -124,6 +127,7 @@ impl EventFilter {
     Deserialize,
     IntoSchema,
     Hash,
+    DumpDecoded,
 )]
 pub enum ExecutionTime {
     /// Execute right before block commit
@@ -147,7 +151,9 @@ pub enum ExecutionTime {
     Deserialize,
     IntoSchema,
     Hash,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "TimeSchedule")]
 pub struct Schedule {
     /// The first execution time
     pub start: Duration,
@@ -190,7 +196,9 @@ impl Schedule {
     Deserialize,
     IntoSchema,
     Hash,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "TimeInterval")]
 pub struct Interval {
     /// Since which time interval is measured
     pub since: Duration,

@@ -20,7 +20,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "warp")]
 use warp::{reply::Response, Reply};
 
-use crate::{account::Account, isi::Instruction, metadata::UnlimitedMetadata, Identifiable};
+use crate::{
+    account::Account, isi::Instruction, metadata::UnlimitedMetadata, DumpDecoded, Identifiable,
+};
 
 /// Default maximum number of instructions and expressions per transaction
 pub const DEFAULT_MAX_INSTRUCTION_NUMBER: u64 = 2_u64.pow(12);
@@ -107,7 +109,9 @@ pub trait Txn {
 }
 
 /// Either ISI or Wasm binary
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub enum Executable {
     /// Ordered set of instructions.
     Instructions(Vec<Instruction>),
@@ -138,7 +142,9 @@ impl AsRef<[u8]> for WasmSmartContract {
 }
 
 /// Iroha [`Transaction`] payload.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct Payload {
     /// Account ID of transaction creator.
     pub account_id: <Account as Identifiable>::Id,
@@ -181,6 +187,7 @@ declare_versioned!(
     Eq,
     FromVariant,
     IntoSchema,
+    DumpDecoded,
 );
 
 impl VersionedTransaction {
@@ -241,7 +248,9 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 /// via network.  Direct usage in business logic is strongly
 /// prohibited. Before any interactions `accept`.
 #[version(n = 1, versioned = "VersionedTransaction")]
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct Transaction {
     /// [`Transaction`] payload.
     pub payload: Payload,
@@ -320,7 +329,7 @@ impl Txn for Transaction {
     }
 }
 
-declare_versioned_with_scale!(VersionedPendingTransactions 1..2, Debug, Clone, FromVariant);
+declare_versioned_with_scale!(VersionedPendingTransactions 1..2, Debug, Clone, FromVariant, DumpDecoded);
 
 impl VersionedPendingTransactions {
     /// Converts from `&VersionedPendingTransactions` to V1 reference
@@ -365,7 +374,7 @@ impl Reply for VersionedPendingTransactions {
 
 /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
 #[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded)]
 pub struct PendingTransactions(pub Vec<Transaction>);
 
 impl FromIterator<Transaction> for PendingTransactions {
@@ -386,7 +395,9 @@ impl IntoIterator for PendingTransactions {
 }
 
 /// Transaction Value used in Instructions and Queries
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub enum TransactionValue {
     /// Committed transaction
     Transaction(Box<VersionedTransaction>),
@@ -424,7 +435,7 @@ impl PartialOrd for TransactionValue {
     }
 }
 
-declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, FromVariant, IntoSchema);
+declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, FromVariant, IntoSchema, DumpDecoded);
 
 impl VersionedValidTransaction {
     /// Converts from `&VersionedValidTransaction` to V1 reference
@@ -463,7 +474,7 @@ impl Txn for VersionedValidTransaction {
 
 /// `ValidTransaction` represents trustfull Transaction state.
 #[version_with_scale(n = 1, versioned = "VersionedValidTransaction")]
-#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, IntoSchema, DumpDecoded)]
 pub struct ValidTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,
@@ -480,7 +491,7 @@ impl Txn for ValidTransaction {
     }
 }
 
-declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema);
+declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema, DumpDecoded);
 
 impl VersionedRejectedTransaction {
     /// Converts from `&VersionedRejectedTransaction` to V1 reference
@@ -521,7 +532,9 @@ impl Txn for VersionedRejectedTransaction {
 
 /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
 #[version(n = 1, versioned = "VersionedRejectedTransaction")]
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct RejectedTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,
@@ -542,7 +555,17 @@ impl Txn for RejectedTransaction {
 
 /// Transaction was reject because it doesn't satisfy signature condition
 #[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Display,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    DumpDecoded,
 )]
 #[display(
     fmt = "Failed to verify signature condition specified in the account: {}",
@@ -557,7 +580,9 @@ pub struct UnsatisfiedSignatureConditionFail {
 impl std::error::Error for UnsatisfiedSignatureConditionFail {}
 
 /// Transaction was rejected because of one of its instructions failing.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct InstructionExecutionFail {
     /// Instruction which execution failed
     pub instruction: Instruction,
@@ -596,7 +621,17 @@ impl std::error::Error for InstructionExecutionFail {}
 
 /// Transaction was rejected because execution of `WebAssembly` binary failed
 #[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Display,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    DumpDecoded,
 )]
 #[display(fmt = "Failed to execute wasm binary: {}", reason)]
 pub struct WasmExecutionFail {
@@ -609,7 +644,17 @@ impl std::error::Error for WasmExecutionFail {}
 
 /// Transaction was reject because of low authority
 #[derive(
-    Debug, Clone, PartialEq, Eq, Display, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Display,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    DumpDecoded,
 )]
 #[display(fmt = "Action not permitted: {}", reason)]
 pub struct NotPermittedFail {
@@ -634,6 +679,7 @@ impl std::error::Error for NotPermittedFail {}
     Serialize,
     FromVariant,
     IntoSchema,
+    DumpDecoded,
 )]
 #[display(fmt = "Block was rejected during consensus")]
 pub enum BlockRejectionReason {
@@ -657,6 +703,7 @@ impl std::error::Error for BlockRejectionReason {}
     Serialize,
     FromVariant,
     IntoSchema,
+    DumpDecoded,
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum TransactionRejectionReason {
@@ -694,6 +741,7 @@ pub enum TransactionRejectionReason {
     Serialize,
     FromVariant,
     IntoSchema,
+    DumpDecoded,
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum RejectionReason {

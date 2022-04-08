@@ -10,6 +10,8 @@ use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
+use crate::DumpDecoded;
+
 pub mod data;
 pub mod execute_trigger;
 pub mod pipeline;

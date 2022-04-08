@@ -12,10 +12,21 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value, ValueMarker};
+use crate::DumpDecoded;
 
 /// Sized structure for all possible Instructions.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    DumpDecoded,
 )]
 pub enum Instruction {
     /// `Register` variant.
@@ -73,7 +84,9 @@ impl Instruction {
 }
 
 /// Sized structure for all possible key value set instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct SetKeyValueBox {
     /// Where to set this key value.
     pub object_id: EvaluatesTo<IdBox>,
@@ -84,7 +97,9 @@ pub struct SetKeyValueBox {
 }
 
 /// Sized structure for all possible key value pair remove instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct RemoveKeyValueBox {
     /// From where to remove this key value.
     pub object_id: EvaluatesTo<IdBox>,
@@ -93,21 +108,27 @@ pub struct RemoveKeyValueBox {
 }
 
 /// Sized structure for all possible Registers.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct RegisterBox {
     /// The object that should be registered, should be uniquely identifiable by its id.
     pub object: EvaluatesTo<RegistrableBox>,
 }
 
 /// Sized structure for all possible Unregisters.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct UnregisterBox {
     /// The id of the object that should be unregistered.
     pub object_id: EvaluatesTo<IdBox>,
 }
 
 /// Sized structure for all possible Mints.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct MintBox {
     /// Object to mint.
     pub object: EvaluatesTo<Value>,
@@ -116,7 +137,9 @@ pub struct MintBox {
 }
 
 /// Sized structure for all possible Burns.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct BurnBox {
     /// Object to burn.
     pub object: EvaluatesTo<Value>,
@@ -125,7 +148,9 @@ pub struct BurnBox {
 }
 
 /// Sized structure for all possible Transfers.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct TransferBox {
     /// Entity to transfer from.
     pub source_id: EvaluatesTo<IdBox>,
@@ -136,7 +161,9 @@ pub struct TransferBox {
 }
 
 /// Composite instruction for a pair of instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct Pair {
     /// Left instruction
     pub left_instruction: Instruction,
@@ -145,14 +172,19 @@ pub struct Pair {
 }
 
 /// Composite instruction for a sequence of instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct SequenceBox {
     /// Sequence of Iroha Special Instructions to execute.
     pub instructions: Vec<Instruction>,
 }
 
 /// Composite instruction for a conditional execution of other instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
+#[dump_decoded(rename = "IfInstruction")]
 pub struct If {
     /// Condition to be checked.
     pub condition: EvaluatesTo<bool>,
@@ -163,14 +195,18 @@ pub struct If {
 }
 
 /// Utilitary instruction to fail execution and submit an error `message`.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct FailBox {
     /// Message to submit.
     pub message: String,
 }
 
 /// Sized structure for all possible Grants.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, DumpDecoded,
+)]
 pub struct GrantBox {
     /// Object to grant.
     pub object: EvaluatesTo<Value>,
@@ -179,7 +215,9 @@ pub struct GrantBox {
 }
 
 /// Sized structure for all possible Grants.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema, DumpDecoded,
+)]
 pub struct RevokeBox {
     /// Object to grant.
     pub object: EvaluatesTo<Value>,
@@ -313,7 +351,9 @@ where
 }
 
 /// Instruction to execute specified trigger
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema, DumpDecoded,
+)]
 pub struct ExecuteTriggerBox {
     /// Id of a trigger to execute
     pub trigger_id: TriggerId,

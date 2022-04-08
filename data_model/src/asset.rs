@@ -18,8 +18,8 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    account::prelude::*, domain::prelude::*, fixed, fixed::Fixed, metadata::Metadata, Identifiable,
-    Name, ParseError, TryAsMut, TryAsRef, Value,
+    account::prelude::*, domain::prelude::*, fixed, fixed::Fixed, metadata::Metadata, DumpDecoded,
+    Identifiable, Name, ParseError, TryAsMut, TryAsRef, Value,
 };
 
 /// [`AssetsMap`] provides an API to work with collection of key ([`Id`]) - value
@@ -44,6 +44,7 @@ pub type AssetDefinitionsMap =
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
 #[getset(get = "pub")]
 pub struct AssetDefinitionEntry {
@@ -97,6 +98,7 @@ impl AssetDefinitionEntry {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
 #[getset(get = "pub")]
 pub struct AssetDefinition {
@@ -114,7 +116,17 @@ pub struct AssetDefinition {
 /// Asset represents some sort of commodity or value.
 /// All possible variants of [`Asset`] entity's components.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    DumpDecoded,
 )]
 #[getset(get = "pub")]
 pub struct Asset {
@@ -138,6 +150,7 @@ pub struct Asset {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
 pub enum AssetValueType {
     /// Asset's Quantity.
@@ -177,7 +190,17 @@ easy_from_str_impl! {AssetValueType, Quantity, BigQuantity, Fixed, Store}
 
 /// Asset's inner value.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
+    DumpDecoded,
 )]
 pub enum AssetValue {
     /// Asset's Quantity.
@@ -282,7 +305,9 @@ impl_try_as_for_asset_value! {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "AssetDefinitionId")]
 pub struct DefinitionId {
     /// Asset's name.
     pub name: Name,
@@ -304,7 +329,9 @@ pub struct DefinitionId {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "AssetId")]
 pub struct Id {
     /// Entity Identification.
     pub definition_id: <AssetDefinition as Identifiable>::Id,

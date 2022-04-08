@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     permissions::{PermissionToken, Permissions},
-    Identifiable, Name, ParseError,
+    DumpDecoded, Identifiable, Name,
 };
 
 /// Collection of [`RoleId`]s
@@ -34,7 +34,9 @@ pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
+#[dump_decoded(rename = "RoleId")]
 pub struct Id {
     /// Role name, should be unique .
     pub name: Name,
@@ -78,6 +80,7 @@ impl FromStr for Id {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
 #[getset(get = "pub")]
 pub struct Role {

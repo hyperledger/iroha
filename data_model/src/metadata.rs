@@ -12,13 +12,16 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{Name, Value};
+use crate::{DumpDecoded, Name, Value};
 
 /// Collection of parameters by their names.
 pub type UnlimitedMetadata = btree_map::BTreeMap<Name, Value>;
 
 /// Limits for [`Metadata`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, DumpDecoded,
+)]
+#[dump_decoded(rename = "MetadataLimits")]
 pub struct Limits {
     /// Maximum number of entries
     pub max_len: u32,
@@ -89,6 +92,7 @@ impl Limits {
     Deserialize,
     Serialize,
     IntoSchema,
+    DumpDecoded,
 )]
 #[serde(transparent)]
 pub struct Metadata {
