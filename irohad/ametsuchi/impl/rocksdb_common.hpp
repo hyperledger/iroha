@@ -115,6 +115,29 @@
  *                |          +-<domain_1, value: default_role>
  *                |          +-<total_count, value>
  *                |
+ *                +-|EVM_STORAGE|-+-|ENGINE_CALLS|-+-<hash1|index1, call_id_1>
+ *                |               |                +-<hash2|index2, call_id_2>
+ *                |               |                +-<next_value: call_id>
+ *                |               |
+ *                |               +-|EC_DEPLOYS|-+-<call_id_1, address1>
+ *                |               |              +-<call_id_2, address2>
+ *                |               |
+ *                |               +-|EC_CON_CALLS|-+-<call_id_1, callee|engine_response>
+ *                |               |                +-<call_id_2, callee|engine_response>
+ *                |               |
+ *                |               +-|ACCOUNT|-+-<address1,account1>
+ *                |               |           +-<address2,account2>
+ *                |               |
+ *                |               +-|LOGS|-+-<call_id_1#ix_1,log_ix_1#address#data>
+ *                |               |        +-<call_id_2#ix_2,log_ix_2#address#data>
+ *                |               |        +-<next_value: log_ix>
+ *                |               |
+ *                |               +-|TOPICS|-+-<log_ix_1#ix_1,topic>
+ *                |               |          +-<log_ix_2#ix_2,topic>
+ *                |               |
+ *                |               +-|ACCOUNT_KV|-+-<address1|key1,value1>
+ *                |                              +-<address1|key1,value1>
+ *                |
  *                +-<version>
  *
  *
@@ -147,6 +170,13 @@
  * ### OPTIONS       ##       O       ###
  * ### ADDRESS       ##       M       ###
  * ### TLS           ##       N       ###
+ * ### ENGINE_CALLS  ##       e       ###
+ * ### ACCOUNT_KV    ##       A       ###
+ * ### EVM_STORAGE   ##       E       ###
+ * ### EC_DEPLOYS    ##       W       ###
+ * ### EC_CON_CALLS  ##       R       ###
+ * ### LOGS          ##       y       ###
+ * ### TOPICS        ##       Y       ###
  * ######################################
  *
  * ######################################
@@ -158,6 +188,7 @@
  * ### F_PEERS COUNT ##       Z       ###
  * ### F_TOTAL COUNT ##       V       ###
  * ### F_VERSION     ##       v       ###
+ * ### F_NEXT_ID     ##       X       ###
  * ######################################
  *
  * ######################################
@@ -193,6 +224,13 @@
 #define RDB_OPTIONS "O"
 #define RDB_ADDRESS "M"
 #define RDB_TLS "N"
+#define RDB_ENGINE_CALLS "e"
+#define RDB_ACCOUNT_KV "A"
+#define RDB_EVM_STORAGE "E"
+#define RDB_EC_DEPLOYS "W"
+#define RDB_EC_CON_CALLS "R"
+#define RDB_LOGS "y"
+#define RDB_TOPICS "Y"
 
 #define RDB_F_QUORUM "q"
 #define RDB_F_ASSET_SIZE "I"
@@ -200,6 +238,7 @@
 #define RDB_F_PEERS_COUNT "Z"
 #define RDB_F_TOTAL_COUNT "V"
 #define RDB_F_VERSION "v"
+#define RDB_F_NEXT_ID "X"
 
 #define RDB_PATH_DOMAIN RDB_ROOT /**/ RDB_WSV /**/ RDB_DOMAIN /**/ RDB_XXX
 #define RDB_PATH_ACCOUNT RDB_PATH_DOMAIN /**/ RDB_ACCOUNTS /**/ RDB_XXX
@@ -237,6 +276,11 @@ namespace iroha::ametsuchi::fmtstrings {
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_NETWORK /**/ RDB_S_PEERS /**/
                      RDB_ADDRESS)};
 
+  // hash ➡️ call_id
+  static auto constexpr kPathEngineCallIds{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_ENGINE_CALLS /**/ RDB_XXX)};
+
   // domain_id/account_name
   static auto constexpr kPathSignatories{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_SIGNATORIES)};
@@ -245,10 +289,20 @@ namespace iroha::ametsuchi::fmtstrings {
   static auto constexpr kPathRoles{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_ROLES)};
 
+  // call_id ➡️ log_ix/address/data
+  static auto constexpr kPathEngineLogs{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_LOGS /**/ RDB_XXX)};
+
   // account
   static auto constexpr kPathTransactionByTs{
       FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_TRANSACTIONS /**/
                      RDB_ACCOUNTS /**/ RDB_XXX /**/ RDB_TIMESTAMP)};
+
+  // address
+  static auto constexpr kPathEngineStorage{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_ACCOUNT_KV /**/ RDB_XXX)};
 
   // account
   static auto constexpr kPathTransactionByPosition{
@@ -263,6 +317,11 @@ namespace iroha::ametsuchi::fmtstrings {
   static auto constexpr kPathAccountAssets{
       FMT_STRING(RDB_PATH_ACCOUNT /**/ RDB_ASSETS)};
 
+  // log_ix ➡️ topic
+  static auto constexpr kPathEngineTopics{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_TOPICS /**/ RDB_XXX)};
+
   /**
    * ######################################
    * ############# FOLDERS ################
@@ -271,6 +330,41 @@ namespace iroha::ametsuchi::fmtstrings {
   // height ➡️ block data
   static auto constexpr kBlockDataInStore{
       FMT_STRING(RDB_ROOT /**/ RDB_STORE /**/ RDB_XXX)};
+
+  // hash/index ➡️ call_id
+  static auto constexpr kEngineCallId{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_ENGINE_CALLS /**/ RDB_XXX /**/ RDB_XXX)};
+
+  // address ➡️ account
+  static auto constexpr kEngineAccount{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_ACCOUNTS /**/ RDB_XXX)};
+
+  // address/key ➡️ value
+  static auto constexpr kEngineStorage{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_ACCOUNT_KV /**/ RDB_XXX /**/ RDB_XXX)};
+
+  // call_id ➡️ contract address
+  static auto constexpr kEngineDeploy{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_EC_DEPLOYS /**/ RDB_XXX)};
+
+  // call_id ➡️ callee/response
+  static auto constexpr kEngineCallResponse{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_EC_CON_CALLS /**/ RDB_XXX)};
+
+  // call_id/ix ➡️ log_ix/address/data
+  static auto constexpr kEngineCallLogs{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_LOGS /**/ RDB_XXX /**/ RDB_XXX)};
+
+  // log_ix/ix ➡️ topic
+  static auto constexpr kEngineCallTopics{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_TOPICS /**/ RDB_XXX /**/ RDB_XXX)};
 
   // account/height/index/ts ➡️ tx_hash
   static auto constexpr kTransactionByPosition{FMT_STRING(
@@ -359,6 +453,16 @@ namespace iroha::ametsuchi::fmtstrings {
    */
   // domain_id ➡️ default role
   static auto constexpr kDomain{FMT_STRING(RDB_PATH_DOMAIN)};
+
+  // "" ➡️ next_call_id
+  static auto constexpr kEngineNextCallId{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_ENGINE_CALLS /**/ RDB_F_NEXT_ID)};
+
+  // "" ➡️ next_log_id
+  static auto constexpr kEngineNextLogId{
+      FMT_STRING(RDB_ROOT /**/ RDB_WSV /**/ RDB_EVM_STORAGE /**/
+                     RDB_LOGS /**/ RDB_F_NEXT_ID)};
 
   // "" ➡️ height # hash
   static auto constexpr kTopBlock{
@@ -675,7 +779,7 @@ namespace iroha::ametsuchi {
 #define RDB_ERROR_CHECK_TO_STR(...)            \
   if (auto _tmp_gen_var = (__VA_ARGS__);       \
       iroha::expected::hasError(_tmp_gen_var)) \
-  return _tmp_gen_var.assumeError().description
+  return iroha::expected::makeError(_tmp_gen_var.assumeError().description)
 
 #define RDB_TRY_GET_VALUE(name, ...)                   \
   typename decltype(__VA_ARGS__)::ValueInnerType name; \
@@ -685,12 +789,12 @@ namespace iroha::ametsuchi {
   else                                                 \
     name = std::move(_tmp_gen_var.assumeValue())
 
-#define RDB_TRY_GET_VALUE_OR_STR_ERR(name, ...)        \
-  typename decltype(__VA_ARGS__)::ValueInnerType name; \
-  if (auto _tmp_gen_var = (__VA_ARGS__);               \
-      iroha::expected::hasError(_tmp_gen_var))         \
-    return _tmp_gen_var.assumeError().description;     \
-  else                                                 \
+#define RDB_TRY_GET_VALUE_OR_STR_ERR(name, ...)                                \
+  typename decltype(__VA_ARGS__)::ValueInnerType name;                         \
+  if (auto _tmp_gen_var = (__VA_ARGS__);                                       \
+      iroha::expected::hasError(_tmp_gen_var))                                 \
+    return iroha::expected::makeError(_tmp_gen_var.assumeError().description); \
+  else                                                                         \
     name = std::move(_tmp_gen_var.assumeValue())
 
   /**
@@ -1218,8 +1322,17 @@ namespace iroha::ametsuchi {
         kOp != kDbOperation::kDel || kSc != kDbEntry::kMustExist,
         "Delete operation does not report if key existed before deletion!");
 
-    RDB_ERROR_CHECK(checkStatus<kSc>(
-        status, std::forward<OperationDescribtionF>(op_formatter)));
+    if constexpr (kOp == kDbOperation::kPut) {
+      RDB_ERROR_CHECK(checkStatus<kDbEntry::kMustExist>(
+          status, std::forward<OperationDescribtionF>(op_formatter)));
+    } else if constexpr (kOp == kDbOperation::kDel) {
+      RDB_ERROR_CHECK(checkStatus<kDbEntry::kCanExist>(
+          status, std::forward<OperationDescribtionF>(op_formatter)));
+    } else {
+      RDB_ERROR_CHECK(checkStatus<kSc>(
+          status, std::forward<OperationDescribtionF>(op_formatter)));
+    }
+
     return status;
   }
 
@@ -1600,6 +1713,182 @@ namespace iroha::ametsuchi {
         fmtstrings::kTransactionStatus,
         std::string_view((char const *)tx_hash.blob().data(),
                          tx_hash.blob().size()));
+  }
+
+  /**
+   * Access to Call Engine Account data
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param address is internal evm address with relative account
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forCallEngineAccount(RocksDbCommon &common, std::string_view address) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kEngineAccount,
+        address);
+  }
+
+  /**
+   * Access to Call Engine Storage data
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param address is internal evm address with relative account
+   * @param key for the storage
+   * @return operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forCallEngineStorage(RocksDbCommon &common,
+                       std::string_view address,
+                       std::string_view key) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kEngineStorage,
+        address,
+        key);
+  }
+
+  /**
+   * Access to Call Engine Call Ids data
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param hash of the tx
+   * @param cmd_index of the command inside the tx
+   * @return call_id operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError>
+  forCallEngineCallIds(RocksDbCommon &common,
+                       std::string_view hash,
+                       uint32_t cmd_index) {
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kEngineCallId,
+                                      hash,
+                                      cmd_index);
+  }
+
+  /**
+   * Access to Call Engine Deploy data
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param call_id of the CallEngine with contract deploy
+   * @return address of the contract
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forCallEngineDeploy(RocksDbCommon &common, uint64_t call_id) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kEngineDeploy,
+        call_id);
+  }
+
+  /**
+   * Access to Call Engine Call Responses data
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param call_id of the CallEngine with contract call
+   * @return callee + engine response
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forCallEngineCallResponse(RocksDbCommon &common, uint64_t call_id) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kEngineCallResponse,
+        call_id);
+  }
+
+  /**
+   * Access to Call Engine Topics data
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param log_ix of the topic
+   * @param ix is increment
+   * @return topic data
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forCallEngineTopics(RocksDbCommon &common, uint64_t log_ix, uint64_t ix) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kEngineCallTopics,
+        log_ix,
+        ix);
+  }
+
+  /**
+   * Access to Call Engine Logs data
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @param call_id of the topic
+   * @param ix is increment
+   * @return logs data
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<std::string_view>, DbError>
+  forCallEngineLogs(RocksDbCommon &common, uint64_t call_id, uint64_t ix) {
+    return dbCall<std::string_view, kOp, kSc>(
+        common,
+        RocksDBPort::ColumnFamilyType::kWsv,
+        fmtstrings::kEngineCallLogs,
+        call_id,
+        ix);
+  }
+
+  /**
+   * Access to Call Engine Next Call Id
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return next call_id operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError>
+  forCallEngineNextCallIds(RocksDbCommon &common) {
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kEngineNextCallId);
+  }
+
+  /**
+   * Access to Call Engine Next Log Id
+   * @tparam kOp @see kDbOperation
+   * @tparam kSc @see kDbEntry
+   * @param common @see RocksDbCommon
+   * @return next log_ix operation result
+   */
+  template <kDbOperation kOp = kDbOperation::kGet,
+            kDbEntry kSc = kDbEntry::kMustExist>
+  inline expected::Result<std::optional<uint64_t>, DbError>
+  forCallEngineNextLogIx(RocksDbCommon &common) {
+    return dbCall<uint64_t, kOp, kSc>(common,
+                                      RocksDBPort::ColumnFamilyType::kWsv,
+                                      fmtstrings::kEngineNextLogId);
   }
 
   /**

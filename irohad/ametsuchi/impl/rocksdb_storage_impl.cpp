@@ -99,7 +99,14 @@ namespace iroha::ametsuchi {
   expected::Result<std::unique_ptr<CommandExecutor>, std::string>
   RocksDbStorageImpl::createCommandExecutor() {
     return std::make_unique<RocksDbCommandExecutor>(
-        db_context_, permConverter(), vmCaller());
+        db_context_,
+        permConverter(),
+        std::make_shared<RocksDbSpecificQueryExecutor>(db_context_,
+                                                       *blockStore(),
+                                                       pendingTxStorage(),
+                                                       queryResponseFactory(),
+                                                       permConverter()),
+        vmCaller());
   }
 
   expected::Result<std::unique_ptr<MutableStorage>, std::string>

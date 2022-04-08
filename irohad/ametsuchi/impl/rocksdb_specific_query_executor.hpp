@@ -52,6 +52,7 @@ namespace iroha::ametsuchi {
       kQueryHeightOverflow = 3,
       kAssetNotFound = 4,
       kNoTransaction = 4,
+      kGetReceipts = 5,
       kRetrieveTransactionsFailed = 1010,
     };
 
