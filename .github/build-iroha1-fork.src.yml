@@ -21,7 +21,7 @@ on:
 
   issue_comment:
     types: [created]
-      branches: [ main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build ]
+    branches: [ main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build ]
 
 
 env:

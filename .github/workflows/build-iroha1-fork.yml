@@ -20,6 +20,7 @@ on:
   #  branches: [ main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build ] ## target branches
   issue_comment:
     types: [created]
+    branches: [main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build]
 env:
   DOCKERHUB_ORG: hyperledger
 jobs:
