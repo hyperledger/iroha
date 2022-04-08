@@ -1,6 +1,6 @@
 name: Iroha1-fork
 
-# The only write permission requird is packages
+# The only write permission required is packages
 permissions:
   actions: read
   checks: read
@@ -15,8 +15,12 @@ permissions:
 
 ## This workflow is created for pull requests from forks only and has less permissions than build-iroha1 workflow
 on:
-  pull_request_target:
-    branches: [ main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build ] ## target branches
+  #pull_request_target:
+  #  branches: [ main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build ] ## target branches
+
+
+  issue_comment:
+    types: [created]
 
 env:
   DOCKERHUB_ORG: hyperledger
@@ -24,14 +28,37 @@ env:
 jobs:
 
   
+
   ## This step allows to skip the workflow completely for pull_requests from the same repo
   ## Also it checks that that .github folder and Dockerfiles are not changed
   check_if_pull_request_comes_from_fork:
+
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Pull requests from forks should use other workflow
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name }}
+    if: ${{ github.event.issue.comment.body == "Launch build" }}
     steps:
 
+      -
+        name: Show context
+        run: |
+          echo "::group::GitHub context"
+          cat <<'END'
+          ${{ toJson(github) }}
+          END
+          echo "::endgroup::"
+          echo "::group::GitHub needs"
+          cat <<'END'
+          ${{ toJson(needs) }}
+          END
+          echo "::endgroup::"
+
+
+      - name: Allow build 
+        if:  
+        run: |
+          "Lunching build"
+
+      
       - &step_checkout_head
         name: Checkout head
         uses: actions/checkout@v2
