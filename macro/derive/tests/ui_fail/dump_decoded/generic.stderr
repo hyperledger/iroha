@@ -1,0 +1,25 @@
+error: proc-macro derive panicked
+ --> tests/ui_fail/dump_decoded/generic.rs:3:25
+  |
+3 | #[derive(Debug, Decode, iroha_derive::DumpDecoded)]
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: message: Implementation of `DumpDecoded` for generic has no meaning
+
+error[E0601]: `main` function not found in crate `$CRATE`
+ --> tests/ui_fail/dump_decoded/generic.rs:1:1
+  |
+1 | / use parity_scale_codec::Decode;
+2 | |
+3 | | #[derive(Debug, Decode, iroha_derive::DumpDecoded)]
+4 | | struct Struct<T>;
+  | |_________________^ consider adding a `main` function to `$DIR/tests/ui_fail/dump_decoded/generic.rs`
+
+error[E0392]: parameter `T` is never used
+ --> tests/ui_fail/dump_decoded/generic.rs:4:15
+  |
+4 | struct Struct<T>;
+  |               ^ unused parameter
+  |
+  = help: consider removing `T`, referring to it in a field, or using a marker such as `PhantomData`
+  = help: if you intended `T` to be a const parameter, use `const T: usize` instead

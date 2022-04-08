@@ -4,9 +4,14 @@ use super::*;
 
 #[cfg(feature = "dump_decoded")]
 static mut TYPES: Option<Vec<String>> = None;
+
+#[cfg(feature = "dump_decoded")]
 const HELPER_ATTR: &str = "dump_decoded";
+
+#[cfg(feature = "dump_decoded")]
 const RENAME_ATTR: &str = "rename";
 
+#[cfg(feature = "dump_decoded")]
 /// Macro to easily check if token matches concrete variant and panic if not
 macro_rules! match_token {
     ($e:expr, $p:pat $(if $guard:expr)? => $r:expr) => {
@@ -21,6 +26,7 @@ macro_rules! match_token {
 }
 
 /// Parse [`HELPER_ATTR`] which is used to configure some parameters
+#[cfg(feature = "dump_decoded")]
 fn parse_helper_attr(ast: &syn::DeriveInput) -> Option<&syn::Attribute> {
     ast.attrs.iter().find(|attr| {
         attr.path
@@ -34,6 +40,7 @@ fn parse_helper_attr(ast: &syn::DeriveInput) -> Option<&syn::Attribute> {
 ///
 /// # Panics
 /// Panics if invalid syntax was provided. For valid syntax see [`parse_token!`]
+#[cfg(feature = "dump_decoded")]
 fn parse_name_attr(attr: &syn::Attribute) -> String {
     use proc_macro2::TokenTree::*;
 
@@ -72,6 +79,10 @@ pub fn impl_dump_decoded(ast: &syn::DeriveInput) -> TokenStream {
 
     #[cfg(feature = "dump_decoded")]
     {
+        if !ast.generics.params.is_empty() {
+            panic!("Implementation of `DumpDecoded` for generic has no meaning")
+        }
+
         #[allow(unsafe_code)]
         let types = unsafe {
             if TYPES.is_none() {
