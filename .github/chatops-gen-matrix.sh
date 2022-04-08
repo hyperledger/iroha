@@ -39,6 +39,8 @@ END
    cat <<END
 USAGE:
    $(basename $0) --help
+   $(basename $0) /build ubuntu clang
+   $(basename $0) '/build ubuntu clang; /build macos release ursa'
    echo /build [build_spec...] | $(basename $0)
 END
    --help-buildspec
@@ -72,7 +74,7 @@ handle_user_line(){
       return
    fi
    shift
-   local oses compilers cmake_opts build_types
+   local oses compilers cmake_opts build_types skip_testing=
 
    while [[ $# > 0 ]] ;do
       case "$1" in
@@ -90,6 +92,7 @@ handle_user_line(){
          clang|clang-10|clang10)    compilers+=" clang clang-10"  ;;
          llvm)                      compilers+=" $1 " ;;
          msvc)                      compilers+=" $1 " ;;
+         skip-testing|skip_testing) skip_testing='skip_testing' ;;
          all|everything|beforemerge|before_merge|before-merge|readytomerge|ready-to-merge|ready_to_merge)
             oses=${oses:-"$ALL_oses"}
             build_types=${build_types:-"$ALL_build_types"}
@@ -125,7 +128,7 @@ handle_user_line(){
             for co in $cmake_opts ;do
                if test $os = macos -a $co = burrow; then continue; fi  ##Reduce macos load on CI
                if test $os = macos -a $co = ursa;   then continue; fi  ##Reduce macos load on CI
-               MATRIX+="$os $cc $bt $co"$'\n'
+               MATRIX+="$os $cc $bt $co $skip_testing"$'\n'
             done
          done
       done
