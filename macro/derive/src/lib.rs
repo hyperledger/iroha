@@ -57,6 +57,20 @@ pub fn dump_decoded_derive(input: TokenStream) -> TokenStream {
 /// Since Rust doesn't guarantee macro expansion order this macro can fail
 ///
 /// This macro will produce code only if `dump_decoded` feature is enabled
+///
+/// TODO: It's possible to improve this macro by adding syntax like this:
+///
+/// ```
+/// generate_dump_decoded_map! {
+///     type Id = account::Id;
+///     type Schedule = super::time::Schedule;
+///     // ...
+/// }
+/// ```
+///
+/// It can be useful when you want to keep type name the same, but it's not in
+/// the scope so you should provide a path to it, so that this macro can find
+/// [`DumpDecoded`] realization
 #[proc_macro]
 pub fn generate_dump_decoded_map(_input: TokenStream) -> TokenStream {
     dump_decoded::impl_generate_dump_decoded_map()
