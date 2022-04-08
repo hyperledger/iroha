@@ -107,15 +107,15 @@ impl EventFilter {
     Deserialize,
     DumpDecoded,
 )]
-#[dump_decoded(rename = "PipelineEntityType")]
-pub enum EntityType {
+#[dump_decoded(rename = "PipelineEntityKind")]
+pub enum EntityKind {
     /// Block.
     Block,
     /// Transaction.
     Transaction,
 }
 
-/// Entity type to filter events.
+/// Strongly-typed [`Event`], which tells the receiver the kind of entity that changed, the change, and the hash of the entity.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, DumpDecoded)]
 #[dump_decoded(rename = "PipelineEvent")]
 pub struct Event {
@@ -138,7 +138,7 @@ impl Event {
     }
 }
 
-/// Entity type to filter events.
+/// [`Status`] of the entity.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, FromVariant, IntoSchema, DumpDecoded)]
 #[dump_decoded(rename = "PipelineStatus")]
 pub enum Status {

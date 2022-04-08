@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     permissions::{PermissionToken, Permissions},
-    DumpDecoded, Identifiable, Name,
+    DumpDecoded, Identifiable, Name, ParseError,
 };
 
 /// Collection of [`RoleId`]s
