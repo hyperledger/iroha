@@ -724,6 +724,90 @@ TEST_F(RocksDBTest, LowerBoundSearch) {
   }
 }
 
+TEST_F(RocksDBTest, LogsEnumerator) {
+  {
+    RocksDbCommon common(tx_context_);
+
+    common.valueBuffer() = "aaa";
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineLogs<kDbOperation::kPut>(common, 50, 0)));
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineLogs<kDbOperation::kPut>(common, 50, 1)));
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineLogs<kDbOperation::kPut>(common, 50, 2)));
+    ASSERT_TRUE(common.commit().ok());
+  }
+
+  {
+    RocksDbCommon common(tx_context_);
+    bool found[3];
+    memset(found, 0, sizeof(found));
+    enumerateKeysAndValues(common,
+                           [&](auto key, auto value) {
+                             throw std::runtime_error("Unexpected");
+                             return true;
+                           },
+                           RocksDBPort::ColumnFamilyType::kWsv,
+                           fmtstrings::kPathEngineLogs,
+                           10);
+    enumerateKeysAndValues(common,
+                           [&](auto key, auto value) {
+                             found[atoll(key.data())] =
+                                 (value.ToStringView() == "aaa");
+                             return true;
+                           },
+                           RocksDBPort::ColumnFamilyType::kWsv,
+                           fmtstrings::kPathEngineLogs,
+                           50);
+
+    ASSERT_TRUE(found[0]);
+    ASSERT_TRUE(found[1]);
+    ASSERT_TRUE(found[2]);
+  }
+}
+
+TEST_F(RocksDBTest, TopicsEnumerator) {
+  {
+    RocksDbCommon common(tx_context_);
+
+    common.valueBuffer() = "aaa";
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineTopics<kDbOperation::kPut>(common, 50, 0)));
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineTopics<kDbOperation::kPut>(common, 50, 1)));
+    ASSERT_TRUE(iroha::expected::hasValue(
+        forCallEngineTopics<kDbOperation::kPut>(common, 50, 2)));
+    ASSERT_TRUE(common.commit().ok());
+  }
+
+  {
+    RocksDbCommon common(tx_context_);
+    bool found[3];
+    memset(found, 0, sizeof(found));
+    enumerateKeysAndValues(common,
+                           [&](auto key, auto value) {
+                             throw std::runtime_error("Unexpected");
+                             return true;
+                           },
+                           RocksDBPort::ColumnFamilyType::kWsv,
+                           fmtstrings::kPathEngineTopics,
+                           10);
+    enumerateKeysAndValues(common,
+                           [&](auto key, auto value) {
+                             found[atoll(key.data())] =
+                                 (value.ToStringView() == "aaa");
+                             return true;
+                           },
+                           RocksDBPort::ColumnFamilyType::kWsv,
+                           fmtstrings::kPathEngineTopics,
+                           50);
+
+    ASSERT_TRUE(found[0]);
+    ASSERT_TRUE(found[1]);
+    ASSERT_TRUE(found[2]);
+  }
+}
+
 TEST_F(RocksDBTest, Signatories) {
   RocksDbCommon common(tx_context_);
   auto cmd_check = [&](std::string_view pk) {

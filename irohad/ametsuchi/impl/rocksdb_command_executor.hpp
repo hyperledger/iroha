@@ -44,6 +44,7 @@ namespace shared_model::interface {
 
 namespace iroha::ametsuchi {
 
+  class RocksDbSpecificQueryExecutor;
   class VmCaller;
 
   class RocksDbCommandExecutor final : public CommandExecutor {
@@ -51,6 +52,7 @@ namespace iroha::ametsuchi {
     using ExecutionResult = expected::Result<void, DbError>;
 
     enum ErrorCodes {
+      kNotConfigured = 1,
       kNoPermissions = 2,
       kNoAccount = 3,
       kInvalidAmount = 3,
@@ -74,6 +76,7 @@ namespace iroha::ametsuchi {
         std::shared_ptr<RocksDBContext> db_context,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
+        std::shared_ptr<RocksDbSpecificQueryExecutor> specific_query_executor,
         std::optional<std::reference_wrapper<const VmCaller>> vm_caller);
 
     ~RocksDbCommandExecutor();
@@ -273,6 +276,7 @@ namespace iroha::ametsuchi {
     std::shared_ptr<RocksDBContext> db_context_;
     std::shared_ptr<shared_model::interface::PermissionToString>
         perm_converter_;
+    std::shared_ptr<RocksDbSpecificQueryExecutor> specific_query_executor_;
     std::optional<std::reference_wrapper<const VmCaller>> vm_caller_;
     RocksDbTransaction db_transaction_;
   };

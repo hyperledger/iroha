@@ -40,10 +40,6 @@ namespace iroha {
   namespace protocol {
     class Transaction;
   }
-  namespace network {
-    class MstTransportGrpc;
-    class MstTransportNotification;
-  }  // namespace network
   namespace consensus {
     namespace yac {
       class NetworkImpl;

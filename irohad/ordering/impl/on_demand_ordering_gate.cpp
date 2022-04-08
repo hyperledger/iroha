@@ -20,6 +20,7 @@
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
+#include "main/subscription.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "validators/field_validator.hpp"
 
@@ -41,7 +42,32 @@ OnDemandOrderingGate::OnDemandOrderingGate(
       tx_cache_(std::move(tx_cache)),
       syncing_mode_(syncing_mode) {}
 
+void OnDemandOrderingGate::initialize() {
+  failed_proposal_response_ =
+      SubscriberCreator<bool, ProposalEvent>::template create<
+          EventTypes::kOnProposalResponseFailed>(
+          SubscriptionEngineHandlers::kYac,
+          [_w_this{weak_from_this()}](auto, auto ev) {
+            if (auto _this = _w_this.lock()) {
+              std::shared_lock<std::shared_timed_mutex> stop_lock(
+                  _this->stop_mutex_);
+              if (_this->stop_requested_) {
+                _this->log_->warn(
+                    "Not doing anything because stop was requested.");
+                return;
+              }
+
+              if (!_this->syncing_mode_) {
+                assert(_this->network_client_);
+                _this->network_client_->onRequestProposal(ev.round,
+                                                          std::nullopt);
+              }
+            }
+          });
+}
+
 OnDemandOrderingGate::~OnDemandOrderingGate() {
+  failed_proposal_response_->unsubscribe();
   stop();
 }
 
@@ -53,10 +79,8 @@ void OnDemandOrderingGate::propagateBatch(
     return;
   }
 
-  // TODO iceseer 14.01.21 IR-959 Refactor to avoid copying.
-  forLocalOS(&OnDemandOrderingService::onBatches,
-             transport::OdOsNotification::CollectionType{batch});
-  network_client_->onBatches(
+  log_->info("Propagated for network batch: {}", *batch);
+  network_client_->onBatchesToWholeNetwork(
       transport::OdOsNotification::CollectionType{batch});
 }
 
@@ -77,9 +101,15 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
 
   this->sendCachedTransactions();
 
-  // request proposal for the current round
-  if (!syncing_mode_)
-    network_client_->onRequestProposal(event.next_round);
+  if (!syncing_mode_) {
+    assert(ordering_service_);
+    assert(network_client_);
+
+    network_client_->onRequestProposal(
+        event.next_round,
+        ordering_service_->waitForLocalProposal(
+            event.next_round, network_client_->getRequestDelay()));
+  }
 }
 
 void OnDemandOrderingGate::stop() {

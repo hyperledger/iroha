@@ -6,6 +6,7 @@
 #ifndef IROHA_TO_LOWER_HPP
 #define IROHA_TO_LOWER_HPP
 
+#include <cassert>
 #include <string>
 
 namespace iroha {
@@ -14,6 +15,19 @@ namespace iroha {
     dst.reserve(dst.size() + src.size());
     for (auto const c : src) dst += std::tolower(c);
     return dst;
+  }
+
+  template <size_t N>
+  inline std::string_view toLower(std::string_view src, char (&dst)[N]) {
+    assert(N >= src.size());
+
+    char const *from = src.data();
+    char const *const end = src.data() + src.size();
+    char *ptr = dst;
+
+    while (from != end) *ptr++ = std::tolower(*from++);
+
+    return std::string_view(dst, src.size());
   }
 
 }  // namespace iroha

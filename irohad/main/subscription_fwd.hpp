@@ -13,7 +13,9 @@ namespace iroha {
     kYac = 0,
     kRequestProposal,
     kVoteProcess,
+    kProposalProcessing,
     kMetrics,
+    kNotifications,
     //---------------
     kTotalCount
   };
@@ -39,9 +41,12 @@ namespace iroha {
     kOnTxsEnoughForProposal,
     kOnPackProposal,
     kOnProposalResponse,
+    kOnProposalResponseFailed,
     kOnTransactionResponse,
     kOnConsensusGateEvent,
     kSendBatchComplete,
+
+    kRemoteProposalDiff,
 
     // RDB
     kOnRdbStats,

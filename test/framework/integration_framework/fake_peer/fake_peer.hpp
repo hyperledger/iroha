@@ -13,7 +13,6 @@
 
 #include "common/result_fwd.hpp"
 #include "consensus/yac/transport/impl/consensus_service_impl.hpp"
-#include "framework/integration_framework/fake_peer/network/mst_message.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
 #include "framework/integration_framework/fake_peer/types.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
@@ -46,8 +45,9 @@ namespace integration_framework::fake_peer {
    public:
     /// Instead of constructor because shared_from_this
     template <class... Args>
-    static std::shared_ptr<FakePeer> createShared(Args &&...args) {
-      return std::make_shared<FakePeer>(HideCtor{}, std::forward<Args>(args)...);
+    static std::shared_ptr<FakePeer> createShared(Args &&... args) {
+      return std::make_shared<FakePeer>(HideCtor{},
+                                        std::forward<Args>(args)...);
     }
 
     /**
@@ -125,9 +125,6 @@ namespace integration_framework::fake_peer {
     /// Get interface::Peer object for this instance.
     std::shared_ptr<shared_model::interface::Peer> getThisPeer() const;
 
-    /// Get the observable of MST states received by this peer.
-    rxcpp::observable<std::shared_ptr<MstMessage>> getMstStatesObservable();
-
     /// Get the observable of YAC states received by this peer.
     rxcpp::observable<std::shared_ptr<const YacMessage>>
     getYacStatesObservable();
@@ -174,9 +171,6 @@ namespace integration_framework::fake_peer {
     iroha::consensus::yac::VoteMessage makeVote(
         iroha::consensus::yac::YacHash yac_hash);
 
-    /// Send the main peer the given MST state.
-    void sendMstState(const iroha::MstState &state);
-
     /// Send the main peer the given YAC state.
     void sendYacState(
         const std::vector<iroha::consensus::yac::VoteMessage> &state);
@@ -204,7 +198,6 @@ namespace integration_framework::fake_peer {
             transactions);
 
    private:
-    using MstTransport = iroha::network::MstTransportGrpc;
     using YacTransportClient = iroha::consensus::yac::NetworkImpl;
     using YacTransportServer = iroha::consensus::yac::ServiceImpl;
     using OsTransport = iroha::ordering::OrderingServiceTransportGrpc;
@@ -246,12 +239,10 @@ namespace integration_framework::fake_peer {
     std::shared_ptr<AsyncCall> async_call_;
     std::shared_ptr<iroha::network::GenericClientFactory> client_factory_;
 
-    std::shared_ptr<MstTransport> mst_transport_;
     std::shared_ptr<YacTransportClient> yac_transport_client_;
     std::shared_ptr<OdOsTransport> od_os_transport_;
     std::shared_ptr<LoaderGrpc> synchronizer_transport_;
 
-    std::shared_ptr<MstNetworkNotifier> mst_network_notifier_;
     std::shared_ptr<YacNetworkNotifier> yac_network_notifier_;
     std::shared_ptr<OsNetworkNotifier> os_network_notifier_;
     std::shared_ptr<OgNetworkNotifier> og_network_notifier_;
