@@ -1,5 +1,7 @@
 //! Contains traits that is needed for macro implementation
 
+#![cfg_attr(not(feature = "dump_decoded"), no_std)]
+
 #[cfg(feature = "dump_decoded")]
 pub use dump_decoded::*;
 
