@@ -4,7 +4,7 @@
 use std::{collections::HashSet, fmt::Display};
 
 use eyre::{Context, Result};
-use iroha_crypto::{Hash, HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
+use iroha_crypto::{HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
 use iroha_data_model::prelude::PeerId;
 use iroha_macro::*;
 use iroha_schema::IntoSchema;
@@ -22,7 +22,7 @@ pub struct Proof {
 impl Proof {
     /// Hash of this proof.
     pub fn hash(&self) -> HashOf<Self> {
-        Hash::new(self.payload.encode()).into()
+        HashOf::new(&self.payload).transmute()
     }
 
     fn from_payload(payload: ProofPayload, key_pair: KeyPair) -> Result<Self> {
@@ -245,6 +245,8 @@ impl ProofChain {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
+
+    use iroha_crypto::Hash;
 
     use super::*;
 

@@ -148,13 +148,6 @@ impl<T> hash::Hash for HashOf<T> {
     }
 }
 
-impl<T> From<HashOf<T>> for [u8; Hash::LENGTH] {
-    #[inline]
-    fn from(HashOf(bytes, _): HashOf<T>) -> Self {
-        bytes.into()
-    }
-}
-
 impl<T> AsRef<[u8; Hash::LENGTH]> for HashOf<T> {
     #[inline]
     fn as_ref(&self) -> &[u8; Hash::LENGTH] {
@@ -173,6 +166,14 @@ impl<T> HashOf<T> {
     #[inline]
     pub const fn transmute<F>(self) -> HashOf<F> {
         HashOf(self.0, PhantomData)
+    }
+}
+
+impl<T: Encode> HashOf<T> {
+    /// Construct typed hash
+    #[cfg(feature = "std")]
+    pub fn new(value: &T) -> Self {
+        Self(Hash::new(value.encode()), PhantomData)
     }
 }
 

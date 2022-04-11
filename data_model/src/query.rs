@@ -115,8 +115,8 @@ pub struct Payload {
 impl Payload {
     /// Hash of this payload.
     #[cfg(feature = "std")]
-    pub fn hash(&self) -> Hash {
-        Hash::new(self.encode())
+    pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
+        iroha_crypto::HashOf::new(self)
     }
 }
 

@@ -28,7 +28,7 @@ use ursa::{
 };
 
 #[cfg(feature = "std")]
-use crate::{Algorithm, Hash, HashOf, KeyPair};
+use crate::{Algorithm, HashOf, KeyPair};
 use crate::{Error, PublicKey};
 
 /// Represents signature of the data (`Block` or `Transaction` for example).
@@ -61,7 +61,7 @@ impl Signature {
     ///
     /// # Errors
     /// Fails if decoding digest of key pair fails
-    pub fn new(
+    fn new(
         KeyPair {
             public_key,
             private_key,
@@ -113,6 +113,23 @@ impl fmt::Debug for Signature {
             .field("public_key", &self.public_key)
             .field("signature", &hex::encode_upper(self.signature.as_slice()))
             .finish()
+    }
+}
+
+impl From<Signature> for (PublicKey, Vec<u8>) {
+    fn from(
+        Signature {
+            public_key,
+            signature,
+        }: Signature,
+    ) -> Self {
+        (public_key, signature)
+    }
+}
+
+impl<T> From<SignatureOf<T>> for Signature {
+    fn from(SignatureOf(signature, ..): SignatureOf<T>) -> Self {
+        signature
     }
 }
 
@@ -224,8 +241,7 @@ impl<T: Encode> SignatureOf<T> {
     /// # Errors
     /// Fails if decoding digest of key pair fails
     pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
-        let hash = Hash::new(value.encode());
-        Self::from_hash(key_pair, &hash.into())
+        Self::from_hash(key_pair, &HashOf::new(value))
     }
 
     /// Verifies signature for this item
@@ -233,8 +249,7 @@ impl<T: Encode> SignatureOf<T> {
     /// # Errors
     /// Fails if verification fails
     pub fn verify(&self, value: &T) -> Result<(), Error> {
-        let hash = Hash::new(value.encode());
-        self.verify_hash(&hash.into())
+        self.verify_hash(&HashOf::new(value))
     }
 }
 
@@ -468,14 +483,12 @@ impl<T: Encode> SignaturesOf<T> {
     /// # Errors
     /// Fails if validation of any signature fails
     pub fn verify(&self, item: &T) -> Result<(), SignatureVerificationFail<T>> {
-        let hash = Hash::new(item.encode());
-        self.verify_hash(&hash.into())
+        self.verify_hash(&HashOf::new(item))
     }
 
     /// Returns signatures that have passed verification.
     pub fn verified(&self, value: &T) -> impl Iterator<Item = &SignatureOf<T>> {
-        let hash = Hash::new(value.encode());
-        self.verified_by_hash(hash.into())
+        self.verified_by_hash(HashOf::new(value))
     }
 }
 

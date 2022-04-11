@@ -52,7 +52,7 @@ pub trait Txn {
     where
         Self: Sized,
     {
-        iroha_crypto::Hash::new(self.payload().encode()).into()
+        iroha_crypto::HashOf::new(self.payload()).transmute()
     }
 
     /// Checks if number of instructions in payload or wasm size exceeds maximum

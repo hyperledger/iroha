@@ -358,7 +358,7 @@ impl ChainedBlock {
 
     /// Calculate hash of the current block.
     pub fn hash(&self) -> HashOf<Self> {
-        Hash::new(self.header.encode()).into()
+        HashOf::new(&self.header).transmute()
     }
 }
 
@@ -571,7 +571,7 @@ impl ValidBlock {
 
     /// Calculate hash of the current block.
     pub fn hash(&self) -> HashOf<Self> {
-        Hash::new(self.header.encode()).into()
+        HashOf::new(&self.header).transmute()
     }
 
     /// Sign this block and get `ValidBlock`.
@@ -741,7 +741,7 @@ impl CommittedBlock {
     /// Calculate hash of the current block.
     /// `CommitedBlock` should have the same hash as `ValidBlock`.
     pub fn hash(&self) -> HashOf<Self> {
-        Hash::new(self.header.encode()).into()
+        HashOf::new(&self.header).transmute()
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
