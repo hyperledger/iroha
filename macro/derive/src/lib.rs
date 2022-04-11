@@ -60,7 +60,7 @@ pub fn dump_decoded_derive(input: TokenStream) -> TokenStream {
 ///
 /// TODO: It's possible to improve this macro by adding syntax like this:
 ///
-/// ```
+/// ```ignore
 /// generate_dump_decoded_map! {
 ///     type Id = account::Id;
 ///     type Schedule = super::time::Schedule;
