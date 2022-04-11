@@ -402,15 +402,6 @@ impl<T> SignaturesOf<T> {
         SignaturesOf { signatures }
     }
 
-    /// Builds container using single signature
-    fn from_signature(sign: SignatureOf<T>) -> Self {
-        let mut me = Self {
-            signatures: btree_map::BTreeMap::new(),
-        };
-        me.insert(sign);
-        me
-    }
-
     /// Adds a signature. If the signature with this key was present, replaces it.
     pub fn insert(&mut self, signature: SignatureOf<T>) {
         self.signatures
@@ -475,7 +466,7 @@ impl<T: Encode> SignaturesOf<T> {
     /// # Errors
     /// Forwards [`SignatureOf::new`] errors
     pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
-        SignatureOf::new(key_pair, value).map(Self::from_signature)
+        [SignatureOf::new(key_pair, value)?].into_iter().collect()
     }
 
     /// Verifies all signatures

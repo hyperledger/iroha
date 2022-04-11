@@ -169,9 +169,19 @@ pub struct KeyPair {
 
 impl Default for KeyPair {
     fn default() -> Self {
-        // TODO: Use one defined key pair here or remove the `KeyPair::generate`
-        // method in favor of the default implementation as defined here
-        Self::generate().expect("Valid")
+        #[cfg(not(feature = "std"))]
+        use alloc::string::ToString as _;
+
+        Self::new(
+            PublicKey {
+                digest_function: Algorithm::default().to_string(),
+                payload: Vec::new(),
+            },
+            PrivateKey {
+                digest_function: Algorithm::default().to_string(),
+                payload: Vec::new(),
+            },
+        )
     }
 }
 
@@ -215,7 +225,6 @@ impl From<NoSuchAlgorithm> for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-#[cfg(feature = "std")]
 impl KeyPair {
     /// Construct `KeyPair`
     pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Self {
@@ -229,6 +238,7 @@ impl KeyPair {
     ///
     /// # Errors
     /// Fails if decoding fails
+    #[cfg(feature = "std")]
     pub fn generate() -> Result<Self, Error> {
         Self::generate_with_configuration(KeyGenConfiguration::default())
     }
@@ -237,6 +247,7 @@ impl KeyPair {
     ///
     /// # Errors
     /// Fails if decoding fails
+    #[cfg(feature = "std")]
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
         let key_gen_option: Option<UrsaKeyGenOption> = configuration
             .key_gen_option

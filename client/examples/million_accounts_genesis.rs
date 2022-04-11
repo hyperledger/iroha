@@ -1,8 +1,8 @@
 #![allow(missing_docs, clippy::pedantic, clippy::restriction)]
 
 use iroha::samples::get_config;
-use iroha_core::{
-    genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock, RawGenesisBlockBuilder},
+use iroha_core::genesis::{
+    GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock, RawGenesisBlockBuilder,
 };
 use iroha_data_model::prelude::*;
 use test_network::{get_key_pair, Peer as TestPeer, TestRuntime};
@@ -18,7 +18,7 @@ fn main() {
                 .domain(format!("wonderland-{}", i).parse().expect("Valid"))
                 .with_account(
                     format!("Alice-{}", i).parse().expect("Valid"),
-                    key_pair.public_key().clone();
+                    key_pair.public_key().clone(),
                 )
                 .with_asset(
                     AssetDefinition::quantity(
