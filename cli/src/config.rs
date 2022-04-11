@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use super::torii::config::ToriiConfiguration;
 
 /// Configuration parameters container.
-#[derive(Clone, Deserialize, Serialize, Debug, Configurable, Default)]
+#[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]
@@ -53,13 +53,36 @@ pub struct Configuration {
     /// Configuration for `WorldStateView`.
     #[config(inner)]
     pub wsv: WorldStateViewConfiguration,
-    #[cfg(feature = "telemetry")]
-    /// Configuration for telemetry
-    #[config(inner)]
-    pub telemetry: iroha_telemetry::Configuration,
     /// Network configuration
     #[config(inner)]
     pub network: NetworkConfiguration,
+    /// Configuration for telemetry
+    #[config(inner)]
+    #[cfg(feature = "telemetry")]
+    pub telemetry: iroha_telemetry::Configuration,
+}
+
+impl Default for Configuration {
+    fn default() -> Self {
+        let (public_key, private_key) = iroha_crypto::KeyPair::default().into();
+
+        Self {
+            public_key,
+            private_key,
+            disable_panic_terminal_colors: bool::default(),
+            kura: KuraConfiguration::default(),
+            sumeragi: SumeragiConfiguration::default(),
+            torii: ToriiConfiguration::default(),
+            block_sync: BlockSyncConfiguration::default(),
+            queue: QueueConfiguration::default(),
+            logger: LoggerConfiguration::default(),
+            genesis: GenesisConfiguration::default(),
+            wsv: WorldStateViewConfiguration::default(),
+            network: NetworkConfiguration::default(),
+            #[cfg(feature = "telemetry")]
+            telemetry: iroha_telemetry::Configuration::default(),
+        }
+    }
 }
 
 /// Network Configuration parameters container.
@@ -104,7 +127,7 @@ impl Configuration {
     }
 
     fn finalize(&mut self) {
-        self.sumeragi.key_pair = self.key_pair().into();
+        self.sumeragi.key_pair = self.key_pair();
         self.sumeragi.peer_id = PeerId::new(&self.torii.p2p_addr, &self.public_key.clone());
     }
 
@@ -120,8 +143,8 @@ impl Configuration {
     }
 
     /// Get `public_key` and `private_key` configuration parameters.
-    pub fn key_pair(&self) -> (PublicKey, PrivateKey) {
-        (self.public_key.clone(), self.private_key.clone())
+    pub fn key_pair(&self) -> iroha_crypto::KeyPair {
+        iroha_crypto::KeyPair::new(self.public_key.clone(), self.private_key.clone())
     }
 }
 

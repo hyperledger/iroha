@@ -53,10 +53,16 @@ pub struct SumeragiConfiguration {
 
 impl Default for SumeragiConfiguration {
     fn default() -> Self {
+        let key_pair = iroha_crypto::KeyPair::default();
+        let peer_id = PeerId {
+            address: "localhost".to_owned(),
+            public_key: key_pair.public_key().clone(),
+        };
+
         Self {
-            key_pair: KeyPair::default(),
+            key_pair,
             trusted_peers: TrustedPeers::default(),
-            peer_id: PeerId::default(),
+            peer_id,
             block_time_ms: DEFAULT_BLOCK_TIME_MS,
             commit_time_ms: DEFAULT_COMMIT_TIME_MS,
             tx_receipt_time_ms: DEFAULT_TX_RECEIPT_TIME_MS,

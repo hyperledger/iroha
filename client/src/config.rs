@@ -98,10 +98,12 @@ pub struct Configuration {
 
 impl Default for Configuration {
     fn default() -> Self {
+        let (public_key, private_key) = iroha_crypto::KeyPair::default().into();
+
         #[allow(clippy::expect_used)]
         Self {
-            public_key: PublicKey::default(),
-            private_key: PrivateKey::default(),
+            public_key,
+            private_key,
             account_id: AccountId::from_str("").expect("Empty strings are valid"),
             basic_auth: None,
             torii_api_url: small::SmallStr::from_str(uri::DEFAULT_API_URL),

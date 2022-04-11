@@ -158,7 +158,7 @@ impl KeyGenConfiguration {
 }
 
 /// Pair of Public and Private keys.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Getters, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Getters, Deserialize, Serialize)]
 #[getset(get = "pub")]
 pub struct KeyPair {
     /// Public Key.
@@ -167,12 +167,11 @@ pub struct KeyPair {
     private_key: PrivateKey,
 }
 
-impl From<(PublicKey, PrivateKey)> for KeyPair {
-    fn from((public_key, private_key): (PublicKey, PrivateKey)) -> Self {
-        Self {
-            public_key,
-            private_key,
-        }
+impl Default for KeyPair {
+    fn default() -> Self {
+        // TODO: Use one defined key pair here or remove the `KeyPair::generate`
+        // method in favor of the default implementation as defined here
+        Self::generate().expect("Valid")
     }
 }
 
@@ -314,13 +313,6 @@ impl FromStr for PublicKey {
     }
 }
 
-impl Default for PublicKey {
-    #[allow(clippy::unwrap_used)]
-    fn default() -> Self {
-        Multihash::default().try_into().unwrap()
-    }
-}
-
 impl fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PublicKey")
@@ -406,7 +398,7 @@ impl<'de> Deserialize<'de> for PublicKey {
 }
 
 /// Private Key used in signatures.
-#[derive(Clone, Default, PartialEq, Eq, Getters, Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Eq, Getters, Deserialize, Serialize)]
 #[getset(get = "pub")]
 pub struct PrivateKey {
     /// Digest function
