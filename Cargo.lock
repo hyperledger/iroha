@@ -1864,7 +1864,6 @@ name = "iroha_derive"
 version = "2.0.0-pre-rc.3"
 dependencies = [
  "iroha_macro",
- "iroha_macro_traits",
  "parity-scale-codec",
  "proc-macro2",
  "quote",
@@ -1927,15 +1926,8 @@ dependencies = [
 name = "iroha_macro"
 version = "2.0.0-pre-rc.3"
 dependencies = [
- "iroha_derive",
- "iroha_macro_traits",
-]
-
-[[package]]
-name = "iroha_macro_traits"
-version = "2.0.0-pre-rc.3"
-dependencies = [
  "eyre",
+ "iroha_derive",
  "once_cell",
  "parity-scale-codec",
 ]

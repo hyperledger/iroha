@@ -8,17 +8,15 @@ edition = "2021"
 proc-macro = true
 
 [features]
-dump_decoded = ["iroha_macro_traits"]
+dump_decoded = []
 
 [dependencies]
 syn = "1.0"
 quote = "1.0"
 proc-macro2 = "1.0"
-iroha_macro_traits = { version = "2.0.0-pre-rc.3", path = "../traits", features = ["dump_decoded"], optional = true}
 
 [dev-dependencies]
 iroha_macro = { version = "2.0.0-pre-rc.3", path = ".." }
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
-iroha_macro_traits = { version = "2.0.0-pre-rc.3", path = "../traits", features = ["dump_decoded"]}
 
 trybuild = "1.0.53"
