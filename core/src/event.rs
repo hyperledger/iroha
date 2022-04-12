@@ -111,4 +111,12 @@ impl Consumer {
         }
         Err(Error::CantReceiveMessage)
     }
+
+    /// Close stream. See [`WebSocket::close()`]
+    ///
+    /// # Errors
+    /// Throws up [`WebSocket::close()`] errors
+    pub async fn close_stream(self) -> Result<()> {
+        self.stream.close().await.map_err(Into::into)
+    }
 }
