@@ -7,6 +7,7 @@
 #define IROHA_MOCK_ON_DEMAND_OS_NOTIFICATION_HPP
 
 #include "ordering/on_demand_os_transport.hpp"
+#include "ordering/ordering_types.hpp"
 
 #include <gmock/gmock.h>
 
@@ -16,8 +17,14 @@ namespace iroha {
 
       struct MockOdOsNotification : public OdOsNotification {
         MOCK_METHOD1(onBatches, void(CollectionType));
-
-        MOCK_METHOD1(onRequestProposal, void(consensus::Round));
+        MOCK_METHOD1(onBatchesToWholeNetwork, void(CollectionType));
+        MOCK_METHOD2(
+            onRequestProposal,
+            void(consensus::Round,
+                 std::optional<std::pair<
+                     std::shared_ptr<shared_model::interface::Proposal const>,
+                     BloomFilter256>>));
+        MOCK_CONST_METHOD0(getRequestDelay, std::chrono::milliseconds());
       };
 
     }  // namespace transport

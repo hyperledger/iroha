@@ -9,6 +9,8 @@
 #include "backend/protobuf/transaction.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "interfaces/iroha_internal/transaction_batch_impl.hpp"
+#include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
 #include "main/subscription.hpp"
 #include "network/impl/client_factory.hpp"
@@ -29,8 +31,11 @@ namespace {
       std::weak_ptr<logger::Logger> wlog) {
     auto maybe_stub = wstub.lock();
     auto maybe_log = wlog.lock();
-    if (not(maybe_stub and maybe_log))
+    if (not(maybe_stub and maybe_log)) {
+      if (maybe_log)
+        maybe_log->info("No stub. Send batches skipped.");
       return true;
+    }
 
     grpc::ClientContext context;
     context.set_wait_for_ready(false);
@@ -59,7 +64,7 @@ namespace {
       return false;
     }
 
-    maybe_log->info("RPC succeeded: {}", context.peer());
+    maybe_log->info("RPC succeeded(SendBatches): {}", context.peer());
     return true;
   }
 }  // namespace
@@ -70,7 +75,6 @@ OnDemandOsClientGrpc::OnDemandOsClientGrpc(
     std::function<TimepointType()> time_provider,
     std::chrono::milliseconds proposal_request_timeout,
     logger::LoggerPtr log,
-    std::function<void(ProposalEvent)> callback,
     std::shared_ptr<ExecutorKeeper> os_execution_keepers,
     std::string peer_name)
     : log_(std::move(log)),
@@ -78,7 +82,6 @@ OnDemandOsClientGrpc::OnDemandOsClientGrpc(
       proposal_factory_(std::move(proposal_factory)),
       time_provider_(std::move(time_provider)),
       proposal_request_timeout_(proposal_request_timeout),
-      callback_(std::move(callback)),
       os_execution_keepers_(std::move(os_execution_keepers)),
       peer_name_(std::move(peer_name)) {
   assert(os_execution_keepers_);
@@ -87,6 +90,11 @@ OnDemandOsClientGrpc::OnDemandOsClientGrpc(
 OnDemandOsClientGrpc::~OnDemandOsClientGrpc() {
   if (auto sh_ctx = context_.lock())
     sh_ctx->TryCancel();
+}
+
+void OnDemandOsClientGrpc::onBatchesToWholeNetwork(CollectionType batches) {
+  // This code should not be called.
+  assert(false);
 }
 
 void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
@@ -102,6 +110,7 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
     }
 
     if (request->ByteSizeLong() >= 2ull * 1024 * 1024) {
+      log_->debug("execute for called");
       os_execution_keepers_->executeFor(
           peer_name_,
           [peer_name(peer_name_),
@@ -122,6 +131,7 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   }
 
   if (request) {
+    log_->debug("execute for called");
     os_execution_keepers_->executeFor(
         peer_name_,
         [peer_name(peer_name_),
@@ -140,7 +150,15 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   }
 }
 
-void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
+std::chrono::milliseconds OnDemandOsClientGrpc::getRequestDelay() const {
+  return proposal_request_timeout_;
+}
+
+void OnDemandOsClientGrpc::onRequestProposal(
+    consensus::Round round,
+    std::optional<
+        std::pair<std::shared_ptr<shared_model::interface::Proposal const>,
+                  BloomFilter256>> ref_proposal) {
   // Cancel an unfinished request
   if (auto maybe_context = context_.lock()) {
     maybe_context->TryCancel();
@@ -151,23 +169,30 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
   proto::ProposalRequest request;
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
+  if (ref_proposal.has_value())
+    request.set_bloom_filter(
+        std::string(ref_proposal.value().second.load().data(),
+                    ref_proposal.value().second.load().size()));
+
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
       [round,
+       ref_proposal{std::move(ref_proposal)},
        time_provider(time_provider_),
        proposal_request_timeout(proposal_request_timeout_),
        context(std::move(context)),
        request(std::move(request)),
        stub(utils::make_weak(stub_)),
        log(utils::make_weak(log_)),
-       proposal_factory(utils::make_weak(proposal_factory_)),
-       callback(callback_)] {
+       proposal_factory(utils::make_weak(proposal_factory_))] {
         auto maybe_stub = stub.lock();
         auto maybe_log = log.lock();
         auto maybe_proposal_factory = proposal_factory.lock();
         if (not(maybe_stub and maybe_log and maybe_proposal_factory)) {
           return;
         }
+
+        /// make request
         context->set_deadline(time_provider() + proposal_request_timeout);
         proto::ProposalResponse response;
         maybe_log->info("Requesting proposal");
@@ -176,23 +201,62 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
         if (not status.ok()) {
           maybe_log->warn(
               "RPC failed: {} {}", context->peer(), status.error_message());
-          callback({std::nullopt, round});
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kOnProposalResponse,
+              ProposalEvent{std::nullopt, round});
           return;
         } else {
-          maybe_log->info("RPC succeeded: {}", context->peer());
+          maybe_log->info("RPC succeeded(RequestingProposal): {}",
+                          context->peer());
         }
-        if (not response.has_proposal()) {
-          callback({std::nullopt, round});
+
+        if (!response.has_proposal_hash()) {
+          maybe_log->info("Remote node {} has no proposal.", context->peer());
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kOnProposalResponse,
+              ProposalEvent{std::nullopt, round});
           return;
         }
-        auto maybe_proposal =
-            maybe_proposal_factory->build(response.proposal());
-        if (expected::hasError(maybe_proposal)) {
-          maybe_log->info("{}", maybe_proposal.assumeError().error);
-          callback({std::nullopt, round});
+
+        /// parse request
+        std::shared_ptr<shared_model::interface::Proposal const>
+            remote_proposal;
+        if (auto proposal_result =
+                maybe_proposal_factory->build(response.proposal());
+            expected::hasError(proposal_result)) {
+          maybe_log->warn("{}", proposal_result.assumeError().error);
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kOnProposalResponse,
+              ProposalEvent{std::nullopt, round});
           return;
+        } else
+          remote_proposal = std::move(proposal_result).assumeValue();
+
+        /// merge if has local proposal or process directly if not
+        if (ref_proposal.has_value()) {
+          std::shared_ptr<shared_model::interface::Proposal const>
+              local_proposal;
+          local_proposal = ref_proposal.value().first;
+
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kRemoteProposalDiff,
+              RemoteProposalDownloadedEvent{
+                  local_proposal,
+                  remote_proposal,
+                  response.bloom_filter(),
+                  response.proposal_hash(),
+                  round,
+                  remote_proposal ? remote_proposal->createdTime() : 0ull});
+        } else if (!remote_proposal->transactions().empty())
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kOnProposalResponse,
+              ProposalEvent{std::move(remote_proposal), round});
+        else {
+          maybe_log->info("Transactions sequence in proposal is empty");
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kOnProposalResponse,
+              ProposalEvent{std::nullopt, round});
         }
-        callback({std::move(maybe_proposal).assumeValue(), round});
       });
 }
 
@@ -202,14 +266,12 @@ OnDemandOsClientGrpcFactory::OnDemandOsClientGrpcFactory(
     OnDemandOsClientGrpc::TimeoutType proposal_request_timeout,
     logger::LoggerPtr client_log,
     std::unique_ptr<ClientFactory> client_factory,
-    std::function<void(ProposalEvent)> callback,
     std::shared_ptr<ExecutorKeeper> os_execution_keepers)
     : proposal_factory_(std::move(proposal_factory)),
       time_provider_(time_provider),
       proposal_request_timeout_(proposal_request_timeout),
       client_log_(std::move(client_log)),
       client_factory_(std::move(client_factory)),
-      callback_(callback),
       os_execution_keepers_(std::move(os_execution_keepers)) {
   assert(os_execution_keepers_);
 }
@@ -225,8 +287,11 @@ OnDemandOsClientGrpcFactory::create(const shared_model::interface::Peer &to) {
                                                   time_provider_,
                                                   proposal_request_timeout_,
                                                   client_log_,
-                                                  callback_,
                                                   os_execution_keepers_,
                                                   to.pubkey());
   };
+}
+
+std::chrono::milliseconds OnDemandOsClientGrpcFactory::getRequestDelay() const {
+  return proposal_request_timeout_;
 }

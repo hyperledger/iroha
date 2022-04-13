@@ -14,6 +14,7 @@
 #include "module/irohad/ordering/ordering_mocks.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "ordering/ordering_types.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -22,6 +23,7 @@ using namespace iroha::ordering::transport;
 using ::testing::ByMove;
 using ::testing::Ref;
 using ::testing::Return;
+using ::testing::ReturnRefOfCopy;
 
 /**
  * Create unique_ptr with MockOdOsNotification, save to var, and return it
@@ -36,19 +38,29 @@ struct OnDemandConnectionManagerTest : public ::testing::Test {
   void SetUp() override {
     factory = std::make_shared<MockOdOsNotificationFactory>();
 
-    auto set = [this](auto &field, auto &ptr) {
-      field = std::make_shared<MockPeer>();
+    auto set = [this](size_t ix, auto &field, auto &ptr) {
+      auto peer = std::make_shared<MockPeer>();
+      EXPECT_CALL(*peer, pubkey())
+          .WillRepeatedly(ReturnRefOfCopy(
+              iroha::bytestringToHexstring(std::string(32, '0'))));
+      EXPECT_CALL(*peer, address())
+          .WillRepeatedly(testing::ReturnRefOfCopy(std::string{"address"}
+                                                   + std::to_string(ix)));
 
+      field = peer;
       EXPECT_CALL(*factory, create(Ref(*field)))
           .WillRepeatedly(CreateAndSave(&ptr));
     };
 
+    size_t ix = 0;
     for (auto &&pair : boost::combine(cpeers.peers, connections)) {
-      set(boost::get<0>(pair), boost::get<1>(pair));
+      set(ix++, boost::get<0>(pair), boost::get<1>(pair));
     }
 
+    std::vector<std::shared_ptr<shared_model::interface::Peer>> all_peers;
+    for (auto const &p : cpeers.peers) all_peers.push_back(p);
     manager = std::make_shared<OnDemandConnectionManager>(
-        factory, cpeers, getTestLogger("OsConnectionManager"));
+        factory, cpeers, all_peers, getTestLogger("OsConnectionManager"));
   }
 
   OnDemandConnectionManager::CurrentPeers cpeers;
@@ -96,9 +108,15 @@ TEST_F(OnDemandConnectionManagerTest, onBatches) {
  */
 TEST_F(OnDemandConnectionManagerTest, onRequestProposal) {
   consensus::Round round{};
+  auto proposal = std::make_shared<const MockProposal>();
+  auto p = std::make_optional(std::make_pair(
+      std::shared_ptr<const shared_model::interface::Proposal>{proposal},
+      ordering::BloomFilter256{}));
+
+  EXPECT_CALL(*proposal, toString()).Times(1);
   EXPECT_CALL(*connections[OnDemandConnectionManager::kIssuer],
-              onRequestProposal(round))
+              onRequestProposal(round, p))
       .Times(1);
 
-  manager->onRequestProposal(round);
+  manager->onRequestProposal(round, p);
 }

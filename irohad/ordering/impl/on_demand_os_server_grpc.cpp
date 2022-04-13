@@ -7,6 +7,7 @@
 
 #include "backend/protobuf/deserialize_repeated_transactions.hpp"
 #include "backend/protobuf/proposal.hpp"
+#include "backend/protobuf/transaction.hpp"
 #include "interfaces/iroha_internal/parse_and_create_batches.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
@@ -68,46 +69,45 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   consensus::Round round{request->round().block_round(),
                          request->round().reject_round()};
   log_->info("Received RequestProposal for {} from {}", round, context->peer());
-  if (not ordering_service_->hasProposal(round)
-      and not ordering_service_->hasEnoughBatchesInCache()) {
-    auto scheduler = std::make_shared<subscription::SchedulerBase>();
-    auto tid = getSubscription()->dispatcher()->bind(scheduler);
+  auto maybe_proposal = ordering_service_->waitForLocalProposal(round, delay_);
+  if (maybe_proposal.has_value()) {
+    auto const &[sptr_proposal, bf_local] = maybe_proposal.value();
+    response->set_bloom_filter(bf_local.load().data(), bf_local.load().size());
+    response->set_proposal_hash(sptr_proposal->hash().blob().data(),
+                                sptr_proposal->hash().blob().size());
 
-    auto batches_subscription = SubscriberCreator<
-        bool,
-        std::shared_ptr<shared_model::interface::TransactionBatch>>::
-        template create<EventTypes::kOnTxsEnoughForProposal>(
-            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
-            [scheduler(utils::make_weak(scheduler))](auto, auto) {
-              if (auto maybe_scheduler = scheduler.lock())
-                maybe_scheduler->dispose();
-            });
-    auto proposals_subscription =
-        SubscriberCreator<bool, consensus::Round>::template create<
-            EventTypes::kOnPackProposal>(
-            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
-            [round, scheduler(utils::make_weak(scheduler))](auto,
-                                                            auto packed_round) {
-              if (auto maybe_scheduler = scheduler.lock();
-                  maybe_scheduler and round == packed_round)
-                maybe_scheduler->dispose();
-            });
-    scheduler->addDelayed(delay_, [scheduler(utils::make_weak(scheduler))] {
-      if (auto maybe_scheduler = scheduler.lock()) {
-        maybe_scheduler->dispose();
-      }
-    });
+    log_->debug(
+        "OS proposal: {}\nproposal: {}", sptr_proposal->hash(), *sptr_proposal);
 
-    scheduler->process();
-
-    getSubscription()->dispatcher()->unbind(*tid);
-  }
-
-  if (auto maybe_proposal = ordering_service_->onRequestProposal(round)) {
-    *response->mutable_proposal() =
-        static_cast<const shared_model::proto::Proposal *>(
-            maybe_proposal->get())
+    auto const &proto_proposal =
+        static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
             ->getTransport();
+    if (!request->has_bloom_filter()
+        || request->bloom_filter().size() != BloomFilter256::kBytesCount) {
+      log_->info("Response with full {} txs proposal.",
+                 sptr_proposal->transactions().size());
+      *response->mutable_proposal() = proto_proposal;
+    } else {
+      response->mutable_proposal()->set_created_time(
+          proto_proposal.created_time());
+      response->mutable_proposal()->set_height(proto_proposal.height());
+
+      BloomFilter256 bf_remote;
+      bf_remote.store(std::string_view(request->bloom_filter()));
+
+      assert((size_t)proto_proposal.transactions().size()
+             == sptr_proposal->transactions().size());
+      for (size_t ix = 0; ix < sptr_proposal->transactions().size(); ++ix) {
+        assert(sptr_proposal->transactions()[ix].getBatchHash());
+        if (!bf_remote.test(sptr_proposal->transactions()[(int)ix]
+                                .getBatchHash()
+                                .value())) {
+          auto *tx_dst =
+              response->mutable_proposal()->mutable_transactions()->Add();
+          *tx_dst = proto_proposal.transactions()[(int)ix];
+        }
+      }
+    }
   }
   return ::grpc::Status::OK;
 }

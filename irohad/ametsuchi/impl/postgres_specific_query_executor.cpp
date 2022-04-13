@@ -1498,7 +1498,7 @@ namespace iroha {
             for (const auto &row : range) {
               iroha::ametsuchi::apply(
                   row,
-                  [this, &peers](
+                  [&peers](
                       auto &peer_key, auto &address, auto &tls_certificate) {
                     if (peer_key and address) {
                       peers.push_back(

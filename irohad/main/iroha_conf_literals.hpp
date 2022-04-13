@@ -35,7 +35,6 @@ namespace config_members {
   extern const char *DbPath;
   extern const char *DbType;
   extern const char *MaxProposalSize;
-  extern const char *ProposalDelay;
   extern const char *ProposalCreationTimeout;
   extern const char *HealthcheckPort;
   extern const char *VoteDelay;
