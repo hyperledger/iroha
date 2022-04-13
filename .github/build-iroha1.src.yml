@@ -49,6 +49,9 @@ on:
     tags: '**'
   pull_request:
     branches: [ main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build ]  ## target branches
+    paths-ignore:
+      - '**.md'
+      - '**.rst'
   workflow_dispatch:
     ## NOTE: Able to run via cmdline: gh workflow run Iroha1
     inputs:

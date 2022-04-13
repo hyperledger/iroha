@@ -193,6 +193,7 @@ jobs:
       matrix_dockerimage_debug:   ${{steps.matrixes.outputs.matrix_dockerimage_debug}}
 
   Docker-iroha-builder:
+    environment: test-env
     needs: check_if_pull_request_comes_from_fork
     runs-on: ubuntu-20.04 #ubuntu-latest #[ self-hosted, Linux ]
     steps:
@@ -622,6 +623,7 @@ jobs:
   ## Just to align picture
   prepare-macos-env:
     needs: check_if_pull_request_comes_from_fork
+    environment: test-env
     runs-on: macos-latest
     steps:
       - *step_show_context
@@ -690,6 +692,7 @@ jobs:
   ## Just to align picture
   prepare-windows-env:
     needs: check_if_pull_request_comes_from_fork
+    environment: test-env
     runs-on: windows-latest
     steps:
       - *step_show_context
