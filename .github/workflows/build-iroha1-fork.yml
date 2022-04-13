@@ -14,18 +14,18 @@ permissions:
   repository-projects: read
   security-events: read
   statuses: read
-## This workflow is created for pull requests from forks only and has less permissions than build-iroha1 workflow
+## This workflow is created for pull requests from forks and has less permissions than build-iroha1 workflow
 on:
   pull_request_target:
-    branches: [main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build]
+    branches: [main, support/1.*, edge, develop]
     paths-ignore:
       - '**.md'
       - '**.rst'
 env:
   DOCKERHUB_ORG: hyperledger
 jobs:
-  ## This step allows to skip the workflow completely for pull_requests from the same repo
-  ## Also it checks that that .github folder and Dockerfiles are not changed
+  ## This job checks if PRs is from fork
+  ## Also checks that .github folder, Dockerfiles and scripts in docker directory are not changed
   check_if_pull_request_comes_from_fork:
     runs-on: ubuntu-20.04 #ubuntu-latest
     name: Pull requests from forks should use this workflow
@@ -64,11 +64,18 @@ jobs:
         run: |
           echo "Pull requests from forks are not allowed to change .github folder"
           false
-      - name: verify Dockerfiles are not changed
+      - name: verify Dockerfiles and scripts in docker directory are not changed
         if: steps.filter.outputs.dockerfile == 'true'
         run: |
           echo "Pull requests from forks are not allowed to change Dockerfiles"
           false
+  ## This job is to generate build matrixes for build jobs
+  ## The matrixes depend on what is requeted to be build
+  ## At the moment there are several options:
+  ## - default on pushes, pull requests
+  ## - on comment to pull request according to comment message (chat-ops)
+  ## - on workflow_dispatch according to its build_spec
+  ## - on schedule '/build all'
   generate_matrixes:
     environment: test-env
     runs-on: ubuntu-20.04
@@ -131,8 +138,7 @@ jobs:
                                   true
                                 else
                                   #echo  >/tmp/comment_body "/build debug; /build ubuntu release debug normal"
-                                  echo  >/tmp/comment_body "/build all skip_testing"
-                                  #echo  >/tmp/comment_body "/build ubuntu debug clang-10 normal"
+                                  echo  >/tmp/comment_body "/build all"
                                 fi ;;
           esac
       - name: Generate matrixes
@@ -174,6 +180,9 @@ jobs:
       matrix_windows: ${{steps.matrixes.outputs.matrix_windows}}
       matrix_dockerimage_release: ${{steps.matrixes.outputs.matrix_dockerimage_release}}
       matrix_dockerimage_debug: ${{steps.matrixes.outputs.matrix_dockerimage_debug}}
+  ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
+  ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
+  ## and conditional tags :edge for development branch, and :latest for git-tags.
   Docker-iroha-builder:
     environment: test-env
     needs: check_if_pull_request_comes_from_fork
@@ -1313,7 +1322,6 @@ jobs:
   ## Those docker image tags could be extended with suffixes with compiler and build type like
   ## -gcc10, -clang, -debug, -gcc10-debug. Like :latest-debug, :main-debug, :1.3.0-gcc10-debug.
   ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha:nightly.
-  ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   docker-R:
     needs:
       - build-UR

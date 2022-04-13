@@ -45,10 +45,10 @@ name: Iroha1
 ## TODO make these different workflows - reduce number of conditionals inside jobs like 'step_detect_commented_pr'
 on:
   push:
-    branches: [ main, support/1.*, edge, develop, test-ci, gha, gha/*, gha-*, \*-with-gha ]
+    branches: [ main, support/1.*, edge, develop]
     tags: '**'
   pull_request:
-    branches: [ main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build ]  ## target branches
+    branches: [ main, support/1.*, edge, develop]  ## target branches
     paths-ignore:
       - '**.md'
       - '**.rst'
@@ -95,7 +95,7 @@ jobs:
     name: Pull requests from forks should use other workflow
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}
     steps:
-      - 
+      - &step_show_context
         name: Show context
         run: |
           echo "::group::GitHub context"
@@ -135,7 +135,7 @@ jobs:
         uses: actions/checkout@v2
         with: &step_checkout_with
           ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository
       -
         run: sudo snap install yq
       -
@@ -152,19 +152,7 @@ jobs:
           github.event.issue.pull_request &&
           startsWith(github.event.comment.body, '/build') }}
     steps:
-      - &step_show_context
-        name: Show context
-        run: |
-          echo "::group::GitHub context"
-          cat <<'END'
-          ${{ toJson(github) }}
-          END
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          cat <<'END'
-          ${{ toJson(needs) }}
-          END
-          echo "::endgroup::"
+      - *step_show_context
       -
         name: Reaction
         run: |
@@ -282,7 +270,6 @@ jobs:
   ## Build docker image named 'hyperledger/iroha-builder' with all stuff to compile iroha and its dependancies
   ## The result docker image is pushed with tags :pr-NUMBER, :commit-HASH, :branch-name, :tag-name,
   ## and conditional tags :edge for development branch, and :latest for git-tags.
-  ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks.
   Docker-iroha-builder:
     needs: check_workflow_yaml_coressponds_to_src_yaml
     runs-on: ubuntu-20.04 #ubuntu-latest #[ self-hosted, Linux ]
@@ -414,34 +401,6 @@ jobs:
         run: |
           echo "::set-output name=container::$DOCKERHUB_ORG/iroha-builder:$dockertag"
           docker pull "$DOCKERHUB_ORG/iroha-builder:$dockertag"
-      -
-        name: Possible ERROR, Dockerfile edited, image was build, but seems not pushed, CANNOT PULL.
-        if: failure()
-        #if: ${{ steps.docker_login.outcome != 'success' || steps.build_and_push.outcome != 'success' }}
-        env:
-          container: ${{steps.dockertag_already.outputs.container}}
-          dockertag: ${{env.dockertag}}
-        run: |
-          cat <<END
-            ::error::CHANGES TO Dockerfile.builder WERE NOT APPLYED.
-
-            It seems container with tag '$dockertag' was not pushed to registry and does not exist remotely.
-            The most possible reason is GitHub secrets are inaccessable to PRs from public forks.
-
-            $(test ${{github.event.pull_request.head.repo.full_name}} != ${{github.event.pull_request.base.repo.full_name}} \
-              && echo -n "SECRETS ARE NOT EXPOSED TO FORKS" || echo -n "SECRETS AVAILABLE")
-
-            **Consider to open PR from the same organization.**
-
-            What we know about this build:
-              - PR URL is ${{github.event.pull_request.html_url}}
-              - head repo is '${{github.event.pull_request.head.repo.full_name}}'
-              - base repo is '${{github.event.pull_request.base.repo.full_name}}'
-              - See more information in previous step 'Show context'
-
-            Please ask @kuvaldini on GitHub or in Telegram if you need help.
-          END
-          false
     outputs:
       ## WARN secret dropped from output!, output may not contain secret,
       ## and secret cannot be used in job:container directly, and there is no github non-secret variables...
@@ -869,7 +828,6 @@ jobs:
   ## Those docker image tags could be extended with suffixes with compiler and build type like
   ## -gcc10, -clang, -debug, -gcc10-debug. Like :latest-debug, :main-debug, :1.3.0-gcc10-debug.
   ## Result image name could look like: hyperledger/iroha:pr-1117, hyperledger/iroha:nightly.
-  ## Note: image is push only when DockerHub login-token pair available - not to PRs from forks
   docker-R: &job_docker_image_release
     needs:
       - build-UR
