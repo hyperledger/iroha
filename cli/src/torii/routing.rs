@@ -233,18 +233,19 @@ mod subscription {
     /// There should be a [`warp::filters::ws::Message::close()`] message to end subscription
     #[iroha_futures::telemetry_future]
     pub async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
-        match subscribe_forever(events, stream).await {
-            Ok(()) | Err(Error::CloseMessage) => Ok(()),
+        let mut consumer = Consumer::new(stream).await?;
+
+        match subscribe_forever(events, &mut consumer).await {
+            Ok(()) | Err(Error::CloseMessage) => consumer.close_stream().await.map_err(Into::into),
             Err(err) => Err(err.into()),
         }
     }
 
-    /// Make endless `stream` subscription for `events`
+    /// Make endless `consumer` subscription for `events`
     ///
     /// Ideally should return `Result<!>` cause it either runs forever either returns `Err` variant
-    async fn subscribe_forever(events: EventsSender, stream: WebSocket) -> Result<()> {
+    async fn subscribe_forever(events: EventsSender, consumer: &mut Consumer) -> Result<()> {
         let mut events = events.subscribe();
-        let mut consumer = Consumer::new(stream).await?;
 
         loop {
             tokio::select! {

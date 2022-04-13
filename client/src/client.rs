@@ -612,6 +612,23 @@ impl Iterator for EventIterator {
     }
 }
 
+impl Drop for EventIterator {
+    fn drop(&mut self) {
+        let mut close = || -> eyre::Result<()> {
+            self.stream.close(None)?;
+            let mes = self.stream.read_message()?;
+            if !mes.is_close() {
+                return Err(eyre!(
+                    "Server hasn't sent `Close` message for websocket handshake"
+                ));
+            }
+            Ok(())
+        };
+
+        let _ = close().map_err(|e| warn!(%e));
+    }
+}
+
 impl Debug for Client {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
