@@ -2545,8 +2545,12 @@ dependencies = [
  "clap 3.1.8",
  "colored",
  "eyre",
+ "iroha_core",
+ "iroha_crypto",
  "iroha_data_model",
  "iroha_schema",
+ "iroha_schema_bin",
+ "iroha_version",
  "parity-scale-codec",
 ]
 

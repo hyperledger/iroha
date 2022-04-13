@@ -7,11 +7,10 @@ use std::{collections::BTreeMap, fmt::Debug, fs, io, path::PathBuf};
 use clap::Parser;
 use colored::*;
 use eyre::{eyre, Result};
-use iroha_data_model::prelude::*;
-use iroha_schema::IntoSchema;
 use parity_scale_codec::Decode;
 
 mod generate_map;
+use generate_map::generate_map;
 
 /// Parity Scale decoder tool for Iroha data types
 #[derive(Debug, Parser)]
@@ -63,7 +62,7 @@ impl<T: Debug + Decode> DumpDecoded for T {}
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let map = generate_map::generate_map();
+    let map = generate_map();
     let stdout = io::stdout();
     let mut writer = io::BufWriter::new(stdout.lock());
 
@@ -130,8 +129,8 @@ impl<'map> Decoder<'map> {
             .count();
         match count {
             0 => writeln!(writer, "No compatible types found"),
-            1 => writeln!(writer, "1 compatible type found"),
-            n => writeln!(writer, "{n} compatible types found"),
+            1 => writeln!(writer, "{} compatible type found", "1".bold()),
+            n => writeln!(writer, "{} compatible types found", n.to_string().bold()),
         }
         .map_err(Into::into)
     }
@@ -148,8 +147,8 @@ fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> 
 
     match map.len() {
         0 => writeln!(writer, "No type is supported"),
-        1 => writeln!(writer, "1 type is supported"),
-        n => writeln!(writer, "{n} types are supported"),
+        1 => writeln!(writer, "{} type is supported", "1".bold()),
+        n => writeln!(writer, "{} types are supported", n.to_string().bold()),
     }
     .map_err(Into::into)
 }
