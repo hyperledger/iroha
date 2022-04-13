@@ -290,6 +290,7 @@ pub fn generate_map() -> DumpDecodedMap {
         Where,
         [u8; 32],
         account::NewAccount,
+        asset::Mintable,
         block::BlockHeader,
         block::CommittedBlock,
         block::ValidBlock,
@@ -376,6 +377,10 @@ mod tests {
             .collect::<HashSet<_>>();
         let map_types = generate_map().into_keys().collect::<HashSet<_>>();
 
-        assert!(schemas_types.is_subset(&map_types));
+        assert!(
+            schemas_types.is_subset(&map_types),
+            "Difference: {:#?}",
+            schemas_types.difference(&map_types)
+        );
     }
 }
