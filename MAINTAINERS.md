@@ -1,5 +1,3 @@
-Some random stuff
-
 ## Maintainers
 
 Maintainers of Hyperledger Iroha project
