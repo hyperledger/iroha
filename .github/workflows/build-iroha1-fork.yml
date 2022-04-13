@@ -16,11 +16,11 @@ permissions:
   statuses: read
 ## This workflow is created for pull requests from forks only and has less permissions than build-iroha1 workflow
 on:
-  #pull_request_target:
-  #  branches: [ main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build ] ## target branches
-  issue_comment:
-    types: [created]
+  pull_request_target:
     branches: [main, support/1.*, edge, develop, feature/DOPS-1651/enable-fork-build]
+    paths-ignore:
+      - '**.md'
+      - '**.rst'
 env:
   DOCKERHUB_ORG: hyperledger
 jobs:
@@ -28,8 +28,8 @@ jobs:
   ## Also it checks that that .github folder and Dockerfiles are not changed
   check_if_pull_request_comes_from_fork:
     runs-on: ubuntu-20.04 #ubuntu-latest
-    name: Pull requests from forks should use other workflow
-    if: ${{ github.event.issue.comment.body == "Launch build" }}
+    name: Pull requests from forks should use this workflow
+    if: github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
       - name: Show context
         run: |
@@ -43,10 +43,6 @@ jobs:
           ${{ toJson(needs) }}
           END
           echo "::endgroup::"
-      - name: Allow build
-        if:
-        run: |
-          "Lunching build"
       - name: Checkout head
         uses: actions/checkout@v2
         with:
@@ -74,9 +70,9 @@ jobs:
           echo "Pull requests from forks are not allowed to change Dockerfiles"
           false
   generate_matrixes:
-    runs-on: ubuntu-20.04 #ubuntu-latest
+    environment: test-env
+    runs-on: ubuntu-20.04
     needs: check_if_pull_request_comes_from_fork
-    #container: ubuntu:latest
     if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
     steps:
       - name: Show context
