@@ -9,7 +9,6 @@ fi
 if [ "$1" = 'irohad' ]; then
   echo key=$KEY
   echo $PWD
-  echo "Malicious code"
   if [ -n "$IROHA_POSTGRES_HOST" ]; then
     echo "NOTE: IROHA_POSTGRES_HOST should match 'host' option in config file"
     PG_PORT=${IROHA_POSTGRES_PORT:-5432}
