@@ -118,7 +118,7 @@ impl<'map> Decoder<'map> {
             .map
             .iter()
             .filter_map(|(type_name, dump_decoded)| {
-                let mut buf = vec![0_u8; 1024];
+                let mut buf = Vec::new();
                 dump_decoded(bytes, &mut buf)
                     .ok()
                     .and_then(|_| String::from_utf8(buf).ok())
@@ -151,4 +151,180 @@ fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> 
         n => writeln!(writer, "{} types are supported", n.to_string().bold()),
     }
     .map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_account_sample() {
+        decode_sample(
+            "account.bin",
+            String::from("iroha_data_model::account::Account"),
+            r###"Account {
+    id: Id {
+        name: "alice",
+        domain_id: Id {
+            name: "wonderland",
+        },
+    },
+    assets: {},
+    signatories: {},
+    permission_tokens: {},
+    signature_check_condition: SignatureCheckCondition(
+        EvaluatesTo {
+            expression: ContainsAny(
+                ContainsAny {
+                    collection: EvaluatesTo {
+                        expression: ContextValue(
+                            ContextValue {
+                                value_name: "transaction_signatories",
+                            },
+                        ),
+                        _value_type: PhantomData,
+                    },
+                    elements: EvaluatesTo {
+                        expression: ContextValue(
+                            ContextValue {
+                                value_name: "account_signatories",
+                            },
+                        ),
+                        _value_type: PhantomData,
+                    },
+                },
+            ),
+            _value_type: PhantomData,
+        },
+    ),
+    metadata: Metadata {
+        map: {
+            "hat": Name(
+                "white",
+            ),
+        },
+    },
+    roles: {},
+}
+"###,
+        );
+    }
+
+    #[test]
+    fn decode_domain_sample() {
+        decode_sample(
+            "domain.bin",
+            String::from("iroha_data_model::domain::Domain"),
+            r###"Domain {
+    id: Id {
+        name: "wonderland",
+    },
+    accounts: {},
+    asset_definitions: {},
+    logo: Some(
+        IpfsPath(
+            "/ipfs/Qme7ss3ARVgxv6rXqVPiikMJ8u2NLgmgszg13pYrDKEoiu",
+        ),
+    ),
+    metadata: Metadata {
+        map: {
+            "Is_Jabberwocky_alive": Bool(
+                true,
+            ),
+        },
+    },
+}
+"###,
+        );
+    }
+
+    #[test]
+    fn decode_trigger_sample() {
+        decode_sample(
+            "trigger.bin",
+            String::from("iroha_data_model::trigger::Trigger"),
+            r###"Trigger {
+    id: Id {
+        name: "mint_rose",
+    },
+    action: Action {
+        executable: Instructions(
+            [
+                Mint(
+                    MintBox {
+                        object: EvaluatesTo {
+                            expression: Raw(
+                                U32(
+                                    1,
+                                ),
+                            ),
+                            _value_type: PhantomData,
+                        },
+                        destination_id: EvaluatesTo {
+                            expression: Raw(
+                                Id(
+                                    AssetId(
+                                        Id {
+                                            definition_id: DefinitionId {
+                                                name: "rose",
+                                                domain_id: Id {
+                                                    name: "wonderland",
+                                                },
+                                            },
+                                            account_id: Id {
+                                                name: "alice",
+                                                domain_id: Id {
+                                                    name: "wonderland",
+                                                },
+                                            },
+                                        },
+                                    ),
+                                ),
+                            ),
+                            _value_type: PhantomData,
+                        },
+                    },
+                ),
+            ],
+        ),
+        repeats: Indefinitely,
+        technical_account: Id {
+            name: "alice",
+            domain_id: Id {
+                name: "wonderland",
+            },
+        },
+        filter: Data(
+            BySome(
+                ByAccount(
+                    AcceptAll,
+                ),
+            ),
+        ),
+    },
+    metadata: Metadata {
+        map: {},
+    },
+}
+"###,
+        );
+    }
+
+    #[allow(clippy::unwrap_used)]
+    fn decode_sample(sample_path: &str, type_id: String, expected_output: &str) {
+        let mut binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        binary.push("samples/");
+        binary.push(sample_path);
+        let args = DecodeArgs {
+            binary,
+            type_id: Some(type_id),
+        };
+
+        let map = generate_map();
+        let decoder = Decoder::new(args, &map);
+        let mut buf = Vec::new();
+        decoder.decode(&mut buf).unwrap();
+
+        assert_eq!(String::from_utf8(buf).unwrap(), expected_output);
+    }
 }
