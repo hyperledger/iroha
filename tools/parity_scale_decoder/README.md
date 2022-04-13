@@ -12,6 +12,12 @@ Building:
 cargo build --bin parity_scale_decoder
 ```
 
+If your terminal does not support colors:
+
+```bash
+cargo build --features no-color --bin parity_scale_decoder
+```
+
 From the main project directory:
 
 * List all supported types:
