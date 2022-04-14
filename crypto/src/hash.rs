@@ -42,11 +42,11 @@ impl Hash {
         Self(bytes)
     }
 
-    /// Hash given bytes.
+    /// Hash the given bytes.
     #[cfg(feature = "std")]
     #[allow(clippy::expect_used)]
     #[must_use]
-    pub(crate) fn new(bytes: impl AsRef<[u8]>) -> Self {
+    pub fn new(bytes: impl AsRef<[u8]>) -> Self {
         let vec_hash = VarBlake2b::new(Self::LENGTH)
             .expect("Failed to initialize variable size hash")
             .chain(bytes)

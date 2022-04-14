@@ -57,16 +57,20 @@ pub struct NoSuchAlgorithm;
 impl std::error::Error for NoSuchAlgorithm {}
 
 /// Algorithm for hashing
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
 pub enum Algorithm {
     /// Ed25519
+    #[display(fmt = "{}", "ED_25519")]
     Ed25519,
     /// Secp256k1
+    #[display(fmt = "{}", "SECP_256_K1")]
     Secp256k1,
-    /// BlsSmall
-    BlsSmall,
     /// BlsNormal
+    #[display(fmt = "{}", "BLS_NORMAL")]
     BlsNormal,
+    /// BlsSmall
+    #[display(fmt = "{}", "BLS_SMALL")]
+    BlsSmall,
 }
 
 impl Default for Algorithm {
@@ -85,17 +89,6 @@ impl FromStr for Algorithm {
             BLS_NORMAL => Ok(Algorithm::BlsNormal),
             BLS_SMALL => Ok(Algorithm::BlsSmall),
             _ => Err(Self::Err {}),
-        }
-    }
-}
-
-impl fmt::Display for Algorithm {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Algorithm::Ed25519 => write!(f, "{}", ED_25519),
-            Algorithm::Secp256k1 => write!(f, "{}", SECP_256_K1),
-            Algorithm::BlsSmall => write!(f, "{}", BLS_SMALL),
-            Algorithm::BlsNormal => write!(f, "{}", BLS_NORMAL),
         }
     }
 }

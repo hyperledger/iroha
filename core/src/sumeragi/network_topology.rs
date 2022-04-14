@@ -29,8 +29,8 @@ fn sort_peers_by_hash_and_counter(
     peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
     let mut bytes: Vec<u8> = counter.to_le_bytes().to_vec();
     bytes.extend(hash.as_ref());
-    let bytes: Hash = HashOf::new(&bytes).into();
-    let mut rng = StdRng::from_seed(bytes.into());
+    let bytes = Hash::new(&bytes).into();
+    let mut rng = StdRng::from_seed(bytes);
     peers.shuffle(&mut rng);
     peers
 }

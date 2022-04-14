@@ -1,24 +1,36 @@
 //! Merkle tree implementation.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 
-use iroha_schema::IntoSchema;
+use iroha_schema::prelude::*;
 
 use crate::HashOf;
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate and prove data at
 /// each block height.
 /// Our implementation uses binary hash tree.
-#[derive(Debug, IntoSchema)]
+#[derive(Debug)]
 pub struct MerkleTree<T> {
     root_node: Node<T>,
 }
 
+impl<T: IntoSchema> IntoSchema for MerkleTree<T> {
+    fn schema(map: &mut MetaMap) {
+        map.entry(Self::type_name()).or_insert_with(|| {
+            // BFS ordered list of leaf nodes
+            Metadata::Vec(HashOf::<T>::type_name())
+        });
+        if !map.contains_key(&HashOf::<T>::type_name()) {
+            HashOf::<T>::schema(map);
+        }
+    }
+}
+
 /// Represents subtree rooted by the current node
-#[derive(Debug, IntoSchema)]
+#[derive(Debug)]
 pub struct Subtree<T> {
     /// Left subtree
     left: Box<Node<T>>,
@@ -29,14 +41,14 @@ pub struct Subtree<T> {
 }
 
 /// Represents leaf node
-#[derive(Debug, IntoSchema)]
+#[derive(Debug)]
 pub struct Leaf<T> {
     /// Hash of the node
     hash: HashOf<T>,
 }
 
 /// Binary Tree's node with possible variants: Subtree, Leaf (with data or links to data) and Empty.
-#[derive(Debug, IntoSchema)]
+#[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub enum Node<T> {
     /// Node is root of a subtree

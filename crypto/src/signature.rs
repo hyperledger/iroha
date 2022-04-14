@@ -90,6 +90,8 @@ impl Signature {
     /// Adds type information to the signature. Be careful about using this function
     /// since it is not possible to validate the correctness of the conversion.
     /// Prefer creating new signatures with [`SignatureOf::new`] whenever possible
+    #[inline]
+    #[allow(dead_code)]
     fn typed<T>(self) -> SignatureOf<T> {
         SignatureOf(self, PhantomData)
     }

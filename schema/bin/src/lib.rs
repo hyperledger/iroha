@@ -134,8 +134,15 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::use_debug)]
+    #[allow(clippy::print_stdout)]
     fn no_missing_schemas() {
-        assert!(find_missing_schemas(&build_schemas()).is_empty());
+        let schemas = build_schemas();
+
+        let missing_schemas = find_missing_schemas(&schemas);
+        println!("Missing schemas: \n{:#?}", missing_schemas);
+
+        assert!(missing_schemas.is_empty());
     }
 
     #[test]

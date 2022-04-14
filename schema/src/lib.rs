@@ -56,9 +56,9 @@ pub trait DecimalPlacesAware {
 pub enum Metadata {
     /// Structure with named fields
     Struct(NamedFieldsMeta),
-    /// Unnamed structure
+    /// Structure with unnamed fields
     TupleStruct(UnnamedFieldsMeta),
-    /// Enum
+    /// Enumeration
     Enum(EnumMeta),
     /// Integer
     Int(IntMode),
@@ -72,10 +72,10 @@ pub enum Metadata {
     Array(ArrayMeta),
     /// Vector with type
     Vec(String),
-    /// Option with type
-    Option(String),
     /// Map
     Map(MapMeta),
+    /// Option with type
+    Option(String),
     /// Result
     Result(ResultMeta),
 }
@@ -106,12 +106,12 @@ pub struct Declaration {
     pub ty: String,
 }
 
-/// Unnamed fileds
+/// Unnamed fields
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct UnnamedFieldsMeta {
     /// Field types
     pub types: Vec<String>,
-    //todo add collection of properties meta defined in struct
+    // TODO: add collection of properties meta defined in struct
 }
 
 /// Enum metadata
@@ -141,7 +141,6 @@ pub struct ResultMeta {
     /// Err type
     pub err: String,
 }
-
 /// Map variant
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct MapMeta {
@@ -186,7 +185,7 @@ macro_rules! impl_schema_int {
 
         impl IntoSchema for Compact<$t> {
             fn type_name() -> String {
-                format!("iroha_schema::Compact<{}>", <$t as IntoSchema>::type_name())
+                format!("Compact<{}>", <$t as IntoSchema>::type_name())
             }
             fn schema(map: &mut MetaMap) {
                 let _ = map.entry(Self::type_name()).or_insert(Metadata::Int(IntMode::Compact));
