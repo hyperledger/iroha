@@ -28,7 +28,7 @@ impl<T> TypeName for T {
 /// Neotype which has `type_name()` method when `T` implements [`IntoSchema`]
 struct WithTypeName<T>(std::marker::PhantomData<T>);
 
-impl<T: IntoSchema> WithTypeName<T> {
+impl<T: IntoSchema + Decode> WithTypeName<T> {
     /// Get type name using [`IntoSchema::type_name()`]
     ///
     /// Because this is implemented directly on `WithTypeName`, it has priority over
