@@ -1,4 +1,5 @@
-//! Cli for generating documentation for iroha configuraion
+//! CLI for generating iroha sample configuration and genesis, as well
+//! as their documentation.
 
 #![allow(clippy::restriction)]
 
@@ -10,12 +11,52 @@ use std::{
 use color_eyre::eyre::WrapErr;
 use iroha::config::Configuration;
 use iroha_config::Configurable;
+use iroha_core::{
+    genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
+    tx::{AssetDefinition, MintBox},
+};
 use serde_json::{Map, Value};
+
+// TODO: if we merge #2077 first, we should change this to sync up with the default in docs.
+static DEFAULT_PUBLIC_KEY: &str =
+    "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0";
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install().unwrap();
-    Configuration::get_markdown(&mut BufWriter::new(stdout()))
-        .wrap_err("Failed to generate documentation")
+    if std::env::args().any(|a| is_genesis(&a)) {
+        writeln!(
+            BufWriter::new(stdout()),
+            "{}",
+            serde_json::to_string_pretty(&generate_default_genesis()?)?
+        )?;
+        Ok(())
+    } else {
+        Configuration::get_markdown(&mut BufWriter::new(stdout()))
+            .wrap_err("Failed to generate documentation")
+    }
+}
+
+fn is_genesis(arg: &str) -> bool {
+    ["--genesis", "-g"].contains(&arg)
+}
+
+fn generate_default_genesis() -> color_eyre::Result<RawGenesisBlock> {
+    let asset_definition = AssetDefinition::quantity("rose#wonderland".parse()?).build();
+    let mut result = RawGenesisBlockBuilder::new()
+        .domain("wonderland".parse()?)
+        .with_account("alice".parse()?, DEFAULT_PUBLIC_KEY.parse()?)
+        .with_asset(asset_definition.clone())
+        .finish_domain()
+        .build();
+    let mint = MintBox::new(
+        iroha_data_model::prelude::Value::U32(13_u32),
+        iroha_data_model::IdBox::AssetId(iroha_data_model::prelude::AssetId::new(
+            asset_definition.id().clone(), // Probably redundant clone
+            "alice@wonderland".parse()?,
+        )),
+    );
+    result.transactions[0].isi.push(mint.into());
+    Ok(result)
 }
 
 impl<E: Debug, C: Configurable<Error = E> + Send + Sync + Default> PrintDocs for C {}
