@@ -1,4 +1,9 @@
-//! This module contains [`Domain`](`crate::domain::Domain`) structure and related implementations and trait implementations.
+//! This module contains [`Domain`](`crate::domain::Domain`) structure
+//! and related implementations and trait implementations.
+//!
+//! Note that the Genesis domain and account have a temporary
+//! privileged position, and permission validation is turned off for
+//! the Genesis block.
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
@@ -18,7 +23,9 @@ use crate::{
     Identifiable, Name, ParseError,
 };
 
-/// Genesis domain name. Genesis domain should contain only genesis account.
+/// The domain name of the genesis domain.
+///
+/// The genesis domain should only contain the genesis account.
 pub const GENESIS_DOMAIN_NAME: &str = "genesis";
 
 /// Genesis domain. It will contain only one `genesis` account.
@@ -62,8 +69,11 @@ impl From<GenesisDomain> for Domain {
 /// Builder which can be submitted in a transaction to create a new [`Domain`]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct NewDomain {
+    /// The identification associated to the domain builder.
     id: <Domain as Identifiable>::Id,
+    /// The (IPFS) link to the logo of this domain.
     logo: Option<IpfsPath>,
+    /// metadata associated to the domain builder.
     pub metadata: Metadata,
 }
 
@@ -82,6 +92,7 @@ impl Ord for NewDomain {
 }
 
 impl NewDomain {
+    /// Create a [`NewDomain`], reserved for internal use.
     #[must_use]
     pub fn new(id: <Domain as Identifiable>::Id) -> Self {
         Self {
@@ -251,8 +262,8 @@ impl Domain {
         self.asset_definitions.get_mut(asset_definition_id)
     }
 
-    /// Add asset definition into the [`Domain`] returning previous asset definition stored under
-    /// the same id
+    /// Add asset definition into the [`Domain`] returning previous
+    /// asset definition stored under the same id
     #[inline]
     pub fn add_asset_definition(
         &mut self,
@@ -284,9 +295,8 @@ impl FromIterator<Domain> for crate::Value {
     }
 }
 
-/// Represents path in IPFS. Performs some checks to ensure path validity.
-///
-/// Should be constructed with `from_str()` method.
+/// Represents path in IPFS. Performs checks to ensure path validity.
+/// Construct using [`FromStr::from_str`] method.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema)]
 pub struct IpfsPath(String);
 

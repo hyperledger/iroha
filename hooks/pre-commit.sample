@@ -1,4 +1,4 @@
 #!/bin/sh
 set -e
-cargo run --bin iroha_docs >docs/source/references/config.md
+cargo run --bin iroha_gen -- --docs >docs/source/references/config.md
 git add docs/source/references/config.md

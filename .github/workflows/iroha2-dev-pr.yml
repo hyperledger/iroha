@@ -39,6 +39,15 @@ jobs:
         working-directory: wasm
         env:
           RUSTC_BOOTSTRAP: 1
+      - name: Documentation check
+        run: |
+          cargo doc --no-deps --quiet
+          ./scripts/check.sh docs
+        if: always()
+      - name: Check genesis
+        run: |
+           ./scripts/check.sh genesis
+        if: always()
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
