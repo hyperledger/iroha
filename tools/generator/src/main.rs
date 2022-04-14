@@ -23,17 +23,41 @@ static DEFAULT_PUBLIC_KEY: &str =
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install().unwrap();
+    let mut output = BufWriter::new(stdout());
     if std::env::args().any(|a| is_genesis(&a)) {
         writeln!(
-            BufWriter::new(stdout()),
+            output,
             "{}",
             serde_json::to_string_pretty(&generate_default_genesis()?)?
         )?;
         Ok(())
-    } else {
+    } else if std::env::args().any(|a| is_schema(&a)) {
+        let schemas = iroha_schema_bin::build_schemas();
+        writeln!(output, "{}", serde_json::to_string_pretty(&schemas)?)?;
+        Ok(())
+    } else if std::env::args().any(|a| is_docs(&a)) {
         Configuration::get_markdown(&mut BufWriter::new(stdout()))
             .wrap_err("Failed to generate documentation")
+    } else {
+        print_help();
+        Ok(())
     }
+}
+
+fn print_help() {
+    println!("Tool for generating iroha-related data.");
+    println!();
+    println!("pass `--docs` or `-d` to generate sample config and its documentation.");
+    println!("pass `--schema` or `-s` to generate the schema.");
+    println!("pass `--genesis` or `-g` to generate the genesis block.");
+}
+
+fn is_docs(arg: &str) -> bool {
+    ["--docs", "-d"].contains(&arg)
+}
+
+fn is_schema(arg: &str) -> bool {
+    ["--schema", "-s"].contains(&arg)
 }
 
 fn is_genesis(arg: &str) -> bool {
