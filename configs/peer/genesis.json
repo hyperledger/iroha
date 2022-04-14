@@ -54,8 +54,8 @@
                       }
                     },
                     "value_type": "Quantity",
-                    "metadata": {},
-                    "mintable": "Infinitely"
+                    "mintable": "Infinitely",
+                    "metadata": {}
                   }
                 }
               }
