@@ -1930,6 +1930,7 @@ dependencies = [
  "iroha",
  "iroha_config",
  "iroha_core",
+ "iroha_data_model",
  "serde_json",
 ]
 

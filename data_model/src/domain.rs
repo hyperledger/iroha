@@ -64,7 +64,7 @@ impl From<GenesisDomain> for Domain {
 pub struct NewDomain {
     id: <Domain as Identifiable>::Id,
     logo: Option<IpfsPath>,
-    metadata: Metadata,
+    pub metadata: Metadata,
 }
 
 impl PartialOrd for NewDomain {
@@ -83,7 +83,7 @@ impl Ord for NewDomain {
 
 impl NewDomain {
     #[must_use]
-    fn new(id: <Domain as Identifiable>::Id) -> Self {
+    pub fn new(id: <Domain as Identifiable>::Id) -> Self {
         Self {
             id,
             logo: None,

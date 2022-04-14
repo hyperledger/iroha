@@ -20,6 +20,7 @@ deny = [
     'unused_import_braces',
     'variant_size_differences',
 ]
+
 allow = [
     'clippy::string_add',
     'clippy::as_conversions',
@@ -60,4 +61,5 @@ allow = [
     ## https://rust-lang.github.io/rust-clippy/master/index.html#missing_const_for_fn
     'clippy::missing_const_for_fn'
 ]
+
 warn = []

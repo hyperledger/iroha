@@ -7,10 +7,11 @@ use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref,
 use eyre::{eyre, Result, WrapErr};
 use iroha_actor::Addr;
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{asset::AssetDefinition, prelude::*};
+use iroha_data_model::{asset::AssetDefinition, domain::NewDomain, prelude::*};
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
 use small::SmallVec;
+use smallvec::smallvec;
 use tokio::{time, time::Duration};
 
 pub use self::config::GenesisConfiguration;
@@ -253,7 +254,7 @@ impl RawGenesisBlock {
     /// Create a [`RawGenesisBlock`] with specified [`Domain`] and [`Account`].
     pub fn new(account_name: Name, domain_id: DomainId, public_key: PublicKey) -> Self {
         RawGenesisBlock {
-            transactions: SmallVec(smallvec::smallvec![GenesisTransaction::new(
+            transactions: SmallVec(smallvec![GenesisTransaction::new(
                 account_name,
                 domain_id,
                 public_key,
@@ -291,7 +292,7 @@ impl GenesisTransaction {
     /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`Account`].
     pub fn new(account_name: Name, domain_id: DomainId, public_key: PublicKey) -> Self {
         Self {
-            isi: SmallVec(smallvec::smallvec![
+            isi: SmallVec(smallvec![
                 RegisterBox::new(Domain::new(domain_id.clone())).into(),
                 RegisterBox::new(Account::new(
                     AccountId::new(account_name, domain_id),
@@ -410,9 +411,10 @@ impl RawGenesisBlockBuilder {
     /// be used to create assets and accounts.
     pub fn domain(mut self, domain_name: Name) -> RawGenesisDomainBuilder {
         let domain_id = DomainId::new(domain_name);
+        let new_domain = NewDomain::new(domain_id.clone());
         self.transaction
             .isi
-            .push(RegisterBox::new(domain_id.clone()).into());
+            .push(Instruction::from(RegisterBox::new(new_domain)));
         RawGenesisDomainBuilder {
             transaction: self.transaction,
             domain_id,
@@ -421,7 +423,7 @@ impl RawGenesisBlockBuilder {
     /// Finish building and produce a `RawGenesisBlock`.
     pub fn build(self) -> RawGenesisBlock {
         RawGenesisBlock {
-            transactions: SmallVec(smallvec::smallvec![self.transaction]),
+            transactions: SmallVec(smallvec![self.transaction]),
         }
     }
 }
