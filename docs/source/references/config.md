@@ -8,10 +8,10 @@ The following is the default configuration used by Iroha.
 
 ```json
 {
-  "PUBLIC_KEY": "ed0100",
+  "PUBLIC_KEY": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10",
   "PRIVATE_KEY": {
     "digest_function": "ed25519",
-    "payload": ""
+    "payload": "1b038ddd463090fcb30cfa9a2434167920bc90cdd7c045bc64fbcb5149135100954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"
   },
   "DISABLE_PANIC_TERMINAL_COLORS": false,
   "KURA": {
@@ -22,8 +22,8 @@ The following is the default configuration used by Iroha.
   },
   "SUMERAGI": {
     "PEER_ID": {
-      "address": "localhost",
-      "public_key": "ed0100"
+      "address": "127.0.0.1",
+      "public_key": "ed0120e6ba36a2f2442152cf0a691b2a238f8de69affb6016aec44493627784543d4b6"
     },
     "BLOCK_TIME_MS": 1000,
     "TRUSTED_PEERS": [],
@@ -377,7 +377,7 @@ Has type `PrivateKey`. Can be configured via environment variable `IROHA_PRIVATE
 ```json
 {
   "digest_function": "ed25519",
-  "payload": ""
+  "payload": "1b038ddd463090fcb30cfa9a2434167920bc90cdd7c045bc64fbcb5149135100954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"
 }
 ```
 
@@ -388,7 +388,7 @@ Public key of this peer.
 Has type `PublicKey`. Can be configured via environment variable `IROHA_PUBLIC_KEY`
 
 ```json
-"ed0100"
+"ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"
 ```
 
 ## `queue`
@@ -461,8 +461,8 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
   "MAILBOX": 100,
   "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
   "PEER_ID": {
-    "address": "localhost",
-    "public_key": "ed0100"
+    "address": "127.0.0.1",
+    "public_key": "ed0120e6ba36a2f2442152cf0a691b2a238f8de69affb6016aec44493627784543d4b6"
   },
   "TRANSACTION_LIMITS": {
     "max_instruction_number": 4096,
@@ -523,9 +523,9 @@ Has type `KeyPair`. Can be configured via environment variable `SUMERAGI_KEY_PAI
 {
   "private_key": {
     "digest_function": "ed25519",
-    "payload": ""
+    "payload": "077cc54730a0c3415837db47c169fafa93b6e2e635d5dd7349b0cdf6cc73997fe6ba36a2f2442152cf0a691b2a238f8de69affb6016aec44493627784543d4b6"
   },
-  "public_key": "ed0100"
+  "public_key": "ed0120e6ba36a2f2442152cf0a691b2a238f8de69affb6016aec44493627784543d4b6"
 }
 ```
 
@@ -557,8 +557,8 @@ Has type `PeerId`. Can be configured via environment variable `SUMERAGI_PEER_ID`
 
 ```json
 {
-  "address": "localhost",
-  "public_key": "ed0100"
+  "address": "127.0.0.1",
+  "public_key": "ed0120e6ba36a2f2442152cf0a691b2a238f8de69affb6016aec44493627784543d4b6"
 }
 ```
 

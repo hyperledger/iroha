@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::{collections::BTreeMap, str::FromStr as _, time::Duration};
+use std::{str::FromStr as _, time::Duration};
 
 use eyre::{eyre, Result};
 use iroha_client::client::{self, Client};
@@ -113,10 +113,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
 
     let role_id = iroha_data_model::role::Id::new("root".parse::<Name>().expect("Valid"));
     let mut permissions = Permissions::new();
-    permissions.insert(PermissionToken {
-        name: "token".parse().expect("Valid"),
-        params: BTreeMap::new(),
-    });
+    permissions.insert(PermissionToken::new("token".parse().expect("Valid")));
     let register_role = RegisterBox::new(Role::new(role_id, permissions));
 
     test_client.submit(register_role)?;

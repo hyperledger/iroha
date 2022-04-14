@@ -150,12 +150,11 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         PublicKey::from_str(
             r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,
         )
-        .unwrap(),
-        PrivateKey::new(
-            "ed25519".to_string(),
-            hex_literal::hex!("9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0")
-                .into(),
-        ),
+        .expect("Valid"),
+        PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0"
+        ).expect("Valid"),
     );
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     let configuration = get_config(std::iter::once(peer.id.clone()).collect(), Some(kp.clone()));

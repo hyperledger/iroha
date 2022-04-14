@@ -215,7 +215,7 @@ mod tests {
 
     use std::{str::FromStr, sync::Arc};
 
-    use iroha_crypto::{Hash, KeyPair};
+    use iroha_crypto::{Hash, HashOf, KeyPair};
     use iroha_data_model::transaction::TransactionLimits;
     use once_cell::sync::Lazy;
 
@@ -351,7 +351,7 @@ mod tests {
             .commit();
         wsv.apply(vcb).await?;
 
-        let wrong_hash = Hash::new([2_u8]);
+        let wrong_hash: Hash = HashOf::new(&2_u8).into();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
         assert!(matches!(not_found, Err(_)));
 

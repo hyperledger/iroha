@@ -2,7 +2,7 @@
 
 #![allow(clippy::restriction, clippy::future_not_send)]
 
-use core::{fmt::Debug, str::FromStr, time::Duration};
+use core::{fmt::Debug, str::FromStr as _, time::Duration};
 use std::{collections::HashMap, thread};
 
 use eyre::{Error, Result};
@@ -101,17 +101,17 @@ impl std::cmp::Eq for Peer {}
 /// Get a standardised key-pair from the hard-coded literals.
 ///
 /// # Panics
-/// Programmer error. The key must be given in Multihash format.
+/// Programmer error. Given keys must be in proper format.
 pub fn get_key_pair() -> KeyPair {
     KeyPair::new(
         PublicKey::from_str(
             r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,
         )
-        .expect("Works"),
-        PrivateKey::new(
-            "ed25519".to_owned(),
-            hex_literal::hex!("9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0").into(),
-        )
+        .expect("Public key not in mulithash format"),
+        PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0",
+        ).expect("Private key not hex encoded")
     )
 }
 

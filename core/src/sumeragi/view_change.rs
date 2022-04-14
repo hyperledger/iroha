@@ -89,7 +89,7 @@ impl Proof {
     ///
     /// # Errors
     /// Can fail during creation of signature
-    pub fn sign(mut self, key_pair: KeyPair) -> Result<Proof> {
+    pub fn sign(mut self, key_pair: KeyPair) -> Result<Self> {
         let signature = SignatureOf::new(key_pair, &self.payload)?.transmute();
         self.signatures.insert(signature);
         Ok(self)
@@ -123,7 +123,7 @@ impl Proof {
     pub fn has_same_state(
         &self,
         latest_block: &HashOf<VersionedCommittedBlock>,
-        latest_view_change: &HashOf<Proof>,
+        latest_view_change: &HashOf<Self>,
     ) -> bool {
         &self.payload.latest_block == latest_block
             && &self.payload.previous_proof == latest_view_change
@@ -195,7 +195,8 @@ pub struct ProofChain {
 
 impl ProofChain {
     /// Initialize an empty proof chain.
-    pub const fn empty() -> ProofChain {
+    #[must_use]
+    pub const fn empty() -> Self {
         Self { proofs: Vec::new() }
     }
 
@@ -254,10 +255,11 @@ mod tests {
     fn proof_is_valid() -> Result<()> {
         let key_pair_1 = KeyPair::generate()?;
         let key_pair_2 = KeyPair::generate()?;
+
         let proof = Proof::commit_timeout(
-            Hash::new([1_u8; Hash::LENGTH]).into(),
-            Hash::new([2_u8; Hash::LENGTH]).into(),
-            Hash::new([3_u8; Hash::LENGTH]).into(),
+            Hash::prehashed([1_u8; Hash::LENGTH]).typed(),
+            Hash::prehashed([2_u8; Hash::LENGTH]).typed(),
+            Hash::prehashed([3_u8; Hash::LENGTH]).typed(),
             key_pair_1.clone(),
         )?
         .sign(key_pair_2.clone())?;
@@ -272,10 +274,11 @@ mod tests {
     fn proof_has_not_enough_signatures() -> Result<()> {
         let key_pair_1 = KeyPair::generate()?;
         let key_pair_2 = KeyPair::generate()?;
+
         let proof = Proof::commit_timeout(
-            Hash::new([1_u8; Hash::LENGTH]).into(),
-            Hash::new([2_u8; Hash::LENGTH]).into(),
-            Hash::new([3_u8; Hash::LENGTH]).into(),
+            Hash::prehashed([1_u8; Hash::LENGTH]).typed(),
+            Hash::prehashed([2_u8; Hash::LENGTH]).typed(),
+            Hash::prehashed([3_u8; Hash::LENGTH]).typed(),
             key_pair_1.clone(),
         )?;
         let peer_1 = PeerId::new("127.0.0.1:1001", key_pair_1.public_key());
@@ -290,10 +293,11 @@ mod tests {
         let key_pair_1 = KeyPair::generate()?;
         let key_pair_2 = KeyPair::generate()?;
         let key_pair_3 = KeyPair::generate()?;
+
         let proof = Proof::commit_timeout(
-            Hash::new([1_u8; Hash::LENGTH]).into(),
-            Hash::new([2_u8; Hash::LENGTH]).into(),
-            Hash::new([3_u8; Hash::LENGTH]).into(),
+            Hash::prehashed([1_u8; Hash::LENGTH]).typed(),
+            Hash::prehashed([2_u8; Hash::LENGTH]).typed(),
+            Hash::prehashed([3_u8; Hash::LENGTH]).typed(),
             key_pair_1.clone(),
         )?
         .sign(key_pair_3)?;
@@ -311,10 +315,10 @@ mod tests {
         let key_pair_2 = KeyPair::generate()?;
         let peer_1 = PeerId::new("127.0.0.1:1001", key_pair_1.public_key());
         let peer_2 = PeerId::new("127.0.0.1:1002", key_pair_2.public_key());
-        let latest_block = Hash::new([3_u8; Hash::LENGTH]).into();
+        let latest_block = Hash::prehashed([3_u8; Hash::LENGTH]).typed();
         for i in 0..10 {
             let proof = Proof::commit_timeout(
-                Hash::new([i; Hash::LENGTH]).into(),
+                Hash::prehashed([i; Hash::LENGTH]).typed(),
                 proof_chain.latest_hash(),
                 latest_block,
                 key_pair_1.clone(),
@@ -334,15 +338,15 @@ mod tests {
         let key_pair_2 = KeyPair::generate()?;
         let peer_1 = PeerId::new("127.0.0.1:1001", key_pair_1.public_key());
         let peer_2 = PeerId::new("127.0.0.1:1002", key_pair_2.public_key());
-        let latest_block = Hash::new([3_u8; Hash::LENGTH]).into();
+        let latest_block = Hash::prehashed([3_u8; Hash::LENGTH]).typed();
         for i in 0..10 {
             let latest_proof_hash = if i == 2 {
-                Hash::new([1_u8; Hash::LENGTH]).into()
+                Hash::prehashed([1_u8; Hash::LENGTH]).typed()
             } else {
                 proof_chain.latest_hash()
             };
             let proof = Proof::commit_timeout(
-                Hash::new([i; Hash::LENGTH]).into(),
+                Hash::prehashed([i; Hash::LENGTH]).typed(),
                 latest_proof_hash,
                 latest_block,
                 key_pair_1.clone(),

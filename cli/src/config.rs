@@ -9,7 +9,7 @@ use iroha_core::{
     sumeragi::config::SumeragiConfiguration,
     wsv::config::Configuration as WorldStateViewConfiguration,
 };
-use iroha_crypto::{PrivateKey, PublicKey};
+use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
 use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
@@ -63,8 +63,16 @@ pub struct Configuration {
 }
 
 impl Default for Configuration {
+    #[allow(clippy::expect_used)]
     fn default() -> Self {
-        let (public_key, private_key) = iroha_crypto::KeyPair::default().into();
+        let public_key =
+            r#"ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"#
+                .parse()
+                .expect("Public key not in mulithash format");
+        let private_key = PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "1B038DDD 463090FC B30CFA9A 24341679 20BC90CD D7C045BC 64FBCB51 49135100 954C83A4 220FAFFB 2C1D23FC 5225B3E7 952D53AC BB2A065F F30C631E 5E1D6B10"
+        ).expect("Private key not hex encoded");
 
         Self {
             public_key,

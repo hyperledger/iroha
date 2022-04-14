@@ -31,6 +31,9 @@ use ursa::{
 use crate::{Algorithm, HashOf, KeyPair};
 use crate::{Error, PublicKey};
 
+/// Signature payload(i.e THE signature)
+pub type Payload = Vec<u8>;
+
 /// Represents signature of the data (`Block` or `Transaction` for example).
 #[derive(
     Clone,
@@ -52,15 +55,15 @@ pub struct Signature {
     public_key: PublicKey,
     /// Actual signature payload is placed here.
     #[getset(skip)]
-    signature: Vec<u8>,
+    signature: Payload,
 }
 
-#[cfg(feature = "std")]
 impl Signature {
     /// Creates new [`Signature`] by signing payload via [`KeyPair::private_key`].
     ///
     /// # Errors
-    /// Fails if decoding digest of key pair fails
+    /// Fails if signing fails
+    #[cfg(feature = "std")]
     fn new(
         KeyPair {
             public_key,
@@ -68,7 +71,7 @@ impl Signature {
         }: KeyPair,
         payload: &[u8],
     ) -> Result<Self, Error> {
-        let algorithm: Algorithm = public_key.digest_function.parse()?;
+        let algorithm: Algorithm = public_key.digest_function();
         let private_key = UrsaPrivateKey(private_key.payload);
 
         let signature = match algorithm {
@@ -84,12 +87,20 @@ impl Signature {
         })
     }
 
+    /// Adds type information to the signature. Be careful about using this function
+    /// since it is not possible to validate the correctness of the conversion.
+    /// Prefer creating new signatures with [`SignatureOf::new`] whenever possible
+    fn typed<T>(self) -> SignatureOf<T> {
+        SignatureOf(self, PhantomData)
+    }
+
     /// Verify `message` using signed data and [`KeyPair::public_key`].
     ///
     /// # Errors
-    /// Fails if decoding digest of key pair fails or if message didn't pass verification
+    /// Fails if message didn't pass verification
+    #[cfg(feature = "std")]
     pub fn verify(&self, payload: &[u8]) -> Result<(), Error> {
-        let algorithm: Algorithm = self.public_key.digest_function.parse()?;
+        let algorithm: Algorithm = self.public_key.digest_function();
         let public_key = UrsaPublicKey(self.public_key.payload.clone());
 
         match algorithm {
@@ -116,7 +127,7 @@ impl fmt::Debug for Signature {
     }
 }
 
-impl From<Signature> for (PublicKey, Vec<u8>) {
+impl From<Signature> for (PublicKey, Payload) {
     fn from(
         Signature {
             public_key,
@@ -193,13 +204,13 @@ impl<T> IntoSchema for SignatureOf<T> {
 }
 
 impl<T> SignatureOf<T> {
-    /// Create new [`SignatureOf`] via signing `T` values by [`KeyPair::private_key`]
+    /// Create [`SignatureOf`] from the given hash with [`KeyPair::private_key`].
     ///
     /// # Errors
-    /// Fails if decoding digest of key pair fails
+    /// Fails if signing fails
     #[cfg(feature = "std")]
     pub fn from_hash(key_pair: KeyPair, hash: &HashOf<T>) -> Result<Self, Error> {
-        Ok(Self(Signature::new(key_pair, hash.as_ref())?, PhantomData))
+        Ok(Signature::new(key_pair, hash.as_ref())?.typed())
     }
 
     /// Transmutes signature to some specific type
@@ -227,7 +238,7 @@ impl<T> SignatureOf<T> {
     ///
     /// # Errors
     ///
-    /// Forwards the 0-th tuple variant verification error
+    /// Fails if the given hash didn't pass verification
     #[cfg(feature = "std")]
     pub fn verify_hash(&self, hash: &HashOf<T>) -> Result<(), Error> {
         self.0.verify(hash.as_ref())
@@ -236,10 +247,12 @@ impl<T> SignatureOf<T> {
 
 #[cfg(feature = "std")]
 impl<T: Encode> SignatureOf<T> {
-    /// Creates new [`SignatureOf`] by signing value via [`KeyPair::private_key`]
+    /// Create [`SignatureOf`] by signing the given value with [`KeyPair::private_key`].
+    /// The value provided will be hashed before being signed. If you already have the
+    /// hash of the value you can sign it with [`SignatureOf::from_hash`] instead.
     ///
     /// # Errors
-    /// Fails if decoding digest of key pair fails
+    /// Fails if signing fails
     pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
         Self::from_hash(key_pair, &HashOf::new(value))
     }
@@ -394,7 +407,6 @@ impl<T> SignaturesOf<T> {
     ///
     /// This method uses [`core::mem::transmute`] internally
     #[allow(unsafe_code)]
-    #[inline]
     pub fn transmute<F>(self) -> SignaturesOf<F> {
         // SAFETY: Safe because we are transmuting to a pointer of
         // type `<F>` which is related to type `<T>`.
@@ -435,14 +447,9 @@ impl<T> SignaturesOf<T> {
 
     /// Number of signatures.
     #[inline]
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.signatures.len()
-    }
-
-    /// Number of signatures.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.signatures.is_empty()
     }
 
     /// Verify signatures for this hash

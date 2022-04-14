@@ -2,7 +2,7 @@ use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr};
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_config::derive::Configurable;
-use iroha_crypto::{PrivateKey, PublicKey};
+use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
 use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
@@ -97,10 +97,17 @@ pub struct Configuration {
 }
 
 impl Default for Configuration {
+    #[allow(clippy::expect_used)]
     fn default() -> Self {
-        let (public_key, private_key) = iroha_crypto::KeyPair::default().into();
+        let public_key =
+            r#"ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"#
+                .parse()
+                .expect("Public key not in mulithash format");
+        let private_key = PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "282ED9F3 CF92811C 3818DBC4 AE594ED5 9DC1A2F7 8E4241E3 1924E101 D6B1FB83 1C61FAF8 FE94E253 B9311424 0394F79A 607B7FA5 5F9E5A41 EBEC74B8 8055768B"
+        ).expect("Private key not hex encoded");
 
-        #[allow(clippy::expect_used)]
         Self {
             public_key,
             private_key,

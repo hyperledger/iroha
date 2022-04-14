@@ -21,7 +21,7 @@ pub fn sort_peers_by_hash(
 }
 
 /// Sorts peers based on the `hash` and `counter` combined as a seed.
-pub fn sort_peers_by_hash_and_counter(
+fn sort_peers_by_hash_and_counter(
     mut peers: Vec<PeerId>,
     hash: &HashOf<VersionedCommittedBlock>,
     counter: u64,
@@ -29,8 +29,8 @@ pub fn sort_peers_by_hash_and_counter(
     peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
     let mut bytes: Vec<u8> = counter.to_le_bytes().to_vec();
     bytes.extend(hash.as_ref());
-    let bytes = Hash::new(bytes).into();
-    let mut rng = StdRng::from_seed(bytes);
+    let bytes: Hash = HashOf::new(&bytes).into();
+    let mut rng = StdRng::from_seed(bytes.into());
     peers.shuffle(&mut rng);
     peers
 }
@@ -533,43 +533,42 @@ mod tests {
 
     #[test]
     fn different_order() {
+        let hash1 = Hash::prehashed([1_u8; Hash::LENGTH]).typed();
+        let hash2 = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
+
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash(peers.clone(), &Hash::new([1_u8; Hash::LENGTH]).into());
-        let peers_2 = sort_peers_by_hash(peers, &Hash::new([2_u8; Hash::LENGTH]).into());
+        let peers_1 = sort_peers_by_hash(peers.clone(), &hash1);
+        let peers_2 = sort_peers_by_hash(peers, &hash2);
         assert_ne!(peers_1, peers_2);
     }
 
     #[test]
     fn same_order() {
+        let hash = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
+
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash(peers.clone(), &Hash::new([2_u8; Hash::LENGTH]).into());
-        let peers_2 = sort_peers_by_hash(peers, &Hash::new([2_u8; Hash::LENGTH]).into());
+        let peers_1 = sort_peers_by_hash(peers.clone(), &hash);
+        let peers_2 = sort_peers_by_hash(peers, &hash);
         assert_eq!(peers_1, peers_2);
     }
 
     #[test]
     fn same_order_by_hash_and_counter() {
+        let hash = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
+
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash_and_counter(
-            peers.clone(),
-            &Hash::new([2_u8; Hash::LENGTH]).into(),
-            1,
-        );
-        let peers_2 =
-            sort_peers_by_hash_and_counter(peers, &Hash::new([2_u8; Hash::LENGTH]).into(), 1);
+        let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), &hash, 1);
+        let peers_2 = sort_peers_by_hash_and_counter(peers, &hash, 1);
         assert_eq!(peers_1, peers_2);
     }
 
     #[test]
     fn different_order_by_hash_and_counter() {
+        let hash = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
+
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash_and_counter(
-            peers.clone(),
-            &Hash::new([2_u8; Hash::LENGTH]).into(),
-            1,
-        );
-        let peers_2 =
-            sort_peers_by_hash_and_counter(peers, &Hash::new([2_u8; Hash::LENGTH]).into(), 2);
+        let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), &hash, 1);
+        let peers_2 = sort_peers_by_hash_and_counter(peers, &hash, 2);
         assert_ne!(peers_1, peers_2);
     }
 }

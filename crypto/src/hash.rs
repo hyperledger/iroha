@@ -37,22 +37,31 @@ impl Hash {
     /// Length of hash
     pub const LENGTH: usize = 32;
 
-    /// Construct zeroed hash
-    pub const fn zeroed() -> Self {
-        Hash([0; Self::LENGTH])
+    /// Wrap the given bytes; they must be prehashed with `VarBlake2b`
+    pub const fn prehashed(bytes: [u8; Self::LENGTH]) -> Self {
+        Self(bytes)
     }
 
-    /// new hash from bytes
+    /// Hash given bytes.
     #[cfg(feature = "std")]
     #[allow(clippy::expect_used)]
-    pub fn new(bytes: impl AsRef<[u8]>) -> Self {
+    #[must_use]
+    pub(crate) fn new(bytes: impl AsRef<[u8]>) -> Self {
         let vec_hash = VarBlake2b::new(Self::LENGTH)
             .expect("Failed to initialize variable size hash")
             .chain(bytes)
             .finalize_boxed();
         let mut hash = [0; Self::LENGTH];
         hash.copy_from_slice(&vec_hash);
-        Hash(hash)
+        Hash::prehashed(hash)
+    }
+
+    /// Adds type information to the hash. Be careful about using this function
+    /// since it is not possible to validate the correctness of the conversion.
+    /// Prefer creating new hashes with [`HashOf::new`] whenever possible
+    #[must_use]
+    pub const fn typed<T>(self) -> HashOf<T> {
+        HashOf(self, PhantomData)
     }
 }
 
@@ -71,21 +80,18 @@ impl Debug for Hash {
 }
 
 impl From<Hash> for [u8; Hash::LENGTH] {
-    #[inline]
     fn from(Hash(bytes): Hash) -> Self {
         bytes
     }
 }
 
 impl AsRef<[u8; Hash::LENGTH]> for Hash {
-    #[inline]
     fn as_ref(&self) -> &[u8; Hash::LENGTH] {
         &self.0
     }
 }
 
 impl<T> From<HashOf<T>> for Hash {
-    #[inline]
     fn from(HashOf(hash, _): HashOf<T>) -> Self {
         hash
     }
@@ -113,7 +119,6 @@ impl<T> fmt::Debug for HashOf<T> {
 }
 
 impl<T> Clone for HashOf<T> {
-    #[inline]
     fn clone(&self) -> Self {
         Self(self.0, PhantomData)
     }
@@ -121,7 +126,6 @@ impl<T> Clone for HashOf<T> {
 impl<T> Copy for HashOf<T> {}
 
 impl<T> PartialEq for HashOf<T> {
-    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
@@ -129,41 +133,33 @@ impl<T> PartialEq for HashOf<T> {
 impl<T> Eq for HashOf<T> {}
 
 impl<T> PartialOrd for HashOf<T> {
-    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.0.partial_cmp(&other.0)
     }
 }
 impl<T> Ord for HashOf<T> {
-    #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.0.cmp(&other.0)
     }
 }
 
 impl<T> hash::Hash for HashOf<T> {
-    #[inline]
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state)
     }
 }
 
 impl<T> AsRef<[u8; Hash::LENGTH]> for HashOf<T> {
-    #[inline]
     fn as_ref(&self) -> &[u8; Hash::LENGTH] {
         self.0.as_ref()
     }
 }
 
-impl<T> From<Hash> for HashOf<T> {
-    fn from(hash: Hash) -> Self {
-        Self(hash, PhantomData)
-    }
-}
-
 impl<T> HashOf<T> {
-    /// Transmutes hash to some specific type
+    /// Transmutes hash to some specific type.
+    /// Don't use this method if not required.
     #[inline]
+    #[must_use]
     pub const fn transmute<F>(self) -> HashOf<F> {
         HashOf(self.0, PhantomData)
     }
@@ -172,8 +168,17 @@ impl<T> HashOf<T> {
 impl<T: Encode> HashOf<T> {
     /// Construct typed hash
     #[cfg(feature = "std")]
+    #[must_use]
     pub fn new(value: &T) -> Self {
         Self(Hash::new(value.encode()), PhantomData)
+    }
+}
+
+impl<T> HashOf<T> {
+    /// Construct zeroed hash
+    #[must_use]
+    pub const fn zeroed() -> Self {
+        HashOf(Hash::prehashed([0; Hash::LENGTH]), PhantomData)
     }
 }
 

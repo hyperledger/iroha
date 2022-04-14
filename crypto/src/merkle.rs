@@ -5,8 +5,9 @@ use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 
-use iroha_crypto::{Hash, HashOf};
 use iroha_schema::IntoSchema;
+
+use crate::HashOf;
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate and prove data at
 /// each block height.
@@ -156,7 +157,7 @@ impl<T> Node<T> {
         match self {
             Node::Subtree(Subtree { hash, .. }) => *hash,
             Node::Leaf(Leaf { hash }) => (*hash).transmute(),
-            Node::Empty => Hash::zeroed().into(),
+            Node::Empty => HashOf::zeroed(),
         }
     }
 
@@ -179,7 +180,7 @@ impl<T> Node<T> {
             .zip(right_hash.as_ref().iter())
             .map(|(l, r)| l.saturating_add(*r))
             .collect();
-        Hash::new(sum).into()
+        crate::Hash::new(sum).typed()
     }
 }
 
@@ -224,25 +225,26 @@ impl<'a, T> IntoIterator for &'a MerkleTree<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Hash;
 
     #[test]
     fn tree_with_two_layers_should_reach_all_nodes() {
         let tree = MerkleTree::<()> {
             root_node: Node::Subtree(Subtree {
                 left: Box::new(Node::Leaf(Leaf {
-                    hash: Hash::new([1; Hash::LENGTH]).into(),
+                    hash: Hash::prehashed([1; Hash::LENGTH]).typed(),
                 })),
                 right: Box::new(Node::Leaf(Leaf {
-                    hash: Hash::new([2; Hash::LENGTH]).into(),
+                    hash: Hash::prehashed([2; Hash::LENGTH]).typed(),
                 })),
-                hash: Hash::new([3; Hash::LENGTH]).into(),
+                hash: Hash::prehashed([3; Hash::LENGTH]).typed(),
             }),
         };
         assert_eq!(3, tree.into_iter().count());
     }
 
     fn get_hashes(hash: [u8; Hash::LENGTH]) -> impl Iterator<Item = HashOf<()>> {
-        let hash = Hash::new(hash).into();
+        let hash = Hash::prehashed(hash).typed();
         std::iter::repeat_with(move || hash)
     }
 
@@ -265,20 +267,20 @@ mod tests {
     #[test]
     fn same_root_hash_for_same_hashes() {
         let merkle_tree_1 = [
-            Hash::new([1_u8; Hash::LENGTH]),
-            Hash::new([2_u8; Hash::LENGTH]),
-            Hash::new([3_u8; Hash::LENGTH]),
+            Hash::prehashed([1_u8; Hash::LENGTH]),
+            Hash::prehashed([2_u8; Hash::LENGTH]),
+            Hash::prehashed([3_u8; Hash::LENGTH]),
         ]
         .into_iter()
-        .map(Into::into)
+        .map(Hash::typed)
         .collect::<MerkleTree<()>>();
         let merkle_tree_2 = [
-            Hash::new([2_u8; Hash::LENGTH]),
-            Hash::new([1_u8; Hash::LENGTH]),
-            Hash::new([3_u8; Hash::LENGTH]),
+            Hash::prehashed([2_u8; Hash::LENGTH]),
+            Hash::prehashed([1_u8; Hash::LENGTH]),
+            Hash::prehashed([3_u8; Hash::LENGTH]),
         ]
         .into_iter()
-        .map(Into::into)
+        .map(Hash::typed)
         .collect::<MerkleTree<()>>();
         assert_eq!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
@@ -286,56 +288,56 @@ mod tests {
     #[test]
     fn different_root_hash_for_different_hashes() {
         let merkle_tree_1 = [
-            Hash::new([1_u8; Hash::LENGTH]),
-            Hash::new([2_u8; Hash::LENGTH]),
-            Hash::new([3_u8; Hash::LENGTH]),
+            Hash::prehashed([1_u8; Hash::LENGTH]),
+            Hash::prehashed([2_u8; Hash::LENGTH]),
+            Hash::prehashed([3_u8; Hash::LENGTH]),
         ]
         .into_iter()
-        .map(Into::into)
+        .map(Hash::typed)
         .collect::<MerkleTree<()>>();
         let merkle_tree_2 = [
-            Hash::new([1_u8; Hash::LENGTH]),
-            Hash::new([4_u8; Hash::LENGTH]),
-            Hash::new([5_u8; Hash::LENGTH]),
+            Hash::prehashed([1_u8; Hash::LENGTH]),
+            Hash::prehashed([4_u8; Hash::LENGTH]),
+            Hash::prehashed([5_u8; Hash::LENGTH]),
         ]
         .into_iter()
-        .map(Into::into)
+        .map(Hash::typed)
         .collect::<MerkleTree<()>>();
         assert_ne!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
 
     #[test]
     fn get_leaf() {
-        let hash1 = Hash::new([1; Hash::LENGTH]).into();
-        let hash2 = Hash::new([2; Hash::LENGTH]).into();
-        let hash3 = Hash::new([3; Hash::LENGTH]).into();
-        assert!(hash2 < hash1 && hash1 < hash3);
+        let hash1 = Hash::prehashed([1; Hash::LENGTH]).typed();
+        let hash2 = Hash::prehashed([2; Hash::LENGTH]).typed();
+        let hash3 = Hash::prehashed([3; Hash::LENGTH]).typed();
+        assert!(hash1 < hash2 && hash2 < hash3);
 
         let tree = [hash1, hash2, hash3]
             .into_iter()
             .collect::<MerkleTree<()>>();
-        assert_eq!(tree.get_leaf(0), Some(hash2));
-        assert_eq!(tree.get_leaf(1), Some(hash1));
+        assert_eq!(tree.get_leaf(0), Some(hash1));
+        assert_eq!(tree.get_leaf(1), Some(hash2));
         assert_eq!(tree.get_leaf(2), Some(hash3));
         assert_eq!(tree.get_leaf(3), None);
     }
 
     #[test]
     fn add() {
-        let hash1 = Hash::new([1; Hash::LENGTH]).into();
-        let hash2 = Hash::new([2; Hash::LENGTH]).into();
-        let hash3 = Hash::new([3; Hash::LENGTH]).into();
-        let hash4 = Hash::new([4; Hash::LENGTH]).into();
-        assert!(hash4 < hash2 && hash2 < hash1 && hash1 < hash3);
+        let hash1 = Hash::prehashed([1; Hash::LENGTH]).typed();
+        let hash2 = Hash::prehashed([2; Hash::LENGTH]).typed();
+        let hash3 = Hash::prehashed([3; Hash::LENGTH]).typed();
+        let hash4 = Hash::prehashed([4; Hash::LENGTH]).typed();
+        assert!(hash1 < hash2 && hash2 < hash3 && hash3 < hash4);
 
         let tree = [hash1, hash2, hash4]
             .into_iter()
             .collect::<MerkleTree<()>>();
         let tree = tree.add(hash3);
-        assert_eq!(tree.get_leaf(0), Some(hash4));
+        assert_eq!(tree.get_leaf(0), Some(hash1));
         assert_eq!(tree.get_leaf(1), Some(hash2));
-        assert_eq!(tree.get_leaf(2), Some(hash1));
-        assert_eq!(tree.get_leaf(3), Some(hash3));
+        assert_eq!(tree.get_leaf(2), Some(hash3));
+        assert_eq!(tree.get_leaf(3), Some(hash4));
         assert_eq!(tree.get_leaf(4), None);
     }
 }

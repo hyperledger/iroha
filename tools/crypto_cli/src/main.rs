@@ -36,10 +36,10 @@ fn main() -> Result<(), Report> {
                 .value_name("algorithm")
                 .help("Function used to generate the key pair.")
                 .takes_value(true)
-                .possible_value(iroha_crypto::ED_25519)
-                .possible_value(iroha_crypto::SECP_256_K1)
-                .possible_value(iroha_crypto::BLS_NORMAL)
-                .possible_value(iroha_crypto::BLS_SMALL)
+                .possible_value(&Algorithm::Ed25519.to_string())
+                .possible_value(&Algorithm::Secp256k1.to_string())
+                .possible_value(&Algorithm::BlsNormal.to_string())
+                .possible_value(&Algorithm::BlsSmall.to_string())
                 .default_value(&default_algorithm)
         )
         .arg(
@@ -73,13 +73,10 @@ fn main() -> Result<(), Report> {
                 },
                 |private_key| {
                     KeyPair::generate_with_configuration(
-                        key_gen_configuration
-                            .clone()
-                            .use_private_key(PrivateKey::new(
-                                algorithm.to_string(),
-                                hex::decode(private_key)
-                                    .wrap_err("Failed to decode private key.")?,
-                            )),
+                        key_gen_configuration.clone().use_private_key(
+                            PrivateKey::from_hex(algorithm, &private_key)
+                                .wrap_err("Failed to decode private key.")?,
+                        ),
                     )
                     .wrap_err("Failed to generate key pair")
                 },

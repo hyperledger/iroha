@@ -52,15 +52,24 @@ pub struct SumeragiConfiguration {
 }
 
 impl Default for SumeragiConfiguration {
+    #[allow(clippy::expect_used)]
     fn default() -> Self {
-        let key_pair = iroha_crypto::KeyPair::default();
+        let public_key: PublicKey =
+            r#"ed0120e6ba36a2f2442152cf0a691b2a238f8de69affb6016aec44493627784543d4b6"#
+                .parse()
+                .expect("Public key not in mulithash format");
+        let private_key = PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "077CC547 30A0C341 5837DB47 C169FAFA 93B6E2E6 35D5DD73 49B0CDF6 CC73997F E6BA36A2 F2442152 CF0A691B 2A238F8D E69AFFB6 016AEC44 49362778 4543D4B6"
+        ).expect("Private key not hex encoded");
+
         let peer_id = PeerId {
-            address: "localhost".to_owned(),
-            public_key: key_pair.public_key().clone(),
+            address: "127.0.0.1".to_owned(),
+            public_key: public_key.clone(),
         };
 
         Self {
-            key_pair,
+            key_pair: KeyPair::new(public_key, private_key),
             trusted_peers: TrustedPeers::default(),
             peer_id,
             block_time_ms: DEFAULT_BLOCK_TIME_MS,

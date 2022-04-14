@@ -1866,7 +1866,6 @@ dependencies = [
  "criterion",
  "derive_more",
  "getset",
- "hex-literal",
  "iroha",
  "iroha_client",
  "iroha_core",
@@ -2016,6 +2015,7 @@ name = "iroha_schema_bin"
 version = "2.0.0-pre-rc.3"
 dependencies = [
  "iroha_core",
+ "iroha_crypto",
  "iroha_data_model",
  "iroha_schema",
  "serde_json",
@@ -3521,7 +3521,6 @@ dependencies = [
  "async-trait",
  "eyre",
  "futures",
- "hex-literal",
  "iroha",
  "iroha_actor",
  "iroha_client",

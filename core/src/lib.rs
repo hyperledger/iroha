@@ -61,7 +61,7 @@ pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
 
     #[doc(inline)]
-    pub use iroha_crypto::{Hash, KeyPair, PrivateKey, PublicKey};
+    pub use iroha_crypto::{Algorithm, Hash, KeyPair, PrivateKey, PublicKey};
 
     #[doc(inline)]
     pub use crate::{

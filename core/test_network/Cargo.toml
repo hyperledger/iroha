@@ -19,7 +19,6 @@ iroha_p2p = { version = "=2.0.0-pre-rc.3", path = "../../p2p" }
 iroha_actor = { version = "=2.0.0-pre-rc.3", path = "../../actor" }
 iroha = { path = "../../cli", features = ["test-network"] }
 
-hex-literal = "0.3.4"
 eyre = "0.6.5"
 tempfile = "3"
 unique_port = "0.1.0"
