@@ -143,6 +143,7 @@ mod register {
     }
 }
 
+#[allow(unused_must_use)]
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
     let kp = KeyPair {
@@ -255,7 +256,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         .request(FindAssetQuantityById::new(asset_id_new(
             "btc", "crypto", "seller", "company",
         )))
-        .expect_err("Failed to execute Iroha Query");
+        .expect_err("Query must fail");
 
     let buyer_eth_quantity = iroha_client
         .request(FindAssetQuantityById::new(asset_id_new(

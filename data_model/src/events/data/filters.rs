@@ -689,7 +689,7 @@ pub mod prelude {
         peer::{PeerEventFilter, PeerFilter},
         trigger::{TriggerEventFilter, TriggerFilter},
         EntityFilter as DataEntityFilter, EventFilter as DataEventFilter,
-        FilterOpt::*,
+        FilterOpt::{self, *},
         IdFilter,
     };
 }

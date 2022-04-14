@@ -13,6 +13,8 @@ members = [
   "core/test_network",
   "crypto",
   "tools/crypto_cli",
+  "tools/kura_inspector",
+  "tools/parity_scale_decoder",
   "data_model",
   "data_model/primitives",
   "futures",
@@ -27,7 +29,6 @@ members = [
   "schema/derive",
   "substrate",
   "telemetry",
-  "tools/kura_inspector",
   "version",
   "version/derive",
 ]

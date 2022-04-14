@@ -1,0 +1,386 @@
+//! Exports `generate_map()` function and contains implementation details for it
+
+use std::collections::BTreeSet;
+
+use iroha_core::*;
+use iroha_crypto::*;
+use iroha_data_model::{prelude::*, *};
+use iroha_schema::IntoSchema;
+use iroha_version::*;
+
+use super::*;
+
+/// Trait to retrieve type name
+///
+/// It is used with abusing [inherit impls](https://doc.rust-lang.org/reference/items/implementations.html#inherent-implementations)
+/// to get `None` variant from types, which doesn't implement [`IntoSchema`] and `Some` which does
+trait TypeName {
+    /// Get name of the type or `None` if type doesn't implement `IntoSchema`
+    fn type_name() -> Option<String>;
+}
+
+impl<T> TypeName for T {
+    fn type_name() -> Option<String> {
+        None
+    }
+}
+
+/// Neotype which has `type_name()` method when `T` implements [`IntoSchema`]
+struct WithTypeName<T>(std::marker::PhantomData<T>);
+
+impl<T: IntoSchema + Decode> WithTypeName<T> {
+    /// Get type name using [`IntoSchema::type_name()`]
+    ///
+    /// Because this is implemented directly on `WithTypeName`, it has priority over
+    /// the [`TypeName`] trait impl.
+    ///
+    /// Note: this is a *totally different* function from that in
+    /// `TypeName`. This does not specialize the `TypeName` trait impl on `WithTypeName`.
+    fn type_name() -> Option<String> {
+        Some(<T as IntoSchema>::type_name())
+    }
+}
+
+macro_rules! generate_map {
+    ($($t:ty),* $(,)?) => {
+        #[allow(trivial_casts)]
+        BTreeMap::from([
+            $((
+                WithTypeName::<$t>::type_name().unwrap_or(stringify!($t).to_owned()),
+                <$t as DumpDecoded>::dump_decoded as DumpDecodedPtr
+            )),*
+        ])
+    };
+}
+
+/// Generate map with types and `dump_decoded()` ptr
+#[allow(clippy::too_many_lines)]
+pub fn generate_map() -> DumpDecodedMap {
+    generate_map! {
+        Account,
+        AccountEvent,
+        AccountEventFilter,
+        AccountFilter,
+        AccountId,
+        Action,
+        Add,
+        And,
+        Asset,
+        AssetDefinition,
+        AssetDefinitionEntry,
+        AssetDefinitionEvent,
+        AssetDefinitionEventFilter,
+        AssetDefinitionFilter,
+        AssetDefinitionId,
+        AssetEvent,
+        AssetEventFilter,
+        AssetFilter,
+        AssetId,
+        AssetValue,
+        AssetValueType,
+        BTreeMap<AccountId, Account>,
+        BTreeMap<AssetDefinitionId, AssetDefinitionEntry>,
+        BTreeMap<AssetId, Asset>,
+        BTreeMap<Name, Value>,
+        BTreeMap<PublicKey, SignatureOf<block::CommittedBlock>>,
+        BTreeMap<PublicKey, SignatureOf<sumeragi::view_change::Proof>>,
+        BTreeMap<PublicKey, SignatureOf<transaction::Payload>>,
+        BTreeMap<String, expression::EvaluatesTo<Value>>,
+        BTreeSet<PublicKey>,
+        BTreeSet<RoleId>,
+        BTreeSet<SignatureOf<block::ValidBlock>>,
+        BTreeSet<SignatureOf<transaction::Payload>>,
+        BTreeSet<permissions::PermissionToken>,
+        BlockRejectionReason,
+        BurnBox,
+        Contains,
+        ContainsAll,
+        ContainsAny,
+        ContextValue,
+        DataEntityFilter,
+        DataEvent,
+        DataEventFilter,
+        Divide,
+        Domain,
+        DomainEvent,
+        DomainEventFilter,
+        DomainFilter,
+        DomainId,
+        Equal,
+        Executable,
+        ExecuteTriggerBox,
+        ExecuteTriggerEvent,
+        ExecuteTriggerEventFilter,
+        ExecutionTime,
+        Expression,
+        FailBox,
+        FilterOpt<AccountEventFilter>,
+        FilterOpt<AccountFilter>,
+        FilterOpt<AssetDefinitionEventFilter>,
+        FilterOpt<AssetDefinitionFilter>,
+        FilterOpt<AssetEventFilter>,
+        FilterOpt<AssetFilter>,
+        FilterOpt<DomainEventFilter>,
+        FilterOpt<DomainFilter>,
+        FilterOpt<IdFilter<AccountId>>,
+        FilterOpt<IdFilter<AssetDefinitionId>>,
+        FilterOpt<IdFilter<AssetId>>,
+        FilterOpt<IdFilter<DomainId>>,
+        FilterOpt<IdFilter<PeerId>>,
+        FilterOpt<IdFilter<RoleId>>,
+        FilterOpt<IdFilter<TriggerId>>,
+        FilterOpt<PeerEventFilter>,
+        FilterOpt<PeerFilter>,
+        FilterOpt<RoleEventFilter>,
+        FilterOpt<RoleFilter>,
+        FilterOpt<TriggerEventFilter>,
+        FilterOpt<TriggerFilter>,
+        FindAccountById,
+        FindAccountKeyValueByIdAndKey,
+        FindAccountsByDomainId,
+        FindAccountsByName,
+        FindAllAccounts,
+        FindAllAssets,
+        FindAllAssetsDefinitions,
+        FindAllDomains,
+        FindAllParameters,
+        FindAllPeers,
+        FindAllRoles,
+        FindAssetById,
+        FindAssetDefinitionKeyValueByIdAndKey,
+        FindAssetKeyValueByIdAndKey,
+        FindAssetQuantityById,
+        FindAssetsByAccountId,
+        FindAssetsByAssetDefinitionId,
+        FindAssetsByDomainId,
+        FindAssetsByDomainIdAndAssetDefinitionId,
+        FindAssetsByName,
+        FindDomainById,
+        FindDomainKeyValueByIdAndKey,
+        FindPermissionTokensByAccountId,
+        FindRolesByAccountId,
+        FindTransactionByHash,
+        FindTransactionsByAccountId,
+        GenesisDomain,
+        GrantBox,
+        Greater,
+        Hash,
+        HashOf<block::VersionedCommittedBlock>,
+        HashOf<block::VersionedValidBlock>,
+        HashOf<merkle::MerkleTree<transaction::VersionedTransaction>>,
+        HashOf<merkle::Node<transaction::VersionedTransaction>>,
+        HashOf<sumeragi::view_change::Proof>,
+        HashOf<transaction::VersionedTransaction>,
+        IdBox,
+        IdFilter<AccountId>,
+        IdFilter<AssetDefinitionId>,
+        IdFilter<AssetId>,
+        IdFilter<DomainId>,
+        IdFilter<PeerId>,
+        IdFilter<RoleId>,
+        IdFilter<TriggerId>,
+        IdentifiableBox,
+        IfExpression,
+        IfInstruction,
+        Instruction,
+        InstructionExecutionFail,
+        Less,
+        Metadata,
+        MetadataLimits,
+        MintBox,
+        Mod,
+        Multiply,
+        Name,
+        Not,
+        NotPermittedFail,
+        Option<Hash>,
+        Option<core::time::Duration>,
+        Option<domain::IpfsPath>,
+        Option<events::pipeline::EntityKind>,
+        Option<events::pipeline::StatusKind>,
+        Option<events::time::Interval>,
+        Option<isi::Instruction>,
+        Option<sumeragi::network_topology::Topology>,
+        Option<u32>,
+        Or,
+        Pair,
+        Parameter,
+        Payload,
+        Peer,
+        PeerEvent,
+        PeerEventFilter,
+        PeerFilter,
+        PeerId,
+        PendingTransactions,
+        PermissionToken,
+        PipelineEntityKind,
+        PipelineEvent,
+        PipelineEventFilter,
+        PipelineStatus,
+        PublicKey,
+        QueryBox,
+        QueryRequest,
+        QueryResult,
+        RaiseTo,
+        RawVersioned,
+        RegisterBox,
+        RegistrableBox,
+        RejectedTransaction,
+        RejectionReason,
+        RemoveKeyValueBox,
+        Repeats,
+        RevokeBox,
+        Role,
+        RoleEvent,
+        RoleEventFilter,
+        RoleFilter,
+        RoleId,
+        SequenceBox,
+        SetKeyValueBox,
+        Signature,
+        SignatureCheckCondition,
+        SignatureOf<block::CommittedBlock>,
+        SignatureOf<block::ValidBlock>,
+        SignatureOf<query::Payload>,
+        SignatureOf<sumeragi::view_change::Proof>,
+        SignatureOf<transaction::Payload>,
+        SignaturesOf<block::CommittedBlock>,
+        SignaturesOf<sumeragi::view_change::Proof>,
+        SignaturesOf<transaction::Payload>,
+        SignedQueryRequest,
+        String,
+        Subtract,
+        TimeEvent,
+        TimeEventFilter,
+        TimeInterval,
+        TimeSchedule,
+        Transaction,
+        TransactionRejectionReason,
+        TransactionValue,
+        TransferBox,
+        Trigger,
+        TriggerEvent,
+        TriggerEventFilter,
+        TriggerFilter,
+        TriggerId,
+        UnregisterBox,
+        UnsatisfiedSignatureConditionFail,
+        UnsupportedVersion,
+        ValidTransaction,
+        Value,
+        Vec<HashOf<block::VersionedValidBlock>>,
+        Vec<PeerId>,
+        Vec<SignatureOf<block::ValidBlock>>,
+        Vec<SignatureOf<transaction::Payload>>,
+        Vec<Value>,
+        Vec<events::Event>,
+        Vec<isi::Instruction>,
+        Vec<permissions::PermissionToken>,
+        Vec<sumeragi::view_change::Proof>,
+        Vec<transaction::VersionedRejectedTransaction>,
+        Vec<transaction::VersionedValidTransaction>,
+        Vec<u8>,
+        VersionedPendingTransactions,
+        VersionedQueryResult,
+        VersionedRejectedTransaction,
+        VersionedSignedQueryRequest,
+        VersionedTransaction,
+        VersionedValidTransaction,
+        WasmExecutionFail,
+        Where,
+        [u8; 32],
+        account::NewAccount,
+        asset::Mintable,
+        block::BlockHeader,
+        block::CommittedBlock,
+        block::ValidBlock,
+        block::VersionedCommittedBlock,
+        block::VersionedValidBlock,
+        block::stream::BlockPublisherMessage,
+        block::stream::BlockSubscriberMessage,
+        block::stream::VersionedBlockPublisherMessage,
+        block::stream::VersionedBlockSubscriberMessage,
+        bool,
+        core::time::Duration,
+        domain::IpfsPath,
+        domain::NewDomain,
+        error::Error,
+        events::Event,
+        events::EventFilter,
+        events::EventPublisherMessage,
+        events::EventSubscriberMessage,
+        events::VersionedEventPublisherMessage,
+        events::VersionedEventSubscriberMessage,
+        events::pipeline::StatusKind,
+        expression::EvaluatesTo<AccountId>,
+        expression::EvaluatesTo<AssetDefinitionId>,
+        expression::EvaluatesTo<AssetId>,
+        expression::EvaluatesTo<DomainId>,
+        expression::EvaluatesTo<Hash>,
+        expression::EvaluatesTo<IdBox>,
+        expression::EvaluatesTo<Name>,
+        expression::EvaluatesTo<RegistrableBox>,
+        expression::EvaluatesTo<Value>,
+        expression::EvaluatesTo<Vec<Value>>,
+        expression::EvaluatesTo<bool>,
+        expression::EvaluatesTo<u32>,
+        fixed::FixNum,
+        fixed::Fixed,
+        i64,
+        query::Payload,
+        smartcontracts::isi::error::FindError,
+        smartcontracts::isi::error::ParentHashNotFound,
+        smartcontracts::isi::query::Error,
+        smartcontracts::isi::query::UnsupportedVersionError,
+        sumeragi::network_topology::Topology,
+        sumeragi::view_change::BlockCreationTimeout,
+        sumeragi::view_change::CommitTimeout,
+        sumeragi::view_change::NoTransactionReceiptReceived,
+        sumeragi::view_change::Proof,
+        sumeragi::view_change::ProofChain,
+        sumeragi::view_change::ProofPayload,
+        sumeragi::view_change::Reason,
+        transaction::TransactionLimitError,
+        transaction::WasmSmartContract,
+        u128,
+        u32,
+        u64,
+        u8,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use iroha_schema_bin::build_schemas;
+
+    use super::*;
+
+    #[test]
+    fn schemas_types_is_a_subset_of_map_types() {
+        // Exceptions which does not implement `Decode` so that they can't be decoded by this tool
+        let exceptions = HashSet::from([
+            "Vec<iroha_core::genesis::GenesisTransaction>",
+            "iroha_core::genesis::GenesisTransaction",
+            "iroha_core::genesis::RawGenesisBlock",
+            "iroha_data_model::merkle::Leaf<iroha_data_model::transaction::VersionedTransaction>",
+            "iroha_data_model::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>",
+            "iroha_data_model::merkle::Node<iroha_data_model::transaction::VersionedTransaction>",
+            "iroha_data_model::merkle::Subtree<iroha_data_model::transaction::VersionedTransaction>",
+            "iroha_schema::Compact<u128>",
+        ]);
+
+        let schemas_types = build_schemas()
+            .into_keys()
+            .filter(|type_name| !exceptions.contains(type_name.as_str()))
+            .collect::<HashSet<_>>();
+        let map_types = generate_map().into_keys().collect::<HashSet<_>>();
+
+        assert!(
+            schemas_types.is_subset(&map_types),
+            "Difference: {:#?}",
+            schemas_types.difference(&map_types)
+        );
+    }
+}
