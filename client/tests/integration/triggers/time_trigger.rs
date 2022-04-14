@@ -5,7 +5,7 @@ use std::{str::FromStr as _, time::Duration};
 use eyre::Result;
 use iroha_client::client::{self, Client};
 use iroha_core::block::DEFAULT_CONSENSUS_ESTIMATION_MS;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use test_network::{Peer as TestPeer, *};
 
 /// Macro to abort compilation, if `e` isn't `true`
@@ -158,6 +158,80 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
             String::from("value"),
         );
         test_client.submit(sample_isi)?;
+    }
+
+    Ok(())
+}
+
+#[test]
+fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
+    const TRIGGER_PERIOD_MS: u64 = 1000;
+    const TO_WAIT_MS: u64 = 3000;
+    const EXPECTED_COUNT: u64 = TO_WAIT_MS / TRIGGER_PERIOD_MS;
+
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let alice_id = "alice@wonderland"
+        .parse::<<Account as Identifiable>::Id>()
+        .expect("Valid");
+
+    let accounts: Vec<AccountId> = vec![
+        alice_id.clone(),
+        "mad_hatter@wonderland".parse().expect("Valid"),
+        "cheshire_cat@wonderland".parse().expect("Valid"),
+        "caterpillar@wonderland".parse().expect("Valid"),
+        "white_rabbit@wonderland".parse().expect("Valid"),
+    ];
+
+    // Registering accounts
+    let register_accounts = accounts
+        .iter()
+        .skip(1) // Alice has already been registered in genesis
+        .cloned()
+        .map(|account_id| RegisterBox::new(Account::new(account_id, [])).into())
+        .collect::<Vec<_>>();
+    test_client.submit_all_blocking(register_accounts)?;
+
+    // Registering trigger
+    let start_time = current_time();
+    let schedule =
+        TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(TRIGGER_PERIOD_MS));
+    let wasm = Vec::<u8>::default(); // TODO
+    let register_trigger = RegisterBox::new(Trigger::new(
+        "mint_nft_for_all".parse()?,
+        Action::new(
+            Executable::Wasm(WasmSmartContract { raw_data: wasm }),
+            Repeats::Indefinitely,
+            alice_id.clone(),
+            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+        ),
+    ));
+    test_client.submit(register_trigger)?;
+
+    // Time trigger will be executed on block commits, so we have to produce some transactions
+    submit_sample_isi_on_every_block_commit(
+        &mut test_client,
+        &alice_id,
+        usize::try_from(TO_WAIT_MS / 1000)?,
+    )?;
+
+    // Checking results
+    for account_id in accounts {
+        let pattern = format!("nft_{}_", account_id);
+        let assets = test_client.request(client::asset::by_account_id(account_id.clone()))?;
+        let count: u64 = assets
+            .into_iter()
+            .filter(|asset| asset.id().definition_id.to_string().starts_with(&pattern))
+            .count()
+            .try_into()
+            .expect("`usize` should always fit in `u64`");
+
+        assert_eq!(
+            count, EXPECTED_COUNT,
+            "{} has {} NFT, but {} expected",
+            account_id, count, EXPECTED_COUNT
+        );
     }
 
     Ok(())
