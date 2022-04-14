@@ -1,0 +1,24 @@
+[package]
+name = "parity_scale_decoder"
+version = "2.0.0-pre-rc.3"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+no-color = ["colored/no-color"]
+
+[dependencies]
+iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../../data_model", features = ["warp"]}
+iroha_schema = { version = "=2.0.0-pre-rc.3", path = "../../schema"}
+iroha_core = { version = "=2.0.0-pre-rc.3", path = "../../core", features = ["roles"] }
+iroha_crypto = { version = "=2.0.0-pre-rc.3", path = "../../crypto", default-features = false }
+iroha_version = { version = "=2.0.0-pre-rc.3", path = "../../version", default-features = false }
+clap = { version = "3.1.8", features = ["derive", "cargo"] }
+eyre = "0.6.8"
+parity-scale-codec = { version = "2.3.1", default-features = false }
+colored = "2.0.0"
+
+[dev-dependencies]
+iroha_schema_bin = { version = "=2.0.0-pre-rc.3", path = "../../schema/bin"}
