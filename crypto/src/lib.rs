@@ -39,14 +39,18 @@ use ursa::{
     },
 };
 
+// Hiding constants is a bad idea. For one, you're forcing the user to
+// create temporaries, but also you're not actually hiding any
+// information that can be used in malicious ways. If you want to hide
+// these, I'd prefer inlining them instead.
 /// ed25519
-const ED_25519: &str = "ed25519";
+pub const ED_25519: &str = "ed25519";
 /// secp256k1
-const SECP_256_K1: &str = "secp256k1";
+pub const SECP_256_K1: &str = "secp256k1";
 /// bls normal
-const BLS_NORMAL: &str = "bls_normal";
+pub const BLS_NORMAL: &str = "bls_normal";
 /// bls small
-const BLS_SMALL: &str = "bls_small";
+pub const BLS_SMALL: &str = "bls_small";
 
 /// Error indicating algorithm could not be found
 #[derive(Debug, Clone, Copy, Display, IntoSchema)]

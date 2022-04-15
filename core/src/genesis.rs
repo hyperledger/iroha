@@ -8,7 +8,7 @@ use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref,
 use eyre::{eyre, Result, WrapErr};
 use iroha_actor::Addr;
 use iroha_crypto::{KeyPair, PublicKey};
-use iroha_data_model::{asset::AssetDefinition, domain::NewDomain, prelude::*};
+use iroha_data_model::{asset::AssetDefinition, prelude::*};
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
 use small::SmallVec;
@@ -414,7 +414,7 @@ impl RawGenesisBlockBuilder {
     /// be used to create assets and accounts.
     pub fn domain(mut self, domain_name: Name) -> RawGenesisDomainBuilder {
         let domain_id = DomainId::new(domain_name);
-        let new_domain = NewDomain::new(domain_id.clone());
+        let new_domain = Domain::new(domain_id.clone());
         self.transaction
             .isi
             .push(Instruction::from(RegisterBox::new(new_domain)));
@@ -521,7 +521,7 @@ mod tests {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[0],
-                Instruction::from(RegisterBox::new(NewDomain::new(domain_id.clone())))
+                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[1],
@@ -537,7 +537,7 @@ mod tests {
             let domain_id: DomainId = "tulgey_wood".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[3],
-                Instruction::from(RegisterBox::new(NewDomain::new(domain_id.clone())))
+                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[4],
@@ -548,7 +548,7 @@ mod tests {
             let domain_id: DomainId = "meadow".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[5],
-                Instruction::from(RegisterBox::new(NewDomain::new(domain_id.clone())))
+                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[6],
