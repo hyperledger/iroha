@@ -1,4 +1,5 @@
 #!/bin/sh
 set -e
-cargo run --bin iroha_gen -- --docs >docs/source/references/config.md
-git add docs/source/references/config.md
+cargo run --bin kagami -- --docs >docs/source/references/config.md
+cargo run --bin kagami -- --genesis >configs/peer/genesis.json
+git add docs/source/references/config.md configs/peer/genesis.json
