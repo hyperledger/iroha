@@ -1,12 +1,15 @@
 #![allow(clippy::restriction)]
 
-use std::{str::FromStr as _, time::Duration};
+use std::{collections::BTreeMap, str::FromStr as _, time::Duration};
 
 use eyre::{eyre, Result};
 use iroha_client::client::{self, Client};
 use iroha_core::{prelude::AllowAll, smartcontracts::permissions::ValidatorBuilder};
 use iroha_data_model::{permissions::Permissions, prelude::*};
-use iroha_permissions_validators::public_blockchain::transfer;
+use iroha_permissions_validators::public_blockchain::{
+    key_value::{CAN_REMOVE_KEY_VALUE_IN_USER_METADATA, CAN_SET_KEY_VALUE_IN_USER_METADATA},
+    transfer,
+};
 use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
 
@@ -122,3 +125,28 @@ fn register_role_with_empty_token_params() -> Result<()> {
 
 // TODO: When we have more sane default permissions, see if we can
 // test more about whether or not roles actually work.
+
+#[test]
+fn register_and_grant_metadata_role_to_account() -> Result<()> {
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland")?;
+    let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
+    test_client.submit_blocking(register_bob)?;
+
+    let role_id = iroha_data_model::role::Id::new("USER_METADATA_ACCESS".parse::<Name>()?);
+    let mut permissions = Permissions::new();
+    let mut params = BTreeMap::new();
+    params.insert(Name::from_str("account_id")?, bob_id.into());
+    permissions.insert(
+        PermissionToken::new(CAN_SET_KEY_VALUE_IN_USER_METADATA.clone())
+            .with_params(params.clone()),
+    );
+    permissions.insert(
+        PermissionToken::new(CAN_REMOVE_KEY_VALUE_IN_USER_METADATA.clone()).with_params(params),
+    );
+    let register_role = RegisterBox::new(Role::new(role_id, permissions));
+    test_client.submit(register_role)?;
+    Ok(())
+}

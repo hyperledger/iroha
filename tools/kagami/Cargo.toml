@@ -1,12 +1,16 @@
 [package]
-name = "iroha_gen"
+name = "kagami"
 version = "2.0.0-pre-rc.3"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-# Explanation: You want the option to remove configuration docs if you distribute e.g. a `deb`, but want the person who just cloned the repo to be able to see at a glance what kinds of features are accessible to them, what they do and how to use them. #1975 should be fixed soon.
+# Explanation: You want the option to remove configuration docs if you
+# distribute e.g. a `deb`, but want the person who just cloned the
+# repo to be able to see at a glance what kinds of features are
+# accessible to them, what they do and how to use them. #1975 should
+# be fixed soon.
 [features]
 default = ["dex", "telemetry", "dev-telemetry"]
 dex = ["iroha_core/dex"]
@@ -16,10 +20,13 @@ dev-telemetry = ["iroha_core/dev-telemetry"]
 
 [dependencies]
 iroha_core = { version = "=2.0.0-pre-rc.3", path = "../../core" }
+iroha_crypto = { version = "=2.0.0-pre-rc.3", path = "../../crypto" }
 iroha_config = { version = "=2.0.0-pre-rc.3", path = "../../config" }
 iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../../data_model" }
 iroha_schema_bin = { version = "=2.0.0-pre-rc.3", path = "../../schema/bin" }
 iroha = { path = "../../cli" }
 
 color-eyre = "0.5.11"
+hex = "0.4.0"
+clap = "2.33.0"
 serde_json = "1"
