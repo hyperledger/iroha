@@ -74,7 +74,7 @@ pub struct NewDomain {
     /// The (IPFS) link to the logo of this domain.
     logo: Option<IpfsPath>,
     /// metadata associated to the domain builder.
-    pub metadata: Metadata,
+    metadata: Metadata,
 }
 
 impl PartialOrd for NewDomain {
@@ -94,7 +94,7 @@ impl Ord for NewDomain {
 impl NewDomain {
     /// Create a [`NewDomain`], reserved for internal use.
     #[must_use]
-    pub fn new(id: <Domain as Identifiable>::Id) -> Self {
+    fn new(id: <Domain as Identifiable>::Id) -> Self {
         Self {
             id,
             logo: None,
