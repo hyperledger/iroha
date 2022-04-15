@@ -1,8 +1,8 @@
 #![allow(clippy::restriction)]
 
-use std::{str::FromStr as _, time::Duration};
+use std::{fs, str::FromStr as _, time::Duration};
 
-use eyre::Result;
+use eyre::{Context, Result};
 use iroha_client::client::{self, Client};
 use iroha_core::block::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
@@ -193,11 +193,18 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_accounts)?;
 
+    // Reading wasm smartcontract
+    let wasm = fs::read(concat!(
+        env!("OUT_DIR"),
+        "/wasm32-unknown-unknown/release/create_nft_for_every_user_smartcontract.wasm"
+    ))
+    .wrap_err("Can't read smartcontract")?;
+    println!("wasm size is {} bytes", wasm.len());
+
     // Registering trigger
     let start_time = current_time();
     let schedule =
         TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(TRIGGER_PERIOD_MS));
-    let wasm = Vec::<u8>::default(); // TODO
     let register_trigger = RegisterBox::new(Trigger::new(
         "mint_nft_for_all".parse()?,
         Action::new(
