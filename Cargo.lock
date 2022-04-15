@@ -1669,6 +1669,7 @@ checksum = "ec58677acfea8a15352d42fc87d11d63596ade9239e0a7c9352914417515dbe6"
 name = "iroha"
 version = "2.0.0-pre-rc.3"
 dependencies = [
+ "async-trait",
  "color-eyre",
  "eyre",
  "futures",
@@ -1680,6 +1681,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_futures",
  "iroha_logger",
+ "iroha_macro",
  "iroha_p2p",
  "iroha_permissions_validators",
  "iroha_schema_bin",
@@ -1829,7 +1831,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "unique_port",
- "warp",
  "wasmtime",
 ]
 

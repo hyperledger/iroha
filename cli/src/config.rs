@@ -65,13 +65,12 @@ pub struct Configuration {
 impl Default for Configuration {
     #[allow(clippy::expect_used)]
     fn default() -> Self {
-        let public_key =
-            r#"ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"#
-                .parse()
-                .expect("Public key not in mulithash format");
+        let public_key = "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+            .parse()
+            .expect("Public key not in mulithash format");
         let private_key = PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "1B038DDD 463090FC B30CFA9A 24341679 20BC90CD D7C045BC 64FBCB51 49135100 954C83A4 220FAFFB 2C1D23FC 5225B3E7 952D53AC BB2A065F F30C631E 5E1D6B10"
+            "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
         ).expect("Private key not hex encoded");
 
         Self {
@@ -178,7 +177,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn parse_trusted_peers_fail_duplicate_peer_id() {
-        let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address":"127.0.0.1:1337", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address":"localhost:1338", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address": "195.162.0.1:23", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}]"#;
+        let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}, {"address":"127.0.0.1:1337", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}, {"address":"localhost:1338", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}, {"address": "195.162.0.1:23", "public_key": "ed0120954c83a4220faffb2c1d23fc5225b3e7952d53acbb2a065ff30c631e5e1d6b10"}]"#;
         let _result: TrustedPeers =
             serde_json::from_str(trusted_peers_string).expect("Failed to parse Trusted Peers");
     }

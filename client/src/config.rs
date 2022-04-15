@@ -99,13 +99,12 @@ pub struct Configuration {
 impl Default for Configuration {
     #[allow(clippy::expect_used)]
     fn default() -> Self {
-        let public_key =
-            r#"ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"#
-                .parse()
-                .expect("Public key not in mulithash format");
+        let public_key = "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+            .parse()
+            .expect("Public key not in mulithash format");
         let private_key = PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "282ED9F3 CF92811C 3818DBC4 AE594ED5 9DC1A2F7 8E4241E3 1924E101 D6B1FB83 1C61FAF8 FE94E253 B9311424 0394F79A 607B7FA5 5F9E5A41 EBEC74B8 8055768B"
+            "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
         ).expect("Private key not hex encoded");
 
         Self {

@@ -52,7 +52,6 @@ serde_json = "1.0"
 tokio = { version = "1.6.0", features = ["sync", "time", "rt", "io-util", "rt-multi-thread", "macros", "fs"]}
 tokio-stream = { version = "0.1.6", features = ["fs"]}
 crossbeam-queue = "0.3"
-warp = "0.3"
 thiserror = "1.0.28"
 pin-project = "1"
 wasmtime = "0.35.1"

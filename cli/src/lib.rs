@@ -26,7 +26,9 @@ use tokio::sync::broadcast;
 use torii::Torii;
 
 pub mod config;
+mod event;
 pub mod samples;
+mod stream;
 pub mod torii;
 
 /// Arguments for Iroha2 - usually parsed from cli.

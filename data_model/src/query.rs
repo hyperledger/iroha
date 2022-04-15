@@ -153,7 +153,7 @@ impl QueryRequest {
     /// Constructs a new request with the `query`.
     pub fn new(query: QueryBox, account_id: <Account as Identifiable>::Id) -> Self {
         let timestamp_ms = crate::current_time().as_millis();
-        QueryRequest {
+        Self {
             payload: Payload {
                 timestamp_ms,
                 query,

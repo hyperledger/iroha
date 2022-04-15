@@ -24,11 +24,10 @@ use tokio::task;
 
 use crate::{
     block::Chain,
-    event::EventsSender,
     prelude::*,
     smartcontracts::{isi::Error, wasm, Execute, FindError},
     triggers::TriggerSet,
-    DomainsMap, PeersIds,
+    DomainsMap, EventsSender, PeersIds,
 };
 
 /// Sender type of the new block notification channel

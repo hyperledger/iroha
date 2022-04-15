@@ -55,12 +55,12 @@ impl Default for SumeragiConfiguration {
     #[allow(clippy::expect_used)]
     fn default() -> Self {
         let public_key: PublicKey =
-            r#"ed0120e6ba36a2f2442152cf0a691b2a238f8de69affb6016aec44493627784543d4b6"#
+            "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
                 .parse()
                 .expect("Public key not in mulithash format");
         let private_key = PrivateKey::from_hex(
             Algorithm::Ed25519,
-            "077CC547 30A0C341 5837DB47 C169FAFA 93B6E2E6 35D5DD73 49B0CDF6 CC73997F E6BA36A2 F2442152 CF0A691B 2A238F8D E69AFFB6 016AEC44 49362778 4543D4B6"
+            "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
         ).expect("Private key not hex encoded");
 
         let peer_id = PeerId {

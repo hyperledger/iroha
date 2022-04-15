@@ -14,18 +14,20 @@ use iroha_core::{
     },
     queue::Queue,
     smartcontracts::{isi::error::FindError, permissions::DenyAll},
-    stream::{Sink, Stream},
     sumeragi::view_change::ProofChain,
     tx::TransactionValidator,
     wsv::World,
 };
-use iroha_data_model::account::GENESIS_ACCOUNT_NAME;
+use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, prelude::*};
 use iroha_version::prelude::*;
 use tokio::time;
 use warp::test::WsClient;
 
 use super::{routing::*, *};
-use crate::samples::{get_config, get_trusted_peers};
+use crate::{
+    samples::{get_config, get_trusted_peers},
+    stream::{Sink, Stream},
+};
 
 async fn create_torii() -> (Torii<World>, KeyPair) {
     let mut config = crate::samples::get_config(crate::samples::get_trusted_peers(None), None);
@@ -743,9 +745,10 @@ fn hash_should_be_the_same() {
 
 #[tokio::test]
 async fn test_subscription_websocket_clean_closing() {
-    use iroha_core::stream::{Sink, Stream};
     use iroha_data_model::events::{pipeline, EventFilter};
     use warp::filters::ws;
+
+    use crate::stream::{Sink, Stream};
 
     let (torii, _) = create_torii().await;
     let router = torii.create_api_router();

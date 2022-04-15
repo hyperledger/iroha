@@ -5,15 +5,10 @@
 use futures::TryStreamExt;
 use iroha_data_model::events::prelude::*;
 use iroha_macro::error::ErrorTryFromEnum;
-use tokio::sync::broadcast;
 use warp::ws::WebSocket;
 
 use crate::stream::{self, Sink, Stream};
 
-/// Type of `Sender<Event>` which should be used for channels of `Event` messages.
-pub type EventsSender = broadcast::Sender<Event>;
-/// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
-pub type EventsReceiver = broadcast::Receiver<Event>;
 /// Type of Stream error
 pub type StreamError = stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>;
 
