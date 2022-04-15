@@ -26,6 +26,15 @@ namespace iroha {
     }
 
     /**
+     * Returns current UNIX timestamp.
+     * Represents number of milliseconds since epoch.
+     */
+    inline auto nowUs() {
+      return std::chrono::high_resolution_clock::now().time_since_epoch()
+             / std::chrono::microseconds(1);
+    }
+
+    /**
      * Return UNIX timestamp with given offset.
      * Represents number of milliseconds since epoch.
      */

@@ -47,7 +47,7 @@ namespace iroha::ametsuchi {
 
     std::optional<size_t> getCallId() const {
       if (call_id_cache_)
-        return call_id_cache_->first;
+        return call_id_cache_;
       return std::nullopt;
     }
 
@@ -57,7 +57,7 @@ namespace iroha::ametsuchi {
     RocksDbCommon &common_;
     std::string_view tx_hash_;
     shared_model::interface::types::CommandIndexType cmd_index_;
-    std::optional<std::pair<size_t, size_t>> call_id_cache_;
+    std::optional<size_t> call_id_cache_;
   };
 
 }  // namespace iroha::ametsuchi
