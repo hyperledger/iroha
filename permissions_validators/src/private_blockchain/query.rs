@@ -30,7 +30,26 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                 Err("Only access to the domain of the account is permitted.".to_owned())
             }
             FindAllRoles(_) => Ok(()),
+            FindAllRoleIds(_) => Ok(()),
+            FindRoleByRoleId(_) => Ok(()),
             FindAllPeers(_) => Ok(()),
+            FindAllActiveTriggerIds(_) => Ok(()),
+            FindTriggerById(_) => Ok(()), // TODO: should we allow people to get any trigger they like in a private blockchain also?
+            FindTriggerKeyValueByIdAndKey(query) => {
+                let id = query
+                    .id
+                    .evaluate(wsv, &context)
+                    .map_err(|e| e.to_string())?;
+                let trigger = wsv.world.triggers.get(&id).map_err(|err| err.to_string())?;
+                if trigger.technical_account == *authority {
+                    Ok(())
+                } else {
+                    Err(
+                        "Cannot access Trigger internal state if you're not the technical account"
+                            .to_owned(),
+                    )
+                }
+            }
             FindAccountById(query) => {
                 let account_id = query
                     .id
@@ -261,8 +280,43 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
             | FindAllAssets(_) => {
                 Err("Only access to the assets of the same domain is permitted.".to_owned())
             }
-            FindAllRoles(_) => Ok(()),
-            FindAllPeers(_) => Ok(()),
+            FindAllRoles(_)
+            | FindAllRoleIds(_)
+            | FindRoleByRoleId(_)
+            | FindAllPeers(_)
+            | FindAllActiveTriggerIds(_) => Ok(()),
+            FindTriggerById(query) => {
+                // TODO: should differentiate between global and domain-local triggers.
+                let id = query
+                    .id
+                    .evaluate(wsv, &context)
+                    .map_err(|e| e.to_string())?;
+                if let Ok(trigger) = wsv.world.triggers.get(&id) {
+                    if trigger.technical_account == *authority {
+                        return Ok(());
+                    }
+                }
+                Err(format!(
+                    "A trigger with the specified Id: {} is not accessible to you",
+                    id
+                ))
+            }
+            FindTriggerKeyValueByIdAndKey(query) => {
+                // TODO: should differentiate between global and domain-local triggers.
+                let id = query
+                    .id
+                    .evaluate(wsv, &context)
+                    .map_err(|e| e.to_string())?;
+                if let Ok(trigger) = wsv.world.triggers.get(&id) {
+                    if trigger.technical_account == *authority {
+                        return Ok(());
+                    }
+                }
+                Err(format!(
+                    "A trigger with the specified Id: {} is not accessible to you",
+                    id
+                ))
+            }
             FindAccountById(query) => {
                 let account_id = query
                     .id
@@ -272,8 +326,9 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                     Ok(())
                 } else {
                     Err(format!(
-                        "Cannot access account {} as only access to your own account is permitted..",
-                        account_id
+                        "Cannot access account {} as only access to your own account, {} is permitted..",
+                        account_id,
+                        authority
                     ))
                 }
             }

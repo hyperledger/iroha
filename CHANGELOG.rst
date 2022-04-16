@@ -761,3 +761,4 @@ Other
   ``proposal_creation_timeout``.
   Update sample config file to have not deprecated DB connection params.
 
+Error: Keyboard Interrupt. Bailing out.
