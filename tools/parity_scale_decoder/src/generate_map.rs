@@ -53,8 +53,7 @@ macro_rules! generate_map {
 }
 
 /// Generate map with types and `dump_decoded()` ptr
-#[allow(trivial_casts)]
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, trivial_casts)]
 pub fn generate_map() -> DumpDecodedMap {
     let mut map = generate_map! {
         Account,

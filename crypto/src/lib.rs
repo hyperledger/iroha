@@ -110,9 +110,9 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
         match key_gen_option {
             KeyGenOption::UseSeed(seed) => Ok(UrsaKeyGenOption::UseSeed(seed)),
             KeyGenOption::FromPrivateKey(key) => {
-                if key.digest_function() == Algorithm::Ed25519
-                    || key.digest_function() == Algorithm::Secp256k1
-                {
+                let algorithm = key.digest_function();
+
+                if algorithm == Algorithm::Ed25519 || algorithm == Algorithm::Secp256k1 {
                     return Ok(Self::FromSecretKey(UrsaPrivateKey(key.payload)));
                 }
 
@@ -155,7 +155,7 @@ impl KeyGenConfiguration {
 }
 
 /// Pair of Public and Private keys.
-#[derive(Debug, Clone, PartialEq, Eq, Getters, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize)]
 #[getset(get = "pub")]
 pub struct KeyPair {
     /// Public Key.
@@ -205,6 +205,11 @@ impl From<NoSuchAlgorithm> for Error {
 impl std::error::Error for Error {}
 
 impl KeyPair {
+    /// Digest function
+    pub fn digest_function(&self) -> Algorithm {
+        self.private_key.digest_function()
+    }
+
     /// Construct `KeyPair`
     pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Self {
         Self {
@@ -228,11 +233,13 @@ impl KeyPair {
     /// Fails if decoding fails
     #[cfg(feature = "std")]
     pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, Error> {
+        let digest_function = configuration.algorithm.to_string();
+
         let key_gen_option: Option<UrsaKeyGenOption> = configuration
             .key_gen_option
             .map(TryInto::try_into)
             .transpose()?;
-        let (public_key, private_key) = match configuration.algorithm {
+        let (mut public_key, mut private_key) = match configuration.algorithm {
             Algorithm::Ed25519 => Ed25519Sha512.keypair(key_gen_option),
             Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().keypair(key_gen_option),
             Algorithm::BlsNormal => BlsNormal::new().keypair(key_gen_option),
@@ -241,14 +248,30 @@ impl KeyPair {
 
         Ok(Self {
             public_key: PublicKey {
-                digest_function: configuration.algorithm.to_string(),
-                payload: public_key.as_ref().to_vec(),
+                digest_function: digest_function.clone(),
+                payload: core::mem::take(&mut public_key.0),
             },
             private_key: PrivateKey {
-                digest_function: configuration.algorithm.to_string(),
-                payload: private_key.as_ref().to_vec(),
+                digest_function,
+                payload: core::mem::take(&mut private_key.0),
             },
         })
+    }
+}
+
+impl<'de> Deserialize<'de> for KeyPair {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct KeyPair {
+            public_key: PublicKey,
+            private_key: PrivateKey,
+        }
+
+        let key_pair = KeyPair::deserialize(deserializer)?;
+        Ok(Self::new(key_pair.public_key, key_pair.private_key))
     }
 }
 
@@ -316,7 +339,7 @@ impl fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PublicKey")
             .field("digest_function", &self.digest_function())
-            .field("payload", &hex::encode_upper(self.payload.as_slice()))
+            .field("payload", &hex::encode_upper(self.payload().as_slice()))
             .finish()
     }
 }
@@ -485,14 +508,14 @@ impl fmt::Debug for PrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PrivateKey")
             .field("digest_function", &self.digest_function())
-            .field("payload", &format!("{:X?}", self.payload))
+            .field("payload", &format!("{:X?}", self.payload()))
             .finish()
     }
 }
 
 impl fmt::Display for PrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(&self.payload))
+        write!(f, "{}", hex::encode(self.payload()))
     }
 }
 

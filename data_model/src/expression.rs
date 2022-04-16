@@ -59,7 +59,10 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     }
 }
 
-impl<V: TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
+impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
+    fn type_name() -> String {
+        format!("{}::EvaluatesTo<{}>", module_path!(), V::type_name())
+    }
     fn schema(map: &mut MetaMap) {
         ExpressionBox::schema(map);
 

@@ -54,7 +54,6 @@ pub struct Signature {
     /// that corresponds with the public key's digest function.
     public_key: PublicKey,
     /// Actual signature payload is placed here.
-    #[getset(skip)]
     payload: Payload,
 }
 
@@ -64,13 +63,9 @@ impl Signature {
     /// # Errors
     /// Fails if signing fails
     #[cfg(feature = "std")]
-    fn new(
-        KeyPair {
-            public_key,
-            private_key,
-        }: KeyPair,
-        payload: &[u8],
-    ) -> Result<Self, Error> {
+    fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Self, Error> {
+        let (public_key, private_key) = key_pair.into();
+
         let algorithm: Algorithm = public_key.digest_function();
         let private_key = UrsaPrivateKey(private_key.payload);
 
@@ -91,7 +86,7 @@ impl Signature {
     /// since it is not possible to validate the correctness of the conversion.
     /// Prefer creating new signatures with [`SignatureOf::new`] whenever possible
     #[inline]
-    #[allow(dead_code)]
+    #[cfg_attr(not(feature = "std"), allow(dead_code))]
     fn typed<T>(self) -> SignatureOf<T> {
         SignatureOf(self, PhantomData)
     }
@@ -103,15 +98,15 @@ impl Signature {
     #[cfg(feature = "std")]
     pub fn verify(&self, payload: &[u8]) -> Result<(), Error> {
         let algorithm: Algorithm = self.public_key.digest_function();
-        let public_key = UrsaPublicKey(self.public_key.payload.clone());
+        let public_key = UrsaPublicKey(self.public_key.payload().clone());
 
         match algorithm {
-            Algorithm::Ed25519 => Ed25519Sha512::new().verify(payload, &self.payload, &public_key),
+            Algorithm::Ed25519 => Ed25519Sha512::new().verify(payload, self.payload(), &public_key),
             Algorithm::Secp256k1 => {
-                EcdsaSecp256k1Sha256::new().verify(payload, &self.payload, &public_key)
+                EcdsaSecp256k1Sha256::new().verify(payload, self.payload(), &public_key)
             }
-            Algorithm::BlsSmall => BlsSmall::new().verify(payload, &self.payload, &public_key),
-            Algorithm::BlsNormal => BlsNormal::new().verify(payload, &self.payload, &public_key),
+            Algorithm::BlsSmall => BlsSmall::new().verify(payload, self.payload(), &public_key),
+            Algorithm::BlsNormal => BlsNormal::new().verify(payload, self.payload(), &public_key),
         }?;
 
         Ok(())
@@ -122,7 +117,7 @@ impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct(core::any::type_name::<Self>())
             .field("public_key", &self.public_key)
-            .field("signature", &hex::encode_upper(self.payload.as_slice()))
+            .field("signature", &hex::encode_upper(self.payload().as_slice()))
             .finish()
     }
 }
@@ -191,12 +186,15 @@ impl<T> Ord for SignatureOf<T> {
     }
 }
 
-impl<T> IntoSchema for SignatureOf<T> {
+impl<T: IntoSchema> IntoSchema for SignatureOf<T> {
+    fn type_name() -> String {
+        format!("{}::SignatureOf<{}>", module_path!(), T::type_name())
+    }
     fn schema(map: &mut MetaMap) {
         Signature::schema(map);
 
         map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::TupleStruct(UnnamedFieldsMeta {
+            Metadata::Tuple(UnnamedFieldsMeta {
                 types: vec![Signature::type_name()],
             })
         });
@@ -273,7 +271,6 @@ impl<T: Encode> SignatureOf<T> {
 ///
 /// GUARANTEE 1: This container always contains at least 1 signature
 /// GUARANTEE 2: Each signature corresponds to a different public key
-#[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Encode, Serialize, IntoSchema)]
 #[serde(transparent)]
 // Transmute guard
@@ -381,7 +378,7 @@ impl<T> TryFrom<btree_set::BTreeSet<SignatureOf<T>>> for SignaturesOf<T> {
             return Ok(Self {
                 signatures: signatures
                     .into_iter()
-                    .map(|signature| (signature.public_key.clone(), signature))
+                    .map(|signature| (signature.public_key().clone(), signature))
                     .collect(),
             });
         }
@@ -417,7 +414,7 @@ impl<T> SignaturesOf<T> {
     /// Adds a signature. If the signature with this key was present, replaces it.
     pub fn insert(&mut self, signature: SignatureOf<T>) {
         self.signatures
-            .insert(signature.public_key.clone(), signature);
+            .insert(signature.public_key().clone(), signature);
     }
 
     /// Returns signatures that have passed verification.
@@ -525,7 +522,8 @@ impl<T> fmt::Display for SignatureVerificationFail<T> {
         write!(
             f,
             "Failed to verify signatures because of signature {}: {}",
-            self.signature.public_key, self.reason,
+            self.signature.public_key(),
+            self.reason,
         )
     }
 }
@@ -552,7 +550,7 @@ mod tests {
         let message = b"Test message to sign.";
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
+        assert_eq!(signature.public_key(), key_pair.public_key());
         assert!(signature.verify(message).is_ok())
     }
 
@@ -566,7 +564,7 @@ mod tests {
         let message = b"Test message to sign.";
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
+        assert_eq!(signature.public_key(), key_pair.public_key());
         assert!(signature.verify(message).is_ok())
     }
 
@@ -580,7 +578,7 @@ mod tests {
         let message = b"Test message to sign.";
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
+        assert_eq!(signature.public_key(), key_pair.public_key());
         assert!(signature.verify(message).is_ok())
     }
 
@@ -594,7 +592,7 @@ mod tests {
         let message = b"Test message to sign.";
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
+        assert_eq!(signature.public_key(), key_pair.public_key());
         assert!(signature.verify(message).is_ok())
     }
 

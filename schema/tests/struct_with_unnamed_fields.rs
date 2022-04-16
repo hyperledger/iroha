@@ -12,10 +12,16 @@ fn unnamed() {
 
     let expected = vec![
         ("String".to_owned(), String),
-        ("Vec<String>".to_owned(), Vec("String".to_owned())),
+        (
+            "Vec<String>".to_owned(),
+            Vec(VecMeta {
+                ty: "String".to_owned(),
+                sorted: false,
+            }),
+        ),
         (
             "struct_with_unnamed_fields::Command".to_owned(),
-            TupleStruct(UnnamedFieldsMeta {
+            Tuple(UnnamedFieldsMeta {
                 types: vec!["String".to_owned(), "Vec<String>".to_owned()],
             }),
         ),
