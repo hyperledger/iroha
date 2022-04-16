@@ -833,11 +833,11 @@ impl TestClient for Client {
     }
 
     fn for_each_event(mut self, event_filter: EventFilter, f: impl Fn(Result<Event>)) {
-        for event in self
+        for event_result in self
             .listen_for_events(event_filter)
             .expect("Failed to create event iterator.")
         {
-            f(event)
+            f(event_result)
         }
     }
 
