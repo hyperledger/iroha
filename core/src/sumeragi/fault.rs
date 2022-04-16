@@ -899,7 +899,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Con
         info!("Starting Sumeragi");
         self.connect_peers().await;
 
-        if height != 0 && last_block != HashOf::zeroed() {
+        if height != 0 && last_block != Hash::zeroed().typed() {
             self.init(last_block, height);
         } else if let Some(genesis_network) = self.genesis_network.take() {
             let addr = self.network.clone();

@@ -169,7 +169,7 @@ impl<T> Node<T> {
         match self {
             Node::Subtree(Subtree { hash, .. }) => *hash,
             Node::Leaf(Leaf { hash }) => (*hash).transmute(),
-            Node::Empty => HashOf::zeroed(),
+            Node::Empty => crate::Hash::zeroed().typed(),
         }
     }
 

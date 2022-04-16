@@ -628,7 +628,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
         self.blocks
             .latest_block()
-            .map_or(HashOf::zeroed(), |block| block.value().hash())
+            .map_or(Hash::zeroed().typed(), |block| block.value().hash())
     }
 
     /// Get `Account` and pass it to closure.

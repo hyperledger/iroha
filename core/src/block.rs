@@ -47,7 +47,7 @@ impl<T> Default for EmptyChainHash<T> {
 
 impl<T> From<EmptyChainHash<T>> for HashOf<T> {
     fn from(EmptyChainHash(PhantomData): EmptyChainHash<T>) -> Self {
-        HashOf::zeroed()
+        Hash::zeroed().typed()
     }
 }
 
@@ -218,8 +218,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: height + 1,
                 previous_block_hash,
-                transactions_hash: HashOf::zeroed(),
-                rejected_transactions_hash: HashOf::zeroed(),
+                transactions_hash: Hash::zeroed().typed(),
+                rejected_transactions_hash: Hash::zeroed().typed(),
                 view_change_proofs,
                 invalidated_blocks_hashes,
                 genesis_topology: None,
@@ -237,8 +237,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
-                transactions_hash: HashOf::zeroed(),
-                rejected_transactions_hash: HashOf::zeroed(),
+                transactions_hash: Hash::zeroed().typed(),
+                rejected_transactions_hash: Hash::zeroed().typed(),
                 view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: Some(genesis_topology),
@@ -256,8 +256,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
-                transactions_hash: HashOf::zeroed(),
-                rejected_transactions_hash: HashOf::zeroed(),
+                transactions_hash: Hash::zeroed().typed(),
+                rejected_transactions_hash: Hash::zeroed().typed(),
                 view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,

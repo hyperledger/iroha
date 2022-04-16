@@ -42,6 +42,13 @@ impl Hash {
         Self(bytes)
     }
 
+    /// Construct zeroed hash
+    #[must_use]
+    // TODO: It would be best if all uses of zeroed hash could be replaced with Option<Hash>
+    pub const fn zeroed() -> Self {
+        Hash::prehashed([0; Hash::LENGTH])
+    }
+
     /// Hash the given bytes.
     #[cfg(feature = "std")]
     #[allow(clippy::expect_used)]
@@ -171,14 +178,6 @@ impl<T: Encode> HashOf<T> {
     #[must_use]
     pub fn new(value: &T) -> Self {
         Self(Hash::new(value.encode()), PhantomData)
-    }
-}
-
-impl<T> HashOf<T> {
-    /// Construct zeroed hash
-    #[must_use]
-    pub const fn zeroed() -> Self {
-        HashOf(Hash::prehashed([0; Hash::LENGTH]), PhantomData)
     }
 }
 

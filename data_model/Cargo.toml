@@ -18,8 +18,10 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["std", "roles"]
+# Use rust standard library
 std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_data_primitives/std", "thiserror"]
-roles = []      # https://github.com/rust-lang/cargo/issues/6915
+# Include support for account roles (FIXME: https://github.com/hyperledger/iroha/issues/2111)
+roles = []
 
 # Internal use only
 mutable_api = []

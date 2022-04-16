@@ -8,7 +8,10 @@ edition = "2021"
 
 [features]
 default = ["std"]
+# Use rust standard library
 std = ["ursa"]
+# Force static linking
+vendored = ["openssl-sys"]
 
 [dependencies]
 iroha_schema = { path = "../schema" }
@@ -17,6 +20,7 @@ derive_more = { version = "0.99.16", default-features = false, features = ["dere
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive", "full"] }
 serde = { version = "1.0.130", default-features = false, features = ["derive"] }
 hex = { version = "0.4.0", default-features = false, features = ["alloc", "serde"] }
+openssl-sys = { version = "0.9.72", features = ["vendored"], optional = true }
 ursa = { version = "=0.3.7", optional = true }
 getset = "0.1.2"
 
