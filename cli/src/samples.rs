@@ -97,7 +97,7 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
             ..QueueConfiguration::default()
         },
         genesis: GenesisConfiguration {
-            account_public_key: Some(public_key),
+            account_public_key: public_key,
             account_private_key: Some(private_key),
             ..GenesisConfiguration::default()
         },

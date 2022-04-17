@@ -87,12 +87,14 @@ impl Debug for Hash {
 }
 
 impl From<Hash> for [u8; Hash::LENGTH] {
+    #[inline]
     fn from(Hash(bytes): Hash) -> Self {
         bytes
     }
 }
 
 impl AsRef<[u8; Hash::LENGTH]> for Hash {
+    #[inline]
     fn as_ref(&self) -> &[u8; Hash::LENGTH] {
         &self.0
     }

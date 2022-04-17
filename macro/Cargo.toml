@@ -18,6 +18,8 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["std"]
+# Enable static linkage of the rust standard library.
+# Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = []
 
 [dependencies]

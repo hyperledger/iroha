@@ -18,7 +18,9 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["std", "roles"]
-# Use rust standard library
+# Enable static linkage of the rust standard library.
+# Disabled for WASM interoperability, to reduce the binary size.
+# Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_data_primitives/std", "thiserror"]
 # Include support for account roles (FIXME: https://github.com/hyperledger/iroha/issues/2111)
 roles = []

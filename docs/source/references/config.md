@@ -22,11 +22,16 @@ The following is the default configuration used by Iroha.
   },
   "SUMERAGI": {
     "PEER_ID": {
-      "address": "127.0.0.1",
+      "address": "127.0.0.1:1337",
       "public_key": "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
     },
     "BLOCK_TIME_MS": 1000,
-    "TRUSTED_PEERS": [],
+    "TRUSTED_PEERS": [
+      {
+        "address": "127.0.0.1:1337",
+        "public_key": "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+      }
+    ],
     "COMMIT_TIME_MS": 2000,
     "TX_RECEIPT_TIME_MS": 500,
     "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
@@ -64,8 +69,11 @@ The following is the default configuration used by Iroha.
     "TERMINAL_COLORS": true
   },
   "GENESIS": {
-    "ACCOUNT_PUBLIC_KEY": null,
-    "ACCOUNT_PRIVATE_KEY": null,
+    "ACCOUNT_PUBLIC_KEY": "ed01204cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf",
+    "ACCOUNT_PRIVATE_KEY": {
+      "digest_function": "ed25519",
+      "payload": "d748e18ce60cb30dea3e73c9019b7af45a8d465e3d71bcc9a5ef99a008205e534cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
+    },
     "WAIT_FOR_PEERS_RETRY_COUNT": 100,
     "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500,
     "GENESIS_SUBMISSION_DELAY_MS": 1000
@@ -167,8 +175,11 @@ Has type `GenesisConfiguration`. Can be configured via environment variable `IRO
 
 ```json
 {
-  "ACCOUNT_PRIVATE_KEY": null,
-  "ACCOUNT_PUBLIC_KEY": null,
+  "ACCOUNT_PRIVATE_KEY": {
+    "digest_function": "ed25519",
+    "payload": "d748e18ce60cb30dea3e73c9019b7af45a8d465e3d71bcc9a5ef99a008205e534cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
+  },
+  "ACCOUNT_PUBLIC_KEY": "ed01204cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf",
   "GENESIS_SUBMISSION_DELAY_MS": 1000,
   "WAIT_FOR_PEERS_RETRY_COUNT": 100,
   "WAIT_FOR_PEERS_RETRY_PERIOD_MS": 500
@@ -182,17 +193,20 @@ Genesis account private key, only needed on the peer that submits the genesis bl
 Has type `Option<PrivateKey>`. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PRIVATE_KEY`
 
 ```json
-null
+{
+  "digest_function": "ed25519",
+  "payload": "d748e18ce60cb30dea3e73c9019b7af45a8d465e3d71bcc9a5ef99a008205e534cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
+}
 ```
 
 ### `genesis.account_public_key`
 
 The genesis account public key, should be supplied to all peers.
 
-Has type `Option<PublicKey>`. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PUBLIC_KEY`
+Has type `PublicKey`. Can be configured via environment variable `IROHA_GENESIS_ACCOUNT_PUBLIC_KEY`
 
 ```json
-null
+"ed01204cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
 ```
 
 ### `genesis.genesis_submission_delay_ms`
@@ -461,14 +475,19 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
   "MAILBOX": 100,
   "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
   "PEER_ID": {
-    "address": "127.0.0.1",
+    "address": "127.0.0.1:1337",
     "public_key": "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
   },
   "TRANSACTION_LIMITS": {
     "max_instruction_number": 4096,
     "max_wasm_size_bytes": 4194304
   },
-  "TRUSTED_PEERS": [],
+  "TRUSTED_PEERS": [
+    {
+      "address": "127.0.0.1:1337",
+      "public_key": "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+    }
+  ],
   "TX_RECEIPT_TIME_MS": 500
 }
 ```
@@ -557,7 +576,7 @@ Has type `PeerId`. Can be configured via environment variable `SUMERAGI_PEER_ID`
 
 ```json
 {
-  "address": "127.0.0.1",
+  "address": "127.0.0.1:1337",
   "public_key": "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
 }
 ```
@@ -582,7 +601,12 @@ Optional list of predefined trusted peers.
 Has type `TrustedPeers`. Can be configured via environment variable `SUMERAGI_TRUSTED_PEERS`
 
 ```json
-[]
+[
+  {
+    "address": "127.0.0.1:1337",
+    "public_key": "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+  }
+]
 ```
 
 ### `sumeragi.tx_receipt_time_ms`

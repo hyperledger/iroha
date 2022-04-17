@@ -204,7 +204,7 @@ pub mod role {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllRoles {}
+    pub struct FindAllRoles;
 
     impl Query for FindAllRoles {
         type Output = Vec<Role>;
@@ -309,7 +309,7 @@ pub mod account {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllAccounts {}
+    pub struct FindAllAccounts;
 
     impl Query for FindAllAccounts {
         type Output = Vec<Account>;
@@ -415,7 +415,7 @@ pub mod account {
     impl FindAllAccounts {
         /// Construct [`FindAllAccounts`].
         pub const fn new() -> Self {
-            FindAllAccounts {}
+            FindAllAccounts
         }
     }
 
@@ -494,7 +494,7 @@ pub mod asset {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllAssets {}
+    pub struct FindAllAssets;
 
     impl Query for FindAllAssets {
         type Output = Vec<Asset>;
@@ -517,7 +517,7 @@ pub mod asset {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllAssetsDefinitions {}
+    pub struct FindAllAssetsDefinitions;
 
     impl Query for FindAllAssetsDefinitions {
         type Output = Vec<AssetDefinition>;
@@ -748,14 +748,14 @@ pub mod asset {
     impl FindAllAssets {
         /// Construct [`FindAllAssets`].
         pub const fn new() -> Self {
-            FindAllAssets {}
+            FindAllAssets
         }
     }
 
     impl FindAllAssetsDefinitions {
         /// Construct [`FindAllAssetsDefinitions`].
         pub const fn new() -> Self {
-            FindAllAssetsDefinitions {}
+            FindAllAssetsDefinitions
         }
     }
 
@@ -874,7 +874,7 @@ pub mod domain {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllDomains {}
+    pub struct FindAllDomains;
 
     impl Query for FindAllDomains {
         type Output = Vec<Domain>;
@@ -906,7 +906,7 @@ pub mod domain {
     impl FindAllDomains {
         /// Construct [`FindAllDomains`].
         pub const fn new() -> Self {
-            FindAllDomains {}
+            FindAllDomains
         }
     }
 
@@ -991,7 +991,7 @@ pub mod peer {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllPeers {}
+    pub struct FindAllPeers;
 
     impl Query for FindAllPeers {
         type Output = Vec<Peer>;
@@ -1013,7 +1013,7 @@ pub mod peer {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllParameters {}
+    pub struct FindAllParameters;
 
     impl Query for FindAllParameters {
         type Output = Vec<Parameter>;
@@ -1022,14 +1022,14 @@ pub mod peer {
     impl FindAllPeers {
         ///Construct [`FindAllPeers`].
         pub const fn new() -> Self {
-            FindAllPeers {}
+            FindAllPeers
         }
     }
 
     impl FindAllParameters {
         /// Construct [`FindAllParameters`].
         pub const fn new() -> Self {
-            FindAllParameters {}
+            FindAllParameters
         }
     }
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.

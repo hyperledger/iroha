@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use super::torii::config::ToriiConfiguration;
 
 /// Configuration parameters container.
-#[derive(Clone, Deserialize, Serialize, Debug, Configurable)]
+#[derive(Debug, Clone, Deserialize, Serialize, Configurable)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_")]
@@ -63,22 +63,16 @@ pub struct Configuration {
 }
 
 impl Default for Configuration {
-    #[allow(clippy::expect_used)]
     fn default() -> Self {
-        let public_key = "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
-            .parse()
-            .expect("Public key not in mulithash format");
-        let private_key = PrivateKey::from_hex(
-            Algorithm::Ed25519,
-            "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
-        ).expect("Private key not hex encoded");
+        let sumeragi_configuration = SumeragiConfiguration::default();
+        let (public_key, private_key) = sumeragi_configuration.key_pair.clone().into();
 
         Self {
             public_key,
             private_key,
             disable_panic_terminal_colors: bool::default(),
             kura: KuraConfiguration::default(),
-            sumeragi: SumeragiConfiguration::default(),
+            sumeragi: sumeragi_configuration,
             torii: ToriiConfiguration::default(),
             block_sync: BlockSyncConfiguration::default(),
             queue: QueueConfiguration::default(),
@@ -93,7 +87,7 @@ impl Default for Configuration {
 }
 
 /// Network Configuration parameters container.
-#[derive(Clone, Copy, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
 #[serde(default)]
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_NETWORK_")]

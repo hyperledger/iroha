@@ -693,11 +693,7 @@ async fn blocks_stream() {
 fn domains(
     configuration: &crate::config::Configuration,
 ) -> eyre::Result<impl Iterator<Item = Domain>> {
-    let key = configuration
-        .genesis
-        .account_public_key
-        .clone()
-        .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
+    let key = configuration.genesis.account_public_key.clone();
     Ok([Domain::from(GenesisDomain::new(key))].into_iter())
 }
 
@@ -709,7 +705,7 @@ fn hash_should_be_the_same() {
         Some(key_pair.clone()),
     );
     config.genesis.account_private_key = Some(key_pair.private_key().clone());
-    config.genesis.account_public_key = Some(key_pair.public_key().clone());
+    config.genesis.account_public_key = key_pair.public_key().clone();
 
     let tx = Transaction::new(
         AccountId::new(

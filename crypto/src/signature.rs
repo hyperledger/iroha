@@ -55,7 +55,7 @@ pub struct Signature {
     public_key: PublicKey,
     /// Actual signature payload is placed here.
     #[getset(skip)]
-    signature: Payload,
+    payload: Payload,
 }
 
 impl Signature {
@@ -83,7 +83,7 @@ impl Signature {
 
         Ok(Self {
             public_key,
-            signature,
+            payload: signature,
         })
     }
 
@@ -106,14 +106,12 @@ impl Signature {
         let public_key = UrsaPublicKey(self.public_key.payload.clone());
 
         match algorithm {
-            Algorithm::Ed25519 => {
-                Ed25519Sha512::new().verify(payload, &self.signature, &public_key)
-            }
+            Algorithm::Ed25519 => Ed25519Sha512::new().verify(payload, &self.payload, &public_key),
             Algorithm::Secp256k1 => {
-                EcdsaSecp256k1Sha256::new().verify(payload, &self.signature, &public_key)
+                EcdsaSecp256k1Sha256::new().verify(payload, &self.payload, &public_key)
             }
-            Algorithm::BlsSmall => BlsSmall::new().verify(payload, &self.signature, &public_key),
-            Algorithm::BlsNormal => BlsNormal::new().verify(payload, &self.signature, &public_key),
+            Algorithm::BlsSmall => BlsSmall::new().verify(payload, &self.payload, &public_key),
+            Algorithm::BlsNormal => BlsNormal::new().verify(payload, &self.payload, &public_key),
         }?;
 
         Ok(())
@@ -124,7 +122,7 @@ impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct(core::any::type_name::<Self>())
             .field("public_key", &self.public_key)
-            .field("signature", &hex::encode_upper(self.signature.as_slice()))
+            .field("signature", &hex::encode_upper(self.payload.as_slice()))
             .finish()
     }
 }
@@ -133,7 +131,7 @@ impl From<Signature> for (PublicKey, Payload) {
     fn from(
         Signature {
             public_key,
-            signature,
+            payload: signature,
         }: Signature,
     ) -> Self {
         (public_key, signature)
