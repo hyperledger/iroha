@@ -3,7 +3,6 @@
 use std::{
     collections::HashMap,
     fmt::{self, Debug, Formatter},
-    future::Future,
     marker::PhantomData,
     sync::mpsc,
     thread,
@@ -30,10 +29,14 @@ use crate::{
     },
 };
 
+/// General trait for all response handlers
 pub trait ResponseHandler<O, T = Vec<u8>> {
+    /// Function to parse HTTP response with body `T` to output `O`
     fn handle(self, response: Response<T>) -> Result<O>;
 }
 
+/// Phantom struct that handles responses of Query API.
+/// Depending on input query struct, transforms a response into appropriate output.
 pub struct QueryResponseHandler<R>(PhantomData<R>);
 
 impl<R> ResponseHandler<R::Output> for QueryResponseHandler<R>
@@ -57,6 +60,7 @@ where
     }
 }
 
+/// Phantom struct that handles Transaction API HTTP response
 pub struct TransactionResponseHandler;
 
 impl ResponseHandler<()> for TransactionResponseHandler {
@@ -73,6 +77,7 @@ impl ResponseHandler<()> for TransactionResponseHandler {
     }
 }
 
+/// Phantom struct that handles status check HTTP response
 pub struct StatusResponseHandler;
 
 impl ResponseHandler<Status> for StatusResponseHandler {
@@ -268,6 +273,11 @@ impl Client {
         Ok(hash)
     }
 
+    /// Lower-level Instructions API entry point.
+    ///
+    /// Returns a tuple with a provided request builder, a hash of the transaction, and a response handler.
+    /// Despite the fact that response handling can be implemented just by asserting that status code is 200,
+    /// it is better to use a response handler anyway. It allows to abstract from implementation details.
     pub fn prepare_transaction_request<B>(
         &self,
         transaction: Transaction,
@@ -383,6 +393,10 @@ impl Client {
             )
     }
 
+    /// Lower-level Query API entry point. Prepares an http-request and returns it with an http-response handler.
+    ///
+    /// # Errors
+    /// Fails if query signing or request building fails.
     fn prepare_query_request<R, B>(
         &self,
         request: R,
@@ -413,6 +427,9 @@ impl Client {
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers with pagination.
+    ///
+    /// Uses default blocking http-client. If you need some custom integration, look at
+    /// [`Self::prepare_query_request()`].
     ///
     /// # Errors
     /// Fails if sending request fails
@@ -608,6 +625,7 @@ impl Client {
         Ok(resp_handler.handle(resp)?)
     }
 
+    /// Prepares http-request to implement [`Self::get_status()`] on your own.
     pub fn prepare_status_request<B>(&self) -> Result<(B, StatusResponseHandler)>
     where
         B: RequestBuilder,

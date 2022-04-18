@@ -43,6 +43,10 @@ impl HttpReqExt for http::request::Builder {
     }
 }
 
+/// General trait for building http-requests.
+/// 
+/// To use custom builder with client, you need to implement this trait for some type and pass it
+/// to the client that will fill it.
 pub trait RequestBuilder {
     fn build<U, P, K, V>(
         method: Method,
@@ -60,6 +64,7 @@ pub trait RequestBuilder {
         Self: Sized;
 }
 
+/// Default request builder & sender implemented on top of `attohttpc` crate.
 pub struct DefaultRequestBuilder<T: Body = attohttpc::body::Bytes<Bytes>>(
     AttoHttpRequestBuilder<T>,
 );
