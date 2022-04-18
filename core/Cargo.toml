@@ -20,6 +20,7 @@ cli = []
 dex = []
 dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry"]
 expensive-telemetry = ["iroha_telemetry/metric-instrumentation"]
+debug-wasm = []
 
 [badges]
 is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }

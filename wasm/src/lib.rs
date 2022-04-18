@@ -14,7 +14,7 @@ compile_error!("Targets other then wasm32-unknown-unknown are not supported");
 extern crate alloc;
 
 use alloc::{boxed::Box, format, vec::Vec};
-use core::ops::RangeFrom;
+use core::{ops::RangeFrom, fmt::Debug};
 
 use data_model::prelude::*;
 pub use iroha_data_model as data_model;
@@ -65,6 +65,7 @@ impl Execute for data_model::isi::Instruction {
         unsafe { encode_and_execute(self, host_execute_instruction) };
     }
 }
+
 impl Execute for data_model::query::QueryBox {
     type Result = Value;
 
@@ -79,6 +80,13 @@ impl Execute for data_model::query::QueryBox {
         //         - ownership of the returned result is transfered into `_decode_from_raw`
         unsafe { decode_with_length_prefix_from_raw(encode_and_execute(self, host_execute_query)) }
     }
+}
+
+/// Print `obj` in debug representation to the stdout
+#[cfg(feature = "debug-wasm")]
+pub fn dbg<T: Debug + ?Sized>(obj: &T) {
+    let s = format!("{:?}", obj);
+    unsafe { encode_and_execute(&s, host::dbg) }
 }
 
 #[no_mangle]
@@ -112,6 +120,11 @@ mod host {
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
         pub(super) fn execute_instruction(ptr: WasmUsize, len: WasmUsize);
+
+        /// Prints string to the standard output by providing offset and length
+        /// into WebAssembly's linear memory where string is stored
+        #[cfg(feature = "debug-wasm")]
+        pub(super) fn dbg(ptr: WasmUsize, len: WasmUsize);
     }
 }
 
