@@ -306,10 +306,14 @@ pub mod message {
                         return;
                     }
 
-                    let blocks: Vec<_> = block_sync
-                        .wsv
+                    let block_view = block_sync.wsv.lock_read_blocks();
+
+                    let blocks: Vec<VersionedCommittedBlock> = block_view
                         .blocks_after_hash(*hash)
+                        .unwrap_or(&Vec::new())
+                        .iter()
                         .take(block_sync.batch_size as usize)
+                        .cloned()
                         .collect();
 
                     if blocks.is_empty() {

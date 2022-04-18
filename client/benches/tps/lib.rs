@@ -79,17 +79,20 @@ impl Config {
         let elapsed_secs = timer.elapsed().as_secs_f64();
         thread::sleep(core::time::Duration::from_secs(2));
         let blocks_out_of_measure = 1 + 2 * self.peers;
-        let mut blocks = network
+        let locked_chain_viewer = network
             .genesis
             .iroha
             .as_ref()
             .expect("Must be some")
             .wsv
-            .blocks()
-            .skip(blocks_out_of_measure as usize);
+            .lock_read_blocks();
+        let mut blocks_iter = locked_chain_viewer
+            .blocks_from_height(blocks_out_of_measure.try_into().expect("fits in u64"))
+            .expect("we actually got some blocks")
+            .iter();
         let (txs_accepted, txs_rejected) = (0..self.blocks)
             .map(|_| {
-                let block = blocks
+                let block = blocks_iter
                     .next()
                     .expect("The block is not yet in WSV. Need more sleep?");
                 let block = block.as_v1();

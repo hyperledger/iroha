@@ -14,6 +14,7 @@ use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
 
 #[test]
+#[ignore]
 fn add_role_to_limit_transfer_count() -> Result<()> {
     const PERIOD_MS: u64 = 5000;
     const COUNT: u32 = 2;

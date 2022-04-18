@@ -217,7 +217,9 @@ fn count_executions<W: WorldTrait>(
 ) -> usize {
     let period_start_ms = current_time().saturating_sub(period).as_millis();
 
-    wsv.blocks()
+    wsv.lock_read_blocks()
+        .all_blocks()
+        .iter()
         .rev()
         .take_while(|block| block.header().timestamp > period_start_ms)
         .map(|block| -> usize {

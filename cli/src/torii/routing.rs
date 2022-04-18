@@ -234,11 +234,12 @@ async fn stream_blocks<W: WorldTrait>(
     stream: &mut WebSocket,
 ) -> eyre::Result<()> {
     #[allow(clippy::expect_used)]
-    for block in wsv.blocks_from_height(
-        (*from_height)
-            .try_into()
-            .expect("Blockchain size limit reached"),
-    ) {
+    let cloned_blocks: Vec<VersionedCommittedBlock> = wsv
+        .lock_read_blocks()
+        .blocks_from_height(*from_height)
+        .unwrap_or(&Vec::new())
+        .to_vec();
+    for block in cloned_blocks {
         stream
             .send(VersionedBlockPublisherMessage::from(
                 BlockPublisherMessage::from(block),
@@ -344,10 +345,9 @@ async fn handle_version<W: WorldTrait>(wsv: Arc<WorldStateView<W>>) -> Json {
 
     #[allow(clippy::expect_used)]
     reply::json(
-        &wsv.blocks()
-            .last()
+        &wsv.lock_read_blocks()
+            .last_block()
             .expect("At least genesis should always exist")
-            .value()
             .version()
             .to_string(),
     )

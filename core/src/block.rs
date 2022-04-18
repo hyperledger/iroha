@@ -8,7 +8,6 @@
 
 use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 
-use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{eyre, Context, Result};
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
 use iroha_data_model::{
@@ -20,6 +19,7 @@ use iroha_data_model::{
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
+use spin::MutexGuard;
 
 use crate::{
     prelude::*,
@@ -59,7 +59,8 @@ impl<T> From<EmptyChainHash<T>> for HashOf<T> {
 /// Blockchain.
 #[derive(Debug, Default)]
 pub struct Chain {
-    blocks: DashMap<u64, VersionedCommittedBlock>,
+    blocks: Vec<VersionedCommittedBlock>,
+    base_block_height: u64,
 }
 
 impl Chain {
@@ -67,30 +68,35 @@ impl Chain {
     #[inline]
     pub fn new() -> Self {
         Chain {
-            blocks: DashMap::new(),
+            blocks: Vec::new(),
+            base_block_height: 1,
         }
     }
 
     /// Push latest block.
-    pub fn push(&self, block: VersionedCommittedBlock) {
+    /// # Panics
+    /// Panics when the block header's height does not match the
+    /// expected height of the next block.
+    pub fn push(&mut self, block: VersionedCommittedBlock) {
         let height = block.as_v1().header.height;
-        self.blocks.insert(height, block);
+        assert_eq!(height, self.base_block_height + self.blocks.len() as u64);
+        self.blocks.push(block);
     }
 
-    /// Iterator over height and block.
-    pub fn iter(&self) -> ChainIterator {
-        ChainIterator::new(self)
-    }
-
-    /// Latest block reference and its height.
-    pub fn latest_block(&self) -> Option<MapRef<u64, VersionedCommittedBlock>> {
-        self.blocks.get(&(self.blocks.len() as u64))
+    /// Latest block reference.
+    pub fn latest_block(&self) -> Option<&VersionedCommittedBlock> {
+        if self.blocks.is_empty() {
+            None
+        } else {
+            Some(&self.blocks[self.blocks.len() - 1])
+        }
     }
 
     /// Length of the blockchain.
     #[inline]
-    pub fn len(&self) -> usize {
-        self.blocks.len()
+    #[allow(clippy::expect_used)]
+    pub fn len(&self) -> u64 {
+        self.blocks.len().try_into().expect("usize fits in u64")
     }
 
     /// Whether blockchain is empty.
@@ -100,74 +106,76 @@ impl Chain {
     }
 }
 
-/// Chain iterator
-pub struct ChainIterator<'itm> {
-    chain: &'itm Chain,
-    pos_front: u64,
-    pos_back: u64,
+/// Blockchain viewer.
+/// Keeps an internal lock on the blockchain in order
+/// for you to read it. Allows only read operations on
+/// the chain and will block everyone else from operating
+/// on the chain. Works across async and non-async threads.
+///
+/// Try not to spam the lock, aka acquiring frequently, more
+/// than needed. If you want to keep long-term access to information,
+/// consider copying it out of the chain and dropping the
+/// `LockedChainViewer`
+pub struct LockedChainViewer<'chain> {
+    chain_mutex_guard: MutexGuard<'chain, Chain>,
 }
 
-impl<'itm> ChainIterator<'itm> {
-    fn new(chain: &'itm Chain) -> Self {
-        ChainIterator {
-            chain,
-            pos_front: 1,
-            pos_back: chain.len() as u64,
+impl<'chain> LockedChainViewer<'chain> {
+    /// Create new `LockedChainViewer` from `Chain` mutexguard.
+    pub fn new(chain_mutex_guard: MutexGuard<'chain, Chain>) -> Self {
+        Self { chain_mutex_guard }
+    }
+
+    /// Look for a block with the provided hash starting at the front
+    /// of the chain going backward. If the hash is found, return a slice
+    /// of blocks starting with the one with the provided hash and
+    /// ending with the latest block.
+    #[allow(clippy::unwrap_in_result, clippy::expect_used, clippy::cast_sign_loss)]
+    pub fn blocks_after_hash(
+        &self,
+        hash: HashOf<VersionedCommittedBlock>,
+    ) -> Option<&[VersionedCommittedBlock]> {
+        if self.chain_mutex_guard.blocks.is_empty() {
+            return None;
         }
-    }
-
-    const fn is_exhausted(&self) -> bool {
-        self.pos_front > self.pos_back
-    }
-}
-
-impl<'itm> Iterator for ChainIterator<'itm> {
-    type Item = MapRef<'itm, u64, VersionedCommittedBlock>;
-    fn next(&mut self) -> Option<Self::Item> {
-        if !self.is_exhausted() {
-            let val = self.chain.blocks.get(&self.pos_front);
-            self.pos_front += 1;
-            return val;
-        }
-        None
-    }
-
-    fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.pos_front += n as u64;
-        self.next()
-    }
-
-    fn last(mut self) -> Option<Self::Item> {
-        self.pos_front = self.chain.len() as u64;
-        self.chain.blocks.get(&self.pos_front)
-    }
-
-    fn count(self) -> usize {
-        #[allow(clippy::cast_possible_truncation)]
-        let count = (self.chain.len() as u64 - (self.pos_front - 1)) as usize;
-        count
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        #[allow(clippy::cast_possible_truncation)]
-        let height = (self.chain.len() as u64 - (self.pos_front - 1)) as usize;
-        (height, Some(height))
-    }
-}
-
-impl<'itm> DoubleEndedIterator for ChainIterator<'itm> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if !self.is_exhausted() {
-            let val = self.chain.blocks.get(&self.pos_back);
-            self.pos_back -= 1;
-            return val;
+        let mut index: isize = (self.chain_mutex_guard.blocks.len() - 1)
+            .try_into()
+            .expect("we don't have more than 2^63 blocks");
+        while index >= 0 {
+            if self.chain_mutex_guard.blocks[index as usize]
+                .header()
+                .previous_block_hash
+                == hash
+            {
+                return Some(&self.chain_mutex_guard.blocks[index as usize..]);
+            }
+            index -= 1;
         }
         None
     }
+    /// Return a slice of all blocks in the `Chain` starting with
+    /// the block at the provided height.
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    pub fn blocks_from_height(&self, height: u64) -> Option<&[VersionedCommittedBlock]> {
+        if height
+            >= self.chain_mutex_guard.base_block_height + self.chain_mutex_guard.blocks.len() as u64
+        {
+            return None;
+        }
+        Some(
+            &self.chain_mutex_guard.blocks
+                [height.saturating_sub(1).try_into().expect("fits in usize")..],
+        )
+    }
 
-    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
-        self.pos_back -= n as u64;
-        self.next_back()
+    /// Return a slice of all blocks in the `Chain`.
+    pub fn all_blocks(&self) -> &[VersionedCommittedBlock] {
+        self.chain_mutex_guard.blocks.as_slice()
+    }
+
+    /// Return the last block in the `Chain`.
+    pub fn last_block(&self) -> Option<&VersionedCommittedBlock> {
+        self.chain_mutex_guard.latest_block()
     }
 }
 
@@ -975,6 +983,8 @@ pub mod stream {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use spin::Mutex;
+
     use super::*;
 
     #[test]
@@ -988,58 +998,82 @@ mod tests {
     #[test]
     pub fn chain_iter_returns_blocks_ordered() {
         const BLOCK_COUNT: usize = 10;
-        let chain = Chain::new();
+        let chain = Mutex::new(Chain::new());
 
         let mut block = ValidBlock::new_dummy().commit();
 
         for i in 1..=BLOCK_COUNT {
             block.header.height = i as u64;
-            chain.push(block.clone().into());
+            chain.lock().push(block.clone().into());
         }
+
+        let locked_chain_viewer = LockedChainViewer::new(chain.lock());
 
         assert_eq!(
             (BLOCK_COUNT - 5..=BLOCK_COUNT)
                 .map(|i| i as u64)
                 .collect::<Vec<_>>(),
-            chain
+            locked_chain_viewer
+                .all_blocks()
                 .iter()
                 .skip(BLOCK_COUNT - 6)
-                .map(|b| *b.key())
+                .map(|b| b.header().height)
                 .collect::<Vec<_>>()
         );
 
-        assert_eq!(BLOCK_COUNT - 2, chain.iter().skip(2).count());
-        assert_eq!(3, *chain.iter().nth(2).unwrap().key());
+        assert_eq!(
+            BLOCK_COUNT - 2,
+            locked_chain_viewer.all_blocks().iter().skip(2).count()
+        );
+        assert_eq!(
+            3,
+            locked_chain_viewer
+                .all_blocks()
+                .iter()
+                .nth(2)
+                .unwrap()
+                .header()
+                .height
+        );
     }
 
     #[test]
     pub fn chain_rev_iter_returns_blocks_ordered() {
         const BLOCK_COUNT: usize = 10;
-        let chain = Chain::new();
+        let chain = Mutex::new(Chain::new());
 
         let mut block = ValidBlock::new_dummy().commit();
 
         for i in 1..=BLOCK_COUNT {
             block.header.height = i as u64;
-            chain.push(block.clone().into());
+            chain.lock().push(block.clone().into());
         }
+
+        let locked_chain_viewer = LockedChainViewer::new(chain.lock());
 
         assert_eq!(
             (1..=BLOCK_COUNT - 4)
                 .rev()
                 .map(|i| i as u64)
                 .collect::<Vec<_>>(),
-            chain
+            locked_chain_viewer
+                .all_blocks()
                 .iter()
                 .rev()
                 .skip(BLOCK_COUNT - 6)
-                .map(|b| *b.key())
+                .map(|b| b.header().height)
                 .collect::<Vec<_>>()
         );
 
         assert_eq!(
             (BLOCK_COUNT - 2) as u64,
-            *chain.iter().nth_back(2).unwrap().key()
+            locked_chain_viewer
+                .all_blocks()
+                .iter()
+                .nth_back(2)
+                .unwrap()
+                .header()
+                .height
         );
     }
 }

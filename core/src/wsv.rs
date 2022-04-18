@@ -19,10 +19,11 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{prelude::*, small::SmallVec};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
+use spin::{Mutex, MutexGuard};
 use tokio::task;
 
 use crate::{
-    block::Chain,
+    block::{Chain, LockedChainViewer},
     prelude::*,
     smartcontracts::{isi::Error, wasm, Execute, FindError},
     DomainsMap, EventsSender, PeersIds,
@@ -83,7 +84,7 @@ pub struct WorldStateView<W: WorldTrait> {
     /// Configuration of World State View.
     pub config: Configuration,
     /// Blockchain.
-    blocks: Arc<Chain>,
+    blocks_mutex: Arc<Mutex<Chain>>,
     /// Hashes of transactions
     pub transactions: DashSet<HashOf<VersionedTransaction>>,
     /// Metrics for prometheus endpoint.
@@ -107,7 +108,7 @@ impl<W: WorldTrait + Clone> Clone for WorldStateView<W> {
         Self {
             world: Clone::clone(&self.world),
             config: self.config,
-            blocks: Arc::clone(&self.blocks),
+            blocks_mutex: Arc::clone(&self.blocks_mutex),
             transactions: self.transactions.clone(),
             metrics: Arc::clone(&self.metrics),
             new_block_notifier: Arc::clone(&self.new_block_notifier),
@@ -197,6 +198,21 @@ impl<W: WorldTrait> WorldStateView<W> {
         Ok(())
     }
 
+    #[allow(clippy::print_stdout, clippy::use_debug, clippy::let_and_return)]
+    fn internal_lock_on_chain(&self) -> MutexGuard<Chain> {
+        let guard = self.blocks_mutex.lock();
+        #[cfg(feature = "print-backtrace-after-chain-lock-acquired")]
+        {
+            let ptr: *const Mutex<Chain> = &*self.blocks_mutex;
+            println!(
+                "chain {:?} lock acquired by {:?}",
+                ptr,
+                backtrace::Backtrace::new()
+            );
+        }
+        guard
+    }
+
     /// Apply `CommittedBlock` with changes in form of **Iroha Special
     /// Instructions** to `self`.
     ///
@@ -238,7 +254,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             );
         }
 
-        self.blocks.push(block);
+        self.internal_lock_on_chain().push(block);
         self.block_commit_metrics_update_callback();
         self.new_block_notifier.send_replace(());
 
@@ -251,7 +267,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Create time event using previous and current blocks
     fn create_time_event(&self, block: &CommittedBlock) -> Result<TimeEvent> {
         let prev_interval = self
-            .blocks
+            .internal_lock_on_chain()
             .latest_block()
             .map(|latest_block| {
                 let header = latest_block.header();
@@ -349,16 +365,14 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Update metrics; run when block commits.
     fn block_commit_metrics_update_callback(&self) {
-        let last_block_txs_accepted = self
-            .blocks
-            .iter()
-            .last()
+        let chain_view = self.lock_read_blocks();
+
+        let last_block_txs_accepted = chain_view
+            .last_block()
             .map(|block| block.as_v1().transactions.len() as u64)
             .unwrap_or_default();
-        let last_block_txs_rejected = self
-            .blocks
-            .iter()
-            .last()
+        let last_block_txs_rejected = chain_view
+            .last_block()
             .map(|block| block.as_v1().rejected_transactions.len() as u64)
             .unwrap_or_default();
         self.metrics
@@ -376,29 +390,10 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.metrics.block_height.inc();
     }
 
-    // TODO: There could be just this one method `blocks` instead of
-    // `blocks_from_height` and `blocks_after_height`. Also, this
-    // method would return references instead of cloning blockchain
-    // but comes with the risk of deadlock if consumer of the iterator
-    // stores references to blocks
-    /// Returns iterator over blockchain blocks
-    ///
-    /// **Locking behaviour**: Holding references to blocks stored in the blockchain can induce
-    /// deadlock. This limitation is imposed by the fact that blockchain is backed by [`dashmap::DashMap`]
-    #[inline]
-    pub fn blocks(&self) -> crate::block::ChainIterator {
-        self.blocks.iter()
-    }
-
-    /// Returns iterator over blockchain blocks after the block with the given `hash`
-    pub fn blocks_after_hash(
-        &self,
-        hash: HashOf<VersionedCommittedBlock>,
-    ) -> impl Iterator<Item = VersionedCommittedBlock> + '_ {
-        self.blocks
-            .iter()
-            .skip_while(move |block_entry| block_entry.value().header().previous_block_hash != hash)
-            .map(|block_entry| block_entry.value().clone())
+    /// Lock the blockchain for reading through a `LockedChainViewer`.
+    pub fn lock_read_blocks(&self) -> LockedChainViewer {
+        let guard = self.internal_lock_on_chain();
+        LockedChainViewer::new(guard)
     }
 
     /// Get `World` and pass it to closure to modify it
@@ -432,17 +427,6 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[inline]
     pub fn trusted_peers_ids(&self) -> &PeersIds {
         &self.world.trusted_peers_ids
-    }
-
-    /// Returns iterator over blockchain blocks starting with the block of the given `height`
-    pub fn blocks_from_height(
-        &self,
-        height: usize,
-    ) -> impl Iterator<Item = VersionedCommittedBlock> + '_ {
-        self.blocks
-            .iter()
-            .skip(height.saturating_sub(1))
-            .map(|block_entry| block_entry.value().clone())
     }
 
     /// Get `Domain` without an ability to modify it.
@@ -528,7 +512,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             world,
             config,
             transactions: DashSet::new(),
-            blocks: Arc::new(Chain::new()),
+            blocks_mutex: Arc::new(Mutex::new(Chain::new())),
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
             events_sender: None,
@@ -539,7 +523,8 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// committed, or [`None`] if it wasn't.
     #[inline]
     pub fn genesis_timestamp(&self) -> Option<u128> {
-        self.blocks
+        self.lock_read_blocks()
+            .all_blocks()
             .iter()
             .next()
             .map(|val| val.as_v1().header.timestamp)
@@ -571,9 +556,9 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Hash of latest block
     pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
-        self.blocks
+        self.internal_lock_on_chain()
             .latest_block()
-            .map_or(Hash::zeroed().typed(), |block| block.value().hash())
+            .map_or(Hash::zeroed().typed(), VersionedCommittedBlock::hash)
     }
 
     /// Get `Account` and pass it to closure.
@@ -687,7 +672,9 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Get all transactions
     pub fn transaction_values(&self) -> Vec<TransactionValue> {
         let mut txs = self
-            .blocks()
+            .lock_read_blocks()
+            .all_blocks()
+            .iter()
             .flat_map(|block| {
                 let block = block.as_v1();
                 block
@@ -717,7 +704,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         hash: &HashOf<VersionedTransaction>,
     ) -> Option<TransactionValue> {
-        self.blocks.iter().find_map(|b| {
+        self.lock_read_blocks().all_blocks().iter().find_map(|b| {
             b.as_v1()
                 .rejected_transactions
                 .iter()
@@ -740,10 +727,13 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     #[cfg(test)]
     pub fn transactions_number(&self) -> u64 {
-        self.blocks.iter().fold(0_u64, |acc, block| {
-            acc + block.as_v1().transactions.len() as u64
-                + block.as_v1().rejected_transactions.len() as u64
-        })
+        self.lock_read_blocks()
+            .all_blocks()
+            .iter()
+            .fold(0_u64, |acc, block| {
+                acc + block.as_v1().transactions.len() as u64
+                    + block.as_v1().rejected_transactions.len() as u64
+            })
     }
 
     /// Get committed and rejected transaction of the account.
@@ -752,10 +742,11 @@ impl<W: WorldTrait> WorldStateView<W> {
         account_id: &AccountId,
     ) -> Vec<TransactionValue> {
         let mut transactions = self
-            .blocks
+            .lock_read_blocks()
+            .all_blocks()
             .iter()
             .flat_map(|block_entry| {
-                let block = block_entry.value().as_v1();
+                let block = block_entry.as_v1();
                 block
                     .rejected_transactions
                     .iter()
@@ -890,8 +881,11 @@ mod tests {
         }
 
         assert!(wsv
+            .lock_read_blocks()
             .blocks_after_hash(block_hashes[6])
-            .map(|block| block.hash())
+            .expect("hash was found")
+            .iter()
+            .map(VersionedCommittedBlock::hash)
             .eq(block_hashes.into_iter().skip(7)));
     }
 
@@ -909,7 +903,10 @@ mod tests {
         }
 
         assert_eq!(
-            &wsv.blocks_from_height(8)
+            &wsv.lock_read_blocks()
+                .blocks_from_height(8)
+                .unwrap()
+                .iter()
                 .map(|block| block.header().height)
                 .collect::<Vec<_>>(),
             &[8, 9, 10]

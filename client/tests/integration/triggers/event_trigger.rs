@@ -7,6 +7,7 @@ use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
 use test_network::{Peer as TestPeer, *};
 
+#[ignore] // flakey test
 #[test]
 fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();

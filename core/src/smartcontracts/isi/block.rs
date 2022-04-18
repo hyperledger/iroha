@@ -9,8 +9,10 @@ impl<W: WorldTrait> ValidQuery<W> for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, query::Error> {
         let mut blocks: Vec<BlockValue> = wsv
-            .blocks()
-            .map(|blk| blk.clone())
+            .lock_read_blocks()
+            .all_blocks()
+            .iter()
+            .cloned()
             .map(VersionedCommittedBlock::into_value)
             .collect();
         blocks.reverse();

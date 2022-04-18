@@ -27,6 +27,7 @@ dex = []
 dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry"]
 # Support Prometheus metrics. See https://prometheus.io/.
 expensive-telemetry = ["iroha_telemetry/metric-instrumentation"]
+print-backtrace-after-chain-lock-acquired = []
 
 [badges]
 is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
@@ -48,6 +49,8 @@ iroha_schema = { version = "=2.0.0-pre-rc.4", path = "../schema" }
 
 async-trait = "0.1"
 async-stream = "0.3.2"
+spin = "0.9.3"
+backtrace = "0.3.65"
 dashmap = { version = "4.0" }
 eyre = "0.6.5"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
