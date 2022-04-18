@@ -3,6 +3,8 @@
 use std::{
     collections::HashMap,
     fmt::{self, Debug, Formatter},
+    future::Future,
+    marker::PhantomData,
     sync::mpsc,
     thread,
     time::Duration,
@@ -22,8 +24,69 @@ use small::SmallStr;
 
 use crate::{
     config::Configuration,
-    http_client::{self, StatusCode, WebSocketError, WebSocketMessage},
+    http_client::{
+        self, DefaultRequestBuilder, Method as HttpMethod, RequestBuilder, Response, StatusCode,
+        WebSocketError, WebSocketMessage,
+    },
 };
+
+pub trait ResponseHandler<O, T = Vec<u8>> {
+    fn handle(self, response: Response<T>) -> Result<O>;
+}
+
+pub struct QueryResponseHandler<R>(PhantomData<R>);
+
+impl<R> ResponseHandler<R::Output> for QueryResponseHandler<R>
+where
+    R: Query + Into<QueryBox> + Debug,
+    <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+{
+    fn handle(self, response: Response<Vec<u8>>) -> Result<R::Output> {
+        if response.status() != StatusCode::OK {
+            return Err(eyre!(
+                "Failed to make query request with HTTP status: {}, {}",
+                response.status(),
+                std::str::from_utf8(response.body()).unwrap_or(""),
+            ));
+        }
+        let result = VersionedQueryResult::decode_versioned(response.body())?;
+        let VersionedQueryResult::V1(QueryResult(result)) = result;
+        R::Output::try_from(result)
+            .map_err(Into::into)
+            .wrap_err("Unexpected type")
+    }
+}
+
+pub struct TransactionResponseHandler;
+
+impl ResponseHandler<()> for TransactionResponseHandler {
+    fn handle(self, response: Response<Vec<u8>>) -> Result<()> {
+        if response.status() == StatusCode::OK {
+            Ok(())
+        } else {
+            Err(eyre!(
+                "Failed to submit instructions with HTTP status: {}. Response body: {}",
+                response.status(),
+                String::from_utf8_lossy(response.body())
+            ))
+        }
+    }
+}
+
+pub struct StatusResponseHandler;
+
+impl ResponseHandler<Status> for StatusResponseHandler {
+    fn handle(self, resp: Response<Vec<u8>>) -> Result<Status> {
+        if resp.status() != StatusCode::OK {
+            return Err(eyre!(
+                "Failed to get status with HTTP status: {}. {}",
+                resp.status(),
+                std::str::from_utf8(resp.body()).unwrap_or(""),
+            ));
+        }
+        serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
+    }
+}
 
 /// Iroha client
 #[derive(Clone)]
@@ -196,31 +259,38 @@ impl Client {
         &self,
         transaction: Transaction,
     ) -> Result<HashOf<VersionedTransaction>> {
+        let (req, hash, resp_handler): (DefaultRequestBuilder<_>, _, _) =
+            self.prepare_transaction_request(transaction)?;
+        let response = req
+            .send()
+            .wrap_err_with(|| format!("Failed to send transaction with hash {:?}", hash))?;
+        let () = resp_handler.handle(response)?;
+        Ok(hash)
+    }
+
+    pub fn prepare_transaction_request<B>(
+        &self,
+        transaction: Transaction,
+    ) -> Result<(B, HashOf<VersionedTransaction>, TransactionResponseHandler)>
+    where
+        B: RequestBuilder,
+    {
         transaction.check_limits(&self.transaction_limits)?;
         let transaction: VersionedTransaction = transaction.into();
         let hash = transaction.hash();
         let transaction_bytes: Vec<u8> = transaction.encode_versioned();
-        let response = http_client::post(
-            format!("{}/{}", &self.torii_url, uri::TRANSACTION),
-            transaction_bytes,
-            Vec::<(String, String)>::new(),
-            self.headers.clone(),
-        )
-        .wrap_err_with(|| {
-            format!(
-                "Failed to send transaction with hash {:?}",
-                transaction.hash()
-            )
-        })?;
-        if response.status() == StatusCode::OK {
-            Ok(hash)
-        } else {
-            Err(eyre!(
-                "Failed to submit instructions with HTTP status: {}. Response body: {}",
-                response.status(),
-                String::from_utf8_lossy(response.body())
-            ))
-        }
+
+        Ok((
+            B::build(
+                http_client::Method::POST,
+                format!("{}/{}", &self.torii_url, uri::TRANSACTION),
+                transaction_bytes,
+                Vec::<(String, String)>::new(),
+                self.headers.clone(),
+            )?,
+            hash,
+            TransactionResponseHandler,
+        ))
     }
 
     /// Submits and waits until the transaction is either rejected or committed.
@@ -313,6 +383,35 @@ impl Client {
             )
     }
 
+    fn prepare_query_request<R, B>(
+        &self,
+        request: R,
+        pagination: Pagination,
+    ) -> Result<(B, QueryResponseHandler<R>)>
+    where
+        R: Query + Into<QueryBox> + Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+        B: RequestBuilder,
+    {
+        let pagination: Vec<_> = pagination.into();
+        let request = QueryRequest::new(request.into(), self.account_id.clone());
+        let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
+
+        const METHOD: HttpMethod = HttpMethod::GET;
+        let url = format!("{}/{}", &self.torii_url, uri::QUERY);
+
+        Ok((
+            B::build(
+                METHOD,
+                url,
+                request.encode_versioned(),
+                pagination,
+                self.headers.clone(),
+            )?,
+            QueryResponseHandler(PhantomData),
+        ))
+    }
+
     /// Query API entry point. Requests queries from `Iroha` peers with pagination.
     ///
     /// # Errors
@@ -327,27 +426,10 @@ impl Client {
         R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        let pagination: Vec<_> = pagination.into();
-        let request = QueryRequest::new(request.into(), self.account_id.clone());
-        let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
-        let response = http_client::post(
-            format!("{}/{}", &self.torii_url, uri::QUERY),
-            request.encode_versioned(),
-            pagination,
-            self.headers.clone(),
-        )?;
-        if response.status() != StatusCode::OK {
-            return Err(eyre!(
-                "Failed to make query request with HTTP status: {}, {}",
-                response.status(),
-                std::str::from_utf8(response.body()).unwrap_or(""),
-            ));
-        }
-        let result = VersionedQueryResult::decode_versioned(response.body())?;
-        let VersionedQueryResult::V1(QueryResult(result)) = result;
-        R::Output::try_from(result)
-            .map_err(Into::into)
-            .wrap_err("Unexpected type")
+        let (req, resp_handler): (DefaultRequestBuilder<_>, QueryResponseHandler<_>) =
+            self.prepare_query_request(request, pagination)?;
+        let response = req.send()?;
+        Ok(resp_handler.handle(response)?)
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers.
@@ -393,12 +475,14 @@ impl Client {
     ) -> Result<Option<Transaction>> {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
-            let response = http_client::get(
+            let response = DefaultRequestBuilder::build(
+                HttpMethod::GET,
                 format!("{}/{}", &self.torii_url, uri::PENDING_TRANSACTIONS),
                 Vec::new(),
                 pagination.clone(),
                 self.headers.clone(),
-            )?;
+            )?
+            .send()?;
             if response.status() == StatusCode::OK {
                 let pending_transactions =
                     VersionedPendingTransactions::decode_versioned(response.body())?;
@@ -450,12 +534,14 @@ impl Client {
             .collect();
         let get_cfg = serde_json::to_vec(get_config).wrap_err("Failed to serialize")?;
 
-        let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
+        let resp = DefaultRequestBuilder::build::<_, Vec<(&str, &str)>, _, _>(
+            HttpMethod::GET,
             format!("{}/{}", &self.torii_url, uri::CONFIGURATION),
             get_cfg,
             vec![],
             headers,
-        )?;
+        )?
+        .send()?;
         if resp.status() != StatusCode::OK {
             return Err(eyre!(
                 "Failed to get configuration with HTTP status: {}. {}",
@@ -474,13 +560,15 @@ impl Client {
         let headers = [("Content-type".to_owned(), "application/json".to_owned())]
             .into_iter()
             .collect();
-        let resp = http_client::post::<_, Vec<(&str, &str)>, _, _>(
+        let resp = DefaultRequestBuilder::build::<_, Vec<(&str, &str)>, _, _>(
+            HttpMethod::POST,
             &format!("{}/{}", self.torii_url, uri::CONFIGURATION),
             serde_json::to_vec(&post_config)
                 .wrap_err(format!("Failed to serialize {:?}", post_config))?,
             vec![],
             headers,
-        )?;
+        )?
+        .send()?;
         if resp.status() != StatusCode::OK {
             return Err(eyre!(
                 "Failed to post configuration with HTTP status: {}. {}",
@@ -515,20 +603,25 @@ impl Client {
     /// # Errors
     /// Fails if sending request or decoding fails
     pub fn get_status(&self) -> Result<Status> {
-        let resp = http_client::get::<_, Vec<(&str, &str)>, _, _>(
-            format!("{}/{}", &self.telemetry_url, uri::STATUS),
-            Vec::new(),
-            vec![],
-            self.headers.clone(),
-        )?;
-        if resp.status() != StatusCode::OK {
-            return Err(eyre!(
-                "Failed to get status with HTTP status: {}. {}",
-                resp.status(),
-                std::str::from_utf8(resp.body()).unwrap_or(""),
-            ));
-        }
-        serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
+        let (req, resp_handler): (DefaultRequestBuilder<_>, _) = self.prepare_status_request()?;
+        let resp = req.send()?;
+        Ok(resp_handler.handle(resp)?)
+    }
+
+    pub fn prepare_status_request<B>(&self) -> Result<(B, StatusResponseHandler)>
+    where
+        B: RequestBuilder,
+    {
+        Ok((
+            B::build::<_, Vec<(&str, &str)>, _, _>(
+                HttpMethod::GET,
+                format!("{}/{}", &self.telemetry_url, uri::STATUS),
+                Vec::new(),
+                vec![],
+                self.headers.clone(),
+            )?,
+            StatusResponseHandler,
+        ))
     }
 }
 

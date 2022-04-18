@@ -1,8 +1,12 @@
 use std::{borrow::Borrow, collections::HashMap, net::TcpStream};
 
-use attohttpc::{body, header::HeaderName, RequestBuilder, Response as AttohttpcResponse};
+use attohttpc::{
+    body::{self, Body},
+    header::HeaderName,
+    RequestBuilder as AttoHttpRequestBuilder, Response as AttoHttpResponse,
+};
 use eyre::{eyre, Error, Result, WrapErr};
-pub use http::{Response, StatusCode};
+pub use http::{Method, Response, StatusCode};
 use tungstenite::{stream::MaybeTlsStream, WebSocket};
 pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 
@@ -13,7 +17,7 @@ trait AttoHttpReqExt: Sized {
     fn set_headers(self, headers: Headers) -> Result<Self>;
 }
 
-impl AttoHttpReqExt for RequestBuilder<body::Bytes<Vec<u8>>> {
+impl AttoHttpReqExt for AttoHttpRequestBuilder<body::Bytes<Vec<u8>>> {
     fn set_headers(mut self, headers: Headers) -> Result<Self> {
         for (h, v) in headers {
             let h = HeaderName::from_bytes(h.as_ref())
@@ -39,50 +43,68 @@ impl HttpReqExt for http::request::Builder {
     }
 }
 
-pub fn post<U, P, K, V>(
-    url: U,
-    body: Bytes,
-    query_params: P,
-    headers: Headers,
-) -> Result<Response<Bytes>>
-where
-    U: AsRef<str>,
-    P: IntoIterator,
-    P::Item: Borrow<(K, V)>,
-    K: AsRef<str>,
-    V: ToString,
-{
-    let url = url.as_ref();
-    let response = attohttpc::post(url)
-        .bytes(body)
-        .params(query_params)
-        .set_headers(headers)?
-        .send()
-        .wrap_err_with(|| format!("Failed to send http post request to {}", url))?;
-    ClientResponse(response).try_into()
+pub trait RequestBuilder {
+    fn build<U, P, K, V>(
+        method: Method,
+        url: U,
+        body: Bytes,
+        query_params: P,
+        headers: Headers,
+    ) -> Result<Self>
+    where
+        U: AsRef<str>,
+        P: IntoIterator,
+        P::Item: Borrow<(K, V)>,
+        K: AsRef<str>,
+        V: ToString,
+        Self: Sized;
 }
 
-pub fn get<U, P, K, V>(
-    url: U,
-    body: Bytes,
-    query_params: P,
-    headers: Headers,
-) -> Result<Response<Bytes>>
+pub struct DefaultRequestBuilder<T: Body = attohttpc::body::Bytes<Bytes>>(
+    AttoHttpRequestBuilder<T>,
+);
+
+impl<T> DefaultRequestBuilder<T>
 where
-    U: AsRef<str>,
-    P: IntoIterator,
-    P::Item: Borrow<(K, V)>,
-    K: AsRef<str>,
-    V: ToString,
+    T: Body,
 {
-    let url = url.as_ref();
-    let response = attohttpc::get(url)
-        .bytes(body)
-        .params(query_params)
-        .set_headers(headers)?
-        .send()
-        .wrap_err_with(|| format!("Failed to send http get request to {}", url))?;
-    ClientResponse(response).try_into()
+    pub fn send(self) -> Result<Response<Bytes>> {
+        let Self(mut builder) = self;
+
+        let inspector = builder.inspect();
+        let method = inspector.method().clone();
+        let url = inspector.url().clone();
+
+        let response = builder
+            .send()
+            .wrap_err_with(|| format!("Failed to send http {} request to {}", method, url))?;
+
+        ClientResponse(response).try_into()
+    }
+}
+
+impl RequestBuilder for DefaultRequestBuilder {
+    fn build<U, P, K, V>(
+        method: Method,
+        url: U,
+        body: Bytes,
+        query_params: P,
+        headers: Headers,
+    ) -> Result<Self>
+    where
+        U: AsRef<str>,
+        P: IntoIterator,
+        P::Item: Borrow<(K, V)>,
+        K: AsRef<str>,
+        V: ToString,
+    {
+        let builder = AttoHttpRequestBuilder::new(method, url)
+            .bytes(body)
+            .params(query_params)
+            .set_headers(headers)?;
+
+        Ok(Self(builder))
+    }
 }
 
 pub type WebSocketStream = WebSocket<MaybeTlsStream<TcpStream>>;
@@ -110,7 +132,7 @@ where
     Ok(stream)
 }
 
-struct ClientResponse(AttohttpcResponse);
+struct ClientResponse(AttoHttpResponse);
 
 impl TryFrom<ClientResponse> for Response<Bytes> {
     type Error = Error;
