@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::HashMap, net::TcpStream};
+use std::{borrow::Borrow, net::TcpStream};
 
 use attohttpc::{
     body::{self, Body},
@@ -6,12 +6,12 @@ use attohttpc::{
     RequestBuilder as AttoHttpRequestBuilder, Response as AttoHttpResponse,
 };
 use eyre::{eyre, Error, Result, WrapErr};
-pub use http::{Method, Response, StatusCode};
 use tungstenite::{stream::MaybeTlsStream, WebSocket};
 pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 
+use crate::http::{Headers, Method, RequestBuilder, Response};
+
 type Bytes = Vec<u8>;
-pub type Headers = HashMap<String, String>;
 
 trait AttoHttpReqExt: Sized {
     fn set_headers(self, headers: Headers) -> Result<Self>;
@@ -41,27 +41,6 @@ impl HttpReqExt for http::request::Builder {
         }
         Ok(self)
     }
-}
-
-/// General trait for building http-requests.
-/// 
-/// To use custom builder with client, you need to implement this trait for some type and pass it
-/// to the client that will fill it.
-pub trait RequestBuilder {
-    fn build<U, P, K, V>(
-        method: Method,
-        url: U,
-        body: Bytes,
-        query_params: P,
-        headers: Headers,
-    ) -> Result<Self>
-    where
-        U: AsRef<str>,
-        P: IntoIterator,
-        P::Item: Borrow<(K, V)>,
-        K: AsRef<str>,
-        V: ToString,
-        Self: Sized;
 }
 
 /// Default request builder & sender implemented on top of `attohttpc` crate.

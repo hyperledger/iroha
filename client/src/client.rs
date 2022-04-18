@@ -10,7 +10,7 @@ use std::{
 };
 
 use eyre::{eyre, Result, WrapErr};
-use http_client::WebSocketStream;
+use http_default::WebSocketStream;
 use iroha_config::{GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::prelude::*;
@@ -23,10 +23,8 @@ use small::SmallStr;
 
 use crate::{
     config::Configuration,
-    http_client::{
-        self, DefaultRequestBuilder, Method as HttpMethod, RequestBuilder, Response, StatusCode,
-        WebSocketError, WebSocketMessage,
-    },
+    http::{Headers as HttpHeaders, Method as HttpMethod, RequestBuilder, Response, StatusCode},
+    http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
 };
 
 /// General trait for all response handlers
@@ -37,6 +35,7 @@ pub trait ResponseHandler<O, T = Vec<u8>> {
 
 /// Phantom struct that handles responses of Query API.
 /// Depending on input query struct, transforms a response into appropriate output.
+#[derive(Clone, Copy)]
 pub struct QueryResponseHandler<R>(PhantomData<R>);
 
 impl<R> ResponseHandler<R::Output> for QueryResponseHandler<R>
@@ -61,6 +60,7 @@ where
 }
 
 /// Phantom struct that handles Transaction API HTTP response
+#[derive(Clone, Copy)]
 pub struct TransactionResponseHandler;
 
 impl ResponseHandler<()> for TransactionResponseHandler {
@@ -78,6 +78,7 @@ impl ResponseHandler<()> for TransactionResponseHandler {
 }
 
 /// Phantom struct that handles status check HTTP response
+#[derive(Clone, Copy)]
 pub struct StatusResponseHandler;
 
 impl ResponseHandler<Status> for StatusResponseHandler {
@@ -111,7 +112,7 @@ pub struct Client {
     /// Current account
     account_id: AccountId,
     /// Http headers which will be appended to each request
-    headers: http_client::Headers,
+    headers: HttpHeaders,
     /// If `true` add nonce, which makes different hashes for
     /// transactions which occur repeatedly and/or simultaneously
     add_transaction_nonce: bool,
@@ -121,7 +122,7 @@ pub struct Client {
 impl Client {
     /// Constructor for client from configuration
     pub fn new(configuration: &Configuration) -> Self {
-        Self::with_headers(configuration, http_client::Headers::default())
+        Self::with_headers(configuration, HttpHeaders::default())
     }
 
     /// Constructor for client from configuration and headers
@@ -292,7 +293,7 @@ impl Client {
 
         Ok((
             B::build(
-                http_client::Method::POST,
+                HttpMethod::POST,
                 format!("{}/{}", &self.torii_url, uri::TRANSACTION),
                 transaction_bytes,
                 Vec::<(String, String)>::new(),
@@ -654,12 +655,8 @@ impl EventIterator {
     ///
     /// # Errors
     /// Fails if connecting and sending subscription to web socket fails
-    pub fn new(
-        url: &str,
-        event_filter: EventFilter,
-        headers: http_client::Headers,
-    ) -> Result<Self> {
-        let mut stream = http_client::web_socket_connect(url, headers)?;
+    pub fn new(url: &str, event_filter: EventFilter, headers: HttpHeaders) -> Result<Self> {
+        let mut stream = http_default::web_socket_connect(url, headers)?;
         stream.write_message(WebSocketMessage::Binary(
             VersionedEventSubscriberMessage::from(EventSubscriberMessage::from(event_filter))
                 .encode_versioned(),
