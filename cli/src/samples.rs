@@ -77,7 +77,8 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
             ..KuraConfiguration::default()
         },
         sumeragi: SumeragiConfiguration {
-            key_pair: KeyPair::new(public_key.clone(), private_key.clone()),
+            key_pair: KeyPair::new(public_key.clone(), private_key.clone())
+                .expect("Key pair mismatch"),
             peer_id: PeerId::new(DEFAULT_TORII_P2P_ADDR, &public_key),
             trusted_peers: TrustedPeers {
                 peers: trusted_peers,

@@ -155,7 +155,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
             Algorithm::Ed25519,
             "9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0"
         ).expect("Valid"),
-    );
+    ).expect("Valid");
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     let configuration = get_config(std::iter::once(peer.id.clone()).collect(), Some(kp.clone()));
     let pipeline_time = Duration::from_millis(configuration.sumeragi.pipeline_time_ms());
@@ -180,7 +180,8 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     client_configuration.torii_api_url =
         SmallStr::from_string("http://".to_owned() + &peer.api_address);
-    let mut iroha_client = Client::new(&client_configuration);
+    let mut iroha_client =
+        Client::new(&client_configuration).expect("Invalid client configuration");
     iroha_client
         .submit_all(vec![
             register::domain("exchange").into(),

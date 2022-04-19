@@ -48,7 +48,8 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         &network.genesis.api_address,
         &network.genesis.telemetry_address,
     );
-    let mut iroha_client = Client::new(&client_configuration);
+    let mut iroha_client =
+        Client::new(&client_configuration).expect("Invalid client configuration");
     iroha_client
         .submit_all(vec![
             create_domain.into(),
@@ -70,7 +71,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     client_configuration.account_id = account_id.clone();
     client_configuration.public_key = public_key1;
     client_configuration.private_key = private_key1;
-    let iroha_client = Client::new(&client_configuration);
+    let iroha_client = Client::new(&client_configuration).expect("Invalid client configuration");
     let instructions: Vec<Instruction> = vec![mint_asset.clone().into()];
     let transaction = iroha_client
         .build_transaction(instructions.into(), UnlimitedMetadata::new())
@@ -88,7 +89,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     client_configuration.torii_api_url = small::SmallStr::from_string(
         "http://".to_owned() + &network.peers.values().last().unwrap().api_address,
     );
-    let iroha_client_1 = Client::new(&client_configuration);
+    let iroha_client_1 = Client::new(&client_configuration).expect("Invalid client configuration");
     let request = client::asset::by_account_id(account_id);
     assert!(iroha_client_1
         .request(request.clone())
@@ -97,7 +98,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     let (public_key2, private_key2) = key_pair_2.into();
     client_configuration.public_key = public_key2;
     client_configuration.private_key = private_key2;
-    let iroha_client_2 = Client::new(&client_configuration);
+    let iroha_client_2 = Client::new(&client_configuration).expect("Invalid client configuration");
     let instructions: Vec<Instruction> = vec![mint_asset.into()];
     let transaction = iroha_client_2
         .build_transaction(instructions.into(), UnlimitedMetadata::new())
