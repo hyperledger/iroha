@@ -11,7 +11,13 @@ fn main() {
     // we don't have to manually monitor every iroha_wasm dependency
     println!("cargo:rerun-if-changed=..");
 
-    let success = Command::new("cargo")
+    let fmt = Command::new("cargo")
+        .current_dir(smartcontract_path)
+        .args(&["+nightly", "fmt", "--all"])
+        .status()
+        .unwrap();
+
+    let build = Command::new("cargo")
         .env("CARGO_TARGET_DIR", out_dir)
         .current_dir(smartcontract_path)
         .args(&[
@@ -25,8 +31,9 @@ fn main() {
             "wasm32-unknown-unknown",
         ])
         .status()
-        .unwrap()
-        .success();
+        .unwrap();
+
+    let success = fmt.success() && build.success();
 
     assert!(success, "Can't build smartcontract")
 }
