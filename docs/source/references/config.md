@@ -97,6 +97,10 @@ The following is the default configuration used by Iroha.
     "IDENT_LENGTH_LIMITS": {
       "min": 1,
       "max": 128
+    },
+    "WASM_RUNTIME_CONFIG": {
+      "FUEL_LIMIT": 1000000,
+      "MAX_MEMORY": 524288000
     }
   },
   "NETWORK": {
@@ -766,6 +770,10 @@ Has type `WorldStateViewConfiguration`. Can be configured via environment variab
   "IDENT_LENGTH_LIMITS": {
     "max": 128,
     "min": 1
+  },
+  "WASM_RUNTIME_CONFIG": {
+    "FUEL_LIMIT": 1000000,
+    "MAX_MEMORY": 524288000
   }
 }
 ```
@@ -832,6 +840,19 @@ Has type `LengthLimits`. Can be configured via environment variable `WSV_IDENT_L
 {
   "max": 128,
   "min": 1
+}
+```
+
+### `wsv.wasm_runtime_config`
+
+[`WASM Runtime`](wasm::Runtime) configuration
+
+Has type `wasm::config::Configuration`. Can be configured via environment variable `WSV_WASM_RUNTIME_CONFIG`
+
+```json
+{
+  "FUEL_LIMIT": 1000000,
+  "MAX_MEMORY": 524288000
 }
 ```
 
