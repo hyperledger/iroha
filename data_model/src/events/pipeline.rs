@@ -204,24 +204,24 @@ mod tests {
             Event {
                 entity_kind: EntityKind::Transaction,
                 status: Status::Validating,
-                hash: Hash([0_u8; 32]),
+                hash: Hash::prehashed([0_u8; Hash::LENGTH]),
             },
             Event {
                 entity_kind: EntityKind::Transaction,
                 status: Status::Rejected(Transaction(NotPermitted(NotPermittedFail {
                     reason: "Some reason".to_string(),
                 }))),
-                hash: Hash([0_u8; 32]),
+                hash: Hash::prehashed([0_u8; Hash::LENGTH]),
             },
             Event {
                 entity_kind: EntityKind::Transaction,
                 status: Status::Committed,
-                hash: Hash([2_u8; 32]),
+                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
             },
             Event {
                 entity_kind: EntityKind::Block,
                 status: Status::Committed,
-                hash: Hash([2_u8; 32]),
+                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
             },
         ];
         assert_eq!(
@@ -229,27 +229,29 @@ mod tests {
                 Event {
                     entity_kind: EntityKind::Transaction,
                     status: Status::Validating,
-                    hash: Hash([0_u8; 32]),
+                    hash: Hash::prehashed([0_u8; Hash::LENGTH]),
                 },
                 Event {
                     entity_kind: EntityKind::Transaction,
                     status: Status::Rejected(Transaction(NotPermitted(NotPermittedFail {
                         reason: "Some reason".to_string(),
                     }))),
-                    hash: Hash([0_u8; 32]),
+                    hash: Hash::prehashed([0_u8; Hash::LENGTH]),
                 },
             ],
             events
                 .iter()
                 .cloned()
-                .filter(|event| EventFilter::new().hash(Hash([0_u8; 32])).matches(event))
+                .filter(|event| EventFilter::new()
+                    .hash(Hash::prehashed([0_u8; Hash::LENGTH]))
+                    .matches(event))
                 .collect::<Vec<Event>>()
         );
         assert_eq!(
             vec![Event {
                 entity_kind: EntityKind::Block,
                 status: Status::Committed,
-                hash: Hash([2_u8; 32]),
+                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
             }],
             events
                 .iter()
@@ -263,14 +265,14 @@ mod tests {
             vec![Event {
                 entity_kind: EntityKind::Transaction,
                 status: Status::Committed,
-                hash: Hash([2_u8; 32]),
+                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
             }],
             events
                 .iter()
                 .cloned()
                 .filter(|event| EventFilter::new()
                     .entity_kind(EntityKind::Transaction)
-                    .hash(Hash([2_u8; 32]))
+                    .hash(Hash::prehashed([2_u8; Hash::LENGTH]))
                     .matches(event))
                 .collect::<Vec<Event>>()
         );

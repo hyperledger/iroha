@@ -2,7 +2,7 @@ use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr};
 
 use eyre::{eyre, Result, WrapErr};
 use iroha_config::derive::Configurable;
-use iroha_crypto::{PrivateKey, PublicKey};
+use iroha_crypto::prelude::*;
 use iroha_data_model::{prelude::*, transaction};
 use iroha_logger::Configuration as LoggerConfiguration;
 use serde::{Deserialize, Serialize};
@@ -98,11 +98,12 @@ pub struct Configuration {
 
 impl Default for Configuration {
     fn default() -> Self {
-        #[allow(clippy::expect_used)]
+        let (public_key, private_key) = Self::placeholder_keypair().into();
+
         Self {
-            public_key: PublicKey::default(),
-            private_key: PrivateKey::default(),
-            account_id: AccountId::from_str("").expect("Empty strings are valid"),
+            public_key,
+            private_key,
+            account_id: Self::placeholder_account(),
             basic_auth: None,
             torii_api_url: small::SmallStr::from_str(uri::DEFAULT_API_URL),
             torii_telemetry_url: small::SmallStr::from_str(DEFAULT_TORII_TELEMETRY_URL),
@@ -119,6 +120,26 @@ impl Default for Configuration {
 }
 
 impl Configuration {
+    /// Key-pair used by default for demo purposes
+    #[allow(clippy::expect_used)]
+    fn placeholder_keypair() -> KeyPair {
+        let public_key = "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+            .parse()
+            .expect("Public key not in mulithash format");
+        let private_key = PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
+        ).expect("Private key not hex encoded");
+
+        KeyPair::new(public_key, private_key)
+    }
+
+    /// Account ID used by default for demo purposes
+    #[allow(clippy::expect_used)]
+    fn placeholder_account() -> <Account as Identifiable>::Id {
+        AccountId::from_str("alice@wonderland").expect("Account ID not valid")
+    }
+
     /// This method will build `Configuration` from a json *pretty* formatted file (without `:` in
     /// key names).
     ///

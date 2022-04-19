@@ -26,7 +26,9 @@ use tokio::sync::broadcast;
 use torii::Torii;
 
 pub mod config;
+mod event;
 pub mod samples;
+mod stream;
 pub mod torii;
 
 /// Arguments for Iroha2 - usually parsed from cli.
@@ -163,7 +165,7 @@ where
             WorldStateView::from_configuration(
                 config.wsv,
                 W::with(
-                    domains(&config).wrap_err("Failed to get initial domains")?,
+                    domains(&config),
                     config.sumeragi.trusted_peers.peers.clone(),
                 ),
             )
@@ -305,12 +307,7 @@ where
 ///
 /// # Errors
 /// - Genesis account public key not specified.
-fn domains(configuration: &config::Configuration) -> Result<impl Iterator<Item = Domain>> {
-    let key = configuration
-        .genesis
-        .account_public_key
-        .clone()
-        .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
-
-    Ok([Domain::from(GenesisDomain::new(key))].into_iter())
+fn domains(configuration: &config::Configuration) -> impl Iterator<Item = Domain> {
+    let key = configuration.genesis.account_public_key.clone();
+    [Domain::from(GenesisDomain::new(key))].into_iter()
 }

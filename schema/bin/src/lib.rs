@@ -7,7 +7,6 @@ use iroha_core::{
     genesis::RawGenesisBlock,
     smartcontracts::isi::query::Error as QueryError,
 };
-use iroha_data_model::merkle::MerkleTree;
 use iroha_schema::prelude::*;
 
 macro_rules! schemas {
@@ -23,6 +22,7 @@ macro_rules! schemas {
 /// You should only include the top-level types, because other types
 /// shall be included automatically.
 pub fn build_schemas() -> MetaMap {
+    use iroha_crypto::MerkleTree;
     use iroha_data_model::prelude::*;
 
     schemas! {
@@ -134,8 +134,15 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::use_debug)]
+    #[allow(clippy::print_stdout)]
     fn no_missing_schemas() {
-        assert!(find_missing_schemas(&build_schemas()).is_empty());
+        let schemas = build_schemas();
+
+        let missing_schemas = find_missing_schemas(&schemas);
+        println!("Missing schemas: \n{:#?}", missing_schemas);
+
+        assert!(missing_schemas.is_empty());
     }
 
     #[test]

@@ -184,16 +184,13 @@ impl GenesisNetworkTrait for GenesisNetwork {
                 .transactions
                 .iter()
                 .map(|raw_transaction| {
-                    let genesis_key_pair = KeyPair {
-                        public_key: genesis_config
-                            .account_public_key
-                            .clone()
-                            .ok_or_else(|| eyre!("Genesis account public key is empty."))?,
-                        private_key: genesis_config
+                    let genesis_key_pair = KeyPair::new(
+                        genesis_config.account_public_key.clone(),
+                        genesis_config
                             .account_private_key
                             .clone()
                             .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
-                    };
+                    );
 
                     raw_transaction.sign_and_accept(genesis_key_pair, tx_limits)
                 })
@@ -310,22 +307,22 @@ impl GenesisTransaction {
 /// Module with genesis configuration logic.
 pub mod config {
     use iroha_config::derive::Configurable;
-    use iroha_crypto::{PrivateKey, PublicKey};
+    use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT: u64 = 100;
     const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
     const DEFAULT_GENESIS_SUBMISSION_DELAY_MS: u64 = 1000;
 
-    #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]
+    #[serde(default)]
     #[serde(rename_all = "UPPERCASE")]
     #[config(env_prefix = "IROHA_GENESIS_")]
     /// Configuration of the genesis block and the process of its submission.
     pub struct GenesisConfiguration {
         /// The genesis account public key, should be supplied to all peers.
-        /// The type is `Option` just because it might be loaded from environment variables and not from `config.json`.
         #[config(serde_as_str)]
-        pub account_public_key: Option<PublicKey>,
+        pub account_public_key: PublicKey,
         /// Genesis account private key, only needed on the peer that submits the genesis block.
         pub account_private_key: Option<PrivateKey>,
         /// Number of attempts to connect to peers, while waiting for them to submit genesis.
@@ -340,15 +337,35 @@ pub mod config {
         pub genesis_submission_delay_ms: u64,
     }
 
+    #[allow(clippy::expect_used)]
     impl Default for GenesisConfiguration {
         fn default() -> Self {
+            let (public_key, private_key) = Self::placeholder_keypair().into();
+
             Self {
-                account_public_key: None,
-                account_private_key: None,
+                account_public_key: public_key,
+                account_private_key: Some(private_key),
                 wait_for_peers_retry_count: DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT,
                 wait_for_peers_retry_period_ms: DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS,
                 genesis_submission_delay_ms: DEFAULT_GENESIS_SUBMISSION_DELAY_MS,
             }
+        }
+    }
+
+    impl GenesisConfiguration {
+        /// Key-pair used by default for demo purposes
+        #[allow(clippy::expect_used)]
+        fn placeholder_keypair() -> KeyPair {
+            let public_key =
+                "ed01204cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
+                    .parse()
+                    .expect("Public key not in mulithash format");
+            let private_key = PrivateKey::from_hex(
+                iroha_crypto::Algorithm::Ed25519,
+                "d748e18ce60cb30dea3e73c9019b7af45a8d465e3d71bcc9a5ef99a008205e534cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
+            ).expect("Private key not hex encoded");
+
+            KeyPair::new(public_key, private_key)
         }
     }
 
@@ -458,7 +475,7 @@ mod tests {
 
     #[test]
     fn load_default_genesis_block() -> Result<()> {
-        let genesis_key_pair = KeyPair::generate()?;
+        let (public_key, private_key) = KeyPair::generate()?.into();
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
@@ -467,8 +484,8 @@ mod tests {
             true,
             RawGenesisBlock::default(),
             &GenesisConfiguration {
-                account_public_key: Some(genesis_key_pair.public_key),
-                account_private_key: Some(genesis_key_pair.private_key),
+                account_public_key: public_key,
+                account_private_key: Some(private_key),
                 ..GenesisConfiguration::default()
             },
             &tx_limits,

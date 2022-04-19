@@ -93,17 +93,17 @@ impl Role {
     #[inline]
     pub fn new(
         id: <Self as Identifiable>::Id,
-        permissions: impl Into<Permissions>,
+        permissions: impl IntoIterator<Item = PermissionToken>,
     ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id,
-            permissions: permissions.into(),
+            permissions: permissions.into_iter().collect(),
         }
     }
 
     /// Get an iterator over [`permissions`](PermissionToken) of the `Role`
     #[inline]
-    pub fn permissions(&self) -> impl Iterator<Item = &PermissionToken> {
+    pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
         self.permissions.iter()
     }
 }

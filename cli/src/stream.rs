@@ -151,7 +151,7 @@ impl<M: DecodeVersioned> Stream<M> for warp::ws::WebSocket {
     type Message = warp::ws::Message;
 }
 
-#[cfg(feature = "cross_crate_testing")]
+#[cfg(test)]
 mod ws_client {
     use warp::test::WsClient;
 

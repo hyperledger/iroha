@@ -28,33 +28,18 @@ fn compact() {
     use Metadata::*;
 
     let expected = vec![
-        (
-            "iroha_schema::Compact<u128>".to_owned(),
-            Int(IntMode::Compact),
-        ),
-        (
-            "iroha_schema::Compact<u16>".to_owned(),
-            Int(IntMode::Compact),
-        ),
-        (
-            "iroha_schema::Compact<u32>".to_owned(),
-            Int(IntMode::Compact),
-        ),
-        (
-            "iroha_schema::Compact<u64>".to_owned(),
-            Int(IntMode::Compact),
-        ),
-        (
-            "iroha_schema::Compact<u8>".to_owned(),
-            Int(IntMode::Compact),
-        ),
+        ("Compact<u128>".to_owned(), Int(IntMode::Compact)),
+        ("Compact<u16>".to_owned(), Int(IntMode::Compact)),
+        ("Compact<u32>".to_owned(), Int(IntMode::Compact)),
+        ("Compact<u64>".to_owned(), Int(IntMode::Compact)),
+        ("Compact<u8>".to_owned(), Int(IntMode::Compact)),
         (
             "numbers_compact_and_fixed::Foo".to_owned(),
             Struct(NamedFieldsMeta {
                 declarations: vec![
                     Declaration {
                         name: "u8_compact".to_owned(),
-                        ty: "iroha_schema::Compact<u8>".to_owned(),
+                        ty: "Compact<u8>".to_owned(),
                     },
                     Declaration {
                         name: "u8_fixed".to_owned(),
@@ -62,7 +47,7 @@ fn compact() {
                     },
                     Declaration {
                         name: "u16_compact".to_owned(),
-                        ty: "iroha_schema::Compact<u16>".to_owned(),
+                        ty: "Compact<u16>".to_owned(),
                     },
                     Declaration {
                         name: "u16_fixed".to_owned(),
@@ -70,7 +55,7 @@ fn compact() {
                     },
                     Declaration {
                         name: "u32_compact".to_owned(),
-                        ty: "iroha_schema::Compact<u32>".to_owned(),
+                        ty: "Compact<u32>".to_owned(),
                     },
                     Declaration {
                         name: "u32_fixed".to_owned(),
@@ -78,7 +63,7 @@ fn compact() {
                     },
                     Declaration {
                         name: "u64_compact".to_owned(),
-                        ty: "iroha_schema::Compact<u64>".to_owned(),
+                        ty: "Compact<u64>".to_owned(),
                     },
                     Declaration {
                         name: "u64_fixed".to_owned(),
@@ -86,7 +71,7 @@ fn compact() {
                     },
                     Declaration {
                         name: "u128_compact".to_owned(),
-                        ty: "iroha_schema::Compact<u128>".to_owned(),
+                        ty: "Compact<u128>".to_owned(),
                     },
                     Declaration {
                         name: "u128_fixed".to_owned(),

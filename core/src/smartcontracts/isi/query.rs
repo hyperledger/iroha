@@ -1,75 +1,16 @@
-//! Query functionality. This module defines the
-//! `VerifiedQueryRequest`, which is the only kind of query that is
-//! permitted to execute.  The common error type is also defined here,
+//! Query functionality. The common error type is also defined here,
 //! alongside functions for converting them into HTTP responses.
 
 use std::{error::Error as StdError, fmt};
 
 use eyre::Result;
-use iroha_crypto::SignatureOf;
-use iroha_data_model::{prelude::*, query};
+use iroha_data_model::prelude::*;
 use iroha_schema::IntoSchema;
-use iroha_version::scale::DecodeVersioned;
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
-use warp::{http::StatusCode, hyper::body::Bytes};
 
-use super::{permissions::IsQueryAllowedBoxed, FindError};
+use super::FindError;
 use crate::{prelude::ValidQuery, WorldStateView, WorldTrait};
-
-/// Query Request verified on the Iroha node side.
-#[derive(Debug, Decode, Encode)]
-pub struct VerifiedQueryRequest {
-    /// Payload.
-    payload: query::Payload,
-    /// Signature of the client who sends this query.
-    signature: SignatureOf<query::Payload>,
-}
-
-impl VerifiedQueryRequest {
-    /// Validate query.
-    ///
-    /// # Errors
-    /// if:
-    /// - Account doesn't exist.
-    /// - Account doesn't have the correct public key.
-    /// - Account has the correct permissions.
-    pub fn validate<W: WorldTrait>(
-        self,
-        wsv: &WorldStateView<W>,
-        query_validator: &IsQueryAllowedBoxed<W>,
-    ) -> Result<ValidQueryRequest, Error> {
-        let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
-            account.contains_signatory(&self.signature.public_key)
-        })?;
-        if !account_has_public_key {
-            return Err(Error::Signature(String::from(
-                "Signature public key doesn't correspond to the account.",
-            )));
-        }
-        query_validator
-            .check(&self.payload.account_id, &self.payload.query, wsv)
-            .map_err(Error::Permission)?;
-        Ok(ValidQueryRequest {
-            query: self.payload.query,
-        })
-    }
-}
-
-impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
-    type Error = Error;
-
-    fn try_from(query: SignedQueryRequest) -> Result<Self, Error> {
-        query
-            .signature
-            .verify(&query.payload)
-            .map(|_| Self {
-                payload: query.payload,
-                signature: query.signature,
-            })
-            .map_err(|e| Error::Signature(e.to_string()))
-    }
-}
 
 /// Query Request statefully validated on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
@@ -85,6 +26,12 @@ impl ValidQueryRequest {
     #[inline]
     pub fn execute<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<Value, Error> {
         self.query.execute(wsv)
+    }
+
+    /// Construct `ValidQueryRequest` from a validated query
+    #[must_use]
+    pub const fn new(query: QueryBox) -> Self {
+        Self { query }
     }
 }
 
@@ -147,32 +94,6 @@ impl From<FindError> for Error {
     }
 }
 
-impl Error {
-    /// Status code for query error response.
-    pub const fn status_code(&self) -> StatusCode {
-        use Error::*;
-        match self {
-            Decode(_) | Version(_) | Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
-            Signature(_) => StatusCode::UNAUTHORIZED,
-            Permission(_) => StatusCode::FORBIDDEN,
-            Find(_) => StatusCode::NOT_FOUND,
-        }
-    }
-}
-
-impl warp::reject::Reject for Error {}
-
-impl TryFrom<&Bytes> for VerifiedQueryRequest {
-    type Error = Error;
-
-    fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
-        let query = VersionedSignedQueryRequest::decode_versioned(body.as_ref())
-            .map_err(|e| Error::Decode(Box::new(e)))?;
-        let VersionedSignedQueryRequest::V1(query) = query;
-        VerifiedQueryRequest::try_from(query)
-    }
-}
-
 impl<W: WorldTrait> ValidQuery<W> for QueryBox {
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
         use QueryBox::*;
@@ -215,7 +136,7 @@ mod tests {
 
     use std::{str::FromStr, sync::Arc};
 
-    use iroha_crypto::{Hash, KeyPair};
+    use iroha_crypto::{Hash, HashOf, KeyPair};
     use iroha_data_model::transaction::TransactionLimits;
     use once_cell::sync::Lazy;
 
@@ -231,7 +152,7 @@ mod tests {
     fn world_with_test_domains() -> World {
         let domain_id = DomainId::from_str("wonderland").expect("Valid");
         let mut domain = Domain::new(domain_id).build();
-        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
+        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build();
         assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         assert!(domain
@@ -246,7 +167,7 @@ mod tests {
     fn world_with_test_asset_with_metadata() -> World {
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland").expect("Valid");
         let mut domain = Domain::new(DomainId::from_str("wonderland").expect("Valid")).build();
-        let mut account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
+        let mut account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build();
         assert!(domain
             .add_asset_definition(
                 AssetDefinition::quantity(asset_definition_id.clone()).build(),
@@ -279,7 +200,7 @@ mod tests {
         )?;
 
         let mut domain = Domain::new(DomainId::from_str("wonderland")?).build();
-        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()])
+        let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()])
             .with_metadata(metadata)
             .build();
         assert!(domain.add_account(account).is_none());
@@ -351,14 +272,14 @@ mod tests {
             .commit();
         wsv.apply(vcb).await?;
 
-        let wrong_hash = Hash::new(&[2_u8]);
+        let wrong_hash: Hash = HashOf::new(&2_u8).into();
         let not_found = FindTransactionByHash::new(wrong_hash).execute(&wsv);
         assert!(matches!(not_found, Err(_)));
 
         let found_accepted = FindTransactionByHash::new(Hash::from(va_tx.hash())).execute(&wsv)?;
         match found_accepted {
             TransactionValue::Transaction(tx) => {
-                assert_eq!(Hash::from(va_tx.hash()), Hash::from(tx.hash()))
+                assert_eq!(va_tx.hash().transmute(), tx.hash())
             }
             TransactionValue::RejectedTransaction(_) => {}
         }
@@ -377,7 +298,7 @@ mod tests {
             let mut domain = Domain::new(DomainId::from_str("wonderland")?)
                 .with_metadata(metadata)
                 .build();
-            let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key.clone()]).build();
+            let account = Account::new(ALICE_ID.clone(), [ALICE_KEYS.public_key().clone()]).build();
             assert!(domain.add_account(account).is_none());
             let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
             assert!(domain

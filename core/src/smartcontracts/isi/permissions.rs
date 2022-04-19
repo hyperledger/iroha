@@ -807,10 +807,7 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::{
-        collections::{BTreeMap, BTreeSet},
-        str::FromStr as _,
-    };
+    use std::{collections::BTreeSet, str::FromStr as _};
 
     use iroha_data_model::{expression::prelude::*, isi::*};
 
@@ -875,7 +872,6 @@ mod tests {
         ) -> Result<PermissionToken, String> {
             Ok(PermissionToken::new(
                 Name::from_str("token").expect("Valid"),
-                BTreeMap::new(),
             ))
         }
     }
@@ -963,8 +959,7 @@ mod tests {
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
         assert!(bob_account.add_permission(PermissionToken::new(
-            Name::from_str("token").expect("Valid"),
-            BTreeMap::default(),
+            Name::from_str("token").expect("Valid")
         )));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));

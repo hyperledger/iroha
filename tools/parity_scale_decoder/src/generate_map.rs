@@ -25,7 +25,7 @@ impl<T> TypeName for T {
     }
 }
 
-/// Neotype which has `type_name()` method when `T` implements [`IntoSchema`]
+/// Newtype which has `type_name()` method when `T` implements [`IntoSchema`]
 struct WithTypeName<T>(std::marker::PhantomData<T>);
 
 impl<T: IntoSchema + Decode> WithTypeName<T> {
@@ -43,7 +43,6 @@ impl<T: IntoSchema + Decode> WithTypeName<T> {
 
 macro_rules! generate_map {
     ($($t:ty),* $(,)?) => {
-        #[allow(trivial_casts)]
         BTreeMap::from([
             $((
                 WithTypeName::<$t>::type_name().unwrap_or(stringify!($t).to_owned()),
@@ -54,9 +53,10 @@ macro_rules! generate_map {
 }
 
 /// Generate map with types and `dump_decoded()` ptr
+#[allow(trivial_casts)]
 #[allow(clippy::too_many_lines)]
 pub fn generate_map() -> DumpDecodedMap {
-    generate_map! {
+    let mut map = generate_map! {
         Account,
         AccountEvent,
         AccountEventFilter,
@@ -167,8 +167,7 @@ pub fn generate_map() -> DumpDecodedMap {
         Hash,
         HashOf<block::VersionedCommittedBlock>,
         HashOf<block::VersionedValidBlock>,
-        HashOf<merkle::MerkleTree<transaction::VersionedTransaction>>,
-        HashOf<merkle::Node<transaction::VersionedTransaction>>,
+        HashOf<MerkleTree<transaction::VersionedTransaction>>,
         HashOf<sumeragi::view_change::Proof>,
         HashOf<transaction::VersionedTransaction>,
         IdBox,
@@ -205,7 +204,6 @@ pub fn generate_map() -> DumpDecodedMap {
         Or,
         Pair,
         Parameter,
-        Payload,
         Peer,
         PeerEvent,
         PeerEventFilter,
@@ -340,13 +338,21 @@ pub fn generate_map() -> DumpDecodedMap {
         sumeragi::view_change::ProofChain,
         sumeragi::view_change::ProofPayload,
         sumeragi::view_change::Reason,
+        transaction::Payload,
         transaction::TransactionLimitError,
         transaction::WasmSmartContract,
         u128,
         u32,
         u64,
         u8,
-    }
+    };
+
+    map.insert(
+        <iroha_schema::Compact<u128> as IntoSchema>::type_name(),
+        <parity_scale_codec::Compact<u128> as DumpDecoded>::dump_decoded as DumpDecodedPtr,
+    );
+
+    map
 }
 
 #[cfg(test)]
@@ -364,11 +370,7 @@ mod tests {
             "Vec<iroha_core::genesis::GenesisTransaction>",
             "iroha_core::genesis::GenesisTransaction",
             "iroha_core::genesis::RawGenesisBlock",
-            "iroha_data_model::merkle::Leaf<iroha_data_model::transaction::VersionedTransaction>",
-            "iroha_data_model::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>",
-            "iroha_data_model::merkle::Node<iroha_data_model::transaction::VersionedTransaction>",
-            "iroha_data_model::merkle::Subtree<iroha_data_model::transaction::VersionedTransaction>",
-            "iroha_schema::Compact<u128>",
+            "iroha_crypto::merkle::MerkleTree<iroha_data_model::transaction::VersionedTransaction>",
         ]);
 
         let schemas_types = build_schemas()

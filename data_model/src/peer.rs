@@ -27,7 +27,7 @@ pub struct Peer {
 ///
 /// Equality is tested by `public_key` field only.
 /// Each peer should have a unique public key.
-#[derive(Debug, Default, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Id {
     /// Address of the [`Peer`]'s entrypoint.
     pub address: String,

@@ -24,11 +24,10 @@ use tokio::task;
 
 use crate::{
     block::Chain,
-    event::EventsSender,
     prelude::*,
     smartcontracts::{isi::Error, wasm, Execute, FindError},
     triggers::TriggerSet,
-    DomainsMap, PeersIds,
+    DomainsMap, EventsSender, PeersIds,
 };
 
 /// Sender type of the new block notification channel
@@ -629,9 +628,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
         self.blocks
             .latest_block()
-            .map_or(HashOf::from_hash(Hash([0_u8; 32])), |block| {
-                block.value().hash()
-            })
+            .map_or(Hash::zeroed().typed(), |block| block.value().hash())
     }
 
     /// Get `Account` and pass it to closure.

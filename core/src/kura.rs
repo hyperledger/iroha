@@ -14,8 +14,7 @@ use std::{
 use async_trait::async_trait;
 use futures::{Stream, StreamExt, TryStreamExt};
 use iroha_actor::{broker::*, prelude::*};
-use iroha_crypto::HashOf;
-use iroha_data_model::merkle::MerkleTree;
+use iroha_crypto::{HashOf, MerkleTree};
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use pin_project::pin_project;

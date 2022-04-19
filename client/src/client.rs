@@ -73,10 +73,10 @@ impl Client {
             torii_url: configuration.torii_api_url.clone(),
             telemetry_url: configuration.torii_telemetry_url.clone(),
             transaction_limits: configuration.transaction_limits,
-            key_pair: KeyPair {
-                public_key: configuration.public_key.clone(),
-                private_key: configuration.private_key.clone(),
-            },
+            key_pair: KeyPair::new(
+                configuration.public_key.clone(),
+                configuration.private_key.clone(),
+            ),
             proposed_transaction_ttl_ms: configuration.transaction_time_to_live_ms,
             transaction_status_timeout: Duration::from_millis(
                 configuration.transaction_status_timeout_ms,
@@ -632,7 +632,7 @@ impl Drop for EventIterator {
 impl Debug for Client {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
-            .field("public_key", &self.key_pair.public_key)
+            .field("public_key", self.key_pair.public_key())
             .field("torii_url", &self.torii_url)
             .field("telemetry_url", &self.telemetry_url)
             .finish()
@@ -728,10 +728,11 @@ mod tests {
 
     #[test]
     fn txs_same_except_for_nonce_have_different_hashes() {
-        let keys = KeyPair::generate().unwrap();
+        let (public_key, private_key) = KeyPair::generate().unwrap().into();
+
         let cfg = Configuration {
-            public_key: keys.public_key,
-            private_key: keys.private_key,
+            public_key,
+            private_key,
             add_transaction_nonce: true,
             ..Configuration::default()
         };

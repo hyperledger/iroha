@@ -30,7 +30,7 @@ fn query_requests(criterion: &mut Criterion) {
         RawGenesisBlock::new(
             "alice".parse().expect("Valid"),
             "wonderland".parse().expect("Valid"),
-            get_key_pair().public_key,
+            get_key_pair().public_key().clone(),
         ),
         &configuration.genesis,
         &configuration.sumeragi.transaction_limits,
@@ -52,12 +52,10 @@ fn query_requests(criterion: &mut Criterion) {
     let domain_id: DomainId = "domain".parse().expect("Valid");
     let create_domain = RegisterBox::new(Domain::new(domain_id.clone()));
     let account_id = AccountId::new("account".parse().expect("Valid"), domain_id.clone());
-    let create_account = RegisterBox::new(Account::new(
-        account_id.clone(),
-        [KeyPair::generate()
-            .expect("Failed to generate KeyPair.")
-            .public_key],
-    ));
+    let (public_key, _) = KeyPair::generate()
+        .expect("Failed to generate KeyPair")
+        .into();
+    let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id = AssetDefinitionId::new("xor".parse().expect("Valid"), domain_id);
     let create_asset =
         RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
@@ -144,12 +142,10 @@ fn instruction_submits(criterion: &mut Criterion) {
     let domain_id: DomainId = "domain".parse().expect("Valid");
     let create_domain = RegisterBox::new(Domain::new(domain_id.clone()));
     let account_id = AccountId::new("account".parse().expect("Valid"), domain_id.clone());
-    let create_account = RegisterBox::new(Account::new(
-        account_id.clone(),
-        [KeyPair::generate()
-            .expect("Failed to generate Key-pair.")
-            .public_key],
-    ));
+    let (public_key, _) = KeyPair::generate()
+        .expect("Failed to generate Key-pair.")
+        .into();
+    let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id = AssetDefinitionId::new("xor".parse().expect("Valid"), domain_id);
     let mut client_config = iroha_client::samples::get_client_config(&get_key_pair());
     client_config.torii_api_url = small::SmallStr::from_string(peer.api_address.clone());

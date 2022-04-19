@@ -44,9 +44,6 @@ impl<W: WorldTrait> HasToken<W> for GrantedAllowedRegisterDomains {
         _instruction: &Instruction,
         _wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String> {
-        Ok(PermissionToken::new(
-            CAN_REGISTER_DOMAINS_TOKEN.clone(),
-            BTreeMap::new(),
-        ))
+        Ok(PermissionToken::new(CAN_REGISTER_DOMAINS_TOKEN.clone()))
     }
 }

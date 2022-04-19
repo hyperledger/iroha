@@ -75,15 +75,13 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
         } else {
             return Err("Destination is not an Asset.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-            asset_id.definition_id.into(),
-        );
-        Ok(PermissionToken::new(
-            CAN_BURN_ASSET_WITH_DEFINITION.clone(),
-            params,
-        ))
+
+        Ok(
+            PermissionToken::new(CAN_BURN_ASSET_WITH_DEFINITION.clone()).with_params([(
+                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
+                asset_id.definition_id.into(),
+            )]),
+        )
     }
 }
 
@@ -107,7 +105,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_BURN_ASSET_WITH_DEFINITION.clone() {
+        if permission_token.name() != &*CAN_BURN_ASSET_WITH_DEFINITION {
             return Err("Grant instruction is not for burn permission.".to_owned());
         }
         check_asset_creator_for_token(&permission_token, authority, wsv)
@@ -171,12 +169,8 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
         } else {
             return Err("Source id is not an AssetId.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), destination_id.into());
-        Ok(PermissionToken::new(
-            CAN_BURN_USER_ASSETS_TOKEN.clone(),
-            params,
-        ))
+        Ok(PermissionToken::new(CAN_BURN_USER_ASSETS_TOKEN.clone())
+            .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), destination_id.into())]))
     }
 }
 
@@ -200,7 +194,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_BURN_USER_ASSETS_TOKEN.clone() {
+        if permission_token.name() != &*CAN_BURN_USER_ASSETS_TOKEN {
             return Err("Grant instruction is not for burn permission.".to_owned());
         }
         check_asset_owner_for_token(&permission_token, authority)?;

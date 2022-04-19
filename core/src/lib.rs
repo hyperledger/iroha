@@ -2,13 +2,11 @@
 
 pub mod block;
 pub mod block_sync;
-pub mod event;
 pub mod genesis;
 pub mod kura;
 pub mod modules;
 pub mod queue;
 pub mod smartcontracts;
-pub mod stream;
 pub mod sumeragi;
 pub mod triggers;
 pub mod tx;
@@ -18,6 +16,7 @@ use std::time::Duration;
 
 use iroha_data_model::prelude::*;
 use parity_scale_codec::{Decode, Encode};
+use tokio::sync::broadcast;
 
 use crate::{
     block_sync::message::VersionedMessage as BlockSyncMessage, prelude::*,
@@ -40,6 +39,11 @@ pub type DomainsMap = dashmap::DashMap<DomainId, Domain>;
 #[cfg(feature = "roles")]
 pub type RolesMap = dashmap::DashMap<RoleId, Role>;
 
+/// Type of `Sender<Event>` which should be used for channels of `Event` messages.
+pub type EventsSender = broadcast::Sender<Event>;
+/// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
+pub type EventsReceiver = broadcast::Receiver<Event>;
+
 /// The network message
 #[derive(Clone, Debug, Encode, Decode, iroha_actor::Message)]
 pub enum NetworkMessage {
@@ -61,7 +65,7 @@ pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
 
     #[doc(inline)]
-    pub use iroha_crypto::{Hash, KeyPair, PrivateKey, PublicKey};
+    pub use iroha_crypto::{Algorithm, Hash, KeyPair, PrivateKey, PublicKey};
 
     #[doc(inline)]
     pub use crate::{
