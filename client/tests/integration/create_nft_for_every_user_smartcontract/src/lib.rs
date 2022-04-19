@@ -1,4 +1,7 @@
 //! Smartcontract which creates new nft for every user
+//!
+//! This module isn't included in the build-tree,
+//! but instead it is being built by a `client/build.rs`
 
 #![no_std]
 #![no_main]
