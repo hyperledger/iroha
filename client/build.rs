@@ -23,6 +23,7 @@ fn main() {
         .args(&[
             "+nightly",
             "build",
+            "--release",
             "-Z",
             "build-std",
             "-Z",

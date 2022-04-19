@@ -1,29 +1,33 @@
 #![no_std]
 #![no_main]
+#![allow(clippy::all)]
 
 extern crate alloc;
 
 use alloc::{format, string::ToString, vec::Vec};
 use core::str::FromStr;
 
-use iroha_wasm::{data_model::prelude::*, Execute};
+use iroha_wasm::{data_model::prelude::*, DebugUnwrapExt, Execute};
 
 #[iroha_wasm::iroha_wasm]
 fn smartcontract_entry_point(_account_id: AccountId) {
     let query = QueryBox::FindAllAccounts(FindAllAccounts {});
-    let accounts: Vec<Account> = query.execute().try_into().unwrap();
+    let accounts: Vec<Account> = query.execute().try_into().dbg_unwrap();
 
     let limits = MetadataLimits::new(256, 256);
 
     for account in accounts {
         let mut metadata = Metadata::new();
+        let name = format!(
+            "nft_for_{}_in_{}",
+            account.id().name,
+            account.id().domain_id
+        )
+        .parse()
+        .dbg_unwrap();
         metadata
-            .insert_with_limits(
-                format!("nft_for_{}", account.id()).parse().unwrap(),
-                true.into(),
-                limits,
-            )
-            .unwrap();
+            .insert_with_limits(name, true.into(), limits)
+            .dbg_unwrap();
 
         let nft_id = generate_new_nft_id(account.id());
         let nft_definition = AssetDefinition::store(nft_id.clone())
@@ -35,7 +39,7 @@ fn smartcontract_entry_point(_account_id: AccountId) {
         Instruction::Register(RegisterBox::new(nft_definition)).execute();
         Instruction::SetKeyValue(SetKeyValueBox::new(
             account_nft_id,
-            Name::from_str("has_this_nft").unwrap(),
+            Name::from_str("has_this_nft").dbg_unwrap(),
             Value::Bool(true),
         ))
         .execute();
@@ -44,7 +48,7 @@ fn smartcontract_entry_point(_account_id: AccountId) {
 
 fn generate_new_nft_id(account_id: &<Account as Identifiable>::Id) -> AssetDefinitionId {
     let query = QueryBox::FindAssetsByAccountId(FindAssetsByAccountId::new(account_id.clone()));
-    let assets: Vec<Asset> = query.execute().try_into().unwrap();
+    let assets: Vec<Asset> = query.execute().try_into().dbg_unwrap();
 
     let new_number = assets
         .into_iter()
@@ -52,7 +56,10 @@ fn generate_new_nft_id(account_id: &<Account as Identifiable>::Id) -> AssetDefin
         .count()
         + 1;
 
-    format!("nft_{}_{}", account_id, new_number)
-        .parse()
-        .unwrap()
+    format!(
+        "nft_number_{}_for_{}#{}",
+        new_number, account_id.name, account_id.domain_id
+    )
+    .parse()
+    .dbg_unwrap()
 }

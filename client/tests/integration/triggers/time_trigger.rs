@@ -52,7 +52,12 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     ));
     test_client.submit(register_trigger)?;
 
-    submit_sample_isi_on_every_block_commit(&mut test_client, &account_id, 3)?;
+    submit_sample_isi_on_every_block_commit(
+        &mut test_client,
+        &account_id,
+        Duration::from_secs(1),
+        3,
+    )?;
     std::thread::sleep(Duration::from_millis(DEFAULT_CONSENSUS_ESTIMATION_MS));
 
     let finish_time = current_time();
@@ -101,6 +106,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     submit_sample_isi_on_every_block_commit(
         &mut test_client,
         &account_id,
+        Duration::from_secs(1),
         usize::try_from(PERIOD_MS / DEFAULT_CONSENSUS_ESTIMATION_MS + 1)?,
     )?;
 
@@ -166,8 +172,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 #[test]
 fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     const TRIGGER_PERIOD_MS: u64 = 1000;
-    const TO_WAIT_MS: u64 = 3000;
-    const EXPECTED_COUNT: u64 = TO_WAIT_MS / TRIGGER_PERIOD_MS;
+    const EXPECTED_COUNT: u64 = 4;
 
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
@@ -220,24 +225,28 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     submit_sample_isi_on_every_block_commit(
         &mut test_client,
         &alice_id,
-        usize::try_from(TO_WAIT_MS / 1000)?,
+        Duration::from_millis(TRIGGER_PERIOD_MS),
+        usize::try_from(EXPECTED_COUNT)?,
     )?;
 
     // Checking results
     for account_id in accounts {
-        let pattern = format!("nft_{}_", account_id);
+        let start_pattern = "nft_number_";
+        let end_pattern = format!("_for_{}#{}", account_id.name, account_id.domain_id);
         let assets = test_client.request(client::asset::by_account_id(account_id.clone()))?;
         let count: u64 = assets
             .into_iter()
-            .filter(|asset| asset.id().definition_id.to_string().starts_with(&pattern))
+            .filter(|asset| {
+                let s = asset.id().definition_id.to_string();
+                s.starts_with(&start_pattern) && s.ends_with(&end_pattern)
+            })
             .count()
             .try_into()
             .expect("`usize` should always fit in `u64`");
 
-        assert_eq!(
-            count, EXPECTED_COUNT,
-            "{} has {} NFT, but {} expected",
-            account_id, count, EXPECTED_COUNT
+        assert!(
+            count >= EXPECTED_COUNT,
+            "{account_id} has {count} NFT, but at least {EXPECTED_COUNT} expected",
         );
     }
 
@@ -254,6 +263,7 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
 fn submit_sample_isi_on_every_block_commit(
     test_client: &mut Client,
     account_id: &AccountId,
+    timeout: Duration,
     times: usize,
 ) -> Result<()> {
     let block_filter =
@@ -270,7 +280,7 @@ fn submit_sample_isi_on_every_block_commit(
         })
         .take(times)
     {
-        std::thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(timeout);
         // ISI just to create a new block
         let sample_isi = SetKeyValueBox::new(
             account_id.clone(),
