@@ -14,18 +14,20 @@ use iroha_core::{
     },
     queue::Queue,
     smartcontracts::{isi::error::FindError, permissions::DenyAll},
-    stream::{Sink, Stream},
     sumeragi::view_change::ProofChain,
     tx::TransactionValidator,
     wsv::World,
 };
-use iroha_data_model::account::GENESIS_ACCOUNT_NAME;
+use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, prelude::*};
 use iroha_version::prelude::*;
 use tokio::time;
 use warp::test::WsClient;
 
 use super::{routing::*, *};
-use crate::samples::{get_config, get_trusted_peers};
+use crate::{
+    samples::{get_config, get_trusted_peers},
+    stream::{Sink, Stream},
+};
 
 async fn create_torii() -> (Torii<World>, KeyPair) {
     let mut config = crate::samples::get_config(crate::samples::get_trusted_peers(None), None);
@@ -47,7 +49,7 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
         .add_account(
             Account::new(
                 AccountId::from_str("alice@wonderland").expect("Valid"),
-                [keys.public_key.clone()],
+                [keys.public_key().clone()],
             )
             .build()
         )
@@ -250,9 +252,10 @@ fn register_domain() -> Instruction {
 }
 
 fn register_account(name: &str) -> Instruction {
+    let (public_key, _) = KeyPair::generate().unwrap().into();
     RegisterBox::new(Account::new(
         AccountId::new(name.parse().expect("Valid"), DOMAIN.parse().expect("Valid")),
-        [KeyPair::generate().unwrap().public_key],
+        [public_key],
     ))
     .into()
 }
@@ -690,11 +693,7 @@ async fn blocks_stream() {
 fn domains(
     configuration: &crate::config::Configuration,
 ) -> eyre::Result<impl Iterator<Item = Domain>> {
-    let key = configuration
-        .genesis
-        .account_public_key
-        .clone()
-        .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
+    let key = configuration.genesis.account_public_key.clone();
     Ok([Domain::from(GenesisDomain::new(key))].into_iter())
 }
 
@@ -702,11 +701,11 @@ fn domains(
 fn hash_should_be_the_same() {
     let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
     let mut config = get_config(
-        get_trusted_peers(Some(&key_pair.public_key)),
+        get_trusted_peers(Some(key_pair.public_key())),
         Some(key_pair.clone()),
     );
-    config.genesis.account_private_key = Some(key_pair.private_key.clone());
-    config.genesis.account_public_key = Some(key_pair.public_key.clone());
+    config.genesis.account_private_key = Some(key_pair.private_key().clone());
+    config.genesis.account_public_key = key_pair.public_key().clone();
 
     let tx = Transaction::new(
         AccountId::new(
@@ -742,9 +741,10 @@ fn hash_should_be_the_same() {
 
 #[tokio::test]
 async fn test_subscription_websocket_clean_closing() {
-    use iroha_core::stream::{Sink, Stream};
     use iroha_data_model::events::{pipeline, EventFilter};
     use warp::filters::ws;
+
+    use crate::stream::{Sink, Stream};
 
     let (torii, _) = create_torii().await;
     let router = torii.create_api_router();

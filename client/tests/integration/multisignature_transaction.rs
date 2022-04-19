@@ -25,7 +25,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     let key_pair_2 = KeyPair::generate().expect("Failed to generate KeyPair.");
     let create_account = RegisterBox::new(Account::new(
         account_id.clone(),
-        [key_pair_1.public_key.clone()],
+        [key_pair_1.public_key().clone()],
     ));
     let asset_definition_id = AssetDefinitionId::from_str("xor#domain").expect("Valid");
     let create_asset =
@@ -34,7 +34,10 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         SignatureCheckCondition(
             ContainsAll::new(
                 ContextValue::new(TRANSACTION_SIGNATORIES_VALUE),
-                vec![key_pair_1.public_key.clone(), key_pair_2.public_key.clone()],
+                vec![
+                    key_pair_1.public_key().clone(),
+                    key_pair_2.public_key().clone(),
+                ],
             )
             .into(),
         ),
@@ -62,9 +65,11 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
+
+    let (public_key1, private_key1) = key_pair_1.into();
     client_configuration.account_id = account_id.clone();
-    client_configuration.public_key = key_pair_1.public_key;
-    client_configuration.private_key = key_pair_1.private_key;
+    client_configuration.public_key = public_key1;
+    client_configuration.private_key = private_key1;
     let iroha_client = Client::new(&client_configuration);
     let instructions: Vec<Instruction> = vec![mint_asset.clone().into()];
     let transaction = iroha_client
@@ -89,8 +94,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         .request(request.clone())
         .expect("Query failed.")
         .is_empty());
-    client_configuration.public_key = key_pair_2.public_key;
-    client_configuration.private_key = key_pair_2.private_key;
+    let (public_key2, private_key2) = key_pair_2.into();
+    client_configuration.public_key = public_key2;
+    client_configuration.private_key = private_key2;
     let iroha_client_2 = Client::new(&client_configuration);
     let instructions: Vec<Instruction> = vec![mint_asset.into()];
     let transaction = iroha_client_2

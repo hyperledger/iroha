@@ -3,20 +3,15 @@
 
 use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 
-use eyre::{eyre, Context};
+use eyre::eyre;
 use futures::{stream::FuturesUnordered, StreamExt};
 use iroha_core::{
-    event::{Consumer, EventsSender},
     prelude::*,
     queue::{self, Queue},
-    smartcontracts::{
-        isi::query::{self, VerifiedQueryRequest},
-        permissions::IsQueryAllowedBoxed,
-    },
+    smartcontracts::{isi::query, permissions::IsQueryAllowedBoxed},
     wsv::WorldTrait,
-    IrohaNetwork,
+    EventsSender, IrohaNetwork,
 };
-use iroha_data_model::prelude::*;
 use thiserror::Error;
 use utils::*;
 use warp::{
@@ -86,12 +81,23 @@ pub enum Error {
     Prometheus(#[source] eyre::Report),
 }
 
+/// Status code for query error response.
+pub(crate) const fn query_status_code(query_error: &query::Error) -> StatusCode {
+    use query::Error::*;
+    match query_error {
+        Decode(_) | Version(_) | Evaluate(_) | Conversion(_) => StatusCode::BAD_REQUEST,
+        Signature(_) => StatusCode::UNAUTHORIZED,
+        Permission(_) => StatusCode::FORBIDDEN,
+        Find(_) => StatusCode::NOT_FOUND,
+    }
+}
+
 impl Reply for Error {
     fn into_response(self) -> Response {
         const fn status_code(err: &Error) -> StatusCode {
             use Error::*;
             match err {
-                Query(e) => e.status_code(),
+                Query(e) => query_status_code(e),
                 VersionedTransaction(_)
                 | AcceptTransaction(_)
                 | RequestPendingTransactions(_)

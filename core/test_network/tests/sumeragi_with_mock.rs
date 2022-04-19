@@ -248,7 +248,7 @@ pub mod utils {
         pub static ALICE: Lazy<Account> = Lazy::new(|| {
             let account_id = AccountId::from_str("alice@wonderland").expect("valid account name.");
             let mut account = Account::new(account_id, []).build();
-            assert!(account.add_signatory(ALICE_KEYS.public_key.clone()));
+            assert!(account.add_signatory(ALICE_KEYS.public_key().clone()));
             account
         });
         pub static WONDERLAND: Lazy<Domain> = Lazy::new(|| {

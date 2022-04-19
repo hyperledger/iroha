@@ -31,23 +31,44 @@ use ursa::blake2::{
     Serialize,
     IntoSchema,
 )]
-pub struct Hash(pub [u8; Self::LENGTH]);
+pub struct Hash([u8; Self::LENGTH]);
 
 impl Hash {
     /// Length of hash
     pub const LENGTH: usize = 32;
 
-    /// new hash from bytes
+    /// Wrap the given bytes; they must be prehashed with `VarBlake2b`
+    pub const fn prehashed(bytes: [u8; Self::LENGTH]) -> Self {
+        Self(bytes)
+    }
+
+    /// Construct zeroed hash
+    #[must_use]
+    // TODO: It would be best if all uses of zeroed hash could be replaced with Option<Hash>
+    pub const fn zeroed() -> Self {
+        Hash::prehashed([0; Hash::LENGTH])
+    }
+
+    /// Hash the given bytes.
     #[cfg(feature = "std")]
     #[allow(clippy::expect_used)]
-    pub fn new(bytes: &[u8]) -> Self {
+    #[must_use]
+    pub fn new(bytes: impl AsRef<[u8]>) -> Self {
         let vec_hash = VarBlake2b::new(Self::LENGTH)
             .expect("Failed to initialize variable size hash")
             .chain(bytes)
             .finalize_boxed();
         let mut hash = [0; Self::LENGTH];
         hash.copy_from_slice(&vec_hash);
-        Hash(hash)
+        Hash::prehashed(hash)
+    }
+
+    /// Adds type information to the hash. Be careful about using this function
+    /// since it is not possible to validate the correctness of the conversion.
+    /// Prefer creating new hashes with [`HashOf::new`] whenever possible
+    #[must_use]
+    pub const fn typed<T>(self) -> HashOf<T> {
+        HashOf(self, PhantomData)
     }
 }
 
@@ -65,10 +86,23 @@ impl Debug for Hash {
     }
 }
 
-impl AsRef<[u8]> for Hash {
-    fn as_ref(&self) -> &[u8] {
-        let Hash(bytes) = self;
+impl From<Hash> for [u8; Hash::LENGTH] {
+    #[inline]
+    fn from(Hash(bytes): Hash) -> Self {
         bytes
+    }
+}
+
+impl AsRef<[u8; Hash::LENGTH]> for Hash {
+    #[inline]
+    fn as_ref(&self) -> &[u8; Hash::LENGTH] {
+        &self.0
+    }
+}
+
+impl<T> From<HashOf<T>> for Hash {
+    fn from(HashOf(hash, _): HashOf<T>) -> Self {
+        hash
     }
 }
 
@@ -124,35 +158,28 @@ impl<T> hash::Hash for HashOf<T> {
     }
 }
 
-impl<T> AsRef<[u8]> for HashOf<T> {
-    fn as_ref(&self) -> &[u8] {
-        Hash::as_ref(&self.0)
-    }
-}
-
-impl<T> From<HashOf<T>> for Hash {
-    fn from(HashOf(hash, _): HashOf<T>) -> Self {
-        hash
+impl<T> AsRef<[u8; Hash::LENGTH]> for HashOf<T> {
+    fn as_ref(&self) -> &[u8; Hash::LENGTH] {
+        self.0.as_ref()
     }
 }
 
 impl<T> HashOf<T> {
-    /// Unsafe constructor for typed hash
-    pub const fn from_hash(hash: Hash) -> Self {
-        Self(hash, PhantomData)
-    }
-
-    /// Transmutes hash to some specific type
+    /// Transmutes hash to some specific type.
+    /// Don't use this method if not required.
+    #[inline]
+    #[must_use]
     pub const fn transmute<F>(self) -> HashOf<F> {
         HashOf(self.0, PhantomData)
     }
 }
 
 impl<T: Encode> HashOf<T> {
-    /// Constructor for typed hash
+    /// Construct typed hash
     #[cfg(feature = "std")]
+    #[must_use]
     pub fn new(value: &T) -> Self {
-        Self(Hash::new(&value.encode()), PhantomData)
+        Self(Hash::new(value.encode()), PhantomData)
     }
 }
 

@@ -12,7 +12,6 @@ pub mod world;
 
 pub use error::*;
 use eyre::Result;
-use iroha_crypto::HashOf;
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_logger::prelude::*;
 
@@ -637,8 +636,8 @@ mod tests {
     fn world_with_test_domains() -> Result<World> {
         let mut domain = Domain::new(DomainId::from_str("wonderland")?).build();
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let key_pair = KeyPair::generate()?;
-        let account = Account::new(account_id.clone(), [key_pair.public_key]).build();
+        let (public_key, _) = KeyPair::generate()?.into();
+        let account = Account::new(account_id.clone(), [public_key]).build();
         assert!(domain.add_account(account).is_none());
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         assert!(domain

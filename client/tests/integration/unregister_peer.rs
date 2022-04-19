@@ -102,10 +102,8 @@ fn init() -> Result<(
     iroha_logger::info!("Started");
     let create_domain = RegisterBox::new(Domain::new("domain".parse().expect("Valid")));
     let account_id: AccountId = "account@domain".parse().expect("Valid");
-    let create_account = RegisterBox::new(Account::new(
-        account_id.clone(),
-        [KeyPair::generate()?.public_key],
-    ));
+    let (public_key, _) = KeyPair::generate()?.into();
+    let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
     let create_asset =
         RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());

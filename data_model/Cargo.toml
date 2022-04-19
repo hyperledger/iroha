@@ -18,8 +18,12 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["std", "roles"]
+# Enable static linkage of the rust standard library.
+# Disabled for WASM interoperability, to reduce the binary size.
+# Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_data_primitives/std", "thiserror"]
-roles = []      # https://github.com/rust-lang/cargo/issues/6915
+# Include support for account roles (FIXME: https://github.com/hyperledger/iroha/issues/2111)
+roles = []
 
 # Internal use only
 mutable_api = []
@@ -48,7 +52,6 @@ iroha = { path = "../cli" }
 test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.3" }
 
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
-hex-literal = "0.3.4"
 trybuild = "1.0.53"
 criterion = "0.3"
 

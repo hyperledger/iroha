@@ -311,9 +311,8 @@ mod tests {
 
     #[test]
     fn push_tx() {
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            KeyPair::generate().unwrap().public_key,
-        )));
+        let (public_key, _) = KeyPair::generate().unwrap().into();
+        let wsv = Arc::new(WorldStateView::new(world_with_test_domains(public_key)));
 
         let queue = Queue::from_configuration(
             &Configuration {
@@ -334,9 +333,8 @@ mod tests {
     fn push_tx_overflow() {
         let max_txs_in_queue = 10;
 
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            KeyPair::generate().unwrap().public_key,
-        )));
+        let (public_key, _) = KeyPair::generate().unwrap().into();
+        let wsv = Arc::new(WorldStateView::new(world_with_test_domains(public_key)));
 
         let queue = Queue::from_configuration(
             &Configuration {
@@ -366,7 +364,7 @@ mod tests {
         let max_txs_in_queue = 10;
 
         let wsv = {
-            let public_key = KeyPair::generate().unwrap().public_key;
+            let (public_key, _) = KeyPair::generate().unwrap().into();
             let domain_id = DomainId::from_str("wonderland").expect("Valid");
             let mut domain = Domain::new(domain_id.clone()).build();
             let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
@@ -395,9 +393,8 @@ mod tests {
 
     #[test]
     fn push_multisignature_tx() {
-        let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            KeyPair::generate().unwrap().public_key,
-        )));
+        let (public_key, _) = KeyPair::generate().unwrap().into();
+        let wsv = Arc::new(WorldStateView::new(world_with_test_domains(public_key)));
 
         let queue = Queue::from_configuration(
             &Configuration {
@@ -446,7 +443,7 @@ mod tests {
         let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            alice_key.public_key.clone(),
+            alice_key.public_key().clone(),
         )));
         let queue = Queue::from_configuration(
             &Configuration {
@@ -473,7 +470,7 @@ mod tests {
         let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            alice_key.public_key.clone(),
+            alice_key.public_key().clone(),
         )));
         let tx = accepted_tx("alice@wonderland", 100_000, Some(&alice_key));
         wsv.transactions.insert(tx.hash());
@@ -495,7 +492,7 @@ mod tests {
         let max_block_tx = 2;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            alice_key.public_key.clone(),
+            alice_key.public_key().clone(),
         )));
         let tx = accepted_tx("alice@wonderland", 100_000, Some(&alice_key));
         let queue = Queue::from_configuration(
@@ -518,7 +515,7 @@ mod tests {
         let max_block_tx = 6;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            alice_key.public_key.clone(),
+            alice_key.public_key().clone(),
         )));
         let queue = Queue::from_configuration(
             &Configuration {
@@ -555,7 +552,7 @@ mod tests {
     fn transactions_available_after_pop() {
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            alice_key.public_key.clone(),
+            alice_key.public_key().clone(),
         )));
         let queue = Queue::from_configuration(
             &Configuration {
@@ -589,7 +586,7 @@ mod tests {
         let max_block_tx = 10;
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            alice_key.public_key.clone(),
+            alice_key.public_key().clone(),
         )));
         let wsv_clone = Arc::clone(&wsv);
         let queue = Arc::new(Queue::from_configuration(
@@ -655,7 +652,7 @@ mod tests {
 
         let alice_key = KeyPair::generate().expect("Failed to generate keypair.");
         let wsv = Arc::new(WorldStateView::new(world_with_test_domains(
-            alice_key.public_key.clone(),
+            alice_key.public_key().clone(),
         )));
 
         let queue = Queue::from_configuration(

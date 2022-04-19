@@ -43,8 +43,8 @@ pub struct EvaluatesTo<V: TryFrom<Value>> {
 }
 
 impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
-    fn from(expression: E) -> EvaluatesTo<V> {
-        EvaluatesTo {
+    fn from(expression: E) -> Self {
+        Self {
             expression: expression.into(),
             _value_type: PhantomData::default(),
         }

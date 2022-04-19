@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::{collections::BTreeMap, str::FromStr as _, time::Duration};
+use std::{str::FromStr as _, time::Duration};
 
 use eyre::{eyre, Result};
 use iroha_client::client::{self, Client};
@@ -44,16 +44,15 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
 
     // Registering new role which sets `Transfer` execution count limit to
     // `COUNT` for every `PERIOD_MS` milliseconds
-    let permission_token = PermissionToken::new(
-        transfer::CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD.clone(),
-        [
-            (
-                transfer::PERIOD_PARAM_NAME.clone(),
-                Value::U128(PERIOD_MS.into()),
-            ),
-            (transfer::COUNT_PARAM_NAME.clone(), Value::U32(COUNT)),
-        ],
-    );
+    let permission_token =
+        PermissionToken::new(transfer::CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD.clone())
+            .with_params([
+                (
+                    transfer::PERIOD_PARAM_NAME.clone(),
+                    Value::U128(PERIOD_MS.into()),
+                ),
+                (transfer::COUNT_PARAM_NAME.clone(), Value::U32(COUNT)),
+            ]);
     let permissions = Permissions::from([permission_token]);
     let register_role = RegisterBox::new(Role::new(role_id.clone(), permissions));
     test_client.submit_blocking(register_role)?;
@@ -114,10 +113,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
 
     let role_id = iroha_data_model::role::Id::new("root".parse::<Name>().expect("Valid"));
     let mut permissions = Permissions::new();
-    permissions.insert(PermissionToken {
-        name: "token".parse().expect("Valid"),
-        params: BTreeMap::new(),
-    });
+    permissions.insert(PermissionToken::new("token".parse().expect("Valid")));
     let register_role = RegisterBox::new(Role::new(role_id, permissions));
 
     test_client.submit(register_role)?;

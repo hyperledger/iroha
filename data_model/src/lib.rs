@@ -30,7 +30,6 @@ pub mod domain;
 pub mod events;
 pub mod expression;
 pub mod isi;
-pub mod merkle;
 pub mod metadata;
 pub mod pagination;
 pub mod peer;
@@ -241,7 +240,6 @@ impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED,
     Eq,
     PartialOrd,
     Ord,
-    Hash,
     Decode,
     Encode,
     Deserialize,

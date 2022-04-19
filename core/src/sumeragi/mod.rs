@@ -32,14 +32,13 @@ use self::{
 };
 use crate::{
     block::{BlockHeader, ChainedBlock, EmptyChainHash, VersionedPendingBlock},
-    event::EventsSender,
     genesis::GenesisNetworkTrait,
     kura::{GetBlockHash, KuraTrait, StoreBlock},
     prelude::*,
     queue::Queue,
     tx::TransactionValidator,
     wsv::WorldTrait,
-    IrohaNetwork, NetworkMessage, VersionedValidBlock,
+    EventsSender, IrohaNetwork, NetworkMessage, VersionedValidBlock,
 };
 
 trait Consensus {

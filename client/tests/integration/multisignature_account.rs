@@ -23,7 +23,7 @@ fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
         RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     let key_pair = KeyPair::generate()?;
     let add_signatory = MintBox::new(
-        key_pair.public_key.clone(),
+        key_pair.public_key().clone(),
         IdBox::AccountId(account_id.clone()),
     );
 

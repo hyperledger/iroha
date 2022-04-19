@@ -80,12 +80,8 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
         } else {
             return Err("Source id is not an AssetId.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), source_id.into());
-        Ok(PermissionToken::new(
-            CAN_TRANSFER_USER_ASSETS_TOKEN.clone(),
-            params,
-        ))
+        Ok(PermissionToken::new(CAN_TRANSFER_USER_ASSETS_TOKEN.clone())
+            .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), source_id.into())]))
     }
 }
 
@@ -109,7 +105,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_TRANSFER_USER_ASSETS_TOKEN.clone() {
+        if permission_token.name() != &*CAN_TRANSFER_USER_ASSETS_TOKEN {
             return Err("Grant instruction is not for transfer permission.".to_owned());
         }
         check_asset_owner_for_token(&permission_token, authority)
@@ -166,10 +162,10 @@ fn retrieve_permission_params<W: WorldTrait>(
     wsv.map_account(authority, |account| {
         wsv.account_permission_tokens(account)
             .iter()
-            .filter(|token| token.name == *CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD)
-            .map(|token| token.params.clone())
-            .next()
-            .unwrap_or_default()
+            .filter(|token| token.name() == &*CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD)
+            .flat_map(PermissionToken::params)
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect()
     })
     .map_err(|e| e.to_string())
 }

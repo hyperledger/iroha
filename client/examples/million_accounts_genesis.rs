@@ -1,9 +1,8 @@
 #![allow(missing_docs, clippy::pedantic, clippy::restriction)]
 
 use iroha::samples::get_config;
-use iroha_core::{
-    genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock, RawGenesisBlockBuilder},
-    prelude::*,
+use iroha_core::genesis::{
+    GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock, RawGenesisBlockBuilder,
 };
 use iroha_data_model::prelude::*;
 use test_network::{get_key_pair, Peer as TestPeer, TestRuntime};
@@ -12,12 +11,14 @@ use tokio::runtime::Runtime;
 fn main() {
     fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
         let mut builder = RawGenesisBlockBuilder::new();
+
+        let key_pair = get_key_pair();
         for i in 0_u32..num_domains {
             builder = builder
                 .domain(format!("wonderland-{}", i).parse().expect("Valid"))
                 .with_account(
                     format!("Alice-{}", i).parse().expect("Valid"),
-                    PublicKey::default(),
+                    key_pair.public_key().clone(),
                 )
                 .with_asset(
                     AssetDefinition::quantity(
@@ -29,6 +30,7 @@ fn main() {
                 )
                 .finish_domain();
         }
+
         builder.build()
     }
     let mut peer = <TestPeer>::new().expect("Failed to create peer");

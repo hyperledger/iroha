@@ -10,10 +10,8 @@ use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{eyre, Context, Result};
-use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
-use iroha_data_model::{
-    current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*,
-};
+use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
+use iroha_data_model::{current_time, events::prelude::*, transaction::prelude::*};
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -49,7 +47,7 @@ impl<T> Default for EmptyChainHash<T> {
 
 impl<T> From<EmptyChainHash<T>> for HashOf<T> {
     fn from(EmptyChainHash(PhantomData): EmptyChainHash<T>) -> Self {
-        Self::from_hash(Hash([0_u8; 32]))
+        Hash::zeroed().typed()
     }
 }
 
@@ -220,8 +218,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: height + 1,
                 previous_block_hash,
-                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
-                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                transactions_hash: Hash::zeroed().typed(),
+                rejected_transactions_hash: Hash::zeroed().typed(),
                 view_change_proofs,
                 invalidated_blocks_hashes,
                 genesis_topology: None,
@@ -239,8 +237,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
-                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
-                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                transactions_hash: Hash::zeroed().typed(),
+                rejected_transactions_hash: Hash::zeroed().typed(),
                 view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: Some(genesis_topology),
@@ -258,8 +256,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
-                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
-                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                transactions_hash: Hash::zeroed().typed(),
+                rejected_transactions_hash: Hash::zeroed().typed(),
                 view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,

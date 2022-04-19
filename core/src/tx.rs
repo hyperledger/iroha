@@ -291,7 +291,7 @@ impl AcceptedTransaction {
         let signatories = self
             .signatures
             .iter()
-            .map(|signature| &signature.public_key)
+            .map(|signature| signature.public_key())
             .cloned();
 
         wsv.map_account(account_id, |account| {

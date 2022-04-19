@@ -112,7 +112,7 @@ impl From<NoSuchAlgorithm> for ConvertError {
 }
 
 /// Multihash
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Multihash {
     /// digest
     pub digest_function: DigestFunction,
