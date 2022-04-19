@@ -30,6 +30,9 @@ use crate::{
 /// General trait for all response handlers
 pub trait ResponseHandler<O, T = Vec<u8>> {
     /// Function to parse HTTP response with body `T` to output `O`
+    ///
+    /// # Errors
+    /// May fail by some reason, depends on implementation
     fn handle(self, response: Response<T>) -> Result<O>;
 }
 
@@ -270,7 +273,7 @@ impl Client {
         let response = req
             .send()
             .wrap_err_with(|| format!("Failed to send transaction with hash {:?}", hash))?;
-        let () = resp_handler.handle(response)?;
+        resp_handler.handle(response)?;
         Ok(hash)
     }
 
@@ -279,6 +282,9 @@ impl Client {
     /// Returns a tuple with a provided request builder, a hash of the transaction, and a response handler.
     /// Despite the fact that response handling can be implemented just by asserting that status code is 200,
     /// it is better to use a response handler anyway. It allows to abstract from implementation details.
+    ///
+    /// # Errors
+    /// Fails if transaction check or request build fails
     pub fn prepare_transaction_request<B>(
         &self,
         transaction: Transaction,
@@ -444,7 +450,7 @@ impl Client {
         let (req, resp_handler): (DefaultRequestBuilder<_>, QueryResponseHandler<_>) =
             self.prepare_query_request(request, pagination)?;
         let response = req.send()?;
-        Ok(resp_handler.handle(response)?)
+        resp_handler.handle(response)
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers.
@@ -620,10 +626,13 @@ impl Client {
     pub fn get_status(&self) -> Result<Status> {
         let (req, resp_handler): (DefaultRequestBuilder<_>, _) = self.prepare_status_request()?;
         let resp = req.send()?;
-        Ok(resp_handler.handle(resp)?)
+        resp_handler.handle(resp)
     }
 
     /// Prepares http-request to implement [`Self::get_status()`] on your own.
+    ///
+    /// # Errors
+    /// Fails if request build fails
     pub fn prepare_status_request<B>(&self) -> Result<(B, StatusResponseHandler)>
     where
         B: RequestBuilder,

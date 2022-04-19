@@ -12,6 +12,9 @@ pub type Headers = HashMap<String, String>;
 /// to the client that will fill it.
 pub trait RequestBuilder {
     /// Used to create a builder itself
+    ///
+    /// # Errors
+    /// May fail by some reason, depends on implementation
     fn build<U, P, K, V>(
         method: Method,
         url: U,
