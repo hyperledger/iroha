@@ -412,13 +412,10 @@ impl Client {
         let request = QueryRequest::new(request.into(), self.account_id.clone());
         let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
 
-        const METHOD: HttpMethod = HttpMethod::GET;
-        let url = format!("{}/{}", &self.torii_url, uri::QUERY);
-
         Ok((
             B::build(
-                METHOD,
-                url,
+                HttpMethod::POST,
+                format!("{}/{}", &self.torii_url, uri::QUERY),
                 request.encode_versioned(),
                 pagination,
                 self.headers.clone(),
