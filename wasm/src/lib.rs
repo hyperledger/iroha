@@ -14,12 +14,17 @@ compile_error!("Targets other then wasm32-unknown-unknown are not supported");
 extern crate alloc;
 
 use alloc::{boxed::Box, format, vec::Vec};
-use core::{ops::RangeFrom, fmt::Debug};
+use core::{fmt::Debug, ops::RangeFrom};
 
 use data_model::prelude::*;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::iroha_wasm;
 use parity_scale_codec::{Decode, Encode};
+
+#[cfg(feature = "debug-wasm")]
+mod debug;
+#[cfg(feature = "debug-wasm")]
+pub use debug::*;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
@@ -80,13 +85,6 @@ impl Execute for data_model::query::QueryBox {
         //         - ownership of the returned result is transfered into `_decode_from_raw`
         unsafe { decode_with_length_prefix_from_raw(encode_and_execute(self, host_execute_query)) }
     }
-}
-
-/// Print `obj` in debug representation to the stdout
-#[cfg(feature = "debug-wasm")]
-pub fn dbg<T: Debug + ?Sized>(obj: &T) {
-    let s = format!("{:?}", obj);
-    unsafe { encode_and_execute(&s, host::dbg) }
 }
 
 #[no_mangle]
