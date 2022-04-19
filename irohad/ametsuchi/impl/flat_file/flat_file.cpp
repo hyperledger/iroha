@@ -74,8 +74,9 @@ bool FlatFile::add(Identifier id, const Bytes &block) {
   if (boost::filesystem::exists(tmp_file_name)
       || boost::filesystem::exists(file_name)) {
     // File already exist
-    log_->warn("insertion for {} failed, because file already exists", id);
-    return false;
+    log_->warn("file already exists {}, removing", id);
+    boost::filesystem::remove(tmp_file_name);
+    boost::filesystem::remove(file_name);
   }
   // New file will be created
   boost::iostreams::stream<boost::iostreams::file_descriptor_sink> file;
