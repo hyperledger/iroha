@@ -121,7 +121,7 @@ pub trait Stream<R: DecodeVersioned>:
 
 impl StreamMessage for warp::ws::Message {
     fn binary(source: Vec<u8>) -> Self {
-        Self::binary(source)
+        warp::ws::Message::binary(source)
     }
 
     fn as_bytes(&self) -> &[u8] {

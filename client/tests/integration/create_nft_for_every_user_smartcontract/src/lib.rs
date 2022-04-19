@@ -1,3 +1,5 @@
+//! Smartcontract which creates new nft for every user
+
 #![no_std]
 #![no_main]
 #![allow(clippy::all)]

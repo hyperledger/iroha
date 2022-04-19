@@ -358,6 +358,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
     ///
     /// If string decoding fails
     #[cfg(feature = "debug-wasm")]
+    #[allow(clippy::print_stdout)]
     fn dbg(mut caller: Caller<State<W>>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
         let string_mem_range = offset as usize..(offset + len) as usize;
@@ -372,9 +373,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
 
         linker
             .func_wrap("iroha", EXECUTE_ISI_FN_NAME, Self::execute_instruction)
-            .and_then(|linker| {
-                linker.func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query)
-            })
+            .and_then(|l| l.func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query))
             .map_err(Error::Initialization)?;
 
         #[cfg(feature = "debug-wasm")]
