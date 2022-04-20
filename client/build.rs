@@ -20,6 +20,10 @@ fn main() {
         .status()
         .expect("Failed to run `rustup show`");
 
+    for e in env::vars() {
+        println!("{e:?}");
+    }
+
     // It's better to rerun this script anytime something in the main folder is changed so that
     // we don't have to manually monitor every iroha_wasm dependency
     println!("cargo:rerun-if-changed=..");
