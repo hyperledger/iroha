@@ -105,9 +105,9 @@ impl TriggerSet {
     ///
     /// Users should not try to modify [`TriggerSet`] before dropping actions,
     /// returned by the current function
-    pub fn find_matching<'e, E>(&self, events: E) -> Vec<Action>
+    pub fn find_matching<'evnt, E>(&self, events: E) -> Vec<Action>
     where
-        E: IntoIterator<Item = &'e Event>,
+        E: IntoIterator<Item = &'evnt Event>,
     {
         let mut result = Vec::new();
 
