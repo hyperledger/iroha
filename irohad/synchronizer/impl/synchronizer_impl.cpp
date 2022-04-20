@@ -106,6 +106,10 @@ iroha::ametsuchi::CommitResult SynchronizerImpl::downloadAndCommitMissingBlocks(
                                          status);
       });
 
+  shared_model::interface::types::HeightType const end_height = std::min(
+      start_height + shared_model::interface::types::HeightType(1000ull),
+      target_height);
+
   // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
   using namespace iroha::expected;
   for (const auto &public_key : public_keys) {
@@ -144,11 +148,13 @@ iroha::ametsuchi::CommitResult SynchronizerImpl::downloadAndCommitMissingBlocks(
         }
 
         my_height = (*maybe_block)->height();
+        if (my_height >= end_height)
+          break;
       }
       if (auto error = std::get_if<std::string>(&block_var)) {
         log_->warn("failed to retrieve block: {}", *error);
       }
-      if (my_height >= target_height) {
+      if (my_height >= end_height) {
         return mutable_factory_->commit(std::move(storage));
       }
       if (not peer_ok) {
