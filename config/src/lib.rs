@@ -172,9 +172,9 @@ pub trait Configurable: Serialize + DeserializeOwned {
     /// Gets inner field of arbitrary inner depth and returns as json-value
     /// # Errors
     /// Fails if field was unknown
-    fn get_recursive<'a, T>(&self, inner_field: T) -> Result<Value, Self::Error>
+    fn get_recursive<'tl, T>(&self, inner_field: T) -> Result<Value, Self::Error>
     where
-        T: AsRef<[&'a str]> + Send + 'a;
+        T: AsRef<[&'tl str]> + Send + 'tl;
 
     /// Fails if fails to deserialize from environment
     /// # Errors
@@ -184,8 +184,8 @@ pub trait Configurable: Serialize + DeserializeOwned {
     /// Gets docs of inner field of arbitrary depth
     /// # Errors
     /// Fails if field was unknown
-    fn get_doc_recursive<'a>(
-        field: impl AsRef<[&'a str]>,
+    fn get_doc_recursive<'tl>(
+        field: impl AsRef<[&'tl str]>,
     ) -> Result<Option<&'static str>, Self::Error>;
 
     /// Gets docs of field

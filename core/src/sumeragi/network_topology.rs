@@ -366,10 +366,10 @@ impl Topology {
     }
 
     /// Returns signatures of the peers with the specified `roles` from all `signatures`.
-    pub fn filter_signatures_by_roles<'a>(
-        &'a self,
-        roles: &'a [Role],
-        signatures: impl IntoIterator<Item = &'a SignatureOf<VersionedValidBlock>> + 'a,
+    pub fn filter_signatures_by_roles<'slf>(
+        &'slf self,
+        roles: &'slf [Role],
+        signatures: impl IntoIterator<Item = &'slf SignatureOf<VersionedValidBlock>> + 'slf,
     ) -> Vec<SignatureOf<VersionedValidBlock>> {
         let roles: HashSet<Role> = roles.iter().copied().collect();
         let public_keys: HashSet<_> = roles
@@ -484,8 +484,8 @@ mod tests {
     fn correct_number_of_peers_genesis() {
         let peers = topology_test_peers();
         // set_a.len() = 2, is wrong as it is not possible to get integer f in: 2f + 1 = 2
-        let set_a: HashSet<_> = topology_test_peers().iter().cloned().take(3).collect();
-        let set_b: HashSet<_> = topology_test_peers().iter().cloned().skip(3).collect();
+        let set_a: HashSet<_> = topology_test_peers().iter().take(3).cloned().collect();
+        let set_b: HashSet<_> = topology_test_peers().iter().skip(3).cloned().collect();
         let _network_topology = GenesisBuilder::new()
             .with_leader(peers.iter().next().unwrap().clone())
             .with_set_a(set_a)

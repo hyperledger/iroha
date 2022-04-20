@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "roles")]
 use self::role::*;
 use self::{account::*, asset::*, domain::*, peer::*, permissions::*, transaction::*};
-use crate::{account::Account, Identifiable, Value};
+use crate::{account::Account, pagination::Pagination, Identifiable, Value};
 
 /// Sized container for all possible Queries.
 #[allow(clippy::enum_variant_names)]
@@ -147,6 +147,20 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_mac
 #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct QueryResult(pub Value);
+
+declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+
+/// Paginated Query Result
+#[version_with_scale(n = 1, versioned = "VersionedPaginatedQueryResult")]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct PaginatedQueryResult {
+    /// The result of the query execution.
+    pub result: QueryResult,
+    /// pagination
+    pub pagination: Pagination,
+    /// Total query amount (if applicable) else 0.
+    pub total: u64,
+}
 
 #[cfg(all(feature = "std", feature = "warp"))]
 impl QueryRequest {
@@ -1132,8 +1146,8 @@ pub mod prelude {
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, transaction::*, Query, QueryBox, QueryResult, SignedQueryRequest,
-        VersionedQueryResult,
+        permissions::prelude::*, transaction::*, PaginatedQueryResult, Query, QueryBox,
+        QueryResult, SignedQueryRequest, VersionedPaginatedQueryResult, VersionedQueryResult,
     };
     #[cfg(feature = "warp")]
     pub use super::{QueryRequest, VersionedSignedQueryRequest};

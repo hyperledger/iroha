@@ -30,7 +30,8 @@ pub enum ReloadError {
     Other,
 }
 
-type PoisonErr<'a, T> = PoisonError<MutexGuard<'a, Option<Box<(dyn ReloadMut<T> + Send + Sync)>>>>;
+type PoisonErr<'grd, T> =
+    PoisonError<MutexGuard<'grd, Option<Box<(dyn ReloadMut<T> + Send + Sync)>>>>;
 
 impl<T> From<PoisonErr<'_, T>> for ReloadError {
     fn from(_: PoisonErr<'_, T>) -> Self {

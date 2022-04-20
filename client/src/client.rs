@@ -343,8 +343,10 @@ impl Client {
                 std::str::from_utf8(response.body()).unwrap_or(""),
             ));
         }
-        let result = VersionedQueryResult::decode_versioned(response.body())?;
-        let VersionedQueryResult::V1(QueryResult(result)) = result;
+        let result = VersionedPaginatedQueryResult::decode_versioned(response.body())?;
+
+        let VersionedPaginatedQueryResult::V1(PaginatedQueryResult { result, .. }) = result;
+        let QueryResult(result) = result;
         R::Output::try_from(result)
             .map_err(Into::into)
             .wrap_err("Unexpected type")

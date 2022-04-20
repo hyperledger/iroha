@@ -96,14 +96,14 @@ impl Chain {
 }
 
 /// Chain iterator
-pub struct ChainIterator<'a> {
-    chain: &'a Chain,
+pub struct ChainIterator<'itm> {
+    chain: &'itm Chain,
     pos_front: u64,
     pos_back: u64,
 }
 
-impl<'a> ChainIterator<'a> {
-    fn new(chain: &'a Chain) -> Self {
+impl<'itm> ChainIterator<'itm> {
+    fn new(chain: &'itm Chain) -> Self {
         ChainIterator {
             chain,
             pos_front: 1,
@@ -116,8 +116,8 @@ impl<'a> ChainIterator<'a> {
     }
 }
 
-impl<'a> Iterator for ChainIterator<'a> {
-    type Item = MapRef<'a, u64, VersionedCommittedBlock>;
+impl<'itm> Iterator for ChainIterator<'itm> {
+    type Item = MapRef<'itm, u64, VersionedCommittedBlock>;
     fn next(&mut self) -> Option<Self::Item> {
         if !self.is_exhausted() {
             let val = self.chain.blocks.get(&self.pos_front);
@@ -150,7 +150,7 @@ impl<'a> Iterator for ChainIterator<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for ChainIterator<'a> {
+impl<'itm> DoubleEndedIterator for ChainIterator<'itm> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.is_exhausted() {
             let val = self.chain.blocks.get(&self.pos_back);
