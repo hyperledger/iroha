@@ -43,8 +43,6 @@ iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
 
 test_network = { version = "=2.0.0-pre-rc.3", path = "../core/test_network" }
 
-# create_nft_for_every_user_smartcontract = { version = "=2.0.0-pre-rc.3", path = "tests/integration/create_nft_for_every_user_smartcontract" }
-
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
 criterion = { version = "0.3.5", features = ["html_reports"] }
