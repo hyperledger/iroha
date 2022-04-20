@@ -15,6 +15,11 @@ fn main() {
     let path_env = env::var("PATH").expect("Expected `PATH` environment variable");
     let out_dir = env::var_os("OUT_DIR").expect("Expected `OUT_DIR` environment variable");
 
+    Command::new("rustup")
+        .args(["show"])
+        .status()
+        .expect("Failed to run `rustup show`");
+
     // It's better to rerun this script anytime something in the main folder is changed so that
     // we don't have to manually monitor every iroha_wasm dependency
     println!("cargo:rerun-if-changed=..");
@@ -28,6 +33,7 @@ fn main() {
         .args(&["+nightly-2022-04-20", "fmt", "--all"])
         .status()
         .expect("Failed to run `cargo fmt` on smartcontract");
+    assert!(fmt.success(), "Can't format smartcontract");
 
     let build = Command::new("cargo")
         // Clearing environment variables to avoid `error: infinite recursion detected`.
@@ -49,8 +55,5 @@ fn main() {
         ])
         .status()
         .expect("Failed to run `cargo build` on smartcontract");
-
-    let success = fmt.success() && build.success();
-
-    assert!(success, "Can't build smartcontract")
+    assert!(build.success(), "Can't build smartcontract")
 }
