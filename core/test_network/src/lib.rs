@@ -232,11 +232,9 @@ where
         n_peers: u32,
         max_txs_in_block: u32,
         offline_peers: u32,
-        n_shifts: u64,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = max_txs_in_block;
-        configuration.sumeragi.n_topology_shifts_before_reshuffle = n_shifts;
         let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
             .await
             .expect("Failed to init peers");
@@ -259,7 +257,6 @@ where
             n_peers,
             maximum_transactions_in_block,
             offline_peers,
-            SumeragiConfiguration::default().n_topology_shifts_before_reshuffle,
         )
         .await
     }

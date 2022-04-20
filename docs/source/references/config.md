@@ -34,7 +34,6 @@ The following is the default configuration used by Iroha.
     ],
     "COMMIT_TIME_MS": 2000,
     "TX_RECEIPT_TIME_MS": 500,
-    "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
     "TRANSACTION_LIMITS": {
       "max_instruction_number": 4096,
       "max_wasm_size_bytes": 4194304
@@ -473,7 +472,6 @@ Has type `SumeragiConfiguration`. Can be configured via environment variable `IR
   "GOSSIP_BATCH_SIZE": 500,
   "GOSSIP_PERIOD_MS": 1000,
   "MAILBOX": 100,
-  "N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE": 1,
   "PEER_ID": {
     "address": "127.0.0.1:1337",
     "public_key": "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
@@ -556,16 +554,6 @@ Has type `u32`. Can be configured via environment variable `SUMERAGI_MAILBOX`
 
 ```json
 100
-```
-
-### `sumeragi.n_topology_shifts_before_reshuffle`
-
-After N view changes topology will change tactic from shifting by one, to reshuffle.
-
-Has type `u64`. Can be configured via environment variable `SUMERAGI_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE`
-
-```json
-1
 ```
 
 ### `sumeragi.peer_id`

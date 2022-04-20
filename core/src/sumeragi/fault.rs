@@ -121,7 +121,6 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
     ) -> Result<Self> {
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash::default().into())
-            .reshuffle_after(configuration.n_topology_shifts_before_reshuffle)
             .with_peers(configuration.trusted_peers.peers.clone())
             .build()?;
 
