@@ -677,6 +677,15 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         }
         let signed_block = block.sign(self.key_pair.clone())?;
         if !network_topology.is_consensus_required() {
+            self.broadcast_msg_to(
+                BlockCommitted::from(signed_block.clone()),
+                network_topology
+                    .validating_peers()
+                    .iter()
+                    .chain(std::iter::once(network_topology.leader()))
+                    .chain(network_topology.peers_set_b()),
+            )
+            .await;
             self.commit_block(signed_block).await;
             return Ok(());
         }

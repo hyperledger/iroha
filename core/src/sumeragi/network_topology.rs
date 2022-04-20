@@ -251,7 +251,7 @@ impl Topology {
 
     /// Answers if the consensus stage is required with the current number of peers.
     pub fn is_consensus_required(&self) -> bool {
-        self.sorted_peers.len() > 1
+        self.min_votes_for_commit() > 1
     }
 
     /// The minimum number of signatures needed to commit a block
