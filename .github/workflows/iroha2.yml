@@ -50,7 +50,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2:2.0.0-pre-rc.2
+          tags: hyperledger/iroha2:stable
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
@@ -59,7 +59,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2:client-cli
+          tags: hyperledger/iroha2:stable-client-cli
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
@@ -69,14 +69,14 @@ jobs:
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2:crypto-cli
+          tags: hyperledger/iroha2:stable-crypto-cli
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
             BIN=iroha_crypto_cli
 
       - name: Build and push load-rs:release docker image
-        run: |          
+        run: |
           sleep 10s
           echo "wait to finish other workflow"
       - uses: convictional/trigger-workflow-and-wait@v1.6.0
@@ -85,4 +85,4 @@ jobs:
           repo: iroha2-longevity-load-rs
           github_token: ${{ secrets.G_ACCESS_TOKEN }}
           workflow_file_name: load-rs-push-from-release.yaml
-          ref: release      
+          ref: release
