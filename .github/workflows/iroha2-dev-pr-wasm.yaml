@@ -27,7 +27,7 @@ jobs:
 
       # Static analysis
       - name: Format check
-        run: cargo +nightly-2021-12-02 fmt --all -- --check
+        run: cargo +nightly-2022-04-20 fmt --all -- --check
       - name: Static analysis without features
         run: cargo lints clippy --benches --tests --examples --quiet --no-default-features
         if: always()

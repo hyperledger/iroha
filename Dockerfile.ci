@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=1.59.0
+    RUST_VERSION=1.60.0
 
 RUN set -eux; \
     apt-get update; \
@@ -43,14 +43,14 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/rui314/mold.git; \
-    git -C "./mold" checkout v1.1.1; \
+    git -C "./mold" checkout v1.2.0; \
     make --directory="./mold" CXX=clang++; \
     make --directory="./mold" install; \
     rm -rf "./mold"
 
 RUN rustup component add llvm-tools-preview clippy; \
     rustup target add wasm32-unknown-unknown; \
-    rustup install --profile default nightly-2021-12-02; \
+    rustup install --profile default nightly-2022-04-20; \
     cargo install cargo-lints cargo-nono webassembly-test-runner grcov
 
 RUN curl -fsSL https://get.docker.com -o get-docker.sh; \
