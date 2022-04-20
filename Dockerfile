@@ -23,7 +23,6 @@ RUN set -ex; \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs >/tmp/rustup.sh; \
     sh /tmp/rustup.sh -y --no-modify-path --default-toolchain "$TOOLCHAIN"; \
     rm /tmp/*.sh
-RUN rustup install nightly
 
 FROM rust-base as cargo-chef
 RUN cargo install cargo-chef
