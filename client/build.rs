@@ -26,9 +26,9 @@ fn main() {
 
     let fmt = Command::new("cargo")
         // Clearing environment variables to avoid `error: infinite recursion detected`.
-        .env_clear()
+        // .env_clear()
         // Setting `PATH` variable so that [`Command`] can find `cargo`
-        .env("PATH", path_env.clone())
+        // .env("PATH", path_env.clone())
         .current_dir(smartcontract_path.clone())
         .args(&["+nightly-2022-04-20", "fmt", "--all"])
         .status()
