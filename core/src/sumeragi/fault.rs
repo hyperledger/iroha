@@ -783,6 +783,10 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             self.invalidated_blocks_hashes.push(hash)
         }
         self.topology.apply_view_change(proof.clone());
+        self.wsv
+            .metrics
+            .view_changes
+            .set(self.number_of_view_changes());
         self.voting_block = None;
         error!(
             peer_addr = %self.peer_id.address,

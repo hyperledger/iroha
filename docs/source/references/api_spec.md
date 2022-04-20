@@ -227,6 +227,7 @@ Also returns current status of peer in json string:
   + Number of committed blocks (block height)
   + Total number of transactions
   + `uptime` since creation of the genesis block in milliseconds.
+  + Number of view_changes in the current round
 
 ```json
 {
@@ -234,7 +235,11 @@ Also returns current status of peer in json string:
     "blocks": 1,
     "txs_accepted": 3,
     "txs_rejected": 0,
-    "uptime": 3200,
+    "uptime": {
+        "secs": 5,
+        "nanos": 937000000
+    },
+    "view_changes": 0
 }
 ```
 
@@ -251,26 +256,7 @@ Also returns current status of peer in json string:
 **Expects**: -
 
 **Responses**:
-- 200 OK - currently mirrors status:
-  + Number of connected peers, except for the reporting peer itself
-  + Number of committed blocks (block height)
-  + Total number of transactions
-  + `uptime` since creation of the genesis block in milliseconds.
-
-```bash
-# HELP block_height Current block height
-# TYPE block_height counter
-block_height 0
-# HELP connected_peers Total number of currently connected peers
-# TYPE connected_peers gauge
-connected_peers 0
-# HELP txs Transactions committed
-# TYPE txs counter
-txs 0
-# HELP uptime_since_genesis_ms Uptime of the network, starting from creation of the genesis block
-# TYPE uptime_since_genesis_ms gauge
-uptime_since_genesis_ms 0
-```
+In a typical use case, Prometheus handles the response
 
 ## Parity Scale Codec
 
