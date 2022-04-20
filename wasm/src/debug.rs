@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use super::*;
 
 /// Print `obj` in debug representation to the stdout

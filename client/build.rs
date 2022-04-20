@@ -25,7 +25,7 @@ fn main() {
         // Setting `PATH` variable so that [`Command`] can find `cargo`
         .env("PATH", path_env.clone())
         .current_dir(smartcontract_path.clone())
-        .args(&["+nightly", "fmt", "--all"])
+        .args(&["+nightly-2022-04-20", "fmt", "--all"])
         .status()
         .expect("Failed to run `cargo fmt` on smartcontract");
 
@@ -37,7 +37,7 @@ fn main() {
         .env("CARGO_TARGET_DIR", out_dir)
         .current_dir(smartcontract_path)
         .args(&[
-            "+nightly",
+            "+nightly-2022-04-20",
             "build",
             "--release",
             "-Z",

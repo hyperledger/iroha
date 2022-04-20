@@ -14,16 +14,16 @@ compile_error!("Targets other then wasm32-unknown-unknown are not supported");
 extern crate alloc;
 
 use alloc::{boxed::Box, format, vec::Vec};
-use core::{fmt::Debug, ops::RangeFrom};
+use core::ops::RangeFrom;
 
 use data_model::prelude::*;
 pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::iroha_wasm;
 use parity_scale_codec::{Decode, Encode};
 
-#[cfg(feature = "debug-wasm")]
+#[cfg(feature = "debug")]
 mod debug;
-#[cfg(feature = "debug-wasm")]
+#[cfg(feature = "debug")]
 pub use debug::*;
 
 #[global_allocator]
@@ -121,7 +121,7 @@ mod host {
 
         /// Prints string to the standard output by providing offset and length
         /// into WebAssembly's linear memory where string is stored
-        #[cfg(feature = "debug-wasm")]
+        #[cfg(feature = "debug")]
         pub(super) fn dbg(ptr: WasmUsize, len: WasmUsize);
     }
 }

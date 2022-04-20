@@ -36,7 +36,6 @@ pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
 /// Name of the imported function to execute queries
 pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
 /// Name of the imported function to debug print object
-#[cfg(feature = "debug-wasm")]
 pub const DBG_FN_NAME: &str = "dbg";
 
 /// `WebAssembly` execution error type
@@ -357,7 +356,6 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
     /// # Errors
     ///
     /// If string decoding fails
-    #[cfg(feature = "debug-wasm")]
     #[allow(clippy::print_stdout)]
     fn dbg(mut caller: Caller<State<W>>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
@@ -376,7 +374,6 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
             .and_then(|l| l.func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query))
             .map_err(Error::Initialization)?;
 
-        #[cfg(feature = "debug-wasm")]
         linker
             .func_wrap("iroha", DBG_FN_NAME, Self::dbg)
             .map_err(Error::Initialization)?;

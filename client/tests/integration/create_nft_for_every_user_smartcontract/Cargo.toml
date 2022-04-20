@@ -23,4 +23,4 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [dependencies]
-iroha_wasm = { path = "../../../../wasm", features = ["debug-wasm"]}
+iroha_wasm = { path = "../../../../wasm", features = ["debug"]}
