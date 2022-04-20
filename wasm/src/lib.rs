@@ -130,7 +130,7 @@ unsafe fn decode_with_length_prefix_from_raw<T: Decode>(ptr: WasmUsize) -> T {
     let len_size_bytes = core::mem::size_of::<WasmUsize>();
 
     #[allow(clippy::expect_used)]
-    let len = WasmUsize::from_be_bytes(
+    let len = WasmUsize::from_le_bytes(
         core::slice::from_raw_parts(ptr as *mut _, len_size_bytes)
             .try_into()
             .expect("Prefix length size(bytes) incorrect. This is a bug."),

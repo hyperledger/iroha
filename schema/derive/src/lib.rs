@@ -104,7 +104,7 @@ fn metadata(data: &Data) -> TokenStream2 {
             fields: Fields::Unit,
             ..
         }) => {
-            let expr = syn::parse2(quote! {iroha_schema::Metadata::TupleStruct(
+            let expr = syn::parse2(quote! {iroha_schema::Metadata::Tuple(
                 iroha_schema::UnnamedFieldsMeta {
                     types: Vec::new()
                 }
@@ -135,7 +135,7 @@ fn metadata_for_tuplestructs(fields: &FieldsUnnamed) -> (Vec<Type>, Expr) {
         .map(|field| field.ty)
         .map(|ty| quote! { <#ty as iroha_schema::IntoSchema>::type_name()});
     let expr = syn::parse2(quote! {
-        iroha_schema::Metadata::TupleStruct(
+        iroha_schema::Metadata::Tuple(
             iroha_schema::UnnamedFieldsMeta {
                 types: {
                     let mut types = Vec::new();

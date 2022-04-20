@@ -1,7 +1,7 @@
 //! Merkle tree implementation.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 
@@ -18,10 +18,16 @@ pub struct MerkleTree<T> {
 }
 
 impl<T: IntoSchema> IntoSchema for MerkleTree<T> {
+    fn type_name() -> String {
+        format!("{}::MerkleTree<{}>", module_path!(), T::type_name())
+    }
     fn schema(map: &mut MetaMap) {
         map.entry(Self::type_name()).or_insert_with(|| {
             // BFS ordered list of leaf nodes
-            Metadata::Vec(HashOf::<T>::type_name())
+            Metadata::Vec(VecMeta {
+                ty: HashOf::<T>::type_name(),
+                sorted: true,
+            })
         });
         if !map.contains_key(&HashOf::<T>::type_name()) {
             HashOf::<T>::schema(map);

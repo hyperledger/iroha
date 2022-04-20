@@ -56,32 +56,83 @@ mod tests {
     // By default `PhantomData` wrapped types schema will not be included
     const SCHEMALESS_TYPES: Vec<&str> = vec![];
 
+    fn is_const_generic(generic: &str) -> bool {
+        generic.parse::<usize>().is_ok()
+    }
+
+    fn get_subtypes(schema: &Metadata) -> Vec<&str> {
+        match schema {
+            Metadata::Enum(EnumMeta { variants }) => variants
+                .iter()
+                .map(|v| &v.ty)
+                .filter_map(Option::as_ref)
+                .map(String::as_str)
+                .collect(),
+            Metadata::Struct(NamedFieldsMeta { declarations }) => {
+                declarations.iter().map(|d| d.ty.as_str()).collect()
+            }
+            Metadata::Tuple(UnnamedFieldsMeta { types }) => {
+                types.iter().map(String::as_str).collect()
+            }
+            Metadata::Result(ResultMeta { ok, err }) => vec![ok, err],
+            Metadata::Map(MapMeta { key, value, .. }) => vec![key, value],
+            Metadata::Option(ty)
+            | Metadata::Array(ArrayMeta { ty, .. })
+            | Metadata::Vec(VecMeta { ty, .. }) => {
+                vec![ty]
+            }
+            Metadata::String | Metadata::Bool | Metadata::FixedPoint(_) | Metadata::Int(_) => {
+                vec![]
+            }
+        }
+    }
+
     // For `PhantomData` wrapped types schemas aren't expanded recursively.
     // This test ensures that schemas for those types are present as well.
+    #[allow(clippy::string_slice)] // NOTE: There are no non-ascii characters in source code.
     fn find_missing_type_params(schemas: &MetaMap) -> HashMap<&str, Vec<&str>> {
         let mut missing_schemas = HashMap::new();
 
         for type_name in schemas.keys() {
-            // Missing `PhantomData` schemas
-            let params_list_start = type_name.find('<');
-            let params_list_end = type_name.rfind('>');
+            if let (Some(mut start), Some(end)) = (type_name.find('<'), type_name.rfind('>')) {
+                start += 1;
 
-            if let (Some(start), Some(end)) = (params_list_start, params_list_end) {
-                #[allow(clippy::string_slice)] // We don't have non-ascii characters in source code.
-                for generic in type_name[1 + start..end].split(',') {
-                    let gen = generic.trim();
-
-                    // This is const generic
-                    if gen.parse::<usize>().is_ok() {
-                        continue;
+                let mut angle_bracket_diff = 0_u8;
+                for (i, c) in type_name[start..end].chars().enumerate() {
+                    if c == '<' {
+                        angle_bracket_diff += 1_u8;
+                    }
+                    if c == '>' {
+                        angle_bracket_diff -= 1_u8;
                     }
 
-                    if !SCHEMALESS_TYPES.contains(&gen) && !schemas.contains_key(gen) {
-                        missing_schemas
-                            .entry(type_name.as_str())
-                            .or_insert_with(Vec::new)
-                            .push(gen);
+                    if c == ',' && angle_bracket_diff == 0_u8 {
+                        let generic = type_name[start..(start + i)].trim();
+
+                        start += i + 1;
+                        if !is_const_generic(generic) {
+                            continue;
+                        }
+
+                        if !SCHEMALESS_TYPES.contains(&generic) && !schemas.contains_key(generic) {
+                            missing_schemas
+                                .entry(type_name.as_str())
+                                .or_insert_with(Vec::new)
+                                .push(generic);
+                        }
                     }
+                }
+
+                let generic = type_name[start..end].trim();
+                if !generic.is_empty()
+                    && !is_const_generic(generic)
+                    && !SCHEMALESS_TYPES.contains(&generic)
+                    && !schemas.contains_key(generic)
+                {
+                    missing_schemas
+                        .entry(type_name.as_str())
+                        .or_insert_with(Vec::new)
+                        .push(generic);
                 }
             }
         }
@@ -93,32 +144,9 @@ mod tests {
         let mut missing_schemas = HashMap::new();
 
         for (type_name, schema) in schemas {
-            let types: Vec<&str> = match schema {
-                Metadata::Enum(EnumMeta { variants }) => variants
-                    .iter()
-                    .map(|v| &v.ty)
-                    .filter_map(Option::as_ref)
-                    .map(String::as_str)
-                    .collect(),
-                Metadata::Struct(NamedFieldsMeta { declarations }) => {
-                    declarations.iter().map(|d| d.ty.as_str()).collect()
-                }
-                Metadata::TupleStruct(UnnamedFieldsMeta { types }) => {
-                    types.iter().map(String::as_str).collect()
-                }
-                Metadata::Result(ResultMeta { ok, err }) => vec![ok, err],
-                Metadata::Map(MapMeta { key, value }) => vec![key, value],
-                Metadata::Option(ty)
-                | Metadata::Array(ArrayMeta { ty, .. })
-                | Metadata::Vec(ty) => {
-                    vec![ty]
-                }
-                Metadata::String | Metadata::Bool | Metadata::FixedPoint(_) | Metadata::Int(_) => {
-                    vec![]
-                }
-            };
+            let subtypes = get_subtypes(schema);
 
-            for ty in types {
+            for ty in subtypes {
                 if !schemas.contains_key(ty) {
                     missing_schemas
                         .entry(type_name.as_str())
@@ -143,12 +171,5 @@ mod tests {
         println!("Missing schemas: \n{:#?}", missing_schemas);
 
         assert!(missing_schemas.is_empty());
-    }
-
-    #[test]
-    fn no_alloc_prefix() {
-        assert!(build_schemas()
-            .keys()
-            .all(|type_name| !type_name.starts_with("alloc")));
     }
 }
