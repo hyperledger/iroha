@@ -27,14 +27,13 @@ roles = []
 
 # Internal use only
 mutable_api = []
-cross_crate_testing = []
 
 [dependencies]
+iroha_data_primitives = { path = "primitives", version = "=2.0.0-pre-rc.3", default-features = false }
 iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.3", default-features = false }
 iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.3", default-features = false }
-iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.3", default-features = false }
 iroha_version = { path = "../version", version = "=2.0.0-pre-rc.3", default-features = false, features = ["derive", "json", "scale"] }
-iroha_data_primitives = { path = "primitives", version = "=2.0.0-pre-rc.3", default-features = false }
+iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.3" }
 
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
 derive_more = { version = "0.99.16", default-features = false, features = ["display"] }

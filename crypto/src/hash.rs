@@ -183,12 +183,15 @@ impl<T: Encode> HashOf<T> {
     }
 }
 
-impl<T> IntoSchema for HashOf<T> {
+impl<T: IntoSchema> IntoSchema for HashOf<T> {
+    fn type_name() -> String {
+        format!("{}::HashOf<{}>", module_path!(), T::type_name())
+    }
     fn schema(map: &mut MetaMap) {
         Hash::schema(map);
 
         map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::TupleStruct(UnnamedFieldsMeta {
+            Metadata::Tuple(UnnamedFieldsMeta {
                 types: vec![Hash::type_name()],
             })
         });

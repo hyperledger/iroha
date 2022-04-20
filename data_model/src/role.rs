@@ -1,11 +1,10 @@
 //! Structures, traits and impls related to `Role`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, string::String};
-use core::fmt;
+use alloc::{collections::btree_set, format, string::String, vec::Vec};
+use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_set;
-use std::str::FromStr;
 
 use getset::Getters;
 use iroha_schema::IntoSchema;
