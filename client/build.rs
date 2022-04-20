@@ -12,27 +12,14 @@ fn main() {
         env::var("CARGO_MANIFEST_DIR").expect("Expected `CARGO_MANIFEST_DIR` environment variable");
     let smartcontract_path =
         Path::new(&manifest_dir).join("tests/integration/create_nft_for_every_user_smartcontract");
-    let path_env = env::var("PATH").expect("Expected `PATH` environment variable");
     let out_dir = env::var_os("OUT_DIR").expect("Expected `OUT_DIR` environment variable");
 
-    Command::new("rustup")
-        .args(["show"])
-        .status()
-        .expect("Failed to run `rustup show`");
-
-    for e in env::vars() {
-        println!("{e:?}");
-    }
-
-    // It's better to rerun this script anytime something in the main folder is changed so that
-    // we don't have to manually monitor every iroha_wasm dependency
     println!("cargo:rerun-if-changed=..");
 
     let fmt = Command::new("cargo")
-        // Clearing environment variables to avoid `error: infinite recursion detected`.
-        // .env_clear()
-        // Setting `PATH` variable so that [`Command`] can find `cargo`
-        // .env("PATH", path_env.clone())
+        // Removing environment variable to avoid
+        // `error: infinite recursion detected` when running `cargo lints`
+        .env_remove("RUST_RECURSION_COUNT")
         .current_dir(smartcontract_path.clone())
         .args(&["+nightly-2022-04-20", "fmt", "--all"])
         .status()
@@ -40,10 +27,9 @@ fn main() {
     assert!(fmt.success(), "Can't format smartcontract");
 
     let build = Command::new("cargo")
-        // Clearing environment variables to avoid `error: infinite recursion detected`.
-        .env_clear()
-        // Setting `PATH` variable so that [`Command`] can find `cargo`
-        .env("PATH", path_env)
+        // Removing environment variable to avoid
+        // `error: infinite recursion detected` when running `cargo lints`
+        .env_remove("RUST_RECURSION_COUNT")
         .env("CARGO_TARGET_DIR", out_dir)
         .current_dir(smartcontract_path)
         .args(&[
