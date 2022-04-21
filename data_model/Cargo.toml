@@ -17,13 +17,11 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/ir
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["std", "roles"]
+default = ["std"]
 # Enable static linkage of the rust standard library.
 # Disabled for WASM interoperability, to reduce the binary size.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_data_primitives/std", "thiserror"]
-# Include support for account roles (FIXME: https://github.com/hyperledger/iroha/issues/2111)
-roles = []
 
 # Internal use only
 mutable_api = []
@@ -44,7 +42,7 @@ thiserror = { version = "1.0.28", optional = true }
 getset = "0.1.2"
 
 [dev-dependencies]
-iroha_core = { path = "../core", version = "=2.0.0-pre-rc.3", features = ["roles"] }
+iroha_core = { path = "../core", version = "=2.0.0-pre-rc.3" }
 iroha_client = { path = "../client", version = "=2.0.0-pre-rc.3" }
 iroha = { path = "../cli" }
 
