@@ -7,7 +7,6 @@ use std::{iter, sync::Arc};
 use eyre::Result;
 use iroha_data_model::{isi::RevokeBox, prelude::*};
 
-#[cfg(feature = "roles")]
 use super::Evaluate;
 use crate::wsv::{WorldStateView, WorldTrait};
 
@@ -693,7 +692,6 @@ impl<W: WorldTrait> From<IsRevokeAllowedBoxed<W>> for IsInstructionAllowedBoxed<
 ///
 /// # Errors
 /// Evaluation failure of instruction fields.
-#[cfg(feature = "roles")]
 fn unpack_if_role_grant<W: WorldTrait>(
     instruction: Instruction,
     wsv: &WorldStateView<W>,
@@ -734,7 +732,6 @@ fn unpack_if_role_grant<W: WorldTrait>(
 ///
 /// # Errors
 /// Evaluation failure of each of the instruction fields.
-#[cfg(feature = "roles")]
 pub fn unpack_if_role_revoke<W: WorldTrait>(
     instruction: Instruction,
     wsv: &WorldStateView<W>,
@@ -775,11 +772,8 @@ pub fn check_instruction_permissions<W: WorldTrait>(
     is_query_allowed: &IsQueryAllowedBoxed<W>,
     wsv: &WorldStateView<W>,
 ) -> Result<(), TransactionRejectionReason> {
-    #[cfg(feature = "roles")]
     let granted_instructions = &unpack_if_role_grant(instruction.clone(), wsv)
         .expect("Infallible. Evaluations have been checked by instruction execution.");
-    #[cfg(not(feature = "roles"))]
-    let granted_instructions = std::iter::once(instruction);
 
     for isi in granted_instructions {
         is_instruction_allowed

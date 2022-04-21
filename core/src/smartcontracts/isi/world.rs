@@ -113,7 +113,6 @@ pub mod isi {
         }
     }
 
-    #[cfg(feature = "roles")]
     impl<W: WorldTrait> Execute<W> for Register<Role> {
         type Error = Error;
 
@@ -141,7 +140,6 @@ pub mod isi {
         }
     }
 
-    #[cfg(feature = "roles")]
     impl<W: WorldTrait> Execute<W> for Unregister<Role> {
         type Error = Error;
 
@@ -202,7 +200,6 @@ pub mod query {
     use super::*;
     use crate::smartcontracts::query::Error;
 
-    #[cfg(feature = "roles")]
     impl<W: WorldTrait> ValidQuery<W> for FindAllRoles {
         #[log]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {

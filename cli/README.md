@@ -27,10 +27,10 @@ the results of the compilation can be found in `<IROHA REPO ROOT>/target/release
 
 ### Adding features
 
-To add optional features, e.g. support for _roles_, compile with
+To add optional features, e.g. support for _bridge_, compile with
 
 ```bash
-cargo build --release --features roles
+cargo build --release --features bridge
 ```
 
 A full list of features can be found in the [cargo manifest file](Cargo.toml) of this repository.

@@ -167,7 +167,6 @@ pub mod error {
         #[error("Trigger not found.")]
         Trigger(TriggerId),
         /// Failed to find Role by id.
-        #[cfg(feature = "roles")]
         #[error("Failed to find role by id: `{0}`")]
         Role(RoleId),
     }
@@ -318,7 +317,6 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
             RegistrableBox::Trigger(trigger) => {
                 Register::<Trigger>::new(*trigger).execute(authority, wsv)
             }
-            #[cfg(feature = "roles")]
             RegistrableBox::Role(role) => Register::<Role>::new(*role).execute(authority, wsv),
             _ => Err(Error::Unsupported(InstructionType::Register)),
         }
@@ -581,7 +579,6 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
                 Grant::<Account, PermissionToken>::new(permission_token, account_id)
                     .execute(authority, wsv)
             }
-            #[cfg(feature = "roles")]
             (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
                 Grant::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
             }
@@ -608,7 +605,6 @@ impl<W: WorldTrait> Execute<W> for RevokeBox {
                 Revoke::<Account, PermissionToken>::new(permission_token, account_id)
                     .execute(authority, wsv)
             }
-            #[cfg(feature = "roles")]
             (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
                 Revoke::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
             }
