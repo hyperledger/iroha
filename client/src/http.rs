@@ -1,5 +1,6 @@
-pub use http::{Method, Response, StatusCode};
 use std::{borrow::Borrow, collections::HashMap};
+
+pub use http::{Method, Response, StatusCode};
 
 /// Type alias for HTTP headers hash map
 pub type Headers = HashMap<String, String>;
