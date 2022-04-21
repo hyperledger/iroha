@@ -50,7 +50,6 @@ macro_rules! entity_filter {
     };
 }
 
-#[cfg(feature = "roles")]
 mod role {
     //! This module contains filters related to `RoleEvent`
 
@@ -622,7 +621,6 @@ pub enum EntityFilter {
     /// Filter by Trigger entity. `AcceptAll` value will accept all `Trigger` events
     ByTrigger(FilterOpt<TriggerFilter>),
     /// Filter by Role entity. `AcceptAll` value will accept all `Role` events
-    #[cfg(feature = "roles")]
     ByRole(FilterOpt<RoleFilter>),
 }
 
@@ -638,7 +636,6 @@ impl Filter for EntityFilter {
                 filter_opt.matches(asset_definition)
             }
             (Self::ByAsset(filter_opt), Event::Asset(asset)) => filter_opt.matches(asset),
-            #[cfg(feature = "roles")]
             (Self::ByRole(filter_opt), Event::Role(role)) => filter_opt.matches(role),
             _ => false,
         }
@@ -680,13 +677,12 @@ impl<Id: Eq> Filter for IdFilter<Id> {
 }
 
 pub mod prelude {
-    #[cfg(feature = "roles")]
-    pub use super::role::{RoleEventFilter, RoleFilter};
     pub use super::{
         account::{AccountEventFilter, AccountFilter},
         asset::{AssetDefinitionEventFilter, AssetDefinitionFilter, AssetEventFilter, AssetFilter},
         domain::{DomainEventFilter, DomainFilter},
         peer::{PeerEventFilter, PeerFilter},
+        role::{RoleEventFilter, RoleFilter},
         trigger::{TriggerEventFilter, TriggerFilter},
         EntityFilter as DataEntityFilter, EventFilter as DataEventFilter,
         FilterOpt::{self, *},

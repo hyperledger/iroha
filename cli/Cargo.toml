@@ -16,8 +16,6 @@ default = ["bridge", "telemetry", "schema-endpoint"]
 
 bridge = ["iroha_core/bridge"]
 dex = ["iroha_core/dex"]
-# Include support for account roles
-roles = ["iroha_core/roles", "iroha_permissions_validators/roles"]
 telemetry = ["iroha_telemetry", "iroha_core/telemetry"]
 dev-telemetry = ["iroha_core/dev-telemetry", "iroha_telemetry"]
 schema-endpoint = ["iroha_schema_bin"]

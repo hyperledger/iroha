@@ -94,7 +94,6 @@ mod peer {
     }
 }
 
-#[cfg(feature = "roles")]
 mod role {
     //! This module contains `RoleEvent` and its impls
 
@@ -233,7 +232,6 @@ mod trigger {
 pub enum WorldEvent {
     Peer(peer::PeerEvent),
     Domain(domain::DomainEvent),
-    #[cfg(feature = "roles")]
     Role(role::RoleEvent),
     Trigger(trigger::TriggerEvent),
 }
@@ -256,18 +254,16 @@ pub enum Event {
     /// Trigger event
     Trigger(trigger::TriggerEvent),
     /// Role event
-    #[cfg(feature = "roles")]
     Role(role::RoleEvent),
 }
 
 pub mod prelude {
-    #[cfg(feature = "roles")]
-    pub use super::role::RoleEvent;
     pub use super::{
         account::AccountEvent,
         asset::{AssetDefinitionEvent, AssetEvent},
         domain::DomainEvent,
         peer::PeerEvent,
+        role::RoleEvent,
         trigger::TriggerEvent,
         Event as DataEvent, WorldEvent,
     };

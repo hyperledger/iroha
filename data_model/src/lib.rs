@@ -35,7 +35,6 @@ pub mod pagination;
 pub mod peer;
 pub mod permissions;
 pub mod query;
-#[cfg(feature = "roles")]
 pub mod role;
 pub mod transaction;
 pub mod trigger;
@@ -287,7 +286,6 @@ pub enum IdBox {
     /// [`TriggerId`](trigger::Id) variant.
     TriggerId(<trigger::Trigger as Identifiable>::Id),
     /// [`RoleId`](`role::Id`) variant.
-    #[cfg(feature = "roles")]
     RoleId(<role::Role as Identifiable>::Id),
 }
 
@@ -320,7 +318,6 @@ pub enum RegistrableBox {
     /// [`Trigger`](`trigger::Trigger`) variant.
     Trigger(Box<<trigger::Trigger as Identifiable>::RegisteredWith>),
     /// [`Role`](`role::Role`) variant.
-    #[cfg(feature = "roles")]
     Role(Box<<role::Role as Identifiable>::RegisteredWith>),
 }
 
@@ -357,7 +354,6 @@ pub enum IdentifiableBox {
     /// [`Trigger`](`trigger::Trigger`) variant.
     Trigger(Box<trigger::Trigger>),
     /// [`Role`](`role::Role`) variant.
-    #[cfg(feature = "roles")]
     Role(Box<role::Role>),
 }
 
@@ -484,7 +480,7 @@ from_and_try_from_value_idbox!(
     AssetDefinitionId(asset::DefinitionId),
     TriggerId(trigger::Id),
 );
-#[cfg(feature = "roles")]
+
 from_and_try_from_value_idbox!(RoleId(role::Id),);
 
 // TODO: Should we wrap String with new type in order to convert like here?
@@ -547,7 +543,7 @@ from_and_try_from_value_identifiablebox!(
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger>),
 );
-#[cfg(feature = "roles")]
+
 from_and_try_from_value_identifiablebox!(Role(Box<role::Role>),);
 
 from_and_try_from_value_identifiable!(
@@ -560,7 +556,7 @@ from_and_try_from_value_identifiable!(
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger>),
 );
-#[cfg(feature = "roles")]
+
 from_and_try_from_value_identifiable!(Role(Box<role::Role>),);
 
 impl TryFrom<Value> for RegistrableBox {
@@ -597,7 +593,6 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             AssetDefinition(asset) => Ok(RegistrableBox::AssetDefinition(asset)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
-            #[cfg(feature = "roles")]
             Role(role) => Ok(RegistrableBox::Role(role)),
             _ => Err(Self::Error::default()),
         }
@@ -615,7 +610,6 @@ impl From<RegistrableBox> for IdentifiableBox {
             AssetDefinition(asset) => IdentifiableBox::AssetDefinition(asset),
             Asset(asset) => IdentifiableBox::Asset(asset),
             Trigger(trigger) => IdentifiableBox::Trigger(trigger),
-            #[cfg(feature = "roles")]
             Role(role) => IdentifiableBox::Role(role),
         }
     }
@@ -715,8 +709,6 @@ pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     #[cfg(feature = "std")]
     pub use super::current_time;
-    #[cfg(feature = "roles")]
-    pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*,
         asset::prelude::*,
@@ -724,6 +716,7 @@ pub mod prelude {
         fixed::prelude::*,
         pagination::{prelude::*, Pagination},
         peer::prelude::*,
+        role::prelude::*,
         trigger::prelude::*,
         uri, EnumTryAsError, IdBox, Identifiable, IdentifiableBox, Name, Parameter, RegistrableBox,
         TryAsMut, TryAsRef, ValidationError, Value,

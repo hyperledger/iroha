@@ -8,9 +8,7 @@ edition = "2021"
 
 # Explanation: You want the option to remove configuration docs if you distribute e.g. a `deb`, but want the person who just cloned the repo to be able to see at a glance what kinds of features are accessible to them, what they do and how to use them. #1975 should be fixed soon.
 [features]
-default = ["roles", "dex", "telemetry", "dev-telemetry"]
-# Include support for account roles
-roles = ["iroha_core/roles"]
+default = ["dex", "telemetry", "dev-telemetry"]
 dex = ["iroha_core/dex"]
 telemetry = ["iroha_core/telemetry"]
 dev-telemetry = ["iroha_core/dev-telemetry"]

@@ -36,7 +36,6 @@ pub type PeersIds = dashmap::DashSet<PeerId>;
 pub type DomainsMap = dashmap::DashMap<DomainId, Domain>;
 
 /// `RolesMap` provides an API to work with collection of key(`PeerId`) - value(`Role`) pairs.
-#[cfg(feature = "roles")]
 pub type RolesMap = dashmap::DashMap<RoleId, Role>;
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.

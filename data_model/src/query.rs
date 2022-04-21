@@ -14,9 +14,7 @@ use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "roles")]
-use self::role::*;
-use self::{account::*, asset::*, domain::*, peer::*, permissions::*, transaction::*};
+use self::{account::*, asset::*, domain::*, peer::*, permissions::*, role::*, transaction::*};
 use crate::{account::Account, pagination::Pagination, Identifiable, Value};
 
 /// Sized container for all possible Queries.
@@ -83,10 +81,8 @@ pub enum QueryBox {
     /// [`FindPermissionTokensByAccountId`] variant.
     FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
     /// [`FindAllRoles`] variant.
-    #[cfg(feature = "roles")]
     FindAllRoles(FindAllRoles),
     /// [`FindRolesByAccountId`] variant.
-    #[cfg(feature = "roles")]
     FindRolesByAccountId(FindRolesByAccountId),
 }
 
@@ -189,7 +185,6 @@ impl QueryRequest {
     }
 }
 
-#[cfg(feature = "roles")]
 pub mod role {
     //! Queries related to `Role`.
 
@@ -1142,12 +1137,11 @@ pub mod transaction {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    #[cfg(feature = "roles")]
-    pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, transaction::*, PaginatedQueryResult, Query, QueryBox,
-        QueryResult, SignedQueryRequest, VersionedPaginatedQueryResult, VersionedQueryResult,
+        permissions::prelude::*, role::prelude::*, transaction::*, PaginatedQueryResult, Query,
+        QueryBox, QueryResult, SignedQueryRequest, VersionedPaginatedQueryResult,
+        VersionedQueryResult,
     };
     #[cfg(feature = "warp")]
     pub use super::{QueryRequest, VersionedSignedQueryRequest};

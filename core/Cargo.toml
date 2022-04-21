@@ -12,11 +12,9 @@ keywords = ["crypto", "blockchain", "ledger"]
 categories = ["cryptography::cryptocurrencies"]
 
 [features]
-default = ["bridge", "cli", "telemetry", "roles"]
+default = ["bridge", "cli", "telemetry"]
 
 bridge = []
-# Include support for account roles
-roles = ["iroha_data_model/roles"]
 telemetry = []
 cli = []
 dex = []

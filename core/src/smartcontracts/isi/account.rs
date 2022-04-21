@@ -178,7 +178,6 @@ pub mod isi {
         }
     }
 
-    #[cfg(feature = "roles")]
     impl<W: WorldTrait> Execute<W> for Grant<Account, RoleId> {
         type Error = Error;
 
@@ -209,7 +208,6 @@ pub mod isi {
         }
     }
 
-    #[cfg(feature = "roles")]
     impl<W: WorldTrait> Execute<W> for Revoke<Account, RoleId> {
         type Error = Error;
 
@@ -247,7 +245,6 @@ pub mod query {
     use super::{super::Evaluate, *};
     use crate::smartcontracts::{isi::prelude::WorldTrait, query::Error, FindError};
 
-    #[cfg(feature = "roles")]
     impl<W: WorldTrait> ValidQuery<W> for FindRolesByAccountId {
         #[log]
         #[metrics(+"find_roles_by_account_id")]
