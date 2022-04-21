@@ -87,6 +87,7 @@ pub struct Role {
     permissions: Permissions,
 }
 
+#[iroha_data_model_derive::ffi_bindgen]
 impl Role {
     /// Constructor.
     #[inline]

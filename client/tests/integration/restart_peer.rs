@@ -30,8 +30,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
 
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").unwrap();
-    let create_asset =
-        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
+    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     iroha_client.submit(create_asset)?;
     thread::sleep(pipeline_time * 2);
     //When

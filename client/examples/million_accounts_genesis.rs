@@ -21,12 +21,8 @@ fn main() {
                     key_pair.public_key().clone(),
                 )
                 .with_asset(
-                    AssetDefinition::quantity(
-                        format!("xor-{}", i)
-                            .parse::<<AssetDefinition as Identifiable>::Id>()
-                            .expect("Valid"),
-                    )
-                    .build(),
+                    format!("xor-{}", i).parse().expect("Valid"),
+                    AssetValueType::Quantity,
                 )
                 .finish_domain();
         }

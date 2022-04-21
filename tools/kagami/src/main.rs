@@ -160,7 +160,7 @@ mod schema {
 mod genesis {
     use iroha_core::{
         genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
-        tx::{AssetDefinition, MintBox},
+        tx::{AssetValueType, MintBox},
     };
 
     use super::*;
@@ -180,17 +180,16 @@ mod genesis {
     }
 
     pub fn generate_default() -> color_eyre::Result<RawGenesisBlock> {
-        let asset_definition = AssetDefinition::quantity("rose#wonderland".parse()?).build();
         let mut result = RawGenesisBlockBuilder::new()
             .domain("wonderland".parse()?)
             .with_account("alice".parse()?, crate::DEFAULT_PUBLIC_KEY.parse()?)
-            .with_asset(asset_definition.clone())
+            .with_asset("rose".parse()?, AssetValueType::Quantity)
             .finish_domain()
             .build();
         let mint = MintBox::new(
             iroha_data_model::prelude::Value::U32(13_u32),
             iroha_data_model::IdBox::AssetId(iroha_data_model::prelude::AssetId::new(
-                asset_definition.id().clone(), // Probably redundant clone
+                "rose#wonderland".parse()?,
                 "alice@wonderland".parse()?,
             )),
         );

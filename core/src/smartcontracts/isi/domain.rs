@@ -77,7 +77,7 @@ pub mod isi {
             authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let asset_definition = self.object;
+            let asset_definition = self.object.build();
             asset_definition
                 .id()
                 .name

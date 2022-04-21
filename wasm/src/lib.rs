@@ -13,19 +13,20 @@ compile_error!("Targets other then wasm32-unknown-unknown are not supported");
 
 extern crate alloc as core_alloc;
 
-mod alloc;
-pub mod data_model;
-
 use core::ops::RangeFrom;
 
 use core_alloc::{boxed::Box, format};
+use data_model::prelude::*;
+#[cfg(feature = "debug")]
+pub use debug::*;
+pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::iroha_wasm;
 use parity_scale_codec::{Decode, Encode};
 
+#[cfg(not(test))]
+mod alloc;
 #[cfg(feature = "debug")]
 mod debug;
-#[cfg(feature = "debug")]
-pub use debug::*;
 
 #[no_mangle]
 #[cfg(not(test))]
@@ -49,42 +50,40 @@ pub trait Execute {
     fn execute(&self) -> Self::Result;
 }
 
-impl Execute for data_model::Instruction {
+impl Execute for data_model::isi::Instruction {
     type Result = ();
 
     /// Execute the given instruction on the host environment
     fn execute(&self) -> Self::Result {
         #[cfg(not(test))]
-        use host::_iroha_wasm_execute_instruction as host_execute_instruction;
+        use host::execute_instruction as host_execute_instruction;
         #[cfg(test)]
         use tests::_iroha_wasm_execute_instruction_mock as host_execute_instruction;
 
-        let isi_ptr: *const data_model::Instruction = &*self;
         // Safety: `host_execute_instruction` doesn't take ownership of it's pointer parameter
-        unsafe { host_execute_instruction(isi_ptr as usize) };
+        unsafe { encode_and_execute(self, host_execute_instruction) };
     }
 }
 
 impl Execute for data_model::query::QueryBox {
-    type Result = data_model::Value;
+    type Result = Value;
 
     /// Executes the given query on the host environment
     fn execute(&self) -> Self::Result {
         #[cfg(not(test))]
-        use host::_iroha_wasm_execute_query as host_execute_query;
+        use host::execute_query as host_execute_query;
         #[cfg(test)]
         use tests::_iroha_wasm_execute_query_mock as host_execute_query;
 
-        let query_ptr: *const data_model::QueryBox = &*self;
         // Safety: - `host_execute_query` doesn't take ownership of it's pointer parameter
         //         - ownership of the returned result is transfered into `_decode_from_raw`
-        unsafe { decode_with_length_prefix_from_raw(host_execute_query(query_ptr as usize)) }
+        unsafe { decode_with_length_prefix_from_raw(encode_and_execute(self, host_execute_query)) }
     }
 }
 
 /// Host exports
 #[cfg(not(test))]
-pub(crate) mod host {
+mod host {
     #[link(wasm_import_module = "iroha")]
     extern "C" {
         /// Executes encoded query by providing offset and length
@@ -92,28 +91,18 @@ pub(crate) mod host {
         ///
         /// # Warning
         ///
-        /// This function doesn't take ownership of the query pointer
+        /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
-        pub(super) fn _iroha_wasm_execute_query(query_ptr: usize) -> usize;
+        pub(super) fn execute_query(ptr: *const u8, len: usize) -> *const u8;
 
         /// Executes encoded instruction by providing offset and length
         /// into WebAssembly's linear memory where instruction is stored
         ///
         /// # Warning
         ///
-        /// This function doesn't take ownership of the instruction pointer
-        /// but it does transfer ownership of the result to the caller
-        pub(super) fn _iroha_wasm_execute_instruction(isi_ptr: usize);
-
-        /// Prints string to the standard output by providing offset and length
-        /// into WebAssembly's linear memory where string is stored
-        ///
-        /// # Warning
-        ///
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
-        #[cfg(feature = "debug")]
-        pub(super) fn dbg(ptr: WasmUsize, len: WasmUsize);
+        pub(super) fn execute_instruction(ptr: *const u8, len: usize);
     }
 }
 
@@ -128,12 +117,12 @@ pub(crate) mod host {
 ///
 /// It's safe to call this function as long as it's safe to construct, from the given
 /// pointer, byte array of prefix length and `Box<[u8]>` containing the encoded object
-unsafe fn decode_with_length_prefix_from_raw<T: Decode>(ptr: usize) -> T {
+unsafe fn decode_with_length_prefix_from_raw<T: Decode>(ptr: *const u8) -> T {
     let len_size_bytes = core::mem::size_of::<usize>();
 
     #[allow(clippy::expect_used)]
     let len = usize::from_le_bytes(
-        core::slice::from_raw_parts(ptr as *mut _, len_size_bytes)
+        core::slice::from_raw_parts(ptr, len_size_bytes)
             .try_into()
             .expect("Prefix length size(bytes) incorrect. This is a bug."),
     );
@@ -151,7 +140,7 @@ unsafe fn decode_with_length_prefix_from_raw<T: Decode>(ptr: usize) -> T {
 ///
 /// It's safe to call this function as long as it's safe to construct, from the given
 /// pointer, `Box<[u8]>` containing the encoded object
-pub unsafe fn _decode_from_raw<T: Decode>(ptr: usize, len: usize) -> T {
+pub unsafe fn _decode_from_raw<T: Decode>(ptr: *const u8, len: usize) -> T {
     _decode_from_raw_in_range(ptr, len, 0..)
 }
 
@@ -165,10 +154,8 @@ pub unsafe fn _decode_from_raw<T: Decode>(ptr: usize, len: usize) -> T {
 ///
 /// It's safe to call this function as long as it's safe to construct, from the given
 /// pointer, `Box<[u8]>` containing the encoded object
-// `usize` is always pointer sized
-#[allow(clippy::cast_possible_truncation)]
 unsafe fn _decode_from_raw_in_range<T: Decode>(
-    ptr: usize,
+    ptr: *const u8,
     len: usize,
     range: RangeFrom<usize>,
 ) -> T {
@@ -184,6 +171,26 @@ unsafe fn _decode_from_raw_in_range<T: Decode>(
     )
 }
 
+/// Encode the given object and call the given function with the pointer and length of the allocation
+///
+/// # Warning
+///
+/// Ownership of the returned allocation is transfered to the caller
+///
+/// # Safety
+///
+/// The given function must not take ownership of the pointer argument
+unsafe fn encode_and_execute<T: Encode, O>(
+    obj: &T,
+    fun: unsafe extern "C" fn(*const u8, usize) -> O,
+) -> O {
+    // NOTE: It's imperative that encoded object is stored on the heap
+    // because heap corresponds to linear memory when compiled to wasm
+    let bytes = obj.encode();
+
+    fun(bytes.as_ptr(), bytes.len())
+}
+
 /// Most used items
 pub mod prelude {
     pub use crate::{iroha_wasm, Execute};
@@ -197,9 +204,6 @@ mod tests {
     use core::{mem::ManuallyDrop, slice};
 
     use core_alloc::vec::Vec;
-    use data_model::{
-        AccountId, FindAccountById, Instruction, NewAccount, QueryBox, RegisterBox, Value,
-    };
     use webassembly_test::webassembly_test;
 
     use super::*;
@@ -235,22 +239,25 @@ mod tests {
     }
 
     #[no_mangle]
-    pub(super) unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(isi_ptr: usize) {
-        let instruction = &*(isi_ptr as *const Instruction);
-        assert_eq!(get_test_instruction(), *instruction);
+    pub(super) unsafe extern "C" fn _iroha_wasm_execute_instruction_mock(
+        ptr: *const u8,
+        len: usize,
+    ) {
+        let bytes = slice::from_raw_parts(ptr, len);
+        let instruction = Instruction::decode(&mut &*bytes);
+        assert_eq!(get_test_instruction(), instruction.unwrap());
     }
 
-    #[cfg(feature = "debug")]
     #[no_mangle]
-    pub(super) unsafe extern "C" fn _dbg(_ptr: WasmUsize, _len: WasmUsize) {}
+    pub(super) unsafe extern "C" fn _iroha_wasm_execute_query_mock(
+        ptr: *const u8,
+        len: usize,
+    ) -> *const u8 {
+        let bytes = slice::from_raw_parts(ptr, len);
+        let query = QueryBox::decode(&mut &*bytes).unwrap();
+        assert_eq!(query, get_test_query());
 
-    #[no_mangle]
-    pub(super) unsafe extern "C" fn _iroha_wasm_execute_query_mock(query_ptr: usize) -> usize {
-        let query = &*(query_ptr as *const QueryBox);
-        assert_eq!(*query, get_test_query());
-
-        let bytes = ManuallyDrop::new(encode_query_result(QUERY_RESULT).into_boxed_slice());
-        bytes.as_ptr() as _
+        ManuallyDrop::new(encode_query_result(QUERY_RESULT).into_boxed_slice()).as_ptr()
     }
 
     #[webassembly_test]

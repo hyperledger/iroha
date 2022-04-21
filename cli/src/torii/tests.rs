@@ -264,13 +264,10 @@ fn register_account(name: &str) -> Instruction {
 }
 
 fn register_asset_definition(name: &str) -> Instruction {
-    RegisterBox::new(
-        AssetDefinition::quantity(AssetDefinitionId::new(
-            name.parse().expect("Valid"),
-            DOMAIN.parse().expect("Valid"),
-        ))
-        .build(),
-    )
+    RegisterBox::new(AssetDefinition::quantity(AssetDefinitionId::new(
+        name.parse().expect("Valid"),
+        DOMAIN.parse().expect("Valid"),
+    )))
     .into()
 }
 

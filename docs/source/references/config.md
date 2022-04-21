@@ -100,7 +100,8 @@ The following is the default configuration used by Iroha.
     },
     "WASM_RUNTIME_CONFIG": {
       "FUEL_LIMIT": 1000000,
-      "MAX_MEMORY": 524288000
+      "MAX_MEMORY": 524288000,
+      "IROHA_WASM_MODULE": "/home/emarin/Documents/soramitsu/iroha/core/wasm/target/wasm32-unknown-unknown/release/iroha_core_wasm.wasm"
     }
   },
   "NETWORK": {
@@ -773,6 +774,7 @@ Has type `WorldStateViewConfiguration`. Can be configured via environment variab
   },
   "WASM_RUNTIME_CONFIG": {
     "FUEL_LIMIT": 1000000,
+    "IROHA_WASM_MODULE": "/home/emarin/Documents/soramitsu/iroha/core/wasm/target/wasm32-unknown-unknown/release/iroha_core_wasm.wasm",
     "MAX_MEMORY": 524288000
   }
 }
@@ -852,6 +854,7 @@ Has type `wasm::config::Configuration`. Can be configured via environment variab
 ```json
 {
   "FUEL_LIMIT": 1000000,
+  "IROHA_WASM_MODULE": "/home/emarin/Documents/soramitsu/iroha/core/wasm/target/wasm32-unknown-unknown/release/iroha_core_wasm.wasm",
   "MAX_MEMORY": 524288000
 }
 ```

@@ -131,21 +131,15 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
             get_key_pair().public_key().clone(),
         );
         genesis.transactions[0].isi.push(
-            RegisterBox::new(
-                AssetDefinition::quantity(
-                    AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
-                )
-                .build(),
-            )
+            RegisterBox::new(AssetDefinition::quantity(
+                AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
+            ))
             .into(),
         );
         genesis.transactions[0].isi.push(
-            RegisterBox::new(
-                AssetDefinition::quantity(
-                    AssetDefinitionId::from_str("tulip#wonderland").expect("valid names"),
-                )
-                .build(),
-            )
+            RegisterBox::new(AssetDefinition::quantity(
+                AssetDefinitionId::from_str("tulip#wonderland").expect("valid names"),
+            ))
             .into(),
         );
         genesis.transactions[0].isi.push(

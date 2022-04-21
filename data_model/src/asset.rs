@@ -17,7 +17,6 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use self::definition_builder::NewAssetDefinition;
 use crate::{
     account::prelude::*, domain::prelude::*, fixed, fixed::Fixed, metadata::Metadata, Identifiable,
     Name, ParseError, TryAsMut, TryAsRef, Value,
@@ -97,8 +96,6 @@ impl AssetDefinitionEntry {
     Clone,
     PartialEq,
     Eq,
-    PartialOrd,
-    Ord,
     Getters,
     MutGetters,
     Setters,
@@ -119,6 +116,20 @@ pub struct AssetDefinition {
     /// Metadata of this asset definition as a key-value store.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
     metadata: Metadata,
+}
+
+impl PartialOrd for AssetDefinition {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.id.cmp(&other.id))
+    }
+}
+
+impl Ord for AssetDefinition {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
 }
 
 /// An assets mintability scheme. `Infinitely` means elastic
@@ -349,129 +360,97 @@ pub struct Id {
     pub account_id: <Account as Identifiable>::Id,
 }
 
-pub mod definition_builder {
-    //! Builder for [`AssetDefinition`].
-    use super::{AssetDefinition, AssetValueType, Mintable};
-    use crate::{metadata::Metadata, Identifiable};
+/// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct NewAssetDefinition {
+    id: <AssetDefinition as Identifiable>::Id,
+    value_type: AssetValueType,
+    mintable: Mintable,
+    metadata: Metadata,
+}
 
-    type Id = <AssetDefinition as Identifiable>::Id;
-
-    /// Builder with all mandatory fields.
-    pub struct NewAssetDefinition {
-        pub(crate) id: Id,
-        pub(crate) value_type: AssetValueType,
-        pub(crate) mintable: Mintable,
-        pub(crate) metadata: Metadata,
-    }
-
-    impl NewAssetDefinition {
-        /// Make the builder create a [`Mintable::Once`] instance of [`AssetDefinition`]
-        #[must_use]
-        #[inline]
-        pub fn mintable_once(mut self) -> Self {
-            self.mintable = Mintable::Once;
-            self
-        }
-
-        /// Most general constructor for the case where
-        /// [`AssetValueType`], and mintability are known ahead of
-        /// time. Don't forget to build the resulting [`Self`].
-        pub fn new(
-            id: <AssetDefinition as Identifiable>::Id,
-            value_type: AssetValueType,
-            mintable: bool,
-        ) -> Self {
-            Self {
-                id,
-                value_type,
-                mintable: if mintable {
-                    Mintable::Infinitely
-                } else {
-                    Mintable::Once
-                },
-                metadata: Metadata::new(),
-            }
-        }
-
-        /// Change mintability in-place
-        #[inline]
-        pub fn mintable(&mut self, mintable: bool) {
-            self.mintable = if mintable {
-                Mintable::Infinitely
-            } else {
-                Mintable::Once
-            };
-        }
-
-        /// Add metadata to builder
-        #[must_use]
-        #[inline]
-        pub fn with_metadata(mut self, metadata: Metadata) -> Self {
-            self.metadata = metadata;
-            self
-        }
-
-        /// Build [`AssetDefinition`]
-        #[must_use]
-        #[inline]
-        pub fn build(self) -> <AssetDefinition as Identifiable>::RegisteredWith {
-            let Self {
-                id,
-                value_type,
-                mintable,
-                metadata,
-            } = self;
-            AssetDefinition {
-                id,
-                value_type,
-                mintable,
-                metadata,
-            }
-        }
+impl PartialOrd for NewAssetDefinition {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.id.cmp(&other.id))
     }
 }
 
-impl AssetDefinition {
-    /// Construct [`AssetDefinition`].
-    #[must_use]
+impl Ord for NewAssetDefinition {
     #[inline]
-    pub fn quantity(id: <Self as Identifiable>::Id) -> NewAssetDefinition {
-        NewAssetDefinition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl NewAssetDefinition {
+    /// Create a [`NewAssetDefinition`], reserved for internal use.
+    fn new(id: <AssetDefinition as Identifiable>::Id, value_type: AssetValueType) -> Self {
+        Self {
             id,
-            value_type: AssetValueType::Quantity,
+            value_type,
             mintable: Mintable::Infinitely,
             metadata: Metadata::default(),
         }
     }
 
-    /// Construct [`AssetDefinition`].
-    #[must_use]
+    /// Set mintability to [`Mintable::Once`]
     #[inline]
-    pub fn big_quantity(id: <Self as Identifiable>::Id) -> NewAssetDefinition {
-        NewAssetDefinition {
-            value_type: AssetValueType::BigQuantity,
-            ..Self::quantity(id)
-        }
+    #[must_use]
+    pub fn mintable_once(mut self) -> Self {
+        self.mintable = Mintable::Once;
+        self
     }
 
-    /// Construct [`AssetDefinition`].
-    #[must_use]
+    /// Add [`Metadata`] to the asset definition replacing previously defined value
     #[inline]
-    pub fn fixed(id: <Self as Identifiable>::Id) -> NewAssetDefinition {
-        NewAssetDefinition {
-            value_type: AssetValueType::Fixed,
-            ..Self::quantity(id)
-        }
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
     }
 
-    /// Construct [`AssetDefinition`].
+    /// Construct [`AssetDefinition`]
+    #[inline]
+    #[must_use]
+    #[cfg(feature = "mutable_api")]
+    pub fn build(self) -> AssetDefinition {
+        AssetDefinition {
+            id: self.id,
+            value_type: self.value_type,
+            mintable: self.mintable,
+            metadata: self.metadata,
+        }
+    }
+}
+
+impl AssetDefinition {
+    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn store(id: <Self as Identifiable>::Id) -> NewAssetDefinition {
-        NewAssetDefinition {
-            value_type: AssetValueType::Store,
-            ..Self::quantity(id)
-        }
+    pub fn quantity(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
+        <Self as Identifiable>::RegisteredWith::new(id, AssetValueType::Quantity)
+    }
+
+    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
+    #[must_use]
+    #[inline]
+    pub fn big_quantity(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
+        <Self as Identifiable>::RegisteredWith::new(id, AssetValueType::BigQuantity)
+    }
+
+    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
+    #[must_use]
+    #[inline]
+    pub fn fixed(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
+        <Self as Identifiable>::RegisteredWith::new(id, AssetValueType::Fixed)
+    }
+
+    /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
+    #[must_use]
+    #[inline]
+    pub fn store(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
+        <Self as Identifiable>::RegisteredWith::new(id, AssetValueType::Store)
     }
 
     /// Stop minting on the [`AssetDefinition`] globally.
@@ -566,7 +545,7 @@ impl Identifiable for Asset {
 
 impl Identifiable for AssetDefinition {
     type Id = DefinitionId;
-    type RegisteredWith = Self;
+    type RegisteredWith = NewAssetDefinition;
 }
 
 impl FromIterator<Asset> for Value {

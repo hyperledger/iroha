@@ -28,8 +28,7 @@ fn client_can_transfer_asset_to_another_account() {
     let create_account2 = RegisterBox::new(Account::new(account2_id.clone(), [public_key2]));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
     let quantity: u32 = 200;
-    let create_asset =
-        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
+    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let mint_asset = MintBox::new(
         Value::U32(quantity),
         IdBox::AssetId(AssetId::new(

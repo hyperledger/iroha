@@ -60,7 +60,7 @@ tokio-stream = { version = "0.1.6", features = ["fs"]}
 crossbeam-queue = "0.3"
 thiserror = "1.0.28"
 pin-project = "1"
-wasmtime = "0.35.1"
+wasmtime = "0.36.0"
 color-eyre = "0.5.11"
 smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
 smallvec = { version = "1.8.0", features = ["serde", "union"] }

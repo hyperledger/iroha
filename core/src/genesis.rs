@@ -452,22 +452,26 @@ impl RawGenesisDomainBuilder {
     /// Add an account to this domain
     #[must_use]
     pub fn with_account(mut self, account_name: Name, public_key: PublicKey) -> Self {
-        self.transaction.isi.push(
-            RegisterBox::new(Account::new(
-                AccountId::new(account_name, self.domain_id.clone()),
-                [public_key],
-            ))
-            .into(),
-        );
+        let account_id = AccountId::new(account_name, self.domain_id.clone());
+        self.transaction
+            .isi
+            .push(RegisterBox::new(Account::new(account_id, [public_key])).into());
         self
     }
 
     /// Add [`AssetDefinition`] to current domain.
     #[must_use]
-    pub fn with_asset(mut self, definition: AssetDefinition) -> Self {
+    pub fn with_asset(mut self, asset_name: Name, asset_value_type: AssetValueType) -> Self {
+        let asset_definition_id = AssetDefinitionId::new(asset_name, self.domain_id.clone());
+        let asset_definition = match asset_value_type {
+            AssetValueType::Quantity => AssetDefinition::quantity(asset_definition_id),
+            AssetValueType::BigQuantity => AssetDefinition::big_quantity(asset_definition_id),
+            AssetValueType::Fixed => AssetDefinition::fixed(asset_definition_id),
+            AssetValueType::Store => AssetDefinition::store(asset_definition_id),
+        };
         self.transaction
             .isi
-            .push(RegisterBox::new(definition).into());
+            .push(RegisterBox::new(asset_definition).into());
         self
     }
 }
@@ -512,7 +516,7 @@ mod tests {
             .finish_domain()
             .domain("meadow".parse().unwrap())
             .with_account("Mad_Hatter".parse().unwrap(), public_key.parse().unwrap())
-            .with_asset(AssetDefinition::big_quantity("hats#meadow".parse().unwrap()).build())
+            .with_asset("hats".parse().unwrap(), AssetValueType::BigQuantity)
             .finish_domain();
 
         let finished_genesis_block = genesis_builder.build();
@@ -559,9 +563,9 @@ mod tests {
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[7],
-                RegisterBox::new(
-                    AssetDefinition::big_quantity("hats#meadow".parse().unwrap()).build()
-                )
+                RegisterBox::new(AssetDefinition::big_quantity(
+                    "hats#meadow".parse().unwrap()
+                ))
                 .into()
             );
         }
