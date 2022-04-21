@@ -9,9 +9,9 @@ services:
       TORII_P2P_ADDR: iroha0:1337
       TORII_API_URL: iroha0:8080
       TORII_TELEMETRY_URL: iroha0:8180
-      IROHA_PUBLIC_KEY: 'ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0'
-      IROHA_PRIVATE_KEY: '{"digest_function": "ed25519", "payload": "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}'
-      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha0:1337", "public_key": "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}]'
+      IROHA_PUBLIC_KEY: "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+      IROHA_PRIVATE_KEY: '{"digest_function": "ed25519", "payload": "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"}'
+      SUMERAGI_TRUSTED_PEERS: '[{"address":"iroha0:1337", "public_key": "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"}]'
     ports:
       - "1337:1337"
       - "8080:8080"

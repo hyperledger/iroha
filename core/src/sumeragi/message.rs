@@ -145,9 +145,9 @@ impl VersionedMessage {
     /// Send this message over the network to multiple `peers`.
     /// # Errors
     /// Fails if network sending fails
-    pub async fn send_to_multiple<'a, I>(self, broker: &Broker, peers: I)
+    pub async fn send_to_multiple<'itm, I>(self, broker: &Broker, peers: I)
     where
-        I: IntoIterator<Item = &'a PeerId> + Send,
+        I: IntoIterator<Item = &'itm PeerId> + Send,
     {
         let futures = peers
             .into_iter()

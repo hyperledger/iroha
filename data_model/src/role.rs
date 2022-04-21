@@ -1,11 +1,10 @@
 //! Structures, traits and impls related to `Role`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, string::String};
-use core::fmt;
+use alloc::{collections::btree_set, format, string::String, vec::Vec};
+use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_set;
-use std::str::FromStr;
 
 use getset::Getters;
 use iroha_schema::IntoSchema;
@@ -93,17 +92,17 @@ impl Role {
     #[inline]
     pub fn new(
         id: <Self as Identifiable>::Id,
-        permissions: impl Into<Permissions>,
+        permissions: impl IntoIterator<Item = PermissionToken>,
     ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id,
-            permissions: permissions.into(),
+            permissions: permissions.into_iter().collect(),
         }
     }
 
     /// Get an iterator over [`permissions`](PermissionToken) of the `Role`
     #[inline]
-    pub fn permissions(&self) -> impl Iterator<Item = &PermissionToken> {
+    pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
         self.permissions.iter()
     }
 }

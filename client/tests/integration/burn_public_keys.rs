@@ -40,8 +40,10 @@ fn public_keys_cannot_be_burned_to_nothing() {
     let mut keys_count = bob_keys_count(&mut client);
     assert_eq!(keys_count, 0);
 
-    let mint_keys = (0..KEYS_COUNT)
-        .map(|_| MintBox::new(KeyPair::generate().unwrap().public_key, bob_id.clone()).into());
+    let mint_keys = (0..KEYS_COUNT).map(|_| {
+        let (public_key, _) = KeyPair::generate().unwrap().into();
+        MintBox::new(public_key, bob_id.clone()).into()
+    });
 
     let _ = submit_and_get(&mut client, mint_keys);
     keys_count = bob_keys_count(&mut client);

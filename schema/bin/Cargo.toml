@@ -7,7 +7,8 @@ edition = "2021"
 
 [dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../../data_model", features = ["roles"] }
-iroha_schema = { version = "=2.0.0-pre-rc.3", path = "../../schema" }
 iroha_core = { version = "=2.0.0-pre-rc.3", path = "../../core", features = ["roles"] }
+iroha_crypto = { version = "=2.0.0-pre-rc.3", path = "../../crypto" }
+iroha_schema = { version = "=2.0.0-pre-rc.3", path = "../../schema" }
 
 serde_json = "1"

@@ -881,7 +881,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Deb
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sumeragi")
-            .field("public_key", &self.key_pair.public_key)
+            .field("public_key", &self.key_pair.public_key())
             .field("network_topology", &self.topology)
             .field("peer_id", &self.peer_id)
             .field("voting_block", &self.voting_block)
@@ -899,7 +899,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Con
         info!("Starting Sumeragi");
         self.connect_peers().await;
 
-        if height != 0 && *last_block != Hash([0; 32]) {
+        if height != 0 && last_block != Hash::zeroed().typed() {
             self.init(last_block, height);
         } else if let Some(genesis_network) = self.genesis_network.take() {
             let addr = self.network.clone();

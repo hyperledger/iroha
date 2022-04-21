@@ -117,12 +117,11 @@ impl MeasurerUnit {
     /// Submit initial transactions for measurement
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn ready(mut self) -> Result<Self> {
-        let register_me = RegisterBox::new(Account::new(
-            account_id(self.name),
-            [iroha_core::prelude::KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key],
-        ));
+        let (public_key, _) = iroha_core::prelude::KeyPair::generate()
+            .expect("Failed to generate KeyPair.")
+            .into();
+
+        let register_me = RegisterBox::new(Account::new(account_id(self.name), [public_key]));
         let mint_a_rose = MintBox::new(1_u32, asset_id(self.name));
 
         let _ = self.client.submit_blocking(register_me)?;

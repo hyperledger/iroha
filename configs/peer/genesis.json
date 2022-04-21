@@ -11,6 +11,7 @@
                     "id": {
                       "name": "wonderland"
                     },
+                    "logo": null,
                     "metadata": {}
                   }
                 }
@@ -53,8 +54,8 @@
                       }
                     },
                     "value_type": "Quantity",
-                    "metadata": {},
-                    "mintable": true
+                    "mintable": "Infinitely",
+                    "metadata": {}
                   }
                 }
               }

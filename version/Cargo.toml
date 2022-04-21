@@ -8,6 +8,8 @@ edition = "2021"
 
 [features]
 default = ["std", "derive", "scale", "json"]
+# Enable static linkage of the rust standard library.
+# Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
 std = ["iroha_macro/std", "parity-scale-codec/std", "thiserror"]
 derive = ["iroha_version_derive"]
 scale = ["parity-scale-codec/full"]

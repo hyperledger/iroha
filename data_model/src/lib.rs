@@ -30,7 +30,6 @@ pub mod domain;
 pub mod events;
 pub mod expression;
 pub mod isi;
-pub mod merkle;
 pub mod metadata;
 pub mod pagination;
 pub mod peer;
@@ -241,7 +240,6 @@ impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED,
     Eq,
     PartialOrd,
     Ord,
-    Hash,
     Decode,
     Encode,
     Deserialize,
@@ -405,11 +403,11 @@ pub enum Value {
     LimitedMetadata(metadata::Metadata),
     /// `Id` of `Asset`, `Account`, etc.
     Id(IdBox),
-    /// `Identifiable` as `Asset`, `Account` etc.
+    /// `impl Identifiable` as in `Asset`, `Account` etc.
     Identifiable(IdentifiableBox),
     /// [`PublicKey`].
     PublicKey(PublicKey),
-    /// Iroha `Parameter` variant.
+    /// Iroha [`Parameter`] variant.
     Parameter(Parameter),
     /// Signature check condition.
     SignatureCheckCondition(SignatureCheckCondition),
@@ -720,10 +718,15 @@ pub mod prelude {
     #[cfg(feature = "roles")]
     pub use super::role::prelude::*;
     pub use super::{
-        account::prelude::*, asset::prelude::*, domain::prelude::*, fixed::prelude::*,
-        pagination::prelude::*, peer::prelude::*, trigger::prelude::*, uri, EnumTryAsError, IdBox,
-        Identifiable, IdentifiableBox, Name, Parameter, RegistrableBox, TryAsMut, TryAsRef,
-        ValidationError, Value,
+        account::prelude::*,
+        asset::prelude::*,
+        domain::prelude::*,
+        fixed::prelude::*,
+        pagination::{prelude::*, Pagination},
+        peer::prelude::*,
+        trigger::prelude::*,
+        uri, EnumTryAsError, IdBox, Identifiable, IdentifiableBox, Name, Parameter, RegistrableBox,
+        TryAsMut, TryAsRef, ValidationError, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

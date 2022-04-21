@@ -73,15 +73,12 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
         } else {
             return Err("Source id is not an AssetDefinitionId.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
-            object_id.into(),
-        );
-        Ok(PermissionToken::new(
-            CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone(),
-            params,
-        ))
+        Ok(
+            PermissionToken::new(CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone()).with_params([(
+                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
+                object_id.into(),
+            )]),
+        )
     }
 }
 
@@ -105,7 +102,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone() {
+        if permission_token.name() != &*CAN_UNREGISTER_ASSET_WITH_DEFINITION {
             return Err("Grant instruction is not for unregister permission.".to_owned());
         }
         check_asset_creator_for_token(&permission_token, authority, wsv)
@@ -133,7 +130,7 @@ impl<W: WorldTrait> IsRevokeAllowed<W> for RevokeRegisteredByMeAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone() {
+        if permission_token.name() != &*CAN_UNREGISTER_ASSET_WITH_DEFINITION {
             return Err("Revoke instruction is not for unregister permission.".to_owned());
         }
         check_asset_creator_for_token(&permission_token, authority, wsv)

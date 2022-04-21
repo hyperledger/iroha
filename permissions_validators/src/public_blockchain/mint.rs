@@ -71,15 +71,12 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
         } else {
             return Err("Destination is not an Asset.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-            asset_id.definition_id.into(),
-        );
-        Ok(PermissionToken::new(
-            CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone(),
-            params,
-        ))
+        Ok(
+            PermissionToken::new(CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone()).with_params([(
+                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
+                asset_id.definition_id.into(),
+            )]),
+        )
     }
 }
 
@@ -103,7 +100,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone() {
+        if permission_token.name() != &*CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN {
             return Err("Grant instruction is not for mint permission.".to_owned());
         }
         check_asset_creator_for_token(&permission_token, authority, wsv)

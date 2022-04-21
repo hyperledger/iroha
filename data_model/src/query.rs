@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "roles")]
 use self::role::*;
 use self::{account::*, asset::*, domain::*, peer::*, permissions::*, transaction::*};
-use crate::{account::Account, Identifiable, Value};
+use crate::{account::Account, pagination::Pagination, Identifiable, Value};
 
 /// Sized container for all possible Queries.
 #[allow(clippy::enum_variant_names)]
@@ -115,8 +115,8 @@ pub struct Payload {
 impl Payload {
     /// Hash of this payload.
     #[cfg(feature = "std")]
-    pub fn hash(&self) -> Hash {
-        Hash::new(&self.encode())
+    pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
+        iroha_crypto::HashOf::new(self)
     }
 }
 
@@ -148,12 +148,26 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_mac
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct QueryResult(pub Value);
 
+declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+
+/// Paginated Query Result
+#[version_with_scale(n = 1, versioned = "VersionedPaginatedQueryResult")]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct PaginatedQueryResult {
+    /// The result of the query execution.
+    pub result: QueryResult,
+    /// pagination
+    pub pagination: Pagination,
+    /// Total query amount (if applicable) else 0.
+    pub total: u64,
+}
+
 #[cfg(all(feature = "std", feature = "warp"))]
 impl QueryRequest {
     /// Constructs a new request with the `query`.
     pub fn new(query: QueryBox, account_id: <Account as Identifiable>::Id) -> Self {
         let timestamp_ms = crate::current_time().as_millis();
-        QueryRequest {
+        Self {
             payload: Payload {
                 timestamp_ms,
                 query,
@@ -204,7 +218,7 @@ pub mod role {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllRoles {}
+    pub struct FindAllRoles;
 
     impl Query for FindAllRoles {
         type Output = Vec<Role>;
@@ -309,7 +323,7 @@ pub mod account {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllAccounts {}
+    pub struct FindAllAccounts;
 
     impl Query for FindAllAccounts {
         type Output = Vec<Account>;
@@ -415,7 +429,7 @@ pub mod account {
     impl FindAllAccounts {
         /// Construct [`FindAllAccounts`].
         pub const fn new() -> Self {
-            FindAllAccounts {}
+            FindAllAccounts
         }
     }
 
@@ -494,7 +508,7 @@ pub mod asset {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllAssets {}
+    pub struct FindAllAssets;
 
     impl Query for FindAllAssets {
         type Output = Vec<Asset>;
@@ -517,7 +531,7 @@ pub mod asset {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllAssetsDefinitions {}
+    pub struct FindAllAssetsDefinitions;
 
     impl Query for FindAllAssetsDefinitions {
         type Output = Vec<AssetDefinition>;
@@ -748,14 +762,14 @@ pub mod asset {
     impl FindAllAssets {
         /// Construct [`FindAllAssets`].
         pub const fn new() -> Self {
-            FindAllAssets {}
+            FindAllAssets
         }
     }
 
     impl FindAllAssetsDefinitions {
         /// Construct [`FindAllAssetsDefinitions`].
         pub const fn new() -> Self {
-            FindAllAssetsDefinitions {}
+            FindAllAssetsDefinitions
         }
     }
 
@@ -874,7 +888,7 @@ pub mod domain {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllDomains {}
+    pub struct FindAllDomains;
 
     impl Query for FindAllDomains {
         type Output = Vec<Domain>;
@@ -906,7 +920,7 @@ pub mod domain {
     impl FindAllDomains {
         /// Construct [`FindAllDomains`].
         pub const fn new() -> Self {
-            FindAllDomains {}
+            FindAllDomains
         }
     }
 
@@ -991,7 +1005,7 @@ pub mod peer {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllPeers {}
+    pub struct FindAllPeers;
 
     impl Query for FindAllPeers {
         type Output = Vec<Peer>;
@@ -1013,7 +1027,7 @@ pub mod peer {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllParameters {}
+    pub struct FindAllParameters;
 
     impl Query for FindAllParameters {
         type Output = Vec<Parameter>;
@@ -1022,14 +1036,14 @@ pub mod peer {
     impl FindAllPeers {
         ///Construct [`FindAllPeers`].
         pub const fn new() -> Self {
-            FindAllPeers {}
+            FindAllPeers
         }
     }
 
     impl FindAllParameters {
         /// Construct [`FindAllParameters`].
         pub const fn new() -> Self {
-            FindAllParameters {}
+            FindAllParameters
         }
     }
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
@@ -1132,8 +1146,8 @@ pub mod prelude {
     pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, transaction::*, Query, QueryBox, QueryResult, SignedQueryRequest,
-        VersionedQueryResult,
+        permissions::prelude::*, transaction::*, PaginatedQueryResult, Query, QueryBox,
+        QueryResult, SignedQueryRequest, VersionedPaginatedQueryResult, VersionedQueryResult,
     };
     #[cfg(feature = "warp")]
     pub use super::{QueryRequest, VersionedSignedQueryRequest};

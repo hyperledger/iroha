@@ -36,7 +36,13 @@ fn named_fields() {
 
     let expected = vec![
         ("String".to_owned(), String),
-        ("Vec<String>".to_owned(), Vec("String".to_owned())),
+        (
+            "Vec<String>".to_owned(),
+            Vec(VecMeta {
+                ty: "String".to_owned(),
+                sorted: false,
+            }),
+        ),
         ("i32".to_owned(), Int(FixedWidth)),
         (
             "struct_with_named_fields::Command".to_owned(),

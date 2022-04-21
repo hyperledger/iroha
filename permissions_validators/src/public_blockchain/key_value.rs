@@ -94,12 +94,10 @@ impl<W: WorldTrait> HasToken<W> for SetGrantedByAssetOwner {
         } else {
             return Err("Source id is not an AssetId.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
-        Ok(PermissionToken::new(
-            CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN.clone(),
-            params,
-        ))
+        Ok(
+            PermissionToken::new(CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN.clone())
+                .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into())]),
+        )
     }
 }
 
@@ -123,7 +121,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccessSet {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN.clone() {
+        if permission_token.name() != &*CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN {
             return Err("Grant instruction is not for set permission.".to_owned());
         }
         check_asset_owner_for_token(&permission_token, authority)?;
@@ -190,12 +188,10 @@ impl<W: WorldTrait> HasToken<W> for SetGrantedByAccountOwner {
         } else {
             return Err("Source id is not an AccountId.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
-        Ok(PermissionToken::new(
-            CAN_SET_KEY_VALUE_IN_USER_METADATA.clone(),
-            params,
-        ))
+        Ok(
+            PermissionToken::new(CAN_SET_KEY_VALUE_IN_USER_METADATA.clone())
+                .with_params([(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into())]),
+        )
     }
 }
 
@@ -219,7 +215,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyMetadataAccessSet {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_SET_KEY_VALUE_IN_USER_METADATA.clone() {
+        if permission_token.name() != &*CAN_SET_KEY_VALUE_IN_USER_METADATA {
             return Err("Grant instruction is not for set permission.".to_owned());
         }
         check_account_owner_for_token(&permission_token, authority)?;
@@ -285,12 +281,10 @@ impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAssetOwner {
         } else {
             return Err("Source id is not an AssetId.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
-        Ok(PermissionToken::new(
-            CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS.clone(),
-            params,
-        ))
+        Ok(
+            PermissionToken::new(CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS.clone())
+                .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into())]),
+        )
     }
 }
 
@@ -314,7 +308,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccessRemove {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS.clone() {
+        if permission_token.name() != &*CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS {
             return Err("Grant instruction is not for set permission.".to_owned());
         }
         check_asset_owner_for_token(&permission_token, authority)?;
@@ -381,12 +375,10 @@ impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAccountOwner {
         } else {
             return Err("Source id is not an AccountId.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into());
-        Ok(PermissionToken::new(
-            CAN_REMOVE_KEY_VALUE_IN_USER_METADATA.clone(),
-            params,
-        ))
+        Ok(
+            PermissionToken::new(CAN_REMOVE_KEY_VALUE_IN_USER_METADATA.clone())
+                .with_params([(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into())]),
+        )
     }
 }
 
@@ -410,7 +402,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyMetadataAccessRemove {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_USER_METADATA.clone() {
+        if permission_token.name() != &*CAN_REMOVE_KEY_VALUE_IN_USER_METADATA {
             return Err("Grant instruction is not for remove permission.".to_owned());
         }
         check_account_owner_for_token(&permission_token, authority)?;
@@ -438,7 +430,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetDefinitionSet {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION.clone() {
+        if permission_token.name() != &*CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION {
             return Err(
                 "Grant instruction is not for set key value in asset definition permission."
                     .to_owned(),
@@ -468,7 +460,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetDefinitionRemove {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name != CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION.clone() {
+        if permission_token.name() != &*CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION {
             return Err(
                 "Grant instruction is not for remove key value in asset definition permission."
                     .to_owned(),
@@ -580,15 +572,12 @@ impl<W: WorldTrait> HasToken<W> for SetGrantedByAssetDefinitionOwner {
         } else {
             return Err("Source id is not an AssetDefinitionId.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-            object_id.into(),
-        );
-        Ok(PermissionToken::new(
-            CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION.clone(),
-            params,
-        ))
+        Ok(
+            PermissionToken::new(CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION.clone()).with_params([(
+                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
+                object_id.into(),
+            )]),
+        )
     }
 }
 
@@ -619,14 +608,11 @@ impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAssetDefinitionOwner {
         } else {
             return Err("Source id is not an AssetDefinitionId.".to_owned());
         };
-        let mut params = BTreeMap::new();
-        params.insert(
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-            object_id.into(),
-        );
-        Ok(PermissionToken::new(
-            CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION.clone(),
-            params,
-        ))
+        Ok(
+            PermissionToken::new(CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION.clone()).with_params([(
+                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
+                object_id.into(),
+            )]),
+        )
     }
 }

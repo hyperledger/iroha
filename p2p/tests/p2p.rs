@@ -270,7 +270,7 @@ async fn start_network(
     let network = Network::<TestMessage>::new(
         broker.clone(),
         addr.clone(),
-        keypair.public_key.clone(),
+        keypair.public_key().clone(),
         100,
     )
     .await
@@ -286,7 +286,7 @@ async fn start_network(
         if *p != addr {
             let peer = PeerId {
                 address: p.clone(),
-                public_key: keypair.public_key.clone(),
+                public_key: keypair.public_key().clone(),
             };
 
             broker
@@ -309,7 +309,7 @@ async fn start_network(
     }
     info!(peer_addr = %addr, %conn_count, "Got all connections!");
 
-    (addr, broker, keypair.public_key.clone())
+    (addr, broker, keypair.public_key().clone())
 }
 
 #[test]
