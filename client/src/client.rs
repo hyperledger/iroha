@@ -100,17 +100,6 @@ impl ResponseHandler for StatusResponseHandler {
 }
 
 /// Private structure to incapsulate error reporting for HTTP response.
-///
-/// # Examples
-///
-/// ```
-/// fn handle_fetch_something_response(resp: Response<Vec<u8>>) -> Result<()> {
-///   if response.status() !== StatusCode::OK {
-///     return Err(ResponseReport::with_msg("Failed to fetch something", response).into())
-///   }
-///   Ok(())
-/// }
-/// ```
 struct ResponseReport(eyre::Report);
 
 impl ResponseReport {
@@ -132,12 +121,6 @@ impl From<ResponseReport> for eyre::Report {
         report.0
     }
 }
-
-// impl Into<eyre::Report> for ResponseReport {
-//     fn into(self) -> eyre::Report {
-//         self.0
-//     }
-// }
 
 /// More convenient version of [`iroha_data_model::prelude::PaginatedQueryResult`].
 /// The only difference is that this struct has `output` field extracted from the result
@@ -504,7 +487,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,ignore
     /// use eyre::Result;
     /// use iroha_client::{
     ///     client::{Client, ResponseHandler},
@@ -520,8 +503,9 @@ impl Client {
     ///     }
     /// }
     ///
+    /// // Implement builder for this request
     /// impl RequestBuilder for YourAsyncRequest {
-    ///     // implement builder
+    ///     // ...
     /// }
     ///
     /// async fn fetch_accounts(client: &Client) -> Result<Vec<Account>> {
