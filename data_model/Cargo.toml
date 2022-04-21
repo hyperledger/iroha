@@ -31,6 +31,7 @@ iroha_data_primitives = { path = "primitives", version = "=2.0.0-pre-rc.4", defa
 iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.4", default-features = false }
 iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.4", default-features = false }
 iroha_version = { path = "../version", version = "=2.0.0-pre-rc.4", default-features = false, features = ["derive", "json", "scale"] }
+iroha_data_model_derive = { path = "derive", version = "=2.0.0-pre-rc.3" }
 iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.4" }
 
 dashmap = { version = "4.0", optional = true}

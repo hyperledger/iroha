@@ -26,8 +26,7 @@ fn long_multiple_blocks_created() {
         .into();
     let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
-    let create_asset =
-        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
+    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
 
     iroha_client
         .submit_all(vec![

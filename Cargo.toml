@@ -15,6 +15,7 @@ members = [
   "tools/parity_scale_decoder",
   "tools/kagami",
   "data_model",
+  "data_model/derive",
   "data_model/primitives",
   "futures",
   "futures/derive",

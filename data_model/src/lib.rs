@@ -26,7 +26,6 @@ use crate::{
     account::SignatureCheckCondition, permissions::PermissionToken, transaction::TransactionValue,
 };
 
-//pub mod wasm;
 pub mod account;
 pub mod asset;
 pub mod block_value;
@@ -43,6 +42,17 @@ pub mod role;
 pub mod transaction;
 pub mod trigger;
 pub mod uri;
+
+/// Result of execution of an FFI function
+#[derive(Debug, Clone, Copy)]
+// TODO: What should be the repr?
+#[repr(C)]
+pub enum FfiResult {
+    /// FFI function executed successfully
+    Ok = 0,
+    /// Raw pointer input argument to FFI function was null
+    ArgIsNull = 1,
+}
 
 /// Mintability logic error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -347,6 +357,8 @@ pub enum IdentifiableBox {
     NewDomain(Box<<domain::Domain as Identifiable>::RegisteredWith>),
     /// [`NewAccount`](`account::NewAccount`) variant.
     NewAccount(Box<<account::Account as Identifiable>::RegisteredWith>),
+    /// [`NewAssetDefinition`](`asset::NewAssetDefinition`) variant.
+    NewAssetDefinition(Box<<asset::AssetDefinition as Identifiable>::RegisteredWith>),
     /// [`Domain`](`domain::Domain`) variant.
     Domain(Box<domain::Domain>),
     /// [`Account`](`account::Account`) variant.
@@ -543,6 +555,7 @@ macro_rules! from_and_try_from_value_identifiable {
 from_and_try_from_value_identifiablebox!(
     NewDomain(Box<domain::NewDomain>),
     NewAccount(Box<account::NewAccount>),
+    NewAssetDefinition(Box<asset::NewAssetDefinition>),
     Peer(Box<peer::Peer>),
     Domain(Box<domain::Domain>),
     Account(Box<account::Account>),
@@ -556,6 +569,7 @@ from_and_try_from_value_identifiablebox!(Role(Box<role::Role>),);
 from_and_try_from_value_identifiable!(
     NewDomain(Box<domain::NewDomain>),
     NewAccount(Box<account::NewAccount>),
+    NewAssetDefinition(Box<asset::NewAssetDefinition>),
     Peer(Box<peer::Peer>),
     Domain(Box<domain::Domain>),
     Account(Box<account::Account>),
@@ -597,7 +611,7 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             Peer(peer) => Ok(RegistrableBox::Peer(peer)),
             NewDomain(domain) => Ok(RegistrableBox::Domain(domain)),
             NewAccount(account) => Ok(RegistrableBox::Account(account)),
-            AssetDefinition(asset) => Ok(RegistrableBox::AssetDefinition(asset)),
+            NewAssetDefinition(asset) => Ok(RegistrableBox::AssetDefinition(asset)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
             Role(role) => Ok(RegistrableBox::Role(role)),
@@ -614,7 +628,7 @@ impl From<RegistrableBox> for IdentifiableBox {
             Peer(peer) => IdentifiableBox::Peer(peer),
             Domain(domain) => IdentifiableBox::NewDomain(domain),
             Account(account) => IdentifiableBox::NewAccount(account),
-            AssetDefinition(asset) => IdentifiableBox::AssetDefinition(asset),
+            AssetDefinition(asset) => IdentifiableBox::NewAssetDefinition(asset),
             Asset(asset) => IdentifiableBox::Asset(asset),
             Trigger(trigger) => IdentifiableBox::Trigger(trigger),
             Role(role) => IdentifiableBox::Role(role),

@@ -5,8 +5,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
-#[cfg(feature = "std")]
-use iroha_crypto::prelude::*;
 use iroha_crypto::SignatureOf;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
@@ -195,7 +193,10 @@ impl QueryRequest {
     ///
     /// # Errors
     /// Fails if signature creation fails.
-    pub fn sign(self, key_pair: KeyPair) -> Result<SignedQueryRequest, iroha_crypto::Error> {
+    pub fn sign(
+        self,
+        key_pair: iroha_crypto::KeyPair,
+    ) -> Result<SignedQueryRequest, iroha_crypto::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
         Ok(SignedQueryRequest {
             payload: self.payload,

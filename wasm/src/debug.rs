@@ -2,12 +2,28 @@ use core::fmt::Debug;
 
 use super::*;
 
+#[cfg(not(test))]
+mod host {
+    #[cfg(feature = "debug")]
+    #[link(wasm_import_module = "iroha")]
+    extern "C" {
+        /// Prints string to the standard output by providing offset and length
+        /// into WebAssembly's linear memory where string is stored
+        ///
+        /// # Warning
+        ///
+        /// This function doesn't take ownership of the provided allocation
+        /// but it does transfer ownership of the result to the caller
+        pub(crate) fn dbg(ptr: *const u8, len: usize);
+    }
+}
+
 /// Print `obj` in debug representation to the stdout
 pub fn dbg<T: Debug + ?Sized>(obj: &T) {
     #[cfg(not(test))]
     use host::dbg as host_dbg;
     #[cfg(test)]
-    use tests::_dbg as host_dbg;
+    use tests::_dbg_mock as host_dbg;
 
     let s = format!("{:?}", obj);
     // Safety: `host_dbg` doesn't take ownership of it's pointer parameter
@@ -52,5 +68,14 @@ impl<T> DebugUnwrapExt for Option<T> {
                 panic!("");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "debug")]
+    #[no_mangle]
+    pub(super) unsafe extern "C" fn _dbg_mock(ptr: *const u8, len: usize) {
+        let _string_bytes = slice::from_raw_parts(ptr, len);
     }
 }

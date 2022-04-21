@@ -23,8 +23,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     let (public_key, _) = KeyPair::generate()?.into();
     let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id = AssetDefinitionId::from_str("xor#domain")?;
-    let create_asset =
-        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
+    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     iroha_client.submit_all(vec![
         create_domain.into(),
         create_account.into(),

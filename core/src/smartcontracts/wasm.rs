@@ -8,7 +8,6 @@ use std::sync::Arc;
 use config::Configuration;
 use eyre::WrapErr;
 use iroha_data_model::{prelude::*, ParseError};
-use iroha_logger::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use wasmtime::{
     Caller, Config, Engine, Instance, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap,
@@ -27,16 +26,16 @@ use crate::{
 type WasmUsize = u32;
 
 const IROHA_MODULE_NAME: &str = "iroha";
-/// Name of the exported memory
-pub const WASM_MEMORY_NAME: &str = "memory";
 /// Exported function to allocate memory
 pub const WASM_ALLOC_FN: &str = "_iroha_wasm_alloc";
+/// Name of the exported memory
+pub const WASM_MEMORY_NAME: &str = "memory";
 /// Name of the exported entry to smartcontract execution
 pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
 /// Name of the imported function to execute instructions
-pub const EXECUTE_ISI_FN_NAME: &str = "iroha_wasm_execute_instruction";
+pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
 /// Name of the imported function to execute queries
-pub const EXECUTE_QUERY_FN_NAME: &str = "iroha_wasm_execute_query";
+pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
 /// Name of the imported function to debug print object
 pub const DBG_FN_NAME: &str = "dbg";
 
@@ -54,8 +53,7 @@ pub enum Error {
     ExportNotFound(#[source] anyhow::Error),
     /// Call to the function exported from module failed
     ///
-    /// In Wasmtime v0.33, can also mean that max linear memory was
-    /// consumed
+    /// In Wasmtime v0.33, can also mean that max linear memory was consumed
     #[error("Exported function call failed")]
     ExportFnCall(#[from] Trap),
     /// Parse Error
@@ -187,32 +185,11 @@ impl<'a, W: WorldTrait> IrohaModule<'a, W> {
         Ok(Self { linker, module })
     }
 
-    /// Host defined function which prints given string. When calling
-    /// this function, module serializes ISI to linear memory and
-    /// provides offset and length as parameters
-    ///
-    /// # Warning
-    ///
-    /// This function doesn't take ownership of the provided
-    /// allocation
-    ///
-    /// # Errors
-    ///
-    /// If string decoding fails
-    #[allow(clippy::print_stdout)]
-    fn dbg(mut caller: Caller<State<W>>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
-        let memory = Self::memory(&mut caller)?;
-        let string_mem_range = offset as usize..(offset + len) as usize;
-        let mut string_bytes = &memory.data(&caller)[string_mem_range];
-        let s = String::decode(&mut string_bytes).map_err(|error| Trap::new(error.to_string()))?;
-        println!("{s}");
-        Ok(())
-    }
-
     fn create_linker(engine: &Engine) -> Result<Linker<State<'a, W>>, anyhow::Error> {
         let mut linker = Linker::new(engine);
 
         linker
+            .func_wrap(IROHA_MODULE_NAME, DBG_FN_NAME, Runtime::dbg)?
             .func_wrap(
                 IROHA_MODULE_NAME,
                 EXECUTE_ISI_FN_NAME,
@@ -312,7 +289,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         Ok(store)
     }
 
-    fn create_instance(
+    fn create_smart_contract(
         &self,
         mut store: &mut Store<State<'wrld, W>>,
         iroha_instance: Instance,
@@ -321,7 +298,6 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         let (env_module_name, function_table_name) = ("env", "__indirect_function_table");
         let module = Module::new(&self.engine, bytes).map_err(Error::Instantiation)?;
 
-        // TODO: Would it be possible to have
         Linker::new(&self.engine)
             .instance(&mut store, IROHA_MODULE_NAME, iroha_instance)?
             .alias(
@@ -464,6 +440,28 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         Ok(())
     }
 
+    /// Host defined function which prints given string. When calling
+    /// this function, module serializes ISI to linear memory and
+    /// provides offset and length as parameters
+    ///
+    /// # Warning
+    ///
+    /// This function doesn't take ownership of the provided
+    /// allocation
+    ///
+    /// # Errors
+    ///
+    /// If string decoding fails
+    #[allow(clippy::print_stdout)]
+    fn dbg(mut caller: Caller<State<W>>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
+        let memory = IrohaModule::memory(&mut caller)?;
+        let string_mem_range = offset as usize..(offset + len) as usize;
+        let mut string_bytes = &memory.data(&caller)[string_mem_range];
+        let s = String::decode(&mut string_bytes).map_err(|error| Trap::new(error.to_string()))?;
+        println!("{s}");
+        Ok(())
+    }
+
     /// Validates that the given smartcontract is eligible for execution
     ///
     /// # Errors
@@ -516,8 +514,8 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         let mut store = self.create_store(state).map_err(Error::Instantiation)?;
         let iroha_instance = self.iroha_module.instantiate(&mut store)?;
 
-        let instance = self
-            .create_instance(&mut store, iroha_instance, bytes)
+        let smart_contract = self
+            .create_smart_contract(&mut store, iroha_instance, bytes)
             .map_err(Error::Instantiation)?;
 
         let account_bytes = account_id.encode();
@@ -553,7 +551,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
             acc_offset
         };
 
-        let main_fn = instance
+        let main_fn = smart_contract
             .get_typed_func::<(WasmUsize, WasmUsize), (), _>(&mut store, WASM_MAIN_FN_NAME)
             .map_err(Error::ExportNotFound)?;
 
@@ -571,9 +569,9 @@ pub mod config {
     use iroha_config::derive::Configurable;
     use serde::{Deserialize, Serialize};
 
-    const DEFAULT_FUEL_LIMIT: u64 = 1_000_000;
+    const DEFAULT_FUEL_LIMIT: u64 = 10_000_000;
     const DEFAULT_MAX_MEMORY: u32 = 500 * 2_u32.pow(20); // 500 MiB
-    const DEFAULT_IROHA_WASM_MODULE: &str = "/home/emarin/Documents/soramitsu/iroha/core/wasm/target/wasm32-unknown-unknown/release/iroha_core_wasm.wasm";
+    const DEFAULT_IROHA_WASM_MODULE: &str = "/iroha_core_wasm.wasm";
 
     /// [`WebAssembly Runtime`](super::Runtime) configuration.
     #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Configurable)]

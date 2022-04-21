@@ -92,7 +92,7 @@ impl Limits {
 )]
 #[serde(transparent)]
 pub struct Metadata {
-    map: UnlimitedMetadata,
+    map: btree_map::BTreeMap<Name, Value>,
 }
 
 /// A path slice, composed of [`Name`]s.
@@ -222,6 +222,7 @@ impl Metadata {
         self.map.remove(key)
     }
 
+    /// Returns iterator over key - value pairs stored in [`Metadata`]
     pub fn iter(&self) -> btree_map::Iter<Name, Value> {
         self.map.iter()
     }
