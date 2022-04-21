@@ -52,14 +52,17 @@ impl<T> DefaultRequestBuilder<T>
 where
     T: Body,
 {
-    pub fn send(self) -> Result<Response<Bytes>> {
-        let Self(mut builder) = self;
-
-        let inspector = builder.inspect();
+    /// Sends prepared request and returns bytes response
+    ///
+    /// # Errors
+    /// Fails if sending or response transformation into bytes fails
+    pub fn send(mut self) -> Result<Response<Bytes>> {
+        let inspector = self.0.inspect();
         let method = inspector.method().clone();
         let url = inspector.url().clone();
 
-        let response = builder
+        let response = self
+            .0
             .send()
             .wrap_err_with(|| format!("Failed to send http {} request to {}", method, url))?;
 

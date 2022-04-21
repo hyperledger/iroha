@@ -41,24 +41,25 @@ pub trait ResponseHandler<O, T = Vec<u8>> {
 #[derive(Clone, Copy)]
 pub struct QueryResponseHandler<R>(PhantomData<R>);
 
-impl<R> ResponseHandler<R::Output> for QueryResponseHandler<R>
+impl<R> Default for QueryResponseHandler<R> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<R> ResponseHandler<PaginatedQueryOutput<R>> for QueryResponseHandler<R>
 where
     R: Query + Into<QueryBox> + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
-    fn handle(self, response: Response<Vec<u8>>) -> Result<R::Output> {
+    fn handle(self, response: Response<Vec<u8>>) -> Result<PaginatedQueryOutput<R>> {
         if response.status() != StatusCode::OK {
-            return Err(eyre!(
-                "Failed to make query request with HTTP status: {}, {}",
-                response.status(),
-                std::str::from_utf8(response.body()).unwrap_or(""),
-            ));
+            return Err(ResponseReport::with_msg("Failed to make query request", response).into());
         }
-        let result = VersionedQueryResult::decode_versioned(response.body())?;
-        let VersionedQueryResult::V1(QueryResult(result)) = result;
-        R::Output::try_from(result)
-            .map_err(Into::into)
-            .wrap_err("Unexpected type")
+
+        let result = VersionedPaginatedQueryResult::decode_versioned(response.body())?;
+        let VersionedPaginatedQueryResult::V1(result) = result;
+        PaginatedQueryOutput::try_from(result)
     }
 }
 
@@ -71,11 +72,7 @@ impl ResponseHandler<()> for TransactionResponseHandler {
         if response.status() == StatusCode::OK {
             Ok(())
         } else {
-            Err(eyre!(
-                "Failed to submit instructions with HTTP status: {}. Response body: {}",
-                response.status(),
-                String::from_utf8_lossy(response.body())
-            ))
+            Err(ResponseReport::with_msg("Failed to submit instructions", response).into())
         }
     }
 }
@@ -87,13 +84,97 @@ pub struct StatusResponseHandler;
 impl ResponseHandler<Status> for StatusResponseHandler {
     fn handle(self, resp: Response<Vec<u8>>) -> Result<Status> {
         if resp.status() != StatusCode::OK {
-            return Err(eyre!(
-                "Failed to get status with HTTP status: {}. {}",
-                resp.status(),
-                std::str::from_utf8(resp.body()).unwrap_or(""),
-            ));
+            return Err(ResponseReport::with_msg("Failed to get status", resp).into());
         }
         serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
+    }
+}
+
+/// Private structure to incapsulate error reporting for HTTP response.
+///
+/// # Examples
+///
+/// ```
+/// fn handle_fetch_something_response(resp: Response<Vec<u8>>) -> Result<()> {
+///   if response.status() !== StatusCode::OK {
+///     return Err(ResponseReport::with_msg("Failed to fetch something", response).into())
+///   }
+///   Ok(())
+/// }
+/// ```
+struct ResponseReport(eyre::Report);
+
+impl ResponseReport {
+    /// Constructs report with provided message
+    fn with_msg<S>(msg: S, response: Response<Vec<u8>>) -> Self
+    where
+        S: AsRef<str>,
+    {
+        let status = response.status();
+        let body = String::from_utf8_lossy(response.body());
+        let msg = msg.as_ref();
+
+        Self(eyre!("{msg}; status: {status}; response body: {body}"))
+    }
+}
+
+impl Into<eyre::Report> for ResponseReport {
+    fn into(self) -> eyre::Report {
+        self.0
+    }
+}
+
+/// More convenient version of [`iroha_data_model::prelude::PaginatedQueryResult`].
+/// The only difference is that this struct has `output` field extracted from the result
+/// accordingly to the source query.
+pub struct PaginatedQueryOutput<R>
+where
+    R: Query + Into<QueryBox> + Debug,
+    <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+{
+    /// Query output
+    pub output: R::Output,
+    /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
+    pub pagination: Pagination,
+    /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
+    pub total: u64,
+}
+
+impl<R> PaginatedQueryOutput<R>
+where
+    R: Query + Into<QueryBox> + Debug,
+    <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+{
+    /// Extracts output as is
+    pub fn only_output(self) -> R::Output {
+        self.output
+    }
+}
+
+impl<R> TryFrom<PaginatedQueryResult> for PaginatedQueryOutput<R>
+where
+    R: Query + Into<QueryBox> + Debug,
+    <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
+{
+    type Error = eyre::Report;
+
+    fn try_from(
+        PaginatedQueryResult {
+            result,
+            pagination,
+            total,
+        }: PaginatedQueryResult,
+    ) -> Result<Self> {
+        let QueryResult(result) = result;
+        let output = R::Output::try_from(result)
+            .map_err(Into::into)
+            .wrap_err("Unexpected type")?;
+
+        Ok(Self {
+            output,
+            pagination,
+            total,
+        })
     }
 }
 
@@ -268,8 +349,8 @@ impl Client {
         &self,
         transaction: Transaction,
     ) -> Result<HashOf<VersionedTransaction>> {
-        let (req, hash, resp_handler): (DefaultRequestBuilder<_>, _, _) =
-            self.prepare_transaction_request(transaction)?;
+        let (req, hash, resp_handler) =
+            self.prepare_transaction_request::<DefaultRequestBuilder<_>>(transaction)?;
         let response = req
             .send()
             .wrap_err_with(|| format!("Failed to send transaction with hash {:?}", hash))?;
@@ -404,7 +485,63 @@ impl Client {
     ///
     /// # Errors
     /// Fails if query signing or request building fails.
-    fn prepare_query_request<R, B>(
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use eyre::Result;
+    /// use iroha_client::{
+    ///     client::{Client, ResponseHandler},
+    ///     http::{Headers, RequestBuilder, Response},
+    /// };
+    /// use iroha_data_model::prelude::{Account, FindAllAccounts, Pagination};
+    ///
+    /// struct YourAsyncRequest;
+    ///
+    /// impl YourAsyncRequest {
+    ///     async fn send(self) -> Response<Vec<u8>> {
+    ///         // do the stuff
+    ///     }
+    /// }
+    ///
+    /// impl RequestBuilder for YourAsyncRequest {
+    ///     fn build<U, P, K, V>(
+    ///         method: attohttpc::Method,
+    ///         url: U,
+    ///         body: Vec<u8>,
+    ///         query_params: P,
+    ///         headers: Headers,
+    ///     ) -> Result<Self>
+    ///     where
+    ///         U: AsRef<str>,
+    ///         P: IntoIterator,
+    ///         P::Item: std::borrow::Borrow<(K, V)>,
+    ///         K: AsRef<str>,
+    ///         V: ToString,
+    ///         Self: Sized,
+    ///     {
+    ///         // construct your request as you want
+    ///     }
+    /// }
+    ///
+    /// async fn fetch_accounts(client: &Client) -> Result<Vec<Account>> {
+    ///     // Put `YourAsyncRequest` as a type here
+    ///     // It returns the request and the handler (zero-cost abstraction) for the response
+    ///     let (req, resp_handler) = client.prepare_query_request::<_, YourAsyncRequest>(
+    ///         FindAllAccounts::new(),
+    ///         Pagination::default(),
+    ///     )?;
+    ///
+    ///     // Do what you need to send the request and to get the response
+    ///     let resp = req.send().await;
+    ///
+    ///     // Handle response with the handler and get typed result
+    ///     let accounts = resp_handler.handle(resp)?;
+    ///
+    ///     Ok(accounts.only_output())
+    /// }
+    /// ```
+    pub fn prepare_query_request<R, B>(
         &self,
         request: R,
         pagination: Pagination,
@@ -426,7 +563,7 @@ impl Client {
                 pagination,
                 self.headers.clone(),
             )?,
-            QueryResponseHandler(PhantomData),
+            QueryResponseHandler::default(),
         ))
     }
 
@@ -442,13 +579,13 @@ impl Client {
         &self,
         request: R,
         pagination: Pagination,
-    ) -> Result<R::Output>
+    ) -> Result<PaginatedQueryOutput<R>>
     where
         R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        let (req, resp_handler): (DefaultRequestBuilder<_>, QueryResponseHandler<_>) =
-            self.prepare_query_request(request, pagination)?;
+        let (req, resp_handler) =
+            self.prepare_query_request::<R, DefaultRequestBuilder<_>>(request, pagination)?;
         let response = req.send()?;
         resp_handler.handle(response)
     }
@@ -464,6 +601,7 @@ impl Client {
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination(request, Pagination::default())
+            .map(|x| x.only_output())
     }
 
     /// Connects through `WebSocket` to listen for `Iroha` pipeline and data events.
