@@ -256,7 +256,50 @@ Also returns current status of peer in json string:
 **Expects**: -
 
 **Responses**:
-In a typical use case, Prometheus handles the response
+- 200 OK - reports 8 of 10 metrics:
+
+```bash
+# HELP accounts User accounts registered at this time
+# TYPE accounts gauge
+accounts{domain="genesis"} 1
+accounts{domain="wonderland"} 1
+# HELP block_height Current block height
+# TYPE block_height counter
+block_height 1
+# HELP connected_peers Total number of currently connected peers
+# TYPE connected_peers gauge
+connected_peers 0
+# HELP domains Total number of domains
+# TYPE domains gauge
+domains 2
+# HELP tx_amount average amount involved in a transaction on this peer
+# TYPE tx_amount histogram
+tx_amount_bucket{le="0.005"} 0
+tx_amount_bucket{le="0.01"} 0
+tx_amount_bucket{le="0.025"} 0
+tx_amount_bucket{le="0.05"} 0
+tx_amount_bucket{le="0.1"} 0
+tx_amount_bucket{le="0.25"} 0
+tx_amount_bucket{le="0.5"} 0
+tx_amount_bucket{le="1"} 0
+tx_amount_bucket{le="2.5"} 0
+tx_amount_bucket{le="5"} 0
+tx_amount_bucket{le="10"} 0
+tx_amount_bucket{le="+Inf"} 2
+tx_amount_sum 26
+tx_amount_count 2
+# HELP txs Transactions committed
+# TYPE txs counter
+txs{type="accepted"} 1
+txs{type="rejected"} 0
+txs{type="total"} 1
+# HELP uptime_since_genesis_ms Network up-time, from creation of the genesis block
+# TYPE uptime_since_genesis_ms gauge
+uptime_since_genesis_ms 54572974
+# HELP view_changes Number of view_changes in the current round
+# TYPE view_changes gauge
+view_changes 0
+```
 
 ## Parity Scale Codec
 

@@ -139,9 +139,9 @@ impl GenesisBuilder {
 pub struct Builder {
     /// Current order of peers. The roles of peers are defined based on this order.
     peers: Option<HashSet<PeerId>>,
-
+    /// Hash of the last committed block.
     at_block: Option<HashOf<VersionedCommittedBlock>>,
-
+    /// [`ViewChangeProofs`] accumulated during this round.
     view_change_proofs: ViewChangeProofs,
 }
 
@@ -177,18 +177,19 @@ impl Builder {
     pub fn build(self) -> Result<Topology> {
         let peers = field_is_some_or_err!(self.peers)?;
         if peers.is_empty() {
-            return Err(eyre::eyre!(
-                "There must be at least one peer in the network."
-            ));
+            return Err(eyre!("There must be at least one peer in the network."));
         }
         let at_block = field_is_some_or_err!(self.at_block)?;
-
         let peers: Vec<_> = peers.into_iter().collect();
-        let sorted_peers = if self.view_change_proofs.len() > peers.len() {
-            sort_peers_by_hash_and_counter(peers, &at_block, self.view_change_proofs.len() as u64)
+        let n_view_changes = self.view_change_proofs.len();
+        let since_last_shuffle = n_view_changes % peers.len();
+        let is_full_circle = since_last_shuffle == 0;
+        let sorted_peers = if is_full_circle {
+            sort_peers_by_hash_and_counter(peers, &at_block, n_view_changes as u64)
         } else {
-            let peers = sort_peers_by_hash(peers, &at_block);
-            shift_peers_by_n(peers, self.view_change_proofs.len() as u64)
+            let last_shuffled_at = n_view_changes - since_last_shuffle;
+            let peers = sort_peers_by_hash_and_counter(peers, &at_block, last_shuffled_at as u64);
+            shift_peers_by_n(peers, since_last_shuffle as u64)
         };
         Ok(Topology {
             sorted_peers,
@@ -203,9 +204,9 @@ impl Builder {
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     sorted_peers: Vec<PeerId>,
-
+    /// Hash of the last committed block.
     at_block: HashOf<VersionedCommittedBlock>,
-
+    /// [`ViewChangeProofs`] accumulated during this round.
     view_change_proofs: ViewChangeProofs,
 }
 
@@ -361,11 +362,6 @@ impl Topology {
     /// Sorted peers that this topology has.
     pub fn sorted_peers(&self) -> &[PeerId] {
         &self.sorted_peers[..]
-    }
-
-    /// Config param telling topology when to reshuffle at view change.
-    pub fn reshuffle_after(&self) -> u64 {
-        self.sorted_peers.len() as u64
     }
 
     /// Block hash on which this topology is based.
@@ -542,5 +538,49 @@ mod tests {
         let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), &hash, 1);
         let peers_2 = sort_peers_by_hash_and_counter(peers, &hash, 2);
         assert_ne!(peers_1, peers_2);
+    }
+
+    #[test]
+    fn topology_shifts_or_shuffles() -> Result<()> {
+        let peers = topology_test_peers();
+        let n_peers = peers.len();
+        let dummy_hash = Hash::prehashed([0_u8; Hash::LENGTH]).typed();
+        let dummy_proof = crate::sumeragi::Proof::commit_timeout(
+            dummy_hash,
+            dummy_hash.transmute(),
+            dummy_hash.transmute(),
+            KeyPair::generate()?,
+        )?;
+        let mut last_topology = Builder::new()
+            .with_peers(peers)
+            .at_block(dummy_hash.transmute())
+            .build()?;
+        for _a_view_change in 0..2 * n_peers {
+            let mut topology = last_topology.clone();
+            // When
+            last_topology.sorted_peers.rotate_right(1);
+            topology.apply_view_change(dummy_proof.clone());
+            // Then
+            let is_shifted_by_one = last_topology.sorted_peers == topology.sorted_peers;
+            let nth_view_change = topology.view_change_proofs.len();
+            let is_full_circle = nth_view_change % n_peers == 0;
+            if is_full_circle {
+                // `topology` should have shuffled
+                if is_shifted_by_one {
+                    return Err(eyre!(
+                        "At {nth_view_change}: shifted by one despite full circle"
+                    ));
+                }
+            } else {
+                // `topology` should have shifted by one
+                if !is_shifted_by_one {
+                    return Err(eyre!(
+                        "At {nth_view_change}: not shifted by one despite incomplete circle"
+                    ));
+                }
+            }
+            last_topology = topology;
+        }
+        Ok(())
     }
 }
