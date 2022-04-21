@@ -112,11 +112,12 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
             KeyGenOption::FromPrivateKey(key) => {
                 let algorithm = key.digest_function();
 
-                if algorithm == Algorithm::Ed25519 || algorithm == Algorithm::Secp256k1 {
-                    return Ok(Self::FromSecretKey(UrsaPrivateKey(key.payload)));
+                match algorithm {
+                    Algorithm::Ed25519 | Algorithm::Secp256k1 => {
+                        Ok(Self::FromSecretKey(UrsaPrivateKey(key.payload)))
+                    }
+                    _ => Err(Self::Error {}),
                 }
-
-                Err(Self::Error {})
             }
         }
     }
@@ -226,34 +227,40 @@ impl KeyPair {
     /// If public and private key don't match, i.e. if they don't make a pair
     #[cfg(feature = "std")]
     pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Result<Self, Error> {
-        if public_key.digest_function() != private_key.digest_function() {
-            return Err(Error::KeyGen(String::from("Key pair mismatch")));
+        let algorithm = private_key.digest_function();
+
+        if algorithm != public_key.digest_function() {
+            return Err(Error::KeyGen(String::from("Mismatch of key algorithms")));
         }
 
-        let algorithm = public_key.digest_function();
-        if algorithm == Algorithm::Ed25519 || algorithm == Algorithm::Secp256k1 {
-            let key_pair = Self::generate_with_configuration(KeyGenConfiguration {
-                key_gen_option: Some(KeyGenOption::FromPrivateKey(private_key)),
-                algorithm,
-            })?;
+        match algorithm {
+            Algorithm::Ed25519 | Algorithm::Secp256k1 => {
+                let key_pair = Self::generate_with_configuration(KeyGenConfiguration {
+                    key_gen_option: Some(KeyGenOption::FromPrivateKey(private_key)),
+                    algorithm,
+                })?;
 
-            if *key_pair.public_key() != public_key {
-                return Err(Error::KeyGen(String::from("Key pair mismatch")));
+                if *key_pair.public_key() != public_key {
+                    return Err(Error::KeyGen(String::from("Key pair mismatch")));
+                }
+
+                Ok(key_pair)
             }
+            Algorithm::BlsNormal | Algorithm::BlsSmall => {
+                let dummy_payload = 1_u8;
 
-            return Ok(key_pair);
+                let key_pair = Self {
+                    public_key,
+                    private_key,
+                };
+
+                SignatureOf::new(key_pair.clone(), &dummy_payload)?
+                    .verify(&dummy_payload)
+                    .map_err(|_err| Error::KeyGen(String::from("Key pair mismatch")))?;
+
+                Ok(key_pair)
+            }
         }
-
-        let dummy_payload = 1_u8;
-        let key_pair = Self {
-            public_key,
-            private_key,
-        };
-
-        // Sign the payload with the private key and verify it with public key
-        SignatureOf::new(key_pair.clone(), &dummy_payload)?.verify(&dummy_payload)?;
-
-        Ok(key_pair)
     }
 
     /// Generates a pair of Public and Private key with [`Algorithm::default()`] selected as generation algorithm.
