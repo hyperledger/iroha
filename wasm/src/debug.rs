@@ -4,8 +4,14 @@ use super::*;
 
 /// Print `obj` in debug representation to the stdout
 pub fn dbg<T: Debug + ?Sized>(obj: &T) {
+    #[cfg(not(test))]
+    use host::dbg as host_dbg;
+    #[cfg(test)]
+    use tests::_dbg as host_dbg;
+
     let s = format!("{:?}", obj);
-    unsafe { encode_and_execute(&s, host::dbg) }
+    // Safety: `host_dbg` doesn't take ownership of it's pointer parameter
+    unsafe { encode_and_execute(&s, host_dbg) }
 }
 
 /// Extension implemented for `Result` and `Option` to provide unwrapping with error message,
@@ -20,6 +26,7 @@ pub trait DebugUnwrapExt {
 impl<T, E: Debug> DebugUnwrapExt for Result<T, E> {
     type Output = T;
 
+    #[allow(clippy::panic)]
     fn dbg_unwrap(self) -> Self::Output {
         match self {
             Ok(out) => out,
@@ -36,6 +43,7 @@ impl<T, E: Debug> DebugUnwrapExt for Result<T, E> {
 impl<T> DebugUnwrapExt for Option<T> {
     type Output = T;
 
+    #[allow(clippy::panic)]
     fn dbg_unwrap(self) -> Self::Output {
         match self {
             Some(out) => out,
