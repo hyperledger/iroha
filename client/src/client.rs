@@ -759,7 +759,7 @@ impl Client {
     /// # Errors
     /// Fails if sending request or decoding fails
     pub fn get_status(&self) -> Result<Status> {
-        let (req, resp_handler) = self.prepare_status_request::<DefaultRequestBuilder>()?;
+        let (req, resp_handler) = self.prepare_status_request::<DefaultRequestBuilder>();
         let resp = req.send()?;
         resp_handler.handle(resp)
     }
@@ -770,18 +770,18 @@ impl Client {
     ///
     /// # Errors
     /// Fails if request build fails
-    pub fn prepare_status_request<B>(&self) -> Result<(B, StatusResponseHandler)>
+    pub fn prepare_status_request<B>(&self) -> (B, StatusResponseHandler)
     where
         B: RequestBuilder,
     {
-        Ok((
+        (
             B::new(
                 HttpMethod::GET,
                 format!("{}/{}", &self.telemetry_url, uri::STATUS),
             )
             .headers(self.headers.clone()),
             StatusResponseHandler,
-        ))
+        )
     }
 }
 

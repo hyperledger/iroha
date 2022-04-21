@@ -10,14 +10,17 @@ pub type Headers = HashMap<String, String>;
 /// to the client that will fill it.
 pub trait RequestBuilder {
     /// Constructs a new builder with provided method and URL
+    #[must_use]
     fn new<U>(method: Method, url: U) -> Self
     where
         U: AsRef<str>;
 
     /// Sets request's body in bytes
+    #[must_use]
     fn bytes(self, data: Vec<u8>) -> Self;
 
     /// Sets request's query params
+    #[must_use]
     fn params<P, K, V>(self, params: P) -> Self
     where
         P: IntoIterator,
@@ -26,5 +29,6 @@ pub trait RequestBuilder {
         V: ToString;
 
     /// Sets request's headers
+    #[must_use]
     fn headers(self, headers: Headers) -> Self;
 }

@@ -86,8 +86,10 @@ impl DefaultRequestBuilder {
         }
 
         let response = builder.send().wrap_err_with(|| {
-            let (method, url) = method_url_cloned;
-            format!("Failed to send http {} request to {}", method, url)
+            format!(
+                "Failed to send http {} request to {}",
+                &method_url_cloned.0, &method_url_cloned.1
+            )
         })?;
 
         ClientResponse(response).try_into()
