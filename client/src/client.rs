@@ -35,7 +35,7 @@ pub trait ResponseHandler<T = Vec<u8>> {
     /// Function to parse HTTP response with body `T` to output `O`
     ///
     /// # Errors
-    /// May fail by some reason, depends on implementation
+    /// Implementation dependent.
     fn handle(self, response: Response<T>) -> Result<Self::Output>;
 }
 

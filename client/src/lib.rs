@@ -5,7 +5,7 @@ pub mod client;
 /// Module with iroha client config
 pub mod config;
 pub use config::Configuration;
-/// Module with general http-related stuff. It is needed for custom http integration.
+/// Module with general communication primitives like an HTTP request builder. 
 pub mod http;
 mod http_default;
 
