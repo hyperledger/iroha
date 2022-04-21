@@ -1,7 +1,5 @@
-use std::{borrow::Borrow, collections::HashMap};
-
-use eyre::Result;
 pub use http::{Method, Response, StatusCode};
+use std::{borrow::Borrow, collections::HashMap};
 
 /// Type alias for HTTP headers hash map
 pub type Headers = HashMap<String, String>;
@@ -11,22 +9,22 @@ pub type Headers = HashMap<String, String>;
 /// To use custom builder with client, you need to implement this trait for some type and pass it
 /// to the client that will fill it.
 pub trait RequestBuilder {
-    /// Used to create a builder itself
-    ///
-    /// # Errors
-    /// May fail by some reason, depends on implementation
-    fn build<U, P, K, V>(
-        method: Method,
-        url: U,
-        body: Vec<u8>,
-        query_params: P,
-        headers: Headers,
-    ) -> Result<Self>
+    /// Constructs a new builder with provided method and URL
+    fn new<U>(method: Method, url: U) -> Self
     where
-        U: AsRef<str>,
+        U: AsRef<str>;
+
+    /// Sets request's body in bytes
+    fn bytes(self, data: Vec<u8>) -> Self;
+
+    /// Sets request's query params
+    fn params<P, K, V>(self, params: P) -> Self
+    where
         P: IntoIterator,
         P::Item: Borrow<(K, V)>,
         K: AsRef<str>,
-        V: ToString,
-        Self: Sized;
+        V: ToString;
+
+    /// Sets request's headers
+    fn headers(self, headers: Headers) -> Self;
 }

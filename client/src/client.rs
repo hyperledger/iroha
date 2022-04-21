@@ -28,12 +28,15 @@ use crate::{
 };
 
 /// General trait for all response handlers
-pub trait ResponseHandler<O, T = Vec<u8>> {
+pub trait ResponseHandler<T = Vec<u8>> {
+    /// What is the output of the handler
+    type Output;
+
     /// Function to parse HTTP response with body `T` to output `O`
     ///
     /// # Errors
     /// May fail by some reason, depends on implementation
-    fn handle(self, response: Response<T>) -> Result<O>;
+    fn handle(self, response: Response<T>) -> Result<Self::Output>;
 }
 
 /// Phantom struct that handles responses of Query API.
@@ -47,17 +50,19 @@ impl<R> Default for QueryResponseHandler<R> {
     }
 }
 
-impl<R> ResponseHandler<PaginatedQueryOutput<R>> for QueryResponseHandler<R>
+impl<R> ResponseHandler for QueryResponseHandler<R>
 where
     R: Query + Into<QueryBox> + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
-    fn handle(self, response: Response<Vec<u8>>) -> Result<PaginatedQueryOutput<R>> {
-        if response.status() != StatusCode::OK {
-            return Err(ResponseReport::with_msg("Failed to make query request", response).into());
+    type Output = PaginatedQueryOutput<R>;
+
+    fn handle(self, resp: Response<Vec<u8>>) -> Result<PaginatedQueryOutput<R>> {
+        if resp.status() != StatusCode::OK {
+            return Err(ResponseReport::with_msg("Failed to make query request", &resp).into());
         }
 
-        let result = VersionedPaginatedQueryResult::decode_versioned(response.body())?;
+        let result = VersionedPaginatedQueryResult::decode_versioned(resp.body())?;
         let VersionedPaginatedQueryResult::V1(result) = result;
         PaginatedQueryOutput::try_from(result)
     }
@@ -67,12 +72,14 @@ where
 #[derive(Clone, Copy)]
 pub struct TransactionResponseHandler;
 
-impl ResponseHandler<()> for TransactionResponseHandler {
-    fn handle(self, response: Response<Vec<u8>>) -> Result<()> {
-        if response.status() == StatusCode::OK {
+impl ResponseHandler for TransactionResponseHandler {
+    type Output = ();
+
+    fn handle(self, resp: Response<Vec<u8>>) -> Result<()> {
+        if resp.status() == StatusCode::OK {
             Ok(())
         } else {
-            Err(ResponseReport::with_msg("Failed to submit instructions", response).into())
+            Err(ResponseReport::with_msg("Failed to submit instructions", &resp).into())
         }
     }
 }
@@ -81,10 +88,12 @@ impl ResponseHandler<()> for TransactionResponseHandler {
 #[derive(Clone, Copy)]
 pub struct StatusResponseHandler;
 
-impl ResponseHandler<Status> for StatusResponseHandler {
+impl ResponseHandler for StatusResponseHandler {
+    type Output = Status;
+
     fn handle(self, resp: Response<Vec<u8>>) -> Result<Status> {
         if resp.status() != StatusCode::OK {
-            return Err(ResponseReport::with_msg("Failed to get status", resp).into());
+            return Err(ResponseReport::with_msg("Failed to get status", &resp).into());
         }
         serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
     }
@@ -106,7 +115,7 @@ struct ResponseReport(eyre::Report);
 
 impl ResponseReport {
     /// Constructs report with provided message
-    fn with_msg<S>(msg: S, response: Response<Vec<u8>>) -> Self
+    fn with_msg<S>(msg: S, response: &Response<Vec<u8>>) -> Self
     where
         S: AsRef<str>,
     {
@@ -118,11 +127,17 @@ impl ResponseReport {
     }
 }
 
-impl Into<eyre::Report> for ResponseReport {
-    fn into(self) -> eyre::Report {
-        self.0
+impl From<ResponseReport> for eyre::Report {
+    fn from(report: ResponseReport) -> Self {
+        report.0
     }
 }
+
+// impl Into<eyre::Report> for ResponseReport {
+//     fn into(self) -> eyre::Report {
+//         self.0
+//     }
+// }
 
 /// More convenient version of [`iroha_data_model::prelude::PaginatedQueryResult`].
 /// The only difference is that this struct has `output` field extracted from the result
@@ -350,7 +365,7 @@ impl Client {
         transaction: Transaction,
     ) -> Result<HashOf<VersionedTransaction>> {
         let (req, hash, resp_handler) =
-            self.prepare_transaction_request::<DefaultRequestBuilder<_>>(transaction)?;
+            self.prepare_transaction_request::<DefaultRequestBuilder>(transaction)?;
         let response = req
             .send()
             .wrap_err_with(|| format!("Failed to send transaction with hash {:?}", hash))?;
@@ -364,8 +379,10 @@ impl Client {
     /// Despite the fact that response handling can be implemented just by asserting that status code is 200,
     /// it is better to use a response handler anyway. It allows to abstract from implementation details.
     ///
+    /// For general usage example see [`Client::prepare_query_request`].
+    ///
     /// # Errors
-    /// Fails if transaction check or request build fails
+    /// Fails if transaction check fails
     pub fn prepare_transaction_request<B>(
         &self,
         transaction: Transaction,
@@ -379,13 +396,12 @@ impl Client {
         let transaction_bytes: Vec<u8> = transaction.encode_versioned();
 
         Ok((
-            B::build(
+            B::new(
                 HttpMethod::POST,
                 format!("{}/{}", &self.torii_url, uri::TRANSACTION),
-                transaction_bytes,
-                Vec::<(String, String)>::new(),
-                self.headers.clone(),
-            )?,
+            )
+            .bytes(transaction_bytes)
+            .headers(self.headers.clone()),
             hash,
             TransactionResponseHandler,
         ))
@@ -484,7 +500,7 @@ impl Client {
     /// Lower-level Query API entry point. Prepares an http-request and returns it with an http-response handler.
     ///
     /// # Errors
-    /// Fails if query signing or request building fails.
+    /// Fails if query signing fails.
     ///
     /// # Examples
     ///
@@ -492,7 +508,7 @@ impl Client {
     /// use eyre::Result;
     /// use iroha_client::{
     ///     client::{Client, ResponseHandler},
-    ///     http::{Headers, RequestBuilder, Response},
+    ///     http::{RequestBuilder, Response},
     /// };
     /// use iroha_data_model::prelude::{Account, FindAllAccounts, Pagination};
     ///
@@ -505,23 +521,7 @@ impl Client {
     /// }
     ///
     /// impl RequestBuilder for YourAsyncRequest {
-    ///     fn build<U, P, K, V>(
-    ///         method: attohttpc::Method,
-    ///         url: U,
-    ///         body: Vec<u8>,
-    ///         query_params: P,
-    ///         headers: Headers,
-    ///     ) -> Result<Self>
-    ///     where
-    ///         U: AsRef<str>,
-    ///         P: IntoIterator,
-    ///         P::Item: std::borrow::Borrow<(K, V)>,
-    ///         K: AsRef<str>,
-    ///         V: ToString,
-    ///         Self: Sized,
-    ///     {
-    ///         // construct your request as you want
-    ///     }
+    ///     // implement builder
     /// }
     ///
     /// async fn fetch_accounts(client: &Client) -> Result<Vec<Account>> {
@@ -556,13 +556,13 @@ impl Client {
         let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
 
         Ok((
-            B::build(
+            B::new(
                 HttpMethod::POST,
                 format!("{}/{}", &self.torii_url, uri::QUERY),
-                request.encode_versioned(),
-                pagination,
-                self.headers.clone(),
-            )?,
+            )
+            .bytes(request.encode_versioned())
+            .params(pagination)
+            .headers(self.headers.clone()),
             QueryResponseHandler::default(),
         ))
     }
@@ -585,7 +585,7 @@ impl Client {
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         let (req, resp_handler) =
-            self.prepare_query_request::<R, DefaultRequestBuilder<_>>(request, pagination)?;
+            self.prepare_query_request::<R, DefaultRequestBuilder>(request, pagination)?;
         let response = req.send()?;
         resp_handler.handle(response)
     }
@@ -601,7 +601,7 @@ impl Client {
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination(request, Pagination::default())
-            .map(|x| x.only_output())
+            .map(PaginatedQueryOutput::only_output)
     }
 
     /// Connects through `WebSocket` to listen for `Iroha` pipeline and data events.
@@ -634,14 +634,14 @@ impl Client {
     ) -> Result<Option<Transaction>> {
         let pagination: Vec<_> = pagination.into();
         for _ in 0..retry_count {
-            let response = DefaultRequestBuilder::build(
+            let response = DefaultRequestBuilder::new(
                 HttpMethod::GET,
                 format!("{}/{}", &self.torii_url, uri::PENDING_TRANSACTIONS),
-                Vec::new(),
-                pagination.clone(),
-                self.headers.clone(),
-            )?
+            )
+            .params(pagination.clone())
+            .headers(self.headers.clone())
             .send()?;
+
             if response.status() == StatusCode::OK {
                 let pending_transactions =
                     VersionedPendingTransactions::decode_versioned(response.body())?;
@@ -691,16 +691,14 @@ impl Client {
         let headers = [("Content-Type".to_owned(), "application/json".to_owned())]
             .into_iter()
             .collect();
-        let get_cfg = serde_json::to_vec(get_config).wrap_err("Failed to serialize")?;
-
-        let resp = DefaultRequestBuilder::build::<_, Vec<(&str, &str)>, _, _>(
+        let resp = DefaultRequestBuilder::new(
             HttpMethod::GET,
             format!("{}/{}", &self.torii_url, uri::CONFIGURATION),
-            get_cfg,
-            vec![],
-            headers,
-        )?
+        )
+        .bytes(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)
+        .headers(headers)
         .send()?;
+
         if resp.status() != StatusCode::OK {
             return Err(eyre!(
                 "Failed to get configuration with HTTP status: {}. {}",
@@ -719,15 +717,14 @@ impl Client {
         let headers = [("Content-type".to_owned(), "application/json".to_owned())]
             .into_iter()
             .collect();
-        let resp = DefaultRequestBuilder::build::<_, Vec<(&str, &str)>, _, _>(
-            HttpMethod::POST,
-            &format!("{}/{}", self.torii_url, uri::CONFIGURATION),
-            serde_json::to_vec(&post_config)
-                .wrap_err(format!("Failed to serialize {:?}", post_config))?,
-            vec![],
-            headers,
-        )?
-        .send()?;
+        let body = serde_json::to_vec(&post_config)
+            .wrap_err(format!("Failed to serialize {:?}", post_config))?;
+        let url = &format!("{}/{}", self.torii_url, uri::CONFIGURATION);
+        let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
+            .bytes(body)
+            .headers(headers)
+            .send()?;
+
         if resp.status() != StatusCode::OK {
             return Err(eyre!(
                 "Failed to post configuration with HTTP status: {}. {}",
@@ -762,12 +759,14 @@ impl Client {
     /// # Errors
     /// Fails if sending request or decoding fails
     pub fn get_status(&self) -> Result<Status> {
-        let (req, resp_handler): (DefaultRequestBuilder<_>, _) = self.prepare_status_request()?;
+        let (req, resp_handler) = self.prepare_status_request::<DefaultRequestBuilder>()?;
         let resp = req.send()?;
         resp_handler.handle(resp)
     }
 
     /// Prepares http-request to implement [`Self::get_status()`] on your own.
+    ///
+    /// For general usage example see [`Client::prepare_query_request`].
     ///
     /// # Errors
     /// Fails if request build fails
@@ -776,13 +775,11 @@ impl Client {
         B: RequestBuilder,
     {
         Ok((
-            B::build::<_, Vec<(&str, &str)>, _, _>(
+            B::new(
                 HttpMethod::GET,
                 format!("{}/{}", &self.telemetry_url, uri::STATUS),
-                Vec::new(),
-                vec![],
-                self.headers.clone(),
-            )?,
+            )
+            .headers(self.headers.clone()),
             StatusResponseHandler,
         ))
     }

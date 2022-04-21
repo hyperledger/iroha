@@ -1,9 +1,8 @@
 use std::{borrow::Borrow, net::TcpStream};
 
 use attohttpc::{
-    body::{self, Body},
-    header::HeaderName,
-    RequestBuilder as AttoHttpRequestBuilder, Response as AttoHttpResponse,
+    body as atto_body, header::HeaderName, RequestBuilder as AttoHttpRequestBuilder,
+    Response as AttoHttpResponse,
 };
 use eyre::{eyre, Error, Result, WrapErr};
 use tungstenite::{stream::MaybeTlsStream, WebSocket};
@@ -17,7 +16,7 @@ trait AttoHttpReqExt: Sized {
     fn set_headers(self, headers: Headers) -> Result<Self>;
 }
 
-impl AttoHttpReqExt for AttoHttpRequestBuilder<body::Bytes<Vec<u8>>> {
+impl AttoHttpReqExt for AttoHttpRequestBuilder<atto_body::Bytes<Vec<u8>>> {
     fn set_headers(mut self, headers: Headers) -> Result<Self> {
         for (h, v) in headers {
             let h = HeaderName::from_bytes(h.as_ref())
@@ -44,53 +43,104 @@ impl HttpReqExt for http::request::Builder {
 }
 
 /// Default request builder & sender implemented on top of `attohttpc` crate.
-pub struct DefaultRequestBuilder<T: Body = attohttpc::body::Bytes<Bytes>>(
-    AttoHttpRequestBuilder<T>,
-);
+///
+/// Its main goal is not to be efficient, but simple. Its implementation contains
+/// some intermediate allocations that could be avoided with additional complexity.
+pub struct DefaultRequestBuilder {
+    method: Method,
+    url: String,
+    params: Option<Vec<(String, String)>>,
+    headers: Option<Headers>,
+    body: Option<Bytes>,
+}
 
-impl<T> DefaultRequestBuilder<T>
-where
-    T: Body,
-{
+impl DefaultRequestBuilder {
     /// Sends prepared request and returns bytes response
     ///
     /// # Errors
-    /// Fails if sending or response transformation into bytes fails
-    pub fn send(mut self) -> Result<Response<Bytes>> {
-        let inspector = self.0.inspect();
-        let method = inspector.method().clone();
-        let url = inspector.url().clone();
+    /// Fails if request building and sending fails or response transformation fails
+    pub fn send(self) -> Result<Response<Bytes>> {
+        let Self {
+            method,
+            url,
+            body,
+            params,
+            headers,
+            ..
+        } = self;
 
-        let response = self
-            .0
-            .send()
-            .wrap_err_with(|| format!("Failed to send http {} request to {}", method, url))?;
+        let bytes_anyway = match body {
+            Some(bytes) => bytes,
+            None => Vec::new(),
+        };
+
+        // for error formatting
+        let method_url_cloned = (method.clone(), url.clone());
+
+        let mut builder = AttoHttpRequestBuilder::new(method, url).bytes(bytes_anyway);
+        if let Some(params) = params {
+            builder = builder.params(params);
+        }
+        if let Some(headers) = headers {
+            builder = AttoHttpReqExt::set_headers(builder, headers)?;
+        }
+
+        let response = builder.send().wrap_err_with(|| {
+            let (method, url) = method_url_cloned;
+            format!("Failed to send http {} request to {}", method, url)
+        })?;
 
         ClientResponse(response).try_into()
     }
 }
 
 impl RequestBuilder for DefaultRequestBuilder {
-    fn build<U, P, K, V>(
-        method: Method,
-        url: U,
-        body: Bytes,
-        query_params: P,
-        headers: Headers,
-    ) -> Result<Self>
+    fn new<U>(method: Method, url: U) -> Self
     where
         U: AsRef<str>,
+    {
+        Self {
+            method,
+            url: url.as_ref().to_owned(),
+            headers: None,
+            params: None,
+            body: None,
+        }
+    }
+
+    fn bytes(self, data: Vec<u8>) -> Self {
+        Self {
+            body: Some(data),
+            ..self
+        }
+    }
+
+    fn headers(self, headers: Headers) -> Self {
+        Self {
+            headers: Some(headers),
+            ..self
+        }
+    }
+
+    fn params<P, K, V>(self, params: P) -> Self
+    where
         P: IntoIterator,
         P::Item: Borrow<(K, V)>,
         K: AsRef<str>,
         V: ToString,
     {
-        let builder = AttoHttpRequestBuilder::new(method, url)
-            .bytes(body)
-            .params(query_params)
-            .set_headers(headers)?;
-
-        Ok(Self(builder))
+        Self {
+            params: Some(
+                params
+                    .into_iter()
+                    .map(|pair| {
+                        let (k, v) = pair.borrow();
+                        (k.as_ref().to_owned(), v.to_string())
+                    })
+                    .collect(),
+            ),
+            ..self
+        }
     }
 }
 
