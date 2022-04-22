@@ -70,8 +70,6 @@ pub struct GenesisBuilder {
     set_a: Option<HashSet<PeerId>>,
 
     set_b: Option<HashSet<PeerId>>,
-
-    reshuffle_after_n_view_changes: Option<u64>,
 }
 
 impl GenesisBuilder {
@@ -98,12 +96,6 @@ impl GenesisBuilder {
         self
     }
 
-    /// Set `reshuffle_after_n_view_changes` config param.
-    pub fn reshuffle_after(mut self, n_view_changes: u64) -> Self {
-        self.reshuffle_after_n_view_changes = Some(n_view_changes);
-        self
-    }
-
     /// Build and get topology.
     ///
     /// # Errors
@@ -114,8 +106,6 @@ impl GenesisBuilder {
         let leader = field_is_some_or_err!(self.leader)?;
         let mut set_a = field_is_some_or_err!(self.set_a)?;
         let mut set_b = field_is_some_or_err!(self.set_b)?;
-        let reshuffle_after_n_view_changes =
-            field_is_some_or_err!(self.reshuffle_after_n_view_changes)?;
         let max_faults_rem = (set_a.len() - 1) % 2;
         if max_faults_rem > 0 {
             return Err(eyre!("Could not deduce max faults. As given: 2f+1=set_a.len() We get a non integer f. f should be an integer."));
@@ -137,7 +127,6 @@ impl GenesisBuilder {
             .collect();
         Ok(Topology {
             sorted_peers,
-            reshuffle_after_n_view_changes,
             at_block: EmptyChainHash::default().into(),
             view_change_proofs: ViewChangeProofs::empty(),
         })
@@ -150,11 +139,9 @@ impl GenesisBuilder {
 pub struct Builder {
     /// Current order of peers. The roles of peers are defined based on this order.
     peers: Option<HashSet<PeerId>>,
-
-    reshuffle_after_n_view_changes: Option<u64>,
-
+    /// Hash of the last committed block.
     at_block: Option<HashOf<VersionedCommittedBlock>>,
-
+    /// [`ViewChangeProofs`] accumulated during this round.
     view_change_proofs: ViewChangeProofs,
 }
 
@@ -167,12 +154,6 @@ impl Builder {
     /// Set peers that participate in consensus.
     pub fn with_peers(mut self, peers: HashSet<PeerId>) -> Self {
         self.peers = Some(peers);
-        self
-    }
-
-    /// Set `reshuffle_after_n_view_changes` config param.
-    pub fn reshuffle_after(mut self, n_view_changes: u64) -> Self {
-        self.reshuffle_after_n_view_changes = Some(n_view_changes);
         self
     }
 
@@ -196,25 +177,22 @@ impl Builder {
     pub fn build(self) -> Result<Topology> {
         let peers = field_is_some_or_err!(self.peers)?;
         if peers.is_empty() {
-            return Err(eyre::eyre!(
-                "There must be at least one peer in the network."
-            ));
+            return Err(eyre!("There must be at least one peer in the network."));
         }
-        let reshuffle_after_n_view_changes =
-            field_is_some_or_err!(self.reshuffle_after_n_view_changes)?;
         let at_block = field_is_some_or_err!(self.at_block)?;
-
         let peers: Vec<_> = peers.into_iter().collect();
-        let sorted_peers = if self.view_change_proofs.len() as u64 > reshuffle_after_n_view_changes
-        {
-            sort_peers_by_hash_and_counter(peers, &at_block, self.view_change_proofs.len() as u64)
+        let n_view_changes = self.view_change_proofs.len();
+        let since_last_shuffle = n_view_changes % peers.len();
+        let is_full_circle = since_last_shuffle == 0;
+        let sorted_peers = if is_full_circle {
+            sort_peers_by_hash_and_counter(peers, &at_block, n_view_changes as u64)
         } else {
-            let peers = sort_peers_by_hash(peers, &at_block);
-            shift_peers_by_n(peers, self.view_change_proofs.len() as u64)
+            let last_shuffled_at = n_view_changes - since_last_shuffle;
+            let peers = sort_peers_by_hash_and_counter(peers, &at_block, last_shuffled_at as u64);
+            shift_peers_by_n(peers, since_last_shuffle as u64)
         };
         Ok(Topology {
             sorted_peers,
-            reshuffle_after_n_view_changes,
             at_block,
             view_change_proofs: self.view_change_proofs,
         })
@@ -226,11 +204,9 @@ impl Builder {
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     sorted_peers: Vec<PeerId>,
-
-    reshuffle_after_n_view_changes: u64,
-
+    /// Hash of the last committed block.
     at_block: HashOf<VersionedCommittedBlock>,
-
+    /// [`ViewChangeProofs`] accumulated during this round.
     view_change_proofs: ViewChangeProofs,
 }
 
@@ -244,7 +220,6 @@ impl Topology {
     pub fn into_builder(self) -> Builder {
         Builder {
             peers: Some(self.sorted_peers.into_iter().collect()),
-            reshuffle_after_n_view_changes: Some(self.reshuffle_after_n_view_changes),
             at_block: Some(self.at_block),
             view_change_proofs: self.view_change_proofs,
         }
@@ -277,7 +252,7 @@ impl Topology {
 
     /// Answers if the consensus stage is required with the current number of peers.
     pub fn is_consensus_required(&self) -> bool {
-        self.sorted_peers.len() > 1
+        self.min_votes_for_commit() > 1
     }
 
     /// The minimum number of signatures needed to commit a block
@@ -389,11 +364,6 @@ impl Topology {
         &self.sorted_peers[..]
     }
 
-    /// Config param telling topology when to reshuffle at view change.
-    pub const fn reshuffle_after(&self) -> u64 {
-        self.reshuffle_after_n_view_changes
-    }
-
     /// Block hash on which this topology is based.
     pub const fn at_block(&self) -> &HashOf<VersionedCommittedBlock> {
         &self.at_block
@@ -475,7 +445,6 @@ mod tests {
             .with_leader(peer_1)
             .with_set_a(set_a)
             .with_set_b(set_b)
-            .reshuffle_after(1)
             .build()
             .expect("Failed to create topology.");
     }
@@ -490,7 +459,6 @@ mod tests {
             .with_leader(peers.iter().next().unwrap().clone())
             .with_set_a(set_a)
             .with_set_b(set_b)
-            .reshuffle_after(1)
             .build()
             .expect("Failed to create topology.");
     }
@@ -570,5 +538,49 @@ mod tests {
         let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), &hash, 1);
         let peers_2 = sort_peers_by_hash_and_counter(peers, &hash, 2);
         assert_ne!(peers_1, peers_2);
+    }
+
+    #[test]
+    fn topology_shifts_or_shuffles() -> Result<()> {
+        let peers = topology_test_peers();
+        let n_peers = peers.len();
+        let dummy_hash = Hash::prehashed([0_u8; Hash::LENGTH]).typed();
+        let dummy_proof = crate::sumeragi::Proof::commit_timeout(
+            dummy_hash,
+            dummy_hash.transmute(),
+            dummy_hash.transmute(),
+            KeyPair::generate()?,
+        )?;
+        let mut last_topology = Builder::new()
+            .with_peers(peers)
+            .at_block(dummy_hash.transmute())
+            .build()?;
+        for _a_view_change in 0..2 * n_peers {
+            let mut topology = last_topology.clone();
+            // When
+            last_topology.sorted_peers.rotate_right(1);
+            topology.apply_view_change(dummy_proof.clone());
+            // Then
+            let is_shifted_by_one = last_topology.sorted_peers == topology.sorted_peers;
+            let nth_view_change = topology.view_change_proofs.len();
+            let is_full_circle = nth_view_change % n_peers == 0;
+            if is_full_circle {
+                // `topology` should have shuffled
+                if is_shifted_by_one {
+                    return Err(eyre!(
+                        "At {nth_view_change}: shifted by one despite full circle"
+                    ));
+                }
+            } else {
+                // `topology` should have shifted by one
+                if !is_shifted_by_one {
+                    return Err(eyre!(
+                        "At {nth_view_change}: not shifted by one despite incomplete circle"
+                    ));
+                }
+            }
+            last_topology = topology;
+        }
+        Ok(())
     }
 }

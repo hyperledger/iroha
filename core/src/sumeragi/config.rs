@@ -14,7 +14,6 @@ pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
 pub const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
 /// Default amount of time Peer waits for `TxReceipt` from the leader.
 pub const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
-const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
 const DEFAULT_MAILBOX_SIZE: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
@@ -39,8 +38,6 @@ pub struct SumeragiConfiguration {
     pub commit_time_ms: u64,
     /// Amount of time Peer waits for TxReceipt from the leader.
     pub tx_receipt_time_ms: u64,
-    /// After N view changes topology will change tactic from shifting by one, to reshuffle.
-    pub n_topology_shifts_before_reshuffle: u64,
     /// Limits to which transactions must adhere
     pub transaction_limits: TransactionLimits,
     /// Mailbox size
@@ -60,7 +57,6 @@ impl Default for SumeragiConfiguration {
             block_time_ms: DEFAULT_BLOCK_TIME_MS,
             commit_time_ms: DEFAULT_COMMIT_TIME_MS,
             tx_receipt_time_ms: DEFAULT_TX_RECEIPT_TIME_MS,
-            n_topology_shifts_before_reshuffle: DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE,
             transaction_limits: TransactionLimits {
                 max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
                 max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,

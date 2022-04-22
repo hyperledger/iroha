@@ -121,7 +121,6 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
     ) -> Result<Self> {
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash::default().into())
-            .reshuffle_after(configuration.n_topology_shifts_before_reshuffle)
             .with_peers(configuration.trusted_peers.peers.clone())
             .build()?;
 
@@ -678,6 +677,15 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         }
         let signed_block = block.sign(self.key_pair.clone())?;
         if !network_topology.is_consensus_required() {
+            self.broadcast_msg_to(
+                BlockCommitted::from(signed_block.clone()),
+                network_topology
+                    .validating_peers()
+                    .iter()
+                    .chain(std::iter::once(network_topology.leader()))
+                    .chain(network_topology.peers_set_b()),
+            )
+            .await;
             self.commit_block(signed_block).await;
             return Ok(());
         }
@@ -775,6 +783,10 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             self.invalidated_blocks_hashes.push(hash)
         }
         self.topology.apply_view_change(proof.clone());
+        self.wsv
+            .metrics
+            .view_changes
+            .set(self.number_of_view_changes());
         self.voting_block = None;
         error!(
             peer_addr = %self.peer_id.address,
