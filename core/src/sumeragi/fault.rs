@@ -752,7 +752,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         }
 
         if let Err(error) = self.wsv.apply(block.clone()).await {
-            warn!(%error, %block_hash, "Failed to apply block on WSV");
+            warn!(?error, %block_hash, "Failed to apply block on WSV");
         }
         let previous_role = self.topology.role(&self.peer_id);
         self.topology.apply_block(block_hash);

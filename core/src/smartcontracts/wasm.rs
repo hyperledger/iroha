@@ -35,6 +35,8 @@ pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
 pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
 /// Name of the imported function to execute queries
 pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
+/// Name of the imported function to debug print object
+pub const DBG_FN_NAME: &str = "dbg";
 
 /// `WebAssembly` execution error type
 #[derive(Debug, thiserror::Error)]
@@ -312,7 +314,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
     /// # Warning
     ///
     /// This function doesn't take ownership of the provided allocation
-    /// but it does tranasfer ownership of the result to the caller
+    /// but it does transfer ownership of the result to the caller
     ///
     /// # Errors
     ///
@@ -344,15 +346,36 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         Ok(())
     }
 
+    /// Host defined function which prints given string. When calling this function, module
+    /// serializes ISI to linear memory and provides offset and length as parameters
+    ///
+    /// # Warning
+    ///
+    /// This function doesn't take ownership of the provided allocation
+    ///
+    /// # Errors
+    ///
+    /// If string decoding fails
+    #[allow(clippy::print_stdout)]
+    fn dbg(mut caller: Caller<State<W>>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
+        let memory = Self::get_memory(&mut caller)?;
+        let string_mem_range = offset as usize..(offset + len) as usize;
+        let mut string_bytes = &memory.data(&caller)[string_mem_range];
+        let s = String::decode(&mut string_bytes).map_err(|error| Trap::new(error.to_string()))?;
+        println!("{s}");
+        Ok(())
+    }
+
     fn create_linker(engine: &Engine) -> Result<Linker<State<'wrld, W>>, Error> {
         let mut linker = Linker::new(engine);
 
         linker
             .func_wrap("iroha", EXECUTE_ISI_FN_NAME, Self::execute_instruction)
+            .and_then(|l| l.func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query))
             .map_err(Error::Initialization)?;
 
         linker
-            .func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query)
+            .func_wrap("iroha", DBG_FN_NAME, Self::dbg)
             .map_err(Error::Initialization)?;
 
         Ok(linker)
