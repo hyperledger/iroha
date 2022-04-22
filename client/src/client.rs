@@ -884,9 +884,7 @@ impl WebSocketHandleEvent for EventsHandler {
             VersionedEventSubscriberMessage::from(EventSubscriberMessage::EventReceived)
                 .encode_versioned();
 
-        Ok(WebSocketHandleEventResponse::new()
-            .reply(versioned_message)
-            .event(event))
+        Ok(WebSocketHandleEventResponse::new(event, versioned_message))
     }
 }
 
@@ -939,19 +937,12 @@ impl Iterator for EventIterator {
 
                     match result {
                         Ok(WebSocketHandleEventResponse { reply, event }) => {
-                            if let Some(msg) = reply {
-                                match self.stream.write_message(WebSocketMessage::Binary(msg)) {
-                                    Ok(_) => (),
-                                    Err(err) => {
-                                        return Some(Err(eyre!("Failed to reply: {}", err)))
-                                    }
-                                }
+                            match self.stream.write_message(WebSocketMessage::Binary(reply)) {
+                                Ok(_) => (),
+                                Err(err) => return Some(Err(eyre!("Failed to reply: {}", err))),
                             }
 
-                            match event {
-                                Some(event) => return Some(Ok(event)),
-                                None => continue,
-                            }
+                            return Some(Ok(event));
                         }
                         Err(err) => return Some(Err(err)),
                     }
