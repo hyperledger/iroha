@@ -16,8 +16,6 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "roles")]
-use crate::role::{prelude::RoleId, RoleIds};
 use crate::{
     asset::{prelude::AssetId, AssetsMap},
     domain::prelude::*,
@@ -25,6 +23,7 @@ use crate::{
     metadata::Metadata,
     permissions::{PermissionToken, Permissions},
     prelude::Asset,
+    role::{prelude::RoleId, RoleIds},
     Identifiable, Name, ParseError, PublicKey,
 };
 
@@ -159,7 +158,6 @@ impl NewAccount {
             permission_tokens: Permissions::default(),
             signature_check_condition: SignatureCheckCondition::default(),
             metadata: self.metadata,
-            #[cfg(feature = "roles")]
             roles: RoleIds::default(),
         }
     }
@@ -202,7 +200,6 @@ pub struct Account {
     metadata: Metadata,
     /// Roles of this account, they are tags for sets of permissions stored in `World`.
     #[getset(skip)]
-    #[cfg(feature = "roles")]
     roles: RoleIds,
 }
 
@@ -273,14 +270,12 @@ impl Account {
 
     /// Return `true` if `Account` contains role
     #[inline]
-    #[cfg(feature = "roles")]
     pub fn contains_role(&self, role_id: &RoleId) -> bool {
         self.roles.contains(role_id)
     }
 
     /// Get an iterator over [`role ids`](RoleId) of the `Account`
     #[inline]
-    #[cfg(feature = "roles")]
     pub fn roles(&self) -> impl ExactSizeIterator<Item = &RoleId> {
         self.roles.iter()
     }
@@ -341,14 +336,12 @@ impl Account {
     /// If `Account` did not have this role present, `true` is returned.
     /// If `Account` did have this role present, `false` is returned.
     #[inline]
-    #[cfg(feature = "roles")]
     pub fn add_role(&mut self, role_id: RoleId) -> bool {
         self.roles.insert(role_id)
     }
 
     /// Remove a role from the `Account` and return whether the role was present in the `Account`
     #[inline]
-    #[cfg(feature = "roles")]
     pub fn remove_role(&mut self, role_id: &RoleId) -> bool {
         self.roles.remove(role_id)
     }

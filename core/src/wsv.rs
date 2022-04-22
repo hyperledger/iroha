@@ -57,7 +57,6 @@ pub struct World {
     /// Registered domains.
     pub domains: DomainsMap,
     /// Roles. [`Role`] pairs.
-    #[cfg(feature = "roles")]
     pub roles: crate::RolesMap,
     /// Triggers
     pub triggers: TriggerSet,
@@ -183,7 +182,6 @@ impl<W: WorldTrait> WorldStateView<W> {
         #[allow(unused_mut)]
         let mut tokens: Vec<PermissionToken> = account.permissions().cloned().collect();
 
-        #[cfg(feature = "roles")]
         for role_id in account.roles() {
             if let Some(role) = self.world.roles.get(role_id) {
                 tokens.append(&mut role.permissions().cloned().collect());
@@ -467,7 +465,6 @@ impl<W: WorldTrait> WorldStateView<W> {
                 cur_events.push(DataEvent::Domain(domain_event).into());
             }
             WorldEvent::Peer(peer_event) => cur_events.push(DataEvent::Peer(peer_event).into()),
-            #[cfg(feature = "roles")]
             WorldEvent::Role(role_event) => cur_events.push(DataEvent::Role(role_event).into()),
             WorldEvent::Trigger(trigger_event) => {
                 cur_events.push(DataEvent::Trigger(trigger_event).into())

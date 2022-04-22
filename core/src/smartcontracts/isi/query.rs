@@ -122,9 +122,7 @@ impl<W: WorldTrait> ValidQuery<W> for QueryBox {
             FindTransactionByHash(query) => query.execute_into_value(wsv),
             FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
             FindAssetDefinitionKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
-            #[cfg(feature = "roles")]
             FindAllRoles(query) => query.execute_into_value(wsv),
-            #[cfg(feature = "roles")]
             FindRolesByAccountId(query) => query.execute_into_value(wsv),
         }
     }
