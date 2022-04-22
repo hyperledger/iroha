@@ -157,7 +157,7 @@ pub mod logger {
     }
 }
 
-/// Trait for dynamic and asynchronous configuration via maintanence endpoint for rust structures
+/// Trait for dynamic and asynchronous configuration via maintenance endpoint for rust structures
 pub trait Configurable: Serialize + DeserializeOwned {
     /// Error type returned by methods of trait
     type Error;
