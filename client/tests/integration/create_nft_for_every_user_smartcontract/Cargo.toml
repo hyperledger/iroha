@@ -1,0 +1,26 @@
+[package]
+name = "create_nft_for_every_user_smartcontract"
+version = "2.0.0-pre-rc.3"
+authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# Smartcontract should be linked dynamically so that it may link to functions exported
+# from the host environment. Also, host environment executes the smartcontract by
+# calling the function which smartcontract exports(entry point of execution)
+crate-type = ['cdylib']
+
+# Empty workspace to fix "current package believes it's in a workspace when it's not"
+[workspace]
+
+[profile.release]
+strip = "debuginfo" # Remove debugging info from the binary
+panic = "abort"     # Panics are transcribed to Traps when compiling for wasm anyways
+lto = true          # Link-time-optimization produces notable decrease in binary size
+opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
+codegen-units = 1   # Further reduces binary size but increases compilation time
+
+[dependencies]
+iroha_wasm = { path = "../../../../wasm", features = ["debug"]}

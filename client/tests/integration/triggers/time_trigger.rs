@@ -1,11 +1,11 @@
 #![allow(clippy::restriction)]
 
-use std::{str::FromStr as _, time::Duration};
+use std::{fs, str::FromStr as _, time::Duration};
 
-use eyre::Result;
+use eyre::{Context, Result};
 use iroha_client::client::{self, Client};
 use iroha_core::block::DEFAULT_CONSENSUS_ESTIMATION_MS;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
 use test_network::{Peer as TestPeer, *};
 
 /// Macro to abort compilation, if `e` isn't `true`
@@ -52,7 +52,12 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     ));
     test_client.submit(register_trigger)?;
 
-    submit_sample_isi_on_every_block_commit(&mut test_client, &account_id, 3)?;
+    submit_sample_isi_on_every_block_commit(
+        &mut test_client,
+        &account_id,
+        Duration::from_secs(1),
+        3,
+    )?;
     std::thread::sleep(Duration::from_millis(DEFAULT_CONSENSUS_ESTIMATION_MS));
 
     let finish_time = current_time();
@@ -101,6 +106,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
     submit_sample_isi_on_every_block_commit(
         &mut test_client,
         &account_id,
+        Duration::from_secs(1),
         usize::try_from(PERIOD_MS / DEFAULT_CONSENSUS_ESTIMATION_MS + 1)?,
     )?;
 
@@ -163,6 +169,90 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
+    const TRIGGER_PERIOD_MS: u64 = 1000;
+    const EXPECTED_COUNT: u64 = 4;
+
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let alice_id = "alice@wonderland"
+        .parse::<<Account as Identifiable>::Id>()
+        .expect("Valid");
+
+    let accounts: Vec<AccountId> = vec![
+        alice_id.clone(),
+        "mad_hatter@wonderland".parse().expect("Valid"),
+        "cheshire_cat@wonderland".parse().expect("Valid"),
+        "caterpillar@wonderland".parse().expect("Valid"),
+        "white_rabbit@wonderland".parse().expect("Valid"),
+    ];
+
+    // Registering accounts
+    let register_accounts = accounts
+        .iter()
+        .skip(1) // Alice has already been registered in genesis
+        .cloned()
+        .map(|account_id| RegisterBox::new(Account::new(account_id, [])).into())
+        .collect::<Vec<_>>();
+    test_client.submit_all_blocking(register_accounts)?;
+
+    // Reading wasm smartcontract
+    let wasm = fs::read(concat!(
+        env!("OUT_DIR"),
+        "/wasm32-unknown-unknown/release/create_nft_for_every_user_smartcontract.wasm"
+    ))
+    .wrap_err("Can't read smartcontract")?;
+    println!("wasm size is {} bytes", wasm.len());
+
+    // Registering trigger
+    let start_time = current_time();
+    let schedule =
+        TimeSchedule::starting_at(start_time).with_period(Duration::from_millis(TRIGGER_PERIOD_MS));
+    let register_trigger = RegisterBox::new(Trigger::new(
+        "mint_nft_for_all".parse()?,
+        Action::new(
+            Executable::Wasm(WasmSmartContract { raw_data: wasm }),
+            Repeats::Indefinitely,
+            alice_id.clone(),
+            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+        ),
+    ));
+    test_client.submit(register_trigger)?;
+
+    // Time trigger will be executed on block commits, so we have to produce some transactions
+    submit_sample_isi_on_every_block_commit(
+        &mut test_client,
+        &alice_id,
+        Duration::from_millis(TRIGGER_PERIOD_MS),
+        usize::try_from(EXPECTED_COUNT)?,
+    )?;
+
+    // Checking results
+    for account_id in accounts {
+        let start_pattern = "nft_number_";
+        let end_pattern = format!("_for_{}#{}", account_id.name, account_id.domain_id);
+        let assets = test_client.request(client::asset::by_account_id(account_id.clone()))?;
+        let count: u64 = assets
+            .into_iter()
+            .filter(|asset| {
+                let s = asset.id().definition_id.to_string();
+                s.starts_with(&start_pattern) && s.ends_with(&end_pattern)
+            })
+            .count()
+            .try_into()
+            .expect("`usize` should always fit in `u64`");
+
+        assert!(
+            count >= EXPECTED_COUNT,
+            "{account_id} has {count} NFT, but at least {EXPECTED_COUNT} expected",
+        );
+    }
+
+    Ok(())
+}
+
 /// Get asset numeric value
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
@@ -173,6 +263,7 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
 fn submit_sample_isi_on_every_block_commit(
     test_client: &mut Client,
     account_id: &AccountId,
+    timeout: Duration,
     times: usize,
 ) -> Result<()> {
     let block_filter =
@@ -189,7 +280,7 @@ fn submit_sample_isi_on_every_block_commit(
         })
         .take(times)
     {
-        std::thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(timeout);
         // ISI just to create a new block
         let sample_isi = SetKeyValueBox::new(
             account_id.clone(),

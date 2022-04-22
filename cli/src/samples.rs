@@ -7,7 +7,9 @@ use iroha_core::{
     genesis::config::GenesisConfiguration,
     kura::config::KuraConfiguration,
     queue::Configuration as QueueConfiguration,
+    smartcontracts::wasm::config::Configuration as WasmConfiguration,
     sumeragi::config::{SumeragiConfiguration, TrustedPeers},
+    wsv::config::Configuration as WsvConfiguration,
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::peer::Id as PeerId;
@@ -100,6 +102,13 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
             account_public_key: public_key,
             account_private_key: Some(private_key),
             ..GenesisConfiguration::default()
+        },
+        wsv: WsvConfiguration {
+            wasm_runtime_config: WasmConfiguration {
+                fuel_limit: 10_000_000,
+                ..WasmConfiguration::default()
+            },
+            ..WsvConfiguration::default()
         },
         ..Configuration::default()
     }

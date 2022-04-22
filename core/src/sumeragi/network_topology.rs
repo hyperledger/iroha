@@ -361,7 +361,7 @@ impl Topology {
 
     /// Sorted peers that this topology has.
     pub fn sorted_peers(&self) -> &[PeerId] {
-        &self.sorted_peers[..]
+        &*self.sorted_peers
     }
 
     /// Block hash on which this topology is based.

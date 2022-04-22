@@ -24,10 +24,10 @@ jobs:
       - name: Format check
         run: cargo +nightly-2022-04-20 fmt --all -- --check
       - name: Static analysis without features
-        run: cargo lints clippy --workspace --benches --tests --examples --quiet --no-default-features
+        run: cargo +nightly-2022-04-20 lints clippy --workspace --benches --tests --examples --quiet --no-default-features
         if: always()
       - name: Static analysis with all features enabled
-        run: cargo lints clippy --workspace --benches --tests --examples --quiet --all-features
+        run: cargo +nightly-2022-04-20 lints clippy --workspace --benches --tests --examples --quiet --all-features
         if: always()
       - name: Verify iroha_data_model still supports no_std
         run: cargo nono check --package iroha_data_model --no-default-features

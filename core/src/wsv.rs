@@ -199,7 +199,8 @@ impl<W: WorldTrait> WorldStateView<W> {
                 })?;
             }
             Executable::Wasm(bytes) => {
-                let mut wasm_runtime = wasm::Runtime::new()?;
+                let mut wasm_runtime =
+                    wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
                 wasm_runtime.execute(self, authority, bytes)?;
             }
         }
@@ -853,6 +854,8 @@ pub mod config {
     use iroha_data_model::{metadata::Limits as MetadataLimits, LengthLimits};
     use serde::{Deserialize, Serialize};
 
+    use crate::smartcontracts::wasm;
+
     const DEFAULT_METADATA_LIMITS: MetadataLimits =
         MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
     const DEFAULT_IDENT_LENGTH_LIMITS: LengthLimits = LengthLimits::new(1, 2_u32.pow(7));
@@ -872,6 +875,8 @@ pub mod config {
         pub domain_metadata_limits: MetadataLimits,
         /// [`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
         pub ident_length_limits: LengthLimits,
+        /// [`WASM Runtime`](wasm::Runtime) configuration
+        pub wasm_runtime_config: wasm::config::Configuration,
     }
 
     impl Default for Configuration {
@@ -882,6 +887,7 @@ pub mod config {
                 account_metadata_limits: DEFAULT_METADATA_LIMITS,
                 domain_metadata_limits: DEFAULT_METADATA_LIMITS,
                 ident_length_limits: DEFAULT_IDENT_LENGTH_LIMITS,
+                wasm_runtime_config: wasm::config::Configuration::default(),
             }
         }
     }
