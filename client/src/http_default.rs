@@ -1,22 +1,35 @@
 use std::{borrow::Borrow, net::TcpStream};
 
 use attohttpc::{
-    body as atto_body, header::HeaderName, RequestBuilder as AttoHttpRequestBuilder,
-    Response as AttoHttpResponse,
+    body as atto_body, RequestBuilder as AttoHttpRequestBuilder, Response as AttoHttpResponse,
 };
 use eyre::{eyre, Error, Result, WrapErr};
+use http::header::HeaderName;
 use tungstenite::{stream::MaybeTlsStream, WebSocket};
 pub use tungstenite::{Error as WebSocketError, Message as WebSocketMessage};
 
 use crate::http::{Headers, Method, RequestBuilder, Response};
 
 type Bytes = Vec<u8>;
+type AttoHttpRequestBuilderWithBytes = AttoHttpRequestBuilder<atto_body::Bytes<Bytes>>;
 
-trait AttoHttpReqExt: Sized {
-    fn set_headers(self, headers: Headers) -> Result<Self>;
+trait SetSingleHeader {
+    fn header(self, key: HeaderName, value: String) -> Self;
 }
 
-impl AttoHttpReqExt for AttoHttpRequestBuilder<atto_body::Bytes<Vec<u8>>> {
+impl SetSingleHeader for AttoHttpRequestBuilderWithBytes {
+    fn header(self, key: HeaderName, value: String) -> Self {
+        self.header(key, value)
+    }
+}
+
+impl SetSingleHeader for http::request::Builder {
+    fn header(self, key: HeaderName, value: String) -> Self {
+        self.header(key, value)
+    }
+}
+
+trait SetHeadersExt: Sized + SetSingleHeader {
     fn set_headers(mut self, headers: Headers) -> Result<Self> {
         for (h, v) in headers {
             let h = HeaderName::from_bytes(h.as_ref())
@@ -27,20 +40,9 @@ impl AttoHttpReqExt for AttoHttpRequestBuilder<atto_body::Bytes<Vec<u8>>> {
     }
 }
 
-trait HttpReqExt: Sized {
-    fn set_headers(self, headers: Headers) -> Result<Self>;
-}
+impl SetHeadersExt for AttoHttpRequestBuilderWithBytes {}
 
-impl HttpReqExt for http::request::Builder {
-    fn set_headers(mut self, headers: Headers) -> Result<Self> {
-        for (h, v) in headers {
-            let h = HeaderName::from_bytes(h.as_ref())
-                .wrap_err_with(|| format!("Failed to parse header name {}", h))?;
-            self = self.header(h, v);
-        }
-        Ok(self)
-    }
-}
+impl SetHeadersExt for http::request::Builder {}
 
 /// Default request builder & sender implemented on top of `attohttpc` crate.
 ///
@@ -82,7 +84,7 @@ impl DefaultRequestBuilder {
             builder = builder.params(params);
         }
         if let Some(headers) = headers {
-            builder = AttoHttpReqExt::set_headers(builder, headers)?;
+            builder = builder.set_headers(headers)?;
         }
 
         let response = builder.send().wrap_err_with(|| {
