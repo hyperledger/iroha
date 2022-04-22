@@ -17,7 +17,7 @@ trait SetSingleHeader {
     fn header(self, key: HeaderName, value: String) -> Self;
 }
 
-impl SetSingleHeader for AttoHttpRequestBuilderWithBytes {
+impl SetSingleHeader for AttoHttpRequestBuilder {
     fn header(self, key: HeaderName, value: String) -> Self {
         self.header(key, value)
     }
@@ -40,7 +40,7 @@ trait SetHeadersExt: Sized + SetSingleHeader {
     }
 }
 
-impl SetHeadersExt for AttoHttpRequestBuilderWithBytes {}
+impl SetHeadersExt for AttoHttpRequestBuilder {}
 
 impl SetHeadersExt for http::request::Builder {}
 
@@ -48,82 +48,57 @@ impl SetHeadersExt for http::request::Builder {}
 ///
 /// Its main goal is not to be efficient, but simple. Its implementation contains
 /// some intermediate allocations that could be avoided with additional complexity.
-pub struct DefaultRequestBuilder {
-    method: Method,
-    url: String,
-    params: Option<Vec<(String, String)>>,
-    headers: Option<Headers>,
-    body: Option<Bytes>,
-}
+pub struct DefaultRequestBuilder(Result<AttoHttpRequestBuilder>);
 
 impl DefaultRequestBuilder {
+    fn and_then<F>(self, func: F) -> Self
+    where
+        F: FnOnce(AttoHttpRequestBuilder) -> Result<AttoHttpRequestBuilder>,
+    {
+        Self(self.0.and_then(func))
+    }
+}
+
+pub struct DefaultRequest(AttoHttpRequestBuilderWithBytes);
+
+impl DefaultRequest {
+    fn new(builder: AttoHttpRequestBuilderWithBytes) -> Self {
+        Self(builder)
+    }
+}
+
+impl DefaultRequest {
     /// Sends prepared request and returns bytes response
     ///
     /// # Errors
     /// Fails if request building and sending fails or response transformation fails
-    pub fn send(self) -> Result<Response<Bytes>> {
-        let Self {
-            method,
-            url,
-            body,
-            params,
-            headers,
-            ..
-        } = self;
-
-        let bytes_anyway = match body {
-            Some(bytes) => bytes,
-            None => Vec::new(),
+    pub fn send(mut self) -> Result<Response<Bytes>> {
+        let (method, url) = {
+            let inspect = self.0.inspect();
+            (inspect.method().clone(), inspect.url().clone())
         };
 
-        // for error formatting
-        let method_url_cloned = (method.clone(), url.clone());
-
-        let mut builder = AttoHttpRequestBuilder::new(method, url).bytes(bytes_anyway);
-        if let Some(params) = params {
-            builder = builder.params(params);
-        }
-        if let Some(headers) = headers {
-            builder = builder.set_headers(headers)?;
-        }
-
-        let response = builder.send().wrap_err_with(|| {
-            format!(
-                "Failed to send http {} request to {}",
-                &method_url_cloned.0, &method_url_cloned.1
-            )
-        })?;
+        let response = self
+            .0
+            .send()
+            .wrap_err_with(|| format!("Failed to send http {} request to {}", method, url))?;
 
         ClientResponse(response).try_into()
     }
 }
 
 impl RequestBuilder for DefaultRequestBuilder {
+    type Output = Result<DefaultRequest>;
+
     fn new<U>(method: Method, url: U) -> Self
     where
         U: AsRef<str>,
     {
-        Self {
-            method,
-            url: url.as_ref().to_owned(),
-            headers: None,
-            params: None,
-            body: None,
-        }
-    }
-
-    fn bytes(self, data: Vec<u8>) -> Self {
-        Self {
-            body: Some(data),
-            ..self
-        }
+        Self(Ok(AttoHttpRequestBuilder::new(method, url)))
     }
 
     fn headers(self, headers: Headers) -> Self {
-        Self {
-            headers: Some(headers),
-            ..self
-        }
+        self.and_then(|b| b.set_headers(headers))
     }
 
     fn params<P, K, V>(self, params: P) -> Self
@@ -133,45 +108,70 @@ impl RequestBuilder for DefaultRequestBuilder {
         K: AsRef<str>,
         V: ToString,
     {
-        Self {
-            params: Some(
-                params
-                    .into_iter()
-                    .map(|pair| {
-                        let (k, v) = pair.borrow();
-                        (k.as_ref().to_owned(), v.to_string())
-                    })
-                    .collect(),
-            ),
-            ..self
-        }
+        self.and_then(|b| Ok(b.params(params)))
+    }
+
+    fn body(self, data: Vec<u8>) -> Self::Output {
+        self.0.map(|b| DefaultRequest::new(b.bytes(data)))
+    }
+}
+
+pub struct DefaultWebSocketRequestBuilder(Result<http::request::Builder>);
+
+impl DefaultWebSocketRequestBuilder {
+    fn and_then<F>(self, func: F) -> Self
+    where
+        F: FnOnce(http::request::Builder) -> Result<http::request::Builder>,
+    {
+        Self(self.0.and_then(func))
+    }
+}
+
+pub struct DefaultWebSocketStreamRequest(http::Request<()>);
+
+impl DefaultWebSocketStreamRequest {
+    pub fn connect(self) -> Result<WebSocketStream> {
+        let (stream, _) = tungstenite::connect(self.0)?;
+        Ok(stream)
+    }
+}
+
+impl RequestBuilder for DefaultWebSocketRequestBuilder {
+    type Output = Result<DefaultWebSocketStreamRequest>;
+
+    fn new<U>(method: Method, url: U) -> Self
+    where
+        U: AsRef<str>,
+    {
+        Self(Ok(http::Request::builder()
+            .method(method)
+            .uri(url.as_ref())))
+    }
+
+    fn params<P, K, V>(self, _params: P) -> Self
+    where
+        P: IntoIterator,
+        P::Item: Borrow<(K, V)>,
+        K: AsRef<str>,
+        V: ToString,
+    {
+        // ignoring params
+        self
+    }
+
+    fn headers(self, headers: Headers) -> Self {
+        self.and_then(|b| b.set_headers(headers))
+    }
+
+    fn body(self, _data: Vec<u8>) -> Self::Output {
+        // ignoring passed data
+        self.0
+            .and_then(|b| b.body(()).map_err(|e| e.into()))
+            .map(|req| DefaultWebSocketStreamRequest(req))
     }
 }
 
 pub type WebSocketStream = WebSocket<MaybeTlsStream<TcpStream>>;
-
-pub fn web_socket_connect<U>(uri: U, headers: Headers) -> Result<WebSocketStream>
-where
-    U: AsRef<str>,
-{
-    let ws_uri = if let Some(https_uri) = uri.as_ref().strip_prefix("https://") {
-        "wss://".to_owned() + https_uri
-    } else if let Some(http_uri) = uri.as_ref().strip_prefix("http://") {
-        "ws://".to_owned() + http_uri
-    } else {
-        return Err(eyre!("No schema in web socket uri provided"));
-    };
-
-    let req = http::Request::builder()
-        .uri(ws_uri)
-        .set_headers(headers)
-        .wrap_err("Failed to build web socket request")?
-        .body(())
-        .wrap_err("Failed to build web socket request")?;
-
-    let (stream, _) = tungstenite::connect(req)?;
-    Ok(stream)
-}
 
 struct ClientResponse(AttoHttpResponse);
 
