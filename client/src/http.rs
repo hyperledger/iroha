@@ -88,34 +88,13 @@ pub trait WebSocketHandleEvent {
 }
 
 pub struct WebSocketHandleEventResponse<T> {
-    pub event: Option<T>,
-    pub reply: Option<Vec<u8>>,
+    pub event: T,
+    pub reply: Vec<u8>,
 }
 
 impl<T> WebSocketHandleEventResponse<T> {
-    pub fn empty() -> Self {
-        Self {
-            event: None,
-            reply: None,
-        }
-    }
-
-    pub fn new() -> Self {
-        Self::empty()
-    }
-
-    pub fn reply(self, payload: Vec<u8>) -> Self {
-        Self {
-            reply: Some(payload),
-            ..self
-        }
-    }
-
-    pub fn event(self, event: T) -> Self {
-        Self {
-            event: Some(event),
-            ..self
-        }
+    pub fn new(event: T, reply: Vec<u8>) -> Self {
+        Self { event, reply }
     }
 }
 
@@ -133,14 +112,3 @@ where
 
     Ok(ws_uri)
 }
-
-// trait WebSocketHandlerThen {
-//     fn test() -> Self;
-// }
-
-// enum IrohaWebSocketHandlerResponse<T>
-// where
-//     T: Sized,
-// {
-//     Reply { message: Vec<u8>, decoded: T },
-// }
