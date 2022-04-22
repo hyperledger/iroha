@@ -23,7 +23,11 @@ use small::SmallStr;
 
 use crate::{
     config::Configuration,
-    http::{Headers as HttpHeaders, Method as HttpMethod, RequestBuilder, Response, StatusCode},
+    http::{
+        transform_ws_url, Headers as HttpHeaders, Method as HttpMethod, RequestBuilder, Response,
+        StatusCode, WebSocketHandleEvent, WebSocketHandleEventResponse, WebSocketHandleHandshake,
+        WebSocketInit, WebSocketInitData,
+    },
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
 };
 
@@ -297,7 +301,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     #[log]
     pub fn submit(
-        &mut self,
+        &self,
         instruction: impl Into<Instruction> + Debug,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all(vec![instruction.into()])
@@ -309,7 +313,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all(
-        &mut self,
+        &self,
         instructions: impl IntoIterator<Item = Instruction>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
@@ -323,7 +327,7 @@ impl Client {
     /// Fails if sending transaction to peer fails or if it response with error
     #[log]
     pub fn submit_with_metadata(
-        &mut self,
+        &self,
         instruction: Instruction,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
@@ -337,7 +341,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_with_metadata(
-        &mut self,
+        &self,
         instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
@@ -355,7 +359,7 @@ impl Client {
     ) -> Result<HashOf<VersionedTransaction>> {
         let (req, hash, resp_handler) =
             self.prepare_transaction_request::<DefaultRequestBuilder>(transaction)?;
-        let response = req
+        let response = req?
             .send()
             .wrap_err_with(|| format!("Failed to send transaction with hash {:?}", hash))?;
         resp_handler.handle(response)?;
@@ -375,7 +379,11 @@ impl Client {
     pub fn prepare_transaction_request<B>(
         &self,
         transaction: Transaction,
-    ) -> Result<(B, HashOf<VersionedTransaction>, TransactionResponseHandler)>
+    ) -> Result<(
+        B::Output,
+        HashOf<VersionedTransaction>,
+        TransactionResponseHandler,
+    )>
     where
         B: RequestBuilder,
     {
@@ -389,8 +397,8 @@ impl Client {
                 HttpMethod::POST,
                 format!("{}/{}", &self.torii_url, uri::TRANSACTION),
             )
-            .bytes(transaction_bytes)
-            .headers(self.headers.clone()),
+            .headers(self.headers.clone())
+            .body(transaction_bytes),
             hash,
             TransactionResponseHandler,
         ))
@@ -402,7 +410,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking(
-        &mut self,
+        &self,
         instruction: impl Into<Instruction>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking(vec![instruction.into()])
@@ -414,7 +422,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking(
-        &mut self,
+        &self,
         instructions: impl IntoIterator<Item = Instruction>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
@@ -427,7 +435,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking_with_metadata(
-        &mut self,
+        &self,
         instruction: impl Into<Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
@@ -441,13 +449,13 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking_with_metadata(
-        &mut self,
+        &self,
         instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         struct EventListenerInitialized;
 
-        let mut client = self.clone();
+        let client = self.clone();
         let (event_sender, event_receiver) = mpsc::channel();
         let (init_sender, init_receiver) = mpsc::channel();
         let transaction = self.build_transaction(instructions.into(), metadata)?;
@@ -535,7 +543,7 @@ impl Client {
         &self,
         request: R,
         pagination: Pagination,
-    ) -> Result<(B, QueryResponseHandler<R>)>
+    ) -> Result<(B::Output, QueryResponseHandler<R>)>
     where
         R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
@@ -550,9 +558,9 @@ impl Client {
                 HttpMethod::POST,
                 format!("{}/{}", &self.torii_url, uri::QUERY),
             )
-            .bytes(request.encode_versioned())
             .params(pagination)
-            .headers(self.headers.clone()),
+            .headers(self.headers.clone())
+            .body(request.encode_versioned()),
             QueryResponseHandler::default(),
         ))
     }
@@ -576,7 +584,7 @@ impl Client {
     {
         let (req, resp_handler) =
             self.prepare_query_request::<R, DefaultRequestBuilder>(request, pagination)?;
-        let response = req.send()?;
+        let response = req?.send()?;
         resp_handler.handle(response)
     }
 
@@ -599,13 +607,17 @@ impl Client {
     /// # Errors
     /// Fails if subscribing to websocket fails
     pub fn listen_for_events(
-        &mut self,
+        &self,
         event_filter: EventFilter,
     ) -> Result<impl Iterator<Item = Result<Event>>> {
-        EventIterator::new(
-            &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
+        EventIterator::new(self.events_handler(event_filter)?)
+    }
+
+    pub fn events_handler(&self, event_filter: EventFilter) -> Result<EventsInit> {
+        EventsInit::new(
             event_filter,
             self.headers.clone(),
+            &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
         )
     }
 
@@ -630,6 +642,7 @@ impl Client {
             )
             .params(pagination.clone())
             .headers(self.headers.clone())
+            .body_empty()?
             .send()?;
 
             if response.status() == StatusCode::OK {
@@ -685,8 +698,8 @@ impl Client {
             HttpMethod::GET,
             format!("{}/{}", &self.torii_url, uri::CONFIGURATION),
         )
-        .bytes(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)
         .headers(headers)
+        .body(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)?
         .send()?;
 
         if resp.status() != StatusCode::OK {
@@ -711,8 +724,8 @@ impl Client {
             .wrap_err(format!("Failed to serialize {:?}", post_config))?;
         let url = &format!("{}/{}", self.torii_url, uri::CONFIGURATION);
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
-            .bytes(body)
             .headers(headers)
+            .body(body)?
             .send()?;
 
         if resp.status() != StatusCode::OK {
@@ -750,7 +763,7 @@ impl Client {
     /// Fails if sending request or decoding fails
     pub fn get_status(&self) -> Result<Status> {
         let (req, resp_handler) = self.prepare_status_request::<DefaultRequestBuilder>();
-        let resp = req.send()?;
+        let resp = req?.send()?;
         resp_handler.handle(resp)
     }
 
@@ -760,7 +773,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if request build fails
-    pub fn prepare_status_request<B>(&self) -> (B, StatusResponseHandler)
+    pub fn prepare_status_request<B>(&self) -> (B::Output, StatusResponseHandler)
     where
         B: RequestBuilder,
     {
@@ -769,9 +782,111 @@ impl Client {
                 HttpMethod::GET,
                 format!("{}/{}", &self.telemetry_url, uri::STATUS),
             )
-            .headers(self.headers.clone()),
+            .headers(self.headers.clone())
+            .body_empty(),
             StatusResponseHandler,
         )
+    }
+}
+
+// pub enum EventsHandler {
+//     Init {
+//         filter: EventFilter,
+//         headers: HttpHeaders,
+//         url: String,
+//     },
+//     WaitingForAcceptance,
+//     Ready,
+// }
+
+pub struct EventsInit {
+    filter: EventFilter,
+    headers: HttpHeaders,
+    url: String,
+}
+
+impl EventsInit {
+    fn new<U>(filter: EventFilter, headers: HttpHeaders, url: U) -> Result<Self>
+    where
+        U: AsRef<str>,
+    {
+        Ok(Self {
+            filter,
+            headers,
+            url: transform_ws_url(url)?,
+        })
+    }
+}
+
+impl WebSocketInit for EventsInit {
+    type Next = EventsHandshake;
+
+    fn init<B>(self) -> Result<(WebSocketInitData<B>, Self::Next)>
+    where
+        B: RequestBuilder,
+        Self: Sized,
+        Self::Next: WebSocketHandleHandshake,
+    {
+        let Self {
+            filter,
+            headers,
+            url,
+        } = self;
+
+        let msg = VersionedEventSubscriberMessage::from(EventSubscriberMessage::from(filter))
+            .encode_versioned();
+
+        Ok((
+            WebSocketInitData::new(
+                B::new(HttpMethod::GET, url).headers(headers).body_empty(),
+                msg,
+            ),
+            EventsHandshake,
+        ))
+    }
+}
+
+pub struct EventsHandshake;
+
+impl WebSocketHandleHandshake for EventsHandshake {
+    type Next = EventsHandler;
+
+    fn handle(self, message: Vec<u8>) -> Result<Self::Next>
+    where
+        Self::Next: WebSocketHandleEvent,
+    {
+        if let EventPublisherMessage::SubscriptionAccepted =
+            VersionedEventPublisherMessage::decode_versioned(&message)?.into_v1()
+        {
+            return Ok(EventsHandler);
+        }
+        return Err(eyre!("Expected `SubscriptionAccepted`."));
+    }
+}
+
+#[derive(Debug)]
+pub struct EventsHandler;
+
+impl WebSocketHandleEvent for EventsHandler {
+    type Event = iroha_data_model::prelude::Event;
+
+    fn handle(&self, message: Vec<u8>) -> Result<WebSocketHandleEventResponse<Self::Event>> {
+        let event_socket_message = match VersionedEventPublisherMessage::decode_versioned(&message)
+        {
+            Ok(event_socket_message) => event_socket_message.into_v1(),
+            Err(err) => return Err(err.into()),
+        };
+        let event = match event_socket_message {
+            EventPublisherMessage::Event(event) => event,
+            msg => return Err(eyre!("Expected Event but got {:?}", msg)),
+        };
+        let versioned_message =
+            VersionedEventSubscriberMessage::from(EventSubscriberMessage::EventReceived)
+                .encode_versioned();
+
+        Ok(WebSocketHandleEventResponse::new()
+            .reply(versioned_message)
+            .event(event))
     }
 }
 
@@ -779,6 +894,7 @@ impl Client {
 #[derive(Debug)]
 pub struct EventIterator {
     stream: WebSocketStream,
+    handler: EventsHandler,
 }
 
 impl EventIterator {
@@ -786,30 +902,29 @@ impl EventIterator {
     ///
     /// # Errors
     /// Fails if connecting and sending subscription to web socket fails
-    pub fn new(url: &str, event_filter: EventFilter, headers: HttpHeaders) -> Result<Self> {
-        let mut stream = http_default::web_socket_connect(url, headers)?;
-        stream.write_message(WebSocketMessage::Binary(
-            VersionedEventSubscriberMessage::from(EventSubscriberMessage::from(event_filter))
-                .encode_versioned(),
-        ))?;
-        loop {
+    pub fn new(handler: EventsInit) -> Result<Self> {
+        let (
+            WebSocketInitData {
+                first_message,
+                request,
+            },
+            handler,
+        ) = handler.init::<http_default::DefaultWebSocketRequestBuilder>()?;
+
+        let mut stream = request?.connect()?;
+        stream.write_message(WebSocketMessage::Binary(first_message))?;
+
+        let handler = loop {
             match stream.read_message() {
-                Ok(WebSocketMessage::Binary(message)) => {
-                    if let EventPublisherMessage::SubscriptionAccepted =
-                        VersionedEventPublisherMessage::decode_versioned(&message)?.into_v1()
-                    {
-                        break;
-                    }
-                    return Err(eyre!("Expected `SubscriptionAccepted`."));
-                }
+                Ok(WebSocketMessage::Binary(message)) => break handler.handle(message)?,
                 Ok(_) => continue,
                 Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
                     return Err(eyre!("WebSocket connection closed."))
                 }
                 Err(err) => return Err(err.into()),
             }
-        }
-        Ok(Self { stream })
+        };
+        Ok(Self { stream, handler })
     }
 }
 
@@ -820,26 +935,26 @@ impl Iterator for EventIterator {
         loop {
             match self.stream.read_message() {
                 Ok(WebSocketMessage::Binary(message)) => {
-                    let event_socket_message =
-                        match VersionedEventPublisherMessage::decode_versioned(&message) {
-                            Ok(event_socket_message) => event_socket_message.into_v1(),
-                            Err(err) => return Some(Err(err.into())),
-                        };
-                    let event = match event_socket_message {
-                        EventPublisherMessage::Event(event) => event,
-                        msg => return Some(Err(eyre!("Expected Event but got {:?}", msg))),
-                    };
-                    let versioned_message = VersionedEventSubscriberMessage::from(
-                        EventSubscriberMessage::EventReceived,
-                    )
-                    .encode_versioned();
-                    return match self
-                        .stream
-                        .write_message(WebSocketMessage::Binary(versioned_message))
-                    {
-                        Ok(_) => Some(Ok(event)),
-                        Err(err) => Some(Err(eyre!("Failed to send receipt: {}", err))),
-                    };
+                    let result = self.handler.handle(message);
+
+                    match result {
+                        Ok(WebSocketHandleEventResponse { reply, event }) => {
+                            if let Some(msg) = reply {
+                                match self.stream.write_message(WebSocketMessage::Binary(msg)) {
+                                    Ok(_) => (),
+                                    Err(err) => {
+                                        return Some(Err(eyre!("Failed to reply: {}", err)))
+                                    }
+                                }
+                            }
+
+                            match event {
+                                Some(event) => return Some(Ok(event)),
+                                None => continue,
+                            }
+                        }
+                        Err(err) => return Some(Err(err)),
+                    }
                 }
                 Ok(_) => continue,
                 Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
