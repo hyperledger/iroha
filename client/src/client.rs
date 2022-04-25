@@ -25,8 +25,8 @@ use crate::{
     config::Configuration,
     http::{
         transform_ws_url, Headers as HttpHeaders, Method as HttpMethod, RequestBuilder, Response,
-        StatusCode, WebSocketHandleEvent, WebSocketHandleEventResponse, WebSocketHandleHandshake,
-        WebSocketInit, WebSocketInitData,
+        StatusCode, WebSocketFlowEvents, WebSocketFlowHandshake, WebSocketFlowInit,
+        WebSocketHandleEventResponse, WebSocketInitData,
     },
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
 };
@@ -398,7 +398,7 @@ impl Client {
                 format!("{}/{}", &self.torii_url, uri::TRANSACTION),
             )
             .headers(self.headers.clone())
-            .body(transaction_bytes),
+            .body(Some(transaction_bytes)),
             hash,
             TransactionResponseHandler,
         ))
@@ -560,7 +560,7 @@ impl Client {
             )
             .params(pagination)
             .headers(self.headers.clone())
-            .body(request.encode_versioned()),
+            .body(Some(request.encode_versioned())),
             QueryResponseHandler::default(),
         ))
     }
@@ -613,8 +613,8 @@ impl Client {
         EventIterator::new(self.events_handler(event_filter)?)
     }
 
-    pub fn events_handler(&self, event_filter: EventFilter) -> Result<EventsInit> {
-        EventsInit::new(
+    pub fn events_handler(&self, event_filter: EventFilter) -> Result<EventsApiFlowInit> {
+        EventsApiFlowInit::new(
             event_filter,
             self.headers.clone(),
             &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
@@ -642,7 +642,7 @@ impl Client {
             )
             .params(pagination.clone())
             .headers(self.headers.clone())
-            .body_empty()?
+            .body(None)?
             .send()?;
 
             if response.status() == StatusCode::OK {
@@ -699,7 +699,9 @@ impl Client {
             format!("{}/{}", &self.torii_url, uri::CONFIGURATION),
         )
         .headers(headers)
-        .body(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)?
+        .body(Some(
+            serde_json::to_vec(get_config).wrap_err("Failed to serialize")?,
+        ))?
         .send()?;
 
         if resp.status() != StatusCode::OK {
@@ -725,7 +727,7 @@ impl Client {
         let url = &format!("{}/{}", self.torii_url, uri::CONFIGURATION);
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
             .headers(headers)
-            .body(body)?
+            .body(Some(body))?
             .send()?;
 
         if resp.status() != StatusCode::OK {
@@ -783,29 +785,24 @@ impl Client {
                 format!("{}/{}", &self.telemetry_url, uri::STATUS),
             )
             .headers(self.headers.clone())
-            .body_empty(),
+            .body(None),
             StatusResponseHandler,
         )
     }
 }
 
-// pub enum EventsHandler {
-//     Init {
-//         filter: EventFilter,
-//         headers: HttpHeaders,
-//         url: String,
-//     },
-//     WaitingForAcceptance,
-//     Ready,
-// }
-
-pub struct EventsInit {
+/// Events API flow initializer
+pub struct EventsApiFlowInit {
     filter: EventFilter,
     headers: HttpHeaders,
     url: String,
 }
 
-impl EventsInit {
+impl EventsApiFlowInit {
+    /// Constructs new item with provided filter, headers and url
+    ///
+    /// # Errors
+    /// Fails if URL transformation fails
     fn new<U>(filter: EventFilter, headers: HttpHeaders, url: U) -> Result<Self>
     where
         U: AsRef<str>,
@@ -818,14 +815,14 @@ impl EventsInit {
     }
 }
 
-impl WebSocketInit for EventsInit {
-    type Next = EventsHandshake;
+impl WebSocketFlowInit for EventsApiFlowInit {
+    type Next = EventsApiFlowHandshake;
 
     fn init<B>(self) -> Result<(WebSocketInitData<B>, Self::Next)>
     where
         B: RequestBuilder,
         Self: Sized,
-        Self::Next: WebSocketHandleHandshake,
+        Self::Next: WebSocketFlowHandshake,
     {
         let Self {
             filter,
@@ -838,39 +835,41 @@ impl WebSocketInit for EventsInit {
 
         Ok((
             WebSocketInitData::new(
-                B::new(HttpMethod::GET, url).headers(headers).body_empty(),
+                B::new(HttpMethod::GET, url).headers(headers).body(None),
                 msg,
             ),
-            EventsHandshake,
+            EventsApiFlowHandshake,
         ))
     }
 }
 
-pub struct EventsHandshake;
+/// Events API flow handshake handler
+pub struct EventsApiFlowHandshake;
 
-impl WebSocketHandleHandshake for EventsHandshake {
-    type Next = EventsHandler;
+impl WebSocketFlowHandshake for EventsApiFlowHandshake {
+    type Next = EventsApiFlowEvents;
 
-    fn handle(self, message: Vec<u8>) -> Result<Self::Next>
+    fn message(self, message: Vec<u8>) -> Result<Self::Next>
     where
-        Self::Next: WebSocketHandleEvent,
+        Self::Next: WebSocketFlowEvents,
     {
         if let EventPublisherMessage::SubscriptionAccepted =
             VersionedEventPublisherMessage::decode_versioned(&message)?.into_v1()
         {
-            return Ok(EventsHandler);
+            return Ok(EventsApiFlowEvents);
         }
         return Err(eyre!("Expected `SubscriptionAccepted`."));
     }
 }
 
+/// Events API flow events handler
 #[derive(Debug)]
-pub struct EventsHandler;
+pub struct EventsApiFlowEvents;
 
-impl WebSocketHandleEvent for EventsHandler {
+impl WebSocketFlowEvents for EventsApiFlowEvents {
     type Event = iroha_data_model::prelude::Event;
 
-    fn handle(&self, message: Vec<u8>) -> Result<WebSocketHandleEventResponse<Self::Event>> {
+    fn message(&self, message: Vec<u8>) -> Result<WebSocketHandleEventResponse<Self::Event>> {
         let event_socket_message = match VersionedEventPublisherMessage::decode_versioned(&message)
         {
             Ok(event_socket_message) => event_socket_message.into_v1(),
@@ -892,7 +891,7 @@ impl WebSocketHandleEvent for EventsHandler {
 #[derive(Debug)]
 pub struct EventIterator {
     stream: WebSocketStream,
-    handler: EventsHandler,
+    handler: EventsApiFlowEvents,
 }
 
 impl EventIterator {
@@ -900,7 +899,7 @@ impl EventIterator {
     ///
     /// # Errors
     /// Fails if connecting and sending subscription to web socket fails
-    pub fn new(handler: EventsInit) -> Result<Self> {
+    pub fn new(handler: EventsApiFlowInit) -> Result<Self> {
         let (
             WebSocketInitData {
                 first_message,
@@ -914,7 +913,7 @@ impl EventIterator {
 
         let handler = loop {
             match stream.read_message() {
-                Ok(WebSocketMessage::Binary(message)) => break handler.handle(message)?,
+                Ok(WebSocketMessage::Binary(message)) => break handler.message(message)?,
                 Ok(_) => continue,
                 Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
                     return Err(eyre!("WebSocket connection closed."))
@@ -933,7 +932,7 @@ impl Iterator for EventIterator {
         loop {
             match self.stream.read_message() {
                 Ok(WebSocketMessage::Binary(message)) => {
-                    let result = self.handler.handle(message);
+                    let result = self.handler.message(message);
 
                     match result {
                         Ok(WebSocketHandleEventResponse { reply, event }) => {
