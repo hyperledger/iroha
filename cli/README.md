@@ -49,12 +49,12 @@ This flag can be combined with the `--features` flag in order to precisely speci
 
 ### Generating Keys
 
-We highly recommend that any non-testing deployment generate a new key pair, with the recommended algorithm `Ed25519`. For convenience, you can use the provided [`iroha_crypto_cli`](../crypto_cli/README.md). For example,
+We highly recommend that any non-testing deployment generate a new key pair, with the recommended algorithm `Ed25519`. For convenience, you can use the provided [`kagami`](../tools/kagami/README.md). For example,
 
 <!-- TODO, update the links for the release version.  -->
 
 ```bash
-cargo run --bin iroha_crypto_cli
+cargo run --bin kagami -- crypto
 ```
 
 should produce
@@ -65,13 +65,13 @@ Private key: 0311152fad9308482f51ca2832fdfab18e1c74f36c6adb198e3ef0213fe42fd8bdf
 Digest function: ed25519
 ```
 
-**NOTE**: to see the command-line options for `iroha_crypto_cli` you must first terminate the arguments passed to `cargo`, so the command for running the `iroha_crypto_cli` binary with JSON formatting is
+**NOTE**: to see the command-line options for `kagami` you must first terminate the arguments passed to `cargo`, so the command for running the `kagami` binary with JSON formatting is
 
 ```bash
-cargo run --bin iroha_crypto_cli -- --json
+cargo run --bin kagami -- crypto --json
 ```
 
-**NOTE**: The `iroha_crypto_cli` binary can be run without `cargo` using the `<IROHA REPO ROOT>/target/release/iroha_crypto_cli` binary.
+**NOTE**: The `kagami` binary can be run without `cargo` using the `<IROHA REPO ROOT>/target/release/kagami` binary.
 
 ### Configuration file
 

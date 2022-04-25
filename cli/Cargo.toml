@@ -18,7 +18,7 @@ bridge = ["iroha_core/bridge"]
 dex = ["iroha_core/dex"]
 telemetry = ["iroha_telemetry", "iroha_core/telemetry"]
 dev-telemetry = ["iroha_core/dev-telemetry", "iroha_telemetry"]
-schema-endpoint = ["iroha_schema_bin"]
+schema-endpoint = ["iroha_schema_gen"]
 test-network = []
 
 [badges]
@@ -39,7 +39,7 @@ iroha_version = { version = "=2.0.0-pre-rc.3", path = "../version", features = [
 iroha_config = { version = "=2.0.0-pre-rc.3", path = "../config" }
 iroha_crypto = { version = "=2.0.0-pre-rc.3", path = "../crypto" }
 iroha_p2p = { version = "=2.0.0-pre-rc.3", path = "../p2p" }
-iroha_schema_bin = { version = "=2.0.0-pre-rc.3", path = "../schema/bin", optional = true }
+iroha_schema_gen = { version = "=2.0.0-pre-rc.3", path = "../schema/gen", optional = true }
 
 eyre = "0.6.5"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }

@@ -38,8 +38,8 @@ jobs:
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2:crypto-cli-dev-nightly-${{ github.sha }}
+          tags: hyperledger/iroha2:kagami-dev-nightly-${{ github.sha }}
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
-            BIN=iroha_crypto_cli
+            BIN=kagami

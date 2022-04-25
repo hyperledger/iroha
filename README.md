@@ -118,7 +118,7 @@ Iroha project mainly consists of the following crates:
 * [`iroha_config`](config), which handles configuration, generating documentation for options and run-time changes
 * [`iroha_core`](core) — the primary library used by all other crates which includes the peer's endpoint management
 * [`iroha_crypto`](crypto) — cryptographic aspects of Iroha
-* [`iroha_crypto_cli`](crypto_cli), which is used to generate cryptographic keys
+* [`kagami`](tools/kagami), which is used to generate cryptographic keys, default genesis, configuration reference, and schema
 * [`iroha_data_model`](data_model), which  defines common data models in Iroha
 * [`iroha_futures`](futures) — technical crate used for `async` programming
 * [`iroha_logger`](logger), which uses `tracing` to provide logging facilities

@@ -14,7 +14,8 @@ fn main() {
         Path::new(&manifest_dir).join("tests/integration/create_nft_for_every_user_smartcontract");
     let out_dir = env::var_os("OUT_DIR").expect("Expected `OUT_DIR` environment variable");
 
-    println!("cargo:rerun-if-changed=..");
+    // TODO: check if this was causing the recursive loop.
+    // println!("cargo:rerun-if-changed=..");
 
     let fmt = Command::new("cargo")
         // Removing environment variable to avoid
@@ -26,24 +27,32 @@ fn main() {
         .expect("Failed to run `cargo fmt` on smartcontract");
     assert!(fmt.success(), "Can't format smartcontract");
 
-    let build = Command::new("cargo")
+    let instrumenting_coverage = if let Ok(flags) = env::var("RUSTFLAGS") {
+        flags.contains("instrument-coverage")
+    } else {
+        false
+    };
+
+    if instrumenting_coverage {
+        let build = Command::new("cargo")
         // Removing environment variable to avoid
         // `error: infinite recursion detected` when running `cargo lints`
-        .env_remove("RUST_RECURSION_COUNT")
-        .env("CARGO_TARGET_DIR", out_dir)
-        .current_dir(smartcontract_path)
-        .args(&[
-            "+nightly-2022-04-20",
-            "build",
-            "--release",
-            "-Z",
-            "build-std",
-            "-Z",
-            "build-std-features=panic_immediate_abort",
-            "--target",
-            "wasm32-unknown-unknown",
-        ])
-        .status()
-        .expect("Failed to run `cargo build` on smartcontract");
-    assert!(build.success(), "Can't build smartcontract")
+            .env_remove("RUST_RECURSION_COUNT")
+            .env("CARGO_TARGET_DIR", out_dir)
+            .current_dir(smartcontract_path)
+            .args(&[
+                "+nightly-2022-04-20",
+                "build",
+                "--release",
+                "-Z",
+                "build-std",
+                "-Z",
+                "build-std-features=panic_immediate_abort",
+                "--target",
+                "wasm32-unknown-unknown",
+            ])
+            .status()
+            .expect("Failed to run `cargo build` on smartcontract");
+        assert!(build.success(), "Can't build smartcontract")
+    }
 }

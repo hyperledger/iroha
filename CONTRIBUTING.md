@@ -13,7 +13,7 @@ The following is a short set of guidelines for contributing to Iroha.
 * Fix your issue of choice.
 * Write [tests](https://doc.rust-lang.org/cargo/commands/cargo-test.html). Ensure they all pass (`cargo test`).
 * Fix [`clippy`](https://lib.rs/crates/cargo-lints) warnings: `cargo lints clippy --workspace --benches --tests --examples --all-features`
-* Format code `cargo +nightly fmt --all` and generate docs `cargo run --bin iroha_docs >"docs/source/references/config.md" && git add "docs/source/references/config.md"`
+* Format code `cargo +nightly fmt --all` and generate docs `cargo run --bin kagami -- docs >"docs/source/references/config.md" && git add "docs/source/references/config.md"`
 * `git pull -r hyperledger iroha2-dev`, `git commit -s`, `git push <your-fork>`, and [create a pull request](https://github.com/hyperledger/iroha/compare) to the `iroha2-dev` branch on GitHub.
 
 ### Reporting Bugs
@@ -149,7 +149,7 @@ Set the `LOG_FILE_PATH` environment variable to an appropriate location to store
 -  Limit the first line of your commit message to 50 characters or less.
 -  The first line of your commit message should contain the summary of the work you've done. If you need more than one line, leave a blank line between each paragraph and describe your changes in the middle. The last line must be the sign-off.
 -  Use the [Git Rebase Workflow](https://git-rebase.io/). Avoid using `git pull` use `git pull --rebase` instead.
--  If you modify the Schema (check by generating the schema with `iroha_schema_bin` and diff), you should make all changes to the schema in a separate commit with the message `[schema]`.
+-  If you modify the Schema (check by generating the schema with `kagami schema` and diff), you should make all changes to the schema in a separate commit with the message `[schema]`.
 -  Generally, try to stick to one commit per meaningful change.
   -  If you fixed several issues in one PR, give them separate commits.
   -  As mentioned previously changes to the `schema` and the API should be done in appropriate commits separate from the rest of your work.

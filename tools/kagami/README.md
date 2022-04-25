@@ -1,6 +1,6 @@
-# Kagami
+# Kagami (Teacher and Exemplar and/or Looking glass)
 
-This tool is used to generate and validate the automatically generated data files shipped with Iroha.
+Generate and validate the automatically generated data files shipped with Iroha.
 
 ### Building
 
@@ -15,37 +15,31 @@ anywhere in this repository. This will place `kagami` inside the `target/debug/`
 ### Usage
 
 ```bash
-Kagami 0.1
-Iroha development team.
-Generator for data used in Iroha.
+kagami 2.0.0-pre-rc.3
+Soramitsu Iroha2 team (https://github.com/orgs/soramitsu/teams/iroha2)
+Tool generating the cryptorgraphic key pairs,
 
 USAGE:
-kagami [FLAGS] [OPTIONS]
-
-FLAGS:
--d, --docs       If specified, print configuration docs
--g, --genesis    If specified, print the Genesis
--h, --help       Prints help information
---json       If specified the output will be formatted as json.
--s, --schema     If specified, print Schema
--V, --version    Prints version information
+kagami <SUBCOMMAND>
 
 OPTIONS:
---algorithm <algorithm>        Function used to generate the key pair. [default: ed25519]  [possible values:
-ed25519, secp256k1, bls_normal, bls_small]
---private_key <private_key>    Sets a private key. Should be used separately from `seed`.
---seed <seed>                  Sets a seed for random number generator. Should be used separately from
-`private_key`.
+-h, --help       Print help information
+-V, --version    Print version information
+
+SUBCOMMANDS:
+crypto     Generate cryptorgraphic key pairs
+docs       Generate a Markdown reference of configuration parameters
+genesis    Generate a default genesis block that is used in tests
+help       Print this message or the help of the given subcommand(s)
+schema     Generate schema used for code generation in Iroha SDKs
 ```
 
 #### Key generation
 
 With a few examples.
 
-By default, will generate a key pair.
-
 ```bash
-$ ./kagami
+$ ./kagami crypto
 ```
 
 ```bash
@@ -59,28 +53,26 @@ Digest function: ed25519
 To generate a key pair from a given seed, run
 
 ```bash
-$ ./kagami --seed
+$ ./kagami crypto --seed <seed>
 ```
 
 To generate a key with the `secp256k1` algorithm, which corresponds to the private key `8e170e7abe3cc71afeb2459b2d055641159dca4825e0536234e120ced756fabda2bfcb42761216a95a5bf2574219c602a9e7d410420af8b020c9e9e40ffb3690`, run
 
 ```bash
-$ ./kagami --algorithm --private-key 8e170e7abe3cc71afeb2459b2d055641159dca4825e0536234e120ced756fabda2bfcb42761216a95a5bf2574219c602a9e7d410420af8b020c9e9e40ffb3690
+$ ./kagami crypto --algorithm secp256k1 --private-key "b32129af69b829a88ab9bac60b2a33cc57f8843e93aae0478e93f2285059c236"
 ```
 
 ```bash
-Kagami. To see help run with `--help`.
-No flags specified, generating key-pair.
-Public key (multihash): ed0120a2bfcb42761216a95a5bf2574219c602a9e7d410420af8b020c9e9e40ffb3690
-Private key: 8e170e7abe3cc71afeb2459b2d055641159dca4825e0536234e120ced756fabda2bfcb42761216a95a5bf2574219c602a9e7d410420af8b020c9e9e40ffb3690
-Digest function: ed25519
+Public key (multihash): e70121031c59a9cabaf58f3b8a6157362b9f6feac3dd47ee947fbf2f335805e1a7f96bde
+Private key: b32129af69b829a88ab9bac60b2a33cc57f8843e93aae0478e93f2285059c236
+Digest function: secp256k1
 ```
 
 
 #### Genesis
 
 ```bash
-kagami -g
+kagami genesis
 ```
 
 Should produce a genesis block in JSON format. You might want to use shell redirections e.g. `kagami -g >genesis.json`.
@@ -88,15 +80,15 @@ Should produce a genesis block in JSON format. You might want to use shell redir
 #### Schema
 
 ```bash
-kagami -s
+kagami schema
 ```
 
 Should generate the schema in JSON format.  You might want to use shell redirections e.g. `kagami -g >genesis.json`.
 
 #### Peer configuration reference
 
-```bash 
-kagami --docs
+```bash
+kagami docs
 ```
 
 Should generate the documentation in Markdown format. Should be identical to the [reference configuration](../../docs/source/references/config.md).

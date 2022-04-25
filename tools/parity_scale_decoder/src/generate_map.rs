@@ -361,7 +361,7 @@ pub fn generate_map() -> DumpDecodedMap {
 mod tests {
     use std::collections::HashSet;
 
-    use iroha_schema_bin::build_schemas;
+    use iroha_schema_gen::build_schemas;
 
     use super::*;
 
