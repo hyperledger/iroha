@@ -32,22 +32,18 @@ pub trait RequestBuilder {
     #[must_use]
     fn headers(self, headers: Headers) -> Self;
 
-    /// Sets request's body in bytes
-    fn body(self, data: Vec<u8>) -> Self::Output;
-
-    fn body_empty(self) -> Self::Output
-    where
-        Self: Sized,
-    {
-        self.body(Vec::new())
-    }
+    /// Sets request's body in bytes and transforms the builder to its output
+    fn body(self, data: Option<Vec<u8>>) -> Self::Output;
 }
 
+/// Represents data required to initialize any WebSocket connection with Iroha
 pub struct WebSocketInitData<B>
 where
     B: RequestBuilder,
 {
+    /// Basic HTTP request that should be done and then upgraded to WS
     pub request: B::Output,
+    /// Data that should be sent to Iroha immediately when WS connection is initialized
     pub first_message: Vec<u8>,
 }
 
@@ -55,6 +51,7 @@ impl<B> WebSocketInitData<B>
 where
     B: RequestBuilder,
 {
+    /// Creates struct with provided request and first message
     pub fn new(request: B::Output, first_message: Vec<u8>) -> Self {
         Self {
             request,
@@ -63,41 +60,66 @@ where
     }
 }
 
-pub trait WebSocketInit {
-    type Next;
+/// Represents a struct in the initial state of WS connection flow
+pub trait WebSocketFlowInit {
+    /// Some type that handles the next step of WS flow - handshake acquiring.
+    /// This type is returned by the init function.
+    type Next: WebSocketFlowHandshake;
 
+    /// Builds data for connection initialization and returns handler for the next
+    /// step of WS flow.
+    ///
+    /// # Errors
+    /// Implementation dependent.
     fn init<B>(self) -> Result<(WebSocketInitData<B>, Self::Next)>
     where
         B: RequestBuilder,
-        Self: Sized,
-        Self::Next: WebSocketHandleHandshake;
+        Self: Sized;
 }
 
-pub trait WebSocketHandleHandshake {
-    type Next;
+/// Represents a struct in the handshake-acquiring-state of WS connection flow
+pub trait WebSocketFlowHandshake {
+    /// Some type that will handle incoming events when handshake acquiring is done.
+    type Next: WebSocketFlowEvents;
 
-    fn handle(self, message: Vec<u8>) -> Result<Self::Next>
-    where
-        Self::Next: WebSocketHandleEvent;
+    /// Handles binary WS message and returns events handler if handshake is acquired.
+    ///
+    /// # Errors
+    /// Implementation dependent.
+    fn message(self, message: Vec<u8>) -> Result<Self::Next>;
 }
 
-pub trait WebSocketHandleEvent {
+/// Represents a struct in the events-handling, final state of WS connection flow
+pub trait WebSocketFlowEvents {
+    /// Some event type that is yielded by the handler
     type Event;
 
-    fn handle(&self, message: Vec<u8>) -> Result<WebSocketHandleEventResponse<Self::Event>>;
+    /// Handles binary WS message and returns reply with decoded event.
+    ///
+    /// # Errors
+    /// Implementation dependent.
+    fn message(&self, message: Vec<u8>) -> Result<WebSocketHandleEventResponse<Self::Event>>;
 }
 
+/// Represents WS event handler response.
 pub struct WebSocketHandleEventResponse<T> {
+    /// Decoded event
     pub event: T,
+    /// Binary reply that should be sent back through the WS connection
     pub reply: Vec<u8>,
 }
 
 impl<T> WebSocketHandleEventResponse<T> {
+    /// Constructs it with provided event and binary reply
     pub fn new(event: T, reply: Vec<u8>) -> Self {
         Self { event, reply }
     }
 }
 
+/// Replaces `http(s)://` with `ws(s)://`
+///
+/// # Errors
+/// Fails if passed URI doesn't have a valid protocol
 pub fn transform_ws_url<S>(uri: S) -> Result<String>
 where
     S: AsRef<str>,

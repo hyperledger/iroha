@@ -111,11 +111,17 @@ impl RequestBuilder for DefaultRequestBuilder {
         self.and_then(|b| Ok(b.params(params)))
     }
 
-    fn body(self, data: Vec<u8>) -> Self::Output {
-        self.0.map(|b| DefaultRequest::new(b.bytes(data)))
+    fn body(self, data: Option<Vec<u8>>) -> Self::Output {
+        self.0.map(|b| {
+            DefaultRequest::new(b.bytes(match data {
+                Some(bytes) => bytes,
+                None => Vec::new(),
+            }))
+        })
     }
 }
 
+/// Special builder for WS connections
 pub struct DefaultWebSocketRequestBuilder(Result<http::request::Builder>);
 
 impl DefaultWebSocketRequestBuilder {
@@ -127,9 +133,11 @@ impl DefaultWebSocketRequestBuilder {
     }
 }
 
+/// Successfully built WS request
 pub struct DefaultWebSocketStreamRequest(http::Request<()>);
 
 impl DefaultWebSocketStreamRequest {
+    /// Opens WS stream using `tungstenite`
     pub fn connect(self) -> Result<WebSocketStream> {
         let (stream, _) = tungstenite::connect(self.0)?;
         Ok(stream)
@@ -155,19 +163,24 @@ impl RequestBuilder for DefaultWebSocketRequestBuilder {
         K: AsRef<str>,
         V: ToString,
     {
-        // ignoring params
-        self
+        Self(self.0.and(Err(eyre!("No params expected"))))
     }
 
     fn headers(self, headers: Headers) -> Self {
         self.and_then(|b| b.set_headers(headers))
     }
 
-    fn body(self, _data: Vec<u8>) -> Self::Output {
-        // ignoring passed data
-        self.0
-            .and_then(|b| b.body(()).map_err(|e| e.into()))
-            .map(|req| DefaultWebSocketStreamRequest(req))
+    fn body(self, data: Option<Vec<u8>>) -> Self::Output {
+        match data {
+            Some(body) => Err(eyre!("Empty body expected, got: {:?}", body)),
+            None => self
+                .0
+                .and_then(|b| {
+                    let req = b.body(()).map_err(|e| e.into());
+                    req
+                })
+                .map(|req| DefaultWebSocketStreamRequest(req)),
+        }
     }
 }
 
