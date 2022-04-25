@@ -126,8 +126,13 @@ fn register_role_with_empty_token_params() -> Result<()> {
 // TODO: When we have more sane default permissions, see if we can
 // test more about whether or not roles actually work.
 
+/// Test meant to mirror the test of the same name in the Iroha Kotlin
+/// SDK. This doesn't actually test the functionality of the role
+/// granted, merely that the role can be constructed and
+/// registered. Once @appetrosyan (me) is onboarded into the Kotlin
+/// SDK, I'll update both tests to actually verify functionality.
 #[test]
-fn register_and_grant_metadata_role_to_account() -> Result<()> {
+fn register_metadata_role() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 

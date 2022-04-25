@@ -8,8 +8,9 @@ use test_network::*;
 
 use super::Configuration;
 
+// Note the test is marked as `unstable`,  not the network.
 #[test]
-fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
+fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given a network
     let (rt, network, mut genesis_client, pipeline_time, account_id, asset_definition_id) = init()?;
     wait_for_genesis_committed(&network.clients(), 0);

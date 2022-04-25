@@ -26,12 +26,12 @@ jobs:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
-        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2
+        run: mold --run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2
       - name: Run iroha tests with network mock
-        run: mold -run cargo test --quiet --features mock -- --ignored --skip unstable_network --test-threads 2
+        run: mold --run cargo test --quiet --features mock -- --ignored --skip unstable_network --test-threads 2
         working-directory: core/test_network
       - name: Run iroha_actor deadlock detection tests
-        run: mold -run cargo test --quiet --features deadlock_detection -- --skip unstable_network --test-threads 2
+        run: mold --run cargo test --quiet --features deadlock_detection -- --skip unstable_network --test-threads 2
         working-directory: actor
         if: always()
       - name: Verify wasm smartcontracts are able to build
@@ -51,7 +51,8 @@ jobs:
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
-  # 2. Coverage bot can have results from `iroha2-dev` to report coverage changes.
+  # 2. Coverage bot can have results from
+  # `iroha2-dev` to report coverage changes.
   coverage:
     runs-on: ubuntu-latest
     container:
@@ -60,13 +61,19 @@ jobs:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
-        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2 || true
+        run: |
+          mold --run cargo +nightly-2022-04-20 test \
+          --quiet --workspace --no-fail-fast -- \
+          --skip unstable_network --skip ui --test-threads 3
         env:
-          RUSTFLAGS: "-Zinstrument-coverage"
+          RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate a grcov coverage report
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        run: |
+          grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        if: always()
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
+        if: always()
         with:
           file: lcov.info

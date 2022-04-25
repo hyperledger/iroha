@@ -9,6 +9,10 @@ env:
   RUSTC_BOOTSTRAP: 1
 
 jobs:
+  # Coverage is both in PR and in push pipelines so that:
+  # 1. PR can get coverage report from bot.
+  # 2. Coverage bot can have results from
+  # `iroha2-dev` to report coverage changes.
   coverage:
     runs-on: ubuntu-latest
     container:
@@ -17,16 +21,23 @@ jobs:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
-        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2 || true
+        run: |
+          mold --run cargo +nightly-2022-04-20 test \
+          --quiet --workspace --no-fail-fast -- \
+          --skip unstable_network --skip ui --test-threads 3
         env:
-          RUSTFLAGS: "-Zinstrument-coverage"
+          RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate a grcov coverage report
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        run: |
+          grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        if: always()
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
+        if: always()
         with:
           file: lcov.info
+
 
   deploy:
     runs-on: ubuntu-latest
@@ -59,7 +70,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2:stable-client-cli
+          tags: hyperledger/iroha2:client-cli-stable
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
@@ -69,11 +80,11 @@ jobs:
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2:stable-crypto-cli
+          tags: hyperledger/iroha2:kagami-stable
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
-            BIN=iroha_crypto_cli
+            BIN=kagami
 
       - name: Build and push load-rs:release docker image
         run: |

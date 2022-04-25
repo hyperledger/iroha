@@ -12,6 +12,8 @@ on:
       - "wasm/**.json"
       - "wasm/**.toml"
       - "wasm/**.yml"
+      - "data_model/**.rs"
+      - "data_model/**.toml"
 
 env:
   RUSTC_BOOTSTRAP: 1

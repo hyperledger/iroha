@@ -465,13 +465,9 @@ version = "2.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0610544180c38b88101fecf2dd634b174a62eef6946f84dfc6a7127512b381c"
 dependencies = [
- "ansi_term",
- "atty",
  "bitflags",
- "strsim 0.8.0",
  "textwrap 0.11.0",
  "unicode-width",
- "vec_map",
 ]
 
 [[package]]
@@ -486,7 +482,7 @@ dependencies = [
  "clap_lex",
  "indexmap",
  "lazy_static",
- "strsim 0.10.0",
+ "strsim",
  "termcolor",
  "textwrap 0.15.0",
 ]
@@ -497,7 +493,7 @@ version = "3.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3aab4734e083b809aaf5794e14e756d1c798d2c69c7f7de7a09a2f5214993c1"
 dependencies = [
- "heck 0.4.0",
+ "heck",
  "proc-macro-error",
  "proc-macro2",
  "quote",
@@ -1493,15 +1489,6 @@ dependencies = [
 
 [[package]]
 name = "heck"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d621efb26863f0e9924c6ac577e8275e5e6b77455db64ffa6c65c904e9e132c"
-dependencies = [
- "unicode-segmentation",
-]
-
-[[package]]
-name = "heck"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2540771e65fc8cb83cd6e8a237f70c319bd5c29f78ed1084ba5d50eeac86f7f9"
@@ -1693,7 +1680,7 @@ dependencies = [
  "iroha_macro",
  "iroha_p2p",
  "iroha_permissions_validators",
- "iroha_schema_bin",
+ "iroha_schema_gen",
  "iroha_telemetry",
  "iroha_version",
  "parity-scale-codec",
@@ -1770,6 +1757,7 @@ dependencies = [
 name = "iroha_client_cli"
 version = "2.0.0-pre-rc.3"
 dependencies = [
+ "clap 3.1.10",
  "color-eyre",
  "dialoguer",
  "futures",
@@ -1777,7 +1765,6 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "serde_json",
- "structopt",
 ]
 
 [[package]]
@@ -2000,17 +1987,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_schema_bin"
-version = "2.0.0-pre-rc.3"
-dependencies = [
- "iroha_core",
- "iroha_crypto",
- "iroha_data_model",
- "iroha_schema",
- "serde_json",
-]
-
-[[package]]
 name = "iroha_schema_derive"
 version = "2.0.0-pre-rc.3"
 dependencies = [
@@ -2019,6 +1995,17 @@ dependencies = [
  "quote",
  "syn",
  "trybuild",
+]
+
+[[package]]
+name = "iroha_schema_gen"
+version = "2.0.0-pre-rc.3"
+dependencies = [
+ "iroha_core",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_schema",
+ "serde_json",
 ]
 
 [[package]]
@@ -2155,7 +2142,7 @@ dependencies = [
 name = "kagami"
 version = "2.0.0-pre-rc.3"
 dependencies = [
- "clap 2.34.0",
+ "clap 3.1.10",
  "color-eyre",
  "hex",
  "iroha",
@@ -2163,7 +2150,7 @@ dependencies = [
  "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_schema_bin",
+ "iroha_schema_gen",
  "serde_json",
 ]
 
@@ -2562,7 +2549,7 @@ dependencies = [
  "iroha_crypto",
  "iroha_data_model",
  "iroha_schema",
- "iroha_schema_bin",
+ "iroha_schema_gen",
  "iroha_version",
  "parity-scale-codec",
 ]
@@ -3409,39 +3396,9 @@ dependencies = [
 
 [[package]]
 name = "strsim"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
-
-[[package]]
-name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
-
-[[package]]
-name = "structopt"
-version = "0.3.26"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c6b5c64445ba8094a6ab0c3cd2ad323e07171012d9c98b0b15651daf1787a10"
-dependencies = [
- "clap 2.34.0",
- "lazy_static",
- "structopt-derive",
-]
-
-[[package]]
-name = "structopt-derive"
-version = "0.4.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcb5ae327f9cc13b68763b5749770cb9e048a99bd9dfdfa58d0cf05d5f64afe0"
-dependencies = [
- "heck 0.3.3",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn",
-]
 
 [[package]]
 name = "subtle"
@@ -3951,12 +3908,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "unicode-segmentation"
-version = "1.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e8820f5d777f6224dc4be3632222971ac30164d4a258d595640799554ebfd99"
-
-[[package]]
 name = "unicode-width"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4062,12 +4013,6 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
-
-[[package]]
-name = "vec_map"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "vergen"

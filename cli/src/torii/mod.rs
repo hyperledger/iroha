@@ -1,5 +1,6 @@
-//! This module contains incoming requests handling logic of Iroha.
-//! `Torii` is used to receive, accept and route incoming instructions, queries and messages.
+//! Translates to gateway. Request handling logic of Iroha.  `Torii`
+//! is used to receive, accept and route incoming instructions,
+//! queries and messages.
 
 use std::{convert::Infallible, fmt::Debug, net::ToSocketAddrs, sync::Arc};
 

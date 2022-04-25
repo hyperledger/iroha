@@ -170,6 +170,7 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
 }
 
 #[test]
+#[ignore = "flaky and unreliable. Re-enable once performance improvements are made"]
 fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     const TRIGGER_PERIOD_MS: u64 = 1000;
     const EXPECTED_COUNT: u64 = 4;

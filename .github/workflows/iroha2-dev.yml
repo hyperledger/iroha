@@ -52,14 +52,14 @@ jobs:
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2:crypto-cli-dev
+          tags: hyperledger/iroha2:kagami-dev
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
-            BIN=iroha_crypto_cli
+            BIN=kagami
 
       - name: Build and push load-rs:dev docker image
-        run: |          
+        run: |
           sleep 10s
           echo "wait to other workflow"
       - uses: convictional/trigger-workflow-and-wait@v1.6.0
@@ -112,11 +112,11 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: cargo-crypto-cli-build-release
-          path: target/release/iroha_crypto_cli
+          path: target/release/kagami
       - name: Run schema generation
         run: |
           mkdir -p target/schema
-          cargo run -p iroha_schema_bin > target/schema/schema.json
+          cargo run --bin kagami -- schema > target/schema/schema.json
       - name: Upload schema
         uses: actions/upload-artifact@v2
         with:
@@ -145,7 +145,8 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends lz4 jq
       - name: Print debug telemetry info
-        run: ./scripts/analyze_telemetry.sh target/telemetry/debug.json.lz4 >target/telemetry/debug.md
+        run: |
+          ./scripts/analyze_telemetry.sh target/telemetry/debug.json.lz4 >target/telemetry/debug.md
       - name: Print release telemetry info
         run: ./scripts/analyze_telemetry.sh target/telemetry/release.json.lz4 >target/telemetry/release.md
       - name: Print debug telemetry info
@@ -175,7 +176,8 @@ jobs:
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
-  # 2. Coverage bot can have results from `iroha2-dev` to report coverage changes.
+  # 2. Coverage bot can have results from
+  # `iroha2-dev` to report coverage changes.
   coverage:
     runs-on: ubuntu-latest
     container:
@@ -184,14 +186,19 @@ jobs:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
-        run: mold -run cargo test --workspace --no-fail-fast -- --skip unstable_network || true
+        run: |
+          mold --run cargo +nightly-2022-04-20 test \
+          --quiet --workspace --no-fail-fast -- \
+          --skip unstable_network --skip ui --test-threads 3
         env:
-          RUSTFLAGS: "-Zinstrument-coverage"
-          RUSTC_BOOTSTRAP: 1
+          RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate a grcov coverage report
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        run: |
+          grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        if: always()
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v1
+        if: always()
         with:
           file: lcov.info
