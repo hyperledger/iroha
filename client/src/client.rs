@@ -52,31 +52,37 @@ pub struct Client {
 /// Representation of `Iroha` client.
 impl Client {
     /// Constructor for client from configuration
-    pub fn new(configuration: &Configuration) -> Self {
+    ///
+    /// # Errors
+    /// If configuration isn't valid (e.g public/private keys don't match)
+    pub fn new(configuration: &Configuration) -> Result<Self> {
         Self::with_headers(configuration, http_client::Headers::default())
     }
 
     /// Constructor for client from configuration and headers
     ///
     /// *Authentication* header will be added, if `login` and `password` fields are presented
+    ///
+    /// # Errors
+    /// If configuration isn't valid (e.g public/private keys don't match)
     pub fn with_headers(
         configuration: &Configuration,
         mut headers: HashMap<String, String>,
-    ) -> Self {
+    ) -> Result<Self> {
         if let Some(basic_auth) = &configuration.basic_auth {
             let credentials = format!("{}:{}", basic_auth.web_login, basic_auth.password);
             let encoded = base64::encode(credentials);
             headers.insert(String::from("Authorization"), format!("Basic {}", encoded));
         }
 
-        Self {
+        Ok(Self {
             torii_url: configuration.torii_api_url.clone(),
             telemetry_url: configuration.torii_telemetry_url.clone(),
             transaction_limits: configuration.transaction_limits,
             key_pair: KeyPair::new(
                 configuration.public_key.clone(),
                 configuration.private_key.clone(),
-            ),
+            )?,
             proposed_transaction_ttl_ms: configuration.transaction_time_to_live_ms,
             transaction_status_timeout: Duration::from_millis(
                 configuration.transaction_status_timeout_ms,
@@ -84,7 +90,7 @@ impl Client {
             account_id: configuration.account_id.clone(),
             headers,
             add_transaction_nonce: configuration.add_transaction_nonce,
-        }
+        })
     }
 
     /// Builds transaction out of supplied instructions or wasm.
@@ -738,7 +744,7 @@ mod tests {
             add_transaction_nonce: true,
             ..Configuration::default()
         };
-        let client = Client::new(&cfg);
+        let client = Client::new(&cfg).expect("Invalid client configuration");
 
         let build_transaction = || {
             client
@@ -765,7 +771,7 @@ mod tests {
             basic_auth: Some(basic_auth),
             ..Configuration::default()
         };
-        let client = Client::new(&cfg);
+        let client = Client::new(&cfg).expect("Invalid client configuration");
 
         let value = client
             .headers

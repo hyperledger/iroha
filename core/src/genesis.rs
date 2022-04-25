@@ -189,7 +189,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
                             .account_private_key
                             .clone()
                             .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
-                    );
+                    )?;
 
                     raw_transaction.sign_and_accept(genesis_key_pair, tx_limits)
                 })
@@ -364,7 +364,7 @@ pub mod config {
                 "d748e18ce60cb30dea3e73c9019b7af45a8d465e3d71bcc9a5ef99a008205e534cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf"
             ).expect("Private key not hex encoded");
 
-            KeyPair::new(public_key, private_key)
+            KeyPair::new(public_key, private_key).expect("Key pair mismatch")
         }
     }
 
