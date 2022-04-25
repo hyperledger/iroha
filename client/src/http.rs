@@ -11,6 +11,7 @@ pub type Headers = HashMap<String, String>;
 /// To use custom builder with client, you need to implement this trait for some type and pass it
 /// to the client that will fill it.
 pub trait RequestBuilder {
+    /// Builder output. It is returned by [`RequestBuilder::body()`] function.
     type Output;
 
     /// Constructs a new builder with provided method and URL
@@ -36,7 +37,7 @@ pub trait RequestBuilder {
     fn body(self, data: Option<Vec<u8>>) -> Self::Output;
 }
 
-/// Represents data required to initialize any WebSocket connection with Iroha
+/// Represents data required to initialize any `WebSocket` connection with Iroha
 pub struct WebSocketInitData<B>
 where
     B: RequestBuilder,

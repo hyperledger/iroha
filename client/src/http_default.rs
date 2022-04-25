@@ -62,12 +62,11 @@ impl DefaultRequestBuilder {
 pub struct DefaultRequest(AttoHttpRequestBuilderWithBytes);
 
 impl DefaultRequest {
+    /// Private
     fn new(builder: AttoHttpRequestBuilderWithBytes) -> Self {
         Self(builder)
     }
-}
 
-impl DefaultRequest {
     /// Sends prepared request and returns bytes response
     ///
     /// # Errors
@@ -175,11 +174,8 @@ impl RequestBuilder for DefaultWebSocketRequestBuilder {
             Some(body) => Err(eyre!("Empty body expected, got: {:?}", body)),
             None => self
                 .0
-                .and_then(|b| {
-                    let req = b.body(()).map_err(|e| e.into());
-                    req
-                })
-                .map(|req| DefaultWebSocketStreamRequest(req)),
+                .and_then(|b| b.body(()).map_err(Into::into))
+                .map(DefaultWebSocketStreamRequest),
         }
     }
 }
