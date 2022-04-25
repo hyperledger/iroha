@@ -66,7 +66,7 @@ impl Signature {
     fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Self, Error> {
         let (public_key, private_key) = key_pair.into();
 
-        let algorithm: Algorithm = public_key.digest_function();
+        let algorithm: Algorithm = private_key.digest_function();
         let private_key = UrsaPrivateKey(private_key.payload);
 
         let signature = match algorithm {

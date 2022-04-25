@@ -131,7 +131,7 @@ impl Configuration {
             "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"
         ).expect("Private key not hex encoded");
 
-        KeyPair::new(public_key, private_key)
+        KeyPair::new(public_key, private_key).expect("Key pair mismatch")
     }
 
     /// Account ID used by default for demo purposes

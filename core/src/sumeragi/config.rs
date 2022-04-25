@@ -80,7 +80,7 @@ impl SumeragiConfiguration {
             "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
         ).expect("Private key not hex encoded");
 
-        KeyPair::new(public_key, private_key)
+        KeyPair::new(public_key, private_key).expect("Key pair mismatch")
     }
 
     fn placeholder_peer_id() -> PeerId {

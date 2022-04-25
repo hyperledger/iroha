@@ -112,11 +112,12 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
             KeyGenOption::FromPrivateKey(key) => {
                 let algorithm = key.digest_function();
 
-                if algorithm == Algorithm::Ed25519 || algorithm == Algorithm::Secp256k1 {
-                    return Ok(Self::FromSecretKey(UrsaPrivateKey(key.payload)));
+                match algorithm {
+                    Algorithm::Ed25519 | Algorithm::Secp256k1 => {
+                        Ok(Self::FromSecretKey(UrsaPrivateKey(key.payload)))
+                    }
+                    _ => Err(Self::Error {}),
                 }
-
-                Err(Self::Error {})
             }
         }
     }
@@ -210,11 +211,55 @@ impl KeyPair {
         self.private_key.digest_function()
     }
 
-    /// Construct `KeyPair`
-    pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Self {
+    /// Construct `KeyPair` from a matching pair of public and private key.
+    /// It is up to the user to ensure that the given keys indeed make a pair.
+    #[cfg(not(feature = "std"))]
+    pub fn new_unchecked(public_key: PublicKey, private_key: PrivateKey) -> Self {
         Self {
             public_key,
             private_key,
+        }
+    }
+
+    /// Construct `KeyPair`
+    ///
+    /// # Errors
+    /// If public and private key don't match, i.e. if they don't make a pair
+    #[cfg(feature = "std")]
+    pub fn new(public_key: PublicKey, private_key: PrivateKey) -> Result<Self, Error> {
+        let algorithm = private_key.digest_function();
+
+        if algorithm != public_key.digest_function() {
+            return Err(Error::KeyGen(String::from("Mismatch of key algorithms")));
+        }
+
+        match algorithm {
+            Algorithm::Ed25519 | Algorithm::Secp256k1 => {
+                let key_pair = Self::generate_with_configuration(KeyGenConfiguration {
+                    key_gen_option: Some(KeyGenOption::FromPrivateKey(private_key)),
+                    algorithm,
+                })?;
+
+                if *key_pair.public_key() != public_key {
+                    return Err(Error::KeyGen(String::from("Key pair mismatch")));
+                }
+
+                Ok(key_pair)
+            }
+            Algorithm::BlsNormal | Algorithm::BlsSmall => {
+                let dummy_payload = 1_u8;
+
+                let key_pair = Self {
+                    public_key,
+                    private_key,
+                };
+
+                SignatureOf::new(key_pair.clone(), &dummy_payload)?
+                    .verify(&dummy_payload)
+                    .map_err(|_err| Error::KeyGen(String::from("Key pair mismatch")))?;
+
+                Ok(key_pair)
+            }
         }
     }
 
@@ -259,11 +304,14 @@ impl KeyPair {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'de> Deserialize<'de> for KeyPair {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
+        use serde::de::Error as _;
+
         #[derive(Deserialize)]
         struct KeyPair {
             public_key: PublicKey,
@@ -271,7 +319,7 @@ impl<'de> Deserialize<'de> for KeyPair {
         }
 
         let key_pair = KeyPair::deserialize(deserializer)?;
-        Ok(Self::new(key_pair.public_key, key_pair.private_key))
+        Self::new(key_pair.public_key, key_pair.private_key).map_err(D::Error::custom)
     }
 }
 
@@ -532,6 +580,44 @@ mod tests {
     use alloc::borrow::ToString as _;
 
     use super::*;
+
+    #[test]
+    fn key_pair_match() {
+        assert!(KeyPair::new("ed012059c8a4da1ebb5380f74aba51f502714652fdcce9611fafb9904e4a3c4d382774"
+            .parse()
+            .expect("Public key not in mulithash format"),
+        PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "93ca389fc2979f3f7d2a7f8b76c70de6d5eaf5fa58d4f93cb8b0fb298d398acc59c8a4da1ebb5380f74aba51f502714652fdcce9611fafb9904e4a3c4d382774"
+        ).expect("Private key not hex encoded")).is_ok());
+
+        assert!(KeyPair::new("ea0161040fcfade2fc5d9104a9acf9665ea545339ddf10ae50343249e01af3b8f885cd5d52956542cce8105db3a2ec4006e637a7177faaea228c311f907daafc254f22667f1a1812bb710c6f4116a1415275d27bb9fb884f37e8ef525cc31f3945e945fa"
+            .parse()
+            .expect("Public key not in mulithash format"),
+        PrivateKey::from_hex(
+            Algorithm::BlsNormal,
+            "0000000000000000000000000000000049bf70187154c57b97af913163e8e875733b4eaf1f3f0689b31ce392129493e9"
+        ).expect("Private key not hex encoded")).is_ok());
+    }
+
+    #[test]
+    fn key_pair_mismatch() {
+        assert!(KeyPair::new("ed012059c8a4da1ebb5380f74aba51f502714652fdcce9611fafb9904e4a3c4d382774"
+            .parse()
+            .expect("Public key not in mulithash format"),
+        PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "0000000000000000000000000000000049bf70187154c57b97af913163e8e875733b4eaf1f3f0689b31ce392129493e9"
+        ).expect("Private key not hex encoded")).is_err());
+
+        assert!(KeyPair::new("ea0161040fcfade2fc5d9104a9acf9665ea545339ddf10ae50343249e01af3b8f885cd5d52956542cce8105db3a2ec4006e637a7177faaea228c311f907daafc254f22667f1a1812bb710c6f4116a1415275d27bb9fb884f37e8ef525cc31f3945e945fa"
+            .parse()
+            .expect("Public key not in mulithash format"),
+        PrivateKey::from_hex(
+            Algorithm::BlsNormal,
+            "93ca389fc2979f3f7d2a7f8b76c70de6d5eaf5fa58d4f93cb8b0fb298d398acc59c8a4da1ebb5380f74aba51f502714652fdcce9611fafb9904e4a3c4d382774"
+        ).expect("Private key not hex encoded")).is_err());
+    }
 
     #[test]
     fn display_public_key() {

@@ -123,13 +123,15 @@ impl Configuration {
         let mut configuration: Configuration = serde_json::from_reader(reader).wrap_err(
             format!("Failed to parse {:?} as Iroha peer configuration.", path),
         )?;
-        configuration.finalize();
+        configuration.finalize()?;
         Ok(configuration)
     }
 
-    fn finalize(&mut self) {
-        self.sumeragi.key_pair = self.key_pair();
+    fn finalize(&mut self) -> Result<()> {
+        self.sumeragi.key_pair = KeyPair::new(self.public_key.clone(), self.private_key.clone())?;
         self.sumeragi.peer_id = PeerId::new(&self.torii.p2p_addr, &self.public_key.clone());
+
+        Ok(())
     }
 
     /// Loads configuration from environment
@@ -139,13 +141,8 @@ impl Configuration {
     /// - Configuration `TrustedPeers` contains entries with duplicate public keys
     pub fn load_environment(&mut self) -> Result<()> {
         iroha_config::Configurable::load_environment(self)?;
-        self.finalize();
+        self.finalize()?;
         Ok(())
-    }
-
-    /// Get `public_key` and `private_key` configuration parameters.
-    pub fn key_pair(&self) -> iroha_crypto::KeyPair {
-        iroha_crypto::KeyPair::new(self.public_key.clone(), self.private_key.clone())
     }
 }
 
