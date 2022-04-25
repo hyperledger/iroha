@@ -613,6 +613,10 @@ impl Client {
         EventIterator::new(self.events_handler(event_filter)?)
     }
 
+    /// Constructs an Events API handler. With it, you can use any WS client you want.
+    ///
+    /// # Errors
+    /// Fails if handler construction fails
     pub fn events_handler(&self, event_filter: EventFilter) -> Result<EventsApiFlowInit> {
         EventsApiFlowInit::new(
             event_filter,
@@ -844,6 +848,7 @@ impl WebSocketFlowInit for EventsApiFlowInit {
 }
 
 /// Events API flow handshake handler
+#[derive(Copy)]
 pub struct EventsApiFlowHandshake;
 
 impl WebSocketFlowHandshake for EventsApiFlowHandshake {
@@ -863,7 +868,7 @@ impl WebSocketFlowHandshake for EventsApiFlowHandshake {
 }
 
 /// Events API flow events handler
-#[derive(Debug)]
+#[derive(Debug, Copy)]
 pub struct EventsApiFlowEvents;
 
 impl WebSocketFlowEvents for EventsApiFlowEvents {
