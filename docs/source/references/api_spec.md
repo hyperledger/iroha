@@ -227,6 +227,7 @@ Also returns current status of peer in json string:
   + Number of committed blocks (block height)
   + Total number of transactions
   + `uptime` since creation of the genesis block in milliseconds.
+  + Number of view_changes in the current round
 
 ```json
 {
@@ -234,7 +235,11 @@ Also returns current status of peer in json string:
     "blocks": 1,
     "txs_accepted": 3,
     "txs_rejected": 0,
-    "uptime": 3200,
+    "uptime": {
+        "secs": 5,
+        "nanos": 937000000
+    },
+    "view_changes": 0
 }
 ```
 
@@ -251,25 +256,49 @@ Also returns current status of peer in json string:
 **Expects**: -
 
 **Responses**:
-- 200 OK - currently mirrors status:
-  + Number of connected peers, except for the reporting peer itself
-  + Number of committed blocks (block height)
-  + Total number of transactions
-  + `uptime` since creation of the genesis block in milliseconds.
+- 200 OK - reports 8 of 10 metrics:
 
 ```bash
+# HELP accounts User accounts registered at this time
+# TYPE accounts gauge
+accounts{domain="genesis"} 1
+accounts{domain="wonderland"} 1
 # HELP block_height Current block height
 # TYPE block_height counter
-block_height 0
+block_height 1
 # HELP connected_peers Total number of currently connected peers
 # TYPE connected_peers gauge
 connected_peers 0
+# HELP domains Total number of domains
+# TYPE domains gauge
+domains 2
+# HELP tx_amount average amount involved in a transaction on this peer
+# TYPE tx_amount histogram
+tx_amount_bucket{le="0.005"} 0
+tx_amount_bucket{le="0.01"} 0
+tx_amount_bucket{le="0.025"} 0
+tx_amount_bucket{le="0.05"} 0
+tx_amount_bucket{le="0.1"} 0
+tx_amount_bucket{le="0.25"} 0
+tx_amount_bucket{le="0.5"} 0
+tx_amount_bucket{le="1"} 0
+tx_amount_bucket{le="2.5"} 0
+tx_amount_bucket{le="5"} 0
+tx_amount_bucket{le="10"} 0
+tx_amount_bucket{le="+Inf"} 2
+tx_amount_sum 26
+tx_amount_count 2
 # HELP txs Transactions committed
 # TYPE txs counter
-txs 0
-# HELP uptime_since_genesis_ms Uptime of the network, starting from creation of the genesis block
+txs{type="accepted"} 1
+txs{type="rejected"} 0
+txs{type="total"} 1
+# HELP uptime_since_genesis_ms Network up-time, from creation of the genesis block
 # TYPE uptime_since_genesis_ms gauge
-uptime_since_genesis_ms 0
+uptime_since_genesis_ms 54572974
+# HELP view_changes Number of view_changes in the current round
+# TYPE view_changes gauge
+view_changes 0
 ```
 
 ## Parity Scale Codec

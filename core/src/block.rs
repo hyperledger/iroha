@@ -719,7 +719,7 @@ impl VersionedCommittedBlock {
 }
 
 /// When Kura receives `ValidBlock`, the block is stored and
-/// then sent to later stage of the pipeline as `CommitedBlock`.
+/// then sent to later stage of the pipeline as `CommittedBlock`.
 #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
 #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct CommittedBlock {

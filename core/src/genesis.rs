@@ -134,7 +134,6 @@ async fn try_get_online_topology(
             .with_leader(this_peer_id.clone())
             .with_set_a(set_a)
             .with_set_b(set_b)
-            .reshuffle_after(network_topology.reshuffle_after())
             .build()
             .expect("Preconditions should be already checked.")
     };

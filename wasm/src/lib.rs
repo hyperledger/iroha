@@ -21,6 +21,11 @@ pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::iroha_wasm;
 use parity_scale_codec::{Decode, Encode};
 
+#[cfg(feature = "debug")]
+mod debug;
+#[cfg(feature = "debug")]
+pub use debug::*;
+
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
@@ -65,6 +70,7 @@ impl Execute for data_model::isi::Instruction {
         unsafe { encode_and_execute(self, host_execute_instruction) };
     }
 }
+
 impl Execute for data_model::query::QueryBox {
     type Result = Value;
 
@@ -112,6 +118,16 @@ mod host {
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
         pub(super) fn execute_instruction(ptr: WasmUsize, len: WasmUsize);
+
+        /// Prints string to the standard output by providing offset and length
+        /// into WebAssembly's linear memory where string is stored
+        ///
+        /// # Warning
+        ///
+        /// This function doesn't take ownership of the provided allocation
+        /// but it does transfer ownership of the result to the caller
+        #[cfg(feature = "debug")]
+        pub(super) fn dbg(ptr: WasmUsize, len: WasmUsize);
     }
 }
 
@@ -264,6 +280,10 @@ mod tests {
         let instruction = Instruction::decode(&mut &*bytes);
         assert_eq!(get_test_instruction(), instruction.unwrap());
     }
+
+    #[cfg(feature = "debug")]
+    #[no_mangle]
+    pub(super) unsafe extern "C" fn _dbg(_ptr: WasmUsize, _len: WasmUsize) {}
 
     #[no_mangle]
     pub(super) unsafe extern "C" fn _iroha_wasm_execute_query_mock(

@@ -17,6 +17,10 @@ members = [
   "derive",
 ]
 
+[features]
+# Enables debugging tools such as `dbg()` and `DebugUnwrapExt`
+debug = []
+
 [dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../data_model", default-features = false }
 iroha_wasm_derive = { path = "derive" }

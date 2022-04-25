@@ -64,7 +64,6 @@ fn unstable_network(
     let (network, mut iroha_client) = rt.block_on(async {
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = MAXIMUM_TRANSACTIONS_IN_BLOCK;
-        configuration.sumeragi.n_topology_shifts_before_reshuffle = u64::from(n_peers);
         configuration.logger.max_log_level = Level(logger::Level::ERROR).into();
         let network =
             <Network>::new_with_offline_peers(Some(configuration), n_peers, n_offline_peers)
