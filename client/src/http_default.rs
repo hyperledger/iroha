@@ -24,6 +24,7 @@ impl SetSingleHeader for AttoHttpRequestBuilderWithBytes {
 }
 
 impl SetSingleHeader for http::request::Builder {
+    #[allow(clippy::used_only_in_recursion)] // False-positive
     fn header(self, key: HeaderName, value: String) -> Self {
         self.header(key, value)
     }
