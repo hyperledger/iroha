@@ -848,7 +848,7 @@ impl WebSocketFlowInit for EventsApiFlowInit {
 }
 
 /// Events API flow handshake handler
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct EventsApiFlowHandshake;
 
 impl WebSocketFlowHandshake for EventsApiFlowHandshake {
@@ -868,7 +868,7 @@ impl WebSocketFlowHandshake for EventsApiFlowHandshake {
 }
 
 /// Events API flow events handler
-#[derive(Debug, Copy)]
+#[derive(Debug, Copy, Clone)]
 pub struct EventsApiFlowEvents;
 
 impl WebSocketFlowEvents for EventsApiFlowEvents {
