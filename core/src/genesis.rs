@@ -11,8 +11,7 @@ use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{asset::AssetDefinition, prelude::*};
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
-use small::SmallVec;
-use smallvec::smallvec;
+use small::{smallvec, SmallVec};
 use tokio::{time, time::Duration};
 
 pub use self::config::GenesisConfiguration;

@@ -24,7 +24,7 @@ members = [
   "p2p",
   "permissions_validators",
   "schema",
-  "schema/bin",
+  "schema/gen",
   "schema/derive",
   "substrate",
   "telemetry",

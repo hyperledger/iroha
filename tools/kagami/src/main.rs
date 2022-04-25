@@ -4,182 +4,153 @@
 
 use std::io::{stdout, BufWriter, Write};
 
-use clap::{App, Arg, ArgGroup};
+use clap::{ArgGroup, StructOpt};
 use color_eyre::eyre::WrapErr as _;
-use docs::PrintDocs as _;
 use iroha::config::Configuration;
+
+pub type Outcome = color_eyre::Result<()>;
 
 // The reason for hard-coding this default is to ensure that the
 // algorithm is matched to the public key. If you need to change
 // either, you should definitely change both.
 static DEFAULT_PUBLIC_KEY: &str =
     "ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0";
-static DEFAULT_ALGORITHM: &str = iroha_crypto::ED_25519;
+// static DEFAULT_ALGORITHM: &str = iroha_crypto::ED_25519;
 
-fn main() -> color_eyre::Result<()> {
+fn main() -> Outcome {
     color_eyre::install()?;
-    let matches = arg_parse();
-    let keypair = crypto::key_pair(&matches)?;
-    let mut output = BufWriter::new(stdout());
-
-    if matches.is_present("genesis") {
-        writeln!(
-            output,
-            "{}",
-            serde_json::to_string_pretty(&genesis::generate_default()?)?
-        )?;
-    } else if matches.is_present("docs") {
-        Configuration::get_markdown(&mut BufWriter::new(stdout()))
-            .wrap_err("Failed to generate documentation")?;
-    } else if matches.is_present("schema") {
-        let schemas = iroha_schema_bin::build_schemas();
-        writeln!(output, "{}", serde_json::to_string_pretty(&schemas)?)?;
-    } else if matches.is_present("key") {
-        #[allow(clippy::print_stdout)]
-        if matches.is_present("json") {
-            let json =
-                serde_json::to_string_pretty(&keypair).wrap_err("Failed to serialize to json.")?;
-            writeln!(output, "{}", json)?;
-        } else {
-            writeln!(output, "Public key (multihash): {}", &keypair.public_key())?;
-            writeln!(output, "Private key: {}", &keypair.private_key())?;
-            writeln!(
-                output,
-                "Digest function: {}",
-                &keypair.public_key().digest_function()
-            )?;
-        }
-    } else {
-        writeln!(output, "No arguments specified, run with `--help`")?;
-    }
-    Ok(())
+    let args: Args = clap::Parser::parse();
+    let mut writer = BufWriter::new(stdout());
+    args.run(&mut writer)
 }
 
-// TODO: Refactor to use the `StructOpt` syntax just like all other tools.
-fn arg_parse() -> clap::ArgMatches<'static> {
-    let app = App::new("Kagami")
-        .version("0.1")
-        .author("Iroha development team.")
-        .about("Generator for data used in Iroha.")
-        .arg(
-            Arg::with_name("seed")
-                .long("seed")
-                .value_name("seed")
-                .help("Sets a seed for random number generator. Should be used separately from `private_key`.")
-                .required(false)
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("private-key")
-                .long("private-key")
-                .value_name("private_key")
-                .help("Sets a private key. Should be used separately from `seed`.")
-                .required(false)
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("algorithm")
-                .long("algorithm")
-                .value_name("algorithm")
-                .help("Function used to generate the key pair.")
-                .takes_value(true)
-                .possible_value(iroha_crypto::ED_25519)
-                .possible_value(iroha_crypto::SECP_256_K1)
-                .possible_value(iroha_crypto::BLS_NORMAL)
-                .possible_value(iroha_crypto::BLS_SMALL)
-                .default_value(DEFAULT_ALGORITHM)
-        )
-        .arg(
-            Arg::with_name("json")
-            .long("json")
-            .help("If specified the output will be formatted as json.")
-            .takes_value(false)
-            .multiple(false)
-        )
-        .arg(
-            Arg::with_name("genesis")
-                .long("genesis")
-                .short("g")
-                .help("If specified, print the Genesis")
-                .takes_value(false)
-                .multiple(false)
-        )
-        .arg(
-            Arg::with_name("schema")
-                .long("schema")
-                .short("s")
-                .help("If specified, print Schema")
-                .takes_value(false)
-                .multiple(false)
-        )
-        .arg(
-            Arg::with_name("docs")
-                .long("docs")
-                .short("d")
-                .help("If specified, print configuration docs")
-                .takes_value(false)
-                .multiple(false)
-        )
-        .group(
-            ArgGroup::with_name("other_gen_options")
-                .args(&["docs", "schema", "genesis"])
-                .required(false)
-                .multiple(false)
-        )
-        .group(
-            ArgGroup::with_name("key_gen_options")
-                .args(&["seed", "private-key"])
-                .required(false)
-                .multiple(false)
-        ).get_matches();
-    app
+/// Trait to encapsulate common attributes of the commands and sub-commands.
+pub trait RunArgs<T: Write> {
+    /// Run the given command.
+    ///
+    /// # Errors
+    /// if inner command fails.
+    fn run(self, writer: &mut BufWriter<T>) -> Outcome;
+}
+
+/// Tool generating the cryptorgraphic key pairs, schema, genesis block and configuration reference.
+#[derive(StructOpt, Debug)]
+#[structopt(name = "kagami", version, author)]
+pub enum Args {
+    /// Generate cryptorgraphic key pairs
+    Crypto(crypto::Args),
+    /// Generate schema used for code generation in Iroha SDKs
+    Schema(schema::Args),
+    /// Generate a default genesis block that is used in tests
+    Genesis(genesis::Args),
+    /// Generate a Markdown reference of configuration parameters
+    Docs(docs::Args),
+}
+
+impl<T: Write> RunArgs<T> for Args {
+    fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+        use Args::*;
+
+        match self {
+            Crypto(args) => args.run(writer),
+            Schema(args) => args.run(writer),
+            Genesis(args) => args.run(writer),
+            Docs(args) => args.run(writer),
+        }
+    }
 }
 
 mod crypto {
-
-    use color_eyre::eyre::{eyre, WrapErr as _};
+    use color_eyre::eyre::WrapErr as _;
     use iroha_crypto::{Algorithm, KeyGenConfiguration, KeyPair, PrivateKey};
 
-    pub fn key_pair(matches: &clap::ArgMatches) -> color_eyre::Result<KeyPair> {
-        let seed_option = matches.value_of("seed");
-        let private_key_option = matches.value_of("private-key");
-        let algorithm = matches
-            .value_of("algorithm")
-            .ok_or_else(|| eyre!("Failed to get algorithm name."))?
-            .parse::<Algorithm>()
-            .wrap_err("Failed to parse algorithm.")?;
-        let key_gen_configuration = KeyGenConfiguration::default().with_algorithm(algorithm);
-        let keypair: KeyPair = seed_option.map_or_else(
-            || -> color_eyre::Result<_> {
-                private_key_option.map_or_else(
-                    || {
-                        KeyPair::generate_with_configuration(key_gen_configuration.clone())
-                            .wrap_err("failed to generate key pair")
-                    },
-                    |private_key| {
-                        KeyPair::generate_with_configuration(
-                            key_gen_configuration
-                                .clone()
-                                .use_private_key(PrivateKey::from_hex(
-                                    algorithm,
-                                    &hex::decode(private_key)
-                                        .wrap_err("Failed to decode private key")?,
-                                )?),
-                        )
-                        .wrap_err("Failed to generate key pair")
-                    },
-                )
-            },
-            |seed| -> color_eyre::Result<_> {
-                KeyPair::generate_with_configuration(
-                    key_gen_configuration
-                        .clone()
-                        .use_seed(seed.as_bytes().into()),
-                )
-                .wrap_err("Failed to generate key pair")
-            },
-        )?;
-        Ok(keypair)
+    use super::*;
+
+    /// Use `Kagami` to generate cryptographic key-pairs.
+    #[derive(StructOpt, Debug, Clone)]
+    #[structopt(group = ArgGroup::new("generate_from").required(false))]
+    pub struct Args {
+        /// Algorithm used for generating the key-pair
+        #[clap(default_value_t, long, short)]
+        algorithm: Algorithm,
+        /// The `private_key` used to generate the key-pair
+        #[clap(long, short, group = "generate_from")]
+        private_key: Option<String>,
+        /// The `seed` used to generate the key-pair
+        #[clap(long, short, group = "generate_from")]
+        seed: Option<String>,
+        /// Output the key-pair in JSON format
+        #[clap(long, short)]
+        json: bool,
+    }
+
+    impl<T: Write> RunArgs<T> for Args {
+        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+            if self.json {
+                let output = serde_json::to_string_pretty(&self.key_pair()?)
+                    .wrap_err("Failed to serialise to JSON.")?;
+                writeln!(writer, "{}", output)?;
+            } else {
+                let key_pair = self.key_pair()?;
+                writeln!(writer, "Public key (multihash): {}", &key_pair.public_key())?;
+                writeln!(writer, "Private key: {}", &key_pair.private_key())?;
+                writeln!(
+                    writer,
+                    "Digest function: {}",
+                    &key_pair.public_key().digest_function()
+                )?;
+            }
+            Ok(())
+        }
+    }
+
+    impl Args {
+        fn key_pair(self) -> color_eyre::Result<KeyPair> {
+            let key_gen_configuration =
+                KeyGenConfiguration::default().with_algorithm(self.algorithm);
+            let keypair: KeyPair = self.seed.map_or_else(
+                || -> color_eyre::Result<_> {
+                    self.private_key.map_or_else(
+                        || {
+                            KeyPair::generate_with_configuration(key_gen_configuration.clone())
+                                .wrap_err("failed to generate key pair")
+                        },
+                        |private_key| {
+                            let private_key = PrivateKey::from_hex(self.algorithm, &private_key)
+                                .wrap_err("Failed to decode private key")?;
+                            KeyPair::generate_with_configuration(
+                                key_gen_configuration.clone().use_private_key(private_key),
+                            )
+                            .wrap_err("Failed to generate key pair")
+                        },
+                    )
+                },
+                |seed| -> color_eyre::Result<_> {
+                    KeyPair::generate_with_configuration(
+                        key_gen_configuration
+                            .clone()
+                            .use_seed(seed.as_bytes().into()),
+                    )
+                    .wrap_err("Failed to generate key pair")
+                },
+            )?;
+            Ok(keypair)
+        }
+    }
+}
+
+mod schema {
+    use super::*;
+
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub struct Args;
+
+    impl<T: Write> RunArgs<T> for Args {
+        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+            let schemas = iroha_schema_gen::build_schemas();
+            writeln!(writer, "{}", serde_json::to_string_pretty(&schemas)?)
+                .wrap_err("Failed to write schema.")
+        }
     }
 }
 
@@ -188,6 +159,22 @@ mod genesis {
         genesis::{RawGenesisBlock, RawGenesisBlockBuilder},
         tx::{AssetDefinition, MintBox},
     };
+
+    use super::*;
+
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub struct Args;
+
+    impl<T: Write> RunArgs<T> for Args {
+        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+            writeln!(
+                writer,
+                "{}",
+                serde_json::to_string_pretty(&generate_default()?)?
+            )
+            .wrap_err("Failed to write.")
+        }
+    }
 
     pub fn generate_default() -> color_eyre::Result<RawGenesisBlock> {
         let asset_definition = AssetDefinition::quantity("rose#wonderland".parse()?).build();
@@ -213,10 +200,22 @@ mod docs {
     #![allow(clippy::panic_in_result_fn, clippy::expect_used)]
     use std::{fmt::Debug, io::Write};
 
+    use color_eyre::eyre::WrapErr as _;
     use iroha_config::Configurable;
     use serde_json::Value;
 
+    use super::*;
+
     impl<E: Debug, C: Configurable<Error = E> + Send + Sync + Default> PrintDocs for C {}
+
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub struct Args;
+
+    impl<T: Write> RunArgs<T> for Args {
+        fn run(self, writer: &mut BufWriter<T>) -> crate::Outcome {
+            Configuration::get_markdown(writer).wrap_err("Failed to generate documentation")
+        }
+    }
 
     pub trait PrintDocs: Configurable + Send + Sync + Default
     where

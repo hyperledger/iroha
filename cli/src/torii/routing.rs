@@ -153,7 +153,7 @@ async fn handle_health() -> Json {
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "schema-endpoint")]
 async fn handle_schema() -> Json {
-    reply::json(&iroha_schema_bin::build_schemas())
+    reply::json(&iroha_schema_gen::build_schemas())
 }
 
 #[iroha_futures::telemetry_future]
