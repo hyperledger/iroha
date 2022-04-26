@@ -112,7 +112,7 @@ pub fn get_key_pair() -> KeyPair {
             Algorithm::Ed25519,
             "9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0",
         ).expect("Private key not hex encoded")
-    )
+    ).expect("Key pair mismatch")
 }
 
 /// Trait used to differentiate a test instance of `genesis`.
@@ -805,6 +805,7 @@ impl TestClientConfiguration for ClientConfiguration {
 impl TestClient for Client {
     fn test(api_url: &str, telemetry_url: &str) -> Self {
         Client::new(&ClientConfiguration::test(api_url, telemetry_url))
+            .expect("Invalid client configuration")
     }
 
     fn test_with_key(api_url: &str, telemetry_url: &str, keys: KeyPair) -> Self {
@@ -812,7 +813,7 @@ impl TestClient for Client {
         let (public_key, private_key) = keys.into();
         configuration.public_key = public_key;
         configuration.private_key = private_key;
-        Client::new(&configuration)
+        Client::new(&configuration).expect("Invalid client configuration")
     }
 
     fn test_with_account(
@@ -826,7 +827,7 @@ impl TestClient for Client {
         let (public_key, private_key) = keys.into();
         configuration.public_key = public_key;
         configuration.private_key = private_key;
-        Client::new(&configuration)
+        Client::new(&configuration).expect("Invalid client configuration")
     }
 
     fn for_each_event(mut self, event_filter: EventFilter, f: impl Fn(Result<Event>)) {

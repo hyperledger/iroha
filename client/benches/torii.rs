@@ -76,7 +76,7 @@ fn query_requests(criterion: &mut Criterion) {
         client_config.torii_telemetry_url =
             small::SmallStr::from_string(format!("http://{}", client_config.torii_telemetry_url));
     }
-    let mut iroha_client = Client::new(&client_config);
+    let mut iroha_client = Client::new(&client_config).expect("Invalid client configuration");
     thread::sleep(std::time::Duration::from_millis(5000));
 
     let _ = iroha_client
@@ -157,7 +157,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         client_config.torii_telemetry_url =
             small::SmallStr::from_string(format!("http://{}", client_config.torii_telemetry_url));
     }
-    let mut iroha_client = Client::new(&client_config);
+    let mut iroha_client = Client::new(&client_config).expect("Invalid client configuration");
     thread::sleep(std::time::Duration::from_millis(5000));
     let _ = iroha_client
         .submit_all(vec![create_domain.into(), create_account.into()])
