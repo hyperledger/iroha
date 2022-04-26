@@ -306,8 +306,10 @@ TEST_P(GrantPermissionFx, GrantMoreThanOnce) {
                               kAccount2,
                               permissions::Grantable::kAddMySignatory))
       .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
+      .checkVerifiedProposal(
+          [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 1); })
+      .checkBlock(
+          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTx(grantPermission(kAccount1,
                               kAccount1Keypair,
                               kAccount2,

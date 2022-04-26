@@ -784,6 +784,11 @@ namespace iroha::ametsuchi {
         c->rollback();
     }
 
+    void clearCache() {
+      if (auto c = cache())
+        c->drop();
+    }
+
     void commitCache() {
       if (auto c = cache())
         c->commit();
@@ -885,7 +890,7 @@ namespace iroha::ametsuchi {
       if (isTransaction())
         status = transaction()->RollbackToSavePoint();
 
-      dropCache();
+      clearCache();
       return status;
     }
 
