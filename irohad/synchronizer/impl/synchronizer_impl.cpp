@@ -148,7 +148,7 @@ iroha::ametsuchi::CommitResult SynchronizerImpl::downloadAndCommitMissingBlocks(
         }
 
         my_height = (*maybe_block)->height();
-        if (my_height >= end_height)
+        if (my_height > end_height)
           break;
       }
       if (auto error = std::get_if<std::string>(&block_var)) {
