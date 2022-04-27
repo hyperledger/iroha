@@ -38,6 +38,18 @@ macro_rules! entity_filter {
                     event_filter,
                 }
             }
+
+            /// Get `id_filter`
+            #[inline]
+            pub const fn id_filter(&self) -> &FilterOpt<IdFilter<<$entity_type as IdTrait>::Id>> {
+                &self.id_filter
+            }
+
+            /// Get `event_filter`
+            #[inline]
+            pub const fn event_filter(&self) -> &FilterOpt<$event_filter_type> {
+                &self.event_filter
+            }
         }
 
         impl Filter for $name {
@@ -665,6 +677,11 @@ impl<Id: Eq> IdFilter<Id> {
     /// Construct new `IdFilter`
     pub fn new(id: Id) -> Self {
         Self(id)
+    }
+
+    /// Get `id`
+    pub fn id(&self) -> &Id {
+        &self.0
     }
 }
 

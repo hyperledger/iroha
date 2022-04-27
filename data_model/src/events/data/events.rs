@@ -4,8 +4,10 @@ use super::*;
 
 /// Trait for retrieving id from events
 pub trait IdTrait {
+    /// Type of id
     type Id;
 
+    /// Get object id
     fn id(&self) -> &Self::Id;
 }
 
@@ -265,6 +267,6 @@ pub mod prelude {
         peer::PeerEvent,
         role::RoleEvent,
         trigger::TriggerEvent,
-        Event as DataEvent, WorldEvent,
+        Event as DataEvent, IdTrait as DataEventsIdTrait, WorldEvent,
     };
 }

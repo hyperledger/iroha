@@ -88,10 +88,13 @@ pub mod isi {
             let id = self.destination_id;
 
             wsv.modify_triggers(|triggers| {
-                let action = triggers.get(&id)?;
-                if action.occurs_exactly_at_time() {
-                    return Err(MathError::Overflow.into());
-                }
+                triggers.inspect(&id, |action| -> Result<(), Self::Error> {
+                    if action.occurs_exactly_at_time() {
+                        Err(MathError::Overflow.into())
+                    } else {
+                        Ok(())
+                    }
+                })??;
 
                 triggers.mod_repeats(&id, |n| {
                     n.checked_add(self.object).ok_or(MathError::Overflow)

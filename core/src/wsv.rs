@@ -194,7 +194,9 @@ impl<W: WorldTrait> WorldStateView<W> {
         match executable {
             Executable::Instructions(instructions) => {
                 instructions.iter().cloned().try_for_each(|instruction| {
+                    println!("Executing instruction...");
                     instruction.execute(authority.clone(), self)?;
+                    println!("Instruction executed!");
                     Ok::<_, eyre::Report>(())
                 })?;
             }
@@ -238,13 +240,25 @@ impl<W: WorldTrait> WorldStateView<W> {
             .drain(..)
             .collect();
 
-        let triggers = self.world.triggers.find_matching(
-            events
-                .iter()
-                .chain(&block.as_v1().event_recommendations)
-                .chain(once(&time_event)),
-        );
-        self.execute_triggers(triggers).await?;
+        let actions = Arc::new(RwLock::new(Vec::new()));
+        self.world
+            .triggers
+            .inspect_matching(
+                events
+                    .iter()
+                    .chain(&block.as_v1().event_recommendations)
+                    .chain(once(&time_event)),
+                |action| -> Result<()> {
+                    let actions = Arc::clone(&actions);
+                    actions.write().expect("bad 1").push(action.clone());
+                    Ok(())
+                },
+            )
+            .await?;
+
+        for action in actions.read().expect("bad 2").iter() {
+            self.process_executable(&action.executable, &action.technical_account)?;
+        }
 
         self.blocks.push(block);
         self.block_commit_metrics_update_callback();
@@ -294,24 +308,6 @@ impl<W: WorldTrait> WorldStateView<W> {
         }
         for tx in &block.rejected_transactions {
             self.transactions.insert(tx.hash());
-        }
-
-        Ok(())
-    }
-
-    /// Execute `triggers` and apply them to `self`
-    ///
-    /// # Errors
-    /// Fails if trigger execution fails
-    async fn execute_triggers<T, I>(&self, triggers: T) -> Result<()>
-    where
-        T: IntoIterator<Item = Action, IntoIter = I> + Send,
-        I: Iterator<Item = Action> + Send,
-    {
-        // TODO: Validate the trigger executables as well as the technical account.
-        for trigger in triggers {
-            self.process_executable(&trigger.executable, &trigger.technical_account)?;
-            task::yield_now().await;
         }
 
         Ok(())
