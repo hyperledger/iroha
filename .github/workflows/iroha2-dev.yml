@@ -184,9 +184,6 @@ jobs:
       image: 7272721/i2-ci:latest
     steps:
       - uses: actions/checkout@v2
-      # Should be done in `7272721/i2-ci`
-      - name: Add component
-        run: rustup component add llvm-tools-preview
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
