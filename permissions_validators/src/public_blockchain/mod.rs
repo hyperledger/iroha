@@ -2,6 +2,8 @@
 
 use std::str::FromStr as _;
 
+use iroha_schema::IntoSchema;
+
 use super::*;
 
 pub mod burn;
@@ -22,6 +24,54 @@ pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> =
 /// Origin asset definition param used in permission tokens.
 pub static ASSET_DEFINITION_ID_TOKEN_PARAM_NAME: Lazy<Name> =
     Lazy::new(|| Name::from_str("asset_definition_id").expect("This should never panic"));
+
+/// Enum listing preconfigured permission tokens
+#[derive(IntoSchema)]
+pub enum DefaultPermissionToken {
+    /// Can burn asset with the corresponding asset definition.
+    BurnAssetWithDefinition(burn::CanBurnAssetWithDefinition),
+    /// Can burn user's assets permission token name.
+    BurnUserAssets(burn::CanBurnUserAssets),
+    /// Can set key value in user's assets permission token name.
+    SetKeyValueInUserAssets(key_value::CanSetKeyValueInUserAssets),
+    /// Can remove key value in user's assets permission token name.
+    RemoveKeyValueInUserAssets(key_value::CanRemoveKeyValueInUserAssets),
+    /// Can set key value in user metadata
+    SetKeyValueInUserMetadata(key_value::CanSetKeyValueInUserMetadata),
+    /// Can remove key value in user metadata
+    RemoveKeyValueInUserMetadata(key_value::CanRemoveKeyValueInUserMetadata),
+    /// Can set key value in the corresponding asset definition.
+    SetKeyValueInAssetDefinition(key_value::CanSetKeyValueInAssetDefinition),
+    /// Can remove key value in the corresponding asset definition.
+    RemoveKeyValueInAssetDefinition(key_value::CanRemoveKeyValueInAssetDefinition),
+    /// Can mint asset with the corresponding asset definition.
+    MintUserAssetDefinitions(mint::CanMintUserAssetDefinitions),
+    /// Can transfer user's assets
+    TransferUserAssets(transfer::CanTransferUserAssets),
+    /// Can transfer only fixed number of times per some time period
+    TransferOnlyFixedNumberOfTimesPerPeriod(transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod),
+    /// Can un-register asset with the corresponding asset definition.
+    UnregisterAssetWithDefinition(unregister::CanUnregisterAssetWithDefinition),
+}
+
+impl From<DefaultPermissionToken> for PermissionToken {
+    fn from(value: DefaultPermissionToken) -> Self {
+        match value {
+            DefaultPermissionToken::BurnAssetWithDefinition(inner) => inner.into(),
+            DefaultPermissionToken::BurnUserAssets(inner) => inner.into(),
+            DefaultPermissionToken::SetKeyValueInUserAssets(inner) => inner.into(),
+            DefaultPermissionToken::RemoveKeyValueInUserAssets(inner) => inner.into(),
+            DefaultPermissionToken::SetKeyValueInUserMetadata(inner) => inner.into(),
+            DefaultPermissionToken::RemoveKeyValueInUserMetadata(inner) => inner.into(),
+            DefaultPermissionToken::SetKeyValueInAssetDefinition(inner) => inner.into(),
+            DefaultPermissionToken::RemoveKeyValueInAssetDefinition(inner) => inner.into(),
+            DefaultPermissionToken::MintUserAssetDefinitions(inner) => inner.into(),
+            DefaultPermissionToken::TransferUserAssets(inner) => inner.into(),
+            DefaultPermissionToken::TransferOnlyFixedNumberOfTimesPerPeriod(inner) => inner.into(),
+            DefaultPermissionToken::UnregisterAssetWithDefinition(inner) => inner.into(),
+        }
+    }
+}
 
 /// A preconfigured set of permissions for simple use cases.
 pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
@@ -218,12 +268,8 @@ mod tests {
         );
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(
-            PermissionToken::new(transfer::CAN_TRANSFER_USER_ASSETS_TOKEN.clone()).with_params([(
-                ASSET_ID_TOKEN_PARAM_NAME.clone(),
-                alice_xor_id.clone().into(),
-            )])
-        ));
+        assert!(bob_account
+            .add_permission(transfer::CanTransferUserAssets::new(alice_xor_id.clone()).into()));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], BTreeSet::new()));
         let transfer = Instruction::Transfer(TransferBox {
@@ -246,9 +292,8 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let permission_token_to_alice =
-            PermissionToken::new(transfer::CAN_TRANSFER_USER_ASSETS_TOKEN.clone())
-                .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), alice_xor_id.into())]);
+        let permission_token_to_alice: PermissionToken =
+            transfer::CanTransferUserAssets::new(alice_xor_id).into();
         let wsv = WorldStateView::<World>::new(World::new());
         let grant = Instruction::Grant(GrantBox::new(
             permission_token_to_alice,
@@ -290,11 +335,7 @@ mod tests {
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
         assert!(bob_account.add_permission(
-            PermissionToken::new(unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone())
-                .with_params([(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
-                    xor_id.clone().into(),
-                )])
+            unregister::CanUnregisterAssetWithDefinition::new(xor_id.clone()).into()
         ));
         assert!(domain.add_account(bob_account).is_none());
         assert!(domain
@@ -316,12 +357,8 @@ mod tests {
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let xor_id = AssetDefinitionId::from_str("xor#test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let permission_token_to_alice =
-            PermissionToken::new(unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone())
-                .with_params([(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                    xor_id.into(),
-                )]);
+        let permission_token_to_alice: PermissionToken =
+            unregister::CanUnregisterAssetWithDefinition::new(xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
@@ -378,10 +415,7 @@ mod tests {
         let xor_definition = new_xor_definition(&xor_id);
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(
-            PermissionToken::new(mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone())
-                .with_params([(ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(), xor_id.into())])
-        ));
+        assert!(bob_account.add_permission(mint::CanMintUserAssetDefinitions::new(xor_id).into()));
         assert!(domain.add_account(bob_account).is_none());
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
@@ -404,13 +438,8 @@ mod tests {
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let xor_id = AssetDefinitionId::from_str("xor#test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let permission_token_to_alice = PermissionToken::new(
-            mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone(),
-        )
-        .with_params([(
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-            xor_id.into(),
-        )]);
+        let permission_token_to_alice: PermissionToken =
+            mint::CanMintUserAssetDefinitions::new(xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
@@ -465,10 +494,7 @@ mod tests {
         let xor_definition = new_xor_definition(&xor_id);
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(
-            PermissionToken::new(burn::CAN_BURN_ASSET_WITH_DEFINITION.clone())
-                .with_params([(ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(), xor_id.into())],)
-        ));
+        assert!(bob_account.add_permission(burn::CanBurnAssetWithDefinition::new(xor_id).into()));
         assert!(domain.add_account(bob_account).is_none());
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
@@ -491,11 +517,8 @@ mod tests {
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let xor_id = AssetDefinitionId::from_str("xor#test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let permission_token_to_alice =
-            PermissionToken::new(burn::CAN_BURN_ASSET_WITH_DEFINITION.clone()).with_params([(
-                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                xor_id.into(),
-            )]);
+        let permission_token_to_alice: PermissionToken =
+            burn::CanBurnAssetWithDefinition::new(xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
@@ -537,12 +560,9 @@ mod tests {
         );
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(
-            PermissionToken::new(burn::CAN_BURN_USER_ASSETS_TOKEN.clone()).with_params([(
-                ASSET_ID_TOKEN_PARAM_NAME.clone(),
-                alice_xor_id.clone().into(),
-            )])
-        ));
+        assert!(
+            bob_account.add_permission(burn::CanBurnUserAssets::new(alice_xor_id.clone()).into())
+        );
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], vec![]));
         let transfer = Instruction::Burn(BurnBox {
@@ -564,9 +584,8 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let permission_token_to_alice =
-            PermissionToken::new(burn::CAN_BURN_USER_ASSETS_TOKEN.clone())
-                .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), alice_xor_id.into())]);
+        let permission_token_to_alice: PermissionToken =
+            burn::CanBurnUserAssets::new(alice_xor_id).into();
         let wsv = WorldStateView::<World>::new(World::new());
         let grant = Instruction::Grant(GrantBox::new(
             permission_token_to_alice,

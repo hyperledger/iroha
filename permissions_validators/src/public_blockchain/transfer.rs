@@ -1,19 +1,28 @@
 //! Module with permission for transfering
 
-use std::{str::FromStr as _, time::Duration};
+use std::time::Duration;
 
 use super::*;
 
-#[allow(clippy::expect_used)]
-/// Can transfer user's assets permission token name.
-pub static CAN_TRANSFER_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_transfer_user_assets").expect("Valid")); // See #1978
+declare_token!(
+    /// Can transfer user's assets
+    #[derive(Debug)]
+    CanTransferUserAssets {
+        asset_id ("asset_id"): AssetId,
+    },
+    "can_transfer_user_assets"
+);
 
-#[allow(clippy::expect_used)]
-/// Can transfer only fixed number of times per some time period
-pub static CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD: Lazy<Name> = Lazy::new(|| {
-    Name::from_str("can_transfer_only_fixed_number_of_times_per_period").expect("Valid")
-});
+declare_token!(
+    /// Can transfer only fixed number of times per some time period
+    #[derive(Debug, Clone, Copy)]
+    CanTransferOnlyFixedNumberOfTimesPerPeriod {
+        period ("period"): u128,
+        count ("count"): u32,
+    },
+    "can_transfer_only_fixed_number_of_times_per_period"
+);
+
 #[allow(clippy::expect_used)]
 /// Name of `period` param for `CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD`
 pub static PERIOD_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::from_str("period").expect("Valid"));
@@ -80,8 +89,7 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
         } else {
             return Err("Source id is not an AssetId.".to_owned());
         };
-        Ok(PermissionToken::new(CAN_TRANSFER_USER_ASSETS_TOKEN.clone())
-            .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), source_id.into())]))
+        Ok(CanTransferUserAssets::new(source_id).into())
     }
 }
 
@@ -105,7 +113,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_TRANSFER_USER_ASSETS_TOKEN {
+        if permission_token.name() != CanTransferUserAssets::name() {
             return Err("Grant instruction is not for transfer permission.".to_owned());
         }
         check_asset_owner_for_token(&permission_token, authority)
@@ -162,7 +170,7 @@ fn retrieve_permission_params<W: WorldTrait>(
     wsv.map_account(authority, |account| {
         wsv.account_permission_tokens(account)
             .iter()
-            .filter(|token| token.name() == &*CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD)
+            .filter(|token| token.name() == CanTransferOnlyFixedNumberOfTimesPerPeriod::name())
             .flat_map(PermissionToken::params)
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect()

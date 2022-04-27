@@ -1,17 +1,26 @@
 //! Module with permission for burning
 
-use std::str::FromStr as _;
+use iroha_data_model::asset::DefinitionId;
 
 use super::*;
 
-/// Can burn asset with the corresponding asset definition.
-#[allow(clippy::expect_used)]
-pub static CAN_BURN_ASSET_WITH_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_burn_asset_with_definition").expect("normal name"));
-#[allow(clippy::expect_used)]
-/// Can burn user's assets permission token name.
-pub static CAN_BURN_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_burn_user_assets").expect("normal name"));
+declare_token!(
+    /// Can burn asset with the corresponding asset definition.
+    #[derive(Debug)]
+    CanBurnAssetWithDefinition {
+        asset_definition_id ("asset_definition_id"): DefinitionId,
+    },
+    "can_burn_asset_with_definition"
+);
+
+declare_token!(
+    /// Can burn user's assets permission.
+    #[derive(Debug)]
+    CanBurnUserAssets {
+        asset_id ("asset_id"): AssetId,
+    },
+    "can_burn_user_assets"
+);
 
 /// Checks that account can burn only the assets which were registered by this account.
 #[derive(Debug, Copy, Clone)]
@@ -76,12 +85,7 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
             return Err("Destination is not an Asset.".to_owned());
         };
 
-        Ok(
-            PermissionToken::new(CAN_BURN_ASSET_WITH_DEFINITION.clone()).with_params([(
-                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                asset_id.definition_id.into(),
-            )]),
-        )
+        Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id).into())
     }
 }
 
@@ -105,7 +109,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_BURN_ASSET_WITH_DEFINITION {
+        if permission_token.name() != CanBurnAssetWithDefinition::name() {
             return Err("Grant instruction is not for burn permission.".to_owned());
         }
         check_asset_creator_for_token(&permission_token, authority, wsv)
@@ -169,8 +173,7 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
         } else {
             return Err("Source id is not an AssetId.".to_owned());
         };
-        Ok(PermissionToken::new(CAN_BURN_USER_ASSETS_TOKEN.clone())
-            .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), destination_id.into())]))
+        Ok(CanBurnUserAssets::new(destination_id).into())
     }
 }
 
@@ -194,7 +197,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_BURN_USER_ASSETS_TOKEN {
+        if permission_token.name() != CanBurnUserAssets::name() {
             return Err("Grant instruction is not for burn permission.".to_owned());
         }
         check_asset_owner_for_token(&permission_token, authority)?;

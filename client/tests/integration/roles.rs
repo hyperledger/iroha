@@ -7,7 +7,7 @@ use iroha_client::client::{self, Client};
 use iroha_core::{prelude::AllowAll, smartcontracts::permissions::ValidatorBuilder};
 use iroha_data_model::{permissions::Permissions, prelude::*};
 use iroha_permissions_validators::public_blockchain::{
-    key_value::{CAN_REMOVE_KEY_VALUE_IN_USER_METADATA, CAN_SET_KEY_VALUE_IN_USER_METADATA},
+    key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
     transfer,
 };
 use test_network::{Peer as TestPeer, *};
@@ -48,14 +48,7 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     // Registering new role which sets `Transfer` execution count limit to
     // `COUNT` for every `PERIOD_MS` milliseconds
     let permission_token =
-        PermissionToken::new(transfer::CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD.clone())
-            .with_params([
-                (
-                    transfer::PERIOD_PARAM_NAME.clone(),
-                    Value::U128(PERIOD_MS.into()),
-                ),
-                (transfer::COUNT_PARAM_NAME.clone(), Value::U32(COUNT)),
-            ]);
+        transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod::new(PERIOD_MS.into(), COUNT).into();
     let permissions = Permissions::from([permission_token]);
     let register_role = RegisterBox::new(Role::new(role_id.clone(), permissions));
     test_client.submit_blocking(register_role)?;
@@ -145,11 +138,11 @@ fn register_metadata_role() -> Result<()> {
     let mut params = BTreeMap::new();
     params.insert(Name::from_str("account_id")?, bob_id.into());
     permissions.insert(
-        PermissionToken::new(CAN_SET_KEY_VALUE_IN_USER_METADATA.clone())
+        PermissionToken::new(CanSetKeyValueInUserMetadata::name().clone())
             .with_params(params.clone()),
     );
     permissions.insert(
-        PermissionToken::new(CAN_REMOVE_KEY_VALUE_IN_USER_METADATA.clone()).with_params(params),
+        PermissionToken::new(CanRemoveKeyValueInUserMetadata::name().clone()).with_params(params),
     );
     let register_role = RegisterBox::new(Role::new(role_id, permissions));
     test_client.submit(register_role)?;

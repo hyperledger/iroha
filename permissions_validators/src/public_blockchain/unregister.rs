@@ -1,13 +1,16 @@
 //! Module with permission for unregistering
-
-use std::str::FromStr as _;
+use iroha_data_model::asset::DefinitionId;
 
 use super::*;
 
-#[allow(clippy::expect_used)]
-/// Can un-register asset with the corresponding asset definition.
-pub static CAN_UNREGISTER_ASSET_WITH_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_unregister_asset_with_definition").expect("Tested. Works."));
+declare_token!(
+    /// Can un-register asset with the corresponding asset definition.
+    #[derive(Debug)]
+    CanUnregisterAssetWithDefinition {
+        asset_definition_id ("asset_definition_id"): DefinitionId,
+    },
+    "can_unregister_asset_with_definition"
+);
 
 /// Checks that account can un-register only the assets which were
 /// registered by this account in the first place.
@@ -73,12 +76,7 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
         } else {
             return Err("Source id is not an AssetDefinitionId.".to_owned());
         };
-        Ok(
-            PermissionToken::new(CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone()).with_params([(
-                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
-                object_id.into(),
-            )]),
-        )
+        Ok(CanUnregisterAssetWithDefinition::new(object_id).into())
     }
 }
 
@@ -102,7 +100,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_UNREGISTER_ASSET_WITH_DEFINITION {
+        if permission_token.name() != CanUnregisterAssetWithDefinition::name() {
             return Err("Grant instruction is not for unregister permission.".to_owned());
         }
         check_asset_creator_for_token(&permission_token, authority, wsv)
@@ -130,7 +128,7 @@ impl<W: WorldTrait> IsRevokeAllowed<W> for RevokeRegisteredByMeAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_UNREGISTER_ASSET_WITH_DEFINITION {
+        if permission_token.name() != CanUnregisterAssetWithDefinition::name() {
             return Err("Revoke instruction is not for unregister permission.".to_owned());
         }
         check_asset_creator_for_token(&permission_token, authority, wsv)
