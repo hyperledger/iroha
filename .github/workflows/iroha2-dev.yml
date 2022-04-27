@@ -7,9 +7,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-  # Note jobs in this workflow are run on `push` meaning that there's
-  # no point in burning our AWS self-hosted runners' time. Hence
-  # `ubuntu-latest` and not `[self-hosted, Linux]`.
+# Note jobs in this workflow are run on `push` meaning that there's
+# no point in burning our AWS self-hosted runners' time. Hence
+# `ubuntu-latest` and not `[self-hosted, Linux]`.
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -28,7 +28,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push Iroha Docker image
+      - name: Build and push docker image
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -37,7 +37,7 @@ jobs:
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
-      - name: Build and push Iroha client cli Docker image
+      - name: Build and push docker image (iroha_client_cli)
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -47,7 +47,7 @@ jobs:
             TARGET_DIR=release
             PROFILE=--release
             BIN=iroha_client_cli
-      - name: Build and push Iroha Crypto CLI Docker image
+      - name: Build and push docker image (kagami)
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -58,7 +58,7 @@ jobs:
             PROFILE=--release
             BIN=kagami
 
-      - name: Build and push load-rs:dev docker image
+      - name: Build and push docker image (load-rs:dev)
         run: |
           sleep 10s
           echo "wait to other workflow"
@@ -116,7 +116,7 @@ jobs:
       - name: Run schema generation
         run: |
           mkdir -p target/schema
-          cargo run --bin kagami -- schema > target/schema/schema.json
+          cargo run --bin kagami -- schema >target/schema/schema.json
       - name: Upload schema
         uses: actions/upload-artifact@v2
         with:
