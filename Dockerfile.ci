@@ -52,7 +52,7 @@ RUN rustup component add llvm-tools-preview clippy; \
     rustup target add wasm32-unknown-unknown; \
     rustup install --profile default nightly-2022-04-20; \
     rustup component add rust-src --toolchain nightly-2022-04-20-x86_64-unknown-linux-gnu; \
-    cargo install cargo-lints cargo-nono webassembly-test-runner cargo-llvm-cov
+    cargo install cargo-lints cargo-nono webassembly-test-runner
 
 RUN curl -fsSL https://get.docker.com -o get-docker.sh; \
     chmod +x get-docker.sh; \
