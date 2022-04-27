@@ -46,8 +46,7 @@ jobs:
       - name: Checkout head
         uses: actions/checkout@v2
         with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Filter files
         uses: dorny/paths-filter@v2
         id: filter
@@ -106,8 +105,7 @@ jobs:
       - name: Checkout head
         uses: actions/checkout@v2
         with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Generate matrix for build triggered by chat-ops - comment to PR
         if: github.event.issue.pull_request && github.event.comment
         id: comment_body
@@ -230,8 +228,7 @@ jobs:
       - name: Checkout base
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{ github.event.pull_request.base.sha }}
       - name: Determine dockertag
         id: dockertag
         env:
@@ -425,8 +422,7 @@ jobs:
       - name: Checkout head
         uses: actions/checkout@v2
         with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0 ## full history
       - name: export CC and CXX
         env:
@@ -707,8 +703,7 @@ jobs:
       - name: Checkout head
         uses: actions/checkout@v2
         with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0 ## full history
       - name: export CC and CXX
         env:
@@ -1017,8 +1012,7 @@ jobs:
       - name: Checkout head
         uses: actions/checkout@v2
         with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0 ## full history
       - name: export CC and CXX
         run: |
@@ -1270,8 +1264,7 @@ jobs:
       - name: Checkout head
         uses: actions/checkout@v2
         with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0 ## full history
       - name: move to workdir
         run: |
@@ -1392,8 +1385,7 @@ jobs:
       - name: Checkout base
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{ github.event.pull_request.base.sha }}
       - name: Generate artifact suffix depending on matrix to env.ARTIFACT_SUFFIX
         run: |
           set -x
@@ -1565,8 +1557,7 @@ jobs:
       - name: Checkout base
         uses: actions/checkout@v2
         with:
-          ref: ${{env.PR_REF}} ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{ github.event.pull_request.base.sha }}
       - name: Generate artifact suffix depending on matrix to env.ARTIFACT_SUFFIX
         run: |
           set -x

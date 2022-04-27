@@ -51,8 +51,7 @@ jobs:
         name: Checkout head
         uses: actions/checkout@v2
         with: &step_checkout_with_head
-          ref:        ${{github.event.pull_request.head.ref}} 
-          repository: ${{github.event.pull_request.head.repo.full_name}}       
+          ref: ${{ github.event.pull_request.head.sha }}     
       - 
         name: Filter files
         uses: dorny/paths-filter@v2
@@ -231,8 +230,7 @@ jobs:
         name: Checkout base
         uses: actions/checkout@v2
         with: &step_checkout_with_base
-          ref:        ${{env.PR_REF}}  ## not empty on issue_comment, else default value GITHUB_REF
-          repository: ${{env.PR_REPO}} ## not empty on issue_comment, else default value github.repository, required by forks
+          ref: ${{ github.event.pull_request.base.sha }}
       - &step_docker_tag
         name: Determine dockertag
         id: dockertag
