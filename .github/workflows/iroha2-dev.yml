@@ -97,7 +97,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Build
-        run: cargo build --release --verbose
+        run: mold --run cargo build --release --verbose
       - name: Archive build
         uses: actions/upload-artifact@v2
         with:
@@ -139,7 +139,7 @@ jobs:
       - name: Run release tests and save telemetry
         env:
           TELEMETRY_FILE: ../target/telemetry/release.json.lz4
-        run: cargo test -p iroha_client --all-features --release -- unstable_network || true
+        run: mold --run cargo test -p iroha_client --all-features --release -- unstable_network || true
       - name: Install script dependencies
         run: |
           apt-get update

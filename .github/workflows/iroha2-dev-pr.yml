@@ -35,7 +35,7 @@ jobs:
         working-directory: actor
         if: always()
       - name: Verify wasm smartcontracts are able to build
-        run: mold -run cargo build --target wasm32-unknown-unknown --quiet
+        run: mold --run cargo build --target wasm32-unknown-unknown --quiet
         working-directory: wasm
         env:
           RUSTC_BOOTSTRAP: 1
