@@ -27,14 +27,23 @@ use crate::smartcontracts::{self, FindError, InstructionType, MathError};
 pub struct TriggerSet {
     /// Owns actions
     all_triggers: DashMap<trigger::Id, Action>,
+    /// Triggers using [`DataEventFilter`]
     data_triggers: DataTriggerSet,
+    /// Other triggers
     non_data_triggers: RwLock<HashSet<trigger::Id>>,
 }
 
+/// Set for triggers that uses [`DataEventFilter`]. Allows to quickly find triggers watching for a
+/// specific domain.
+///
+/// Stores only [`trigger::Id`]. All real triggers are stored in [`TriggerSet`].
+/// Then a trigger is removed from `TriggerSet` its id should be removed from this structure too
 #[derive(Debug, Default)]
 struct DataTriggerSet {
-    non_domain_associated: RwLock<HashSet<trigger::Id>>,
+    /// Triggers that are associated with some domain
     domain_associated: DashMap<domain::Id, HashSet<trigger::Id>>,
+    /// All other data-triggers
+    non_domain_associated: RwLock<HashSet<trigger::Id>>,
 }
 
 impl Clone for DataTriggerSet {
@@ -52,6 +61,9 @@ impl Clone for DataTriggerSet {
 }
 
 impl DataTriggerSet {
+    /// Add new trigger
+    ///
+    /// Stores `id` and uses `action` to identify if the trigger is related to some domain
     pub fn add(&self, id: trigger::Id, action: &Action) {
         if let Some(domain_id) = Self::get_associated_domain(action) {
             match self.domain_associated.get_mut(domain_id) {
@@ -71,20 +83,30 @@ impl DataTriggerSet {
         }
     }
 
+    /// Remove trigger
+    ///
+    /// Removes `id` and uses `action` to identify if the trigger is related to some domain.
+    /// Doesn't do anything, if provided `id` not found
     pub fn remove(&self, id: &trigger::Id, action: &Action) {
-        Self::get_associated_domain(action)
-            .and_then(|domain_id| self.domain_associated.get_mut(domain_id))
-            .map_or_else(
-                || {
-                    self.non_domain_associated
-                        .write()
-                        .expect("Can't lock actions for removing")
-                        .remove(id)
-                },
-                |mut entry| entry.remove(id),
-            );
+        Self::get_associated_domain(action).map_or_else(
+            || {
+                self.non_domain_associated
+                    .write()
+                    .expect("Can't lock actions for removing")
+                    .remove(id);
+            },
+            |domain_id| {
+                self.domain_associated
+                    .get_mut(domain_id)
+                    .map(|mut entry| entry.remove(id));
+            },
+        );
     }
 
+    /// Apply `f` to every stored *id* when related action filter can match with provided `event`
+    ///
+    /// # Error
+    /// Throws up first `f` error
     pub fn inspect_matching_ids<F, E>(&self, event: &DataEvent, f: F) -> Result<(), E>
     where
         F: Fn(&trigger::Id) -> Result<(), E>,
@@ -96,6 +118,8 @@ impl DataTriggerSet {
             Account(account_event) => Some(&account_event.id().domain_id),
             Asset(asset_event) => Some(&asset_event.id().definition_id.domain_id),
             AssetDefinition(asset_definition_event) => Some(&asset_definition_event.id().domain_id),
+            // Not using `_` pattern to break compilation
+            // if some new event variant will be added in the future
             Peer(_) | Trigger(_) | Role(_) => None,
         };
 
@@ -119,6 +143,9 @@ impl DataTriggerSet {
         Ok(())
     }
 
+    /// Get domain id associated with `action`
+    ///
+    /// Returns `None` if action filter isn't associated with any domain
     fn get_associated_domain(action: &Action) -> Option<&domain::Id> {
         use DataEntityFilter::*;
 
@@ -152,6 +179,8 @@ impl DataTriggerSet {
                         None
                     }
                 }
+                // Not using `_` pattern to break compilation
+                // if some new filter variant will be added in the future
                 ByDomain(_) | ByAccount(_) | ByAsset(_) | ByAssetDefinition(_) | ByPeer(_)
                 | ByTrigger(_) | ByRole(_) => None,
             }
@@ -216,7 +245,7 @@ impl TriggerSet {
         Ok(())
     }
 
-    /// Apply `f` to the trigger with `id`
+    /// Apply `f` to the trigger identified by `id`
     ///
     /// # Errors
     /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
@@ -279,12 +308,13 @@ impl TriggerSet {
     /// exact time always cause an overflow.
     pub fn mod_repeats(
         &self,
-        key: &trigger::Id,
+        id: &trigger::Id,
         f: impl Fn(u32) -> Result<u32, MathError>,
     ) -> Result<(), smartcontracts::Error> {
-        let mut action = self.all_triggers.get_mut(key).ok_or_else(|| {
-            smartcontracts::Error::Find(Box::new(FindError::Trigger(key.clone())))
-        })?;
+        let mut action = self
+            .all_triggers
+            .get_mut(id)
+            .ok_or_else(|| smartcontracts::Error::Find(Box::new(FindError::Trigger(id.clone()))))?;
 
         let new_repeats = match &action.repeats {
             Repeats::Exactly(n) => f(*n).map_err(Into::into),
@@ -305,7 +335,6 @@ impl TriggerSet {
         I: Iterator<Item = &'evnt Event> + Send,
         F: Fn(&Action) -> Result<(), Er> + Send,
     {
-        println!("Inspecting...");
         for event in events {
             // Using closure to be able to reuse `f`
             if let Event::Data(data_event) = event {
@@ -315,7 +344,6 @@ impl TriggerSet {
             }
             task::yield_now().await;
         }
-        println!("Inspected...");
 
         let to_remove: Vec<trigger::Id> = self
             .all_triggers
@@ -325,12 +353,10 @@ impl TriggerSet {
             })
             .collect();
 
-        println!("Removing...");
         for id in to_remove {
             self.remove(&id)
                 .expect("Removing existing keys should be always possible. This is a bug");
         }
-        println!("Removed!");
 
         Ok(())
     }
@@ -340,18 +366,13 @@ impl TriggerSet {
         F: Fn(&Action) -> Result<(), E>,
     {
         self.data_triggers.inspect_matching_ids(event, |id| {
-            println!("Getting all triggers...");
             let mut entry = self
                 .all_triggers
                 .get_mut(id)
                 .expect("data-triggers contains non-existing key. This is a bug");
-            println!("Got all triggers!");
 
             Self::inspect_action(&Event::Data(event.clone()), entry.value_mut(), |action| {
-                println!("Executing...");
-                let res = f(action);
-                println!("Executed!");
-                res
+                f(action)
             })
         })
     }

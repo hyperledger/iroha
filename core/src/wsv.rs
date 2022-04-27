@@ -194,9 +194,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         match executable {
             Executable::Instructions(instructions) => {
                 instructions.iter().cloned().try_for_each(|instruction| {
-                    println!("Executing instruction...");
                     instruction.execute(authority.clone(), self)?;
-                    println!("Instruction executed!");
                     Ok::<_, eyre::Report>(())
                 })?;
             }
@@ -249,14 +247,23 @@ impl<W: WorldTrait> WorldStateView<W> {
                     .chain(&block.as_v1().event_recommendations)
                     .chain(once(&time_event)),
                 |action| -> Result<()> {
+                    // Can't just use the next line to process actions cause of `tracing` crate bug.
+                    // Either use temporary vector `actions` (like now), either remove `#[log]`
+                    // for every `Execute` implemetor inside `isi/mod.rs`
+                    //
+                    // self.process_executable(&action.executable, &action.technical_account)
+
                     let actions = Arc::clone(&actions);
-                    actions.write().expect("bad 1").push(action.clone());
+                    actions
+                        .write()
+                        .expect("Can't write cloned actions")
+                        .push(action.clone());
                     Ok(())
                 },
             )
             .await?;
 
-        for action in actions.read().expect("bad 2").iter() {
+        for action in actions.read().expect("Can't read cloned actions").iter() {
             self.process_executable(&action.executable, &action.technical_account)?;
         }
 
