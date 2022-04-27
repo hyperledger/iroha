@@ -6,7 +6,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTC_BOOTSTRAP: 1
 
 jobs:
   # Coverage is both in PR and in push pipelines so that:
@@ -22,7 +21,7 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
         run: |
-          mold --run cargo +nightly-2022-04-20 test \
+          mold --run cargo test \
           --quiet --workspace --no-fail-fast -- \
           --skip unstable_network --skip ui --test-threads 3
         env:
