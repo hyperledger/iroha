@@ -1973,6 +1973,7 @@ dependencies = [
  "iroha_core",
  "iroha_data_model",
  "iroha_macro",
+ "iroha_schema",
  "once_cell",
 ]
 
@@ -2590,6 +2591,16 @@ name = "percent-encoding"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
+
+[[package]]
+name = "permission_tokens"
+version = "2.0.0-pre-rc.3"
+dependencies = [
+ "iroha_permissions_validators",
+ "iroha_schema",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "petgraph"

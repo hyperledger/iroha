@@ -14,6 +14,7 @@ members = [
   "tools/kura_inspector",
   "tools/parity_scale_decoder",
   "tools/kagami",
+  "tools/permission_tokens",
   "data_model",
   "data_model/primitives",
   "futures",
