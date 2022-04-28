@@ -60,7 +60,7 @@ where
     type Output = QueryHandlerResult<ClientQueryOutput<R>>;
 
     fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
-        _handle_query_response_base(resp).and_then(|VersionedPaginatedQueryResult::V1(result)| {
+        _handle_query_response_base(&resp).and_then(|VersionedPaginatedQueryResult::V1(result)| {
             ClientQueryOutput::try_from(result).map_err(Into::into)
         })
     }
@@ -68,7 +68,7 @@ where
 
 // Separate-compilation friendly response handling
 fn _handle_query_response_base(
-    resp: Response<Vec<u8>>,
+    resp: &Response<Vec<u8>>,
 ) -> QueryHandlerResult<VersionedPaginatedQueryResult> {
     match resp.status() {
         StatusCode::OK => VersionedPaginatedQueryResult::decode_versioned(resp.body())
@@ -82,7 +82,7 @@ fn _handle_query_response_base(
                 .wrap_err("Failed to decode response body as QueryError")?;
             Err(ClientQueryError::Certain(err))
         }
-        _ => Err(ResponseReport::with_msg("Failed to make query", &resp).into()),
+        _ => Err(ResponseReport::with_msg("Failed to make query", resp).into()),
     }
 }
 
