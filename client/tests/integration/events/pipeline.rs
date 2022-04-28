@@ -60,7 +60,7 @@ struct Checker {
 }
 
 impl Checker {
-    fn spawn(mut self, status_kind: PipelineStatusKind) -> JoinHandle<()> {
+    fn spawn(self, status_kind: PipelineStatusKind) -> JoinHandle<()> {
         thread::spawn(move || {
             let mut event_iterator = self
                 .listener

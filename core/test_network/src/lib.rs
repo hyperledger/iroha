@@ -264,7 +264,7 @@ where
     /// Adds peer to network and waits for it to start block
     /// synchronization.
     pub async fn add_peer(&self) -> (Peer, Client) {
-        let mut client = Client::test(&self.genesis.api_address, &self.genesis.telemetry_address);
+        let client = Client::test(&self.genesis.api_address, &self.genesis.telemetry_address);
         let mut peer = Peer::new().expect("Failed to create new peer");
         let mut config = Configuration::test();
         config.sumeragi.trusted_peers.peers = self.peers().map(|peer| &peer.id).cloned().collect();
@@ -830,7 +830,7 @@ impl TestClient for Client {
         Client::new(&configuration).expect("Invalid client configuration")
     }
 
-    fn for_each_event(mut self, event_filter: EventFilter, f: impl Fn(Result<Event>)) {
+    fn for_each_event(self, event_filter: EventFilter, f: impl Fn(Result<Event>)) {
         for event_result in self
             .listen_for_events(event_filter)
             .expect("Failed to create event iterator.")

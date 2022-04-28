@@ -127,7 +127,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
 
 #[test]
 fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 
     // Given
