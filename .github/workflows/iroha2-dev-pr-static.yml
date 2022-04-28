@@ -32,9 +32,3 @@ jobs:
       - name: Verify iroha_data_model still supports no_std
         run: cargo nono check --package iroha_data_model --no-default-features
         if: always()
-
-      - name: Documentation check
-        run: |
-          cargo doc --no-deps --quiet
-          ./scripts/check_docs.sh
-        if: always()

@@ -346,12 +346,14 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         Ok(())
     }
 
-    /// Host defined function which prints given string. When calling this function, module
-    /// serializes ISI to linear memory and provides offset and length as parameters
+    /// Host defined function which prints given string. When calling
+    /// this function, module serializes ISI to linear memory and
+    /// provides offset and length as parameters
     ///
     /// # Warning
     ///
-    /// This function doesn't take ownership of the provided allocation
+    /// This function doesn't take ownership of the provided
+    /// allocation
     ///
     /// # Errors
     ///

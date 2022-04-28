@@ -1,4 +1,5 @@
-//! This module contains execution Genesis Block logic, and `GenesisBlock` definition.
+//! Genesis-related logic and constructs. Contains the `GenesisBlock`,
+//! `RawGenesisBlock` and the `RawGenesisBlockBuilder` structures.
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::new_without_default)]
 
@@ -10,7 +11,7 @@ use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::{asset::AssetDefinition, prelude::*};
 use iroha_schema::prelude::*;
 use serde::{Deserialize, Serialize};
-use small::SmallVec;
+use small::{smallvec, SmallVec};
 use tokio::{time, time::Duration};
 
 pub use self::config::GenesisConfiguration;
@@ -49,8 +50,9 @@ pub trait GenesisNetworkTrait:
         transaction_limits: &TransactionLimits,
     ) -> Result<Option<Self>>;
 
-    /// Waits for a minimum number of [`Peer`]s needed for consensus to be online.
-    /// Returns initialized network [`Topology`] with the set A consisting of online peers.
+    /// Waits for a minimum number of [`Peer`]s needed for consensus
+    /// to be online.  Returns initialized network [`Topology`] with
+    /// the set A consisting of online peers.
     async fn wait_for_peers(
         &self,
         this_peer_id: PeerId,
@@ -58,9 +60,10 @@ pub trait GenesisNetworkTrait:
         network: Addr<IrohaNetwork>,
     ) -> Result<Topology>;
 
-    // FIXME: Having `ctx` reference and `sumaregi` reference here is not ideal.
-    // The way it is currently designed, this function is called from sumeragi and then calls sumeragi, while being in an unrelated module.
-    // This needs to be restructured.
+    // FIXME: Having `ctx` reference and `sumaregi` reference here is
+    // not ideal.  The way it is currently designed, this function is
+    // called from sumeragi and then calls sumeragi, while being in an
+    // unrelated module.  This needs to be restructured.
 
     /// Submits genesis transactions.
     ///
@@ -253,7 +256,7 @@ impl RawGenesisBlock {
     /// Create a [`RawGenesisBlock`] with specified [`Domain`] and [`Account`].
     pub fn new(account_name: Name, domain_id: DomainId, public_key: PublicKey) -> Self {
         RawGenesisBlock {
-            transactions: SmallVec(smallvec::smallvec![GenesisTransaction::new(
+            transactions: SmallVec(smallvec![GenesisTransaction::new(
                 account_name,
                 domain_id,
                 public_key,
@@ -291,7 +294,7 @@ impl GenesisTransaction {
     /// Create a [`GenesisTransaction`] with the specified [`Domain`] and [`Account`].
     pub fn new(account_name: Name, domain_id: DomainId, public_key: PublicKey) -> Self {
         Self {
-            isi: SmallVec(smallvec::smallvec![
+            isi: SmallVec(smallvec![
                 RegisterBox::new(Domain::new(domain_id.clone())).into(),
                 RegisterBox::new(Account::new(
                     AccountId::new(account_name, domain_id),
@@ -410,9 +413,10 @@ impl RawGenesisBlockBuilder {
     /// be used to create assets and accounts.
     pub fn domain(mut self, domain_name: Name) -> RawGenesisDomainBuilder {
         let domain_id = DomainId::new(domain_name);
+        let new_domain = Domain::new(domain_id.clone());
         self.transaction
             .isi
-            .push(RegisterBox::new(domain_id.clone()).into());
+            .push(Instruction::from(RegisterBox::new(new_domain)));
         RawGenesisDomainBuilder {
             transaction: self.transaction,
             domain_id,
@@ -421,7 +425,7 @@ impl RawGenesisBlockBuilder {
     /// Finish building and produce a `RawGenesisBlock`.
     pub fn build(self) -> RawGenesisBlock {
         RawGenesisBlock {
-            transactions: SmallVec(smallvec::smallvec![self.transaction]),
+            transactions: SmallVec(smallvec![self.transaction]),
         }
     }
 }
@@ -516,7 +520,7 @@ mod tests {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[0],
-                RegisterBox::new(domain_id.clone()).into()
+                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[1],
@@ -532,7 +536,7 @@ mod tests {
             let domain_id: DomainId = "tulgey_wood".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[3],
-                RegisterBox::new(domain_id.clone()).into()
+                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[4],
@@ -543,7 +547,7 @@ mod tests {
             let domain_id: DomainId = "meadow".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[5],
-                RegisterBox::new(domain_id.clone()).into()
+                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[6],

@@ -1,5 +1,7 @@
-//! This module contains persistence related Iroha logic.
-//! [`Kura`] is the main entity which should be used to store new [`Block`](`crate::block::VersionedCommittedBlock`)s on the blockchain.
+//! Translates to warehouse. File-system and persistence-related
+//! logic.  [`Kura`] is the main entity which should be used to store
+//! new [`Block`](`crate::block::VersionedCommittedBlock`)s on the
+//! blockchain.
 
 use std::{
     collections::BTreeSet,

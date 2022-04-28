@@ -9,6 +9,7 @@
 
 use std::{fmt, fs::File, str::FromStr, time::Duration};
 
+use clap::StructOpt;
 use color_eyre::{
     eyre::{Error, WrapErr},
     Result,
@@ -17,7 +18,6 @@ use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
-use structopt::StructOpt;
 
 /// Metadata wrapper, which can be captured from cli arguments (from user supplied file).
 #[derive(Debug, Clone)]
@@ -60,11 +60,7 @@ impl FromStr for Configuration {
 
 /// Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.
 #[derive(StructOpt, Debug)]
-#[structopt(
-    name = "iroha_client_cli",
-    version = "0.1.0",
-    author = "Soramitsu Iroha2 team (https://github.com/orgs/soramitsu/teams/iroha2)"
-)]
+#[structopt(name = "iroha_client_cli", version, author)]
 pub struct Args {
     /// Sets a config file path
     #[structopt(short, long, default_value = "config.json")]
@@ -77,14 +73,19 @@ pub struct Args {
 #[derive(StructOpt, Debug)]
 pub enum Subcommand {
     /// The subcommand related to domains
+    #[clap(subcommand)]
     Domain(domain::Args),
     /// The subcommand related to accounts
+    #[clap(subcommand)]
     Account(account::Args),
     /// The subcommand related to assets
+    #[clap(subcommand)]
     Asset(asset::Args),
     /// The subcommand related to p2p networking
+    #[clap(subcommand)]
     Peer(peer::Args),
     /// The subcommand related to event streaming
+    #[clap(subcommand)]
     Events(events::Args),
 }
 
@@ -121,8 +122,7 @@ fn main() -> Result<()> {
     let Args {
         config: Configuration(config),
         subcommand,
-    } = Args::from_args();
-    println!("Iroha Client CLI: build v0.0.1 [release]");
+    } = clap::Parser::parse();
     println!(
         "User: {}@{}",
         config.account_id.name, config.account_id.domain_id
@@ -229,11 +229,12 @@ mod domain {
     use super::*;
 
     /// Arguments for domain subcommand
-    #[derive(Debug, StructOpt)]
+    #[derive(Debug, clap::Subcommand)]
     pub enum Args {
         /// Register domain
         Register(Register),
         /// List domains
+        #[clap(subcommand)]
         List(List),
     }
 
@@ -301,8 +302,10 @@ mod account {
         /// Register account
         Register(Register),
         /// Set something in account
+        #[clap(subcommand)]
         Set(Set),
         /// List accounts
+        #[clap(subcommand)]
         List(List),
     }
 
@@ -429,6 +432,7 @@ mod asset {
         /// Get info of asset
         Get(Get),
         /// List assets
+        #[clap(subcommand)]
         List(List),
     }
 

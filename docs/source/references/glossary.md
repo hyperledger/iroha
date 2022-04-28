@@ -62,6 +62,9 @@ Module with the incoming request handling logic for the peer. It is used to rece
 ### Kura (Warehouse)
 Persistence-related logic. It handles storing the blocks, log rotation, block storage folder rotation etc.
 
+### Kagami(Teacher and Exemplar and/or looking glass)
+Generator for commonly used data. Can generate cryptographic key pairs, genesis blocks, documentation etc.
+
 ### Merkle tree (hash tree)
 A data structure used to validate and verify the state at each block height. Iroha's current implementation is a binary tree. See [Wikipedia](https://en.wikipedia.org/wiki/Merkle_tree) for more details.
 

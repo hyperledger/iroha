@@ -1,4 +1,4 @@
-//! This module contains consensus related logic of the Iroha.
+//! Translates to Emperor. Consensus-related logic of Iroha.
 //!
 //! `Consensus` trait is now implemented only by `Sumeragi` for now.
 
