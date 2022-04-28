@@ -208,7 +208,7 @@ mod events {
     }
 
     pub fn listen(filter: EventFilter, cfg: &Configuration) -> Result<()> {
-        let mut iroha_client = Client::new(cfg)?;
+        let iroha_client = Client::new(cfg)?;
         println!("Listening to events with filter: {:?}", filter);
         for event in iroha_client
             .listen_for_events(filter)
