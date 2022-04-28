@@ -128,18 +128,18 @@ pub fn transform_ws_url<S>(uri: S) -> Result<String>
 where
     S: AsRef<str>,
 {
+    // Separate-compilation friendly private implementation.
+    fn _transform_ws_url(uri: &str) -> Result<String> {
+        let ws_uri = if let Some(https_uri) = uri.strip_prefix("https://") {
+            "wss://".to_owned() + https_uri
+        } else if let Some(http_uri) = uri.strip_prefix("http://") {
+            "ws://".to_owned() + http_uri
+        } else {
+            return Err(eyre!("No schema in web socket uri provided"));
+        };
+
+        Ok(ws_uri)
+    }
+
     _transform_ws_url(uri.as_ref())
-}
-
-// Separate-compilation friendly private implementation.
-fn _transform_ws_url(uri: &str) -> Result<String> {
-    let ws_uri = if let Some(https_uri) = uri.strip_prefix("https://") {
-        "wss://".to_owned() + https_uri
-    } else if let Some(http_uri) = uri.strip_prefix("http://") {
-        "ws://".to_owned() + http_uri
-    } else {
-        return Err(eyre!("No schema in web socket uri provided"));
-    };
-
-    Ok(ws_uri)
 }
