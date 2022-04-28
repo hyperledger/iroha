@@ -64,7 +64,8 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
                 limit: Some(50),
             },
         )
-        .expect("Failed to get transaction history");
+        .expect("Failed to get transaction history")
+        .only_output();
     assert_eq!(transactions.len(), 50);
 
     let mut prev_creation_time = 0;

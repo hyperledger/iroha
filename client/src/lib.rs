@@ -5,7 +5,9 @@ pub mod client;
 /// Module with iroha client config
 pub mod config;
 pub use config::Configuration;
-mod http_client;
+/// Module with general communication primitives like an HTTP request builder.
+pub mod http;
+mod http_default;
 
 /// Module containing sample configurations for tests and benchmarks.
 pub mod samples {
