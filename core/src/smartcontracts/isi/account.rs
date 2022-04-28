@@ -227,7 +227,7 @@ pub mod isi {
 
             wsv.modify_account(&account_id.clone(), |account| {
                 if !account.remove_role(&role_id) {
-                    return Err(Error::Find(Box::new(FindError::Account(account_id))));
+                    return Err(FindError::Account(account_id).into());
                 }
 
                 Ok(AccountEvent::PermissionRemoved(account_id))
@@ -353,7 +353,7 @@ pub mod query {
             wsv.map_account(&id, |account| {
                 account.metadata().get(&key).map(Clone::clone)
             })?
-            .ok_or_else(|| query::Error::Find(Box::new(FindError::MetadataKey(key))))
+            .ok_or_else(|| FindError::MetadataKey(key).into())
         }
     }
 

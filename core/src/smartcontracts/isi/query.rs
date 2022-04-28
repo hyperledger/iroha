@@ -79,7 +79,7 @@ pub enum Error {
 
 impl From<FindError> for Error {
     fn from(err: FindError) -> Self {
-        Error::Find(Box::new(err))
+        Box::new(err).into()
     }
 }
 

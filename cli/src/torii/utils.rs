@@ -57,7 +57,7 @@ pub mod body {
 
         fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
             let query = VersionedSignedQueryRequest::decode_versioned(body.as_ref())
-                .map_err(|e| WarpQueryError(QueryError::Decode(Box::new(e))))?;
+                .map_err(|e| WarpQueryError(Box::new(e).into()))?;
             let VersionedSignedQueryRequest::V1(query) = query;
             Ok(Self::try_from(query)?)
         }

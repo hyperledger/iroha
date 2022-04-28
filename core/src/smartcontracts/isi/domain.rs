@@ -60,7 +60,7 @@ pub mod isi {
 
             wsv.modify_domain(&account_id.domain_id.clone(), |domain| {
                 if domain.remove_account(&account_id).is_none() {
-                    return Err(Error::Find(Box::new(FindError::Account(account_id))));
+                    return Err(FindError::Account(account_id).into());
                 }
 
                 Ok(DomainEvent::Account(AccountEvent::Deleted(account_id)))
@@ -143,9 +143,9 @@ pub mod isi {
                     .remove_asset_definition(&asset_definition_id)
                     .is_none()
                 {
-                    return Err(Error::Find(Box::new(FindError::AssetDefinition(
+                    return Err(FindError::AssetDefinition(
                         asset_definition_id,
-                    ))));
+                    ).into());
                 }
 
                 Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Deleted(

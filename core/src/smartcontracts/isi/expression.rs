@@ -79,7 +79,7 @@ impl<W: WorldTrait> Evaluate<W> for ContextValue {
     ) -> Result<Self::Value, Self::Error> {
         context
             .get(&self.value_name)
-            .ok_or_else(|| Error::Find(Box::new(FindError::Context(self.value_name.clone()))))
+            .ok_or_else(|| FindError::Context(self.value_name.clone()).into())
             .map(ToOwned::to_owned)
     }
 }
@@ -345,7 +345,7 @@ impl<W: WorldTrait> Evaluate<W> for Divide {
         let right: u32 = self.right.evaluate(wsv, context)?;
         left.checked_div(right)
             .map(Value::U32)
-            .ok_or(Error::Math(MathError::DivideByZero))
+            .ok_or(MathError::DivideByZero.into())
     }
 }
 
