@@ -35,7 +35,7 @@ pub mod error {
     use super::UnsupportedVersion;
 
     /// Versioning errors
-    #[derive(Debug, Clone, FromVariant, IntoSchema)]
+    #[derive(Debug, FromVariant, IntoSchema)]
     #[cfg_attr(feature = "std", derive(thiserror::Error))]
     #[cfg_attr(feature = "scale", derive(Encode, Decode))]
     pub enum Error {
@@ -141,7 +141,7 @@ pub trait Version {
 }
 
 /// Structure describing a container content which version is not supported.
-#[derive(Debug, Clone, IntoSchema)]
+#[derive(Debug, IntoSchema)]
 #[cfg_attr(feature = "scale", derive(Encode, Decode))]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 pub struct UnsupportedVersion {
@@ -170,7 +170,7 @@ impl UnsupportedVersion {
 }
 
 /// Raw versioned content, serialized.
-#[derive(Debug, Clone, IntoSchema)]
+#[derive(Debug, IntoSchema)]
 #[cfg_attr(feature = "scale", derive(Encode, Decode))]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 pub enum RawVersioned {

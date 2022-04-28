@@ -143,9 +143,7 @@ pub mod isi {
                     .remove_asset_definition(&asset_definition_id)
                     .is_none()
                 {
-                    return Err(FindError::AssetDefinition(
-                        asset_definition_id,
-                    ).into());
+                    return Err(FindError::AssetDefinition(asset_definition_id).into());
                 }
 
                 Ok(DomainEvent::AssetDefinition(AssetDefinitionEvent::Deleted(

@@ -91,9 +91,7 @@ pub mod error {
                 trigger::set::ModRepeatsError::NotFound(not_found_id) => {
                     FindError::Trigger(not_found_id).into()
                 }
-                trigger::set::ModRepeatsError::RepeatsOverflow(_) => {
-                    MathError::Overflow.into()
-                }
+                trigger::set::ModRepeatsError::RepeatsOverflow(_) => MathError::Overflow.into(),
             }
         }
     }
@@ -128,7 +126,7 @@ pub mod error {
     }
 
     /// Type assertion error
-    #[derive(Debug, Clone, Error, Decode, Encode, IntoSchema)]
+    #[derive(Debug, Error, Decode, Encode, IntoSchema)]
     pub enum FindError {
         /// Failed to find asset
         #[error("Failed to find asset: `{0}`")]
