@@ -7,9 +7,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-  # Note jobs in this workflow are run on `push` meaning that there's
-  # no point in burning our AWS self-hosted runners' time. Hence
-  # `ubuntu-latest` and not `[self-hosted, Linux]`.
+# Note jobs in this workflow are run on `push` meaning that there's
+# no point in burning our AWS self-hosted runners' time. Hence
+# `ubuntu-latest` and not `[self-hosted, Linux]`.
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -28,7 +28,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push Iroha Docker image
+      - name: Build and push docker image
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -37,7 +37,7 @@ jobs:
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
-      - name: Build and push Iroha client cli Docker image
+      - name: Build and push docker image (iroha_client_cli)
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -47,7 +47,7 @@ jobs:
             TARGET_DIR=release
             PROFILE=--release
             BIN=iroha_client_cli
-      - name: Build and push Iroha Crypto CLI Docker image
+      - name: Build and push docker image (kagami)
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -58,7 +58,7 @@ jobs:
             PROFILE=--release
             BIN=kagami
 
-      - name: Build and push load-rs:dev docker image
+      - name: Build and push docker image (load-rs:dev)
         run: |
           sleep 10s
           echo "wait to other workflow"
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Build
-        run: cargo build --release --verbose
+        run: mold --run cargo build --release --verbose
       - name: Archive build
         uses: actions/upload-artifact@v2
         with:
@@ -116,7 +116,7 @@ jobs:
       - name: Run schema generation
         run: |
           mkdir -p target/schema
-          cargo run --bin kagami -- schema > target/schema/schema.json
+          cargo run --bin kagami -- schema >target/schema/schema.json
       - name: Upload schema
         uses: actions/upload-artifact@v2
         with:
@@ -139,7 +139,7 @@ jobs:
       - name: Run release tests and save telemetry
         env:
           TELEMETRY_FILE: ../target/telemetry/release.json.lz4
-        run: cargo test -p iroha_client --all-features --release -- unstable_network || true
+        run: mold --run cargo test -p iroha_client --all-features --release -- unstable_network || true
       - name: Install script dependencies
         run: |
           apt-get update
@@ -187,7 +187,7 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
         run: |
-          mold --run cargo +nightly-2022-04-20 test \
+          mold --run cargo test \
           --quiet --workspace --no-fail-fast -- \
           --skip unstable_network --skip ui --test-threads 3
         env:
@@ -198,7 +198,7 @@ jobs:
           grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
         if: always()
       - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v2
         if: always()
         with:
           file: lcov.info

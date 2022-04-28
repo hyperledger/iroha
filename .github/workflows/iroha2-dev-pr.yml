@@ -14,7 +14,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTC_BOOTSTRAP: 1
 
 jobs:
   test:
@@ -35,7 +34,7 @@ jobs:
         working-directory: actor
         if: always()
       - name: Verify wasm smartcontracts are able to build
-        run: mold -run cargo build --target wasm32-unknown-unknown --quiet
+        run: mold --run cargo build --target wasm32-unknown-unknown --quiet
         working-directory: wasm
         env:
           RUSTC_BOOTSTRAP: 1
@@ -62,7 +61,7 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
         run: |
-          mold --run cargo +nightly-2022-04-20 test \
+          mold --run cargo test \
           --quiet --workspace --no-fail-fast -- \
           --skip unstable_network --skip ui --test-threads 3
         env:
@@ -73,7 +72,7 @@ jobs:
           grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
         if: always()
       - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v2
         if: always()
         with:
           file: lcov.info
