@@ -60,23 +60,29 @@ where
     type Output = QueryHandlerResult<ClientQueryOutput<R>>;
 
     fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
-        match resp.status() {
-            StatusCode::OK => {
-                let result = VersionedPaginatedQueryResult::decode_versioned(resp.body())
-                    .wrap_err("Failed to decode response body as VersionedPaginatedQueryResult")?;
-                let VersionedPaginatedQueryResult::V1(result) = result;
-                ClientQueryOutput::try_from(result).map_err(Into::into)
-            }
-            StatusCode::BAD_REQUEST
-            | StatusCode::UNAUTHORIZED
-            | StatusCode::FORBIDDEN
-            | StatusCode::NOT_FOUND => {
-                let err = QueryError::decode(&mut resp.body().as_ref())
-                    .wrap_err("Failed to decode response body as QueryError")?;
-                Err(ClientQueryError::Certain(err))
-            }
-            _ => Err(ResponseReport::with_msg("Failed to make query", &resp).into()),
+        _handle_query_response_base(resp).and_then(|VersionedPaginatedQueryResult::V1(result)| {
+            ClientQueryOutput::try_from(result).map_err(Into::into)
+        })
+    }
+}
+
+// Separate-compilation friendly response handling
+fn _handle_query_response_base(
+    resp: Response<Vec<u8>>,
+) -> QueryHandlerResult<VersionedPaginatedQueryResult> {
+    match resp.status() {
+        StatusCode::OK => VersionedPaginatedQueryResult::decode_versioned(resp.body())
+            .wrap_err("Failed to decode response body as VersionedPaginatedQueryResult")
+            .map_err(Into::into),
+        StatusCode::BAD_REQUEST
+        | StatusCode::UNAUTHORIZED
+        | StatusCode::FORBIDDEN
+        | StatusCode::NOT_FOUND => {
+            let err = QueryError::decode(&mut resp.body().as_ref())
+                .wrap_err("Failed to decode response body as QueryError")?;
+            Err(ClientQueryError::Certain(err))
         }
+        _ => Err(ResponseReport::with_msg("Failed to make query", &resp).into()),
     }
 }
 
