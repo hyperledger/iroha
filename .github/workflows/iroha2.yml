@@ -6,13 +6,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTC_BOOTSTRAP: 1
 
 jobs:
-  # Coverage is both in PR and in push pipelines so that:
-  # 1. PR can get coverage report from bot.
-  # 2. Coverage bot can have results from
-  # `iroha2-dev` to report coverage changes.
   coverage:
     runs-on: ubuntu-latest
     container:
@@ -22,7 +17,7 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
         run: |
-          mold --run cargo +nightly-2022-04-20 test \
+          mold --run cargo test \
           --quiet --workspace --no-fail-fast -- \
           --skip unstable_network --skip ui --test-threads 3
         env:
@@ -33,7 +28,7 @@ jobs:
           grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
         if: always()
       - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v2
         if: always()
         with:
           file: lcov.info
@@ -56,7 +51,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push Iroha Docker image
+      - name: Build and push docker image
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -65,7 +60,7 @@ jobs:
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
-      - name: Build and push Iroha client cli Docker image
+      - name: Build and push docker image (iroha_client_cli)
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -75,7 +70,7 @@ jobs:
             TARGET_DIR=release
             PROFILE=--release
             BIN=iroha_client_cli
-      - name: Build and push Iroha Crypto CLI Docker image
+      - name: Build and push docker image (kagami)
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -86,7 +81,7 @@ jobs:
             PROFILE=--release
             BIN=kagami
 
-      - name: Build and push load-rs:release docker image
+      - name: Build and push docker image (load-rs:release)
         run: |
           sleep 10s
           echo "wait to finish other workflow"
