@@ -617,6 +617,7 @@ impl Client {
     ///
     /// # Errors
     /// Fails if handler construction fails
+    #[inline]
     pub fn events_handler(&self, event_filter: EventFilter) -> Result<EventsApiFlowInit> {
         EventsApiFlowInit::new(
             event_filter,
@@ -807,6 +808,7 @@ impl EventsApiFlowInit {
     ///
     /// # Errors
     /// Fails if URL transformation fails
+    #[inline]
     fn new<U>(filter: EventFilter, headers: HttpHeaders, url: U) -> Result<Self>
     where
         U: AsRef<str>,

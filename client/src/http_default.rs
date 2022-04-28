@@ -52,11 +52,11 @@ impl SetHeadersExt for http::request::Builder {}
 pub struct DefaultRequestBuilder(Result<AttoHttpRequestBuilder>);
 
 impl DefaultRequestBuilder {
-    fn and_then<F>(self, func: F) -> Self
+    fn and_then<F>(self, fun: F) -> Self
     where
         F: FnOnce(AttoHttpRequestBuilder) -> Result<AttoHttpRequestBuilder>,
     {
-        Self(self.0.and_then(func))
+        Self(self.0.and_then(fun))
     }
 }
 
