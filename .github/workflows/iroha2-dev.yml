@@ -185,6 +185,11 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
+
+      # TODO Remove this step #2165
+      - name: Add component
+        run: rustup component add llvm-tools-preview
+
       - name: Run tests
         run: |
           mold --run cargo test \
