@@ -2,7 +2,7 @@
 
 #![feature(alloc_error_handler)]
 // Required because of `unsafe` code and `no_mangle` use
-#![allow(unsafe_code)]
+#![allow(unsafe_)]
 #![no_std]
 
 #[cfg(all(not(test), not(target_pointer_width = "32")))]

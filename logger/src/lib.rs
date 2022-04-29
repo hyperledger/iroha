@@ -279,8 +279,80 @@ pub fn install_panic_hook() -> Result<(), Report> {
     }
 }
 
+pub trait LoggedError {
+    fn log(self) -> Self;
+    fn warn(self) -> Self;
+    fn dbg(self) -> Self;
+}
+
+// #[cfg(debug_assertions)]
+mod debug_context {
+    use super::*;
+
+    impl<T, E: Debug> LoggedError for Result<T, E> {
+        fn log(self) -> Self {
+            if let Err(err) = self {
+                error!(?err);
+                Err(err)
+            } else {
+                self
+            }
+        }
+
+        fn warn(self) -> Self {
+            if let Err(err) = self {
+                warn!(?err);
+                Err(err)
+            } else {
+                self
+            }
+        }
+
+        fn dbg(self) -> Self {
+            if let Err(err) = self {
+                debug!(?err);
+                Err(err)
+            } else {
+                self
+            }
+        }
+    }
+
+    impl LoggedError for color_eyre::eyre::Report {
+        fn log(self) -> Self {
+            #[cfg(debug_assertions)]
+            error!(err=?self);
+            #[cfg(not(debug_assertions))]
+            error!(err=%self);
+            self
+        }
+
+        fn warn(self) -> Self {
+            #[cfg(debug_assertions)]
+            warn!(err=?self);
+            #[cfg(not(debug_assertions))]
+            warn!(err=%self);
+            self
+        }
+
+        fn dbg(self) -> Self {
+            #[cfg(debug_assertions)]
+            debug!(err=?self);
+            #[cfg(not(debug_assertions))]
+            debug!(err=%self);
+            self
+        }
+    }
+}
+
 pub mod prelude {
-    //! Module with most used items. Needs to be imported when using `log` macro to avoid `tracing` crate dependency
+    //! Module with most used items. Needs to be imported when using
+    //! `log` macro to avoid `tracing` crate dependency.
 
     pub use tracing::{self, debug, error, info, instrument as log, trace, warn};
+
+    pub use super::LoggedError as _;
+    // Import the trait, but don't pollute the namespace
+    // necessarily. If you need this trait in your namespace, import
+    // it explicitly.
 }
