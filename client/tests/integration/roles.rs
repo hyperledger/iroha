@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::{collections::BTreeMap, str::FromStr as _, time::Duration};
+use std::{str::FromStr as _, time::Duration};
 
 use eyre::{eyre, Result};
 use iroha_client::client::{self, Client};
@@ -8,7 +8,7 @@ use iroha_core::{prelude::AllowAll, smartcontracts::permissions::ValidatorBuilde
 use iroha_data_model::{permissions::Permissions, prelude::*};
 use iroha_permissions_validators::public_blockchain::{
     key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
-    transfer,
+    transfer, PredefinedPermissionToken,
 };
 use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
@@ -48,9 +48,8 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     // Registering new role which sets `Transfer` execution count limit to
     // `COUNT` for every `PERIOD_MS` milliseconds
     let permission_token =
-        transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod::new(PERIOD_MS.into(), COUNT).into();
-    let permissions = Permissions::from([permission_token]);
-    let register_role = RegisterBox::new(Role::new(role_id.clone(), permissions));
+        transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod::new(PERIOD_MS.into(), COUNT);
+    let register_role = RegisterBox::new(Role::new(role_id.clone(), vec![permission_token]));
     test_client.submit_blocking(register_role)?;
 
     // Granting new role to Alice
@@ -134,16 +133,10 @@ fn register_metadata_role() -> Result<()> {
     test_client.submit_blocking(register_bob)?;
 
     let role_id = iroha_data_model::role::Id::new("USER_METADATA_ACCESS".parse::<Name>()?);
-    let mut permissions = Permissions::new();
-    let mut params = BTreeMap::new();
-    params.insert(Name::from_str("account_id")?, bob_id.into());
-    permissions.insert(
-        PermissionToken::new(CanSetKeyValueInUserMetadata::name().clone())
-            .with_params(params.clone()),
-    );
-    permissions.insert(
-        PermissionToken::new(CanRemoveKeyValueInUserMetadata::name().clone()).with_params(params),
-    );
+    let permissions: Vec<PredefinedPermissionToken> = vec![
+        CanSetKeyValueInUserMetadata::new(bob_id.clone()).into(),
+        CanRemoveKeyValueInUserMetadata::new(bob_id).into(),
+    ];
     let register_role = RegisterBox::new(Role::new(role_id, permissions));
     test_client.submit(register_role)?;
     Ok(())

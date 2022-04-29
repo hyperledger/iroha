@@ -1,8 +1,9 @@
 //! Permission checks asociated with use cases that can be summarized as public blockchains.
 
-use std::str::FromStr as _;
-
+use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
+use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 use super::*;
 
@@ -12,22 +13,9 @@ pub mod mint;
 pub mod transfer;
 pub mod unregister;
 
-/// Origin asset id param used in permission tokens.
-#[allow(clippy::expect_used)]
-pub static ASSET_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::from_str("asset_id").expect("This must never panic"));
-#[allow(clippy::expect_used)]
-/// Origin account id param used in permission tokens.
-pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::from_str("account_id").expect("This shall never panic"));
-#[allow(clippy::expect_used)]
-/// Origin asset definition param used in permission tokens.
-pub static ASSET_DEFINITION_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::from_str("asset_definition_id").expect("This should never panic"));
-
 /// Enum listing preconfigured permission tokens
-#[derive(IntoSchema)]
-pub enum DefaultPermissionToken {
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, FromVariant, IntoSchema)]
+pub enum PredefinedPermissionToken {
     /// Can burn asset with the corresponding asset definition.
     BurnAssetWithDefinition(burn::CanBurnAssetWithDefinition),
     /// Can burn user's assets permission token name.
@@ -54,21 +42,23 @@ pub enum DefaultPermissionToken {
     UnregisterAssetWithDefinition(unregister::CanUnregisterAssetWithDefinition),
 }
 
-impl From<DefaultPermissionToken> for PermissionToken {
-    fn from(value: DefaultPermissionToken) -> Self {
+impl From<PredefinedPermissionToken> for PermissionToken {
+    fn from(value: PredefinedPermissionToken) -> Self {
         match value {
-            DefaultPermissionToken::BurnAssetWithDefinition(inner) => inner.into(),
-            DefaultPermissionToken::BurnUserAssets(inner) => inner.into(),
-            DefaultPermissionToken::SetKeyValueInUserAssets(inner) => inner.into(),
-            DefaultPermissionToken::RemoveKeyValueInUserAssets(inner) => inner.into(),
-            DefaultPermissionToken::SetKeyValueInUserMetadata(inner) => inner.into(),
-            DefaultPermissionToken::RemoveKeyValueInUserMetadata(inner) => inner.into(),
-            DefaultPermissionToken::SetKeyValueInAssetDefinition(inner) => inner.into(),
-            DefaultPermissionToken::RemoveKeyValueInAssetDefinition(inner) => inner.into(),
-            DefaultPermissionToken::MintUserAssetDefinitions(inner) => inner.into(),
-            DefaultPermissionToken::TransferUserAssets(inner) => inner.into(),
-            DefaultPermissionToken::TransferOnlyFixedNumberOfTimesPerPeriod(inner) => inner.into(),
-            DefaultPermissionToken::UnregisterAssetWithDefinition(inner) => inner.into(),
+            PredefinedPermissionToken::BurnAssetWithDefinition(inner) => inner.into(),
+            PredefinedPermissionToken::BurnUserAssets(inner) => inner.into(),
+            PredefinedPermissionToken::SetKeyValueInUserAssets(inner) => inner.into(),
+            PredefinedPermissionToken::RemoveKeyValueInUserAssets(inner) => inner.into(),
+            PredefinedPermissionToken::SetKeyValueInUserMetadata(inner) => inner.into(),
+            PredefinedPermissionToken::RemoveKeyValueInUserMetadata(inner) => inner.into(),
+            PredefinedPermissionToken::SetKeyValueInAssetDefinition(inner) => inner.into(),
+            PredefinedPermissionToken::RemoveKeyValueInAssetDefinition(inner) => inner.into(),
+            PredefinedPermissionToken::MintUserAssetDefinitions(inner) => inner.into(),
+            PredefinedPermissionToken::TransferUserAssets(inner) => inner.into(),
+            PredefinedPermissionToken::TransferOnlyFixedNumberOfTimesPerPeriod(inner) => {
+                inner.into()
+            }
+            PredefinedPermissionToken::UnregisterAssetWithDefinition(inner) => inner.into(),
         }
     }
 }
@@ -125,85 +115,43 @@ pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
         .all_should_succeed()
 }
 
-/// Checks that `authority` is account owner for account supplied in `permission_token`.
+/// Extracts specialized token from `GrantBox`
 ///
 /// # Errors
-/// - The `permission_token` is of improper format.
-/// - Account owner is not `authority`
-pub fn check_account_owner_for_token(
-    permission_token: &PermissionToken,
-    authority: &AccountId,
-) -> Result<(), String> {
-    let account_id = if let Value::Id(IdBox::AccountId(account_id)) = permission_token
-        .get_param(&*ACCOUNT_ID_TOKEN_PARAM_NAME)
-        .ok_or(format!(
-            "Failed to find permission param {}.",
-            ACCOUNT_ID_TOKEN_PARAM_NAME.clone()
-        ))? {
-        account_id
-    } else {
-        return Err(format!(
-            "Permission param {} is not an AccountId.",
-            ACCOUNT_ID_TOKEN_PARAM_NAME.clone()
-        ));
-    };
-    if account_id != authority {
-        return Err("Account specified in permission token is not owned by signer.".to_owned());
-    }
-    Ok(())
+/// - Cannot evaluate `instruction`
+/// - `instruction` doesn't evaluate to `PermissionToken`
+/// - Generic `PermissionToken` can't be converted to requested specialized token.
+pub fn extract_specialized_token<T, W>(
+    instruction: &GrantBox,
+    wsv: &WorldStateView<W>,
+) -> Result<T, String>
+where
+    T: TryFrom<PermissionToken, Error = PredefinedTokenConversionError>,
+    W: iroha_core::wsv::WorldTrait,
+{
+    let permission_token: PermissionToken = instruction
+        .object
+        .evaluate(wsv, &Context::new())
+        .map_err(|e| e.to_string())?
+        .try_into()
+        .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
+
+    let specialized_token: T = permission_token
+        .try_into()
+        .map_err(|e: PredefinedTokenConversionError| e.to_string())?;
+
+    Ok(specialized_token)
 }
 
-/// Checks that `authority` is asset owner for asset supplied in `permission_token`.
+/// Checks that asset creator is `authority` in the supplied `definition_id`.
 ///
 /// # Errors
-/// - The `permission_token` is of improper format.
-/// - Asset owner is not `authority`
-pub fn check_asset_owner_for_token(
-    permission_token: &PermissionToken,
-    authority: &AccountId,
-) -> Result<(), String> {
-    let asset_id = if let Value::Id(IdBox::AssetId(asset_id)) = permission_token
-        .get_param(&*ASSET_ID_TOKEN_PARAM_NAME)
-        .ok_or(format!(
-            "Failed to find permission param {}.",
-            ASSET_ID_TOKEN_PARAM_NAME.clone()
-        ))? {
-        asset_id
-    } else {
-        return Err(format!(
-            "Permission param {} is not an AssetId.",
-            ASSET_ID_TOKEN_PARAM_NAME.clone()
-        ));
-    };
-    if &asset_id.account_id != authority {
-        return Err("Asset specified in permission token is not owned by signer.".to_owned());
-    }
-    Ok(())
-}
-
-/// Checks that asset creator is `authority` in the supplied `permission_token`.
-///
-/// # Errors
-/// - The `permission_token` is of improper format.
 /// - Asset creator is not `authority`
-pub fn check_asset_creator_for_token<W: WorldTrait>(
-    permission_token: &PermissionToken,
+pub fn check_asset_creator_for_asset_definition<W: WorldTrait>(
+    definition_id: &AssetDefinitionId,
     authority: &AccountId,
     wsv: &WorldStateView<W>,
 ) -> Result<(), String> {
-    let definition_id = if let Value::Id(IdBox::AssetDefinitionId(definition_id)) = permission_token
-        .get_param(&*ASSET_DEFINITION_ID_TOKEN_PARAM_NAME)
-        .ok_or(format!(
-            "Failed to find permission param {}.",
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone()
-        ))? {
-        definition_id
-    } else {
-        return Err(format!(
-            "Permission param {} is not an AssetDefinitionId.",
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone()
-        ));
-    };
     let registered_by_signer_account = wsv
         .asset_definition_entry(definition_id)
         .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
@@ -218,7 +166,7 @@ pub fn check_asset_creator_for_token<W: WorldTrait>(
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, str::FromStr as _};
 
     use iroha_core::wsv::World;
 

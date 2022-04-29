@@ -92,11 +92,11 @@ impl Role {
     #[inline]
     pub fn new(
         id: <Self as Identifiable>::Id,
-        permissions: impl IntoIterator<Item = PermissionToken>,
+        permissions: impl IntoIterator<Item = impl Into<PermissionToken>>,
     ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id,
-            permissions: permissions.into_iter().collect(),
+            permissions: permissions.into_iter().map(Into::into).collect(),
         }
     }
 

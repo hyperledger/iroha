@@ -6,17 +6,17 @@ use super::*;
 
 declare_token!(
     /// Can burn asset with the corresponding asset definition.
-    #[derive(Debug)]
     CanBurnAssetWithDefinition {
+        /// Asset definition id.
         asset_definition_id ("asset_definition_id"): DefinitionId,
     },
     "can_burn_asset_with_definition"
 );
 
 declare_token!(
-    /// Can burn user's assets permission.
-    #[derive(Debug)]
+    /// Can burn user's assets.
     CanBurnUserAssets {
+        /// Asset id
         asset_id ("asset_id"): AssetId,
     },
     "can_burn_user_assets"
@@ -103,16 +103,9 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != CanBurnAssetWithDefinition::name() {
-            return Err("Grant instruction is not for burn permission.".to_owned());
-        }
-        check_asset_creator_for_token(&permission_token, authority, wsv)
+        let token: CanBurnAssetWithDefinition = extract_specialized_token(instruction, wsv)?;
+
+        check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
 
@@ -191,16 +184,12 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != CanBurnUserAssets::name() {
-            return Err("Grant instruction is not for burn permission.".to_owned());
+        let token: CanBurnUserAssets = extract_specialized_token(instruction, wsv)?;
+
+        if &token.asset_id.account_id != authority {
+            return Err("Asset specified in permission token is not owned by signer.".to_owned());
         }
-        check_asset_owner_for_token(&permission_token, authority)?;
+
         Ok(())
     }
 }

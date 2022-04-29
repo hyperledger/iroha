@@ -5,8 +5,8 @@ use super::*;
 
 declare_token!(
     /// Can un-register asset with the corresponding asset definition.
-    #[derive(Debug)]
     CanUnregisterAssetWithDefinition {
+        /// Asset definition id
         asset_definition_id ("asset_definition_id"): DefinitionId,
     },
     "can_unregister_asset_with_definition"
@@ -94,16 +94,8 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != CanUnregisterAssetWithDefinition::name() {
-            return Err("Grant instruction is not for unregister permission.".to_owned());
-        }
-        check_asset_creator_for_token(&permission_token, authority, wsv)
+        let token: CanUnregisterAssetWithDefinition = extract_specialized_token(instruction, wsv)?;
+        check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
 
@@ -128,9 +120,11 @@ impl<W: WorldTrait> IsRevokeAllowed<W> for RevokeRegisteredByMeAccess {
             .map_err(|e| e.to_string())?
             .try_into()
             .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != CanUnregisterAssetWithDefinition::name() {
-            return Err("Revoke instruction is not for unregister permission.".to_owned());
-        }
-        check_asset_creator_for_token(&permission_token, authority, wsv)
+
+        let token: CanUnregisterAssetWithDefinition = permission_token
+            .try_into()
+            .map_err(|e: PredefinedTokenConversionError| e.to_string())?;
+
+        check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }

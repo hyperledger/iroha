@@ -45,6 +45,8 @@ pub enum Args {
     Genesis(genesis::Args),
     /// Generate a Markdown reference of configuration parameters
     Docs(docs::Args),
+    /// Generate a list of predefined permission tokens and their parameters
+    Tokens(tokens::Args),
 }
 
 impl<T: Write> RunArgs<T> for Args {
@@ -56,6 +58,7 @@ impl<T: Write> RunArgs<T> for Args {
             Schema(args) => args.run(writer),
             Genesis(args) => args.run(writer),
             Docs(args) => args.run(writer),
+            Tokens(args) => args.run(writer),
         }
     }
 }
@@ -292,6 +295,61 @@ mod docs {
                 field.pop();
             }
             Ok(())
+        }
+    }
+}
+
+mod tokens {
+    use std::collections::HashMap;
+
+    use color_eyre::eyre::{bail, eyre, WrapErr};
+    use iroha_permissions_validators::public_blockchain::PredefinedPermissionToken;
+    use iroha_schema::{IntoSchema, Metadata};
+
+    use super::*;
+
+    #[derive(StructOpt, Debug, Clone, Copy)]
+    pub struct Args;
+
+    impl<T: Write> RunArgs<T> for Args {
+        fn run(self, writer: &mut BufWriter<T>) -> Outcome {
+            let mut schema = PredefinedPermissionToken::get_schema();
+
+            let enum_variants = match schema
+                .remove(
+                    "iroha_permissions_validators::public_blockchain::PredefinedPermissionToken",
+                )
+                .ok_or_else(|| eyre!("Token enum not in schema"))?
+            {
+                Metadata::Enum(meta) => meta.variants,
+                _ => bail!("Expected enum"),
+            };
+
+            let token_map = enum_variants
+                .into_iter()
+                .map(|variant| {
+                    let ty = variant.ty.ok_or_else(|| eyre!("Empty enum variant"))?;
+                    let fields = match schema
+                        .remove(&ty)
+                        .ok_or_else(|| eyre!("Token not in schema"))?
+                    {
+                        Metadata::Struct(meta) => meta
+                            .declarations
+                            .into_iter()
+                            .map(|decl| (decl.name, decl.ty))
+                            .collect::<HashMap<_, _>>(),
+                        _ => bail!("Token is not a struct"),
+                    };
+                    Ok((ty, fields))
+                })
+                .collect::<Result<HashMap<_, _>, _>>()?;
+
+            write!(
+                writer,
+                "{}",
+                serde_json::to_string_pretty(&token_map).wrap_err("Serialization error")?
+            )
+            .wrap_err("Failed to write.")
         }
     }
 }

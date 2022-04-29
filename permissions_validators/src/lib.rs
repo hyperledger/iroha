@@ -103,6 +103,7 @@ macro_rules! declare_token {
         $(#[$outer_meta:meta])* // Structure attributes
         $ident:ident {          // Structure definiton
             $(
+                $(#[$inner_meta:meta])* // Field attributes
                 $param_name:ident ($param_string:literal): $param_typ:ty
              ),* $(,)? // allow trailing comma
         },
@@ -112,11 +113,25 @@ macro_rules! declare_token {
         $(#[$outer_meta])*
         ///
         /// A wrapper around [PermissionToken](iroha_data_model::permissions::PermissionToken).
-        #[derive(iroha_schema::IntoSchema)]
+        #[derive(
+            Clone,
+            Debug,
+            parity_scale_codec::Encode,
+            parity_scale_codec::Decode,
+            serde::Serialize,
+            serde::Deserialize,
+            iroha_schema::IntoSchema,
+        )]
         pub struct $ident
         where $($param_typ: Into<Value>,)* {
             $(
-                $param_name : $param_typ
+                $(#[$inner_meta])*
+                #[doc = concat!(
+                    "\nCorresponding parameter name in generic `[PermissionToken]` is `\"",
+                    $param_string,
+                    "\"`.",
+                )]
+                pub $param_name : $param_typ
              ),*
         }
 
@@ -154,7 +169,44 @@ macro_rules! declare_token {
                     ])
             }
         }
+
+        impl TryFrom<iroha_data_model::permissions::PermissionToken> for $ident {
+            type Error = PredefinedTokenConversionError;
+
+            fn try_from(
+                token: iroha_data_model::permissions::PermissionToken
+            ) -> Result<Self, Self::Error> {
+                if token.name() != Self::name() {
+                    return Err(Self::Error::Name(token.name().clone()))
+                }
+                let mut params = token.params().collect::<std::collections::HashMap<_, _>>();
+                Ok(Self::new($(
+                  <$param_typ>::try_from(
+                    params
+                     .remove(Self::$param_name())
+                     .cloned()
+                     .ok_or(Self::Error::Param(Self::$param_name()))?
+                  )
+                  .map_err(|_| Self::Error::Value(Self::$param_name()),)?
+                ),*))
+            }
+        }
     };
+}
+
+/// Represents error when converting specialized permission tokens
+/// to generic `[PermissionToken]`
+#[derive(Debug, thiserror::Error)]
+pub enum PredefinedTokenConversionError {
+    /// Wrong token name
+    #[error("Wrong token name: {0}")]
+    Name(Name),
+    /// Parameter not present in token parameters
+    #[error("Parameter {0} not found")]
+    Param(&'static Name),
+    /// Unexpected value for parameter
+    #[error("Wrong value for parameter {0}")]
+    Value(&'static Name),
 }
 
 // I need to put these modules after the macro definitions.

@@ -25,6 +25,8 @@ iroha_crypto = { version = "=2.0.0-pre-rc.3", path = "../../crypto" }
 iroha_config = { version = "=2.0.0-pre-rc.3", path = "../../config" }
 iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../../data_model" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.3", path = "../../schema/gen" }
+iroha_schema = { version = "=2.0.0-pre-rc.3", path = "../../schema" }
+iroha_permissions_validators = { version = "=2.0.0-pre-rc.3", path = "../../permissions_validators" }
 iroha = { path = "../../cli" }
 
 color-eyre = "0.5.11"

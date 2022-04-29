@@ -5,8 +5,8 @@ use super::*;
 
 declare_token!(
     /// Can mint asset with the corresponding asset definition.
-    #[derive(Debug)]
     CanMintUserAssetDefinitions {
+        /// Asset definition id
         asset_definition_id ("asset_definition_id"): DefinitionId,
     },
     "can_mint_user_asset_definitions"
@@ -92,15 +92,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != CanMintUserAssetDefinitions::name() {
-            return Err("Grant instruction is not for mint permission.".to_owned());
-        }
-        check_asset_creator_for_token(&permission_token, authority, wsv)
+        let token: CanMintUserAssetDefinitions = extract_specialized_token(instruction, wsv)?;
+        check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
