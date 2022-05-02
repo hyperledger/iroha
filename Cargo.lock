@@ -1864,8 +1864,8 @@ dependencies = [
  "iroha_client",
  "iroha_core",
  "iroha_crypto",
- "iroha_data_model_derive",
  "iroha_data_primitives",
+ "iroha_ffi",
  "iroha_macro",
  "iroha_schema",
  "iroha_version",
@@ -1877,17 +1877,6 @@ dependencies = [
  "tokio",
  "trybuild",
  "warp",
-]
-
-[[package]]
-name = "iroha_data_model_derive"
-version = "2.0.0-pre-rc.3"
-dependencies = [
- "heck",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1911,6 +1900,25 @@ name = "iroha_derive"
 version = "2.0.0-pre-rc.4"
 dependencies = [
  "iroha_macro",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "trybuild",
+]
+
+[[package]]
+name = "iroha_ffi"
+version = "2.0.0-pre-rc.3"
+dependencies = [
+ "iroha_ffi_derive",
+]
+
+[[package]]
+name = "iroha_ffi_derive"
+version = "2.0.0-pre-rc.3"
+dependencies = [
+ "heck",
+ "proc-macro-error",
  "proc-macro2",
  "quote",
  "syn",
