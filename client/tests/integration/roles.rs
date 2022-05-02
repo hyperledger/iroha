@@ -5,10 +5,10 @@ use std::{str::FromStr as _, time::Duration};
 use eyre::{eyre, Result};
 use iroha_client::client::{self, Client};
 use iroha_core::{prelude::AllowAll, smartcontracts::permissions::ValidatorBuilder};
-use iroha_data_model::{permissions::Permissions, prelude::*};
+use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain::{
     key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
-    transfer, PredefinedPermissionToken,
+    transfer,
 };
 use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
@@ -94,8 +94,7 @@ fn register_empty_role() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let role_id = iroha_data_model::role::Id::new("root".parse::<Name>().expect("Valid"));
-    let register_role = RegisterBox::new(Role::new(role_id, Permissions::new()));
+    let register_role = RegisterBox::new(NewRole::from_id_str("root").expect("Valid").build());
 
     test_client.submit(register_role)?;
     Ok(())
@@ -106,12 +105,13 @@ fn register_role_with_empty_token_params() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let role_id = iroha_data_model::role::Id::new("root".parse::<Name>().expect("Valid"));
-    let mut permissions = Permissions::new();
-    permissions.insert(PermissionToken::new("token".parse().expect("Valid")));
-    let register_role = RegisterBox::new(Role::new(role_id, permissions));
+    let token = PermissionToken::new("token".parse().expect("Valid"));
+    let role = NewRole::from_id_str("root")
+        .expect("Valid")
+        .with_permission(token)
+        .build();
 
-    test_client.submit(register_role)?;
+    test_client.submit(RegisterBox::new(role))?;
     Ok(())
 }
 
@@ -132,12 +132,11 @@ fn register_metadata_role() -> Result<()> {
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
     test_client.submit_blocking(register_bob)?;
 
-    let role_id = iroha_data_model::role::Id::new("USER_METADATA_ACCESS".parse::<Name>()?);
-    let permissions: Vec<PredefinedPermissionToken> = vec![
-        CanSetKeyValueInUserMetadata::new(bob_id.clone()).into(),
-        CanRemoveKeyValueInUserMetadata::new(bob_id).into(),
-    ];
-    let register_role = RegisterBox::new(Role::new(role_id, permissions));
+    let role = iroha_data_model::role::NewRole::from_id_str("USER_METADATA_ACCESS")?
+        .with_permission(CanSetKeyValueInUserMetadata::new(bob_id.clone()))
+        .with_permission(CanRemoveKeyValueInUserMetadata::new(bob_id))
+        .build();
+    let register_role = RegisterBox::new(role);
     test_client.submit(register_role)?;
     Ok(())
 }

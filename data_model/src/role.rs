@@ -112,7 +112,61 @@ impl Identifiable for Role {
     type RegisteredWith = Self;
 }
 
+/// Builder for [`Role`]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+)]
+pub struct NewRole {
+    inner: Role,
+}
+
+/// Builder for [`Role`]
+impl NewRole {
+    /// Constructor
+    pub fn new(id: <Role as Identifiable>::Id) -> Self {
+        Self {
+            inner: Role {
+                id,
+                permissions: Permissions::new(),
+            },
+        }
+    }
+
+    /// Constructor that tries parsing `id` from string
+    ///
+    /// # Errors
+    /// - Failed to parse `id`
+    pub fn from_id_str(id: impl AsRef<str>) -> Result<Self, <Name as FromStr>::Err> {
+        let id = Id::new(id.as_ref().parse()?);
+        Ok(Self::new(id))
+    }
+
+    /// Add permission to the [`Role`]
+    #[must_use]
+    pub fn with_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
+        self.inner.permissions.insert(perm.into());
+        self
+    }
+
+    /// Construct [`Role`]
+    #[must_use]
+    pub fn build(self) -> Role {
+        self.inner
+    }
+}
+
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
-    pub use super::{Id as RoleId, Role};
+    pub use super::{Id as RoleId, NewRole, Role};
 }
