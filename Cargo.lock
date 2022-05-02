@@ -1624,6 +1624,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "impls"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbc2ceeb474920e0d451e95df08409ac01a207851b564ba9dafcdb07a34fa6de"
+
+[[package]]
 name = "indenter"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1986,7 +1992,9 @@ name = "iroha_schema"
 version = "2.0.0-pre-rc.4"
 dependencies = [
  "fixnum",
+ "impls",
  "iroha_schema_derive",
+ "iroha_schema_gen",
  "parity-scale-codec",
  "serde",
 ]
