@@ -143,18 +143,9 @@ impl NewRole {
         }
     }
 
-    /// Constructor that tries parsing `id` from string
-    ///
-    /// # Errors
-    /// - Failed to parse `id`
-    pub fn from_id_str(id: impl AsRef<str>) -> Result<Self, <Name as FromStr>::Err> {
-        let id = Id::new(id.as_ref().parse()?);
-        Ok(Self::new(id))
-    }
-
     /// Add permission to the [`Role`]
     #[must_use]
-    pub fn with_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
+    pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
         self.inner.permissions.insert(perm.into());
         self
     }

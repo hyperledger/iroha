@@ -94,7 +94,8 @@ fn register_empty_role() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let register_role = RegisterBox::new(NewRole::from_id_str("root").expect("Valid").build());
+    let role_id = "root".parse().expect("Valid");
+    let register_role = RegisterBox::new(NewRole::new(role_id).build());
 
     test_client.submit(register_role)?;
     Ok(())
@@ -105,11 +106,9 @@ fn register_role_with_empty_token_params() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
+    let role_id = "root".parse().expect("Valid");
     let token = PermissionToken::new("token".parse().expect("Valid"));
-    let role = NewRole::from_id_str("root")
-        .expect("Valid")
-        .with_permission(token)
-        .build();
+    let role = NewRole::new(role_id).add_permission(token).build();
 
     test_client.submit(RegisterBox::new(role))?;
     Ok(())
@@ -132,9 +131,11 @@ fn register_metadata_role() -> Result<()> {
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
     test_client.submit_blocking(register_bob)?;
 
-    let role = iroha_data_model::role::NewRole::from_id_str("USER_METADATA_ACCESS")?
-        .with_permission(CanSetKeyValueInUserMetadata::new(bob_id.clone()))
-        .with_permission(CanRemoveKeyValueInUserMetadata::new(bob_id))
+    let role_id = "USER_METADATA_ACCESS".parse().expect("Valid");
+
+    let role = iroha_data_model::role::NewRole::new(role_id)
+        .add_permission(CanSetKeyValueInUserMetadata::new(bob_id.clone()))
+        .add_permission(CanRemoveKeyValueInUserMetadata::new(bob_id))
         .build();
     let register_role = RegisterBox::new(role);
     test_client.submit(register_role)?;
