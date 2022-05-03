@@ -240,54 +240,24 @@ impl FfiFnDescriptor {
         stmts
     }
 
-    fn get_input_conversion_stmts(&self) -> Vec<syn::Stmt> {
+    fn get_ffi_to_src_conversion_stmts(&self) -> Vec<syn::Stmt> {
         let mut stmts = vec![];
 
         if let Some(self_arg) = &self.self_arg {
             let arg_name = &self_arg.ffi_name;
 
-            stmts.push(match self_arg.src_type {
+            stmts.push(match &self_arg.src_type {
+                // NOTE: Takes ownership
+                // TODO: Better implement without ownership transfer, because others don't take
+                // ownership, or make others take ownership?
+                Type::Path(_) => parse_quote! { let #arg_name = *Box::from_raw(#arg_name); },
                 Type::Reference(_) => parse_quote! { let #arg_name = &*#arg_name; },
-                Type::Path(_) => unimplemented!("Should transfter ownership"),
-                _ => unreachable!("Self can only be taken by ref or by value"),
+                _ => unreachable!("Self can only be taken by value or by reference"),
             });
         }
 
         for arg in &self.input_args {
-            let arg_name = &arg.ffi_name;
-
-            if arg.is_slice_ref() {
-                let slice_len_arg_name = arg.get_slice_len_arg_name();
-
-                if let Type::Ptr(ptr) = &arg.ffi_type {
-                    if ptr.mutability.is_some() {
-                        abort_call_site!("Input arguments mutability not supported");
-                    }
-
-                    stmts.push(parse_quote! {
-                        let #arg_name = core::slice::from_raw_parts(#arg_name, #slice_len_arg_name);
-                    });
-
-                    // NOTE: This is a slice of pointers
-                    if matches!(*ptr.elem, Type::Ptr(_)) {
-                        stmts.push(
-                            parse_quote! { let #arg_name = #arg_name.into_iter().map(|ptr| ptr.read()); },
-                        );
-                    }
-                } else {
-                    unreachable!("FFI type is pointer for a slice")
-                }
-            } else if matches!(arg.ffi_type, Type::Ptr(_)) {
-                stmts.push(match &arg.src_type {
-                    Type::Reference(_) => parse_quote! {
-                        let #arg_name = &*#arg_name;
-                    },
-                    Type::Path(_) => parse_quote! {
-                        let #arg_name = #arg_name.read();
-                    },
-                    _ => unreachable!("Either slice, reference or owned type expected"),
-                });
-            }
+            stmts.extend(arg.get_ffi_to_src_conversion_stmts());
         }
 
         stmts
@@ -306,51 +276,12 @@ impl FfiFnDescriptor {
         parse_quote! { let method_res = #self_type::#method_name(#(#self_arg_name,)* #(#fn_arg_names),*); }
     }
 
-    fn get_output_conversion_stmts(&self) -> Vec<syn::Stmt> {
-        let mut stmts = vec![];
-
+    fn get_src_to_ffi_conversion_stmts(&self) -> Vec<syn::Stmt> {
         if let Some(output_arg) = &self.output_arg {
-            if !matches!(output_arg.ffi_type, Type::Ptr(_)) {
-                unreachable!("Must be a pointer");
-            }
-
-            if let Type::Reference(type_) = &output_arg.src_type {
-                stmts.push(if type_.mutability.is_some() {
-                    parse_quote! { let method_res: *mut _ = method_res; }
-                } else {
-                    parse_quote! { let method_res: *const _ = method_res; }
-                });
-            } else if output_arg.is_collection() {
-                stmts.push(parse_quote! { let method_res = method_res.into_iter(); });
-
-                let src_type = output_arg.src_collection_item();
-                if let Type::Reference(src_ptr_ty) = src_type {
-                    stmts.push(if src_ptr_ty.mutability.is_some() {
-                        parse_quote! { let method_res = method_res.map(|arg| arg as *mut _); }
-                    } else {
-                        parse_quote! { let method_res = method_res.map(|arg| arg as *const _); }
-                    });
-                } else {
-                    abort_call_site!("Only references supported for collections");
-                }
-
-                stmts.push(parse_quote! {
-                    // TODO: Seems that the implementation reallocates even for `ExactSizeIterator`
-                    // Optimize collecting to avoid reallocation in case of `ExactSizeIterator`
-                    let mut method_res = core::mem::ManuallyDrop::new(method_res.collect::<Box<[_]>>());
-                });
-            } else if let Type::Path(src_type_path) = &output_arg.src_type {
-                // NOTE: Transcribe owned type into opaque raw pointer type
-
-                if !is_repr_c(&src_type_path) {
-                    stmts.push(parse_quote! {
-                        let method_res = Box::into_raw(Box::new(method_res));
-                    });
-                }
-            }
+            return output_arg.get_src_to_ffi_conversion_stmts();
         }
 
-        stmts
+        vec![]
     }
 
     fn get_output_assignment_stmts(&self) -> Vec<syn::Stmt> {
@@ -377,9 +308,9 @@ impl FfiFnDescriptor {
 
     fn get_fn_body(&self) -> syn::Block {
         let checks = self.get_type_check_stmts();
-        let input_conversions = self.get_input_conversion_stmts();
+        let input_conversions = self.get_ffi_to_src_conversion_stmts();
         let method_call_stmt = self.get_method_call_stmt();
-        let output_conversions = self.get_output_conversion_stmts();
+        let output_conversions = self.get_src_to_ffi_conversion_stmts();
         let output_assignment = self.get_output_assignment_stmts();
 
         parse_quote! {{
@@ -397,49 +328,6 @@ impl FfiFnDescriptor {
 }
 
 impl FfiFnArgDescriptor {
-    fn src_collection_item(&self) -> &Type {
-        match &self.src_type {
-            Type::ImplTrait(type_) => {
-                assert_eq!(type_.bounds.len(), 1);
-
-                if let syn::TypeParamBound::Trait(trait_) = &type_.bounds[0] {
-                    let last_seg = &trait_.path.segments.last().expect_or_abort("Defined");
-                    return if let syn::PathArguments::AngleBracketed(arguments) =
-                        &last_seg.arguments
-                    {
-                        if arguments.args.is_empty() {
-                            abort_call_site!("{} missing generic argument `Item`", last_seg.ident);
-                        }
-                        if let syn::GenericArgument::Binding(arg) = &arguments.args[0] {
-                            if arg.ident != "Item" {
-                                abort_call_site!(
-                                    "Only `Item` supported in arguments to {}",
-                                    last_seg.ident
-                                );
-                            }
-
-                            &arg.ty
-                        } else {
-                            abort_call_site!(
-                                "Only `Item` supported in arguments to {}",
-                                last_seg.ident
-                            );
-                        }
-                    } else {
-                        abort_call_site!("{} must be parametrized with `Item`", last_seg.ident);
-                    };
-                } else {
-                    abort_call_site!("Not a collection");
-                }
-            }
-            _ => abort_call_site!("Not a collection"),
-        }
-    }
-
-    fn is_collection(&self) -> bool {
-        self.is_slice_ref_mut()
-    }
-
     /// Returns true if this argument is a shared slice reference
     fn is_slice_ref(&self) -> bool {
         match &self.src_type {
@@ -502,6 +390,150 @@ impl FfiFnArgDescriptor {
     fn get_slice_len_arg_name(&self) -> Ident {
         Ident::new(&format!("{}_len", self.ffi_name), Span::call_site())
     }
+
+    fn get_ffi_to_src_conversion_stmts(&self) -> Vec<syn::Stmt> {
+        let mut stmts = vec![];
+
+        let arg_name = &self.ffi_name;
+        match (&self.src_type, &self.ffi_type) {
+            (Type::Reference(src_ty), Type::Ptr(_)) => {
+                if matches!(*src_ty.elem, Type::Slice(_)) {
+                    // TODO: slice is here
+                } else {
+                    stmts.push(parse_quote! { let #arg_name = &*#arg_name; });
+                }
+            }
+            (Type::ImplTrait(src_ty), Type::Ptr(ffi_ty)) => {
+                let slice_len_arg_name = self.get_slice_len_arg_name();
+
+                // TODO: Should be just a temporary sanity check
+                if let syn::TypeParamBound::Trait(trait_) = &src_ty.bounds[0] {
+                    let last_seg = &trait_.path.segments.last().expect_or_abort("Defined").ident;
+
+                    if last_seg != "IntoIterator" {
+                        abort!(last_seg, "impl Trait type not supported");
+                    }
+                }
+
+                stmts.push(parse_quote! {
+                    let #arg_name = core::slice::from_raw_parts(#arg_name, #slice_len_arg_name).into_iter();
+                });
+
+                match &*ffi_ty.elem {
+                    Type::Path(type_) => {
+                        let last_seg = type_.path.segments.last().expect_or_abort("Defined");
+
+                        if last_seg.ident == "Pair" {
+                            stmts.push(parse_quote! {
+                                let #arg_name = #arg_name.map(|iroha_ffi::Pair(key, val)| {
+                                    (key.read(), val.read())
+                                });
+                            });
+                        } else {
+                            abort!(last_seg, "Collection item not supported in FFI")
+                        }
+                    }
+                    Type::Ptr(_) => {
+                        stmts.push(parse_quote! {
+                            let #arg_name = #arg_name.map(|ptr| ptr.read());
+                        });
+                    }
+                    _ => abort!(self, "Unsupported FFI type conversion"),
+                }
+            }
+            (Type::Path(_), Type::Ptr(_)) => {
+                stmts.push(parse_quote! { let #arg_name = #arg_name.read(); });
+            }
+            (Type::Path(_), Type::Path(_)) => {
+                // TODO: Wasm conversions?
+            }
+            _ => abort!(self, "Unsupported FFI type conversion"),
+        }
+
+        stmts
+    }
+
+    fn get_src_to_ffi_conversion_stmts(&self) -> Vec<syn::Stmt> {
+        let ffi_type = if let Type::Ptr(ffi_type) = &self.ffi_type {
+            &*ffi_type.elem
+        } else {
+            unreachable!("Output must be an out-pointer")
+        };
+
+        let mut stmts = vec![];
+        match (&self.src_type, ffi_type) {
+            (Type::Reference(src_ty), Type::Ptr(_)) => {
+                stmts.push(if src_ty.mutability.is_some() {
+                    parse_quote! { let method_res: *mut _ = method_res; }
+                } else {
+                    parse_quote! { let method_res: *const _ = method_res; }
+                });
+            }
+            (Type::ImplTrait(src_ty), Type::Ptr(ffi_ty)) => {
+                stmts.push(parse_quote! { let method_res = method_res.into_iter(); });
+
+                // TODO: Should be just a temporary sanity check
+                if let syn::TypeParamBound::Trait(trait_) = &src_ty.bounds[0] {
+                    let last_seg = &trait_.path.segments.last().expect_or_abort("Defined").ident;
+
+                    if last_seg != "ExactSizeIterator" {
+                        abort!(last_seg, "impl Trait type not supported");
+                    }
+                }
+
+                match &*ffi_ty.elem {
+                    Type::Path(type_) => {
+                        let last_seg = type_.path.segments.last().expect_or_abort("Defined");
+
+                        if last_seg.ident == "Pair" {
+                            stmts.push(parse_quote! {
+                                let method_res = method_res.map(|(key, val)| {
+                                    iroha_ffi::Pair(key as *const _, val as *const _)
+                                });
+                            });
+                        } else {
+                            abort!(self, "Unsupported FFI type conversion");
+                        }
+                    }
+                    Type::Ptr(type_) => {
+                        stmts.push(if type_.mutability.is_some() {
+                            parse_quote! { let method_res = method_res.map(|arg| arg as *mut _); }
+                        } else {
+                            parse_quote! { let method_res = method_res.map(|arg| arg as *const _); }
+                        });
+                    }
+                    _ => abort!(self, "Unsupported FFI type conversion"),
+                }
+
+                stmts.push(parse_quote! {
+                    // TODO: Seems that the implementation reallocates even for `ExactSizeIterator`
+                    // Optimize collecting to avoid reallocation in case of `ExactSizeIterator`
+                    let mut method_res = core::mem::ManuallyDrop::new(method_res.collect::<Box<[_]>>());
+                });
+            }
+            (Type::Path(src_ty), Type::Ptr(ffi_ty)) => {
+                let is_option_type = is_option_type(src_ty);
+
+                stmts.push(if is_option_type && ffi_ty.mutability.is_some() {
+                    parse_quote! {
+                        let method_res = method_res.map_or(core::ptr::null_mut(), |elem| elem as *mut _);
+                    }
+                } else if is_option_type && ffi_ty.mutability.is_none() {
+                    parse_quote! {
+                        let method_res = method_res.map_or(core::ptr::null(), |elem| elem as *const _);
+                    }
+                } else {
+                    parse_quote! { let method_res = Box::into_raw(Box::new(method_res)); }
+                });
+            }
+            (Type::Path(_), Type::Path(_)) => {
+                // TODO: Wasm conversions?
+            }
+            _ => abort!(self, "Unsupported FFI type conversion"),
+        }
+
+        stmts
+    }
 }
 
 impl<'ast> Visit<'ast> for ImplDescriptor {
@@ -548,7 +580,7 @@ impl<'ast> syn::visit::Visit<'ast> for FfiFnDescriptor {
             self.visit_attribute(it);
         }
         if !matches!(node.vis, syn::Visibility::Public(_)) {
-            abort_call_site!("Methods defined in the impl block must be public");
+            abort!(node.vis, "Methods defined in the impl block must be public");
         }
 
         self.visit_signature(&node.sig);
@@ -664,19 +696,15 @@ impl<'ast> syn::visit::Visit<'ast> for FfiFnDescriptor {
                 self.visit_type(&**type_);
 
                 // NOTE: Transcribe owned output types to *mut ptr
-                self.curr_arg_ty.as_mut().map(|(src_ty, ffi_ty)| {
-                    if !matches!(src_ty, Type::Path(_)) {
+                if let Some((Type::Path(src_ty), Type::Ptr(ffi_ty))) = self.curr_arg_ty.as_mut() {
+                    let ffi_ptr_subty = &ffi_ty.elem;
+
+                    if is_option_type(src_ty) {
                         return;
                     }
 
-                    if let Type::Ptr(ffi_ptr_ty) = ffi_ty {
-                        let ffi_ptr_subty = &ffi_ptr_ty.elem;
-
-                        *ffi_ty = parse_quote! {
-                            *mut #ffi_ptr_subty
-                        };
-                    }
-                });
+                    *ffi_ty = parse_quote! { *mut #ffi_ptr_subty };
+                }
 
                 self.add_output_arg();
             }
@@ -770,24 +798,51 @@ impl<'ast> syn::visit::Visit<'ast> for FfiFnDescriptor {
         unimplemented!("Not needed as of yet")
     }
     fn visit_type_path(&mut self, node: &'ast syn::TypePath) {
-        let self_ty = self.self_ty.clone();
+        let last_seg = node.path.segments.last().expect_or_abort("Defined");
+
         let mut ffi_type = node.clone();
-
-        FfiTypePath::new(self_ty).visit_type_path_mut(&mut ffi_type);
-
-        self.curr_arg_ty = Some((
-            Type::Path(node.clone()),
-            if is_repr_c(node) {
-                Type::Path(ffi_type)
+        if last_seg.ident == "Option" {
+            let item = if let syn::PathArguments::AngleBracketed(arguments) = &last_seg.arguments {
+                if let syn::GenericArgument::Type(ty) = &arguments.args[0] {
+                    ty
+                } else {
+                    unreachable!("Option missing type")
+                }
             } else {
-                // TODO: Could take ownership here, but avoiding at the moment because it seems more safe.
-                // The problem is that calling destructor will be another FFI call if not taking ownership.
-                // However, if taking ownership there is a whole issue of pointer aliasing where we have to
-                // trust the caller of the function to not make use of the given pointers anymore
-                // NOTE: T -> *const T (opaque ptr)
-                parse_quote! { *const #ffi_type }
-            },
-        ));
+                unreachable!("Option missing type")
+            };
+
+            if let Type::Reference(type_) = item {
+                let elem = &type_.elem;
+
+                self.curr_arg_ty = Some((
+                    Type::Path(node.clone()),
+                    if type_.mutability.is_some() {
+                        parse_quote! { *mut #elem }
+                    } else {
+                        parse_quote! { *const #elem }
+                    },
+                ));
+            } else {
+                unimplemented!("Only Option of references is supported as of yet");
+            }
+        } else {
+            FfiTypePath::new(self.self_ty.clone()).visit_type_path_mut(&mut ffi_type);
+
+            self.curr_arg_ty = Some((
+                Type::Path(node.clone()),
+                if is_repr_c(node) {
+                    Type::Path(ffi_type)
+                } else {
+                    // TODO: Could take ownership here, but avoiding at the moment because it seems more safe.
+                    // The problem is that calling destructor will be another FFI call if not taking ownership.
+                    // However, if taking ownership there is a whole issue of pointer aliasing where we have to
+                    // trust the caller of the function to not make use of the given pointers anymore
+                    // NOTE: T -> *const T (opaque ptr)
+                    parse_quote! { *const #ffi_type }
+                },
+            ));
+        }
     }
     fn visit_type_ptr(&mut self, _: &'ast syn::TypePtr) {
         abort_call_site!("Raw pointers not supported")
@@ -803,7 +858,7 @@ impl<'ast> syn::visit::Visit<'ast> for FfiFnDescriptor {
         }
 
         // NOTE: Owned opaque types make double indirection
-        self.curr_arg_ty.as_mut().map(|(src_ty, ffi_ty)| {
+        if let Some((src_ty, ffi_ty)) = self.curr_arg_ty.as_mut() {
             if matches!(src_ty, Type::Path(_)) {
                 // TODO: Don't accept references to owned collections like `Vec`
 
@@ -811,12 +866,12 @@ impl<'ast> syn::visit::Visit<'ast> for FfiFnDescriptor {
                     *ffi_ty = *ffi_ptr_ty.elem.clone();
                 }
             }
-        });
+        }
 
-        self.curr_arg_ty.as_mut().map(|(src_ty, ffi_ty)| {
+        if let Some((src_ty, ffi_ty)) = self.curr_arg_ty.as_mut() {
             *src_ty = Type::Reference(node.clone());
             *ffi_ty = parse_quote! { *const #ffi_ty };
-        });
+        }
     }
 
     fn visit_type_slice(&mut self, _: &'ast syn::TypeSlice) {
@@ -825,13 +880,25 @@ impl<'ast> syn::visit::Visit<'ast> for FfiFnDescriptor {
     fn visit_type_trait_object(&mut self, _: &'ast syn::TypeTraitObject) {
         unimplemented!("Not needed as of yet")
     }
-    fn visit_type_tuple(&mut self, _: &'ast syn::TypeTuple) {
-        unimplemented!("Not needed as of yet")
+    fn visit_type_tuple(&mut self, node: &'ast syn::TypeTuple) {
+        if node.elems.len() != 2 {
+            abort!(node, "Only tuple pairs supported as of yet");
+        }
+
+        self.visit_type(&node.elems[0]);
+        let key = self.curr_arg_ty.take().expect_or_abort("Defined").1;
+        self.visit_type(&node.elems[1]);
+        let val = self.curr_arg_ty.take().expect_or_abort("Defined").1;
+
+        self.curr_arg_ty = Some((
+            Type::Tuple(node.clone()),
+            parse_quote! { iroha_ffi::Pair<#key, #val> },
+        ));
     }
 }
 
 /// Visitor for path types which replaces all occurrences of `Self` with a fully qualified type
-/// Additionally, visitor expands the integers to fit the size of WebAssembly defined types
+/// Additionally, visitor expands the integers to fit the size of `WebAssembly` defined types
 struct FfiTypePath {
     self_ty: syn::Path,
 }
@@ -859,9 +926,7 @@ impl VisitMut for FfiTypePath {
             }
 
             node.segments = node_segments;
-        }
-
-        node.segments.last_mut().map(|seg| {
+        } else if let Some(seg) = node.segments.last_mut() {
             // NOTE: In Wasm only `u32/i32`, `u64/i64`, `f32/f64` are supported
 
             match seg.ident.to_string().as_str() {
@@ -869,7 +934,7 @@ impl VisitMut for FfiTypePath {
                 "i8" | "i16" => *seg = parse_quote! { i32 },
                 _ => {}
             };
-        });
+        }
     }
 }
 
@@ -896,4 +961,8 @@ fn is_repr_c(type_: &syn::TypePath) -> bool {
     }
 
     false
+}
+
+fn is_option_type(type_: &syn::TypePath) -> bool {
+    type_.path.segments.last().expect_or_abort("Defined").ident == "Option"
 }

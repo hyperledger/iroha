@@ -6,4 +6,3 @@ fn ui() {
     test_cases.pass("tests/ui_pass/*.rs");
     test_cases.compile_fail("tests/ui_fail/*.rs");
 }
-
