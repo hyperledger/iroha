@@ -36,6 +36,7 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
     IntoSchema,
 )]
 #[getset(get = "pub")]
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 pub struct PermissionToken {
     /// Name of the permission rule given to account.
     name: Name,
@@ -44,6 +45,7 @@ pub struct PermissionToken {
     params: btree_map::BTreeMap<Name, Value>,
 }
 
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 impl PermissionToken {
     /// Constructor.
     #[inline]
@@ -52,14 +54,6 @@ impl PermissionToken {
             name,
             params: btree_map::BTreeMap::default(),
         }
-    }
-
-    /// Add parameters to the `PermissionToken` replacing any previously defined
-    #[inline]
-    #[must_use]
-    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
-        self.params = params.into_iter().collect();
-        self
     }
 
     /// Return a reference to the parameter corresponding to the given name
@@ -72,6 +66,16 @@ impl PermissionToken {
     #[inline]
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.params.iter()
+    }
+}
+
+impl PermissionToken {
+    /// Add parameters to the `PermissionToken` replacing any previously defined
+    #[inline]
+    #[must_use]
+    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
+        self.params = params.into_iter().collect();
+        self
     }
 }
 

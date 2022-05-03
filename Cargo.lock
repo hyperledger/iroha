@@ -1845,6 +1845,7 @@ dependencies = [
  "getset",
  "hex",
  "hex-literal",
+ "iroha_ffi",
  "iroha_schema",
  "openssl-sys",
  "parity-scale-codec",
@@ -1920,6 +1921,7 @@ name = "iroha_ffi_derive"
 version = "2.0.0-pre-rc.3"
 dependencies = [
  "heck",
+ "iroha_ffi",
  "proc-macro-error",
  "proc-macro2",
  "quote",

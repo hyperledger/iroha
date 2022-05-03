@@ -79,6 +79,7 @@ impl FromStr for Id {
     IntoSchema,
 )]
 #[getset(get = "pub")]
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 pub struct Role {
     /// Unique name of the role.
     id: <Self as Identifiable>::Id,
@@ -87,7 +88,7 @@ pub struct Role {
     permissions: Permissions,
 }
 
-#[iroha_data_model_derive::ffi_bindgen]
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 impl Role {
     /// Constructor.
     #[inline]
