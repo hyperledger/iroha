@@ -299,7 +299,6 @@ impl<W: WorldTrait> Execute<W> for Instruction {
 impl<W: WorldTrait> Execute<W> for RegisterBox {
     type Error = Error;
 
-    #[log]
     fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
 
@@ -326,7 +325,6 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
 impl<W: WorldTrait> Execute<W> for UnregisterBox {
     type Error = Error;
 
-    #[log]
     fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
         match self.object_id.evaluate(wsv, &context)? {
@@ -348,7 +346,6 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
 impl<W: WorldTrait> Execute<W> for MintBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -383,7 +380,6 @@ impl<W: WorldTrait> Execute<W> for MintBox {
 impl<W: WorldTrait> Execute<W> for BurnBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -411,7 +407,6 @@ impl<W: WorldTrait> Execute<W> for BurnBox {
 impl<W: WorldTrait> Execute<W> for TransferBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -441,7 +436,6 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
 impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -473,7 +467,6 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
 impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -500,7 +493,6 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
 impl<W: WorldTrait> Execute<W> for If {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -520,7 +512,6 @@ impl<W: WorldTrait> Execute<W> for If {
 impl<W: WorldTrait> Execute<W> for Pair {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -535,7 +526,6 @@ impl<W: WorldTrait> Execute<W> for Pair {
 impl<W: WorldTrait> Execute<W> for SequenceBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -551,7 +541,6 @@ impl<W: WorldTrait> Execute<W> for SequenceBox {
 impl<W: WorldTrait> Execute<W> for FailBox {
     type Error = Error;
 
-    #[log(skip(_authority, _wsv))]
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
@@ -564,7 +553,6 @@ impl<W: WorldTrait> Execute<W> for FailBox {
 impl<W: WorldTrait> Execute<W> for GrantBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -590,7 +578,6 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
 impl<W: WorldTrait> Execute<W> for RevokeBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,

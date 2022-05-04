@@ -10,7 +10,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_in_result)]
 
-use std::cmp::min;
+use std::{cmp::min, sync::Arc};
 
 use dashmap::{DashMap, DashSet};
 use iroha_data_model::{
@@ -199,7 +199,7 @@ impl TriggerSet {
     ) -> Result<()> {
         self.inspect_mut(id, |action| {
             let new_repeats = match action.repeats() {
-                Repeats::Exactly(n) => f(*n).map_err(Into::into),
+                Repeats::Exactly(n) => f(n).map_err(Into::into),
                 _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
             }?;
             action.set_repeats(Repeats::Exactly(new_repeats));
@@ -229,13 +229,12 @@ impl TriggerSet {
     /// Finds all actions, that are triggered by `event` and stores them.
     /// This actions will be inspected ln the next `TriggerSet::inspect_matched()` call
     pub fn handle_time_event(&self, event: &TimeEvent) {
-        for mut entry in self.time_triggers.iter_mut() {
-            let action = entry.value_mut();
+        for entry in &self.time_triggers {
+            let action = entry.value();
 
             let mut count = action.filter.count_matches(event);
-            if let Repeats::Exactly(n) = &mut action.repeats {
-                count = min(*n, count);
-                *n -= count
+            if let Repeats::Exactly(n) = action.repeats {
+                count = min(n, count);
             }
             if count == 0 {
                 return;
@@ -267,18 +266,16 @@ impl TriggerSet {
     ) where
         F: Filter<EventType = E>,
     {
-        for mut entry in triggers.iter_mut() {
-            let action = entry.value_mut();
+        for entry in triggers {
+            let action = entry.value();
             if !action.filter.matches(event) {
                 return;
             }
 
-            if let Repeats::Exactly(n) = &mut action.repeats {
-                if *n == 0 {
+            if let Repeats::Exactly(n) = action.repeats {
+                if n == 0 {
                     return;
                 }
-
-                *n -= 1;
             }
 
             task::block_in_place(|| self.matched_ids.blocking_write())
@@ -287,35 +284,97 @@ impl TriggerSet {
     }
 
     /// Calls `f` for every action, matched by previously called `handle_` methods.
+    /// Decreases action repeats count if inspection succeed.
     ///
     /// Matched actions are cleared after this function call.
     /// If an action was matched by calling `handle_` method and removed before this method call,
     /// then it won't be presented.
     ///
     /// # Errors
-    /// Throws up first `f` error
-    pub async fn inspect_matched<F, E>(&self, f: F) -> std::result::Result<(), E>
+    /// Returns `Err(Vec<E>)` if one or more error occurred during action inspection.
+    ///
+    /// Failed actions won't appear on the next `inspect_matched()` call if they don't match new
+    /// events by calling `handle_` methods.
+    /// Repeats count of failed actions won't be decreased.
+    #[allow(clippy::missing_panics_doc, clippy::panic)] // Panicking only in internal bug-case
+    pub async fn inspect_matched<F, E>(&self, f: F) -> std::result::Result<(), Vec<E>>
     where
-        F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send,
-        E: Send,
+        F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send + Copy,
+        E: Send + Sync,
     {
-        {
-            let matched_ids_read = self.matched_ids.read().await;
-            for (event_type, id) in matched_ids_read.iter() {
-                match event_type {
-                    EventType::Data => self.data_triggers.get(id).map(|entry| f(entry.value())),
-                    EventType::Pipeline => {
-                        self.pipeline_triggers.get(id).map(|entry| f(entry.value()))
-                    }
-                    EventType::Time => self.time_triggers.get(id).map(|entry| f(entry.value())),
-                    EventType::ExecuteTrigger => {
-                        self.by_call_triggers.get(id).map(|entry| f(entry.value()))
-                    }
+        let succeed = Arc::new(RwLock::new(Vec::new()));
+        let res = {
+            let errors = Arc::new(RwLock::new(Vec::new()));
+            let errors_clone = Arc::clone(&errors);
+            let succeed_clone = Arc::clone(&succeed);
+            let apply_f = move |id: trigger::Id, action: &dyn ActionTrait| {
+                if action.repeats() == Repeats::Exactly(0) {
+                    return;
                 }
-                .transpose()?;
+
+                match f(action) {
+                    Ok(()) => task::block_in_place(|| succeed_clone.blocking_write()).push(id),
+                    Err(err) => task::block_in_place(|| errors_clone.blocking_write()).push(err),
+                }
+            };
+
+            // Cloning and clearing `self.ids_write` so that `handle_` call won't deadlock
+            let matched_ids = {
+                let mut ids_write = self.matched_ids.write().await;
+                let ids_clone = ids_write.clone();
+                ids_write.clear();
+                ids_clone
+            };
+            for (event_type, id) in matched_ids {
+                // Ignoring `None` variant cause this means that action was deleted after `handle_`
+                // call and before `inspect_matching()` call
+                let _ = match event_type {
+                    EventType::Data => self
+                        .data_triggers
+                        .get(&id)
+                        .map(|entry| apply_f(id, entry.value())),
+                    EventType::Pipeline => self
+                        .pipeline_triggers
+                        .get(&id)
+                        .map(|entry| apply_f(id, entry.value())),
+                    EventType::Time => self
+                        .time_triggers
+                        .get(&id)
+                        .map(|entry| apply_f(id, entry.value())),
+                    EventType::ExecuteTrigger => self
+                        .by_call_triggers
+                        .get(&id)
+                        .map(|entry| apply_f(id, entry.value())),
+                };
 
                 task::yield_now().await;
             }
+
+            if task::block_in_place(|| errors.blocking_read()).is_empty() {
+                return Ok(());
+            }
+
+            // Match with panic cause can't use `expect()` due to
+            // error value not implementing `Display`
+            #[allow(clippy::match_wild_err_arm)]
+            let errors = match Arc::try_unwrap(errors) {
+                Ok(e) => e.into_inner(),
+                Err(_) => panic!("Errors `Arc` is has strong count > 1. This is a bug"),
+            };
+            std::result::Result::<(), Vec<E>>::Err(errors)
+        };
+
+        let succeed_read = task::block_in_place(|| succeed.blocking_read());
+        for id in succeed_read.iter() {
+            // Ignoring error if trigger has not `Repeats::Exact(_)` but something else
+            let _mod_repeats_res = self.mod_repeats(id, |n| {
+                if n == 0 {
+                    // Possible i.e. if one trigger burned it-self or another trigger, cause we
+                    // decrease the number of execution after successful execution
+                    return Ok(0);
+                }
+                Ok(n - 1)
+            });
         }
 
         self.remove_zeros(&self.data_triggers);
@@ -323,8 +382,7 @@ impl TriggerSet {
         self.remove_zeros(&self.time_triggers);
         self.remove_zeros(&self.by_call_triggers);
 
-        self.matched_ids.write().await.clear();
-        Ok(())
+        res
     }
 
     fn remove_zeros<F: Filter>(&self, triggers: &DashMap<trigger::Id, Action<F>>) {

@@ -5,7 +5,7 @@ use std::{
     convert::Infallible,
     fmt::Debug,
     ops::{Deref, DerefMut},
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Duration,
 };
 
@@ -224,27 +224,19 @@ impl<W: WorldTrait> WorldStateView<W> {
 
         self.world.triggers.handle_time_event(&time_event);
 
-        let actions = Arc::new(RwLock::new(Vec::new()));
-        self.world
+        let res = self
+            .world
             .triggers
             .inspect_matched(|action| -> Result<()> {
-                // Can't just use the next line to process actions cause of `tracing` crate bug.
-                // Either use temporary vector `actions` (like now), either remove `#[log]`
-                // for every `Execute` implemetor inside `isi/mod.rs`
-                //
-                // self.process_executable(action.executable(), action.technical_account())
-
-                let actions = Arc::clone(&actions);
-                actions.write().expect("Can't write cloned actions").push((
-                    action.executable().clone(),
-                    action.technical_account().clone(),
-                ));
-                Ok(())
+                self.process_executable(action.executable(), action.technical_account())
             })
-            .await?;
+            .await;
 
-        for (executable, authority) in actions.read().expect("Can't read cloned actions").iter() {
-            self.process_executable(executable, authority)?;
+        if let Err(errors) = res {
+            warn!(
+                ?errors,
+                "Some errors has occurred during triggers execution"
+            );
         }
 
         self.blocks.push(block);

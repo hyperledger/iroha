@@ -128,7 +128,7 @@ pub trait ActionTrait {
     fn executable(&self) -> &Executable;
 
     /// Get action repeats enum
-    fn repeats(&self) -> &Repeats;
+    fn repeats(&self) -> Repeats;
 
     /// Set action repeats
     fn set_repeats(&mut self, repeats: Repeats);
@@ -201,8 +201,8 @@ impl<F: Filter> ActionTrait for Action<F> {
         &self.executable
     }
 
-    fn repeats(&self) -> &Repeats {
-        &self.repeats
+    fn repeats(&self) -> Repeats {
+        self.repeats
     }
 
     fn set_repeats(&mut self, repeats: Repeats) {
