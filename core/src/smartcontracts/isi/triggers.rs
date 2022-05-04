@@ -4,26 +4,6 @@
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics;
 
-/// Trait to check if [`Action`] should be executed at exact time or not.
-/// Implemented as a trait and not as basic method, cause it is needed only inside this module.
-trait OccursExactlyAtTime {
-    /// Check if action occurs exactly at set time.
-    /// Returns `true` if yes and `false` in another case
-    fn occurs_exactly_at_time(&self) -> bool;
-}
-
-impl OccursExactlyAtTime for Action {
-    fn occurs_exactly_at_time(&self) -> bool {
-        matches!(
-            self.filter,
-            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(TimeSchedule {
-                period: None,
-                ..
-            })))
-        )
-    }
-}
-
 /// All instructions related to triggers.
 /// - registering a trigger
 /// - un-registering a trigger
@@ -34,10 +14,11 @@ pub mod isi {
 
     use super::{super::prelude::*, *};
 
-    impl<W: WorldTrait> Execute<W> for Register<Trigger> {
+    impl<W: WorldTrait> Execute<W> for Register<Trigger<FilterBox>> {
         type Error = Error;
 
         #[metrics(+"register_trigger")]
+        #[allow(clippy::expect_used)]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -45,7 +26,7 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let new_trigger = self.object;
 
-            if new_trigger.action.occurs_exactly_at_time()
+            if !new_trigger.action.mintable()
                 && !matches!(&new_trigger.action.repeats, Repeats::Exactly(1))
             {
                 return Err(Error::Math(MathError::Overflow));
@@ -53,13 +34,38 @@ pub mod isi {
 
             wsv.modify_triggers(|triggers| {
                 let trigger_id = new_trigger.id.clone();
-                triggers.add(new_trigger)?;
+                match &new_trigger.action.filter {
+                    FilterBox::Data(_) => {
+                        triggers.add_data_trigger(new_trigger.try_into().expect(
+                            "Can't convert `Trigger<FilterBox>` with `DataFilter` to \
+                                `Trigger<DataFilter>`. This is a bug",
+                        ))?
+                    }
+                    FilterBox::Pipeline(_) => {
+                        triggers.add_pipeline_trigger(new_trigger.try_into().expect(
+                            "Can't convert `Trigger<FilterBox>` with `PipelineFilter` to \
+                                `Trigger<PipelineFilter>`. This is a bug",
+                        ))?
+                    }
+                    FilterBox::Time(_) => {
+                        triggers.add_time_trigger(new_trigger.try_into().expect(
+                            "Can't convert `Trigger<FilterBox>` with `TimeFilter` to \
+                                `Trigger<TimeFilter>`. This is a bug",
+                        ))?
+                    }
+                    FilterBox::ExecuteTrigger(_) => {
+                        triggers.add_by_call_trigger(new_trigger.try_into().expect(
+                            "Can't convert `Trigger<FilterBox>` with `ExecuteTriggerFilter` to \
+                                `Trigger<ExecuteTriggerFilter>`. This is a bug",
+                        ))?
+                    }
+                }
                 Ok(TriggerEvent::Created(trigger_id))
             })
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Unregister<Trigger> {
+    impl<W: WorldTrait> Execute<W> for Unregister<Trigger<FilterBox>> {
         type Error = Error;
 
         #[metrics(+"unregister_trigger")]
@@ -76,7 +82,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Mint<Trigger, u32> {
+    impl<W: WorldTrait> Execute<W> for Mint<Trigger<FilterBox>, u32> {
         type Error = Error;
 
         #[metrics(+"mint_trigger_repetitions")]
@@ -89,10 +95,10 @@ pub mod isi {
 
             wsv.modify_triggers(|triggers| {
                 triggers.inspect(&id, |action| -> Result<(), Self::Error> {
-                    if action.occurs_exactly_at_time() {
-                        Err(MathError::Overflow.into())
-                    } else {
+                    if action.mintable() {
                         Ok(())
+                    } else {
+                        Err(MathError::Overflow.into())
                     }
                 })??;
 
@@ -104,7 +110,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Burn<Trigger, u32> {
+    impl<W: WorldTrait> Execute<W> for Burn<Trigger<FilterBox>, u32> {
         type Error = Error;
 
         #[metrics(+"burn_trigger_repetitions")]

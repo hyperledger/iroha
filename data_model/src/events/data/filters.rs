@@ -554,17 +554,6 @@ mod trigger {
 /// Filter for all events
 pub type EventFilter = FilterOpt<EntityFilter>;
 
-/// Trait for filters
-pub trait Filter {
-    /// Type of event that can be filtered
-    type EventType;
-
-    /// Check if `item` matches filter
-    ///
-    /// Returns `true`, if `item` matches filter and `false` if not
-    fn matches(&self, item: &Self::EventType) -> bool;
-}
-
 #[derive(
     Clone,
     PartialEq,

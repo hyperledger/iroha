@@ -9,6 +9,7 @@ use iroha_schema::prelude::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
+use super::Filter;
 pub use crate::transaction::RejectionReason as PipelineRejectionReason;
 
 /// [`Event`] filter.
@@ -69,9 +70,18 @@ impl EventFilter {
         self
     }
 
+    #[inline]
+    fn field_matches<T: Eq>(filter: &Option<T>, event: &T) -> bool {
+        filter.as_ref().map_or(true, |field| field == event)
+    }
+}
+
+impl Filter for EventFilter {
+    type EventType = Event;
+
     /// Check if `self` accepts the `event`.
     #[inline]
-    pub fn matches(&self, event: &Event) -> bool {
+    fn matches(&self, event: &Event) -> bool {
         [
             Self::field_matches(&self.entity_kind, &event.entity_kind),
             Self::field_matches(&self.status_kind, &event.status.kind()),
@@ -79,11 +89,6 @@ impl EventFilter {
         ]
         .into_iter()
         .all(core::convert::identity)
-    }
-
-    #[inline]
-    fn field_matches<T: Eq>(filter: &Option<T>, event: &T) -> bool {
-        filter.as_ref().map_or(true, |field| field == event)
     }
 }
 

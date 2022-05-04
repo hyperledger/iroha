@@ -315,7 +315,7 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
                 Register::<AssetDefinition>::new(*asset_definition).execute(authority, wsv)
             }
             RegistrableBox::Trigger(trigger) => {
-                Register::<Trigger>::new(*trigger).execute(authority, wsv)
+                Register::<Trigger<FilterBox>>::new(*trigger).execute(authority, wsv)
             }
             RegistrableBox::Role(role) => Register::<Role>::new(*role).execute(authority, wsv),
             _ => Err(Error::Unsupported(InstructionType::Register)),

@@ -9,34 +9,135 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    metadata::Metadata, prelude::EventFilter, transaction::Executable, Identifiable, Name,
-    ParseError,
+    events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name, ParseError,
 };
 
 /// Type which is used for registering a `Trigger`.
 #[derive(
     Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-pub struct Trigger {
+pub struct Trigger<F: Filter> {
     /// [`Id`] of the [`Trigger`].
-    pub id: <Self as Identifiable>::Id,
+    pub id: Id,
     /// Action to be performed when the trigger matches.
-    pub action: Action,
+    pub action: Action<F>,
 }
 
-impl Trigger {
+impl<F: Filter> Trigger<F> {
     /// Construct trigger, given name action and signatories.
     pub fn new(
         id: <Self as Identifiable>::Id,
-        action: Action,
+        action: Action<F>,
     ) -> <Self as Identifiable>::RegisteredWith {
         Self { id, action }
     }
 }
 
-impl Identifiable for Trigger {
+impl TryFrom<Trigger<FilterBox>> for Trigger<DataEventFilter> {
+    type Error = &'static str;
+
+    fn try_from(boxed: Trigger<FilterBox>) -> Result<Self, Self::Error> {
+        if let FilterBox::Data(data_filter) = boxed.action.filter {
+            let action = Action::new(
+                boxed.action.executable,
+                boxed.action.repeats,
+                boxed.action.technical_account,
+                data_filter,
+            );
+            Ok(Self {
+                id: boxed.id,
+                action,
+            })
+        } else {
+            Err("Expected `FilterBox::Data`, but another variant found")
+        }
+    }
+}
+
+impl TryFrom<Trigger<FilterBox>> for Trigger<PipelineEventFilter> {
+    type Error = &'static str;
+
+    fn try_from(boxed: Trigger<FilterBox>) -> Result<Self, Self::Error> {
+        if let FilterBox::Pipeline(pipeline_filter) = boxed.action.filter {
+            let action = Action::new(
+                boxed.action.executable,
+                boxed.action.repeats,
+                boxed.action.technical_account,
+                pipeline_filter,
+            );
+            Ok(Self {
+                id: boxed.id,
+                action,
+            })
+        } else {
+            Err("Expected `FilterBox::Pipeline`, but another variant found")
+        }
+    }
+}
+
+impl TryFrom<Trigger<FilterBox>> for Trigger<TimeEventFilter> {
+    type Error = &'static str;
+
+    fn try_from(boxed: Trigger<FilterBox>) -> Result<Self, Self::Error> {
+        if let FilterBox::Time(time_filter) = boxed.action.filter {
+            let action = Action::new(
+                boxed.action.executable,
+                boxed.action.repeats,
+                boxed.action.technical_account,
+                time_filter,
+            );
+            Ok(Self {
+                id: boxed.id,
+                action,
+            })
+        } else {
+            Err("Expected `FilterBox::Time`, but another variant found")
+        }
+    }
+}
+
+impl TryFrom<Trigger<FilterBox>> for Trigger<ExecuteTriggerEventFilter> {
+    type Error = &'static str;
+
+    fn try_from(boxed: Trigger<FilterBox>) -> Result<Self, Self::Error> {
+        if let FilterBox::ExecuteTrigger(execute_trigger_filter) = boxed.action.filter {
+            let action = Action::new(
+                boxed.action.executable,
+                boxed.action.repeats,
+                boxed.action.technical_account,
+                execute_trigger_filter,
+            );
+            Ok(Self {
+                id: boxed.id,
+                action,
+            })
+        } else {
+            Err("Expected `FilterBox::ExecuteTrigger`, but another variant found")
+        }
+    }
+}
+
+impl Identifiable for Trigger<FilterBox> {
     type Id = Id;
     type RegisteredWith = Self;
+}
+
+/// Trait for common methods for all [`Action`]'s
+pub trait ActionTrait {
+    /// Get action executable
+    fn executable(&self) -> &Executable;
+
+    /// Get action repeats enum
+    fn repeats(&self) -> &Repeats;
+
+    /// Set action repeats
+    fn set_repeats(&mut self, repeats: Repeats);
+
+    /// Get action technical account
+    fn technical_account(&self) -> &super::account::Id;
+
+    /// Check if action is mintable.
+    fn mintable(&self) -> bool;
 }
 
 /// Designed to differentiate between oneshot and unlimited
@@ -52,7 +153,7 @@ impl Identifiable for Trigger {
 /// be run before any of the ISIs are pushed into the queue of the
 /// next block.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema)]
-pub struct Action {
+pub struct Action<F: Filter> {
     /// The executable linked to this action
     pub executable: Executable,
     /// The repeating scheme of the action. It's kept as part of the
@@ -64,18 +165,18 @@ pub struct Action {
     /// work.
     pub technical_account: super::account::Id,
     /// Defines events which trigger the `Action`
-    pub filter: EventFilter,
+    pub filter: F,
     /// Metadata used as persistent storage for trigger data.
     pub metadata: Metadata,
 }
 
-impl Action {
+impl<F: Filter> Action<F> {
     /// Construct an action given `executable`, `repeats`, `technical_account` and `filter`.
     pub fn new(
         executable: impl Into<Executable>,
         repeats: impl Into<Repeats>,
         technical_account: super::account::Id,
-        filter: EventFilter,
+        filter: F,
     ) -> Self {
         Self {
             executable: executable.into(),
@@ -95,22 +196,46 @@ impl Action {
     }
 }
 
-impl PartialOrd for Action {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl<F: Filter> ActionTrait for Action<F> {
+    fn executable(&self) -> &Executable {
+        &self.executable
+    }
+
+    fn repeats(&self) -> &Repeats {
+        &self.repeats
+    }
+
+    fn set_repeats(&mut self, repeats: Repeats) {
+        self.repeats = repeats;
+    }
+
+    fn technical_account(&self) -> &crate::account::Id {
+        &self.technical_account
+    }
+
+    fn mintable(&self) -> bool {
+        self.filter.mintable()
     }
 }
 
-impl Ord for Action {
-    fn cmp(&self, other: &Self) -> Ordering {
+impl<F: Filter + PartialEq> PartialOrd for Action<F> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // Exclude the executable. When debugging and replacing
         // the trigger, its position in Hash and Tree maps should
         // not change depending on the content.
         match self.repeats.cmp(&other.repeats) {
             Ordering::Equal => {}
-            ord => return ord,
+            ord => return Some(ord),
         }
-        self.technical_account.cmp(&other.technical_account)
+        Some(self.technical_account.cmp(&other.technical_account))
+    }
+}
+
+#[allow(clippy::expect_used)]
+impl<F: Filter + Eq> Ord for Action<F> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other)
+            .expect("`PartialCmp::partial_cmp()` for `Action` should never return `None`")
     }
 }
 
@@ -190,5 +315,34 @@ impl FromStr for Id {
 
 pub mod prelude {
     //! Re-exports of commonly used types.
-    pub use super::{Action, Id as TriggerId, Repeats, Trigger};
+    pub use super::{Action, ActionTrait, Id as TriggerId, Repeats, Trigger};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trigger_with_filterbox_can_be_unboxed() {
+        /// Should fail to compile if a new variant will be added to `FilterBox`
+        #[allow(dead_code, clippy::unwrap_used)]
+        fn compile_time_check(boxed: Trigger<FilterBox>) {
+            match &boxed.action.filter {
+                FilterBox::Data(_) => Trigger::<DataEventFilter>::try_from(boxed)
+                    .map(|_| ())
+                    .unwrap(),
+                FilterBox::Pipeline(_) => Trigger::<PipelineEventFilter>::try_from(boxed)
+                    .map(|_| ())
+                    .unwrap(),
+                FilterBox::Time(_) => Trigger::<TimeEventFilter>::try_from(boxed)
+                    .map(|_| ())
+                    .unwrap(),
+                FilterBox::ExecuteTrigger(_) => {
+                    Trigger::<ExecuteTriggerEventFilter>::try_from(boxed)
+                        .map(|_| ())
+                        .unwrap()
+                }
+            }
+        }
+    }
 }

@@ -465,7 +465,9 @@ impl<W: WorldTrait> Torii<W> {
 
     #[cfg(feature = "telemetry")]
     /// Helper function to create router. This router can tested without starting up an HTTP server
-    fn create_telemetry_router(&self) -> impl Filter<Extract = impl warp::Reply> + Clone + Send {
+    fn create_telemetry_router(
+        &self,
+    ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router_status = endpoint2(
             handle_status,
             warp::path(uri::STATUS).and(add_state!(self.wsv, self.network)),
@@ -484,7 +486,7 @@ impl<W: WorldTrait> Torii<W> {
     /// Helper function to create router. This router can tested without starting up an HTTP server
     pub(crate) fn create_api_router(
         &self,
-    ) -> impl Filter<Extract = impl warp::Reply> + Clone + Send {
+    ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router = warp::path(uri::HEALTH)
             .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
             .or(endpoint2(

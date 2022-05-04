@@ -112,7 +112,7 @@ fn build_register_trigger_isi(
             Executable::from(trigger_instructions),
             Repeats::Indefinitely,
             asset_id.account_id.clone(),
-            EventFilter::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id,
                 asset_id.account_id,
             )),
