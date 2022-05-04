@@ -1,6 +1,6 @@
 [package]
 name = "iroha_data_model"
-version = "2.0.0-pre-rc.3"
+version = "2.0.0-pre-rc.4"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 description = "Iroha uses a simple data model made up of domains, peers, accounts, assets, signatories, and permissions. This library contains basic data model structures."
@@ -27,11 +27,11 @@ std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_cryp
 mutable_api = []
 
 [dependencies]
-iroha_data_primitives = { path = "primitives", version = "=2.0.0-pre-rc.3", default-features = false }
-iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.3", default-features = false }
-iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.3", default-features = false }
-iroha_version = { path = "../version", version = "=2.0.0-pre-rc.3", default-features = false, features = ["derive", "json", "scale"] }
-iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.3" }
+iroha_data_primitives = { path = "primitives", version = "=2.0.0-pre-rc.4", default-features = false }
+iroha_crypto = { path = "../crypto", version = "=2.0.0-pre-rc.4", default-features = false }
+iroha_macro = { path = "../macro", version = "=2.0.0-pre-rc.4", default-features = false }
+iroha_version = { path = "../version", version = "=2.0.0-pre-rc.4", default-features = false, features = ["derive", "json", "scale"] }
+iroha_schema = { path = "../schema", version = "=2.0.0-pre-rc.4" }
 
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
 derive_more = { version = "0.99.16", default-features = false, features = ["display"] }
@@ -42,11 +42,11 @@ thiserror = { version = "1.0.28", optional = true }
 getset = "0.1.2"
 
 [dev-dependencies]
-iroha_core = { path = "../core", version = "=2.0.0-pre-rc.3" }
-iroha_client = { path = "../client", version = "=2.0.0-pre-rc.3" }
+iroha_core = { path = "../core", version = "=2.0.0-pre-rc.4" }
+iroha_client = { path = "../client", version = "=2.0.0-pre-rc.4" }
 iroha = { path = "../cli" }
 
-test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.3" }
+test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.4" }
 
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
 trybuild = "1.0.53"

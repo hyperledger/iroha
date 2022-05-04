@@ -1,7 +1,7 @@
 [package]
 name = "kagami"
 # Translates to teacher, the exemplar, the looking glass. A tool used to generate cryptographic keys, docs, the schema and genesis block.
-version = "2.0.0-pre-rc.3"
+version = "2.0.0-pre-rc.4"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -20,13 +20,13 @@ dev-telemetry = ["iroha_core/dev-telemetry"]
 
 
 [dependencies]
-iroha_core = { version = "=2.0.0-pre-rc.3", path = "../../core" }
-iroha_crypto = { version = "=2.0.0-pre-rc.3", path = "../../crypto" }
-iroha_config = { version = "=2.0.0-pre-rc.3", path = "../../config" }
-iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../../data_model" }
-iroha_schema_gen = { version = "=2.0.0-pre-rc.3", path = "../../schema/gen" }
-iroha_schema = { version = "=2.0.0-pre-rc.3", path = "../../schema" }
-iroha_permissions_validators = { version = "=2.0.0-pre-rc.3", path = "../../permissions_validators" }
+iroha_core = { version = "=2.0.0-pre-rc.4", path = "../../core" }
+iroha_crypto = { version = "=2.0.0-pre-rc.4", path = "../../crypto" }
+iroha_config = { version = "=2.0.0-pre-rc.4", path = "../../config" }
+iroha_data_model = { version = "=2.0.0-pre-rc.4", path = "../../data_model" }
+iroha_schema_gen = { version = "=2.0.0-pre-rc.4", path = "../../schema/gen" }
+iroha_schema = { version = "=2.0.0-pre-rc.4", path = "../../schema" }
+iroha_permissions_validators = { version = "=2.0.0-pre-rc.4", path = "../../permissions_validators" }
 iroha = { path = "../../cli" }
 
 color-eyre = "0.5.11"
