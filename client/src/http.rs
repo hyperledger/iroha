@@ -11,7 +11,7 @@ pub type Headers = HashMap<String, String>;
 /// To use custom builder with client, you need to implement this trait for some type and pass it
 /// to the client that will fill it.
 pub trait RequestBuilder {
-    /// Builder output. It is returned by [`RequestBuilder::body()`] function.
+    /// Builder output, returned by [`RequestBuilder::body()`].
     type Output;
 
     /// Constructs a new builder with provided method and URL
@@ -33,7 +33,7 @@ pub trait RequestBuilder {
     #[must_use]
     fn headers(self, headers: Headers) -> Self;
 
-    /// Sets request's body in bytes and transforms the builder to its output
+    /// Set request's body in bytes and `build()` the output
     #[must_use]
     fn body(self, data: Option<Vec<u8>>) -> Self::Output;
 }
@@ -63,9 +63,9 @@ where
     }
 }
 
-/// Represents a struct in the initial state of WS connection flow
+/// Struct in the initial state of WS connection flow. 
 pub trait WebSocketFlowInit {
-    /// Some type that handles the next step of WS flow - handshake acquiring.
+    /// Some type that handles the next step of WS flow --- handshake.
     /// This type is returned by the init function.
     type Next: WebSocketFlowHandshake;
 
@@ -135,7 +135,7 @@ where
         } else if let Some(http_uri) = uri.strip_prefix("http://") {
             "ws://".to_owned() + http_uri
         } else {
-            return Err(eyre!("No schema in web socket uri provided"));
+            return Err(eyre!("No schema in web socket uri provided. {}", uri));
         };
 
         Ok(ws_uri)

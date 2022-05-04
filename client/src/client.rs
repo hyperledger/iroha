@@ -804,10 +804,10 @@ pub struct EventsApiFlowInit {
 }
 
 impl EventsApiFlowInit {
-    /// Constructs new item with provided filter, headers and url
+    /// Construct new item with provided filter, headers and url.
     ///
     /// # Errors
-    /// Fails if URL transformation fails
+    /// Fails if [`transform_ws_url`] fails.
     #[inline]
     fn new<U>(filter: EventFilter, headers: HttpHeaders, url: U) -> Result<Self>
     where
