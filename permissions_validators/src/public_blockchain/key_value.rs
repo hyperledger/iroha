@@ -1,38 +1,62 @@
 //! Module with permission for burning
 
-use std::str::FromStr as _;
+use iroha_data_model::asset::DefinitionId;
 
 use super::*;
 
-#[allow(clippy::expect_used)]
-/// Can set key value in user's assets permission token name.
-pub static CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_set_key_value_in_user_assets").expect("Tested. Works."));
-#[allow(clippy::expect_used)]
-/// Can remove key value in user's assets permission token name.
-pub static CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_remove_key_value_in_user_assets").expect("Tested. Works."));
-#[allow(clippy::expect_used)]
-/// Can burn user's assets permission token name.
-pub static CAN_SET_KEY_VALUE_IN_USER_METADATA: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_set_key_value_in_user_metadata").expect("Tested. Works."));
-#[allow(clippy::expect_used)]
-/// Can burn user's assets permission token name.
-pub static CAN_REMOVE_KEY_VALUE_IN_USER_METADATA: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_remove_key_value_in_user_metadata").expect("Tested. Works."));
-#[allow(clippy::expect_used)]
-/// Can set key value in the corresponding asset definition.
-pub static CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_set_key_value_in_asset_definition").expect("Tested. Works."));
-#[allow(clippy::expect_used)]
-/// Can remove key value in the corresponding asset definition.
-pub static CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION: Lazy<Name> = Lazy::new(|| {
-    Name::from_str("can_remove_key_value_in_asset_definition").expect("Tested. Works.")
-});
-#[allow(clippy::expect_used)]
-/// Target account id for setting and removing key value permission tokens.
-pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::from_str("account_id").expect("Tested. Works."));
+declare_token!(
+    /// Can set key value in user's assets permission.
+    CanSetKeyValueInUserAssets {
+        /// Asset id.
+        asset_id ("asset_id"): AssetId,
+    },
+    "can_set_key_value_in_user_assets"
+);
+
+declare_token!(
+    /// Can remove key value in user's assets permission.
+    CanRemoveKeyValueInUserAssets {
+        /// Asset id
+        asset_id ("asset_id"): AssetId,
+    },
+    "can_remove_key_value_in_user_assets"
+);
+
+declare_token!(
+    /// Can set key value in user metadata.
+    CanSetKeyValueInUserMetadata {
+        /// Account id.
+        account_id ("account_id"): AccountId,
+    },
+    "can_set_key_value_in_user_metadata"
+);
+
+declare_token!(
+    /// Can remove key value in user metadata.
+    CanRemoveKeyValueInUserMetadata {
+        /// Account id.
+        account_id ("account_id"): AccountId,
+    },
+    "can_remove_key_value_in_user_metadata"
+);
+
+declare_token!(
+    /// Can set key value in the corresponding asset definition.
+    CanSetKeyValueInAssetDefinition {
+        /// Asset definition id.
+        asset_definition_id ("asset_definition_id"): DefinitionId,
+    },
+    "can_set_key_value_in_asset_definition"
+);
+
+declare_token!(
+    /// Can remove key value in the corresponding asset definition.
+    CanRemoveKeyValueInAssetDefinition {
+        /// Asset definition id.
+        asset_definition_id ("asset_definition_id"): DefinitionId,
+    },
+    "can_remove_key_value_in_asset_definition"
+);
 
 /// Checks that account can set keys for assets only for the signer account.
 #[derive(Debug, Copy, Clone)]
@@ -94,10 +118,7 @@ impl<W: WorldTrait> HasToken<W> for SetGrantedByAssetOwner {
         } else {
             return Err("Source id is not an AssetId.".to_owned());
         };
-        Ok(
-            PermissionToken::new(CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN.clone())
-                .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into())]),
-        )
+        Ok(CanSetKeyValueInUserAssets::new(object_id).into())
     }
 }
 
@@ -115,16 +136,12 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccessSet {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_SET_KEY_VALUE_USER_ASSETS_TOKEN {
-            return Err("Grant instruction is not for set permission.".to_owned());
+        let token: CanSetKeyValueInUserAssets = extract_specialized_token(instruction, wsv)?;
+
+        if &token.asset_id.account_id != authority {
+            return Err("Asset specified in permission token is not owned by signer.".to_owned());
         }
-        check_asset_owner_for_token(&permission_token, authority)?;
+
         Ok(())
     }
 }
@@ -188,10 +205,7 @@ impl<W: WorldTrait> HasToken<W> for SetGrantedByAccountOwner {
         } else {
             return Err("Source id is not an AccountId.".to_owned());
         };
-        Ok(
-            PermissionToken::new(CAN_SET_KEY_VALUE_IN_USER_METADATA.clone())
-                .with_params([(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into())]),
-        )
+        Ok(CanSetKeyValueInUserMetadata::new(object_id).into())
     }
 }
 
@@ -209,16 +223,10 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyMetadataAccessSet {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_SET_KEY_VALUE_IN_USER_METADATA {
-            return Err("Grant instruction is not for set permission.".to_owned());
+        let token: CanSetKeyValueInUserMetadata = extract_specialized_token(instruction, wsv)?;
+        if &token.account_id != authority {
+            return Err("Account specified in permission token is not owned by signer.".to_owned());
         }
-        check_account_owner_for_token(&permission_token, authority)?;
         Ok(())
     }
 }
@@ -281,10 +289,7 @@ impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAssetOwner {
         } else {
             return Err("Source id is not an AssetId.".to_owned());
         };
-        Ok(
-            PermissionToken::new(CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS.clone())
-                .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into())]),
-        )
+        Ok(CanRemoveKeyValueInUserAssets::new(object_id).into())
     }
 }
 
@@ -302,16 +307,11 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccessRemove {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_REMOVE_KEY_VALUE_IN_USER_ASSETS {
-            return Err("Grant instruction is not for set permission.".to_owned());
+        let token: CanRemoveKeyValueInUserAssets = extract_specialized_token(instruction, wsv)?;
+
+        if &token.asset_id.account_id != authority {
+            return Err("Asset specified in permission token is not owned by signer.".to_owned());
         }
-        check_asset_owner_for_token(&permission_token, authority)?;
         Ok(())
     }
 }
@@ -375,10 +375,7 @@ impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAccountOwner {
         } else {
             return Err("Source id is not an AccountId.".to_owned());
         };
-        Ok(
-            PermissionToken::new(CAN_REMOVE_KEY_VALUE_IN_USER_METADATA.clone())
-                .with_params([(ACCOUNT_ID_TOKEN_PARAM_NAME.to_owned(), object_id.into())]),
-        )
+        Ok(CanRemoveKeyValueInUserMetadata::new(object_id).into())
     }
 }
 
@@ -396,16 +393,11 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyMetadataAccessRemove {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_REMOVE_KEY_VALUE_IN_USER_METADATA {
-            return Err("Grant instruction is not for remove permission.".to_owned());
+        let token: CanRemoveKeyValueInUserMetadata = extract_specialized_token(instruction, wsv)?;
+
+        if &token.account_id != authority {
+            return Err("Account specified in permission token is not owned by signer.".to_owned());
         }
-        check_account_owner_for_token(&permission_token, authority)?;
         Ok(())
     }
 }
@@ -424,19 +416,9 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetDefinitionSet {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION {
-            return Err(
-                "Grant instruction is not for set key value in asset definition permission."
-                    .to_owned(),
-            );
-        }
-        check_asset_creator_for_token(&permission_token, authority, wsv)
+        let token: CanSetKeyValueInAssetDefinition = extract_specialized_token(instruction, wsv)?;
+
+        check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
 
@@ -454,19 +436,10 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetDefinitionRemove {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION {
-            return Err(
-                "Grant instruction is not for remove key value in asset definition permission."
-                    .to_owned(),
-            );
-        }
-        check_asset_creator_for_token(&permission_token, authority, wsv)
+        let token: CanRemoveKeyValueInAssetDefinition =
+            extract_specialized_token(instruction, wsv)?;
+
+        check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }
 
@@ -572,12 +545,7 @@ impl<W: WorldTrait> HasToken<W> for SetGrantedByAssetDefinitionOwner {
         } else {
             return Err("Source id is not an AssetDefinitionId.".to_owned());
         };
-        Ok(
-            PermissionToken::new(CAN_SET_KEY_VALUE_IN_ASSET_DEFINITION.clone()).with_params([(
-                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                object_id.into(),
-            )]),
-        )
+        Ok(CanSetKeyValueInAssetDefinition::new(object_id).into())
     }
 }
 
@@ -608,11 +576,6 @@ impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAssetDefinitionOwner {
         } else {
             return Err("Source id is not an AssetDefinitionId.".to_owned());
         };
-        Ok(
-            PermissionToken::new(CAN_REMOVE_KEY_VALUE_IN_ASSET_DEFINITION.clone()).with_params([(
-                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                object_id.into(),
-            )]),
-        )
+        Ok(CanRemoveKeyValueInAssetDefinition::new(object_id).into())
     }
 }

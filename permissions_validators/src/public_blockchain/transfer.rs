@@ -1,25 +1,29 @@
 //! Module with permission for transfering
 
-use std::{str::FromStr as _, time::Duration};
+use std::time::Duration;
 
 use super::*;
 
-#[allow(clippy::expect_used)]
-/// Can transfer user's assets permission token name.
-pub static CAN_TRANSFER_USER_ASSETS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_transfer_user_assets").expect("Valid")); // See #1978
+declare_token!(
+    /// Can transfer user's assets
+    CanTransferUserAssets {
+        /// Asset id
+        asset_id ("asset_id"): AssetId,
+    },
+    "can_transfer_user_assets"
+);
 
-#[allow(clippy::expect_used)]
-/// Can transfer only fixed number of times per some time period
-pub static CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD: Lazy<Name> = Lazy::new(|| {
-    Name::from_str("can_transfer_only_fixed_number_of_times_per_period").expect("Valid")
-});
-#[allow(clippy::expect_used)]
-/// Name of `period` param for `CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD`
-pub static PERIOD_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::from_str("period").expect("Valid"));
-#[allow(clippy::expect_used)]
-/// Name of `count` param for `CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD`
-pub static COUNT_PARAM_NAME: Lazy<Name> = Lazy::new(|| Name::from_str("count").expect("Valid"));
+declare_token!(
+    /// Can transfer only fixed number of times per some time period
+    #[derive(Copy)]
+    CanTransferOnlyFixedNumberOfTimesPerPeriod {
+        /// Period in milliseconds
+        period ("period"): u128,
+        /// Number of times transfer is allowed per `[period]`
+        count ("count"): u32,
+    },
+    "can_transfer_only_fixed_number_of_times_per_period"
+);
 
 /// Checks that account transfers only the assets that he owns.
 #[derive(Debug, Copy, Clone)]
@@ -80,8 +84,7 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
         } else {
             return Err("Source id is not an AssetId.".to_owned());
         };
-        Ok(PermissionToken::new(CAN_TRANSFER_USER_ASSETS_TOKEN.clone())
-            .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), source_id.into())]))
+        Ok(CanTransferUserAssets::new(source_id).into())
     }
 }
 
@@ -99,16 +102,13 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_TRANSFER_USER_ASSETS_TOKEN {
-            return Err("Grant instruction is not for transfer permission.".to_owned());
+        let token: CanTransferUserAssets = extract_specialized_token(instruction, wsv)?;
+
+        if &token.asset_id.account_id != authority {
+            return Err("Asset specified in permission token is not owned by signer.".to_owned());
         }
-        check_asset_owner_for_token(&permission_token, authority)
+
+        Ok(())
     }
 }
 
@@ -162,7 +162,7 @@ fn retrieve_permission_params<W: WorldTrait>(
     wsv.map_account(authority, |account| {
         wsv.account_permission_tokens(account)
             .iter()
-            .filter(|token| token.name() == &*CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD)
+            .filter(|token| token.name() == CanTransferOnlyFixedNumberOfTimesPerPeriod::name())
             .flat_map(PermissionToken::params)
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect()
@@ -177,16 +177,16 @@ fn retrieve_permission_params<W: WorldTrait>(
 /// - Period has wrong value type
 /// - Failed conversion from `u128` to `u64`
 fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration, DenialReason> {
+    let period_param_name = CanTransferOnlyFixedNumberOfTimesPerPeriod::period();
     match params
-        .get(&*PERIOD_PARAM_NAME)
-        .ok_or_else(|| format!("Expected `{}` parameter", *PERIOD_PARAM_NAME))?
+        .get(period_param_name)
+        .ok_or_else(|| format!("Expected `{period_param_name}` parameter",))?
     {
         Value::U128(period) => Ok(Duration::from_millis(
             u64::try_from(*period).map_err(|e| e.to_string())?,
         )),
         _ => Err(format!(
-            "`{}` parameter has wrong value type. Expected `u128`",
-            *PERIOD_PARAM_NAME
+            "`{period_param_name}` parameter has wrong value type. Expected `u128`",
         )),
     }
 }
@@ -197,14 +197,14 @@ fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration, DenialRea
 /// - There is no count parameter
 /// - Count has wrong value type
 fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32, DenialReason> {
+    let count_param_name = CanTransferOnlyFixedNumberOfTimesPerPeriod::count();
     match params
-        .get(&*COUNT_PARAM_NAME)
-        .ok_or_else(|| format!("Expected `{}` parameter", *COUNT_PARAM_NAME))?
+        .get(count_param_name)
+        .ok_or_else(|| format!("Expected `{count_param_name}` parameter"))?
     {
         Value::U32(count) => Ok(*count),
         _ => Err(format!(
-            "`{}` parameter has wrong value type. Expected `u32`",
-            *COUNT_PARAM_NAME
+            "`{count_param_name}` parameter has wrong value type. Expected `u32`"
         )),
     }
 }

@@ -1,6 +1,9 @@
 //! Permission checks asociated with use cases that can be summarized as public blockchains.
 
-use std::str::FromStr as _;
+use iroha_macro::FromVariant;
+use iroha_schema::IntoSchema;
+use parity_scale_codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 use super::*;
 
@@ -10,18 +13,55 @@ pub mod mint;
 pub mod transfer;
 pub mod unregister;
 
-/// Origin asset id param used in permission tokens.
-#[allow(clippy::expect_used)]
-pub static ASSET_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::from_str("asset_id").expect("This must never panic"));
-#[allow(clippy::expect_used)]
-/// Origin account id param used in permission tokens.
-pub static ACCOUNT_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::from_str("account_id").expect("This shall never panic"));
-#[allow(clippy::expect_used)]
-/// Origin asset definition param used in permission tokens.
-pub static ASSET_DEFINITION_ID_TOKEN_PARAM_NAME: Lazy<Name> =
-    Lazy::new(|| Name::from_str("asset_definition_id").expect("This should never panic"));
+/// Enum listing preconfigured permission tokens
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, FromVariant, IntoSchema)]
+pub enum PredefinedPermissionToken {
+    /// Can burn asset with the corresponding asset definition.
+    BurnAssetWithDefinition(burn::CanBurnAssetWithDefinition),
+    /// Can burn user's assets permission token name.
+    BurnUserAssets(burn::CanBurnUserAssets),
+    /// Can set key value in user's assets permission token name.
+    SetKeyValueInUserAssets(key_value::CanSetKeyValueInUserAssets),
+    /// Can remove key value in user's assets permission token name.
+    RemoveKeyValueInUserAssets(key_value::CanRemoveKeyValueInUserAssets),
+    /// Can set key value in user metadata
+    SetKeyValueInUserMetadata(key_value::CanSetKeyValueInUserMetadata),
+    /// Can remove key value in user metadata
+    RemoveKeyValueInUserMetadata(key_value::CanRemoveKeyValueInUserMetadata),
+    /// Can set key value in the corresponding asset definition.
+    SetKeyValueInAssetDefinition(key_value::CanSetKeyValueInAssetDefinition),
+    /// Can remove key value in the corresponding asset definition.
+    RemoveKeyValueInAssetDefinition(key_value::CanRemoveKeyValueInAssetDefinition),
+    /// Can mint asset with the corresponding asset definition.
+    MintUserAssetDefinitions(mint::CanMintUserAssetDefinitions),
+    /// Can transfer user's assets
+    TransferUserAssets(transfer::CanTransferUserAssets),
+    /// Can transfer only fixed number of times per some time period
+    TransferOnlyFixedNumberOfTimesPerPeriod(transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod),
+    /// Can un-register asset with the corresponding asset definition.
+    UnregisterAssetWithDefinition(unregister::CanUnregisterAssetWithDefinition),
+}
+
+impl From<PredefinedPermissionToken> for PermissionToken {
+    fn from(value: PredefinedPermissionToken) -> Self {
+        match value {
+            PredefinedPermissionToken::BurnAssetWithDefinition(inner) => inner.into(),
+            PredefinedPermissionToken::BurnUserAssets(inner) => inner.into(),
+            PredefinedPermissionToken::SetKeyValueInUserAssets(inner) => inner.into(),
+            PredefinedPermissionToken::RemoveKeyValueInUserAssets(inner) => inner.into(),
+            PredefinedPermissionToken::SetKeyValueInUserMetadata(inner) => inner.into(),
+            PredefinedPermissionToken::RemoveKeyValueInUserMetadata(inner) => inner.into(),
+            PredefinedPermissionToken::SetKeyValueInAssetDefinition(inner) => inner.into(),
+            PredefinedPermissionToken::RemoveKeyValueInAssetDefinition(inner) => inner.into(),
+            PredefinedPermissionToken::MintUserAssetDefinitions(inner) => inner.into(),
+            PredefinedPermissionToken::TransferUserAssets(inner) => inner.into(),
+            PredefinedPermissionToken::TransferOnlyFixedNumberOfTimesPerPeriod(inner) => {
+                inner.into()
+            }
+            PredefinedPermissionToken::UnregisterAssetWithDefinition(inner) => inner.into(),
+        }
+    }
+}
 
 /// A preconfigured set of permissions for simple use cases.
 pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
@@ -75,85 +115,43 @@ pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
         .all_should_succeed()
 }
 
-/// Checks that `authority` is account owner for account supplied in `permission_token`.
+/// Extracts specialized token from `GrantBox`
 ///
 /// # Errors
-/// - The `permission_token` is of improper format.
-/// - Account owner is not `authority`
-pub fn check_account_owner_for_token(
-    permission_token: &PermissionToken,
-    authority: &AccountId,
-) -> Result<(), String> {
-    let account_id = if let Value::Id(IdBox::AccountId(account_id)) = permission_token
-        .get_param(&*ACCOUNT_ID_TOKEN_PARAM_NAME)
-        .ok_or(format!(
-            "Failed to find permission param {}.",
-            ACCOUNT_ID_TOKEN_PARAM_NAME.clone()
-        ))? {
-        account_id
-    } else {
-        return Err(format!(
-            "Permission param {} is not an AccountId.",
-            ACCOUNT_ID_TOKEN_PARAM_NAME.clone()
-        ));
-    };
-    if account_id != authority {
-        return Err("Account specified in permission token is not owned by signer.".to_owned());
-    }
-    Ok(())
+/// - Cannot evaluate `instruction`
+/// - `instruction` doesn't evaluate to `PermissionToken`
+/// - Generic `PermissionToken` can't be converted to requested specialized token.
+pub fn extract_specialized_token<T, W>(
+    instruction: &GrantBox,
+    wsv: &WorldStateView<W>,
+) -> Result<T, String>
+where
+    T: TryFrom<PermissionToken, Error = PredefinedTokenConversionError>,
+    W: iroha_core::wsv::WorldTrait,
+{
+    let permission_token: PermissionToken = instruction
+        .object
+        .evaluate(wsv, &Context::new())
+        .map_err(|e| e.to_string())?
+        .try_into()
+        .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
+
+    let specialized_token: T = permission_token
+        .try_into()
+        .map_err(|e: PredefinedTokenConversionError| e.to_string())?;
+
+    Ok(specialized_token)
 }
 
-/// Checks that `authority` is asset owner for asset supplied in `permission_token`.
+/// Checks that asset creator is `authority` in the supplied `definition_id`.
 ///
 /// # Errors
-/// - The `permission_token` is of improper format.
-/// - Asset owner is not `authority`
-pub fn check_asset_owner_for_token(
-    permission_token: &PermissionToken,
-    authority: &AccountId,
-) -> Result<(), String> {
-    let asset_id = if let Value::Id(IdBox::AssetId(asset_id)) = permission_token
-        .get_param(&*ASSET_ID_TOKEN_PARAM_NAME)
-        .ok_or(format!(
-            "Failed to find permission param {}.",
-            ASSET_ID_TOKEN_PARAM_NAME.clone()
-        ))? {
-        asset_id
-    } else {
-        return Err(format!(
-            "Permission param {} is not an AssetId.",
-            ASSET_ID_TOKEN_PARAM_NAME.clone()
-        ));
-    };
-    if &asset_id.account_id != authority {
-        return Err("Asset specified in permission token is not owned by signer.".to_owned());
-    }
-    Ok(())
-}
-
-/// Checks that asset creator is `authority` in the supplied `permission_token`.
-///
-/// # Errors
-/// - The `permission_token` is of improper format.
 /// - Asset creator is not `authority`
-pub fn check_asset_creator_for_token<W: WorldTrait>(
-    permission_token: &PermissionToken,
+pub fn check_asset_creator_for_asset_definition<W: WorldTrait>(
+    definition_id: &AssetDefinitionId,
     authority: &AccountId,
     wsv: &WorldStateView<W>,
 ) -> Result<(), String> {
-    let definition_id = if let Value::Id(IdBox::AssetDefinitionId(definition_id)) = permission_token
-        .get_param(&*ASSET_DEFINITION_ID_TOKEN_PARAM_NAME)
-        .ok_or(format!(
-            "Failed to find permission param {}.",
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone()
-        ))? {
-        definition_id
-    } else {
-        return Err(format!(
-            "Permission param {} is not an AssetDefinitionId.",
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone()
-        ));
-    };
     let registered_by_signer_account = wsv
         .asset_definition_entry(definition_id)
         .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
@@ -168,7 +166,7 @@ pub fn check_asset_creator_for_token<W: WorldTrait>(
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, str::FromStr as _};
 
     use iroha_core::wsv::World;
 
@@ -218,12 +216,8 @@ mod tests {
         );
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(
-            PermissionToken::new(transfer::CAN_TRANSFER_USER_ASSETS_TOKEN.clone()).with_params([(
-                ASSET_ID_TOKEN_PARAM_NAME.clone(),
-                alice_xor_id.clone().into(),
-            )])
-        ));
+        assert!(bob_account
+            .add_permission(transfer::CanTransferUserAssets::new(alice_xor_id.clone()).into()));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], BTreeSet::new()));
         let transfer = Instruction::Transfer(TransferBox {
@@ -246,9 +240,8 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let permission_token_to_alice =
-            PermissionToken::new(transfer::CAN_TRANSFER_USER_ASSETS_TOKEN.clone())
-                .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), alice_xor_id.into())]);
+        let permission_token_to_alice: PermissionToken =
+            transfer::CanTransferUserAssets::new(alice_xor_id).into();
         let wsv = WorldStateView::<World>::new(World::new());
         let grant = Instruction::Grant(GrantBox::new(
             permission_token_to_alice,
@@ -290,11 +283,7 @@ mod tests {
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
         assert!(bob_account.add_permission(
-            PermissionToken::new(unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone())
-                .with_params([(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(),
-                    xor_id.clone().into(),
-                )])
+            unregister::CanUnregisterAssetWithDefinition::new(xor_id.clone()).into()
         ));
         assert!(domain.add_account(bob_account).is_none());
         assert!(domain
@@ -316,12 +305,8 @@ mod tests {
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let xor_id = AssetDefinitionId::from_str("xor#test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let permission_token_to_alice =
-            PermissionToken::new(unregister::CAN_UNREGISTER_ASSET_WITH_DEFINITION.clone())
-                .with_params([(
-                    ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                    xor_id.into(),
-                )]);
+        let permission_token_to_alice: PermissionToken =
+            unregister::CanUnregisterAssetWithDefinition::new(xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
@@ -378,10 +363,7 @@ mod tests {
         let xor_definition = new_xor_definition(&xor_id);
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(
-            PermissionToken::new(mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone())
-                .with_params([(ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(), xor_id.into())])
-        ));
+        assert!(bob_account.add_permission(mint::CanMintUserAssetDefinitions::new(xor_id).into()));
         assert!(domain.add_account(bob_account).is_none());
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
@@ -404,13 +386,8 @@ mod tests {
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let xor_id = AssetDefinitionId::from_str("xor#test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let permission_token_to_alice = PermissionToken::new(
-            mint::CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone(),
-        )
-        .with_params([(
-            ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-            xor_id.into(),
-        )]);
+        let permission_token_to_alice: PermissionToken =
+            mint::CanMintUserAssetDefinitions::new(xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
@@ -465,10 +442,7 @@ mod tests {
         let xor_definition = new_xor_definition(&xor_id);
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(
-            PermissionToken::new(burn::CAN_BURN_ASSET_WITH_DEFINITION.clone())
-                .with_params([(ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.clone(), xor_id.into())],)
-        ));
+        assert!(bob_account.add_permission(burn::CanBurnAssetWithDefinition::new(xor_id).into()));
         assert!(domain.add_account(bob_account).is_none());
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
@@ -491,11 +465,8 @@ mod tests {
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let xor_id = AssetDefinitionId::from_str("xor#test").expect("Valid");
         let xor_definition = new_xor_definition(&xor_id);
-        let permission_token_to_alice =
-            PermissionToken::new(burn::CAN_BURN_ASSET_WITH_DEFINITION.clone()).with_params([(
-                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                xor_id.into(),
-            )]);
+        let permission_token_to_alice: PermissionToken =
+            burn::CanBurnAssetWithDefinition::new(xor_id).into();
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
@@ -537,12 +508,9 @@ mod tests {
         );
         let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
         let mut bob_account = Account::new(bob_id.clone(), []).build();
-        assert!(bob_account.add_permission(
-            PermissionToken::new(burn::CAN_BURN_USER_ASSETS_TOKEN.clone()).with_params([(
-                ASSET_ID_TOKEN_PARAM_NAME.clone(),
-                alice_xor_id.clone().into(),
-            )])
-        ));
+        assert!(
+            bob_account.add_permission(burn::CanBurnUserAssets::new(alice_xor_id.clone()).into())
+        );
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], vec![]));
         let transfer = Instruction::Burn(BurnBox {
@@ -564,9 +532,8 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let permission_token_to_alice =
-            PermissionToken::new(burn::CAN_BURN_USER_ASSETS_TOKEN.clone())
-                .with_params([(ASSET_ID_TOKEN_PARAM_NAME.to_owned(), alice_xor_id.into())]);
+        let permission_token_to_alice: PermissionToken =
+            burn::CanBurnUserAssets::new(alice_xor_id).into();
         let wsv = WorldStateView::<World>::new(World::new());
         let grant = Instruction::Grant(GrantBox::new(
             permission_token_to_alice,
