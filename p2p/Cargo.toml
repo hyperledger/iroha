@@ -1,6 +1,6 @@
 [package]
 name = "iroha_p2p"
-version = "2.0.0-pre-rc.3"
+version = "2.0.0-pre-rc.4"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
@@ -12,11 +12,11 @@ categories = ["cryptography::cryptocurrencies", "network-programming"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-iroha_logger = { version = "=2.0.0-pre-rc.3", path = "../logger" }
-iroha_crypto = { version = "=2.0.0-pre-rc.3", path = "../crypto" }
-iroha_actor = { version = "=2.0.0-pre-rc.3", path = "../actor" }
-iroha_macro = { version = "=2.0.0-pre-rc.3", path = "../macro" }
-iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../data_model" }
+iroha_logger = { version = "=2.0.0-pre-rc.4", path = "../logger" }
+iroha_crypto = { version = "=2.0.0-pre-rc.4", path = "../crypto" }
+iroha_actor = { version = "=2.0.0-pre-rc.4", path = "../actor" }
+iroha_macro = { version = "=2.0.0-pre-rc.4", path = "../macro" }
+iroha_data_model = { version = "=2.0.0-pre-rc.4", path = "../data_model" }
 
 rand = "0.8"
 tokio = { version = "1.6.0", features = ["rt-multi-thread", "macros"]}
@@ -28,6 +28,6 @@ aead = "0.3.2"
 thiserror = "1.0.28"
 
 [dev-dependencies]
-iroha_config = { version = "=2.0.0-pre-rc.3", path = "../config" }
+iroha_config = { version = "=2.0.0-pre-rc.4", path = "../config" }
 
 unique_port = "0.1.1"
