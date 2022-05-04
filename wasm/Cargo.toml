@@ -22,7 +22,7 @@ members = [
 debug = []
 
 [dependencies]
-iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../data_model", default-features = false }
+iroha_data_model = { version = "=2.0.0-pre-rc.4", path = "../data_model", default-features = false }
 iroha_wasm_derive = { path = "derive" }
 
 parity-scale-codec = { version = "2.3.1", default-features = false }
