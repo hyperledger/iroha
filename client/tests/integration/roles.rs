@@ -1,13 +1,13 @@
 #![allow(clippy::restriction)]
 
-use std::{collections::BTreeMap, str::FromStr as _, time::Duration};
+use std::{str::FromStr as _, time::Duration};
 
 use eyre::{eyre, Result};
 use iroha_client::client::{self, Client};
 use iroha_core::{prelude::AllowAll, smartcontracts::permissions::ValidatorBuilder};
-use iroha_data_model::{permissions::Permissions, prelude::*};
+use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain::{
-    key_value::{CAN_REMOVE_KEY_VALUE_IN_USER_METADATA, CAN_SET_KEY_VALUE_IN_USER_METADATA},
+    key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
     transfer,
 };
 use test_network::{Peer as TestPeer, *};
@@ -48,16 +48,8 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     // Registering new role which sets `Transfer` execution count limit to
     // `COUNT` for every `PERIOD_MS` milliseconds
     let permission_token =
-        PermissionToken::new(transfer::CAN_TRANSFER_ONLY_FIXED_NUMBER_OF_TIMES_PER_PERIOD.clone())
-            .with_params([
-                (
-                    transfer::PERIOD_PARAM_NAME.clone(),
-                    Value::U128(PERIOD_MS.into()),
-                ),
-                (transfer::COUNT_PARAM_NAME.clone(), Value::U32(COUNT)),
-            ]);
-    let permissions = Permissions::from([permission_token]);
-    let register_role = RegisterBox::new(Role::new(role_id.clone(), permissions));
+        transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod::new(PERIOD_MS.into(), COUNT);
+    let register_role = RegisterBox::new(Role::new(role_id.clone(), vec![permission_token]));
     test_client.submit_blocking(register_role)?;
 
     // Granting new role to Alice
@@ -102,8 +94,8 @@ fn register_empty_role() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let role_id = iroha_data_model::role::Id::new("root".parse::<Name>().expect("Valid"));
-    let register_role = RegisterBox::new(Role::new(role_id, Permissions::new()));
+    let role_id = "root".parse().expect("Valid");
+    let register_role = RegisterBox::new(NewRole::new(role_id).build());
 
     test_client.submit(register_role)?;
     Ok(())
@@ -114,12 +106,11 @@ fn register_role_with_empty_token_params() -> Result<()> {
     let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let role_id = iroha_data_model::role::Id::new("root".parse::<Name>().expect("Valid"));
-    let mut permissions = Permissions::new();
-    permissions.insert(PermissionToken::new("token".parse().expect("Valid")));
-    let register_role = RegisterBox::new(Role::new(role_id, permissions));
+    let role_id = "root".parse().expect("Valid");
+    let token = PermissionToken::new("token".parse().expect("Valid"));
+    let role = NewRole::new(role_id).add_permission(token).build();
 
-    test_client.submit(register_role)?;
+    test_client.submit(RegisterBox::new(role))?;
     Ok(())
 }
 
@@ -140,18 +131,13 @@ fn register_metadata_role() -> Result<()> {
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
     test_client.submit_blocking(register_bob)?;
 
-    let role_id = iroha_data_model::role::Id::new("USER_METADATA_ACCESS".parse::<Name>()?);
-    let mut permissions = Permissions::new();
-    let mut params = BTreeMap::new();
-    params.insert(Name::from_str("account_id")?, bob_id.into());
-    permissions.insert(
-        PermissionToken::new(CAN_SET_KEY_VALUE_IN_USER_METADATA.clone())
-            .with_params(params.clone()),
-    );
-    permissions.insert(
-        PermissionToken::new(CAN_REMOVE_KEY_VALUE_IN_USER_METADATA.clone()).with_params(params),
-    );
-    let register_role = RegisterBox::new(Role::new(role_id, permissions));
+    let role_id = "USER_METADATA_ACCESS".parse().expect("Valid");
+
+    let role = iroha_data_model::role::NewRole::new(role_id)
+        .add_permission(CanSetKeyValueInUserMetadata::new(bob_id.clone()))
+        .add_permission(CanRemoveKeyValueInUserMetadata::new(bob_id))
+        .build();
+    let register_role = RegisterBox::new(role);
     test_client.submit(register_role)?;
     Ok(())
 }

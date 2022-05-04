@@ -1973,7 +1973,11 @@ dependencies = [
  "iroha_core",
  "iroha_data_model",
  "iroha_macro",
+ "iroha_schema",
  "once_cell",
+ "parity-scale-codec",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -2150,6 +2154,8 @@ dependencies = [
  "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_permissions_validators",
+ "iroha_schema",
  "iroha_schema_gen",
  "serde_json",
 ]
