@@ -350,7 +350,7 @@ impl TriggerSet {
                 task::yield_now().await;
             }
 
-            if task::block_in_place(|| errors.blocking_read()).is_empty() {
+            if errors.read().await.is_empty() {
                 return Ok(());
             }
 
@@ -364,7 +364,7 @@ impl TriggerSet {
             std::result::Result::<(), Vec<E>>::Err(errors)
         };
 
-        let succeed_read = task::block_in_place(|| succeed.blocking_read());
+        let succeed_read = succeed.read().await;
         for id in succeed_read.iter() {
             // Ignoring error if trigger has not `Repeats::Exact(_)` but something else
             let _mod_repeats_res = self.mod_repeats(id, |n| {
