@@ -3,15 +3,14 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 use core::{
-    cmp::Eq,
-    fmt,
+    cmp, fmt,
     str::FromStr,
     sync::atomic::{AtomicU32, Ordering},
 };
 
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Output, WrapperTypeDecode};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::{
     events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name, ParseError,
@@ -252,12 +251,12 @@ impl<F: Filter + Into<FilterBox> + Clone> ActionTrait for Action<F> {
 }
 
 impl<F: Filter + PartialEq> PartialOrd for Action<F> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         // Exclude the executable. When debugging and replacing
         // the trigger, its position in Hash and Tree maps should
         // not change depending on the content.
         match self.repeats.cmp(&other.repeats) {
-            std::cmp::Ordering::Equal => {}
+            cmp::Ordering::Equal => {}
             ord => return Some(ord),
         }
         Some(self.technical_account.cmp(&other.technical_account))
@@ -266,7 +265,7 @@ impl<F: Filter + PartialEq> PartialOrd for Action<F> {
 
 #[allow(clippy::expect_used)]
 impl<F: Filter + Eq> Ord for Action<F> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.partial_cmp(other)
             .expect("`PartialCmp::partial_cmp()` for `Action` should never return `None`")
     }
@@ -282,17 +281,17 @@ pub enum Repeats {
 }
 
 impl PartialOrd for Repeats {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for Repeats {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         match (self, other) {
-            (Repeats::Indefinitely, Repeats::Indefinitely) => std::cmp::Ordering::Equal,
-            (Repeats::Indefinitely, Repeats::Exactly(_)) => std::cmp::Ordering::Greater,
-            (Repeats::Exactly(_), Repeats::Indefinitely) => std::cmp::Ordering::Less,
+            (Repeats::Indefinitely, Repeats::Indefinitely) => cmp::Ordering::Equal,
+            (Repeats::Indefinitely, Repeats::Exactly(_)) => cmp::Ordering::Greater,
+            (Repeats::Exactly(_), Repeats::Indefinitely) => cmp::Ordering::Less,
             (Repeats::Exactly(l), Repeats::Exactly(r)) => l.cmp(r),
         }
     }
@@ -317,9 +316,9 @@ impl From<u32> for Repeats {
 
 /// Wrapper for [`AtomicU32`]
 ///
-/// Provides useful implementation, using [`Ordering::Acquire`]
+/// Provides useful impls, using [`Ordering::Acquire`]
 /// and [`Ordering::Release`] to load and store respectively
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct AtomicU32Wrapper(AtomicU32);
 
 impl AtomicU32Wrapper {
@@ -346,13 +345,13 @@ impl Clone for AtomicU32Wrapper {
 }
 
 impl PartialOrd for AtomicU32Wrapper {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for AtomicU32Wrapper {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.get().cmp(&other.get())
     }
 }
@@ -389,6 +388,25 @@ impl Encode for AtomicU32Wrapper {
 
 impl WrapperTypeDecode for AtomicU32Wrapper {
     type Wrapped = u32;
+}
+
+impl Serialize for AtomicU32Wrapper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.get().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for AtomicU32Wrapper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let num = u32::deserialize(deserializer)?;
+        Ok(Self::new(num))
+    }
 }
 
 impl IntoSchema for AtomicU32Wrapper {
