@@ -34,13 +34,13 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
             }
             FindAllRoleIds(_) => Ok(()), // In case you need to debug the permissions.
             FindRoleByRoleId(_) => {
-               Err("Only access to roles of the same domain is permitted.".to_owned())
-            },
+                Err("Only access to roles of the same domain is permitted.".to_owned())
+            }
             FindAllPeers(_) => Ok(()), // Can be obtained in other ways,  so why hide it.
             FindAllActiveTriggerIds(_) => Ok(()),
             // Private blockchains should have debugging too, hence
             // all accounts should also be
-            FindTriggerById(_) => {
+            FindTriggerById(query) => {
                 let id = query
                     .id
                     .evaluate(wsv, &context)
@@ -49,12 +49,9 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                 if trigger.technical_account == *authority {
                     Ok(())
                 } else {
-                    Err(
-                        "Cannot access Trigger if you're not the technical account."
-                            .to_owned(),
-                    )
+                    Err("Cannot access Trigger if you're not the technical account.".to_owned())
                 }
-            },
+            }
             FindTriggerKeyValueByIdAndKey(query) => {
                 let id = query
                     .id
@@ -286,25 +283,29 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
         let context = Context::new();
         match query {
             FindAccountsByName(_)
-            | FindAccountsByDomainId(_)
-            | FindAllAccounts(_)
-            | FindAllAssetsDefinitions(_)
-            | FindAssetsByAssetDefinitionId(_)
-            | FindAssetsByDomainId(_)
-            | FindAssetsByName(_)
-            | FindAllDomains(_)
-            | FindDomainById(_)
-            | FindDomainKeyValueByIdAndKey(_)
-            | FindAssetsByDomainIdAndAssetDefinitionId(_)
-            | FindAssetDefinitionKeyValueByIdAndKey(_)
-            | FindAllAssets(_) => {
-                Err("Only access to the assets of the same domain is permitted.".to_owned())
-            }
-            FindAllRoles(_)
-            | FindAllRoleIds(_)
-            | FindRoleByRoleId(_)
+                | FindAccountsByDomainId(_)
+                | FindAllAccounts(_) => {
+                    Err("Other accounts are private.".to_owned())
+                }
+                | FindAllDomains(_)
+                | FindDomainById(_)
+                | FindDomainKeyValueByIdAndKey(_) => {
+                    Err("Only access to your account's data is permitted.".to_owned())
+                },
+            FindAssetsByDomainIdAndAssetDefinitionId(_)
+                | FindAssetsByName(_) // TODO: I think this is a mistake.
+                | FindAssetsByDomainId(_)
+                | FindAllAssetsDefinitions(_)
+                | FindAssetsByAssetDefinitionId(_)
+                | FindAssetDefinitionKeyValueByIdAndKey(_)
+                | FindAllAssets(_) => {
+                    Err("Only access to the assets of your account is permitted.".to_owned())
+                }
+            FindAllRoles(_) | FindAllRoleIds(_) | FindRoleByRoleId(_) => {
+                Err("Only access to roles of the same account is permitted.".to_owned())
+            },
             | FindAllActiveTriggerIds(_) => {
-                Err("Only access to the roles of the same account is permitted.".to_owned())
+                Err("Only access to the triggers of the same account is permitted.".to_owned())
             }
             FindAllPeers(_) => {
                 Err("Only access to your account-local data is permitted.".to_owned())
