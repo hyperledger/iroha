@@ -1,5 +1,7 @@
 //! `World`-related ISI implementations.
 
+use iroha_telemetry::metrics;
+
 use super::prelude::*;
 use crate::prelude::*;
 
@@ -7,7 +9,6 @@ use crate::prelude::*;
 pub mod isi {
     use eyre::Result;
     use iroha_data_model::prelude::*;
-    use iroha_telemetry::metrics;
 
     use super::*;
 
@@ -202,6 +203,7 @@ pub mod query {
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllRoles {
         #[log]
+        #[metrics(+"find_all_roles")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             Ok(wsv
                 .world
@@ -212,8 +214,39 @@ pub mod query {
         }
     }
 
+    impl<W: WorldTrait> ValidQuery<W> for FindAllRoleIds {
+        #[log]
+        #[metrics(+"find_all_role_ids")]
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+            Ok(wsv
+               .world
+               .roles
+               .iter()
+               // To me, this should probably be a method, not a field.
+               .map(|role| role.id().clone())
+               .collect())
+        }
+    }
+
+    impl<W: WorldTrait> ValidQuery<W> for FindRoleByRoleId {
+        #[log]
+        #[metrics(+"find_role_by_role_id")]
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+            let role_id = self
+                .id
+                .evaluate(wsv, &Context::new())
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
+
+            wsv.world.roles.get(&role_id).map_or_else(
+                || Err(Error::Find(Box::new(FindError::Role(role_id)))),
+                |role_ref| Ok(role_ref.clone()),
+            )
+        }
+    }
+
     impl<W: WorldTrait> ValidQuery<W> for FindAllPeers {
         #[log]
+        #[metrics("find_all_peers")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             Ok(wsv.peers())
         }
