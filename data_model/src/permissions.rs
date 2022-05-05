@@ -56,6 +56,14 @@ impl PermissionToken {
         }
     }
 
+    /// Add parameters to the `PermissionToken` replacing any previously defined
+    #[inline]
+    #[must_use]
+    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
+        self.params = params.into_iter().collect();
+        self
+    }
+
     /// Return a reference to the parameter corresponding to the given name
     #[inline]
     pub fn get_param(&self, name: &Name) -> Option<&Value> {
@@ -66,16 +74,6 @@ impl PermissionToken {
     #[inline]
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.params.iter()
-    }
-}
-
-impl PermissionToken {
-    /// Add parameters to the `PermissionToken` replacing any previously defined
-    #[inline]
-    #[must_use]
-    pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
-        self.params = params.into_iter().collect();
-        self
     }
 }
 
