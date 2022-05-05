@@ -1,0 +1,11 @@
+error: Mutable references not supported
+  --> tests/ui_fail/mutable_input_arg.rs:10:38
+   |
+10 |     pub fn from_mutable_input_arg(a: &mut u32) -> Self {
+   |                                      ^^^^^^^^
+
+error[E0425]: cannot find function `ffi_struct_from_mutable_input_arg` in this scope
+  --> tests/ui_fail/mutable_input_arg.rs:20:25
+   |
+20 |     if FfiResult::Ok != ffi_struct_from_mutable_input_arg(s.as_mut_ptr()) {
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope

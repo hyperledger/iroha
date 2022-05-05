@@ -4,6 +4,7 @@ pub use iroha_ffi_derive::*;
 
 /// FFI compatible tuple with 2 elements
 #[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pair<K, V>(pub K, pub V);
 
 /// Result of execution of an FFI function

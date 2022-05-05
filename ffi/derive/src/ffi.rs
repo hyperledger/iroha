@@ -4,7 +4,9 @@ use heck::ToSnakeCase;
 use proc_macro2::Span;
 use proc_macro_error::{abort, abort_call_site, OptionExt};
 use quote::quote;
-use syn::{parse_quote, visit::Visit, visit_mut::VisitMut, Ident, Type};
+use syn::{
+    parse_quote, visit::Visit, visit_mut::VisitMut, Ident, PathArguments::AngleBracketed, Type,
+};
 
 pub struct ImplDescriptor {
     /// Resolved type of the `Self` type
@@ -54,7 +56,7 @@ impl quote::ToTokens for FfiFnDescriptor {
             .map_or_else(Vec::new, |self_arg| vec![self_arg]);
 
         let fn_args = &self.input_args;
-        let ret_arg = &self.output_arg;
+        let ret_arg = self.output_arg();
         let fn_body = self.get_fn_body();
 
         tokens.extend(quote! {
@@ -165,11 +167,6 @@ impl FfiFnDescriptor {
         Ident::new("handle", Span::call_site())
     }
 
-    /// Produces name of the return type argument from a set of predefined conventions
-    fn get_output_arg_name() -> Ident {
-        Ident::new("output", Span::call_site())
-    }
-
     fn add_input_arg(&mut self) {
         let ffi_name = self.curr_arg_name.take().expect_or_abort("Defined");
         let (src_type, ffi_type) = self.curr_arg_ty.take().expect_or_abort("Defined");
@@ -181,6 +178,19 @@ impl FfiFnDescriptor {
         });
     }
 
+    /// Produces name of the return type. Name of the self argument is used for dummy output type.
+    /// Dummy output type is a type which is not present in the FFI function signature. Dummy
+    /// type is used to signal that the self type passes through the method being transcribed
+    fn get_output_arg_name(&self, output_ffi_type: &Type) -> Ident {
+        if let Some(self_arg) = &self.self_arg {
+            if &self_arg.ffi_type == output_ffi_type {
+                return self_arg.ffi_name.clone();
+            }
+        }
+
+        Ident::new("output", Span::call_site())
+    }
+
     fn add_output_arg(&mut self) {
         let (src_type, ffi_type) = self.curr_arg_ty.take().expect_or_abort("Defined");
 
@@ -188,7 +198,7 @@ impl FfiFnDescriptor {
         assert!(self.output_arg.is_none());
 
         self.output_arg = Some(FfiFnArgDescriptor {
-            ffi_name: Self::get_output_arg_name(),
+            ffi_name: self.get_output_arg_name(&ffi_type),
             src_type,
             ffi_type: parse_quote! { *mut #ffi_type },
         });
@@ -221,7 +231,7 @@ impl FfiFnDescriptor {
             }
         }
 
-        if let Some(output_arg) = &self.output_arg {
+        if let Some(output_arg) = self.output_arg() {
             if let Some(stmt) = output_arg.get_ptr_null_check_stmt() {
                 stmts.push(stmt);
             }
@@ -240,20 +250,38 @@ impl FfiFnDescriptor {
         stmts
     }
 
+    /// Return output argument if present and not dummy
+    fn output_arg(&self) -> Option<&FfiFnArgDescriptor> {
+        self.output_arg.as_ref().and_then(|output_arg| {
+            if let Some(self_arg) = &self.self_arg {
+                if self_arg.ffi_name == output_arg.ffi_name {
+                    return None;
+                }
+            }
+
+            Some(output_arg)
+        })
+    }
+
     fn get_ffi_to_src_conversion_stmts(&self) -> Vec<syn::Stmt> {
         let mut stmts = vec![];
 
         if let Some(self_arg) = &self.self_arg {
             let arg_name = &self_arg.ffi_name;
 
-            stmts.push(match &self_arg.src_type {
-                // NOTE: Takes ownership
-                // TODO: Better implement without ownership transfer, because others don't take
-                // ownership, or make others take ownership?
-                Type::Path(_) => parse_quote! { let #arg_name = *Box::from_raw(#arg_name); },
-                Type::Reference(_) => parse_quote! { let #arg_name = &*#arg_name; },
+            match &self_arg.src_type {
+                Type::Path(_) => stmts.push(parse_quote! {
+                    let _handle = #arg_name.read();
+                }),
+                Type::Reference(type_) => {
+                    stmts.push(if type_.mutability.is_some() {
+                        parse_quote! { let #arg_name = &mut *#arg_name; }
+                    } else {
+                        parse_quote! { let #arg_name = &*#arg_name; }
+                    });
+                }
                 _ => unreachable!("Self can only be taken by value or by reference"),
-            });
+            }
         }
 
         for arg in &self.input_args {
@@ -267,17 +295,20 @@ impl FfiFnDescriptor {
         let method_name = &self.method_name;
         let self_type = &self.self_ty;
 
-        let self_arg_name = self
-            .self_arg
-            .as_ref()
-            .map_or_else(Vec::new, |self_arg| vec![&self_arg.ffi_name]);
+        let self_arg_name = self.self_arg.as_ref().map_or_else(Vec::new, |self_arg| {
+            if matches!(self_arg.src_type, Type::Path(_)) {
+                return vec![Ident::new("_handle", Span::call_site())];
+            }
+
+            vec![self_arg.ffi_name.clone()]
+        });
 
         let fn_arg_names = self.input_args.iter().map(|arg| &arg.ffi_name);
         parse_quote! { let method_res = #self_type::#method_name(#(#self_arg_name,)* #(#fn_arg_names),*); }
     }
 
     fn get_src_to_ffi_conversion_stmts(&self) -> Vec<syn::Stmt> {
-        if let Some(output_arg) = &self.output_arg {
+        if let Some(output_arg) = self.output_arg() {
             return output_arg.get_src_to_ffi_conversion_stmts();
         }
 
@@ -699,14 +730,24 @@ impl<'ast> syn::visit::Visit<'ast> for FfiFnDescriptor {
                 if let Some((Type::Path(src_ty), Type::Ptr(ffi_ty))) = self.curr_arg_ty.as_mut() {
                     let ffi_ptr_subty = &ffi_ty.elem;
 
-                    if is_option_type(src_ty) {
-                        return;
+                    if !is_option_type(src_ty) {
+                        *ffi_ty = parse_quote! { *mut #ffi_ptr_subty };
                     }
-
-                    *ffi_ty = parse_quote! { *mut #ffi_ptr_subty };
                 }
 
                 self.add_output_arg();
+            }
+        }
+
+        if let Some(self_arg) = &self.self_arg {
+            let self_src_type = &self_arg.src_type;
+
+            if matches!(self_src_type, Type::Path(_)) {
+                let output_arg = self.output_arg.as_ref();
+
+                if output_arg.map_or(true, |out_arg| self_arg.ffi_name != out_arg.ffi_name) {
+                    abort!(self_src_type, "Methods which consume self not supported");
+                }
             }
         }
     }
@@ -726,57 +767,78 @@ impl<'ast> syn::visit::Visit<'ast> for FfiFnDescriptor {
         }
 
         if let syn::TypeParamBound::Trait(trait_) = &node.bounds[0] {
-            let is_output_arg = self.curr_arg_name.is_none();
+            let last_seg = trait_.path.segments.last().expect_or_abort("Defined");
 
             if trait_.lifetimes.is_some() {
                 abort_call_site!("Lifetime bound not supported for the `impl trait` argument");
             }
 
-            let last_seg = trait_.path.segments.last().expect_or_abort("Defined");
-            let is_into_iterator = !is_output_arg && last_seg.ident == "IntoIterator";
-            let is_exact_size_iterator = is_output_arg && last_seg.ident == "ExactSizeIterator";
+            let is_output_arg = self.curr_arg_name.is_none();
+            match last_seg.ident.to_string().as_str() {
+                "IntoIterator" | "ExactSizeIterator" => {
+                    let item = if let AngleBracketed(arguments) = &last_seg.arguments {
+                        if arguments.args.is_empty() {
+                            abort_call_site!("{} missing generic argument `Item`", last_seg.ident);
+                        }
+                        if let syn::GenericArgument::Binding(arg) = &arguments.args[0] {
+                            if arg.ident != "Item" {
+                                abort_call_site!(
+                                    "Only `Item` supported in arguments to {}",
+                                    last_seg.ident
+                                );
+                            }
 
-            if !is_into_iterator && !is_exact_size_iterator {
-                abort_call_site!(
-                    "Only IntoIterator and ExactSizeIterator supported in `impl trait`"
-                );
-            }
-
-            let item = if let syn::PathArguments::AngleBracketed(arguments) = &last_seg.arguments {
-                if arguments.args.is_empty() {
-                    abort_call_site!("{} missing generic argument `Item`", last_seg.ident);
-                }
-                if let syn::GenericArgument::Binding(arg) = &arguments.args[0] {
-                    if arg.ident != "Item" {
-                        abort_call_site!(
-                            "Only `Item` supported in arguments to {}",
-                            last_seg.ident
-                        );
-                    }
-
-                    &arg.ty
-                } else {
-                    abort_call_site!("Only `Item` supported in arguments to {}", last_seg.ident);
-                }
-            } else {
-                abort_call_site!("{} must be parametrized with `Item`", last_seg.ident);
-            };
-
-            self.visit_type(item);
-            self.curr_arg_ty = {
-                let ffi_subty = self.curr_arg_ty.as_ref().map(|ty| &ty.1);
-
-                Some((
-                    Type::ImplTrait(node.clone()),
-                    if is_output_arg {
-                        parse_quote! { *mut #ffi_subty }
+                            &arg.ty
+                        } else {
+                            abort_call_site!(
+                                "Only `Item` supported in arguments to {}",
+                                last_seg.ident
+                            );
+                        }
                     } else {
-                        parse_quote! { *const #ffi_subty }
-                    },
-                ))
-            };
-        } else {
-            abort_call_site!("Lifetime bound not supported for the `impl trait` argument");
+                        abort_call_site!("{} must be parametrized with `Item`", last_seg.ident);
+                    };
+
+                    self.visit_type(item);
+                    self.curr_arg_ty = {
+                        let ffi_subty = self.curr_arg_ty.as_ref().map(|ty| &ty.1);
+
+                        Some((
+                            Type::ImplTrait(node.clone()),
+                            if is_output_arg {
+                                parse_quote! { *mut #ffi_subty }
+                            } else {
+                                parse_quote! { *const #ffi_subty }
+                            },
+                        ))
+                    };
+                }
+                "Into" => {
+                    let item = if let AngleBracketed(arguments) = &last_seg.arguments {
+                        match &arguments.args[0] {
+                            syn::GenericArgument::Type(arg) => arg,
+                            _ => unreachable!("Into not parametrized"),
+                        }
+                    } else {
+                        unreachable!("Into not parametrized")
+                    };
+
+                    self.visit_type(item);
+                    self.curr_arg_ty = {
+                        let ffi_subty = self.curr_arg_ty.as_ref().map(|ty| &ty.1);
+
+                        Some((
+                            Type::ImplTrait(node.clone()),
+                            if is_output_arg {
+                                parse_quote! { *mut #ffi_subty }
+                            } else {
+                                parse_quote! { *const #ffi_subty }
+                            },
+                        ))
+                    };
+                }
+                _ => abort!(trait_, "Unsupported `impl trait`"),
+            }
         }
     }
     fn visit_type_infer(&mut self, _: &'ast syn::TypeInfer) {
@@ -802,7 +864,7 @@ impl<'ast> syn::visit::Visit<'ast> for FfiFnDescriptor {
 
         let mut ffi_type = node.clone();
         if last_seg.ident == "Option" {
-            let item = if let syn::PathArguments::AngleBracketed(arguments) = &last_seg.arguments {
+            let item = if let AngleBracketed(arguments) = &last_seg.arguments {
                 if let syn::GenericArgument::Type(ty) = &arguments.args[0] {
                     ty
                 } else {
@@ -854,7 +916,7 @@ impl<'ast> syn::visit::Visit<'ast> for FfiFnDescriptor {
 
         self.visit_type(&*node.elem);
         if node.mutability.is_some() {
-            abort!(node.mutability, "Mutable references not supported");
+            abort!(node, "Mutable references not supported");
         }
 
         // NOTE: Owned opaque types make double indirection
