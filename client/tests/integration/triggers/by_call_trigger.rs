@@ -149,6 +149,93 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let asset_definition_id = "rose#wonderland".parse()?;
+    let account_id = AccountId::from_str("alice@wonderland")?;
+    let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+    let trigger_id = <Trigger<FilterBox> as Identifiable>::Id::from_str("self_modifying_trigger")?;
+
+    let trigger_instructions = vec![MintBox::new(1_u32, asset_id.clone()).into()];
+    let register_trigger = RegisterBox::new(Trigger::new(
+        trigger_id.clone(),
+        Action::new(
+            Executable::from(trigger_instructions),
+            Repeats::Exactly(1),
+            account_id.clone(),
+            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+                trigger_id.clone(),
+                account_id,
+            )),
+        ),
+    ));
+    test_client.submit(register_trigger)?;
+
+    // Saving current asset value
+    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
+
+    // Executing trigger first time
+    let execute_trigger = ExecuteTriggerBox::new(trigger_id);
+    test_client.submit_blocking(execute_trigger.clone())?;
+
+    // Executing trigger second time
+    test_client.submit_blocking(execute_trigger)?;
+
+    // Checking results
+    let new_asset_value = get_asset_value(&mut test_client, asset_id)?;
+    assert_eq!(new_asset_value, prev_asset_value + 1);
+
+    Ok(())
+}
+
+#[test]
+fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
+    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let asset_definition_id = "rose#wonderland".parse()?;
+    let account_id = AccountId::from_str("alice@wonderland")?;
+    let asset_id = AssetId::new(asset_definition_id, account_id.clone());
+    let trigger_id = <Trigger<FilterBox> as Identifiable>::Id::from_str("self_modifying_trigger")?;
+
+    let trigger_instructions = vec![
+        MintBox::new(1_u32, trigger_id.clone()).into(),
+        MintBox::new(1_u32, asset_id.clone()).into(),
+    ];
+    let register_trigger = RegisterBox::new(Trigger::new(
+        trigger_id.clone(),
+        Action::new(
+            Executable::from(trigger_instructions),
+            Repeats::Exactly(1),
+            account_id.clone(),
+            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+                trigger_id.clone(),
+                account_id,
+            )),
+        ),
+    ));
+    test_client.submit(register_trigger)?;
+
+    // Saving current asset value
+    let prev_asset_value = get_asset_value(&mut test_client, asset_id.clone())?;
+
+    // Executing trigger first time
+    let execute_trigger = ExecuteTriggerBox::new(trigger_id);
+    test_client.submit_blocking(execute_trigger.clone())?;
+
+    // Executing trigger second time
+    test_client.submit_blocking(execute_trigger)?;
+
+    // Checking results
+    let new_asset_value = get_asset_value(&mut test_client, asset_id)?;
+    assert_eq!(new_asset_value, prev_asset_value + 2);
+
+    Ok(())
+}
+
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)

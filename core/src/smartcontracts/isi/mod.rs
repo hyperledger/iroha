@@ -372,6 +372,9 @@ impl<W: WorldTrait> Execute<W> for MintBox {
                 Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
                     .execute(authority, wsv)
             }
+            (IdBox::TriggerId(trigger_id), Value::U32(quantity)) => {
+                Mint::<Trigger<FilterBox>, u32>::new(quantity, trigger_id).execute(authority, wsv)
+            }
             _ => Err(Error::Unsupported(InstructionType::Mint)),
         }
     }
