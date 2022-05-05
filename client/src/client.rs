@@ -13,7 +13,7 @@ use eyre::{eyre, Result, WrapErr};
 use http_default::WebSocketStream;
 use iroha_config::{GetConfiguration, PostConfiguration};
 use iroha_crypto::{HashOf, KeyPair};
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, query::SignedQueryRequest};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;

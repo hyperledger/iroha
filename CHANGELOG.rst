@@ -171,7 +171,7 @@ Version bumps
 - Update docker publish target to ``hyperledger/iroha2``.
 - Updates the workflow to match ``main``.
 - Update API spec and fix health endpoint.
-- Update Rust to 1.54. 
+- Update Rust to 1.54.
 - Update ``ursa`` version from 0.3.5 to 0.3.6.
 - Update workflows to new runners.
 - Update dockerfile for caching and faster CI builds.
@@ -269,7 +269,7 @@ Other
 - 1451 Remove ``MAX_FAULTY_PEERS`` parameter.
 - Add handler for getting specific block hash.
 - Add new query FindTransactionByHash.
-- 1185 Rename the crate from ``iroha`` to ``iroha_core``, update the path. 
+- 1185 Rename the crate from ``iroha`` to ``iroha_core``, update the path.
 - Fix logs and general improvements.
 - 1150 Introduce ``KURA_BLOCKS_PER_STORAGE_FILE`` setting which defaults to 1000
   and defines the number of blocks per each new created datafile.
@@ -760,4 +760,3 @@ Other
 - Replace deprecated param ``max_rounds_delay`` with
   ``proposal_creation_timeout``.
   Update sample config file to have not deprecated DB connection params.
-

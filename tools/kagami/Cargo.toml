@@ -20,6 +20,7 @@ dev-telemetry = ["iroha_core/dev-telemetry"]
 
 
 [dependencies]
+
 iroha_core = { version = "=2.0.0-pre-rc.4", path = "../../core" }
 iroha_crypto = { version = "=2.0.0-pre-rc.4", path = "../../crypto" }
 iroha_config = { version = "=2.0.0-pre-rc.4", path = "../../config" }
@@ -27,6 +28,7 @@ iroha_data_model = { version = "=2.0.0-pre-rc.4", path = "../../data_model" }
 iroha_schema_gen = { version = "=2.0.0-pre-rc.4", path = "../../schema/gen" }
 iroha_schema = { version = "=2.0.0-pre-rc.4", path = "../../schema" }
 iroha_permissions_validators = { version = "=2.0.0-pre-rc.4", path = "../../permissions_validators" }
+
 iroha = { path = "../../cli" }
 
 color-eyre = "0.5.11"

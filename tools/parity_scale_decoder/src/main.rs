@@ -240,6 +240,10 @@ mod tests {
 
     #[test]
     fn decode_trigger_sample() {
+        // This test is extremely awkward to update. There are no
+        // instructions for how to do so, and I'm willing to bet that
+        // any of the community members who want to adjust the
+        // triggers will not know what to do.
         decode_sample(
             "trigger.bin",
             String::from("iroha_data_model::trigger::Trigger"),
@@ -301,16 +305,16 @@ mod tests {
                 ),
             ),
         ),
-    },
-    metadata: Metadata {
-        map: {},
+        metadata: Metadata {
+            map: {},
+        },
     },
 }
 "###,
         );
     }
 
-    #[allow(clippy::unwrap_used)]
+    #[allow(clippy::expect_used)]
     fn decode_sample(sample_path: &str, type_id: String, expected_output: &str) {
         let mut binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         binary.push("samples/");
@@ -323,8 +327,10 @@ mod tests {
         let map = generate_map();
         let decoder = Decoder::new(args, &map);
         let mut buf = Vec::new();
-        decoder.decode(&mut buf).unwrap();
-
-        assert_eq!(String::from_utf8(buf).unwrap(), expected_output);
+        decoder.decode(&mut buf).expect("Decoding failed");
+        let actual = String::from_utf8(buf).expect("valid UTF-8");
+        // Predictably,  the string-based comparison is white-space sensitive.
+        println!("{}\n{}", actual, expected_output);
+        assert_eq!(actual, expected_output);
     }
 }

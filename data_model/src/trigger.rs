@@ -2,7 +2,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{cmp::Ordering, str::FromStr};
+use core::{cmp::Ordering, fmt, str::FromStr};
 
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -22,8 +22,6 @@ pub struct Trigger {
     pub id: <Self as Identifiable>::Id,
     /// Action to be performed when the trigger matches.
     pub action: Action,
-    /// Metadata of this account as a key-value store.
-    pub metadata: Metadata,
 }
 
 impl Trigger {
@@ -32,18 +30,7 @@ impl Trigger {
         id: <Self as Identifiable>::Id,
         action: Action,
     ) -> <Self as Identifiable>::RegisteredWith {
-        Self {
-            id,
-            action,
-            metadata: Metadata::new(),
-        }
-    }
-
-    /// Add [`Metadata`] to the trigger replacing previously defined
-    #[must_use]
-    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
-        self.metadata = metadata;
-        self
+        Self { id, action }
     }
 }
 
@@ -78,6 +65,8 @@ pub struct Action {
     pub technical_account: super::account::Id,
     /// Defines events which trigger the `Action`
     pub filter: EventFilter,
+    /// Metadata used as persistent storage for trigger data.
+    pub metadata: Metadata,
 }
 
 impl Action {
@@ -94,7 +83,15 @@ impl Action {
             // TODO: At this point the technical account is meaningless.
             technical_account,
             filter,
+            metadata: Metadata::new(),
         }
+    }
+
+    /// Add [`Metadata`] to the trigger replacing previously defined
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
     }
 }
 
@@ -163,6 +160,12 @@ impl From<u32> for Repeats {
 pub struct Id {
     /// Name given to trigger by its creator.
     pub name: Name,
+}
+
+impl fmt::Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
+    }
 }
 
 impl Id {

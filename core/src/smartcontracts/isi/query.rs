@@ -122,8 +122,13 @@ impl<W: WorldTrait> ValidQuery<W> for QueryBox {
             FindTransactionByHash(query) => query.execute_into_value(wsv),
             FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
             FindAssetDefinitionKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
+            FindAllActiveTriggerIds(query) => query.execute_into_value(wsv),
+            FindTriggerById(query) => query.execute_into_value(wsv),
+            FindTriggerKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindAllRoles(query) => query.execute_into_value(wsv),
+            FindAllRoleIds(query) => query.execute_into_value(wsv),
             FindRolesByAccountId(query) => query.execute_into_value(wsv),
+            FindRoleByRoleId(query) => query.execute_into_value(wsv),
         }
     }
 }
