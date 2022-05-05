@@ -29,12 +29,32 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
             FindAllDomains(_) => {
                 Err("Only access to the domain of the account is permitted.".to_owned())
             }
-            FindAllRoles(_) => Ok(()),
-            FindAllRoleIds(_) => Ok(()),
-            FindRoleByRoleId(_) => Ok(()),
-            FindAllPeers(_) => Ok(()),
+            FindAllRoles(_) => {
+                Err("Only access to roles of the same domain is permitted.".to_owned())
+            }
+            FindAllRoleIds(_) => Ok(()), // In case you need to debug the permissions.
+            FindRoleByRoleId(_) => {
+               Err("Only access to roles of the same domain is permitted.".to_owned())
+            },
+            FindAllPeers(_) => Ok(()), // Can be obtained in other ways,  so why hide it.
             FindAllActiveTriggerIds(_) => Ok(()),
-            FindTriggerById(_) => Ok(()), // TODO: should we allow people to get any trigger they like in a private blockchain also?
+            // Private blockchains should have debugging too, hence
+            // all accounts should also be
+            FindTriggerById(_) => {
+                let id = query
+                    .id
+                    .evaluate(wsv, &context)
+                    .map_err(|e| e.to_string())?;
+                let trigger = wsv.world.triggers.get(&id).map_err(|err| err.to_string())?;
+                if trigger.technical_account == *authority {
+                    Ok(())
+                } else {
+                    Err(
+                        "Cannot access Trigger if you're not the technical account."
+                            .to_owned(),
+                    )
+                }
+            },
             FindTriggerKeyValueByIdAndKey(query) => {
                 let id = query
                     .id
@@ -45,7 +65,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                     Ok(())
                 } else {
                     Err(
-                        "Cannot access Trigger internal state if you're not the technical account"
+                        "Cannot access Trigger internal state if you're not the technical account."
                             .to_owned(),
                     )
                 }
@@ -283,8 +303,12 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
             FindAllRoles(_)
             | FindAllRoleIds(_)
             | FindRoleByRoleId(_)
-            | FindAllPeers(_)
-            | FindAllActiveTriggerIds(_) => Ok(()),
+            | FindAllActiveTriggerIds(_) => {
+                Err("Only access to the roles of the same account is permitted.".to_owned())
+            }
+            FindAllPeers(_) => {
+                Err("Only access to your account-local data is permitted.".to_owned())
+            }
             FindTriggerById(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
                 let id = query
