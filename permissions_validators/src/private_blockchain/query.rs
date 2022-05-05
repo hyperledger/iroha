@@ -36,7 +36,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
             FindRoleByRoleId(_) => {
                 Err("Only access to roles of the same domain is permitted.".to_owned())
             }
-            FindAllPeers(_) => Ok(()), // Can be obtained in other ways,  so why hide it.
+            FindAllPeers(_) => Ok(()), // Can be obtained in other ways, so why hide it.
             FindAllActiveTriggerIds(_) => Ok(()),
             // Private blockchains should have debugging too, hence
             // all accounts should also be
@@ -45,27 +45,36 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                     .id
                     .evaluate(wsv, &context)
                     .map_err(|e| e.to_string())?;
-                let trigger = wsv.world.triggers.get(&id).map_err(|err| err.to_string())?;
-                if trigger.technical_account == *authority {
-                    Ok(())
-                } else {
-                    Err("Cannot access Trigger if you're not the technical account.".to_owned())
-                }
+                wsv.world
+                    .triggers
+                    .inspect(&id, |action| {
+                        if action.technical_account() == authority {
+                            Ok(())
+                        } else {
+                            Err("Cannot access Trigger if you're not the technical account."
+                                .to_owned())
+                        }
+                    })
+                    .map_err(|err| err.to_string())?
             }
             FindTriggerKeyValueByIdAndKey(query) => {
                 let id = query
                     .id
                     .evaluate(wsv, &context)
                     .map_err(|e| e.to_string())?;
-                let trigger = wsv.world.triggers.get(&id).map_err(|err| err.to_string())?;
-                if trigger.technical_account == *authority {
-                    Ok(())
-                } else {
-                    Err(
+                wsv.world
+                    .triggers
+                    .inspect(&id, |action| {
+                        if action.technical_account() == authority {
+                            Ok(())
+                        } else {
+                            Err(
                         "Cannot access Trigger internal state if you're not the technical account."
                             .to_owned(),
                     )
-                }
+                        }
+                    })
+                    .map_err(|err| err.to_string())?
             }
             FindAccountById(query) => {
                 let account_id = query
@@ -316,10 +325,10 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                     .id
                     .evaluate(wsv, &context)
                     .map_err(|e| e.to_string())?;
-                if let Ok(trigger) = wsv.world.triggers.get(&id) {
-                    if trigger.technical_account == *authority {
-                        return Ok(());
-                    }
+                if let Ok(true) = wsv.world.triggers.inspect(&id, |action|
+                    action.technical_account() == authority
+                ) {
+                    return Ok(())
                 }
                 Err(format!(
                     "A trigger with the specified Id: {} is not accessible to you",
@@ -332,10 +341,10 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                     .id
                     .evaluate(wsv, &context)
                     .map_err(|e| e.to_string())?;
-                if let Ok(trigger) = wsv.world.triggers.get(&id) {
-                    if trigger.technical_account == *authority {
-                        return Ok(());
-                    }
+                if let Ok(true) = wsv.world.triggers.inspect(&id, |action|
+                    action.technical_account() == authority
+                ) {
+                    return Ok(())
                 }
                 Err(format!(
                     "A trigger with the specified Id: {} is not accessible to you",

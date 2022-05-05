@@ -110,18 +110,21 @@ impl TriggerSet {
         Ok(())
     }
 
+    /// Get all contained triggers ids without particular order
+    pub fn ids(&self) -> Vec<trigger::Id> {
+        self.ids.iter().map(|entry| entry.clone()).collect()
+    }
+
     /// Apply `f` to the trigger identified by `id`
     ///
     /// # Errors
     /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
-    pub fn inspect<F, R>(&self, id: &trigger::Id, f: F) -> Result<R>
+    pub fn inspect<F, R>(&self, id: &trigger::Id, f: F) -> std::result::Result<R, FindError>
     where
         F: Fn(&dyn ActionTrait) -> R,
     {
         if !self.contains(id) {
-            return Err(smartcontracts::Error::Find(Box::new(FindError::Trigger(
-                id.clone(),
-            ))));
+            return Err(FindError::Trigger(id.clone()));
         }
 
         Ok(self
@@ -161,13 +164,6 @@ impl TriggerSet {
     /// Check if [`TriggerSet`] contains `id`.
     pub fn contains(&self, id: &trigger::Id) -> bool {
         self.ids.contains(id)
-    }
-
-    /// Forward the internal immutable iterator.
-    pub fn iter(
-        &self,
-    ) -> dashmap::iter::Iter<iroha_data_model::trigger::Id, iroha_data_model::trigger::Action> {
-        self.0.iter()
     }
 
     /// Modify repetitions of the hook identified by [`trigger::Id`].

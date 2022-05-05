@@ -30,10 +30,7 @@ pub struct Trigger<F: Filter> {
 
 impl<F: Filter> Trigger<F> {
     /// Construct trigger, given name action and signatories.
-    pub fn new(
-        id: <Self as Identifiable>::Id,
-        action: Action<F>,
-    ) -> <Self as Identifiable>::RegisteredWith {
+    pub fn new(id: Id, action: Action<F>) -> Self {
         Self { id, action }
     }
 }
@@ -141,8 +138,17 @@ pub trait ActionTrait {
     /// Get action technical account
     fn technical_account(&self) -> &super::account::Id;
 
+    /// Get action metadata
+    fn metadata(&self) -> &Metadata;
+
     /// Check if action is mintable.
     fn mintable(&self) -> bool;
+
+    /// Convert action to a boxed representation
+    fn into_boxed(self) -> Action<FilterBox>;
+
+    /// Same as `into_boxed()` but clones `self`
+    fn clone_and_box(&self) -> Action<FilterBox>;
 }
 
 /// Designed to differentiate between oneshot and unlimited
@@ -201,7 +207,7 @@ impl<F: Filter> Action<F> {
     }
 }
 
-impl<F: Filter> ActionTrait for Action<F> {
+impl<F: Filter + Into<FilterBox> + Clone> ActionTrait for Action<F> {
     fn executable(&self) -> &Executable {
         &self.executable
     }
@@ -218,8 +224,30 @@ impl<F: Filter> ActionTrait for Action<F> {
         &self.technical_account
     }
 
+    fn metadata(&self) -> &Metadata {
+        &self.metadata
+    }
+
     fn mintable(&self) -> bool {
         self.filter.mintable()
+    }
+
+    fn into_boxed(self) -> Action<FilterBox> {
+        Action::<FilterBox>::new(
+            self.executable,
+            self.repeats,
+            self.technical_account,
+            self.filter.into(),
+        )
+    }
+
+    fn clone_and_box(&self) -> Action<FilterBox> {
+        Action::<FilterBox>::new(
+            self.executable.clone(),
+            self.repeats.clone(),
+            self.technical_account.clone(),
+            self.filter.clone().into(),
+        )
     }
 }
 

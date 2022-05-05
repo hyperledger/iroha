@@ -163,7 +163,7 @@ pub mod query {
         #[log]
         #[metrics(+"find_all_active_triggers")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
-            Ok(wsv.world.triggers.clone().into())
+            Ok(wsv.world.triggers.clone().ids())
         }
     }
 
@@ -175,13 +175,16 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::new())
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {}", e)))?;
-            let action = wsv.world.triggers.get(&id)?;
+
+            // Can't use just `ActionTrait::clone_and_box` cause this will trigger lifetime mismatch
+            #[allow(clippy::redundant_closure_for_method_calls)]
+            let action = wsv
+                .world
+                .triggers
+                .inspect(&id, |action| action.clone_and_box())?;
 
             // TODO: Should we redact the metadata if the account is not the technical account/owner?
-            Ok(Trigger {
-                id,
-                action: action.clone(),
-            })
+            Ok(Trigger::<FilterBox>::new(id, action))
         }
     }
 
@@ -193,16 +196,17 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::new())
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {}", e)))?;
-            let action = wsv.world.triggers.get(&id)?;
             let key = self
                 .key
                 .evaluate(wsv, &Context::new())
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {}", e)))?;
-            action
-                .metadata
-                .get(&key)
-                .map(Clone::clone)
-                .ok_or_else(|| FindError::MetadataKey(key).into())
+            wsv.world.triggers.inspect(&id, |action| {
+                action
+                    .metadata()
+                    .get(&key)
+                    .map(Clone::clone)
+                    .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
+            })?
         }
     }
 }
