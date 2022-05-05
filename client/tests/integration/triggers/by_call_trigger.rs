@@ -164,7 +164,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
         trigger_id.clone(),
         Action::new(
             Executable::from(trigger_instructions),
-            Repeats::Exactly(1),
+            Repeats::from(1_u32),
             account_id.clone(),
             FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),
@@ -209,7 +209,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
         trigger_id.clone(),
         Action::new(
             Executable::from(trigger_instructions),
-            Repeats::Exactly(1),
+            Repeats::from(1_u32),
             account_id.clone(),
             FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
                 trigger_id.clone(),

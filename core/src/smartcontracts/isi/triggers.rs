@@ -26,10 +26,13 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let new_trigger = self.object;
 
-            if !new_trigger.action.mintable()
-                && !matches!(&new_trigger.action.repeats, Repeats::Exactly(1))
-            {
-                return Err(Error::Math(MathError::Overflow));
+            if !new_trigger.action.mintable() {
+                match &new_trigger.action.repeats {
+                    Repeats::Exactly(action) if action.get() == 1 => (),
+                    _ => {
+                        return Err(Error::Math(MathError::Overflow));
+                    }
+                }
             }
 
             wsv.modify_triggers(|triggers| {

@@ -77,6 +77,7 @@ pub fn generate_map() -> DumpDecodedMap {
         AssetId,
         AssetValue,
         AssetValueType,
+        AtomicU32Wrapper,
         BTreeMap<AccountId, Account>,
         BTreeMap<AssetDefinitionId, AssetDefinitionEntry>,
         BTreeMap<AssetId, Asset>,

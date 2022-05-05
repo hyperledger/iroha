@@ -118,17 +118,6 @@ impl TriggerSet {
     where
         F: Fn(&dyn ActionTrait) -> R,
     {
-        self.inspect_mut(id, |action| f(&*action))
-    }
-
-    /// Apply `f` to the mutable trigger identified by `id`
-    ///
-    /// # Errors
-    /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
-    fn inspect_mut<F, R>(&self, id: &trigger::Id, f: F) -> Result<R>
-    where
-        F: Fn(&mut dyn ActionTrait) -> R,
-    {
         if !self.contains(id) {
             return Err(smartcontracts::Error::Find(Box::new(FindError::Trigger(
                 id.clone(),
@@ -137,23 +126,11 @@ impl TriggerSet {
 
         Ok(self
             .data_triggers
-            .get_mut(id)
-            .map(|mut entry| f(entry.value_mut()))
-            .or_else(|| {
-                self.pipeline_triggers
-                    .get_mut(id)
-                    .map(|mut entry| f(entry.value_mut()))
-            })
-            .or_else(|| {
-                self.time_triggers
-                    .get_mut(id)
-                    .map(|mut entry| f(entry.value_mut()))
-            })
-            .or_else(|| {
-                self.by_call_triggers
-                    .get_mut(id)
-                    .map(|mut entry| f(entry.value_mut()))
-            })
+            .get(id)
+            .map(|entry| f(entry.value()))
+            .or_else(|| self.pipeline_triggers.get(id).map(|entry| f(entry.value())))
+            .or_else(|| self.time_triggers.get(id).map(|entry| f(entry.value())))
+            .or_else(|| self.by_call_triggers.get(id).map(|entry| f(entry.value())))
             .expect("`TriggerSet` sub-sets doesn't have required id. This is a bug"))
     }
 
@@ -205,14 +182,13 @@ impl TriggerSet {
         id: &trigger::Id,
         f: impl Fn(u32) -> std::result::Result<u32, MathError>,
     ) -> Result<()> {
-        self.inspect_mut(id, |action| {
-            let new_repeats = match action.repeats() {
-                Repeats::Exactly(n) => f(n).map_err(Into::into),
-                _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
-            }?;
-            action.set_repeats(Repeats::Exactly(new_repeats));
-
-            Ok(())
+        self.inspect(id, |action| match action.repeats() {
+            Repeats::Exactly(atomic) => {
+                let new_repeats = f(atomic.get()).map_err(smartcontracts::Error::from)?;
+                atomic.set(new_repeats);
+                Ok(())
+            }
+            _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
         })?
     }
 
@@ -241,8 +217,8 @@ impl TriggerSet {
             let action = entry.value();
 
             let mut count = action.filter.count_matches(event);
-            if let Repeats::Exactly(n) = action.repeats {
-                count = min(n, count);
+            if let Repeats::Exactly(atomic) = &action.repeats {
+                count = min(atomic.get(), count);
             }
             if count == 0 {
                 return;
@@ -281,8 +257,8 @@ impl TriggerSet {
                 return;
             }
 
-            if let Repeats::Exactly(n) = action.repeats {
-                if n == 0 {
+            if let Repeats::Exactly(atomic) = &action.repeats {
+                if atomic.get() == 0 {
                     return;
                 }
             }
@@ -347,8 +323,10 @@ impl TriggerSet {
         let succeed_clone = Arc::clone(&succeed);
         let errors_clone = Arc::clone(&errors);
         let apply_f = move |id: trigger::Id, action: &dyn ActionTrait| {
-            if action.repeats() == Repeats::Exactly(0) {
-                return;
+            if let Repeats::Exactly(atomic) = action.repeats() {
+                if atomic.get() == 0 {
+                    return;
+                }
             }
 
             match f(action) {
@@ -420,7 +398,12 @@ impl TriggerSet {
         let to_remove: Vec<trigger::Id> = triggers
             .iter()
             .filter_map(|entry| {
-                matches!(entry.value().repeats, Repeats::Exactly(0)).then(|| entry.key().clone())
+                if let Repeats::Exactly(atomic) = &entry.value().repeats {
+                    if atomic.get() == 0 {
+                        return Some(entry.key().clone());
+                    }
+                }
+                None
             })
             .collect();
 

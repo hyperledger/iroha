@@ -97,7 +97,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
         "change_rose_metadata".parse().expect("Valid"),
         Action::new(
             Executable::from(vec![instruction.into()]),
-            Repeats::Exactly(1),
+            Repeats::from(1_u32),
             account_id.clone(),
             FilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),

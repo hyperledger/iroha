@@ -2,10 +2,15 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{cmp::Ordering, fmt, str::FromStr};
+use core::{
+    cmp::Eq,
+    fmt,
+    str::FromStr,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use iroha_schema::IntoSchema;
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{Decode, Encode, Output, WrapperTypeDecode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -128,7 +133,7 @@ pub trait ActionTrait {
     fn executable(&self) -> &Executable;
 
     /// Get action repeats enum
-    fn repeats(&self) -> Repeats;
+    fn repeats(&self) -> &Repeats;
 
     /// Set action repeats
     fn set_repeats(&mut self, repeats: Repeats);
@@ -201,8 +206,8 @@ impl<F: Filter> ActionTrait for Action<F> {
         &self.executable
     }
 
-    fn repeats(&self) -> Repeats {
-        self.repeats
+    fn repeats(&self) -> &Repeats {
+        &self.repeats
     }
 
     fn set_repeats(&mut self, repeats: Repeats) {
@@ -219,12 +224,12 @@ impl<F: Filter> ActionTrait for Action<F> {
 }
 
 impl<F: Filter + PartialEq> PartialOrd for Action<F> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         // Exclude the executable. When debugging and replacing
         // the trigger, its position in Hash and Tree maps should
         // not change depending on the content.
         match self.repeats.cmp(&other.repeats) {
-            Ordering::Equal => {}
+            std::cmp::Ordering::Equal => {}
             ord => return Some(ord),
         }
         Some(self.technical_account.cmp(&other.technical_account))
@@ -233,37 +238,148 @@ impl<F: Filter + PartialEq> PartialOrd for Action<F> {
 
 #[allow(clippy::expect_used)]
 impl<F: Filter + Eq> Ord for Action<F> {
-    fn cmp(&self, other: &Self) -> Ordering {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.partial_cmp(other)
             .expect("`PartialCmp::partial_cmp()` for `Action` should never return `None`")
     }
 }
 
 /// Enumeration of possible repetitions schemes.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Encode,
-    Decode,
-    Serialize,
-    Deserialize,
-    IntoSchema,
-)]
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, IntoSchema)]
 pub enum Repeats {
     /// Repeat indefinitely, until the trigger is unregistered.
     Indefinitely,
     /// Repeat a set number of times
-    Exactly(u32), // If you need more, use `Indefinitely`.
+    Exactly(AtomicU32Wrapper), // If you need more, use `Indefinitely`.
 }
+
+impl PartialOrd for Repeats {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Repeats {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        match (self, other) {
+            (Repeats::Indefinitely, Repeats::Indefinitely) => std::cmp::Ordering::Equal,
+            (Repeats::Indefinitely, Repeats::Exactly(_)) => std::cmp::Ordering::Greater,
+            (Repeats::Exactly(_), Repeats::Indefinitely) => std::cmp::Ordering::Less,
+            (Repeats::Exactly(l), Repeats::Exactly(r)) => l.cmp(r),
+        }
+    }
+}
+
+impl PartialEq for Repeats {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Exactly(l0), Self::Exactly(r0)) => l0 == r0,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Repeats {}
 
 impl From<u32> for Repeats {
     fn from(num: u32) -> Self {
-        Repeats::Exactly(num)
+        Repeats::Exactly(AtomicU32Wrapper::new(num))
+    }
+}
+
+/// Wrapper for [`AtomicU32`]
+///
+/// Provides useful implementation, using [`Ordering::Acquire`]
+/// and [`Ordering::Release`] to load and store respectively
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AtomicU32Wrapper(AtomicU32);
+
+impl AtomicU32Wrapper {
+    /// Create new [`AtomicU32Wrapper`] instance
+    pub fn new(num: u32) -> AtomicU32Wrapper {
+        Self(AtomicU32::new(num))
+    }
+
+    /// Get atomic value
+    pub fn get(&self) -> u32 {
+        self.0.load(Ordering::Acquire)
+    }
+
+    /// Set atomic value
+    pub fn set(&self, num: u32) {
+        self.0.store(num, Ordering::Release)
+    }
+}
+
+impl Clone for AtomicU32Wrapper {
+    fn clone(&self) -> Self {
+        Self(AtomicU32::new(self.get()))
+    }
+}
+
+impl PartialOrd for AtomicU32Wrapper {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for AtomicU32Wrapper {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.get().cmp(&other.get())
+    }
+}
+
+impl PartialEq for AtomicU32Wrapper {
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl Eq for AtomicU32Wrapper {}
+
+impl Encode for AtomicU32Wrapper {
+    fn size_hint(&self) -> usize {
+        self.get().size_hint()
+    }
+
+    fn encode_to<T: Output + ?Sized>(&self, dest: &mut T) {
+        self.get().encode_to(dest)
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        self.get().encode()
+    }
+
+    fn using_encoded<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
+        self.get().using_encoded(f)
+    }
+
+    fn encoded_size(&self) -> usize {
+        self.get().encoded_size()
+    }
+}
+
+impl WrapperTypeDecode for AtomicU32Wrapper {
+    type Wrapped = u32;
+}
+
+impl IntoSchema for AtomicU32Wrapper {
+    fn type_name() -> String {
+        String::from("AtomicU32Wrapper")
+    }
+
+    fn schema(map: &mut iroha_schema::MetaMap) {
+        let _ = map
+            .entry(Self::type_name())
+            .or_insert(iroha_schema::Metadata::Int(
+                iroha_schema::IntMode::FixedWidth,
+            ));
+    }
+}
+
+impl From<u32> for AtomicU32Wrapper {
+    fn from(num: u32) -> Self {
+        Self::new(num)
     }
 }
 
@@ -315,7 +431,7 @@ impl FromStr for Id {
 
 pub mod prelude {
     //! Re-exports of commonly used types.
-    pub use super::{Action, ActionTrait, Id as TriggerId, Repeats, Trigger};
+    pub use super::{Action, ActionTrait, AtomicU32Wrapper, Id as TriggerId, Repeats, Trigger};
 }
 
 #[cfg(test)]
