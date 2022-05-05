@@ -57,6 +57,10 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
+      # TODO Remove this step #2165
+      - name: Add component
+        run: rustup component add llvm-tools-preview
+
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
