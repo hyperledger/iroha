@@ -89,6 +89,10 @@ impl TriggerSet {
         self.add_to(trigger, &self.by_call_triggers)
     }
 
+    /// Add generic trigger to generic collection
+    ///
+    /// # Errors
+    /// - If trigger with such id already exists
     fn add_to<F: Filter>(
         &self,
         trigger: Trigger<F>,
@@ -117,6 +121,10 @@ impl TriggerSet {
         self.inspect_mut(id, |action| f(&*action))
     }
 
+    /// Apply `f` to the mutable trigger identified by `id`
+    ///
+    /// # Errors
+    /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
     fn inspect_mut<F, R>(&self, id: &trigger::Id, f: F) -> Result<R>
     where
         F: Fn(&mut dyn ActionTrait) -> R,
@@ -258,6 +266,7 @@ impl TriggerSet {
         self.handle_event(&self.by_call_triggers, event, EventType::ExecuteTrigger)
     }
 
+    /// Handle generic event
     fn handle_event<F, E>(
         &self,
         triggers: &DashMap<trigger::Id, Action<F>>,
@@ -296,76 +305,14 @@ impl TriggerSet {
     /// Failed actions won't appear on the next `inspect_matched()` call if they don't match new
     /// events by calling `handle_` methods.
     /// Repeats count of failed actions won't be decreased.
-    #[allow(clippy::missing_panics_doc, clippy::panic)] // Panicking only in internal bug-case
     pub async fn inspect_matched<F, E>(&self, f: F) -> std::result::Result<(), Vec<E>>
     where
         F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send + Copy,
         E: Send + Sync,
     {
-        let succeed = Arc::new(RwLock::new(Vec::new()));
-        let res = {
-            let errors = Arc::new(RwLock::new(Vec::new()));
-            let errors_clone = Arc::clone(&errors);
-            let succeed_clone = Arc::clone(&succeed);
-            let apply_f = move |id: trigger::Id, action: &dyn ActionTrait| {
-                if action.repeats() == Repeats::Exactly(0) {
-                    return;
-                }
+        let (succeed, res) = self.map_matched(f).await;
 
-                match f(action) {
-                    Ok(()) => task::block_in_place(|| succeed_clone.blocking_write()).push(id),
-                    Err(err) => task::block_in_place(|| errors_clone.blocking_write()).push(err),
-                }
-            };
-
-            // Cloning and clearing `self.ids_write` so that `handle_` call won't deadlock
-            let matched_ids = {
-                let mut ids_write = self.matched_ids.write().await;
-                let ids_clone = ids_write.clone();
-                ids_write.clear();
-                ids_clone
-            };
-            for (event_type, id) in matched_ids {
-                // Ignoring `None` variant cause this means that action was deleted after `handle_`
-                // call and before `inspect_matching()` call
-                let _ = match event_type {
-                    EventType::Data => self
-                        .data_triggers
-                        .get(&id)
-                        .map(|entry| apply_f(id, entry.value())),
-                    EventType::Pipeline => self
-                        .pipeline_triggers
-                        .get(&id)
-                        .map(|entry| apply_f(id, entry.value())),
-                    EventType::Time => self
-                        .time_triggers
-                        .get(&id)
-                        .map(|entry| apply_f(id, entry.value())),
-                    EventType::ExecuteTrigger => self
-                        .by_call_triggers
-                        .get(&id)
-                        .map(|entry| apply_f(id, entry.value())),
-                };
-
-                task::yield_now().await;
-            }
-
-            if errors.read().await.is_empty() {
-                return Ok(());
-            }
-
-            // Match with panic cause can't use `expect()` due to
-            // error value not implementing `Display`
-            #[allow(clippy::match_wild_err_arm)]
-            let errors = match Arc::try_unwrap(errors) {
-                Ok(e) => e.into_inner(),
-                Err(_) => panic!("Errors `Arc` is has strong count > 1. This is a bug"),
-            };
-            std::result::Result::<(), Vec<E>>::Err(errors)
-        };
-
-        let succeed_read = succeed.read().await;
-        for id in succeed_read.iter() {
+        for id in &succeed {
             // Ignoring error if trigger has not `Repeats::Exact(_)` but something else
             let _mod_repeats_res = self.mod_repeats(id, |n| {
                 if n == 0 {
@@ -385,6 +332,90 @@ impl TriggerSet {
         res
     }
 
+    /// Map `f` to every trigger from `self.matched_ids`
+    ///
+    /// Returns vector of successfully executed triggers
+    /// and result with errors vector if there are some
+    async fn map_matched<F, E>(&self, f: F) -> (Vec<trigger::Id>, std::result::Result<(), Vec<E>>)
+    where
+        F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send + Copy,
+        E: Send + Sync,
+    {
+        let succeed = Arc::new(RwLock::new(Vec::new()));
+        let errors = Arc::new(RwLock::new(Vec::new()));
+
+        let succeed_clone = Arc::clone(&succeed);
+        let errors_clone = Arc::clone(&errors);
+        let apply_f = move |id: trigger::Id, action: &dyn ActionTrait| {
+            if action.repeats() == Repeats::Exactly(0) {
+                return;
+            }
+
+            match f(action) {
+                Ok(()) => task::block_in_place(|| succeed_clone.blocking_write()).push(id),
+                Err(err) => task::block_in_place(|| errors_clone.blocking_write()).push(err),
+            }
+        };
+
+        // Cloning and clearing `self.ids_write` so that `handle_` call won't deadlock
+        let matched_ids = {
+            let mut ids_write = self.matched_ids.write().await;
+            let ids_clone = ids_write.clone();
+            ids_write.clear();
+            ids_clone
+        };
+        for (event_type, id) in matched_ids {
+            // Ignoring `None` variant cause this means that action was deleted after `handle_`
+            // call and before `inspect_matching()` call
+            let _ = match event_type {
+                EventType::Data => self
+                    .data_triggers
+                    .get(&id)
+                    .map(|entry| apply_f(id, entry.value())),
+                EventType::Pipeline => self
+                    .pipeline_triggers
+                    .get(&id)
+                    .map(|entry| apply_f(id, entry.value())),
+                EventType::Time => self
+                    .time_triggers
+                    .get(&id)
+                    .map(|entry| apply_f(id, entry.value())),
+                EventType::ExecuteTrigger => self
+                    .by_call_triggers
+                    .get(&id)
+                    .map(|entry| apply_f(id, entry.value())),
+            };
+
+            task::yield_now().await;
+        }
+
+        drop(apply_f);
+        let succeed = Self::unwrap_arc_lock(succeed);
+
+        if errors.read().await.is_empty() {
+            return (succeed, Ok(()));
+        }
+
+        let errors = Self::unwrap_arc_lock(errors);
+        (succeed, Err(errors))
+    }
+
+    /// Unwrap `a`
+    ///
+    /// # Panics
+    /// - If `Arc` has strong count > 1
+    #[allow(clippy::panic)]
+    fn unwrap_arc_lock<T>(a: Arc<RwLock<T>>) -> T {
+        // Match with panic cause can't use `expect()` due to
+        // error value not implementing `Display`
+        #[allow(clippy::match_wild_err_arm)]
+        match Arc::try_unwrap(a) {
+            Ok(lock) => lock.into_inner(),
+            Err(_) => panic!("`Arc` is has strong count > 1. This is a bug"),
+        }
+    }
+
+    /// Remove actions with zero execution count from `triggers`
     fn remove_zeros<F: Filter>(&self, triggers: &DashMap<trigger::Id, Action<F>>) {
         let to_remove: Vec<trigger::Id> = triggers
             .iter()
