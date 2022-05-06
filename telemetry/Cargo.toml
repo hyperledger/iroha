@@ -6,7 +6,10 @@ edition = "2021"
 build = "build.rs"
 
 [features]
+# Support developer-specific telemetry.
+# Should not be enabled on production builds.
 dev-telemetry = []
+# Export Prometheus metrics. See https://prometheus.io/.
 metric-instrumentation = []
 
 [dependencies]
