@@ -155,167 +155,90 @@ fn list_types<W: io::Write>(map: &DumpDecodedMap, writer: &mut W) -> Result<()> 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used)]
+
+    use std::str::FromStr as _;
+
+    use iroha_data_model::{domain::IpfsPath, prelude::*};
+
     use super::*;
 
     #[test]
     fn decode_account_sample() {
+        let limits = MetadataLimits::new(256, 256);
+        let mut metadata = Metadata::new();
+        metadata
+            .insert_with_limits(
+                "hat".parse().expect("Valid"),
+                Value::Name("white".parse().expect("Valid")),
+                limits,
+            )
+            .expect("Valid");
+        let account = Account::new("alice@wonderland".parse().expect("Valid"), [])
+            .with_metadata(metadata)
+            .build();
+
         decode_sample(
             "account.bin",
             String::from("iroha_data_model::account::Account"),
-            r###"Account {
-    id: Id {
-        name: "alice",
-        domain_id: Id {
-            name: "wonderland",
-        },
-    },
-    assets: {},
-    signatories: {},
-    permission_tokens: {},
-    signature_check_condition: SignatureCheckCondition(
-        EvaluatesTo {
-            expression: ContainsAny(
-                ContainsAny {
-                    collection: EvaluatesTo {
-                        expression: ContextValue(
-                            ContextValue {
-                                value_name: "transaction_signatories",
-                            },
-                        ),
-                        _value_type: PhantomData,
-                    },
-                    elements: EvaluatesTo {
-                        expression: ContextValue(
-                            ContextValue {
-                                value_name: "account_signatories",
-                            },
-                        ),
-                        _value_type: PhantomData,
-                    },
-                },
-            ),
-            _value_type: PhantomData,
-        },
-    ),
-    metadata: Metadata {
-        map: {
-            "hat": Name(
-                "white",
-            ),
-        },
-    },
-    roles: {},
-}
-"###,
+            &account,
         );
     }
 
     #[test]
     fn decode_domain_sample() {
+        let limits = MetadataLimits::new(256, 256);
+        let mut metadata = Metadata::new();
+        metadata
+            .insert_with_limits(
+                "Is_Jabberwocky_alive".parse().expect("Valid"),
+                Value::Bool(true),
+                limits,
+            )
+            .expect("Valid");
+        let domain = Domain::new("wonderland".parse().expect("Valid"))
+            .with_logo(
+                IpfsPath::from_str("/ipfs/Qme7ss3ARVgxv6rXqVPiikMJ8u2NLgmgszg13pYrDKEoiu")
+                    .expect("Valid"),
+            )
+            .with_metadata(metadata)
+            .build();
+
         decode_sample(
             "domain.bin",
             String::from("iroha_data_model::domain::Domain"),
-            r###"Domain {
-    id: Id {
-        name: "wonderland",
-    },
-    accounts: {},
-    asset_definitions: {},
-    logo: Some(
-        IpfsPath(
-            "/ipfs/Qme7ss3ARVgxv6rXqVPiikMJ8u2NLgmgszg13pYrDKEoiu",
-        ),
-    ),
-    metadata: Metadata {
-        map: {
-            "Is_Jabberwocky_alive": Bool(
-                true,
-            ),
-        },
-    },
-}
-"###,
+            &domain,
         );
     }
 
     #[test]
     fn decode_trigger_sample() {
-        // This test is extremely awkward to update. There are no
-        // instructions for how to do so, and I'm willing to bet that
-        // any of the community members who want to adjust the
-        // triggers will not know what to do.
+        let account_id =
+            <Account as Identifiable>::Id::from_str("alice@wonderland").expect("Valid");
+        let rose_definition_id = <AssetDefinition as Identifiable>::Id::new(
+            "rose".parse().expect("Valid"),
+            "wonderland".parse().expect("Valid"),
+        );
+        let rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, account_id.clone());
+        let trigger_id = "mint_rose".parse().expect("Valid");
+        let action = Action::new(
+            vec![MintBox::new(1_u32, rose_id).into()],
+            Repeats::Indefinitely,
+            account_id,
+            EventFilter::Data(DataEventFilter::BySome(DataEntityFilter::ByAccount(
+                AcceptAll,
+            ))),
+        );
+        let trigger = Trigger::new(trigger_id, action);
+
         decode_sample(
             "trigger.bin",
             String::from("iroha_data_model::trigger::Trigger"),
-            r###"Trigger {
-    id: Id {
-        name: "mint_rose",
-    },
-    action: Action {
-        executable: Instructions(
-            [
-                Mint(
-                    MintBox {
-                        object: EvaluatesTo {
-                            expression: Raw(
-                                U32(
-                                    1,
-                                ),
-                            ),
-                            _value_type: PhantomData,
-                        },
-                        destination_id: EvaluatesTo {
-                            expression: Raw(
-                                Id(
-                                    AssetId(
-                                        Id {
-                                            definition_id: DefinitionId {
-                                                name: "rose",
-                                                domain_id: Id {
-                                                    name: "wonderland",
-                                                },
-                                            },
-                                            account_id: Id {
-                                                name: "alice",
-                                                domain_id: Id {
-                                                    name: "wonderland",
-                                                },
-                                            },
-                                        },
-                                    ),
-                                ),
-                            ),
-                            _value_type: PhantomData,
-                        },
-                    },
-                ),
-            ],
-        ),
-        repeats: Indefinitely,
-        technical_account: Id {
-            name: "alice",
-            domain_id: Id {
-                name: "wonderland",
-            },
-        },
-        filter: Data(
-            BySome(
-                ByAccount(
-                    AcceptAll,
-                ),
-            ),
-        ),
-        metadata: Metadata {
-            map: {},
-        },
-    },
-}
-"###,
+            &trigger,
         );
     }
 
-    #[allow(clippy::expect_used)]
-    fn decode_sample(sample_path: &str, type_id: String, expected_output: &str) {
+    fn decode_sample<T: Debug>(sample_path: &str, type_id: String, expected: &T) {
         let mut binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         binary.push("samples/");
         binary.push(sample_path);
@@ -328,9 +251,9 @@ mod tests {
         let decoder = Decoder::new(args, &map);
         let mut buf = Vec::new();
         decoder.decode(&mut buf).expect("Decoding failed");
-        let actual = String::from_utf8(buf).expect("valid UTF-8");
-        // Predictably,  the string-based comparison is white-space sensitive.
-        println!("{}\n{}", actual, expected_output);
-        assert_eq!(actual, expected_output);
+        let output = String::from_utf8(buf).expect("Invalid UTF-8");
+        let expected_output = format!("{expected:#?}\n");
+
+        assert_eq!(output, expected_output,);
     }
 }
