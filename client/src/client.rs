@@ -74,9 +74,9 @@ where
                 | StatusCode::NOT_FOUND => {
                     let err = QueryError::decode(&mut resp.body().as_ref())
                         .wrap_err("Failed to decode response body as QueryError")?;
-                    Err(ClientQueryError::Certain(err))
+                    Err(ClientQueryError::QueryError(err))
                 }
-                _ => Err(ResponseReport::with_msg("Failed to make query", resp).into()),
+                _ => Err(ResponseReport::with_msg("Unexpected query response", resp).into()),
             }
         }
 
@@ -87,39 +87,30 @@ where
 }
 
 /// Different errors as a result of query response handling
-#[derive(Debug)]
-// `Certain` variant is too large (32 bytes), but I think that this enum is not
+#[derive(Debug, thiserror::Error)]
+// `QueryError` variant is too large (32 bytes), but I think that this enum is not
 // very frequently constructed, so boxing here is unnecessary.
 #[allow(variant_size_differences)]
 pub enum ClientQueryError {
-    /// Specific decoded error from Iroha
-    Certain(QueryError),
-    /// Some indeterminate error
-    Indeterminate(eyre::Error),
+    /// Certain Iroha query error
+    #[error("Query error: {0}")]
+    QueryError(QueryError),
+    /// Some other error
+    #[error("Other error: {0}")]
+    Other(eyre::Error),
 }
-
-impl fmt::Display for ClientQueryError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Certain(err) => write!(f, "Certain query error: {}", err),
-            Self::Indeterminate(err) => write!(f, "Indeterminate: {}", err),
-        }
-    }
-}
-
-impl StdError for ClientQueryError {}
 
 impl From<eyre::Error> for ClientQueryError {
     #[inline]
     fn from(err: eyre::Error) -> Self {
-        Self::Indeterminate(err)
+        Self::Other(err)
     }
 }
 
 impl From<ResponseReport> for ClientQueryError {
     #[inline]
     fn from(ResponseReport(err): ResponseReport) -> Self {
-        Self::Indeterminate(err)
+        Self::Other(err)
     }
 }
 
@@ -134,7 +125,7 @@ impl ResponseHandler for TransactionResponseHandler {
         if resp.status() == StatusCode::OK {
             Ok(())
         } else {
-            Err(ResponseReport::with_msg("Failed to submit instructions", &resp).into())
+            Err(ResponseReport::with_msg("Unexpected transaction response", &resp).into())
         }
     }
 }
@@ -148,7 +139,7 @@ impl ResponseHandler for StatusResponseHandler {
 
     fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
         if resp.status() != StatusCode::OK {
-            return Err(ResponseReport::with_msg("Failed to get status", &resp).into());
+            return Err(ResponseReport::with_msg("Unexpected status response", &resp).into());
         }
         serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
     }
@@ -1069,6 +1060,7 @@ mod tests {
         assert_eq!(value, &expected_value);
     }
 
+    #[cfg(test)]
     mod query_errors_handling {
         use http::Response;
         use iroha_core::smartcontracts::isi::query::UnsupportedVersionError;
@@ -1104,7 +1096,7 @@ mod tests {
                     .body(err.clone().encode())?;
 
                 match sut.handle(resp) {
-                    Err(ClientQueryError::Certain(actual)) => {
+                    Err(ClientQueryError::QueryError(actual)) => {
                         // PartialEq isn't implemented, so asserting by encoded repr
                         assert_eq!(actual.encode(), err.encode());
                     }
@@ -1123,7 +1115,7 @@ mod tests {
                 .body(Vec::<u8>::new())?;
 
             match sut.handle(response) {
-                Err(ClientQueryError::Indeterminate(_)) => Ok(()),
+                Err(ClientQueryError::Other(_)) => Ok(()),
                 x => Err(eyre!("Expected indeterminate, found: {:?}", x)),
             }
         }

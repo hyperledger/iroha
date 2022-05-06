@@ -1749,6 +1749,7 @@ dependencies = [
  "smallvec",
  "tempfile",
  "test_network",
+ "thiserror",
  "tokio",
  "tungstenite 0.16.0",
 ]
