@@ -18,6 +18,9 @@ services:
       - "8180:8180"
     init: true
     command: ./iroha --submit-genesis
+    volumes:
+      - ./configs/peer:/config
+
 
   iroha1:
     depends_on:
@@ -37,6 +40,9 @@ services:
       - "8081:8081"
       - "8181:8181"
     init: true
+    volumes:
+      - ./configs/peer:/config
+
 
   iroha2:
     depends_on:
@@ -56,6 +62,9 @@ services:
       - "8082:8082"
       - "8182:8182"
     init: true
+    volumes:
+      - ./configs/peer:/config
+
 
   iroha3:
     depends_on:
@@ -75,3 +84,5 @@ services:
       - "8083:8083"
       - "8183:8183"
     init: true
+    volumes:
+      - ./configs/peer:/config

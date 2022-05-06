@@ -18,3 +18,5 @@ services:
       - "8180:8180"
     init: true
     command: ./iroha --submit-genesis
+    volumes:
+      - ./configs/peer:/config
