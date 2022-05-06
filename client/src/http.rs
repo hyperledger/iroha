@@ -9,7 +9,7 @@ pub use http::{Method, Response, StatusCode};
 /// to the client that will fill it with data.
 ///
 /// The order of builder methods invocation is not strict. There is no guarantee that builder user calls
-/// all methods. Only [`RequestBuilder::new()`] is required one.
+/// all methods. Only [`RequestBuilder::new()`] is the required one.
 pub trait RequestBuilder {
     /// Entrypoint - create a new builder with specified method and URL.
     #[must_use]
