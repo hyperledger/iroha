@@ -47,8 +47,8 @@ COPY . .
 RUN cargo build $PROFILE --workspace
 
 FROM $BASE_IMAGE
-COPY configs/peer/config.json .
-COPY configs/peer/genesis.json .
+ARG CONFIG_DIR=config
+RUN mkdir -p $CONFIG_DIR
 ARG BIN=iroha
 ARG TARGET_DIR=debug
 COPY --from=builder /iroha/target/$TARGET_DIR/$BIN .
@@ -56,4 +56,6 @@ RUN apt-get update -yq; \
     apt-get install -y --no-install-recommends libssl-dev; \
     rm -rf /var/lib/apt/lists/*
 ENV IROHA_TARGET_BIN=$BIN
+ENV IROHA2_CONFIG_PATH=$CONFIG_DIR/config.json
+ENV IROHA2_GENESIS_PATH=$CONFIG_DIR/genesis.json
 CMD ./$IROHA_TARGET_BIN

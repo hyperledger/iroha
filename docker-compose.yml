@@ -13,6 +13,8 @@ services:
       - "1337:1337"
       - "8080:8080"
       - "8180:8180"
+    volumes:
+      - ./configs/peer:/config
     command: ./iroha --submit-genesis
 
   iroha1:
@@ -28,6 +30,8 @@ services:
       - "1338:1338"
       - "8081:8081"
       - "8181:8181"
+    volumes:
+      - ./configs/peer:/config
 
   iroha2:
     image: hyperledger/iroha2:dev
@@ -42,6 +46,8 @@ services:
       - "1339:1339"
       - "8082:8082"
       - "8182:8182"
+    volumes:
+      - ./configs/peer:/config
 
   iroha3:
     image: hyperledger/iroha2:dev
@@ -56,3 +62,5 @@ services:
       - "1340:1340"
       - "8083:8083"
       - "8183:8183"
+    volumes:
+      - ./configs/peer:/config
