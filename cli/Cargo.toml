@@ -14,11 +14,20 @@ categories = ["cryptography::cryptocurrencies"]
 [features]
 default = ["bridge", "telemetry", "schema-endpoint"]
 
+# Support interoperability with popular blockchain networks (Substrate, Ether, etc.)
 bridge = ["iroha_core/bridge"]
+# Support Decentralised Exchange, including functionality for atomic exchange instruction
 dex = ["iroha_core/dex"]
+# Support lightweight telemetry, including diagnostics
 telemetry = ["iroha_telemetry", "iroha_core/telemetry"]
+# Support developer-specific telemetry.
+# Should not be enabled on production builds.
 dev-telemetry = ["iroha_core/dev-telemetry", "iroha_telemetry"]
+# Support schema generation from the `schema` endpoint in the local binary.
+# Useful for debugging issues with decoding in SDKs.
 schema-endpoint = ["iroha_schema_gen"]
+# Support internal testing infrastructure for integration tests.
+# Disable in production.
 test-network = []
 
 [badges]

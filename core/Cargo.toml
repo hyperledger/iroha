@@ -14,11 +14,18 @@ categories = ["cryptography::cryptocurrencies"]
 [features]
 default = ["bridge", "cli", "telemetry"]
 
+# Interoperability with popular blockchain networks (Substrate, Ether, etc.)
 bridge = []
+# Support lightweight telemetry, including diagnostics
 telemetry = []
+# Support the included CLI
 cli = []
+# Support Decentralised Exchange, including functionality for atomic exchange instruction
 dex = []
+# Support developer-specific telemetry.
+# Should not be enabled on production builds.
 dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry"]
+# Support Prometheus metrics. See https://prometheus.io/.
 expensive-telemetry = ["iroha_telemetry/metric-instrumentation"]
 
 [badges]
