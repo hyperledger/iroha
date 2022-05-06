@@ -2,7 +2,6 @@
 //! add any custom end-point related logic.
 use std::{
     collections::HashMap,
-    error::Error as StdError,
     fmt::{self, Debug, Formatter},
     marker::PhantomData,
     sync::mpsc,
