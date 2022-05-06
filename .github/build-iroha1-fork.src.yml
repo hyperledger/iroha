@@ -105,7 +105,6 @@ jobs:
       - *step_checkout_head
       -
         name: Generate default matrix for regular builds
-        if: ${{ steps.comment_body.outcome == 'skipped' }}  ## i.e. not github.event.issue.pull_request
         run: |
           set -x
           git fetch origin ${{github.event.pull_request.head.sha}} --depth=2  ## depth=2 to detect if fetched commit is merge commit
