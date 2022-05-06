@@ -14,7 +14,9 @@ use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use self::{account::*, asset::*, domain::*, peer::*, permissions::*, role::*, transaction::*};
+use self::{
+    account::*, asset::*, domain::*, peer::*, permissions::*, role::*, transaction::*, trigger::*,
+};
 use crate::{account::Account, pagination::Pagination, Identifiable, Value};
 
 /// Sized container for all possible Queries.
@@ -80,8 +82,18 @@ pub enum QueryBox {
     FindTransactionByHash(FindTransactionByHash),
     /// [`FindPermissionTokensByAccountId`] variant.
     FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
+    /// [`FindAllActiveTriggers`] variant.
+    FindAllActiveTriggerIds(FindAllActiveTriggerIds),
+    /// [`FindTriggerById`] variant.
+    FindTriggerById(FindTriggerById),
+    /// [`FindTriggerKeyValueByIdAndKey`] variant.
+    FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
     /// [`FindAllRoles`] variant.
     FindAllRoles(FindAllRoles),
+    /// [`FindAllRoleIds`] variant.
+    FindAllRoleIds(FindAllRoleIds),
+    /// [`FindRoleByRoleId`] variant.
+    FindRoleByRoleId(FindRoleByRoleId),
     /// [`FindRolesByAccountId`] variant.
     FindRolesByAccountId(FindRolesByAccountId),
 }
@@ -219,7 +231,52 @@ pub mod role {
         type Output = Vec<Role>;
     }
 
-    /// `FindRolesByAccountId` Iroha Query will find an `Role`s for a specified account.
+    /// `FindAllRoles` Iroha Query will find all `Roles`s presented.
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        Default,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindAllRoleIds;
+
+    impl Query for FindAllRoleIds {
+        type Output = Vec<<Role as Identifiable>::Id>;
+    }
+
+    /// `FindRoleByRoleId` Iroha Query to find the [`Role`] which has the given [`Id`]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindRoleByRoleId {
+        /// `Id` of the `Role` to find
+        pub id: EvaluatesTo<<Role as Identifiable>::Id>,
+    }
+
+    impl Query for FindRoleByRoleId {
+        type Output = Role;
+    }
+
+    /// `FindRolesByAccountId` Iroha Query will find an [`Role`]s for a specified account.
     #[derive(
         Debug,
         Clone,
@@ -235,16 +292,16 @@ pub mod role {
     )]
     pub struct FindRolesByAccountId {
         /// `Id` of an account to find.
-        pub id: EvaluatesTo<AccountId>,
+        pub id: EvaluatesTo<<Account as Identifiable>::Id>,
     }
 
     impl Query for FindRolesByAccountId {
-        type Output = Vec<RoleId>;
+        type Output = Vec<<Role as Identifiable>::Id>;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
-        pub use super::{FindAllRoles, FindRolesByAccountId};
+        pub use super::{FindAllRoleIds, FindAllRoles, FindRoleByRoleId, FindRolesByAccountId};
     }
 }
 
@@ -1047,6 +1104,95 @@ pub mod peer {
     }
 }
 
+pub mod trigger {
+    //! Trigger-related queries.
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
+
+    use iroha_schema::prelude::*;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
+    use super::Query;
+    use crate::{expression::EvaluatesTo, trigger::Trigger, Identifiable, Name, Value};
+
+    /// Find all currently active (as in not disabled and/or expired)
+    /// trigger IDs.
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        Default,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindAllActiveTriggerIds;
+
+    impl Query for FindAllActiveTriggerIds {
+        type Output = Vec<<Trigger as Identifiable>::Id>;
+    }
+
+    /// Find Trigger given its ID.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindTriggerById {
+        /// The Identification of the trigger to be found.
+        pub id: EvaluatesTo<<Trigger as Identifiable>::Id>,
+    }
+
+    impl Query for FindTriggerById {
+        type Output = Trigger;
+    }
+
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    /// Find Trigger's metadata key-value pairs.
+    pub struct FindTriggerKeyValueByIdAndKey {
+        /// The Identification of the trigger to be found.
+        pub id: EvaluatesTo<<Trigger as Identifiable>::Id>,
+        /// The key inside the metadata dictionary to be returned.
+        pub key: EvaluatesTo<Name>,
+    }
+
+    impl Query for FindTriggerKeyValueByIdAndKey {
+        type Output = Value;
+    }
+
+    pub mod prelude {
+        //! Prelude Re-exports most commonly used traits, structs and macros from this crate.
+        pub use super::{FindAllActiveTriggerIds, FindTriggerById, FindTriggerKeyValueByIdAndKey};
+    }
+}
+
 pub mod transaction {
     //! Queries related to `Transaction`.
 
@@ -1139,8 +1285,8 @@ pub mod transaction {
 pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, role::prelude::*, transaction::*, PaginatedQueryResult, Query,
-        QueryBox, QueryResult, SignedQueryRequest, VersionedPaginatedQueryResult,
+        permissions::prelude::*, role::prelude::*, transaction::*, trigger::prelude::*,
+        PaginatedQueryResult, Query, QueryBox, QueryResult, VersionedPaginatedQueryResult,
         VersionedQueryResult,
     };
     #[cfg(feature = "warp")]

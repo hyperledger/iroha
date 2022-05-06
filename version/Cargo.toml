@@ -1,6 +1,6 @@
 [package]
 name = "iroha_version"
-version = "2.0.0-pre-rc.3"
+version = "2.0.0-pre-rc.4"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -16,9 +16,9 @@ scale = ["parity-scale-codec/full"]
 json = ["serde", "serde_json"]
 
 [dependencies]
-iroha_version_derive = { version = "=2.0.0-pre-rc.3", path = "derive", default-features = false, optional = true }
-iroha_macro = { version = "=2.0.0-pre-rc.3", path = "../macro", default-features = false }
-iroha_schema = { version = "=2.0.0-pre-rc.3", path = "../schema", default-features = false }
+iroha_version_derive = { version = "=2.0.0-pre-rc.4", path = "derive", default-features = false, optional = true }
+iroha_macro = { version = "=2.0.0-pre-rc.4", path = "../macro", default-features = false }
+iroha_schema = { version = "=2.0.0-pre-rc.4", path = "../schema", default-features = false }
 
 parity-scale-codec = { version = "2.3.1", default-features = false, optional = true, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, optional = true, features = ["alloc"] }

@@ -24,6 +24,14 @@ pub struct TriggerSet(
     DashMap<trigger::Id, Action>, // TODO: Consider tree structures.
 );
 
+impl From<TriggerSet> for Vec<trigger::Id> {
+    fn from(TriggerSet(map): TriggerSet) -> Self {
+        map.iter()
+            .map(|reference| reference.key().clone())
+            .collect()
+    }
+}
+
 impl TriggerSet {
     /// Add another trigger to the [`TriggerSet`].
     ///
@@ -46,13 +54,8 @@ impl TriggerSet {
     ///
     /// # Errors
     /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
-    pub fn get(
-        &self,
-        id: &trigger::Id,
-    ) -> Result<impl Deref<Target = Action> + '_, smartcontracts::Error> {
-        self.0
-            .get(id)
-            .ok_or_else(|| smartcontracts::Error::Find(Box::new(FindError::Trigger(id.clone()))))
+    pub fn get(&self, id: &trigger::Id) -> Result<impl Deref<Target = Action> + '_, FindError> {
+        self.0.get(id).ok_or_else(|| FindError::Trigger(id.clone()))
     }
 
     /// Remove a trigger from the [`TriggerSet`].
@@ -74,6 +77,13 @@ impl TriggerSet {
     /// Check if [`TriggerSet`] contains `key`.
     pub fn contains(&self, key: &trigger::Id) -> bool {
         self.0.contains_key(key)
+    }
+
+    /// Forward the internal immutable iterator.
+    pub fn iter(
+        &self,
+    ) -> dashmap::iter::Iter<iroha_data_model::trigger::Id, iroha_data_model::trigger::Action> {
+        self.0.iter()
     }
 
     /// Modify repetitions of the hook identified by [`trigger::Id`].
