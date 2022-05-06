@@ -8,6 +8,7 @@ edition = "2021"
 
 [features]
 default = []
+# Support lightweight telemetry, including diagnostics
 telemetry = ["iroha_futures_derive/telemetry"]
 
 [dependencies]

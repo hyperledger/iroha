@@ -14,8 +14,12 @@ edition = "2021"
 # be fixed soon.
 [features]
 default = ["dex", "telemetry", "dev-telemetry"]
+# Support Decentralised Exchange, including functionality for atomic exchange instruction
 dex = ["iroha_core/dex"]
+# Support lightweight telemetry, including diagnostics
 telemetry = ["iroha_core/telemetry"]
+# Support developer-specific telemetry.
+# Should not be enabled on production builds.
 dev-telemetry = ["iroha_core/dev-telemetry"]
 
 
