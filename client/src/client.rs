@@ -12,6 +12,7 @@ use std::{
 use eyre::{eyre, Result, WrapErr};
 use http_default::WebSocketStream;
 use iroha_config::{GetConfiguration, PostConfiguration};
+use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_crypto::{HashOf, KeyPair};
 use iroha_data_model::{prelude::*, query::SignedQueryRequest};
 use iroha_logger::prelude::*;
@@ -32,11 +33,8 @@ pub trait ResponseHandler<T = Vec<u8>> {
     /// What is the output of the handler
     type Output;
 
-    /// Function to parse HTTP response with body `T` to output `O`
-    ///
-    /// # Errors
-    /// Implementation dependent.
-    fn handle(self, response: Response<T>) -> Result<Self::Output>;
+    /// Handles HTTP response
+    fn handle(self, response: Response<T>) -> Self::Output;
 }
 
 /// Phantom struct that handles responses of Query API.
@@ -50,21 +48,68 @@ impl<R> Default for QueryResponseHandler<R> {
     }
 }
 
+/// `Result` with [`ClientQueryError`] as an error
+pub type QueryHandlerResult<T> = core::result::Result<T, ClientQueryError>;
+
 impl<R> ResponseHandler for QueryResponseHandler<R>
 where
     R: Query + Into<QueryBox> + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
 {
-    type Output = PaginatedQueryOutput<R>;
+    type Output = QueryHandlerResult<ClientQueryOutput<R>>;
 
-    fn handle(self, resp: Response<Vec<u8>>) -> Result<PaginatedQueryOutput<R>> {
-        if resp.status() != StatusCode::OK {
-            return Err(ResponseReport::with_msg("Failed to make query request", &resp).into());
+    fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
+        // Separate-compilation friendly response handling
+        fn _handle_query_response_base(
+            resp: &Response<Vec<u8>>,
+        ) -> QueryHandlerResult<VersionedPaginatedQueryResult> {
+            match resp.status() {
+                StatusCode::OK => VersionedPaginatedQueryResult::decode_versioned(resp.body())
+                    .wrap_err("Failed to decode response body as VersionedPaginatedQueryResult")
+                    .map_err(Into::into),
+                StatusCode::BAD_REQUEST
+                | StatusCode::UNAUTHORIZED
+                | StatusCode::FORBIDDEN
+                | StatusCode::NOT_FOUND => {
+                    let err = QueryError::decode(&mut resp.body().as_ref())
+                        .wrap_err("Failed to decode response body as QueryError")?;
+                    Err(ClientQueryError::QueryError(err))
+                }
+                _ => Err(ResponseReport::with_msg("Unexpected query response", resp).into()),
+            }
         }
 
-        let result = VersionedPaginatedQueryResult::decode_versioned(resp.body())?;
-        let VersionedPaginatedQueryResult::V1(result) = result;
-        PaginatedQueryOutput::try_from(result)
+        _handle_query_response_base(&resp).and_then(|VersionedPaginatedQueryResult::V1(result)| {
+            ClientQueryOutput::try_from(result).map_err(Into::into)
+        })
+    }
+}
+
+/// Different errors as a result of query response handling
+#[derive(Debug, thiserror::Error)]
+// `QueryError` variant is too large (32 bytes), but I think that this enum is not
+// very frequently constructed, so boxing here is unnecessary.
+#[allow(variant_size_differences)]
+pub enum ClientQueryError {
+    /// Certain Iroha query error
+    #[error("Query error: {0}")]
+    QueryError(QueryError),
+    /// Some other error
+    #[error("Other error: {0}")]
+    Other(eyre::Error),
+}
+
+impl From<eyre::Error> for ClientQueryError {
+    #[inline]
+    fn from(err: eyre::Error) -> Self {
+        Self::Other(err)
+    }
+}
+
+impl From<ResponseReport> for ClientQueryError {
+    #[inline]
+    fn from(ResponseReport(err): ResponseReport) -> Self {
+        Self::Other(err)
     }
 }
 
@@ -73,13 +118,13 @@ where
 pub struct TransactionResponseHandler;
 
 impl ResponseHandler for TransactionResponseHandler {
-    type Output = ();
+    type Output = Result<()>;
 
-    fn handle(self, resp: Response<Vec<u8>>) -> Result<()> {
+    fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
         if resp.status() == StatusCode::OK {
             Ok(())
         } else {
-            Err(ResponseReport::with_msg("Failed to submit instructions", &resp).into())
+            Err(ResponseReport::with_msg("Unexpected transaction response", &resp).into())
         }
     }
 }
@@ -89,11 +134,11 @@ impl ResponseHandler for TransactionResponseHandler {
 pub struct StatusResponseHandler;
 
 impl ResponseHandler for StatusResponseHandler {
-    type Output = Status;
+    type Output = Result<Status>;
 
-    fn handle(self, resp: Response<Vec<u8>>) -> Result<Status> {
+    fn handle(self, resp: Response<Vec<u8>>) -> Self::Output {
         if resp.status() != StatusCode::OK {
-            return Err(ResponseReport::with_msg("Failed to get status", &resp).into());
+            return Err(ResponseReport::with_msg("Unexpected status response", &resp).into());
         }
         serde_json::from_slice(resp.body()).wrap_err("Failed to decode body")
     }
@@ -117,6 +162,7 @@ impl ResponseReport {
 }
 
 impl From<ResponseReport> for eyre::Report {
+    #[inline]
     fn from(report: ResponseReport) -> Self {
         report.0
     }
@@ -125,7 +171,8 @@ impl From<ResponseReport> for eyre::Report {
 /// More convenient version of [`iroha_data_model::prelude::PaginatedQueryResult`].
 /// The only difference is that this struct has `output` field extracted from the result
 /// accordingly to the source query.
-pub struct PaginatedQueryOutput<R>
+#[derive(Clone, Debug)]
+pub struct ClientQueryOutput<R>
 where
     R: Query + Into<QueryBox> + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
@@ -138,7 +185,7 @@ where
     pub total: u64,
 }
 
-impl<R> PaginatedQueryOutput<R>
+impl<R> ClientQueryOutput<R>
 where
     R: Query + Into<QueryBox> + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
@@ -149,7 +196,7 @@ where
     }
 }
 
-impl<R> TryFrom<PaginatedQueryResult> for PaginatedQueryOutput<R>
+impl<R> TryFrom<PaginatedQueryResult> for ClientQueryOutput<R>
 where
     R: Query + Into<QueryBox> + Debug,
     <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
@@ -569,7 +616,7 @@ impl Client {
         &self,
         request: R,
         pagination: Pagination,
-    ) -> Result<PaginatedQueryOutput<R>>
+    ) -> QueryHandlerResult<ClientQueryOutput<R>>
     where
         R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
@@ -585,13 +632,13 @@ impl Client {
     /// # Errors
     /// Fails if sending request fails
     #[log]
-    pub fn request<R>(&self, request: R) -> Result<R::Output>
+    pub fn request<R>(&self, request: R) -> QueryHandlerResult<R::Output>
     where
         R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         self.request_with_pagination(request, Pagination::default())
-            .map(PaginatedQueryOutput::only_output)
+            .map(ClientQueryOutput::only_output)
     }
 
     /// Connects through `WebSocket` to listen for `Iroha` pipeline and data events.
@@ -1010,5 +1057,66 @@ mod tests {
             .expect("Expected `Authorization` header");
         let expected_value = format!("Basic {}", ENCRYPTED_CREDENTIALS);
         assert_eq!(value, &expected_value);
+    }
+
+    #[cfg(test)]
+    mod query_errors_handling {
+        use http::Response;
+        use iroha_core::smartcontracts::isi::query::UnsupportedVersionError;
+
+        use super::*;
+
+        #[test]
+        fn certain_errors() -> Result<()> {
+            let sut = QueryResponseHandler::<FindAllAssets>::default();
+            let responses = vec![
+                (
+                    StatusCode::BAD_REQUEST,
+                    QueryError::Version(UnsupportedVersionError { version: 19 }),
+                ),
+                (
+                    StatusCode::UNAUTHORIZED,
+                    QueryError::Signature("whatever".to_owned()),
+                ),
+                (
+                    StatusCode::FORBIDDEN,
+                    QueryError::Permission("whatever".to_owned()),
+                ),
+                (
+                    StatusCode::NOT_FOUND,
+                    // Here should be `Find`, but actually handler doesn't care
+                    QueryError::Evaluate("whatever".to_owned()),
+                ),
+            ];
+
+            for (status_code, err) in responses {
+                let resp = Response::builder()
+                    .status(status_code)
+                    .body(err.clone().encode())?;
+
+                match sut.handle(resp) {
+                    Err(ClientQueryError::QueryError(actual)) => {
+                        // PartialEq isn't implemented, so asserting by encoded repr
+                        assert_eq!(actual.encode(), err.encode());
+                    }
+                    x => return Err(eyre!("Wrong output for {:?}: {:?}", (status_code, err), x)),
+                }
+            }
+
+            Ok(())
+        }
+
+        #[test]
+        fn indeterminate() -> Result<()> {
+            let sut = QueryResponseHandler::<FindAllAssets>::default();
+            let response = Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Vec::<u8>::new())?;
+
+            match sut.handle(response) {
+                Err(ClientQueryError::Other(_)) => Ok(()),
+                x => Err(eyre!("Expected indeterminate, found: {:?}", x)),
+            }
+        }
     }
 }
