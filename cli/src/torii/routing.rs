@@ -19,7 +19,10 @@ use iroha_core::{
     wsv::WorldTrait,
 };
 use iroha_crypto::SignatureOf;
-use iroha_data_model::{prelude::*, query};
+use iroha_data_model::{
+    prelude::*,
+    query::{self, SignedQueryRequest},
+};
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
 use parity_scale_codec::{Decode, Encode};

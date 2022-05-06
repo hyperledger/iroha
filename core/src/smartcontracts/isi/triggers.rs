@@ -136,3 +136,61 @@ pub mod isi {
         }
     }
 }
+
+pub mod query {
+    //! Queries associated to triggers.
+    use iroha_logger::prelude::*;
+
+    use super::*;
+    use crate::{
+        prelude::*,
+        smartcontracts::{isi::prelude::WorldTrait, query::Error, Evaluate as _, FindError},
+    };
+
+    impl<W: WorldTrait> ValidQuery<W> for FindAllActiveTriggerIds {
+        #[log]
+        #[metrics(+"find_all_active_triggers")]
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+            Ok(wsv.world.triggers.clone().into())
+        }
+    }
+
+    impl<W: WorldTrait> ValidQuery<W> for FindTriggerById {
+        #[log]
+        #[metrics(+"find_trigger_by_id")]
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+            let id = self
+                .id
+                .evaluate(wsv, &Context::new())
+                .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {}", e)))?;
+            let action = wsv.world.triggers.get(&id)?;
+
+            // TODO: Should we redact the metadata if the account is not the technical account/owner?
+            Ok(Trigger {
+                id,
+                action: action.clone(),
+            })
+        }
+    }
+
+    impl<W: WorldTrait> ValidQuery<W> for FindTriggerKeyValueByIdAndKey {
+        #[log]
+        #[metrics(+"find_trigger_key_value_by_id_and_key")]
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+            let id = self
+                .id
+                .evaluate(wsv, &Context::new())
+                .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {}", e)))?;
+            let action = wsv.world.triggers.get(&id)?;
+            let key = self
+                .key
+                .evaluate(wsv, &Context::new())
+                .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {}", e)))?;
+            action
+                .metadata
+                .get(&key)
+                .map(Clone::clone)
+                .ok_or_else(|| FindError::MetadataKey(key).into())
+        }
+    }
+}

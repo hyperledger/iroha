@@ -69,6 +69,10 @@
 #     r'^$',  ## ignore commits with empty messages
 # ]
 
+ignore_regexps = [
+    r'(?i).*codeowners?.*'
+]
+
 ## ``section_regexps`` is a list of 2-tuples associating a string label and a
 ## list of regexp
 ##
@@ -151,7 +155,7 @@ section_regexps = [
 #body_process = Wrap(regexp=r'\n(?=\w+\s*:)')
 #body_process = noop
 body_process = strip | ReSub(r'((^|\n)[A-Z]\w+(-\w+)*: .*(\n\s+.*)*)+$',
-                             r'') | final_dot
+                             r'') | ReSub(r'Signed-off-by:.*<.*>', r'') | strip
 
 ## ``subject_process`` is a callable
 ##
@@ -160,6 +164,8 @@ body_process = strip | ReSub(r'((^|\n)[A-Z]\w+(-\w+)*: .*(\n\s+.*)*)+$',
 ##
 ## Available constructs are those listed in ``body_process`` doc.
 subject_process = (strip | ReSub(r'^\[.*\]', r'') | strip | ReSub(r'^\#((\d+)((, #)(\d+))*:)', r'\2')
+                   | ReSub(r'^: ', '')
+                   | ReSub(r'\s\(#\d+\)', r'')
                    | SetIfEmpty("No commit message.") | ucfirst | final_dot)
 
 ## ``tag_filter_regexp`` is a regexp

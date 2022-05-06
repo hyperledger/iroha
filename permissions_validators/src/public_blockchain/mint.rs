@@ -1,13 +1,16 @@
 //! Module with permission for minting
-
-use std::str::FromStr as _;
+use iroha_data_model::asset::DefinitionId;
 
 use super::*;
 
-#[allow(clippy::expect_used)]
-/// Can mint asset with the corresponding asset definition.
-pub static CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_mint_user_asset_definitions").expect("Tested. Works."));
+declare_token!(
+    /// Can mint asset with the corresponding asset definition.
+    CanMintUserAssetDefinitions {
+        /// Asset definition id
+        asset_definition_id ("asset_definition_id"): DefinitionId,
+    },
+    "can_mint_user_asset_definitions"
+);
 
 /// Checks that account can mint only the assets which were registered by this account.
 #[derive(Debug, Copy, Clone)]
@@ -71,12 +74,7 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
         } else {
             return Err("Destination is not an Asset.".to_owned());
         };
-        Ok(
-            PermissionToken::new(CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN.clone()).with_params([(
-                ASSET_DEFINITION_ID_TOKEN_PARAM_NAME.to_owned(),
-                asset_id.definition_id.into(),
-            )]),
-        )
+        Ok(CanMintUserAssetDefinitions::new(asset_id.definition_id).into())
     }
 }
 
@@ -94,15 +92,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason> {
-        let permission_token: PermissionToken = instruction
-            .object
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
-        if permission_token.name() != &*CAN_MINT_USER_ASSET_DEFINITIONS_TOKEN {
-            return Err("Grant instruction is not for mint permission.".to_owned());
-        }
-        check_asset_creator_for_token(&permission_token, authority, wsv)
+        let token: CanMintUserAssetDefinitions = extract_specialized_token(instruction, wsv)?;
+        check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)
     }
 }

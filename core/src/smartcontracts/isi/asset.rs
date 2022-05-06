@@ -343,7 +343,7 @@ pub mod isi {
 
 /// Asset-related query implementations.
 pub mod query {
-    use eyre::{Result, WrapErr};
+    use eyre::{Result, WrapErr as _};
     use iroha_logger::prelude::*;
 
     use super::*;

@@ -1,6 +1,6 @@
 [package]
 name = "test_network"
-version = "2.0.0-pre-rc.3"
+version = "2.0.0-pre-rc.4"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -10,13 +10,13 @@ mock = []
 query = []
 
 [dependencies]
-iroha_core = { version = "=2.0.0-pre-rc.3", path = "../../core" }
-iroha_client = { version = "=2.0.0-pre-rc.3", path = "../../client" }
-iroha_data_model = { version = "=2.0.0-pre-rc.3", path = "../../data_model" }
-iroha_logger = { version = "=2.0.0-pre-rc.3", path = "../../logger" }
-iroha_config = { version = "=2.0.0-pre-rc.3", path = "../../config" }
-iroha_p2p = { version = "=2.0.0-pre-rc.3", path = "../../p2p" }
-iroha_actor = { version = "=2.0.0-pre-rc.3", path = "../../actor" }
+iroha_core = { version = "=2.0.0-pre-rc.4", path = "../../core" }
+iroha_client = { version = "=2.0.0-pre-rc.4", path = "../../client" }
+iroha_data_model = { version = "=2.0.0-pre-rc.4", path = "../../data_model" }
+iroha_logger = { version = "=2.0.0-pre-rc.4", path = "../../logger" }
+iroha_config = { version = "=2.0.0-pre-rc.4", path = "../../config" }
+iroha_p2p = { version = "=2.0.0-pre-rc.4", path = "../../p2p" }
+iroha_actor = { version = "=2.0.0-pre-rc.4", path = "../../actor" }
 iroha = { path = "../../cli", features = ["test-network"] }
 
 eyre = "0.6.5"
@@ -28,7 +28,7 @@ futures = { version = "0.3.17", default-features = false, features = ["std", "as
 smallstr = { version = "0.3.0", default-features = false, features = ["serde", "union"] }
 
 [dev-dependencies]
-iroha_crypto = { version = "=2.0.0-pre-rc.3", path = "../../crypto" }
+iroha_crypto = { version = "=2.0.0-pre-rc.4", path = "../../crypto" }
 
 async-trait = "0.1"
 once_cell = "1.8.0"

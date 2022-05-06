@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use iroha_core::*;
 use iroha_crypto::*;
-use iroha_data_model::{prelude::*, *};
+use iroha_data_model::{prelude::*, query::SignedQueryRequest, *};
 use iroha_schema::IntoSchema;
 use iroha_version::*;
 
@@ -145,6 +145,8 @@ pub fn generate_map() -> DumpDecodedMap {
         FindAllParameters,
         FindAllPeers,
         FindAllRoles,
+        FindAllRoleIds,
+        FindAllActiveTriggerIds,
         FindAssetById,
         FindAssetDefinitionKeyValueByIdAndKey,
         FindAssetKeyValueByIdAndKey,
@@ -158,8 +160,11 @@ pub fn generate_map() -> DumpDecodedMap {
         FindDomainKeyValueByIdAndKey,
         FindPermissionTokensByAccountId,
         FindRolesByAccountId,
+        FindRoleByRoleId,
         FindTransactionByHash,
         FindTransactionsByAccountId,
+        FindTriggerKeyValueByIdAndKey,
+        FindTriggerById,
         GenesisDomain,
         GrantBox,
         Greater,
@@ -288,7 +293,6 @@ pub fn generate_map() -> DumpDecodedMap {
         VersionedPaginatedQueryResult,
         WasmExecutionFail,
         Where,
-        [u8; 32],
         account::NewAccount,
         asset::Mintable,
         block::BlockHeader,
@@ -324,6 +328,8 @@ pub fn generate_map() -> DumpDecodedMap {
         expression::EvaluatesTo<Vec<Value>>,
         expression::EvaluatesTo<bool>,
         expression::EvaluatesTo<u32>,
+        expression::EvaluatesTo<TriggerId>,
+        expression::EvaluatesTo<RoleId>,
         fixed::FixNum,
         fixed::Fixed,
         i64,
@@ -347,6 +353,7 @@ pub fn generate_map() -> DumpDecodedMap {
         u32,
         u64,
         u8,
+        [u8; 32],
     };
 
     map.insert(

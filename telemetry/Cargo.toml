@@ -1,6 +1,6 @@
 [package]
 name = "iroha_telemetry"
-version = "2.0.0-pre-rc.3"
+version = "2.0.0-pre-rc.4"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 build = "build.rs"
@@ -10,10 +10,10 @@ dev-telemetry = []
 metric-instrumentation = []
 
 [dependencies]
-iroha_config = { version = "=2.0.0-pre-rc.3", path = "../config" }
-iroha_logger = { version = "=2.0.0-pre-rc.3", path = "../logger" }
-iroha_futures = { version = "=2.0.0-pre-rc.3", path = "../futures", features = ["telemetry"] }
-iroha_telemetry_derive = { version = "=2.0.0-pre-rc.3", path = "derive" }
+iroha_config = { version = "=2.0.0-pre-rc.4", path = "../config" }
+iroha_logger = { version = "=2.0.0-pre-rc.4", path = "../logger" }
+iroha_futures = { version = "=2.0.0-pre-rc.4", path = "../futures", features = ["telemetry"] }
+iroha_telemetry_derive = { version = "=2.0.0-pre-rc.4", path = "derive" }
 
 
 async-trait = "0.1"

@@ -1,6 +1,6 @@
 [package]
 name = "iroha_data_primitives"
-version = "2.0.0-pre-rc.3"
+version = "2.0.0-pre-rc.4"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 description = "Data primitives used in iroha_data_model."
@@ -23,8 +23,8 @@ default = ["std"]
 std = ["iroha_macro/std", "fixnum/std", "thiserror"]
 
 [dependencies]
-iroha_macro = { path = "../../macro", version = "=2.0.0-pre-rc.3", default-features = false }
-iroha_schema = { path = "../../schema", version = "=2.0.0-pre-rc.3", default-features = false }
+iroha_macro = { path = "../../macro", version = "=2.0.0-pre-rc.4", default-features = false }
+iroha_schema = { path = "../../schema", version = "=2.0.0-pre-rc.4", default-features = false }
 
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
 fixnum = { version = "0.6.1", default-features = false, features = ["serde", "parity", "i64"]}
