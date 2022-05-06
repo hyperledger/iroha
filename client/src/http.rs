@@ -9,13 +9,13 @@ pub use http::{Method, Response, StatusCode};
 /// to the client that will fill it with data.
 ///
 /// The order of builder methods invocation is not strict. There is no guarantee that builder user calls
-/// all methods. Only [`RequestBuilder::new]` is required one.
+/// all methods. Only [`RequestBuilder::new()`] is required one.
 pub trait RequestBuilder {
     /// Entrypoint - create a new builder with specified method and URL.
     #[must_use]
     fn new(method: Method, url: impl AsRef<str>) -> Self;
 
-    /// Add multiple query params at once. Uses `[RequestBuilder::param]` for each param.
+    /// Add multiple query params at once. Uses [`RequestBuilder::param()`] for each param.
     #[must_use]
     fn params<P, K, V>(mut self, params: P) -> Self
     where
@@ -39,7 +39,7 @@ pub trait RequestBuilder {
         K: AsRef<str>,
         V: ToString;
 
-    /// Add multiple headers at once. Uses `[RequestBuilder::header]` for each param.
+    /// Add multiple headers at once. Uses [`RequestBuilder::header()`] for each param.
     #[must_use]
     fn headers<H, N, V>(mut self, headers: H) -> Self
     where
