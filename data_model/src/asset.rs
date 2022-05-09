@@ -47,6 +47,8 @@ pub type AssetDefinitionsMap =
     IntoSchema,
 )]
 #[getset(get = "pub")]
+#[allow(clippy::multiple_inherent_impl)]
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 pub struct AssetDefinitionEntry {
     /// Asset definition.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
@@ -69,6 +71,7 @@ impl Ord for AssetDefinitionEntry {
     }
 }
 
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 impl AssetDefinitionEntry {
     /// Constructor.
     pub const fn new(
@@ -80,12 +83,14 @@ impl AssetDefinitionEntry {
             registered_by,
         }
     }
+}
 
+#[cfg(feature = "mutable_api")]
+impl AssetDefinitionEntry {
     /// Turn off minting for this asset.
     ///
     /// # Errors
     /// If the asset was declared as `Mintable::Infinitely`
-    #[cfg(feature = "mutable_api")]
     pub fn forbid_minting(&mut self) -> Result<(), super::MintabilityError> {
         self.definition.forbid_minting()
     }
@@ -107,6 +112,8 @@ impl AssetDefinitionEntry {
     IntoSchema,
 )]
 #[getset(get = "pub")]
+#[allow(clippy::multiple_inherent_impl)]
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 pub struct AssetDefinition {
     /// An Identification of the [`AssetDefinition`].
     id: <Self as Identifiable>::Id,
@@ -166,6 +173,7 @@ pub enum Mintable {
     Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[getset(get = "pub")]
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 pub struct Asset {
     /// Component Identification.
     id: <Self as Identifiable>::Id,
@@ -338,6 +346,7 @@ pub struct Id {
 }
 
 /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
+#[allow(clippy::multiple_inherent_impl)]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct NewAssetDefinition {
     id: <AssetDefinition as Identifiable>::Id,
@@ -371,6 +380,22 @@ impl NewAssetDefinition {
         }
     }
 
+    /// Construct [`AssetDefinition`]
+    #[inline]
+    #[must_use]
+    #[cfg(feature = "mutable_api")]
+    pub fn build(self) -> AssetDefinition {
+        AssetDefinition {
+            id: self.id,
+            value_type: self.value_type,
+            mintable: self.mintable,
+            metadata: self.metadata,
+        }
+    }
+}
+
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+impl NewAssetDefinition {
     /// Set mintability to [`Mintable::Once`]
     #[inline]
     #[must_use]
@@ -386,21 +411,9 @@ impl NewAssetDefinition {
         self.metadata = metadata;
         self
     }
-
-    /// Construct [`AssetDefinition`]
-    #[inline]
-    #[must_use]
-    #[cfg(feature = "mutable_api")]
-    pub fn build(self) -> AssetDefinition {
-        AssetDefinition {
-            id: self.id,
-            value_type: self.value_type,
-            mintable: self.mintable,
-            metadata: self.metadata,
-        }
-    }
 }
 
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 impl AssetDefinition {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
@@ -429,13 +442,15 @@ impl AssetDefinition {
     pub fn store(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
         <Self as Identifiable>::RegisteredWith::new(id, AssetValueType::Store)
     }
+}
 
+#[cfg(feature = "mutable_api")]
+impl AssetDefinition {
     /// Stop minting on the [`AssetDefinition`] globally.
     ///
     /// # Errors
     /// If the [`AssetDefinition`] is not `Mintable::Once`.
     #[inline]
-    #[cfg(feature = "mutable_api")]
     pub fn forbid_minting(&mut self) -> Result<(), super::MintabilityError> {
         if self.mintable == Mintable::Once {
             self.mintable = Mintable::Not;
@@ -446,11 +461,12 @@ impl AssetDefinition {
     }
 }
 
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 impl Asset {
     /// Constructor
-    pub fn new<V: Into<AssetValue>>(
+    pub fn new(
         id: <Asset as Identifiable>::Id,
-        value: V,
+        value: impl Into<AssetValue>,
     ) -> <Self as Identifiable>::RegisteredWith {
         Self {
             id,

@@ -172,12 +172,12 @@ impl<'wrld, W: WorldTrait> State<'wrld, W> {
     }
 }
 
-struct IrohaModule<'a, W: WorldTrait> {
-    linker: Linker<State<'a, W>>,
+struct IrohaModule<'wrld, W: WorldTrait> {
+    linker: Linker<State<'wrld, W>>,
     module: Module,
 }
 
-impl<'a, W: WorldTrait> IrohaModule<'a, W> {
+impl<'wrld, W: WorldTrait> IrohaModule<'wrld, W> {
     fn new(engine: &Engine, module_path: &str) -> Result<Self, Error> {
         let linker = Self::create_linker(engine).map_err(Error::Initialization)?;
         let module = Module::from_file(engine, module_path).map_err(Error::Initialization)?;
@@ -185,7 +185,7 @@ impl<'a, W: WorldTrait> IrohaModule<'a, W> {
         Ok(Self { linker, module })
     }
 
-    fn create_linker(engine: &Engine) -> Result<Linker<State<'a, W>>, anyhow::Error> {
+    fn create_linker(engine: &Engine) -> Result<Linker<State<'wrld, W>>, anyhow::Error> {
         let mut linker = Linker::new(engine);
 
         linker
@@ -224,7 +224,7 @@ impl<'a, W: WorldTrait> IrohaModule<'a, W> {
             .ok_or_else(|| Trap::new(format!("{}: not a memory", WASM_MEMORY_NAME)))
     }
 
-    fn instantiate(&self, store: &mut Store<State<'a, W>>) -> Result<Instance, Error> {
+    fn instantiate(&self, store: &mut Store<State<'wrld, W>>) -> Result<Instance, Error> {
         self.linker
             .instantiate(store, &self.module)
             .map_err(Error::Instantiation)

@@ -76,6 +76,6 @@ mod tests {
     #[cfg(feature = "debug")]
     #[no_mangle]
     pub(super) unsafe extern "C" fn _dbg_mock(ptr: *const u8, len: usize) {
-        let _string_bytes = slice::from_raw_parts(ptr, len);
+        let _string_bytes = core::slice::from_raw_parts(ptr, len);
     }
 }
