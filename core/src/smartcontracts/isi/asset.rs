@@ -11,7 +11,6 @@ use super::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
-    use iroha_data_model::{asset::Mintable, MintabilityError};
     use iroha_logger::prelude::*;
 
     use super::*;

@@ -720,7 +720,7 @@ pub mod prelude {
         role::prelude::*,
         trigger::prelude::*,
         uri, EnumTryAsError, IdBox, Identifiable, IdentifiableBox, Name, Parameter, RegistrableBox,
-        TryAsMut, TryAsRef, ValidationError, Value,
+        TryAsMut, TryAsRef, ValidationError, Value, MintabilityError
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,
