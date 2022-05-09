@@ -301,8 +301,9 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
 
     fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
-
-        match self.object.evaluate(wsv, &context)? {
+        let object_id = self.object.evaluate(wsv, &context)?;
+        iroha_logger::trace!(?object_id);
+        match object_id {
             RegistrableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
             RegistrableBox::Domain(domain) => {
                 Register::<Domain>::new(*domain).execute(authority, wsv)
@@ -327,7 +328,9 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
 
     fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
-        match self.object_id.evaluate(wsv, &context)? {
+        let object_id = self.object_id.evaluate(wsv, &context)?;
+        iroha_logger::trace!(?object_id, %authority);
+        match object_id {
             IdBox::AccountId(account_id) => {
                 Unregister::<Account>::new(account_id).execute(authority, wsv)
             }
@@ -352,10 +355,10 @@ impl<W: WorldTrait> Execute<W> for MintBox {
         wsv: &WorldStateView<W>,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
-        match (
-            self.destination_id.evaluate(wsv, &context)?,
-            self.object.evaluate(wsv, &context)?,
-        ) {
+        let destination_id = self.destination_id.evaluate(wsv, &context)?;
+        let object = self.object.evaluate(wsv, &context)?;
+        iroha_logger::trace!(?destination_id, ?object, %authority); // TODO: maybe `impl fmt::Display`
+        match (destination_id, object) {
             (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
                 Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)
             }
@@ -389,6 +392,9 @@ impl<W: WorldTrait> Execute<W> for BurnBox {
         wsv: &WorldStateView<W>,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
+        let destination_id = self.destination_id.evaluate(wsv, &context)?;
+        let object = self.object.evaluate(wsv, &context)?;
+        iroha_logger::trace!(?destination_id, ?object, %authority);
         match (
             self.destination_id.evaluate(wsv, &context)?,
             self.object.evaluate(wsv, &context)?,
@@ -428,6 +434,8 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
 
         match self.destination_id.evaluate(wsv, &context)? {
             IdBox::AssetId(destination_asset_id) => {
+                iroha_logger::trace!(?source_asset_id, ?destination_asset_id, %quantity, %authority);
+
                 Transfer::<Asset, u32, Asset>::new(source_asset_id, quantity, destination_asset_id)
                     .execute(authority, wsv)
             }
@@ -447,6 +455,7 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
         let context = Context::new();
         let key = self.key.evaluate(wsv, &context)?;
         let value = self.value.evaluate(wsv, &context)?;
+        iroha_logger::trace!(?key, ?value, %authority);
         match self.object_id.evaluate(wsv, &context)? {
             IdBox::AssetId(asset_id) => {
                 SetKeyValue::<Asset, Name, Value>::new(asset_id, key, value).execute(authority, wsv)
@@ -477,6 +486,7 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let key = self.key.evaluate(wsv, &context)?;
+        iroha_logger::trace!(?key, %authority);
         match self.object_id.evaluate(wsv, &context)? {
             IdBox::AssetId(asset_id) => {
                 RemoveKeyValue::<Asset, Name>::new(asset_id, key).execute(authority, wsv)
@@ -502,12 +512,12 @@ impl<W: WorldTrait> Execute<W> for If {
         wsv: &WorldStateView<W>,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
+        iroha_logger::trace!(?self);
         if self.condition.evaluate(wsv, &context)? {
             self.then.execute(authority, wsv)?;
         } else if let Some(otherwise) = self.otherwise {
             otherwise.execute(authority, wsv)?;
         }
-
         Ok(())
     }
 }
@@ -520,6 +530,8 @@ impl<W: WorldTrait> Execute<W> for Pair {
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
     ) -> Result<(), Self::Error> {
+        iroha_logger::trace!(?self);
+
         self.left_instruction.execute(authority.clone(), wsv)?;
         self.right_instruction.execute(authority, wsv)?;
         Ok(())
@@ -534,6 +546,8 @@ impl<W: WorldTrait> Execute<W> for SequenceBox {
         authority: <Account as Identifiable>::Id,
         wsv: &WorldStateView<W>,
     ) -> Result<(), Self::Error> {
+        iroha_logger::trace!(?self);
+
         for instruction in self.instructions {
             instruction.execute(authority.clone(), wsv)?;
         }
@@ -549,6 +563,8 @@ impl<W: WorldTrait> Execute<W> for FailBox {
         _authority: <Account as Identifiable>::Id,
         _wsv: &WorldStateView<W>,
     ) -> Result<(), Self::Error> {
+        iroha_logger::trace!(?self);
+
         Err(Error::FailBox(self.message))
     }
 }
@@ -562,10 +578,10 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
         wsv: &WorldStateView<W>,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
-        match (
-            self.destination_id.evaluate(wsv, &context)?,
-            self.object.evaluate(wsv, &context)?,
-        ) {
+        let destination_id = self.destination_id.evaluate(wsv, &context)?;
+        let object = self.object.evaluate(wsv, &context)?;
+        iroha_logger::trace!(?destination_id, ?object, %authority);
+        match (destination_id, object) {
             (IdBox::AccountId(account_id), Value::PermissionToken(permission_token)) => {
                 Grant::<Account, PermissionToken>::new(permission_token, account_id)
                     .execute(authority, wsv)
@@ -587,10 +603,10 @@ impl<W: WorldTrait> Execute<W> for RevokeBox {
         wsv: &WorldStateView<W>,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
-        match (
-            self.destination_id.evaluate(wsv, &context)?,
-            self.object.evaluate(wsv, &context)?,
-        ) {
+        let destination_id = self.destination_id.evaluate(wsv, &context)?;
+        let object = self.object.evaluate(wsv, &context)?;
+        iroha_logger::trace!(?destination_id, ?object, %authority);
+        match (destination_id, object) {
             (IdBox::AccountId(account_id), Value::PermissionToken(permission_token)) => {
                 Revoke::<Account, PermissionToken>::new(permission_token, account_id)
                     .execute(authority, wsv)

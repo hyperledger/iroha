@@ -11,8 +11,6 @@ use super::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
-    use iroha_logger::prelude::*;
-
     use super::*;
 
     /// Asserts that asset definition with [`definition_id`] has asset type [`expected_value_type`].
@@ -23,7 +21,6 @@ pub mod isi {
     ) -> Result<AssetDefinition, Error> {
         let asset_definition = wsv.asset_definition_entry(definition_id)?;
         let definition = asset_definition.definition();
-
         if *definition.value_type() == expected_value_type {
             Ok(definition.clone())
         } else {
@@ -88,10 +85,9 @@ pub mod isi {
         type Error = Error;
 
         #[metrics(+"mint_big_qty")]
-        #[log]
         fn execute(
             self,
-            authority: <Account as Identifiable>::Id,
+            _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
             let asset_id = self.destination_id;
@@ -277,7 +273,6 @@ pub mod isi {
     impl<W: WorldTrait> Execute<W> for Transfer<Asset, u32, Asset> {
         type Error = Error;
 
-        #[log(skip(_authority))]
         #[metrics(+"transfer_qty_asset")]
         fn execute(
             self,
@@ -343,13 +338,11 @@ pub mod isi {
 /// Asset-related query implementations.
 pub mod query {
     use eyre::{Result, WrapErr as _};
-    use iroha_logger::prelude::*;
 
     use super::*;
     use crate::smartcontracts::query::Error;
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllAssets {
-        #[log]
         #[metrics(+"find_all_assets")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
@@ -365,7 +358,6 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllAssetsDefinitions {
-        #[log]
         #[metrics(+"find_all_asset_definitions")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
@@ -379,7 +371,6 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetById {
-        #[log]
         #[metrics(+"find_asset_by_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
@@ -387,6 +378,7 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%id);
             wsv.asset(&id)
                 .map_err(
                     |asset_err| match wsv.asset_definition_entry(&id.definition_id) {
@@ -399,7 +391,6 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByName {
-        #[log]
         #[metrics(+"find_assets_by_name")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let name = self
@@ -407,6 +398,7 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset name")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%name);
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
                 for account in domain.accounts() {
@@ -422,7 +414,6 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByAccountId {
-        #[log]
         #[metrics(+"find_assets_by_account_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
@@ -430,12 +421,12 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%id);
             wsv.account_assets(&id).map_err(Into::into)
         }
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByAssetDefinitionId {
-        #[log]
         #[metrics(+"find_assets_by_asset_definition_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
@@ -443,6 +434,7 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset definition id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%id);
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
                 for account in domain.accounts() {
@@ -458,7 +450,6 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByDomainId {
-        #[log]
         #[metrics(+"find_assets_by_domain_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
@@ -466,6 +457,7 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%id);
             let mut vec = Vec::new();
             for account in wsv.domain(&id)?.accounts() {
                 for asset in account.assets() {
@@ -477,7 +469,6 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByDomainIdAndAssetDefinitionId {
-        #[log]
         #[metrics(+"find_assets_by_domain_id_and_asset_definition_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let domain_id = self
@@ -494,6 +485,7 @@ pub mod query {
             let _definition = domain
                 .asset_definition(&asset_definition_id)
                 .ok_or_else(|| FindError::AssetDefinition(asset_definition_id.clone()))?;
+            iroha_logger::trace!(%domain_id, %asset_definition_id);
             let mut assets = Vec::new();
             for account in domain.accounts() {
                 for asset in account.assets() {
@@ -509,7 +501,6 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetQuantityById {
-        #[log]
         #[metrics(+"find_asset_quantity_by_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
@@ -517,6 +508,7 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%id);
             wsv.asset(&id)
                 .map_err(
                     |asset_err| match wsv.asset_definition_entry(&id.definition_id) {
@@ -533,7 +525,6 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAssetKeyValueByIdAndKey {
-        #[log]
         #[metrics(+"find_asset_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
@@ -552,6 +543,7 @@ pub mod query {
                     Err(definition_err) => definition_err,
                 }
             })?;
+            iroha_logger::trace!(%id, %key);
             let store: &Metadata = asset
                 .value()
                 .try_as_ref()

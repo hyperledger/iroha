@@ -35,7 +35,6 @@ pub struct Torii<W: WorldTrait> {
     queue: Arc<Queue<W>>,
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
-    #[allow(dead_code)] // False positive with `telemetry` disabled.
     network: iroha_actor::Addr<IrohaNetwork>,
 }
 

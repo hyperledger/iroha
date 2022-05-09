@@ -262,13 +262,11 @@ pub mod isi {
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
     use eyre::{Result, WrapErr};
-    use iroha_logger::prelude::*;
 
     use super::*;
     use crate::smartcontracts::query::Error;
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllDomains {
-        #[log]
         #[metrics(+"find_all_domains")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             Ok(wsv
@@ -287,12 +285,12 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%id);
             Ok(wsv.domain(&id)?.clone())
         }
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindDomainKeyValueByIdAndKey {
-        #[log]
         #[metrics(+"find_domain_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
@@ -305,6 +303,7 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%id, %key);
             wsv.map_domain(&id, |domain| {
                 Ok(domain.metadata().get(&key).map(Clone::clone))
             })?
@@ -325,6 +324,7 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get key")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%id, %key);
             Ok(wsv
                 .asset_definition_entry(&id)?
                 .definition()

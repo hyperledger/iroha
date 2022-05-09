@@ -83,6 +83,14 @@ pub struct Pagination {
     pub limit: Option<u32>,
 }
 
+impl fmt::Display for Pagination {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let start = self.start.unwrap_or(0);
+        let end = self.limit.map_or(".inf".to_owned(), |n| n.to_string());
+        write!(f, "{}-{}", start, end)
+    }
+}
+
 impl Pagination {
     /// Constructs [`Pagination`].
     pub const fn new(start: Option<u32>, limit: Option<u32>) -> Self {
