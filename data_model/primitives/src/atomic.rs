@@ -1,5 +1,7 @@
 //! Contains wrappers above basic atomic, providing useful impls
 
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
 use core::{cmp, sync::atomic as core_atomic};
 
 use iroha_schema::IntoSchema;
