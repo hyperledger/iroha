@@ -17,14 +17,14 @@ fn main() {
     // TODO: check if this was causing the recursive loop.
     // println!("cargo:rerun-if-changed=..");
 
-    let fmt = Command::new("cargo")
-        // Removing environment variable to avoid
-        // `error: infinite recursion detected` when running `cargo lints`
-        .env_remove("RUST_RECURSION_COUNT")
+    let fmt = Command::new("rustfmt")
         .current_dir(smartcontract_path.clone())
-        .args(&["+nightly-2022-04-20", "fmt", "--all"])
+        .args(&[smartcontract_path
+            .join("src/lib.rs")
+            .to_str()
+            .expect("Can't convert smartcontract path to str")])
         .status()
-        .expect("Failed to run `cargo fmt` on smartcontract");
+        .expect("Failed to run `rustfmt` on smartcontract");
     assert!(fmt.success(), "Can't format smartcontract");
 
     let instrumenting_coverage = if let Ok(flags) = env::var("RUSTFLAGS") {
@@ -35,8 +35,8 @@ fn main() {
 
     if instrumenting_coverage {
         let build = Command::new("cargo")
-        // Removing environment variable to avoid
-        // `error: infinite recursion detected` when running `cargo lints`
+            // Removing environment variable to avoid
+            // `error: infinite recursion detected` when running `cargo lints`
             .env_remove("RUST_RECURSION_COUNT")
             .env("CARGO_TARGET_DIR", out_dir)
             .current_dir(smartcontract_path)
