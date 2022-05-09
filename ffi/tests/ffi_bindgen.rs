@@ -1,28 +1,43 @@
+#![allow(unsafe_code)]
+#![allow(clippy::restriction)]
+
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use iroha_ffi::{ffi_bindgen, FfiResult, Pair};
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Name(&'static str);
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Value(&'static str);
 
 const DEFAULT_PARAMS: [(Name, Value); 1] = [(Name("Nomen"), Value("Omen"))];
 
 #[ffi_bindgen]
+#[derive(getset::Getters)]
+#[getset(get = "pub")]
 pub struct FfiStruct {
     name: Name,
+    #[getset(skip)]
+    tokens: Vec<Value>,
+    #[getset(skip)]
     params: BTreeMap<Name, Value>,
 }
 
 #[ffi_bindgen]
 impl FfiStruct {
-    pub fn new(name: Name) -> Self {
+    pub fn new(name: impl Into<Name>) -> Self {
         Self {
-            name,
+            name: name.into(),
+            tokens: Vec::new(),
             params: BTreeMap::default(),
         }
     }
+    #[must_use]
+    pub fn with_tokens(mut self, tokens: impl IntoIterator<Item = impl Into<Value>>) -> Self {
+        self.tokens = tokens.into_iter().map(Into::into).collect();
+        self
+    }
+    #[must_use]
     pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
         self.params = params.into_iter().collect();
         self
@@ -50,6 +65,7 @@ fn get_new_struct() -> *mut FfiStruct {
     }
 }
 
+#[allow(trivial_casts)]
 fn get_new_struct_with_params() -> *mut FfiStruct {
     let ffi_struct = get_new_struct();
     let params_ffi: Vec<_> = DEFAULT_PARAMS
@@ -68,8 +84,30 @@ fn constructor() {
     let ffi_struct = get_new_struct();
 
     unsafe {
-        assert_eq!(Name("X"), (&*ffi_struct).name);
-        assert!((&*ffi_struct).params.is_empty());
+        assert_eq!(Name("X"), (*ffi_struct).name);
+        assert!((*ffi_struct).params.is_empty());
+        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
+    }
+}
+
+#[test]
+#[allow(trivial_casts)]
+fn into_iter_item_impl_into() {
+    let ffi_struct = get_new_struct();
+
+    let tokens = vec![Value("My omen"), Value("Your omen")];
+    let tokens_ffi: Vec<_> = tokens.iter().map(|t| t as *const _).collect();
+
+    unsafe {
+        assert_eq!(
+            FfiResult::Ok,
+            ffi_struct_with_tokens(ffi_struct, tokens_ffi.as_ptr(), tokens_ffi.len())
+        );
+
+        assert_eq!(2, (*ffi_struct).tokens.len());
+        assert_eq!((*ffi_struct).tokens, tokens);
+
+        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
     }
 }
 
@@ -78,8 +116,9 @@ fn builder_method() {
     let ffi_struct = get_new_struct_with_params();
 
     unsafe {
-        assert_eq!(1, (&*ffi_struct).params.len());
-        assert_eq!((&*ffi_struct).params, DEFAULT_PARAMS.into_iter().collect());
+        assert_eq!(1, (*ffi_struct).params.len());
+        assert_eq!((*ffi_struct).params, DEFAULT_PARAMS.into_iter().collect());
+        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
     }
 }
 
@@ -104,6 +143,7 @@ fn return_option() {
     unsafe {
         assert!(!param2.assume_init().is_null());
         assert_eq!(&Value("Omen"), &*param2.assume_init());
+        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
     }
 }
 
@@ -129,15 +169,17 @@ fn return_iterator() {
             .map(|&Pair(key, val)| (&*key, &*val))
             .eq(DEFAULT_PARAMS.iter().map(|pair| (&pair.0, &pair.1))));
 
+        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
         // TODO: Call FFI destructor for the received params vector
     }
 }
 
 #[test]
-fn drop_ffi_struct() {
+fn getset_getter() {
     let ffi_struct = get_new_struct_with_params();
 
     unsafe {
+        assert_eq!(Name("X"), *(*ffi_struct).name());
         assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
     }
 }

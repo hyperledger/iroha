@@ -1911,6 +1911,7 @@ dependencies = [
 name = "iroha_ffi"
 version = "2.0.0-pre-rc.4"
 dependencies = [
+ "getset",
  "iroha_ffi_derive",
 ]
 
