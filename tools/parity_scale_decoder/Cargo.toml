@@ -13,6 +13,7 @@ no-color = ["colored/no-color"]
 
 [dependencies]
 iroha_data_model = { version = "=2.0.0-pre-rc.4", path = "../../data_model", features = ["warp"]}
+iroha_data_primitives = { version = "=2.0.0-pre-rc.4", path = "../../data_model/primitives", default-features = false }
 iroha_schema = { version = "=2.0.0-pre-rc.4", path = "../../schema"}
 iroha_core = { version = "=2.0.0-pre-rc.4", path = "../../core"}
 iroha_crypto = { version = "=2.0.0-pre-rc.4", path = "../../crypto", default-features = false }

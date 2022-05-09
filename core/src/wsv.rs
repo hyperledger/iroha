@@ -16,7 +16,7 @@ use dashmap::{
 };
 use eyre::Result;
 use iroha_crypto::HashOf;
-use iroha_data_model::prelude::*;
+use iroha_data_model::{prelude::*, small::SmallVec};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Metrics;
 use tokio::task;
@@ -235,7 +235,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         if let Err(errors) = res {
             warn!(
                 ?errors,
-                "Some errors has occurred during triggers execution"
+                "The following errors have occurred during trigger execution"
             );
         }
 
@@ -418,46 +418,11 @@ impl<W: WorldTrait> WorldStateView<W> {
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
         let world_event = f(&self.world)?;
+        let data_events: SmallVec<[DataEvent; 3]> = world_event.into();
 
-        match world_event {
-            WorldEvent::Domain(domain_event) => {
-                match &domain_event {
-                    DomainEvent::Account(account_event) => {
-                        if let AccountEvent::Asset(asset_event) = account_event {
-                            let event = DataEvent::Asset(asset_event.clone());
-                            self.world.triggers.handle_data_event(&event);
-                            self.produce_event(event);
-                        }
-                        let event = DataEvent::Account(account_event.clone());
-                        self.world.triggers.handle_data_event(&event);
-                        self.produce_event(event);
-                    }
-                    DomainEvent::AssetDefinition(asset_definition_event) => {
-                        let event = DataEvent::AssetDefinition(asset_definition_event.clone());
-                        self.world.triggers.handle_data_event(&event);
-                        self.produce_event(event);
-                    }
-                    _ => (),
-                }
-                let event = DataEvent::Domain(domain_event);
-                self.world.triggers.handle_data_event(&event);
-                self.produce_event(event);
-            }
-            WorldEvent::Peer(peer_event) => {
-                let event = DataEvent::Peer(peer_event);
-                self.world.triggers.handle_data_event(&event);
-                self.produce_event(event);
-            }
-            WorldEvent::Role(role_event) => {
-                let event = DataEvent::Role(role_event);
-                self.world.triggers.handle_data_event(&event);
-                self.produce_event(event);
-            }
-            WorldEvent::Trigger(trigger_event) => {
-                let event = DataEvent::Trigger(trigger_event);
-                self.world.triggers.handle_data_event(&event);
-                self.produce_event(event);
-            }
+        for event in data_events {
+            self.world.triggers.handle_data_event(&event);
+            self.produce_event(event);
         }
 
         Ok(())

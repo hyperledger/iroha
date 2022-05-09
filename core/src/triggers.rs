@@ -12,12 +12,8 @@
 
 use std::{cmp::min, sync::Arc};
 
-use dashmap::{DashMap, DashSet};
-use iroha_data_model::{
-    events::Filter as _,
-    prelude::*,
-    trigger::{self, Action, Repeats, Trigger},
-};
+use dashmap::DashMap;
+use iroha_data_model::{events::Filter as _, prelude::*, trigger};
 use tokio::{sync::RwLock, task};
 
 use crate::smartcontracts::{self, FindError, InstructionType, MathError};
@@ -36,9 +32,10 @@ pub struct TriggerSet {
     time_triggers: DashMap<trigger::Id, Action<TimeEventFilter>>,
     /// Triggers using [`ExecuteTriggerEventFilter`]
     by_call_triggers: DashMap<trigger::Id, Action<ExecuteTriggerEventFilter>>,
-    /// Set of all ids. Used to check that every id is unique
-    ids: DashSet<trigger::Id>,
+    /// Trigger ids with type of events they process
+    ids: DashMap<trigger::Id, EventType>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
+    /// Vector is used to save the exact triggers order.
     /// Not being cloned
     matched_ids: RwLock<Vec<(EventType, trigger::Id)>>,
 }
@@ -62,7 +59,7 @@ impl TriggerSet {
     /// # Errors
     /// - If trigger with such id already exists
     pub fn add_data_trigger(&self, trigger: Trigger<DataEventFilter>) -> Result<()> {
-        self.add_to(trigger, &self.data_triggers)
+        self.add_to(trigger, EventType::Data, &self.data_triggers)
     }
 
     /// Add trigger with [`PipelineEventFilter`]
@@ -70,7 +67,7 @@ impl TriggerSet {
     /// # Errors
     /// - If trigger with such id already exists
     pub fn add_pipeline_trigger(&self, trigger: Trigger<PipelineEventFilter>) -> Result<()> {
-        self.add_to(trigger, &self.pipeline_triggers)
+        self.add_to(trigger, EventType::Pipeline, &self.pipeline_triggers)
     }
 
     /// Add trigger with [`TimeEventFilter`]
@@ -78,7 +75,7 @@ impl TriggerSet {
     /// # Errors
     /// - If trigger with such id already exists
     pub fn add_time_trigger(&self, trigger: Trigger<TimeEventFilter>) -> Result<()> {
-        self.add_to(trigger, &self.time_triggers)
+        self.add_to(trigger, EventType::Time, &self.time_triggers)
     }
 
     /// Add trigger with [`ExecuteTriggerEventFilter`]
@@ -86,7 +83,7 @@ impl TriggerSet {
     /// # Errors
     /// - If trigger with such id already exists
     pub fn add_by_call_trigger(&self, trigger: Trigger<ExecuteTriggerEventFilter>) -> Result<()> {
-        self.add_to(trigger, &self.by_call_triggers)
+        self.add_to(trigger, EventType::ExecuteTrigger, &self.by_call_triggers)
     }
 
     /// Add generic trigger to generic collection
@@ -96,6 +93,7 @@ impl TriggerSet {
     fn add_to<F: Filter>(
         &self,
         trigger: Trigger<F>,
+        event_type: EventType,
         map: &DashMap<trigger::Id, Action<F>>,
     ) -> Result<()> {
         if self.contains(&trigger.id) {
@@ -106,13 +104,13 @@ impl TriggerSet {
         }
 
         map.insert(trigger.id.clone(), trigger.action);
-        self.ids.insert(trigger.id);
+        self.ids.insert(trigger.id, event_type);
         Ok(())
     }
 
     /// Get all contained triggers ids without particular order
     pub fn ids(&self) -> Vec<trigger::Id> {
-        self.ids.iter().map(|entry| entry.clone()).collect()
+        self.ids.iter().map(|entry| entry.key().clone()).collect()
     }
 
     /// Apply `f` to the trigger identified by `id`
@@ -123,18 +121,31 @@ impl TriggerSet {
     where
         F: Fn(&dyn ActionTrait) -> R,
     {
-        if !self.contains(id) {
-            return Err(FindError::Trigger(id.clone()));
+        match self.ids.get(id) {
+            Some(event_type) => Ok(match event_type.value() {
+                EventType::Data => self
+                    .data_triggers
+                    .get(id)
+                    .map(|entry| f(entry.value()))
+                    .expect("`TriggerSet::data_triggers` doesn't contain required id. This is a bug"),
+                EventType::Pipeline => self
+                    .pipeline_triggers
+                    .get(id)
+                    .map(|entry| f(entry.value()))
+                    .expect("`TriggerSet::pipeline_triggers` doesn't contain required id. This is a bug"),
+                EventType::Time => self
+                    .time_triggers
+                    .get(id)
+                    .map(|entry| f(entry.value()))
+                    .expect("`TriggerSet::time_triggers` doesn't contain required id. This is a bug"),
+                EventType::ExecuteTrigger => self
+                    .by_call_triggers
+                    .get(id)
+                    .map(|entry| f(entry.value()))
+                    .expect("`TriggerSet::by_call_triggers` doesn't contain required id. This is a bug"),
+            }),
+            None => Err(FindError::Trigger(id.clone())),
         }
-
-        Ok(self
-            .data_triggers
-            .get(id)
-            .map(|entry| f(entry.value()))
-            .or_else(|| self.pipeline_triggers.get(id).map(|entry| f(entry.value())))
-            .or_else(|| self.time_triggers.get(id).map(|entry| f(entry.value())))
-            .or_else(|| self.by_call_triggers.get(id).map(|entry| f(entry.value())))
-            .expect("`TriggerSet` sub-sets doesn't have required id. This is a bug"))
     }
 
     /// Remove a trigger from the [`TriggerSet`].
@@ -142,28 +153,32 @@ impl TriggerSet {
     /// # Errors
     /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
     pub fn remove(&self, id: &trigger::Id) -> Result<()> {
-        if !self.contains(id) {
-            return Err(smartcontracts::Error::Repetition(
+        match self.ids.get(id) {
+            #[allow(clippy::unit_arg)]
+            Some(event_type) => Ok(match event_type.value() {
+                EventType::Data => self.data_triggers.remove(id).map(|_| ()).expect(
+                    "`TriggerSet::data_triggers` doesn't contain required id. This is a bug",
+                ),
+                EventType::Pipeline => self.pipeline_triggers.remove(id).map(|_| ()).expect(
+                    "`TriggerSet::pipeline_triggers` doesn't contain required id. This is a bug",
+                ),
+                EventType::Time => self.time_triggers.remove(id).map(|_| ()).expect(
+                    "`TriggerSet::time_triggers` doesn't contain required id. This is a bug",
+                ),
+                EventType::ExecuteTrigger => self.by_call_triggers.remove(id).map(|_| ()).expect(
+                    "`TriggerSet::by_call_triggers` doesn't contain required id. This is a bug",
+                ),
+            }),
+            None => Err(smartcontracts::Error::Repetition(
                 InstructionType::Unregister,
                 IdBox::TriggerId(id.clone()),
-            ));
+            )),
         }
-
-        self.data_triggers
-            .remove(id)
-            .map(|_| ())
-            .or_else(|| self.pipeline_triggers.remove(id).map(|_| ()))
-            .or_else(|| self.time_triggers.remove(id).map(|_| ()))
-            .or_else(|| self.by_call_triggers.remove(id).map(|_| ()))
-            .expect("`TriggerSet` sub-sets doesn't have required id. This is a bug");
-
-        self.ids.remove(id);
-        Ok(())
     }
 
     /// Check if [`TriggerSet`] contains `id`.
     pub fn contains(&self, id: &trigger::Id) -> bool {
-        self.ids.contains(id)
+        self.ids.contains_key(id)
     }
 
     /// Modify repetitions of the hook identified by [`trigger::Id`].

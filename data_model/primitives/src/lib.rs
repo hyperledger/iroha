@@ -12,5 +12,6 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+pub mod atomic;
 pub mod fixed;
 pub mod small;

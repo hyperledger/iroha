@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use iroha_core::*;
 use iroha_crypto::*;
 use iroha_data_model::{prelude::*, query::SignedQueryRequest, *};
+use iroha_data_primitives::atomic::*;
 use iroha_schema::IntoSchema;
 use iroha_version::*;
 
@@ -77,7 +78,7 @@ pub fn generate_map() -> DumpDecodedMap {
         AssetId,
         AssetValue,
         AssetValueType,
-        AtomicU32Wrapper,
+        AtomicU32,
         BTreeMap<AccountId, Account>,
         BTreeMap<AssetDefinitionId, AssetDefinitionEntry>,
         BTreeMap<AssetId, Asset>,

@@ -38,30 +38,26 @@ pub mod isi {
             wsv.modify_triggers(|triggers| {
                 let trigger_id = new_trigger.id.clone();
                 match &new_trigger.action.filter {
-                    FilterBox::Data(_) => {
-                        triggers.add_data_trigger(new_trigger.try_into().expect(
-                            "Can't convert `Trigger<FilterBox>` with `DataFilter` to \
-                                `Trigger<DataFilter>`. This is a bug",
-                        ))?
-                    }
-                    FilterBox::Pipeline(_) => {
-                        triggers.add_pipeline_trigger(new_trigger.try_into().expect(
-                            "Can't convert `Trigger<FilterBox>` with `PipelineFilter` to \
-                                `Trigger<PipelineFilter>`. This is a bug",
-                        ))?
-                    }
-                    FilterBox::Time(_) => {
-                        triggers.add_time_trigger(new_trigger.try_into().expect(
-                            "Can't convert `Trigger<FilterBox>` with `TimeFilter` to \
-                                `Trigger<TimeFilter>`. This is a bug",
-                        ))?
-                    }
-                    FilterBox::ExecuteTrigger(_) => {
-                        triggers.add_by_call_trigger(new_trigger.try_into().expect(
-                            "Can't convert `Trigger<FilterBox>` with `ExecuteTriggerFilter` to \
-                                `Trigger<ExecuteTriggerFilter>`. This is a bug",
-                        ))?
-                    }
+                    FilterBox::Data(_) => triggers.add_data_trigger(
+                        new_trigger
+                            .try_into()
+                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                    )?,
+                    FilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
+                        new_trigger
+                            .try_into()
+                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                    )?,
+                    FilterBox::Time(_) => triggers.add_time_trigger(
+                        new_trigger
+                            .try_into()
+                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                    )?,
+                    FilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
+                        new_trigger
+                            .try_into()
+                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                    )?,
                 }
                 Ok(TriggerEvent::Created(trigger_id))
             })
