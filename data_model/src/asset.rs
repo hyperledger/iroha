@@ -602,6 +602,6 @@ impl Display for Id {
 pub mod prelude {
     pub use super::{
         Asset, AssetDefinition, AssetDefinitionEntry, AssetValue, AssetValueType,
-        DefinitionId as AssetDefinitionId, Id as AssetId, Mintable, 
+        DefinitionId as AssetDefinitionId, Id as AssetId, Mintable,
     };
 }

@@ -342,12 +342,12 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    #[log]
     pub fn submit(
         &mut self,
         instruction: impl Into<Instruction> + Debug,
     ) -> Result<HashOf<VersionedTransaction>> {
-        self.submit_all(vec![instruction.into()])
+        let isi = instruction.into();
+        self.submit_all([isi])
     }
 
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
@@ -368,13 +368,12 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
-    #[log]
     pub fn submit_with_metadata(
         &mut self,
         instruction: Instruction,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
-        self.submit_all_with_metadata(vec![instruction], metadata)
+        self.submit_all_with_metadata([instruction], metadata)
     }
 
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
@@ -400,6 +399,7 @@ impl Client {
         &self,
         transaction: Transaction,
     ) -> Result<HashOf<VersionedTransaction>> {
+        iroha_logger::trace!(tx=?transaction);
         let (req, hash, resp_handler) =
             self.prepare_transaction_request::<DefaultRequestBuilder>(transaction)?;
         let response = req
@@ -611,7 +611,6 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    #[log]
     pub fn request_with_pagination<R>(
         &self,
         request: R,
@@ -621,6 +620,7 @@ impl Client {
         R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
+        iroha_logger::trace!(?request, %pagination);
         let (req, resp_handler) =
             self.prepare_query_request::<R, DefaultRequestBuilder>(request, pagination)?;
         let response = req.send()?;
@@ -631,7 +631,6 @@ impl Client {
     ///
     /// # Errors
     /// Fails if sending request fails
-    #[log]
     pub fn request<R>(&self, request: R) -> QueryHandlerResult<R::Output>
     where
         R: Query + Into<QueryBox> + Debug,
@@ -649,6 +648,7 @@ impl Client {
         &mut self,
         event_filter: FilterBox,
     ) -> Result<impl Iterator<Item = Result<Event>>> {
+        iroha_logger::trace!(?event_filter);
         EventIterator::new(
             &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
             event_filter,
@@ -793,6 +793,7 @@ impl Client {
     }
 
     /// Gets network status seen from the peer
+    ///
     /// # Errors
     /// Fails if sending request or decoding fails
     pub fn get_status(&self) -> Result<Status> {
