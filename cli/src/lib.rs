@@ -107,7 +107,10 @@ where
         query_validator: IsQueryAllowedBoxed<K::World>,
     ) -> Result<Self> {
         let broker = Broker::new();
-        let mut config = Configuration::from_path(&args.config_path)?;
+        let mut config = match Configuration::from_path(&args.config_path) {
+            Ok(config) => config,
+            Err(_) => Configuration::default(),
+        };
         config.load_environment()?;
 
         let genesis = G::from_configuration(
@@ -143,7 +146,9 @@ where
         broker: Broker,
     ) -> Result<Self> {
         if !config.disable_panic_terminal_colors {
-            color_eyre::install()?;
+            if let Err(e) = color_eyre::install() {
+                iroha_logger::error!("Tried to install eyre_hook twice: {:?}", e);
+            }
         }
         let telemetry = iroha_logger::init(&config.logger)?;
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");
