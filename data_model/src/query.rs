@@ -478,6 +478,30 @@ pub mod account {
         type Output = Vec<Account>;
     }
 
+    /// `FindAccountsWithAsset` Iroha Query will get `Asset`s id as input and
+    /// find all `Account`s storing that `Asset`.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindAccountsWithAsset {
+        /// `Id` of the asset which should be stored in founded accounts.
+        pub asset_id: EvaluatesTo<AssetId>,
+    }
+
+    impl Query for FindAccountsWithAsset {
+        type Output = Vec<Account>;
+    }
+
     impl FindAllAccounts {
         /// Construct [`FindAllAccounts`].
         pub const fn new() -> Self {
@@ -521,11 +545,19 @@ pub mod account {
         }
     }
 
+    impl FindAccountsWithAsset {
+        /// Construct [`FindAccountsWithAsset`].
+        pub fn new(asset_id: impl Into<EvaluatesTo<AssetId>>) -> Self {
+            let asset_id = asset_id.into();
+            FindAccountsWithAsset { asset_id }
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
             FindAccountById, FindAccountKeyValueByIdAndKey, FindAccountsByDomainId,
-            FindAccountsByName, FindAllAccounts,
+            FindAccountsByName, FindAccountsWithAsset, FindAllAccounts,
         };
     }
 }
