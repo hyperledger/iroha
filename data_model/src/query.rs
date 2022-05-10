@@ -478,8 +478,8 @@ pub mod account {
         type Output = Vec<Account>;
     }
 
-    /// `FindAccountsWithAsset` Iroha Query will get `Asset`s id as input and
-    /// find all `Account`s storing that `Asset`.
+    /// `FindAccountsWithAsset` Iroha Query will get `AssetDefinition`s id as input and
+    /// find all `Account`s storing `Asset` with such definition.
     #[derive(
         Debug,
         Clone,
@@ -494,8 +494,8 @@ pub mod account {
         IntoSchema,
     )]
     pub struct FindAccountsWithAsset {
-        /// `Id` of the asset which should be stored in founded accounts.
-        pub asset_id: EvaluatesTo<AssetId>,
+        /// `Id` of the definition of the asset which should be stored in founded accounts.
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
     }
 
     impl Query for FindAccountsWithAsset {
@@ -547,9 +547,11 @@ pub mod account {
 
     impl FindAccountsWithAsset {
         /// Construct [`FindAccountsWithAsset`].
-        pub fn new(asset_id: impl Into<EvaluatesTo<AssetId>>) -> Self {
-            let asset_id = asset_id.into();
-            FindAccountsWithAsset { asset_id }
+        pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+            let asset_definition_id = asset_definition_id.into();
+            FindAccountsWithAsset {
+                asset_definition_id,
+            }
         }
     }
 

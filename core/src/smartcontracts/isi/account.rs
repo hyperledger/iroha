@@ -363,23 +363,26 @@ pub mod query {
         #[log]
         #[metrics(+"find_accounts_with_asset")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
-            let asset_id = self
-                .asset_id
+            let asset_definition_id = self
+                .asset_definition_id
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            let domain_id = &asset_id.definition_id.domain_id;
+            let domain_id = &asset_definition_id.domain_id;
 
-            let mut found_accounts = Vec::new();
             wsv.map_domain(domain_id, |domain| {
-                domain
+                let found = domain
                     .accounts()
-                    .filter(|account| account.asset(&asset_id).is_some())
-                    .for_each(|account| found_accounts.push(account.clone()));
-                Ok(())
-            })?;
-
-            Ok(found_accounts)
+                    .filter(|account| {
+                        let asset_id =
+                            AssetId::new(asset_definition_id.clone(), account.id().clone());
+                        account.asset(&asset_id).is_some()
+                    })
+                    .cloned()
+                    .collect();
+                Ok(found)
+            })
+            .map_err(Into::into)
         }
     }
 }
