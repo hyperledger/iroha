@@ -8,6 +8,7 @@ edition = "2021"
 
 [features]
 default = []
+# Enable deadlock detection
 deadlock_detection = ["petgraph"]
 
 [dependencies]
