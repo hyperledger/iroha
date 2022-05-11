@@ -43,13 +43,13 @@ pub struct Torii<W: WorldTrait> {
 pub enum Error {
     /// Failed to execute or validate query
     #[error("Failed to execute or validate query")]
-    Query(#[source] query::Error),
+    Query(#[from] query::Error),
     /// Failed to decode transaction
     #[error("Failed to decode transaction")]
-    VersionedTransaction(#[source] iroha_version::error::Error),
+    VersionedTransaction(#[from] iroha_version::error::Error),
     /// Failed to accept transaction
     #[error("Failed to accept transaction: {0}")]
-    AcceptTransaction(eyre::Error),
+    AcceptTransaction(eyre::Report),
     /// Failed to get pending transaction
     #[error("Failed to get pending transactions: {0}")]
     RequestPendingTransactions(eyre::Error),
@@ -64,21 +64,21 @@ pub enum Error {
     TxTooBig,
     /// Error while getting or setting configuration
     #[error("Configuration error: {0}")]
-    Config(eyre::Error),
+    Config(eyre::Report),
     /// Failed to push into queue
     #[error("Failed to push into queue")]
     PushIntoQueue(#[source] Box<queue::Error>),
     #[cfg(feature = "telemetry")]
     /// Error while getting status
     #[error("Failed to get status")]
-    Status(#[source] iroha_actor::Error),
+    Status(#[from] iroha_actor::Error),
     /// Configuration change error.
     #[error("Attempt to change configuration failed. {0}")]
-    ConfigurationReload(#[source] iroha_config::runtime_upgrades::ReloadError),
+    ConfigurationReload(#[from] iroha_config::runtime_upgrades::ReloadError),
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
-    #[error("Failed to produce Prometheus metrics")]
-    Prometheus(#[source] eyre::Report),
+    #[error("Failed to produce Prometheus metrics. {0}")]
+    Prometheus(eyre::Report),
 }
 
 /// Status code for query error response.
@@ -136,12 +136,6 @@ impl Reply for Error {
 
 /// Result type
 pub type Result<T, E = Error> = std::result::Result<T, E>;
-
-impl From<iroha_config::runtime_upgrades::ReloadError> for Error {
-    fn from(err: iroha_config::runtime_upgrades::ReloadError) -> Self {
-        Self::ConfigurationReload(err)
-    }
-}
 
 #[cfg(test)]
 mod tests;

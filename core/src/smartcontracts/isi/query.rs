@@ -1,8 +1,6 @@
 //! Query functionality. The common error type is also defined here,
 //! alongside functions for converting them into HTTP responses.
 
-use std::{error::Error as StdError, fmt};
-
 use eyre::Result;
 use iroha_data_model::prelude::*;
 use iroha_schema::IntoSchema;
@@ -36,7 +34,11 @@ impl ValidQueryRequest {
 }
 
 /// Unsupported version error
-#[derive(Clone, Copy, Eq, PartialEq, Debug, Decode, Encode, IntoSchema)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Decode, Encode, IntoSchema, Error)]
+#[error(
+    "Unsupported version. Expected: {}, got: {version}",
+    Self::expected_version()
+)]
 pub struct UnsupportedVersionError {
     /// Version that we got
     pub version: u8,
@@ -49,40 +51,27 @@ impl UnsupportedVersionError {
     }
 }
 
-impl StdError for UnsupportedVersionError {}
-
-impl fmt::Display for UnsupportedVersionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Unsupported version. Expected version {}, got: {}",
-            Self::expected_version(),
-            self.version
-        )
-    }
-}
-
 /// Query errors.
 #[derive(Error, Debug, Clone, Decode, Encode, IntoSchema)]
 pub enum Error {
     /// Query can not be decoded.
     #[error("Query can not be decoded")]
-    Decode(#[source] Box<iroha_version::error::Error>),
+    Decode(#[from] Box<iroha_version::error::Error>),
     /// Query has unsupported version.
     #[error("Query has unsupported version")]
-    Version(#[source] UnsupportedVersionError),
+    Version(#[from] UnsupportedVersionError),
     /// Query has wrong signature.
-    #[error("Query has wrong signature: {0}")]
+    #[error("Query has the wrong signature: {0}")]
     Signature(String),
     /// Query is not allowed.
     #[error("Query is not allowed: {0}")]
     Permission(String),
     /// Query has wrong expression.
-    #[error("Query has wrong expression: {0}")]
+    #[error("Query has a malformed expression: {0}")]
     Evaluate(String),
     /// Query found nothing.
     #[error("Query found nothing: {0}")]
-    Find(#[source] Box<FindError>),
+    Find(#[from] Box<FindError>),
     /// Query found wrong type of asset.
     #[error("Query found wrong type of asset: {0}")]
     Conversion(String),

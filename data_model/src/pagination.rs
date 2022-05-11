@@ -3,6 +3,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    borrow::ToOwned as _,
     collections::btree_map,
     format,
     string::{String, ToString as _},
