@@ -46,6 +46,8 @@ pub enum QueryBox {
     FindAccountsByName(FindAccountsByName),
     /// [`FindAccountsByDomainId`] variant.
     FindAccountsByDomainId(FindAccountsByDomainId),
+    /// [`FindAccountsWithAsset`] variant.
+    FindAccountsWithAsset(FindAccountsWithAsset),
     /// [`FindAllAssets`] variant.
     FindAllAssets(FindAllAssets),
     /// [`FindAllAssetsDefinitions`] variant.
