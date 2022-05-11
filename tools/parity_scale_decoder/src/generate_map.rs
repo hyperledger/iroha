@@ -140,6 +140,7 @@ pub fn generate_map() -> DumpDecodedMap {
         FindAccountKeyValueByIdAndKey,
         FindAccountsByDomainId,
         FindAccountsByName,
+        FindAccountsWithAsset,
         FindAllAccounts,
         FindAllAssets,
         FindAllAssetsDefinitions,
