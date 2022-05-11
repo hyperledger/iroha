@@ -34,7 +34,7 @@ pub struct EventFilter {
     pub entity_kind: Option<EntityKind>,
     /// If `Some::<StatusKind>` filters by the [`StatusKind`]. If `None` accepts all the [`StatusKind`].
     pub status_kind: Option<StatusKind>,
-    /// If `Some::<Hash>` filters by the [`Hash`]. If `None` accepts all the [`Hash`].
+    /// If `Some::<Hash>` filters by the [`struct@Hash`]. If `None` accepts all the [`struct@Hash`].
     pub hash: Option<Hash>,
 }
 
@@ -62,7 +62,7 @@ impl EventFilter {
         self
     }
 
-    /// Filter by [`Hash`].
+    /// Filter by [`struct@Hash`].
     #[must_use]
     #[inline]
     pub const fn hash(mut self, hash: Hash) -> Self {
@@ -122,7 +122,7 @@ pub struct Event {
     pub entity_kind: EntityKind,
     /// [`Status`] of the entity that caused this [`Event`].
     pub status: Status,
-    /// [`Hash`] of the entity that caused this [`Event`].
+    /// [`struct@Hash`] of the entity that caused this [`Event`].
     pub hash: Hash,
 }
 
