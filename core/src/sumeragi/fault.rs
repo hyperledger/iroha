@@ -746,14 +746,15 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         let block = block.commit();
         let block_hash = block.hash();
 
+        if let Err(error) = self.wsv.apply(block.clone()).await {
+            warn!(?error, %block_hash, "Failed to apply block on WSV");
+        }
+
         for event in Vec::<Event>::from(&block) {
             trace!(?event);
             drop(self.events_sender.send(event));
         }
 
-        if let Err(error) = self.wsv.apply(block.clone()).await {
-            warn!(?error, %block_hash, "Failed to apply block on WSV");
-        }
         let previous_role = self.topology.role(&self.peer_id);
         self.topology.apply_block(block_hash);
         info!(
