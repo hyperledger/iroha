@@ -108,7 +108,7 @@ impl RequestBuilder for DefaultRequestBuilder {
 pub struct DefaultWebSocketRequestBuilder(Result<http::request::Builder>);
 
 impl DefaultWebSocketRequestBuilder {
-    /// Same as [`DefaultRequestBuilder::and_then()`].
+    /// Same as [`DefaultRequestBuilder::and_then`].
     fn and_then<F>(self, func: F) -> Self
     where
         F: FnOnce(http::request::Builder) -> Result<http::request::Builder>,

@@ -607,7 +607,7 @@ impl Client {
     /// Query API entry point. Requests queries from `Iroha` peers with pagination.
     ///
     /// Uses default blocking http-client. If you need some custom integration, look at
-    /// [`Self::prepare_query_request()`].
+    /// [`Self::prepare_query_request`].
     ///
     /// # Errors
     /// Fails if sending request fails
@@ -807,7 +807,7 @@ impl Client {
         resp_handler.handle(resp)
     }
 
-    /// Prepares http-request to implement [`Self::get_status()`] on your own.
+    /// Prepares http-request to implement [`Self::get_status`] on your own.
     ///
     /// For general usage example see [`Client::prepare_query_request`].
     ///

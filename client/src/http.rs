@@ -9,13 +9,13 @@ pub use http::{Method, Response, StatusCode};
 /// to the client that will fill it with data.
 ///
 /// The order of builder methods invocation is not strict. There is no guarantee that builder user calls
-/// all methods. Only [`RequestBuilder::new()`] is the required one.
+/// all methods. Only [`RequestBuilder::new`] is the required one.
 pub trait RequestBuilder {
     /// Entrypoint - create a new builder with specified method and URL.
     #[must_use]
     fn new(method: Method, url: impl AsRef<str>) -> Self;
 
-    /// Add multiple query params at once. Uses [`RequestBuilder::param()`] for each param.
+    /// Add multiple query params at once. Uses [`RequestBuilder::param`] for each param.
     #[must_use]
     fn params<P, K, V>(mut self, params: P) -> Self
     where
@@ -39,7 +39,7 @@ pub trait RequestBuilder {
         K: AsRef<str>,
         V: ToString;
 
-    /// Add multiple headers at once. Uses [`RequestBuilder::header()`] for each param.
+    /// Add multiple headers at once. Uses [`RequestBuilder::header`] for each param.
     #[must_use]
     fn headers<H, N, V>(mut self, headers: H) -> Self
     where
@@ -157,7 +157,7 @@ pub mod ws {
     /// the client library should provide an API wrapped into the flow traits. Anyway, firstly you should implement
     /// [`super::RequestBuilder`] trait for your transport.
     ///
-    /// Let's take Events API as an example. [`crate::client::Client::events_handler()`] function creates a struct of
+    /// Let's take Events API as an example. [`crate::client::Client::events_handler`] creates a struct of
     /// initial WS flow stage - [`crate::client::events_api::flow::Init`].
     /// Here is an example (oversimplified) of how you can use it:
     ///
