@@ -200,14 +200,14 @@ mod events {
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
             let filter = match self {
-                Args::Pipeline => EventFilter::Pipeline(PipelineEventFilter::new()),
-                Args::Data => EventFilter::Data(DataEventFilter::AcceptAll),
+                Args::Pipeline => FilterBox::Pipeline(PipelineEventFilter::new()),
+                Args::Data => FilterBox::Data(DataEventFilter::AcceptAll),
             };
             listen(filter, cfg)
         }
     }
 
-    pub fn listen(filter: EventFilter, cfg: &Configuration) -> Result<()> {
+    pub fn listen(filter: FilterBox, cfg: &Configuration) -> Result<()> {
         let mut iroha_client = Client::new(cfg)?;
         println!("Listening to events with filter: {:?}", filter);
         for event in iroha_client

@@ -2563,6 +2563,7 @@ dependencies = [
  "iroha_core",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_data_primitives",
  "iroha_schema",
  "iroha_schema_gen",
  "iroha_version",

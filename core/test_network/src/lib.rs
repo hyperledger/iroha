@@ -659,7 +659,7 @@ pub trait TestClient: Sized {
     ) -> Self;
 
     /// loops for events with filter and handler function
-    fn for_each_event(self, event_filter: EventFilter, f: impl Fn(Result<Event>));
+    fn for_each_event(self, event_filter: FilterBox, f: impl Fn(Result<Event>));
 
     /// Submits instruction with polling
     ///
@@ -830,7 +830,7 @@ impl TestClient for Client {
         Client::new(&configuration).expect("Invalid client configuration")
     }
 
-    fn for_each_event(mut self, event_filter: EventFilter, f: impl Fn(Result<Event>)) {
+    fn for_each_event(mut self, event_filter: FilterBox, f: impl Fn(Result<Event>)) {
         for event_result in self
             .listen_for_events(event_filter)
             .expect("Failed to create event iterator.")

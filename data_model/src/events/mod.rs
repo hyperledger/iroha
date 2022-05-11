@@ -3,7 +3,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
-use data::Filter;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use iroha_version::prelude::*;
@@ -83,7 +82,7 @@ impl VersionedEventSubscriberMessage {
 pub enum EventSubscriberMessage {
     /// Request sent by the client to subscribe to events.
     //TODO: Sign request?
-    SubscriptionRequest(EventFilter),
+    SubscriptionRequest(FilterBox),
     /// Acknowledgment of receiving event sent from the peer.
     EventReceived,
 }
@@ -99,6 +98,48 @@ pub enum Event {
     Time(time::Event),
     /// Trigger execution event.
     ExecuteTrigger(execute_trigger::Event),
+}
+
+/// Event type. Like [`Event`] but without actual event data
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, Hash)]
+pub enum EventType {
+    /// Pipeline event.
+    Pipeline,
+    /// Data event.
+    Data,
+    /// Time event.
+    Time,
+    /// Trigger execution event.
+    ExecuteTrigger,
+}
+
+/// Trait for filters
+pub trait Filter {
+    /// Type of event that can be filtered
+    type EventType;
+
+    /// Check if `item` matches filter
+    ///
+    /// Returns `true`, if `item` matches filter and `false` if not
+    fn matches(&self, event: &Self::EventType) -> bool;
+
+    /// Returns a number of times trigger should be executed for
+    ///
+    /// Used for time-triggers
+    fn count_matches(&self, event: &Self::EventType) -> u32 {
+        if self.matches(event) {
+            1
+        } else {
+            0
+        }
+    }
+
+    /// Check if filter is mintable.
+    ///
+    /// Returns `true` by default. Used for time-triggers
+    fn mintable(&self) -> bool {
+        true
+    }
 }
 
 /// Event filter.
@@ -118,7 +159,7 @@ pub enum Event {
     Serialize,
     Deserialize,
 )]
-pub enum EventFilter {
+pub enum FilterBox {
     /// Listen to pipeline events with filter.
     Pipeline(pipeline::EventFilter),
     /// Listen to data events with filter.
@@ -129,14 +170,16 @@ pub enum EventFilter {
     ExecuteTrigger(execute_trigger::EventFilter),
 }
 
-impl EventFilter {
+impl Filter for FilterBox {
+    type EventType = Event;
+
     /// Apply filter to event.
-    pub fn matches(&self, event: &Event) -> bool {
+    fn matches(&self, event: &Event) -> bool {
         match (event, self) {
-            (Event::Pipeline(event), EventFilter::Pipeline(filter)) => filter.matches(event),
-            (Event::Data(event), EventFilter::Data(filter)) => filter.matches(event),
-            (Event::Time(event), EventFilter::Time(filter)) => filter.count_matches(event) > 0,
-            (Event::ExecuteTrigger(event), EventFilter::ExecuteTrigger(filter)) => {
+            (Event::Pipeline(event), FilterBox::Pipeline(filter)) => filter.matches(event),
+            (Event::Data(event), FilterBox::Data(filter)) => filter.matches(event),
+            (Event::Time(event), FilterBox::Time(filter)) => filter.matches(event),
+            (Event::ExecuteTrigger(event), FilterBox::ExecuteTrigger(filter)) => {
                 filter.matches(event)
             }
             _ => false,
@@ -148,7 +191,7 @@ impl EventFilter {
 pub mod prelude {
     pub use super::{
         data::prelude::*, execute_trigger::prelude::*, pipeline::prelude::*, time::prelude::*,
-        Event, EventFilter, EventPublisherMessage, EventSubscriberMessage,
+        Event, EventPublisherMessage, EventSubscriberMessage, EventType, Filter, FilterBox,
         VersionedEventPublisherMessage, VersionedEventSubscriberMessage,
     };
 }

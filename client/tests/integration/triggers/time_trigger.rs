@@ -47,7 +47,7 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
             Executable::from(vec![instruction.into()]),
             Repeats::Indefinitely,
             account_id.clone(),
-            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+            FilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -97,9 +97,9 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
         "change_rose_metadata".parse().expect("Valid"),
         Action::new(
             Executable::from(vec![instruction.into()]),
-            Repeats::Exactly(1),
+            Repeats::from(1_u32),
             account_id.clone(),
-            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+            FilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -139,12 +139,12 @@ fn pre_commit_trigger_should_be_executed() -> Result<()> {
             Executable::from(vec![instruction.into()]),
             Repeats::Indefinitely,
             account_id.clone(),
-            EventFilter::Time(TimeEventFilter(ExecutionTime::PreCommit)),
+            FilterBox::Time(TimeEventFilter(ExecutionTime::PreCommit)),
         ),
     ));
     test_client.submit(register_trigger)?;
 
-    let block_filter = EventFilter::Pipeline(
+    let block_filter = FilterBox::Pipeline(
         PipelineEventFilter::new()
             .entity_kind(PipelineEntityKind::Block)
             .status_kind(PipelineStatusKind::Committed),
@@ -217,7 +217,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
             Executable::Wasm(WasmSmartContract { raw_data: wasm }),
             Repeats::Indefinitely,
             alice_id.clone(),
-            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
+            FilterBox::Time(TimeEventFilter(ExecutionTime::Schedule(schedule))),
         ),
     ));
     test_client.submit(register_trigger)?;
@@ -268,7 +268,7 @@ fn submit_sample_isi_on_every_block_commit(
     times: usize,
 ) -> Result<()> {
     let block_filter =
-        EventFilter::Pipeline(PipelineEventFilter::new().entity_kind(PipelineEntityKind::Block));
+        FilterBox::Pipeline(PipelineEventFilter::new().entity_kind(PipelineEntityKind::Block));
     for _ in test_client
         .listen_for_events(block_filter)?
         .filter(|event| {
