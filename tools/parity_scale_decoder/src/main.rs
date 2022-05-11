@@ -225,7 +225,7 @@ mod tests {
             vec![MintBox::new(1_u32, rose_id).into()],
             Repeats::Indefinitely,
             account_id,
-            EventFilter::Data(DataEventFilter::BySome(DataEntityFilter::ByAccount(
+            FilterBox::Data(DataEventFilter::BySome(DataEntityFilter::ByAccount(
                 AcceptAll,
             ))),
         );
@@ -233,7 +233,7 @@ mod tests {
 
         decode_sample(
             "trigger.bin",
-            String::from("iroha_data_model::trigger::Trigger"),
+            String::from("iroha_data_model::trigger::Trigger<iroha_data_model::events::FilterBox>"),
             &trigger,
         );
     }
