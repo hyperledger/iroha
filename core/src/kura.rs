@@ -311,6 +311,9 @@ pub enum Error {
     InconsequentialBlockWrite,
 }
 
+/// Maximum length for block file paths
+const FILENAME_MAX_LENGTH: usize = 6;
+
 impl<IO: DiskIO> BlockStore<IO> {
     /// Initialize block storage at `path`.
     ///
@@ -350,8 +353,8 @@ impl<IO: DiskIO> BlockStore<IO> {
     /// - Filesystem access failure (HW or permissions)
     ///
     pub async fn get_block_path(&self, block_height: NonZeroU64) -> Result<PathBuf> {
-        let filename = self.get_block_filename(block_height).await?;
-        Ok(self.path.join(filename))
+        let file_string = self.get_block_filename(block_height).await?;
+        Ok(self.filename_to_path(&file_string))
     }
 
     /// Append block to latest (or new) file on the disk.
@@ -366,12 +369,17 @@ impl<IO: DiskIO> BlockStore<IO> {
         block: &VersionedCommittedBlock,
     ) -> Result<HashOf<VersionedCommittedBlock>> {
         let height = NonZeroU64::new(block.header().height).ok_or(Error::ZeroBlock)?;
-        let path = self.get_block_path(height).await?;
+        let file_path = self.get_block_path(height).await?;
+
+        let mut dir_path = file_path.clone();
+        dir_path.pop();
+
+        fs::create_dir_all(dir_path).await?;
         let mut file = BufWriter::new(
             fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(path)
+                .open(&file_path)
                 .await?,
         );
         let hash = block.hash();
@@ -421,6 +429,25 @@ impl<IO: DiskIO> BlockStore<IO> {
         }
     }
 
+    #[allow(clippy::useless_let_if_seq)]
+    fn filename_to_path(&self, file_string: &str) -> PathBuf {
+        let dir_name;
+        let file_name;
+        if file_string.len() > FILENAME_MAX_LENGTH {
+            let (a, b) = file_string.split_at(file_string.len() - FILENAME_MAX_LENGTH);
+            dir_name = a.to_owned();
+            file_name = b.to_owned();
+        } else {
+            dir_name = "0".to_owned();
+            file_name = format!(
+                "{}{}",
+                "0".repeat(FILENAME_MAX_LENGTH - file_string.len()),
+                file_string
+            );
+        }
+        self.path.join(dir_name).join(file_name)
+    }
+
     /// Returns a stream of deserialized blocks that in order of reading from sorted storage files
     ///
     /// # Errors
@@ -429,15 +456,20 @@ impl<IO: DiskIO> BlockStore<IO> {
     ///
     pub async fn read_all(
         &self,
-    ) -> Result<impl Stream<Item = Result<VersionedCommittedBlock>> + 'static> {
+    ) -> Result<impl Stream<Item = Result<VersionedCommittedBlock>> + '_> {
         let io = self.io.clone();
         let base_indices = storage_files_base_indices(&self.path, &self.io).await?;
-        let dir_path = self.path.clone();
-        let result = tokio_stream::iter(base_indices)
-            .map(move |e| dir_path.join(e.to_string()))
+        let mut files = Vec::new();
+        for index in &base_indices {
+            files.push(self.filename_to_path(&index.to_string()));
+        }
+
+        let result = tokio_stream::iter(files)
+            .map(move |e| e)
             .then(move |e| {
                 let io = io.clone();
-                async move { io.open(e.into_os_string()).await }
+                // async move { io.open(e.into_os_string()).await }
+                async move { io.open(e.into()).await }
             })
             .map_ok(BufReader::new)
             .map_ok(Self::read_file)
@@ -463,15 +495,35 @@ async fn storage_files_base_indices<IO: DiskIO>(
     path: &Path,
     io: &IO,
 ) -> Result<BTreeSet<NonZeroU64>> {
-    let bases = io
+    let dirs: Vec<(String, IO::Dir)> = io
         .read_dir(path.to_path_buf())
         .await?
         .filter_map(|item| async {
-            item.ok()
-                .and_then(|e| e.to_string_lossy().parse::<NonZeroU64>().ok())
+            if let Ok(item) = item {
+                let dir_name = item.to_string_lossy().into_owned();
+                match io.read_dir(path.join(dir_name.clone())).await {
+                    Ok(v) => Some((dir_name, v)),
+                    Err(_) => None,
+                }
+            } else {
+                None
+            }
         })
-        .collect::<BTreeSet<_>>()
+        .collect()
         .await;
+
+    let mut bases = BTreeSet::<NonZeroU64>::new();
+    for (dir_string, dir) in dirs {
+        let files_vec: Vec<io::Result<OsString>> = dir.collect().await;
+        for file_string in files_vec.into_iter().flatten() {
+            let maybe_num =
+                format!("{}{}", dir_string, file_string.to_string_lossy()).parse::<NonZeroU64>();
+            if let Ok(num) = maybe_num {
+                bases.insert(num);
+            }
+        }
+    }
+
     Ok(bases)
 }
 
@@ -610,6 +662,44 @@ mod tests {
 
     use super::*;
     use crate::{sumeragi::view_change, tx::TransactionValidator, wsv::World};
+
+    #[tokio::test]
+    async fn no_checkin_display_filenames() {
+        let dir = tempfile::tempdir().unwrap();
+        let block_store = BlockStore::new(
+            dir.path(),
+            NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),
+            DefaultIO,
+        )
+        .await
+        .unwrap();
+        let n = 210;
+        let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
+        let mut block = PendingBlock::new(Vec::new(), Vec::new())
+            .chain_first()
+            .validate(&get_transaction_validator())
+            .sign(keypair.clone())
+            .expect("Failed to sign blocks.")
+            .commit();
+        for height in 1_u64..=n {
+            let file_path = block_store
+                .get_block_path(NonZeroU64::new(height).unwrap())
+                .await
+                .unwrap();
+
+            println!("{} - {:?}", height, file_path);
+            let hash = block_store
+                .write(&block)
+                .await
+                .expect("Failed to write block to file.");
+            block = PendingBlock::new(Vec::new(), Vec::new())
+                .chain(height, hash, view_change::ProofChain::empty(), Vec::new())
+                .validate(&get_transaction_validator())
+                .sign(keypair.clone())
+                .expect("Failed to sign blocks.")
+                .commit();
+        }
+    }
 
     const TEST_STORAGE_FILE_SIZE: u64 = 3_u64;
 
@@ -839,7 +929,12 @@ mod tests {
         )
         .await
         .unwrap();
-        let written = fs::write(dir.path().join("1"), vec![1; 40]).await;
+        fs::DirBuilder::new()
+            .recursive(true)
+            .create(&dir.path().join("0"))
+            .await
+            .unwrap();
+        let written = fs::write(dir.path().join("0/01"), vec![1; 40]).await;
         assert!(matches!(written, Ok(_)));
         let expected_read_fail = block_store
             .read_all()
@@ -915,21 +1010,57 @@ mod tests {
             type Dir = futures::stream::Iter<std::vec::IntoIter<io::Result<OsString>>>;
             type File = UnreliableFile;
 
-            async fn read_dir(&self, _path: PathBuf) -> io::Result<Self::Dir> {
-                Ok(futures::stream::iter(
-                    self.files
-                        .keys()
-                        .cloned()
-                        .map(Ok)
-                        .collect::<Vec<_>>()
-                        .into_iter(),
-                ))
+            #[allow(clippy::unnecessary_unwrap, clippy::needless_collect)]
+            async fn read_dir(&self, path: PathBuf) -> io::Result<Self::Dir> {
+                let mut path_str = path.to_str().ok_or(io::ErrorKind::InvalidInput)?;
+                let path_string;
+                if !path_str.ends_with('/') {
+                    path_string = format!("{}/", path_str);
+                    path_str = &path_string;
+                }
+
+                let mut already_included_directories = Vec::new();
+
+                let directories_maybe = self
+                    .files
+                    .keys()
+                    .cloned()
+                    .map(|file_os_string| {
+                        let file_str = file_os_string.to_str();
+                        if file_str.is_some() && file_str.unwrap().starts_with(path_str) {
+                            let path_buf: PathBuf =
+                                file_str.unwrap().strip_prefix(path_str).unwrap().into();
+
+                            // Get the furthest to the left component of the path left
+                            // after we remove the directory.
+                            match path_buf.components().next() {
+                                Some(top_borrowed) => {
+                                    let top = top_borrowed.as_os_str().to_owned();
+                                    if already_included_directories.contains(&top) {
+                                        let error = std::io::Error::from_raw_os_error(44);
+                                        Err(error)
+                                    } else {
+                                        already_included_directories.push(top.clone());
+                                        Ok(top.as_os_str().into())
+                                    }
+                                }
+                                None => {
+                                    let error = std::io::Error::from_raw_os_error(43);
+                                    Err(error)
+                                }
+                            }
+                        } else {
+                            let error = std::io::Error::from_raw_os_error(42);
+                            Err(error)
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                Ok(futures::stream::iter(directories_maybe.into_iter()))
             }
 
             async fn open(&self, path: OsString) -> io::Result<Self::File> {
-                PathBuf::from(path)
-                    .file_name()
-                    .and_then(|e| self.files.get(e))
+                self.files
+                    .get(&path)
                     .map(Arc::clone)
                     .map(Self::File::open)
                     .unwrap()
@@ -942,7 +1073,7 @@ mod tests {
             NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),
             UnreliableIO {
                 files: vec![(
-                    "1".into(),
+                    "dir/0/000001".into(),
                     Arc::new(vec![
                         Ok(vec![122, 0, 0, 0, 0, 0, 0, 0]),
                         Err(io::ErrorKind::TimedOut),
