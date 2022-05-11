@@ -27,14 +27,7 @@ fn main() {
         .expect("Failed to run `rustfmt` on smartcontract");
     assert!(fmt.success(), "Can't format smartcontract");
 
-    let instrumenting_coverage = if let Ok(flags) = env::var("RUSTFLAGS") {
-        flags.contains("instrument-coverage")
-    } else {
-        false
-    };
-
-    if instrumenting_coverage {
-        let build = Command::new("cargo")
+    let build = Command::new("cargo")
             // Removing environment variable to avoid
             // `error: infinite recursion detected` when running `cargo lints`
             .env_remove("RUST_RECURSION_COUNT")
@@ -53,6 +46,5 @@ fn main() {
             ])
             .status()
             .expect("Failed to run `cargo build` on smartcontract");
-        assert!(build.success(), "Can't build smartcontract")
-    }
+    assert!(build.success(), "Can't build smartcontract")
 }
