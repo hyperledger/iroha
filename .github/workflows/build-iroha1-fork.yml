@@ -79,7 +79,6 @@ jobs:
     environment: test-env
     runs-on: ubuntu-20.04
     needs: check_if_pull_request_comes_from_fork
-    if: ${{ (github.event_name != 'comment') || ( github.event.comment && github.event.issue.pull_request && startsWith(github.event.comment.body, '/build') ) }}
     steps:
       - name: Show context
         run: |
@@ -106,12 +105,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      - name: Generate matrix for build triggered by chat-ops - comment to PR
-        if: github.event.issue.pull_request && github.event.comment
-        id: comment_body
-        run: echo "${{github.event.comment.body}}" >/tmp/comment_body
       - name: Generate default matrix for regular builds
-        if: ${{ steps.comment_body.outcome == 'skipped' }} ## i.e. not github.event.issue.pull_request
         run: |
           set -x
           git fetch origin ${{github.event.pull_request.head.sha}} --depth=2  ## depth=2 to detect if fetched commit is merge commit

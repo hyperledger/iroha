@@ -33,7 +33,7 @@ jobs:
     name: Pull requests from forks should use this workflow 
     if: github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
-      -
+      - &step_show_context
         name: Show context
         run: |
           echo "::group::GitHub context"
@@ -89,23 +89,8 @@ jobs:
     environment: test-env
     runs-on: ubuntu-20.04
     needs: check_if_pull_request_comes_from_fork
-    if: ${{ (github.event_name != 'comment') || ( github.event.comment &&
-          github.event.issue.pull_request &&
-          startsWith(github.event.comment.body, '/build') ) }}
     steps:
-      - &step_show_context
-        name: Show context
-        run: |
-          echo "::group::GitHub context"
-          cat <<'END'
-          ${{ toJson(github) }}
-          END
-          echo "::endgroup::"
-          echo "::group::GitHub needs"
-          cat <<'END'
-          ${{ toJson(needs) }}
-          END
-          echo "::endgroup::"
+      - *step_show_context
       - &step_detect_commented_pr
         name: REF and SHA of commented PR to ENV
         if: github.event.comment
@@ -119,13 +104,7 @@ jobs:
               "PR_REPO="+.head.repo.full_name' >>$GITHUB_ENV
       - *step_checkout_head
       -
-        name: Generate matrix for build triggered by chat-ops - comment to PR
-        if: github.event.issue.pull_request && github.event.comment
-        id: comment_body
-        run: echo "${{github.event.comment.body}}" >/tmp/comment_body
-      -
         name: Generate default matrix for regular builds
-        if: ${{ steps.comment_body.outcome == 'skipped' }}  ## i.e. not github.event.issue.pull_request
         run: |
           set -x
           git fetch origin ${{github.event.pull_request.head.sha}} --depth=2  ## depth=2 to detect if fetched commit is merge commit
