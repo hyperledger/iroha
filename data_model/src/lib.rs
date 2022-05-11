@@ -12,6 +12,7 @@ use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
 use derive_more::Display;
+use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_data_primitives::small::SmallVec;
 pub use iroha_data_primitives::{fixed, small};
@@ -284,7 +285,7 @@ pub enum IdBox {
     /// [`PeerId`](`peer::Id`) variant.
     PeerId(<peer::Peer as Identifiable>::Id),
     /// [`TriggerId`](trigger::Id) variant.
-    TriggerId(<trigger::Trigger as Identifiable>::Id),
+    TriggerId(<trigger::Trigger<FilterBox> as Identifiable>::Id),
     /// [`RoleId`](`role::Id`) variant.
     RoleId(<role::Role as Identifiable>::Id),
 }
@@ -316,7 +317,7 @@ pub enum RegistrableBox {
     /// [`Asset`](`asset::Asset`) variant.
     Asset(Box<<asset::Asset as Identifiable>::RegisteredWith>),
     /// [`Trigger`](`trigger::Trigger`) variant.
-    Trigger(Box<<trigger::Trigger as Identifiable>::RegisteredWith>),
+    Trigger(Box<<trigger::Trigger<FilterBox> as Identifiable>::RegisteredWith>),
     /// [`Role`](`role::Role`) variant.
     Role(Box<<role::Role as Identifiable>::RegisteredWith>),
 }
@@ -352,7 +353,7 @@ pub enum IdentifiableBox {
     /// [`Asset`](`asset::Asset`) variant.
     Asset(Box<asset::Asset>),
     /// [`Trigger`](`trigger::Trigger`) variant.
-    Trigger(Box<trigger::Trigger>),
+    Trigger(Box<trigger::Trigger<FilterBox>>),
     /// [`Role`](`role::Role`) variant.
     Role(Box<role::Role>),
 }
@@ -541,7 +542,7 @@ from_and_try_from_value_identifiablebox!(
     Account(Box<account::Account>),
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
-    Trigger(Box<trigger::Trigger>),
+    Trigger(Box<trigger::Trigger<FilterBox>>),
 );
 
 from_and_try_from_value_identifiablebox!(Role(Box<role::Role>),);
@@ -554,7 +555,7 @@ from_and_try_from_value_identifiable!(
     Account(Box<account::Account>),
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
-    Trigger(Box<trigger::Trigger>),
+    Trigger(Box<trigger::Trigger<FilterBox>>),
 );
 
 from_and_try_from_value_identifiable!(Role(Box<role::Role>),);

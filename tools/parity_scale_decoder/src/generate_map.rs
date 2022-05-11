@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use iroha_core::*;
 use iroha_crypto::*;
 use iroha_data_model::{prelude::*, query::SignedQueryRequest, *};
+use iroha_data_primitives::atomic::*;
 use iroha_schema::IntoSchema;
 use iroha_version::*;
 
@@ -61,7 +62,7 @@ pub fn generate_map() -> DumpDecodedMap {
         AccountEventFilter,
         AccountFilter,
         AccountId,
-        Action,
+        Action<FilterBox>,
         Add,
         And,
         Asset,
@@ -77,6 +78,7 @@ pub fn generate_map() -> DumpDecodedMap {
         AssetId,
         AssetValue,
         AssetValueType,
+        AtomicU32,
         BTreeMap<AccountId, Account>,
         BTreeMap<AssetDefinitionId, AssetDefinitionEntry>,
         BTreeMap<AssetId, Asset>,
@@ -262,7 +264,7 @@ pub fn generate_map() -> DumpDecodedMap {
         TransactionRejectionReason,
         TransactionValue,
         TransferBox,
-        Trigger,
+        Trigger<FilterBox>,
         TriggerEvent,
         TriggerEventFilter,
         TriggerFilter,
@@ -310,7 +312,7 @@ pub fn generate_map() -> DumpDecodedMap {
         domain::NewDomain,
         error::Error,
         events::Event,
-        events::EventFilter,
+        events::FilterBox,
         events::EventPublisherMessage,
         events::EventSubscriberMessage,
         events::VersionedEventPublisherMessage,

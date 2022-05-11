@@ -4,26 +4,6 @@
 use iroha_data_model::prelude::*;
 use iroha_telemetry::metrics;
 
-/// Trait to check if [`Action`] should be executed at exact time or not.
-/// Implemented as a trait and not as basic method, cause it is needed only inside this module.
-trait OccursExactlyAtTime {
-    /// Check if action occurs exactly at set time.
-    /// Returns `true` if yes and `false` in another case
-    fn occurs_exactly_at_time(&self) -> bool;
-}
-
-impl OccursExactlyAtTime for Action {
-    fn occurs_exactly_at_time(&self) -> bool {
-        matches!(
-            self.filter,
-            EventFilter::Time(TimeEventFilter(ExecutionTime::Schedule(TimeSchedule {
-                period: None,
-                ..
-            })))
-        )
-    }
-}
-
 /// All instructions related to triggers.
 /// - registering a trigger
 /// - un-registering a trigger
@@ -34,10 +14,11 @@ pub mod isi {
 
     use super::{super::prelude::*, *};
 
-    impl<W: WorldTrait> Execute<W> for Register<Trigger> {
+    impl<W: WorldTrait> Execute<W> for Register<Trigger<FilterBox>> {
         type Error = Error;
 
         #[metrics(+"register_trigger")]
+        #[allow(clippy::expect_used)]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
@@ -45,21 +26,45 @@ pub mod isi {
         ) -> Result<(), Self::Error> {
             let new_trigger = self.object;
 
-            if new_trigger.action.occurs_exactly_at_time()
-                && !matches!(&new_trigger.action.repeats, Repeats::Exactly(1))
-            {
-                return Err(Error::Math(MathError::Overflow));
+            if !new_trigger.action.mintable() {
+                match &new_trigger.action.repeats {
+                    Repeats::Exactly(action) if action.get() == 1 => (),
+                    _ => {
+                        return Err(Error::Math(MathError::Overflow));
+                    }
+                }
             }
 
             wsv.modify_triggers(|triggers| {
                 let trigger_id = new_trigger.id.clone();
-                triggers.add(new_trigger)?;
+                match &new_trigger.action.filter {
+                    FilterBox::Data(_) => triggers.add_data_trigger(
+                        new_trigger
+                            .try_into()
+                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                    )?,
+                    FilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
+                        new_trigger
+                            .try_into()
+                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                    )?,
+                    FilterBox::Time(_) => triggers.add_time_trigger(
+                        new_trigger
+                            .try_into()
+                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                    )?,
+                    FilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
+                        new_trigger
+                            .try_into()
+                            .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
+                    )?,
+                }
                 Ok(TriggerEvent::Created(trigger_id))
             })
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Unregister<Trigger> {
+    impl<W: WorldTrait> Execute<W> for Unregister<Trigger<FilterBox>> {
         type Error = Error;
 
         #[metrics(+"unregister_trigger")]
@@ -76,7 +81,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Mint<Trigger, u32> {
+    impl<W: WorldTrait> Execute<W> for Mint<Trigger<FilterBox>, u32> {
         type Error = Error;
 
         #[metrics(+"mint_trigger_repetitions")]
@@ -88,10 +93,13 @@ pub mod isi {
             let id = self.destination_id;
 
             wsv.modify_triggers(|triggers| {
-                let action = triggers.get(&id)?;
-                if action.occurs_exactly_at_time() {
-                    return Err(MathError::Overflow.into());
-                }
+                triggers.inspect(&id, |action| -> Result<(), Self::Error> {
+                    if action.mintable() {
+                        Ok(())
+                    } else {
+                        Err(MathError::Overflow.into())
+                    }
+                })??;
 
                 triggers.mod_repeats(&id, |n| {
                     n.checked_add(self.object).ok_or(MathError::Overflow)
@@ -101,7 +109,7 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Burn<Trigger, u32> {
+    impl<W: WorldTrait> Execute<W> for Burn<Trigger<FilterBox>, u32> {
         type Error = Error;
 
         #[metrics(+"burn_trigger_repetitions")]
@@ -151,7 +159,7 @@ pub mod query {
         #[log]
         #[metrics(+"find_all_active_triggers")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
-            Ok(wsv.world.triggers.clone().into())
+            Ok(wsv.world.triggers.clone().ids())
         }
     }
 
@@ -163,13 +171,16 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::new())
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {}", e)))?;
-            let action = wsv.world.triggers.get(&id)?;
+
+            // Can't use just `ActionTrait::clone_and_box` cause this will trigger lifetime mismatch
+            #[allow(clippy::redundant_closure_for_method_calls)]
+            let action = wsv
+                .world
+                .triggers
+                .inspect(&id, |action| action.clone_and_box())?;
 
             // TODO: Should we redact the metadata if the account is not the technical account/owner?
-            Ok(Trigger {
-                id,
-                action: action.clone(),
-            })
+            Ok(Trigger::<FilterBox>::new(id, action))
         }
     }
 
@@ -181,16 +192,17 @@ pub mod query {
                 .id
                 .evaluate(wsv, &Context::new())
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {}", e)))?;
-            let action = wsv.world.triggers.get(&id)?;
             let key = self
                 .key
                 .evaluate(wsv, &Context::new())
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {}", e)))?;
-            action
-                .metadata
-                .get(&key)
-                .map(Clone::clone)
-                .ok_or_else(|| FindError::MetadataKey(key).into())
+            wsv.world.triggers.inspect(&id, |action| {
+                action
+                    .metadata()
+                    .get(&key)
+                    .map(Clone::clone)
+                    .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
+            })?
         }
     }
 }

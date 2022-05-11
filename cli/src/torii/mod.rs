@@ -20,7 +20,7 @@ use warp::{
     reject::Rejection,
     reply::{self, Json, Response},
     ws::{WebSocket, Ws},
-    Filter, Reply,
+    Filter as _, Reply,
 };
 
 #[macro_use]

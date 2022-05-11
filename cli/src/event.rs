@@ -20,7 +20,7 @@ pub enum Error {
     Stream(Box<StreamError>),
     /// Error from converting received message to filter
     #[error("Can't retrieve subscription filter: {0}")]
-    CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriberMessage, EventFilter>),
+    CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriberMessage, FilterBox>),
     /// Error, that occurs when client answered not with `EventReceived` message
     #[error("Got unexpected response. Expected `EventReceived`")]
     ExpectedEventReceived,
@@ -47,7 +47,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Debug)]
 pub struct Consumer {
     stream: WebSocket,
-    filter: EventFilter,
+    filter: FilterBox,
 }
 
 impl Consumer {

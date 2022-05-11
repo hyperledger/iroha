@@ -744,7 +744,7 @@ fn hash_should_be_the_same() {
 
 #[tokio::test]
 async fn test_subscription_websocket_clean_closing() {
-    use iroha_data_model::events::{pipeline, EventFilter};
+    use iroha_data_model::events::{pipeline, FilterBox};
     use warp::filters::ws;
 
     use crate::stream::{Sink, Stream};
@@ -759,9 +759,8 @@ async fn test_subscription_websocket_clean_closing() {
         .unwrap();
 
     // Subscribing
-    let event_filter = EventFilter::Pipeline(
-        pipeline::EventFilter::new().entity_kind(pipeline::EntityKind::Block),
-    );
+    let event_filter =
+        FilterBox::Pipeline(pipeline::EventFilter::new().entity_kind(pipeline::EntityKind::Block));
     let subscribe_message = VersionedEventSubscriberMessage::from(
         EventSubscriberMessage::SubscriptionRequest(event_filter),
     );

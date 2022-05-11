@@ -38,6 +38,18 @@ macro_rules! entity_filter {
                     event_filter,
                 }
             }
+
+            /// Get `id_filter`
+            #[inline]
+            pub const fn id_filter(&self) -> &FilterOpt<IdFilter<<$entity_type as IdTrait>::Id>> {
+                &self.id_filter
+            }
+
+            /// Get `event_filter`
+            #[inline]
+            pub const fn event_filter(&self) -> &FilterOpt<$event_filter_type> {
+                &self.event_filter
+            }
         }
 
         impl Filter for $name {
@@ -542,17 +554,6 @@ mod trigger {
 /// Filter for all events
 pub type EventFilter = FilterOpt<EntityFilter>;
 
-/// Trait for filters
-pub trait Filter {
-    /// Type of event that can be filtered
-    type EventType;
-
-    /// Check if `item` matches filter
-    ///
-    /// Returns `true`, if `item` matches filter and `false` if not
-    fn matches(&self, item: &Self::EventType) -> bool;
-}
-
 #[derive(
     Clone,
     PartialEq,
@@ -665,6 +666,11 @@ impl<Id: Eq> IdFilter<Id> {
     /// Construct new `IdFilter`
     pub fn new(id: Id) -> Self {
         Self(id)
+    }
+
+    /// Get `id`
+    pub fn id(&self) -> &Id {
+        &self.0
     }
 }
 

@@ -24,7 +24,7 @@ fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
             Executable::from(vec![instruction.into()]),
             Repeats::Indefinitely,
             account_id,
-            EventFilter::Data(BySome(DataEntityFilter::ByAssetDefinition(BySome(
+            FilterBox::Data(BySome(DataEntityFilter::ByAssetDefinition(BySome(
                 AssetDefinitionFilter::new(
                     AcceptAll,
                     BySome(AssetDefinitionEventFilter::ByCreated),

@@ -5,7 +5,7 @@ use alloc::{format, string::String, vec::Vec};
 
 pub use events::Event;
 use events::IdTrait;
-pub use filters::{EventFilter, Filter};
+pub use filters::EventFilter;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};

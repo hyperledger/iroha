@@ -647,7 +647,7 @@ impl Client {
     /// Fails if subscribing to websocket fails
     pub fn listen_for_events(
         &mut self,
-        event_filter: EventFilter,
+        event_filter: FilterBox,
     ) -> Result<impl Iterator<Item = Result<Event>>> {
         EventIterator::new(
             &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
@@ -833,7 +833,7 @@ impl EventIterator {
     ///
     /// # Errors
     /// Fails if connecting and sending subscription to web socket fails
-    pub fn new(url: &str, event_filter: EventFilter, headers: HttpHeaders) -> Result<Self> {
+    pub fn new(url: &str, event_filter: FilterBox, headers: HttpHeaders) -> Result<Self> {
         let mut stream = http_default::web_socket_connect(url, headers)?;
         stream.write_message(WebSocketMessage::Binary(
             VersionedEventSubscriberMessage::from(EventSubscriberMessage::from(event_filter))
