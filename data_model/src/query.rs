@@ -84,7 +84,7 @@ pub enum QueryBox {
     FindTransactionByHash(FindTransactionByHash),
     /// [`FindPermissionTokensByAccountId`] variant.
     FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
-    /// [`FindAllActiveTriggers`] variant.
+    /// [`FindAllActiveTriggerIds`] variant.
     FindAllActiveTriggerIds(FindAllActiveTriggerIds),
     /// [`FindTriggerById`] variant.
     FindTriggerById(FindTriggerById),
@@ -255,7 +255,7 @@ pub mod role {
         type Output = Vec<<Role as Identifiable>::Id>;
     }
 
-    /// `FindRoleByRoleId` Iroha Query to find the [`Role`] which has the given [`Id`]
+    /// `FindRoleByRoleId` Iroha Query to find the [`Role`] which has the given [`Id`](crate::role::Id)
     #[derive(
         Debug,
         Clone,

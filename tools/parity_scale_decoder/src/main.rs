@@ -42,7 +42,7 @@ pub type DumpDecodedPtr = fn(&[u8], &mut dyn io::Write) -> Result<(), eyre::Erro
 pub type DumpDecodedMap = BTreeMap<String, DumpDecodedPtr>;
 
 /// Types implementing this trait can be decoded from bytes
-/// with *Parity Scale Codec* and dumped to something implementing [`Write`]
+/// with *Parity Scale Codec* and dumped to something implementing [`Write`](std::io::Write)
 pub trait DumpDecoded: Debug + Decode {
     /// Decode `Self` from `input` and dump to `w`
     ///
