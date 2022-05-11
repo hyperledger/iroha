@@ -301,6 +301,8 @@ uptime_since_genesis_ms 54572974
 view_changes 0
 ```
 
+Learn [how to use metrics](../guides/metrics.md).
+
 ## Parity Scale Codec
 
 For more information on codec check [Substrate Dev Hub](https://substrate.dev/docs/en/knowledgebase/advanced/codec) and codec's [Github repository](https://github.com/paritytech/parity-scale-codec).
