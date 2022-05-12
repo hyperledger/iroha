@@ -66,11 +66,11 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
         run: |
-          mold --run cargo test \
+          mold --run cargo +nightly-2022-04-20 test \
           --quiet --workspace --no-fail-fast -- \
           --skip unstable_network --skip ui --test-threads 3
         env:
-          RUSTFLAGS: "-C instrument-coverage"
+          RUSTFLAGS: "-Z instrument-coverage"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate a grcov coverage report
         run: |
