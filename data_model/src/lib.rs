@@ -402,6 +402,12 @@ pub enum Value {
     Id(IdBox),
     /// `impl Identifiable` as in `Asset`, `Account` etc.
     Identifiable(IdentifiableBox),
+    /// `impl Registrable` as in `Asset`, `Account`, `Domain`
+    Registrable(
+        #[skip_from]
+        #[skip_try_from]
+        RegistrableBox,
+    ),
     /// [`PublicKey`].
     PublicKey(PublicKey),
     /// Iroha [`Parameter`] variant.
@@ -423,9 +429,9 @@ impl Value {
         use Value::*;
 
         match self {
-            U32(_) | U128(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
-            | String(_) | Name(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_)
-            | Hash(_) => 1_usize,
+            U32(_) | U128(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Registrable(_)
+            | Identifiable(_) | String(_) | Name(_) | Fixed(_) | TransactionValue(_)
+            | PermissionToken(_) | Hash(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
