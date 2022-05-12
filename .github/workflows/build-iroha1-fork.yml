@@ -35,14 +35,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
       - name: Checkout head
         uses: actions/checkout@v2
         with:
@@ -84,14 +87,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -184,14 +190,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
       - name: System info
         run: |
           set -x
@@ -356,14 +365,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
       - name: Show needs
         run: |
           cat >/dev/null <<'END'
@@ -637,14 +649,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
       - name: Show needs
         run: |
           cat >/dev/null <<'END'
@@ -915,14 +930,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
   build-M:
     needs:
       - prepare-macos-env
@@ -940,14 +958,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
       - name: System info
         run: |
           set -x
@@ -1214,14 +1235,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
     defaults:
       run:
         shell: bash
@@ -1327,14 +1351,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
       - name: System info
         run: |
           set -x
@@ -1499,14 +1526,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
       - name: System info
         run: |
           set -x

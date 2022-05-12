@@ -38,14 +38,17 @@ jobs:
         run: |
           echo "::group::GitHub context"
           cat <<'END'
-          ${{ toJson(github) }}
+          $JSON_github
           END
           echo "::endgroup::"
           echo "::group::GitHub needs"
           cat <<'END'
-          ${{ toJson(needs) }}
+          $JSON_needs
           END
           echo "::endgroup::"
+        env:
+          JSON_github: ${{ toJSON(github) }}
+          JSON_needs: ${{ toJson(needs) }}
       
       - &step_checkout_head
         name: Checkout head
