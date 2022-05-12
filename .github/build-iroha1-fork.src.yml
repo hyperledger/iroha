@@ -37,10 +37,10 @@ jobs:
         name: Show context
         run: |
           echo "::group::GitHub context"
-          echo $JSON_github
+          jq <<< $JSON_github
           echo "::endgroup::"
           echo "::group::GitHub needs"
-          echo $JSON_needs
+          jq <<< $JSON_needs
           echo "::endgroup::"
         env:
           JSON_github: ${{ toJSON(github) }}
