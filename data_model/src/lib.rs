@@ -659,11 +659,6 @@ where
     }
 }
 
-/// Marker trait for values.
-pub trait ValueMarker: Debug + Clone + Into<Value> {}
-
-impl<V: Into<Value> + Debug + Clone> ValueMarker for V {}
-
 /// This trait marks entity that implement it as identifiable with an `Id` type to find them by.
 pub trait Identifiable: Debug + Clone {
     /// Type of entity's identification.

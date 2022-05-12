@@ -49,9 +49,11 @@ RUN git clone https://github.com/rui314/mold.git; \
     rm -rf "./mold"
 
 RUN rustup component add llvm-tools-preview clippy; \
-    rustup target add wasm32-unknown-unknown; \
     rustup install --profile default nightly-2022-04-20; \
+    rustup component add rust-src; \
     rustup component add rust-src --toolchain nightly-2022-04-20-x86_64-unknown-linux-gnu; \
+    rustup target add wasm32-unknown-unknown; \
+    rustup target add wasm32-unknown-unknown --toolchain nightly-2022-04-20; \
     cargo install cargo-lints cargo-nono webassembly-test-runner grcov
 
 RUN curl -fsSL https://get.docker.com -o get-docker.sh; \
@@ -62,3 +64,4 @@ RUN curl -fsSL https://get.docker.com -o get-docker.sh; \
 
 RUN curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose; \
     chmod +x /usr/local/bin/docker-compose
+

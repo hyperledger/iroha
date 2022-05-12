@@ -202,6 +202,5 @@ pub mod query {
                     .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
             })?
         }
-
     }
 }

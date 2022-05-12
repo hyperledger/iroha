@@ -151,15 +151,19 @@ pub mod error {
         Role(RoleId),
     }
 
+    /// Generic structure used to represent a mismatch
     #[derive(Debug, Clone, PartialEq, Eq, Error)]
     #[error("Expected {expected:?},  actual {actual:?}")]
     pub struct Mismatch<T> {
+        /// The value that is needed for normal execution
         pub expected: T,
+        /// The value that caused the error
         pub actual: T,
     }
 
     /// Type error
     #[derive(Debug, Clone, Error, PartialEq, Eq)]
+    #[allow(variant_size_differences)] // False-positive
     pub enum TypeError {
         /// Asset type assertion error
         #[error("Asset Ids correspond to assets with different underlying types. {0}")]
