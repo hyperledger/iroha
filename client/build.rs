@@ -31,6 +31,10 @@ fn main() {
         // Removing environment variable to avoid
         // `error: infinite recursion detected` when running `cargo lints`
         .env_remove("RUST_RECURSION_COUNT")
+        // Removing environment variable to avoid
+        // `error: `profiler_builtins` crate (required by compiler options) is not compatible with crate attribute `#![no_core]``
+        // when running with `-C instrument-coverage`
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env("CARGO_TARGET_DIR", out_dir)
         .current_dir(smartcontract_path)
         .args(&[
