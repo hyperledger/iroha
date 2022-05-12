@@ -11,7 +11,7 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value, ValueMarker};
+use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
 
 /// Sized structure for all possible Instructions.
 #[derive(
@@ -191,7 +191,7 @@ pub struct RevokeBox {
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Set<O>
 where
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Object to equate.
     pub object: O,
@@ -202,8 +202,8 @@ where
 pub struct SetKeyValue<O, K, V>
 where
     O: Identifiable,
-    K: ValueMarker,
-    V: ValueMarker,
+    K: Into<Value>,
+    V: Into<Value>,
 {
     /// Where to set key value.
     pub object_id: O::Id,
@@ -218,7 +218,7 @@ where
 pub struct RemoveKeyValue<O, K>
 where
     O: Identifiable,
-    K: ValueMarker,
+    K: Into<Value>,
 {
     /// From where to remove key value.
     pub object_id: O::Id,
@@ -251,7 +251,7 @@ where
 pub struct Mint<D, O>
 where
     D: Identifiable,
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Object which should be minted.
     pub object: O,
@@ -264,7 +264,7 @@ where
 pub struct Burn<D, O>
 where
     D: Identifiable,
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Object which should be burned.
     pub object: O,
@@ -276,7 +276,7 @@ where
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Transfer<S: Identifiable, O, D: Identifiable>
 where
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Source object `Id`.
     pub source_id: S::Id,
@@ -291,7 +291,7 @@ where
 pub struct Grant<D, O>
 where
     D: Identifiable,
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Object to grant.
     pub object: O,
@@ -304,7 +304,7 @@ where
 pub struct Revoke<D, O>
 where
     D: Identifiable,
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Object to revoke.
     pub object: O,
@@ -336,8 +336,8 @@ impl ExecuteTriggerBox {
 impl<O, K, V> SetKeyValue<O, K, V>
 where
     O: Identifiable,
-    K: ValueMarker,
-    V: ValueMarker,
+    K: Into<Value>,
+    V: Into<Value>,
 {
     /// Construct [`SetKeyValue`].
     pub fn new(object_id: O::Id, key: K, value: V) -> Self {
@@ -352,7 +352,7 @@ where
 impl<O, K> RemoveKeyValue<O, K>
 where
     O: Identifiable,
-    K: ValueMarker,
+    K: Into<Value>,
 {
     /// Construct [`RemoveKeyValue`].
     pub fn new(object_id: O::Id, key: K) -> Self {
@@ -362,7 +362,7 @@ where
 
 impl<O> Set<O>
 where
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Construct [`Set`].
     pub fn new(object: O) -> Self {
@@ -393,7 +393,7 @@ where
 impl<D, O> Mint<D, O>
 where
     D: Identifiable,
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Construct [`Mint`].
     pub fn new(object: O, destination_id: D::Id) -> Self {
@@ -407,7 +407,7 @@ where
 impl<D, O> Burn<D, O>
 where
     D: Identifiable,
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Construct [`Burn`].
     pub fn new(object: O, destination_id: D::Id) -> Self {
@@ -422,7 +422,7 @@ impl<S, O, D> Transfer<S, O, D>
 where
     S: Identifiable,
     D: Identifiable,
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Construct [`Transfer`].
     pub fn new(source_id: S::Id, object: O, destination_id: D::Id) -> Self {
@@ -437,7 +437,7 @@ where
 impl<D, O> Grant<D, O>
 where
     D: Identifiable,
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Constructor.
     #[inline]
@@ -452,7 +452,7 @@ where
 impl<D, O> Revoke<D, O>
 where
     D: Identifiable,
-    O: ValueMarker,
+    O: Into<Value>,
 {
     /// Constructor
     #[inline]
