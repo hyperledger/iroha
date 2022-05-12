@@ -28,23 +28,23 @@ fn main() {
     assert!(fmt.success(), "Can't format smartcontract");
 
     let build = Command::new("cargo")
-            // Removing environment variable to avoid
-            // `error: infinite recursion detected` when running `cargo lints`
-            .env_remove("RUST_RECURSION_COUNT")
-            .env("CARGO_TARGET_DIR", out_dir)
-            .current_dir(smartcontract_path)
-            .args(&[
-                "+nightly-2022-04-20",
-                "build",
-                "--release",
-                "-Z",
-                "build-std",
-                "-Z",
-                "build-std-features=panic_immediate_abort",
-                "--target",
-                "wasm32-unknown-unknown",
-            ])
-            .status()
-            .expect("Failed to run `cargo build` on smartcontract");
+        // Removing environment variable to avoid
+        // `error: infinite recursion detected` when running `cargo lints`
+        .env_remove("RUST_RECURSION_COUNT")
+        .env("CARGO_TARGET_DIR", out_dir)
+        .current_dir(smartcontract_path)
+        .args(&[
+            "+nightly-2022-04-20",
+            "build",
+            "--release",
+            "-Z",
+            "build-std",
+            "-Z",
+            "build-std-features=panic_immediate_abort",
+            "--target",
+            "wasm32-unknown-unknown",
+        ])
+        .status()
+        .expect("Failed to run `cargo build` on smartcontract");
     assert!(build.success(), "Can't build smartcontract")
 }
