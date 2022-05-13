@@ -938,6 +938,13 @@ pub mod account {
     pub fn by_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindAccountById {
         FindAccountById::new(account_id)
     }
+
+    /// Get query to get all accounts containing specified asset
+    pub fn all_with_asset(
+        asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
+    ) -> FindAccountsWithAsset {
+        FindAccountsWithAsset::new(asset_definition_id)
+    }
 }
 
 pub mod asset {

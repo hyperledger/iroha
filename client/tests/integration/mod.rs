@@ -15,6 +15,7 @@ mod non_mintable;
 mod offline_peers;
 mod pagination;
 mod permissions;
+mod queries;
 mod query_errors;
 mod restart_peer;
 mod roles;

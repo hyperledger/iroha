@@ -20,7 +20,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
             FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => {
                 Err("Only access to the assets of the same domain is permitted.".to_owned())
             }
-            FindAllAccounts(_) | FindAccountsByName(_) => {
+            FindAllAccounts(_) | FindAccountsByName(_) | FindAccountsWithAsset(_) => {
                 Err("Only access to the accounts of the same domain is permitted.".to_owned())
             }
             FindAllAssetsDefinitions(_) => Err(
@@ -293,6 +293,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
         match query {
             FindAccountsByName(_)
                 | FindAccountsByDomainId(_)
+                | FindAccountsWithAsset(_)
                 | FindAllAccounts(_) => {
                     Err("Other accounts are private.".to_owned())
                 }
