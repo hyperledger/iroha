@@ -360,7 +360,6 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindAccountsWithAsset {
-        #[log]
         #[metrics(+"find_accounts_with_asset")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let asset_definition_id = self
@@ -368,6 +367,8 @@ pub mod query {
                 .evaluate(wsv, &Context::default())
                 .wrap_err("Failed to get asset id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
+            iroha_logger::trace!(%asset_definition_id);
+
             let domain_id = &asset_definition_id.domain_id;
 
             wsv.map_domain(domain_id, |domain| {

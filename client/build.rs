@@ -27,6 +27,7 @@ fn main() {
         .expect("Failed to run `rustfmt` on smartcontract");
     assert!(fmt.success(), "Can't format smartcontract");
 
+    // TODO: Remove cargo invocation (#2152)
     let build = Command::new("cargo")
         // Removing environment variable to avoid
         // `error: infinite recursion detected` when running `cargo lints`
@@ -34,6 +35,7 @@ fn main() {
         // Removing environment variable to avoid
         // `error: `profiler_builtins` crate (required by compiler options) is not compatible with crate attribute `#![no_core]``
         // when running with `-C instrument-coverage`
+        // TODO: Check if there are no problems with that
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env("CARGO_TARGET_DIR", out_dir)
         .current_dir(smartcontract_path)
