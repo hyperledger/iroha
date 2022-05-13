@@ -27,32 +27,30 @@ fn main() {
         .expect("Failed to run `rustfmt` on smartcontract");
     assert!(fmt.success(), "Can't format smartcontract");
 
-    let instrumenting_coverage = if let Ok(flags) = env::var("RUSTFLAGS") {
-        flags.contains("instrument-coverage")
-    } else {
-        false
-    };
-
-    if instrumenting_coverage {
-        let build = Command::new("cargo")
-            // Removing environment variable to avoid
-            // `error: infinite recursion detected` when running `cargo lints`
-            .env_remove("RUST_RECURSION_COUNT")
-            .env("CARGO_TARGET_DIR", out_dir)
-            .current_dir(smartcontract_path)
-            .args(&[
-                "+nightly-2022-04-20",
-                "build",
-                "--release",
-                "-Z",
-                "build-std",
-                "-Z",
-                "build-std-features=panic_immediate_abort",
-                "--target",
-                "wasm32-unknown-unknown",
-            ])
-            .status()
-            .expect("Failed to run `cargo build` on smartcontract");
-        assert!(build.success(), "Can't build smartcontract")
-    }
+    // TODO: Remove cargo invocation (#2152)
+    let build = Command::new("cargo")
+        // Removing environment variable to avoid
+        // `error: infinite recursion detected` when running `cargo lints`
+        .env_remove("RUST_RECURSION_COUNT")
+        // Removing environment variable to avoid
+        // `error: `profiler_builtins` crate (required by compiler options) is not compatible with crate attribute `#![no_core]``
+        // when running with `-C instrument-coverage`
+        // TODO: Check if there are no problems with that
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
+        .env("CARGO_TARGET_DIR", out_dir)
+        .current_dir(smartcontract_path)
+        .args(&[
+            "+nightly-2022-04-20",
+            "build",
+            "--release",
+            "-Z",
+            "build-std",
+            "-Z",
+            "build-std-features=panic_immediate_abort",
+            "--target",
+            "wasm32-unknown-unknown",
+        ])
+        .status()
+        .expect("Failed to run `cargo build` on smartcontract");
+    assert!(build.success(), "Can't build smartcontract")
 }

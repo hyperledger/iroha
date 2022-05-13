@@ -103,6 +103,7 @@ impl<W: WorldTrait> ValidQuery<W> for QueryBox {
             FindAccountById(query) => query.execute_into_value(wsv),
             FindAccountsByName(query) => query.execute_into_value(wsv),
             FindAccountsByDomainId(query) => query.execute_into_value(wsv),
+            FindAccountsWithAsset(query) => query.execute_into_value(wsv),
             FindAllAssets(query) => query.execute_into_value(wsv),
             FindAllAssetsDefinitions(query) => query.execute_into_value(wsv),
             FindAssetById(query) => query.execute_into_value(wsv),

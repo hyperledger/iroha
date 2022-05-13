@@ -46,6 +46,8 @@ pub enum QueryBox {
     FindAccountsByName(FindAccountsByName),
     /// [`FindAccountsByDomainId`] variant.
     FindAccountsByDomainId(FindAccountsByDomainId),
+    /// [`FindAccountsWithAsset`] variant.
+    FindAccountsWithAsset(FindAccountsWithAsset),
     /// [`FindAllAssets`] variant.
     FindAllAssets(FindAllAssets),
     /// [`FindAllAssetsDefinitions`] variant.
@@ -478,6 +480,30 @@ pub mod account {
         type Output = Vec<Account>;
     }
 
+    /// `FindAccountsWithAsset` Iroha Query will get `AssetDefinition`s id as input and
+    /// find all `Account`s storing `Asset` with such definition.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindAccountsWithAsset {
+        /// `Id` of the definition of the asset which should be stored in founded accounts.
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
+    }
+
+    impl Query for FindAccountsWithAsset {
+        type Output = Vec<Account>;
+    }
+
     impl FindAllAccounts {
         /// Construct [`FindAllAccounts`].
         pub const fn new() -> Self {
@@ -521,11 +547,21 @@ pub mod account {
         }
     }
 
+    impl FindAccountsWithAsset {
+        /// Construct [`FindAccountsWithAsset`].
+        pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+            let asset_definition_id = asset_definition_id.into();
+            FindAccountsWithAsset {
+                asset_definition_id,
+            }
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
             FindAccountById, FindAccountKeyValueByIdAndKey, FindAccountsByDomainId,
-            FindAccountsByName, FindAllAccounts,
+            FindAccountsByName, FindAccountsWithAsset, FindAllAccounts,
         };
     }
 }
