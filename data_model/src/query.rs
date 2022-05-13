@@ -15,7 +15,8 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use self::{
-    account::*, asset::*, domain::*, peer::*, permissions::*, role::*, transaction::*, trigger::*,
+    account::*, asset::*, block::*, domain::*, peer::*, permissions::*, role::*, transaction::*,
+    trigger::*,
 };
 use crate::{account::Account, pagination::Pagination, Identifiable, Value};
 
@@ -78,6 +79,8 @@ pub enum QueryBox {
     FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
     /// [`FindAllPeers`] variant.
     FindAllPeers(FindAllPeers),
+    /// [`FindAllBlocks`] variant.
+    FindAllBlocks(FindAllBlocks),
     /// [`FindAllTransactions`] variant.
     FindAllTransactions(FindAllTransactions),
     /// [`FindTransactionsByAccountId`] variant.
@@ -1251,11 +1254,11 @@ pub mod transaction {
         account::prelude::AccountId, expression::EvaluatesTo, transaction::TransactionValue,
     };
 
-    /// `FindAllTransactions` Iroha Query will list all transactions included in blockchain
     #[derive(
         Default,
         Debug,
         Clone,
+        Copy,
         PartialEq,
         Eq,
         PartialOrd,
@@ -1266,7 +1269,8 @@ pub mod transaction {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllTransactions {}
+    /// `FindAllTransactions` Iroha Query will list all transactions included in blockchain
+    pub struct FindAllTransactions;
 
     impl Query for FindAllTransactions {
         type Output = Vec<TransactionValue>;
@@ -1349,13 +1353,63 @@ pub mod transaction {
     }
 }
 
+pub mod block {
+    //! Queries related to `Transaction`.
+
+    #![allow(clippy::missing_inline_in_public_items)]
+
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
+
+    use iroha_schema::prelude::*;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
+    use super::Query;
+    use crate::block_value::BlockValue;
+
+    #[derive(
+        Default,
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    /// `FindAllBlocks` Iroha Query will list all blocks
+    pub struct FindAllBlocks;
+
+    impl Query for FindAllBlocks {
+        type Output = Vec<BlockValue>;
+    }
+
+    impl FindAllBlocks {
+        /// Construct [`FindAllBlocks`].
+        pub fn new() -> Self {
+            Self {}
+        }
+    }
+
+    /// The prelude re-exports most commonly used traits, structs and macros from this crate.
+    pub mod prelude {
+        pub use super::FindAllBlocks;
+    }
+}
+
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{
-        account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, role::prelude::*, transaction::*, trigger::prelude::*,
-        PaginatedQueryResult, Query, QueryBox, QueryResult, VersionedPaginatedQueryResult,
-        VersionedQueryResult,
+        account::prelude::*, asset::prelude::*, block::prelude::*, domain::prelude::*,
+        peer::prelude::*, permissions::prelude::*, role::prelude::*, transaction::*,
+        trigger::prelude::*, PaginatedQueryResult, Query, QueryBox, QueryResult,
+        VersionedPaginatedQueryResult, VersionedQueryResult,
     };
     #[cfg(feature = "warp")]
     pub use super::{QueryRequest, VersionedSignedQueryRequest};

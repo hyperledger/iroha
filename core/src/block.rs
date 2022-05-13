@@ -11,7 +11,12 @@ use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{eyre, Context, Result};
 use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
-use iroha_data_model::{current_time, events::prelude::*, transaction::prelude::*};
+use iroha_data_model::{
+    block_value::{BlockHeaderValue, BlockValue},
+    current_time,
+    events::prelude::*,
+    transaction::prelude::*,
+};
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -715,6 +720,55 @@ impl VersionedCommittedBlock {
         self.as_v1()
             .verified_signatures()
             .map(SignatureOf::transmute_ref)
+    }
+
+    /// Converts block to [`iroha_data_model`] representation for use in e.g. queries.
+    pub fn into_value(self) -> BlockValue {
+        let CommittedBlock {
+            header,
+            rejected_transactions,
+            transactions,
+            event_recommendations,
+            ..
+        } = self.into_v1();
+
+        let BlockHeader {
+            timestamp,
+            height,
+            previous_block_hash,
+            transactions_hash,
+            rejected_transactions_hash,
+            invalidated_blocks_hashes,
+            ..
+        } = header;
+
+        let header_value = BlockHeaderValue {
+            timestamp,
+            height,
+            previous_block_hash: *previous_block_hash,
+            transactions_hash,
+            rejected_transactions_hash,
+            invalidated_blocks_hashes: invalidated_blocks_hashes.into_iter().map(|h| *h).collect(),
+        };
+
+        let transaction_values = transactions
+            .into_iter()
+            .map(VersionedTransaction::from)
+            .map(Box::new)
+            .map(TransactionValue::Transaction)
+            .chain(
+                rejected_transactions
+                    .into_iter()
+                    .map(Box::new)
+                    .map(TransactionValue::RejectedTransaction),
+            )
+            .collect();
+
+        BlockValue {
+            header: header_value,
+            transactions: transaction_values,
+            event_recommendations,
+        }
     }
 }
 

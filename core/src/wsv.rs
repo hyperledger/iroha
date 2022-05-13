@@ -684,6 +684,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.new_block_notifier.subscribe()
     }
 
+    /// Get all transactions
     pub fn transaction_values(&self) -> Vec<TransactionValue> {
         let mut txs = self
             .blocks()
