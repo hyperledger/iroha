@@ -121,7 +121,7 @@ pub trait Stream<R: DecodeVersioned>:
 
 impl StreamMessage for warp::ws::Message {
     fn binary(source: Vec<u8>) -> Self {
-        Self::binary(source)
+        warp::ws::Message::binary(source)
     }
 
     fn as_bytes(&self) -> &[u8] {
@@ -151,7 +151,7 @@ impl<M: DecodeVersioned> Stream<M> for warp::ws::WebSocket {
     type Message = warp::ws::Message;
 }
 
-#[cfg(feature = "cross_crate_testing")]
+#[cfg(test)]
 mod ws_client {
     use warp::test::WsClient;
 

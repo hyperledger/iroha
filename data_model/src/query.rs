@@ -14,10 +14,10 @@ use iroha_version::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "roles")]
-use self::role::*;
-use self::{account::*, asset::*, domain::*, peer::*, permissions::*, transaction::*};
-use crate::{account::Account, Identifiable, Value};
+use self::{
+    account::*, asset::*, domain::*, peer::*, permissions::*, role::*, transaction::*, trigger::*,
+};
+use crate::{account::Account, pagination::Pagination, Identifiable, Value};
 
 /// Sized container for all possible Queries.
 #[allow(clippy::enum_variant_names)]
@@ -46,6 +46,8 @@ pub enum QueryBox {
     FindAccountsByName(FindAccountsByName),
     /// [`FindAccountsByDomainId`] variant.
     FindAccountsByDomainId(FindAccountsByDomainId),
+    /// [`FindAccountsWithAsset`] variant.
+    FindAccountsWithAsset(FindAccountsWithAsset),
     /// [`FindAllAssets`] variant.
     FindAllAssets(FindAllAssets),
     /// [`FindAllAssetsDefinitions`] variant.
@@ -80,14 +82,22 @@ pub enum QueryBox {
     FindTransactionsByAccountId(FindTransactionsByAccountId),
     /// [`FindTransactionByHash`] variant.
     FindTransactionByHash(FindTransactionByHash),
-    /// [`FindAllRoles`] variant.
-    #[cfg(feature = "roles")]
-    FindAllRoles(FindAllRoles),
-    /// [`FindRolesByAccountId`] variant.
-    #[cfg(feature = "roles")]
-    FindRolesByAccountId(FindRolesByAccountId),
     /// [`FindPermissionTokensByAccountId`] variant.
     FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
+    /// [`FindAllActiveTriggers`] variant.
+    FindAllActiveTriggerIds(FindAllActiveTriggerIds),
+    /// [`FindTriggerById`] variant.
+    FindTriggerById(FindTriggerById),
+    /// [`FindTriggerKeyValueByIdAndKey`] variant.
+    FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
+    /// [`FindAllRoles`] variant.
+    FindAllRoles(FindAllRoles),
+    /// [`FindAllRoleIds`] variant.
+    FindAllRoleIds(FindAllRoleIds),
+    /// [`FindRoleByRoleId`] variant.
+    FindRoleByRoleId(FindRoleByRoleId),
+    /// [`FindRolesByAccountId`] variant.
+    FindRolesByAccountId(FindRolesByAccountId),
 }
 
 /// Trait for typesafe query output
@@ -115,8 +125,8 @@ pub struct Payload {
 impl Payload {
     /// Hash of this payload.
     #[cfg(feature = "std")]
-    pub fn hash(&self) -> Hash {
-        Hash::new(&self.encode())
+    pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
+        iroha_crypto::HashOf::new(self)
     }
 }
 
@@ -148,12 +158,26 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_mac
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct QueryResult(pub Value);
 
+declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
+
+/// Paginated Query Result
+#[version_with_scale(n = 1, versioned = "VersionedPaginatedQueryResult")]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+pub struct PaginatedQueryResult {
+    /// The result of the query execution.
+    pub result: QueryResult,
+    /// pagination
+    pub pagination: Pagination,
+    /// Total query amount (if applicable) else 0.
+    pub total: u64,
+}
+
 #[cfg(all(feature = "std", feature = "warp"))]
 impl QueryRequest {
     /// Constructs a new request with the `query`.
     pub fn new(query: QueryBox, account_id: <Account as Identifiable>::Id) -> Self {
         let timestamp_ms = crate::current_time().as_millis();
-        QueryRequest {
+        Self {
             payload: Payload {
                 timestamp_ms,
                 query,
@@ -175,7 +199,6 @@ impl QueryRequest {
     }
 }
 
-#[cfg(feature = "roles")]
 pub mod role {
     //! Queries related to `Role`.
 
@@ -204,13 +227,58 @@ pub mod role {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllRoles {}
+    pub struct FindAllRoles;
 
     impl Query for FindAllRoles {
         type Output = Vec<Role>;
     }
 
-    /// `FindRolesByAccountId` Iroha Query will find an `Role`s for a specified account.
+    /// `FindAllRoles` Iroha Query will find all `Roles`s presented.
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        Default,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindAllRoleIds;
+
+    impl Query for FindAllRoleIds {
+        type Output = Vec<<Role as Identifiable>::Id>;
+    }
+
+    /// `FindRoleByRoleId` Iroha Query to find the [`Role`] which has the given [`Id`]
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindRoleByRoleId {
+        /// `Id` of the `Role` to find
+        pub id: EvaluatesTo<<Role as Identifiable>::Id>,
+    }
+
+    impl Query for FindRoleByRoleId {
+        type Output = Role;
+    }
+
+    /// `FindRolesByAccountId` Iroha Query will find an [`Role`]s for a specified account.
     #[derive(
         Debug,
         Clone,
@@ -226,16 +294,16 @@ pub mod role {
     )]
     pub struct FindRolesByAccountId {
         /// `Id` of an account to find.
-        pub id: EvaluatesTo<AccountId>,
+        pub id: EvaluatesTo<<Account as Identifiable>::Id>,
     }
 
     impl Query for FindRolesByAccountId {
-        type Output = Vec<RoleId>;
+        type Output = Vec<<Role as Identifiable>::Id>;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
-        pub use super::{FindAllRoles, FindRolesByAccountId};
+        pub use super::{FindAllRoleIds, FindAllRoles, FindRoleByRoleId, FindRolesByAccountId};
     }
 }
 
@@ -309,7 +377,7 @@ pub mod account {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllAccounts {}
+    pub struct FindAllAccounts;
 
     impl Query for FindAllAccounts {
         type Output = Vec<Account>;
@@ -412,10 +480,34 @@ pub mod account {
         type Output = Vec<Account>;
     }
 
+    /// `FindAccountsWithAsset` Iroha Query will get `AssetDefinition`s id as input and
+    /// find all `Account`s storing `Asset` with such definition.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindAccountsWithAsset {
+        /// `Id` of the definition of the asset which should be stored in founded accounts.
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
+    }
+
+    impl Query for FindAccountsWithAsset {
+        type Output = Vec<Account>;
+    }
+
     impl FindAllAccounts {
         /// Construct [`FindAllAccounts`].
         pub const fn new() -> Self {
-            FindAllAccounts {}
+            FindAllAccounts
         }
     }
 
@@ -455,11 +547,21 @@ pub mod account {
         }
     }
 
+    impl FindAccountsWithAsset {
+        /// Construct [`FindAccountsWithAsset`].
+        pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+            let asset_definition_id = asset_definition_id.into();
+            FindAccountsWithAsset {
+                asset_definition_id,
+            }
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
             FindAccountById, FindAccountKeyValueByIdAndKey, FindAccountsByDomainId,
-            FindAccountsByName, FindAllAccounts,
+            FindAccountsByName, FindAccountsWithAsset, FindAllAccounts,
         };
     }
 }
@@ -494,7 +596,7 @@ pub mod asset {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllAssets {}
+    pub struct FindAllAssets;
 
     impl Query for FindAllAssets {
         type Output = Vec<Asset>;
@@ -517,7 +619,7 @@ pub mod asset {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllAssetsDefinitions {}
+    pub struct FindAllAssetsDefinitions;
 
     impl Query for FindAllAssetsDefinitions {
         type Output = Vec<AssetDefinition>;
@@ -748,14 +850,14 @@ pub mod asset {
     impl FindAllAssets {
         /// Construct [`FindAllAssets`].
         pub const fn new() -> Self {
-            FindAllAssets {}
+            FindAllAssets
         }
     }
 
     impl FindAllAssetsDefinitions {
         /// Construct [`FindAllAssetsDefinitions`].
         pub const fn new() -> Self {
-            FindAllAssetsDefinitions {}
+            FindAllAssetsDefinitions
         }
     }
 
@@ -874,7 +976,7 @@ pub mod domain {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllDomains {}
+    pub struct FindAllDomains;
 
     impl Query for FindAllDomains {
         type Output = Vec<Domain>;
@@ -906,7 +1008,7 @@ pub mod domain {
     impl FindAllDomains {
         /// Construct [`FindAllDomains`].
         pub const fn new() -> Self {
-            FindAllDomains {}
+            FindAllDomains
         }
     }
 
@@ -991,7 +1093,7 @@ pub mod peer {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllPeers {}
+    pub struct FindAllPeers;
 
     impl Query for FindAllPeers {
         type Output = Vec<Peer>;
@@ -1013,7 +1115,7 @@ pub mod peer {
         Serialize,
         IntoSchema,
     )]
-    pub struct FindAllParameters {}
+    pub struct FindAllParameters;
 
     impl Query for FindAllParameters {
         type Output = Vec<Parameter>;
@@ -1022,19 +1124,110 @@ pub mod peer {
     impl FindAllPeers {
         ///Construct [`FindAllPeers`].
         pub const fn new() -> Self {
-            FindAllPeers {}
+            FindAllPeers
         }
     }
 
     impl FindAllParameters {
         /// Construct [`FindAllParameters`].
         pub const fn new() -> Self {
-            FindAllParameters {}
+            FindAllParameters
         }
     }
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{FindAllParameters, FindAllPeers};
+    }
+}
+
+pub mod trigger {
+    //! Trigger-related queries.
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, string::String, vec::Vec};
+
+    use iroha_schema::prelude::*;
+    use parity_scale_codec::{Decode, Encode};
+    use serde::{Deserialize, Serialize};
+
+    use super::Query;
+    use crate::{
+        events::FilterBox, expression::EvaluatesTo, trigger::Trigger, Identifiable, Name, Value,
+    };
+
+    /// Find all currently active (as in not disabled and/or expired)
+    /// trigger IDs.
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        Default,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindAllActiveTriggerIds;
+
+    impl Query for FindAllActiveTriggerIds {
+        type Output = Vec<<Trigger<FilterBox> as Identifiable>::Id>;
+    }
+
+    /// Find Trigger given its ID.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindTriggerById {
+        /// The Identification of the trigger to be found.
+        pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
+    }
+
+    impl Query for FindTriggerById {
+        type Output = Trigger<FilterBox>;
+    }
+
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    /// Find Trigger's metadata key-value pairs.
+    pub struct FindTriggerKeyValueByIdAndKey {
+        /// The Identification of the trigger to be found.
+        pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
+        /// The key inside the metadata dictionary to be returned.
+        pub key: EvaluatesTo<Name>,
+    }
+
+    impl Query for FindTriggerKeyValueByIdAndKey {
+        type Output = Value;
+    }
+
+    pub mod prelude {
+        //! Prelude Re-exports most commonly used traits, structs and macros from this crate.
+        pub use super::{FindAllActiveTriggerIds, FindTriggerById, FindTriggerKeyValueByIdAndKey};
     }
 }
 
@@ -1128,11 +1321,10 @@ pub mod transaction {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
-    #[cfg(feature = "roles")]
-    pub use super::role::prelude::*;
     pub use super::{
         account::prelude::*, asset::prelude::*, domain::prelude::*, peer::prelude::*,
-        permissions::prelude::*, transaction::*, Query, QueryBox, QueryResult, SignedQueryRequest,
+        permissions::prelude::*, role::prelude::*, transaction::*, trigger::prelude::*,
+        PaginatedQueryResult, Query, QueryBox, QueryResult, VersionedPaginatedQueryResult,
         VersionedQueryResult,
     };
     #[cfg(feature = "warp")]

@@ -20,14 +20,14 @@ use crate::{Identifiable, PublicKey, Value};
 )]
 pub struct Peer {
     /// Peer Identification.
-    pub id: Id,
+    pub id: <Self as Identifiable>::Id,
 }
 
 /// Peer's identification.
 ///
 /// Equality is tested by `public_key` field only.
 /// Each peer should have a unique public key.
-#[derive(Debug, Default, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Id {
     /// Address of the [`Peer`]'s entrypoint.
     pub address: String,
@@ -71,13 +71,14 @@ impl fmt::Display for Id {
 impl Peer {
     /// Construct `Peer` given `id`.
     #[inline]
-    pub const fn new(id: Id) -> Self {
+    pub const fn new(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
         Self { id }
     }
 }
 
 impl Identifiable for Peer {
     type Id = Id;
+    type RegisteredWith = Self;
 }
 
 impl Id {

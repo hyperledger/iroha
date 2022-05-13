@@ -4,7 +4,7 @@ use iroha_version::scale::DecodeVersioned;
 use parity_scale_codec::Encode;
 use warp::{hyper::body::Bytes, reply::Response, Filter, Rejection, Reply};
 
-use super::VerifiedQueryRequest;
+use super::routing::VerifiedQueryRequest;
 
 /// Structure for empty response body
 #[derive(Clone, Copy)]
@@ -36,7 +36,32 @@ macro_rules! add_state {
 }
 
 pub mod body {
+    use iroha_core::smartcontracts::query::Error as QueryError;
+    use iroha_data_model::query::VersionedSignedQueryRequest;
+
     use super::*;
+
+    #[derive(Debug)]
+    pub struct WarpQueryError(QueryError);
+
+    impl From<QueryError> for WarpQueryError {
+        fn from(source: QueryError) -> Self {
+            Self(source)
+        }
+    }
+
+    impl warp::reject::Reject for WarpQueryError {}
+
+    impl TryFrom<&Bytes> for super::VerifiedQueryRequest {
+        type Error = WarpQueryError;
+
+        fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
+            let query = VersionedSignedQueryRequest::decode_versioned(body.as_ref())
+                .map_err(|e| WarpQueryError(QueryError::Decode(Box::new(e))))?;
+            let VersionedSignedQueryRequest::V1(query) = query;
+            Ok(Self::try_from(query)?)
+        }
+    }
 
     /// Decode query request
     pub fn query() -> impl Filter<Extract = (VerifiedQueryRequest,), Error = Rejection> + Copy {

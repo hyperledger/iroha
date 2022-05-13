@@ -38,6 +38,18 @@ macro_rules! entity_filter {
                     event_filter,
                 }
             }
+
+            /// Get `id_filter`
+            #[inline]
+            pub const fn id_filter(&self) -> &FilterOpt<IdFilter<<$entity_type as IdTrait>::Id>> {
+                &self.id_filter
+            }
+
+            /// Get `event_filter`
+            #[inline]
+            pub const fn event_filter(&self) -> &FilterOpt<$event_filter_type> {
+                &self.event_filter
+            }
         }
 
         impl Filter for $name {
@@ -50,7 +62,6 @@ macro_rules! entity_filter {
     };
 }
 
-#[cfg(feature = "roles")]
 mod role {
     //! This module contains filters related to `RoleEvent`
 
@@ -276,6 +287,7 @@ mod asset {
     pub enum AssetDefinitionEventFilter {
         ByCreated,
         ByDeleted,
+        ByMintabilityChanged,
         ByMetadataInserted,
         ByMetadataRemoved,
     }
@@ -295,6 +307,10 @@ mod asset {
                     | (
                         Self::ByMetadataRemoved,
                         AssetDefinitionEvent::MetadataRemoved(_)
+                    )
+                    | (
+                        Self::ByMintabilityChanged,
+                        AssetDefinitionEvent::MintabilityChanged(_)
                     )
             )
         }
@@ -538,17 +554,6 @@ mod trigger {
 /// Filter for all events
 pub type EventFilter = FilterOpt<EntityFilter>;
 
-/// Trait for filters
-pub trait Filter {
-    /// Type of event that can be filtered
-    type EventType;
-
-    /// Check if `item` matches filter
-    ///
-    /// Returns `true`, if `item` matches filter and `false` if not
-    fn matches(&self, item: &Self::EventType) -> bool;
-}
-
 #[derive(
     Clone,
     PartialEq,
@@ -604,13 +609,10 @@ impl<F: Filter> Filter for FilterOpt<F> {
 #[allow(clippy::enum_variant_names)]
 /// Filters event by entity
 pub enum EntityFilter {
-    /// Filter by Domain entity. `AcceptAll` value will accept all `Domain` events
-    ByDomain(FilterOpt<DomainFilter>),
     /// Filter by Peer entity. `AcceptAll` value will accept all `Peer` events
     ByPeer(FilterOpt<PeerFilter>),
-    /// Filter by Role entity. `AcceptAll` value will accept all `Role` events
-    #[cfg(feature = "roles")]
-    ByRole(FilterOpt<RoleFilter>),
+    /// Filter by Domain entity. `AcceptAll` value will accept all `Domain` events
+    ByDomain(FilterOpt<DomainFilter>),
     /// Filter by Account entity. `AcceptAll` value will accept all `Account` events
     ByAccount(FilterOpt<AccountFilter>),
     /// Filter by AssetDefinition entity. `AcceptAll` value will accept all `AssetDefinition` events
@@ -619,6 +621,8 @@ pub enum EntityFilter {
     ByAsset(FilterOpt<AssetFilter>),
     /// Filter by Trigger entity. `AcceptAll` value will accept all `Trigger` events
     ByTrigger(FilterOpt<TriggerFilter>),
+    /// Filter by Role entity. `AcceptAll` value will accept all `Role` events
+    ByRole(FilterOpt<RoleFilter>),
 }
 
 impl Filter for EntityFilter {
@@ -626,15 +630,14 @@ impl Filter for EntityFilter {
 
     fn matches(&self, event: &Event) -> bool {
         match (self, event) {
-            (Self::ByDomain(filter_opt), Event::Domain(domain)) => filter_opt.matches(domain),
             (Self::ByPeer(filter_opt), Event::Peer(peer)) => filter_opt.matches(peer),
-            #[cfg(feature = "roles")]
-            (Self::ByRole(filter_opt), Event::Role(role)) => filter_opt.matches(role),
+            (Self::ByDomain(filter_opt), Event::Domain(domain)) => filter_opt.matches(domain),
             (Self::ByAccount(filter_opt), Event::Account(account)) => filter_opt.matches(account),
             (Self::ByAssetDefinition(filter_opt), Event::AssetDefinition(asset_definition)) => {
                 filter_opt.matches(asset_definition)
             }
             (Self::ByAsset(filter_opt), Event::Asset(asset)) => filter_opt.matches(asset),
+            (Self::ByRole(filter_opt), Event::Role(role)) => filter_opt.matches(role),
             _ => false,
         }
     }
@@ -659,6 +662,18 @@ impl Filter for EntityFilter {
 /// Passes id trough filter, if it equals to the one provided in construction
 pub struct IdFilter<Id: Eq>(Id);
 
+impl<Id: Eq> IdFilter<Id> {
+    /// Construct new `IdFilter`
+    pub fn new(id: Id) -> Self {
+        Self(id)
+    }
+
+    /// Get `id`
+    pub fn id(&self) -> &Id {
+        &self.0
+    }
+}
+
 impl<Id: Eq> Filter for IdFilter<Id> {
     type EventType = Id;
 
@@ -668,16 +683,15 @@ impl<Id: Eq> Filter for IdFilter<Id> {
 }
 
 pub mod prelude {
-    #[cfg(feature = "roles")]
-    pub use super::role::{RoleEventFilter, RoleFilter};
     pub use super::{
         account::{AccountEventFilter, AccountFilter},
         asset::{AssetDefinitionEventFilter, AssetDefinitionFilter, AssetEventFilter, AssetFilter},
         domain::{DomainEventFilter, DomainFilter},
         peer::{PeerEventFilter, PeerFilter},
+        role::{RoleEventFilter, RoleFilter},
         trigger::{TriggerEventFilter, TriggerFilter},
-        EntityFilter, EventFilter as DataEventFilter,
-        FilterOpt::*,
+        EntityFilter as DataEntityFilter, EventFilter as DataEventFilter,
+        FilterOpt::{self, *},
         IdFilter,
     };
 }
@@ -689,14 +703,15 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)]
     fn entity_scope() {
-        const DOMAIN: &str = "wonderland";
-        const ACCOUNT: &str = "alice";
-        const ASSET: &str = "rose";
-        let domain_id = DomainId::new(DOMAIN).expect("Valid");
-        let account_id = AccountId::new(ACCOUNT, DOMAIN).expect("Valid");
+        let domain_name = "wonderland".parse().expect("Valid");
+        let account_name = "alice".parse().expect("Valid");
+        let asset_name = "rose".parse().expect("Valid");
+
+        let domain_id = DomainId::new(domain_name);
+        let account_id = AccountId::new(account_name, domain_id.clone());
         let asset_id = AssetId::new(
-            AssetDefinitionId::new(ASSET, DOMAIN).expect("Valid"),
-            AccountId::new(ACCOUNT, DOMAIN).expect("Valid"),
+            AssetDefinitionId::new(asset_name, domain_id.clone()),
+            account_id.clone(),
         );
 
         let domain_created = DomainEvent::Created(domain_id);

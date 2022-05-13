@@ -1,16 +1,23 @@
 //! Structures, traits and impls related to `Role`s.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, collections::btree_set, string::String};
-use core::fmt;
+use alloc::{collections::btree_set, format, string::String, vec::Vec};
+use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_set;
 
+use getset::Getters;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{permissions::PermissionToken, IdBox, Identifiable, IdentifiableBox, Name, Value};
+use crate::{
+    permissions::{PermissionToken, Permissions},
+    Identifiable, Name, ParseError,
+};
+
+/// Collection of [`RoleId`]s
+pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
 
 /// Identification of a role.
 #[derive(
@@ -33,37 +40,10 @@ pub struct Id {
 }
 
 impl Id {
-    /// Constructor.
+    /// Construct role id
     #[inline]
-    pub fn new(name: impl Into<Name>) -> Self {
-        Self { name: name.into() }
-    }
-}
-
-impl From<Name> for Id {
-    #[inline]
-    fn from(name: Name) -> Self {
-        Self::new(name)
-    }
-}
-
-impl From<Id> for Value {
-    #[inline]
-    fn from(id: Id) -> Self {
-        Self::Id(IdBox::RoleId(id))
-    }
-}
-
-impl TryFrom<Value> for Id {
-    type Error = iroha_macro::error::ErrorTryFromEnum<Value, Self>;
-
-    #[inline]
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Id(IdBox::RoleId(id)) = value {
-            Ok(id)
-        } else {
-            Err(Self::Error::default())
-        }
+    pub fn new(name: Name) -> Self {
+        Self { name }
     }
 }
 
@@ -73,56 +53,111 @@ impl fmt::Display for Id {
     }
 }
 
-impl From<Role> for Value {
-    #[inline]
-    fn from(role: Role) -> Self {
-        IdentifiableBox::from(Box::new(role)).into()
-    }
-}
+impl FromStr for Id {
+    type Err = ParseError;
 
-impl TryFrom<Value> for Role {
-    type Error = iroha_macro::error::ErrorTryFromEnum<Value, Self>;
-
-    #[inline]
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        if let Value::Identifiable(IdentifiableBox::Role(role)) = value {
-            Ok(*role)
-        } else {
-            Err(Self::Error::default())
-        }
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self {
+            name: Name::from_str(s)?,
+        })
     }
 }
 
 /// Role is a tag for a set of permission tokens.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
+#[getset(get = "pub")]
 pub struct Role {
     /// Unique name of the role.
-    pub id: Id,
+    id: <Self as Identifiable>::Id,
     /// Permission tokens.
-    pub permissions: btree_set::BTreeSet<PermissionToken>,
+    #[getset(skip)]
+    permissions: Permissions,
 }
 
 impl Role {
     /// Constructor.
     #[inline]
     pub fn new(
-        id: impl Into<Id>,
-        permissions: impl Into<btree_set::BTreeSet<PermissionToken>>,
-    ) -> Self {
+        id: <Self as Identifiable>::Id,
+        permissions: impl IntoIterator<Item = impl Into<PermissionToken>>,
+    ) -> <Self as Identifiable>::RegisteredWith {
         Self {
-            id: id.into(),
-            permissions: permissions.into(),
+            id,
+            permissions: permissions.into_iter().map(Into::into).collect(),
         }
+    }
+
+    /// Get an iterator over [`permissions`](PermissionToken) of the `Role`
+    #[inline]
+    pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
+        self.permissions.iter()
     }
 }
 
 impl Identifiable for Role {
     type Id = Id;
+    type RegisteredWith = Self;
+}
+
+/// Builder for [`Role`]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+)]
+pub struct NewRole {
+    inner: Role,
+}
+
+/// Builder for [`Role`]
+impl NewRole {
+    /// Constructor
+    pub fn new(id: <Role as Identifiable>::Id) -> Self {
+        Self {
+            inner: Role {
+                id,
+                permissions: Permissions::new(),
+            },
+        }
+    }
+
+    /// Add permission to the [`Role`]
+    #[must_use]
+    pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
+        self.inner.permissions.insert(perm.into());
+        self
+    }
+
+    /// Construct [`Role`]
+    #[must_use]
+    pub fn build(self) -> Role {
+        self.inner
+    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
-    pub use super::{Id as RoleId, Role};
+    pub use super::{Id as RoleId, NewRole, Role};
 }

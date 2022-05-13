@@ -12,13 +12,11 @@ use super::Configuration;
 use crate::wasm::utils::wasm_template;
 
 fn produce_instructions() -> Vec<Instruction> {
-    let domains = (0..4).map(|domain_index: usize| {
-        Domain::new(DomainId::new(&domain_index.to_string()).expect("Valid"))
-    });
+    let domains = (0..4)
+        .map(|domain_index: usize| Domain::new(domain_index.to_string().parse().expect("Valid")));
 
     let registers: [Instruction; 4] = domains
         .into_iter()
-        .map(IdentifiableBox::from)
         .map(RegisterBox::new)
         .map(Instruction::from)
         .collect::<Vec<_>>()
@@ -83,8 +81,7 @@ fn wasm_execution_should_produce_events() -> Result<()> {
 
             ;; Function which starts the smartcontract execution
             (func (export "{main_fn_name}") (param i32 i32)
-                {isi_calls})
-        )
+                {isi_calls}))
         "#,
         main_fn_name = wasm::WASM_MAIN_FN_NAME,
         wasm_template = wasm_template(&isi_hex.concat()),
@@ -97,8 +94,9 @@ fn wasm_execution_should_produce_events() -> Result<()> {
 }
 
 fn transaction_execution_should_produce_events(executable: Executable) -> Result<()> {
-    let (_rt, _peer, mut client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![client.clone()], 0);
+
     let pipeline_time = Configuration::pipeline_time();
 
     // spawn event reporter
@@ -125,7 +123,7 @@ fn transaction_execution_should_produce_events(executable: Executable) -> Result
 
     // assertion
     for i in 0..4_usize {
-        let domain_id = DomainId::new(&i.to_string()).expect("Valid");
+        let domain_id = DomainId::new(i.to_string().parse().expect("Valid"));
         let expected_event = DomainEvent::Created(domain_id).into();
         let event: DataEvent = event_receiver.recv()??.try_into()?;
         assert_eq!(event, expected_event);

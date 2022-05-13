@@ -24,6 +24,12 @@ RUN set -ex; \
     sh /tmp/rustup.sh -y --no-modify-path --default-toolchain "$TOOLCHAIN"; \
     rm /tmp/*.sh
 
+RUN set -ex; \
+    rustup install --profile default nightly-2022-04-20; \
+    rustup target add wasm32-unknown-unknown; \
+    rustup component add rust-src --toolchain nightly-2022-04-20-x86_64-unknown-linux-gnu
+
+
 FROM rust-base as cargo-chef
 RUN cargo install cargo-chef
 
@@ -41,8 +47,8 @@ COPY . .
 RUN cargo build $PROFILE --workspace
 
 FROM $BASE_IMAGE
-COPY configs/peer/config.json .
-COPY configs/peer/genesis.json .
+ARG CONFIG_DIR=config
+RUN mkdir -p $CONFIG_DIR
 ARG BIN=iroha
 ARG TARGET_DIR=debug
 COPY --from=builder /iroha/target/$TARGET_DIR/$BIN .
@@ -50,4 +56,6 @@ RUN apt-get update -yq; \
     apt-get install -y --no-install-recommends libssl-dev; \
     rm -rf /var/lib/apt/lists/*
 ENV IROHA_TARGET_BIN=$BIN
+ENV IROHA2_CONFIG_PATH=$CONFIG_DIR/config.json
+ENV IROHA2_GENESIS_PATH=$CONFIG_DIR/genesis.json
 CMD ./$IROHA_TARGET_BIN

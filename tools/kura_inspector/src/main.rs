@@ -4,8 +4,8 @@ use kura_inspector::{print, Config, DefaultOutput};
 
 /// Kura inspector
 #[derive(Parser)]
-#[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"))]
-struct Opts {
+#[clap(author, version, about)]
+struct Args {
     /// Height of the block from which start the inspection.
     /// Defaults to the latest block height
     #[clap(short, long, name = "BLOCK_HEIGHT")]
@@ -28,17 +28,17 @@ enum Command {
 #[tokio::main]
 #[allow(clippy::use_debug, clippy::print_stderr)]
 async fn main() {
-    let opts = Opts::parse();
+    let args = Args::parse();
     let mut output = DefaultOutput::new();
-    Config::from(opts)
+    Config::from(args)
         .run(&mut output)
         .await
         .unwrap_or_else(|e| eprintln!("{:?}", e))
 }
 
-impl From<Opts> for Config {
-    fn from(src: Opts) -> Self {
-        let Opts { from, command } = src;
+impl From<Args> for Config {
+    fn from(src: Args) -> Self {
+        let Args { from, command } = src;
 
         match command {
             Command::Print { length } => Config::Print(print::Config { from, length }),

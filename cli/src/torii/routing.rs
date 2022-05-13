@@ -1,6 +1,10 @@
 //! Routing functions for Torii. If you want to add an endpoint to
 //! Iroha you should add it here by creating a `handle_*` function,
-//! and add it to impl Torii.
+//! and add it to impl Torii. This module also defines the `VerifiedQueryRequest`,
+//! which is the only kind of query that is permitted to execute.
+use std::num::TryFromIntError;
+
+use eyre::WrapErr;
 use iroha_actor::Addr;
 use iroha_config::{Configurable, GetConfiguration, PostConfiguration};
 use iroha_core::{
@@ -8,14 +12,78 @@ use iroha_core::{
         BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
         VersionedBlockSubscriberMessage,
     },
-    stream::{Sink, Stream},
+    smartcontracts::isi::{
+        permissions::IsQueryAllowedBoxed,
+        query::{Error as QueryError, ValidQueryRequest},
+    },
     wsv::WorldTrait,
+};
+use iroha_crypto::SignatureOf;
+use iroha_data_model::{
+    prelude::*,
+    query::{self, SignedQueryRequest},
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
+use parity_scale_codec::{Decode, Encode};
 
 use super::*;
-use crate::Configuration;
+use crate::{
+    stream::{Sink, Stream},
+    Configuration,
+};
+
+/// Query Request verified on the Iroha node side.
+#[derive(Debug, Decode, Encode)]
+pub struct VerifiedQueryRequest {
+    /// Payload.
+    payload: query::Payload,
+    /// Signature of the client who sends this query.
+    signature: SignatureOf<query::Payload>,
+}
+
+impl VerifiedQueryRequest {
+    /// Validate query.
+    ///
+    /// # Errors
+    /// if:
+    /// - Account doesn't exist.
+    /// - Account doesn't have the correct public key.
+    /// - Account has incorrect permissions.
+    pub fn validate<W: WorldTrait>(
+        self,
+        wsv: &WorldStateView<W>,
+        query_validator: &IsQueryAllowedBoxed<W>,
+    ) -> Result<ValidQueryRequest, QueryError> {
+        let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
+            account.contains_signatory(self.signature.public_key())
+        })?;
+        if !account_has_public_key {
+            return Err(QueryError::Signature(String::from(
+                "Signature public key doesn't correspond to the account.",
+            )));
+        }
+        query_validator
+            .check(&self.payload.account_id, &self.payload.query, wsv)
+            .map_err(QueryError::Permission)?;
+        Ok(ValidQueryRequest::new(self.payload.query))
+    }
+}
+
+impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
+    type Error = QueryError;
+
+    fn try_from(query: SignedQueryRequest) -> Result<Self, Self::Error> {
+        query
+            .signature
+            .verify(&query.payload)
+            .map(|_| Self {
+                payload: query.payload,
+                signature: query.signature,
+            })
+            .map_err(|e| Self::Error::Signature(e.to_string()))
+    }
+}
 
 #[iroha_futures::telemetry_future]
 pub(crate) async fn handle_instructions<W: WorldTrait>(
@@ -32,7 +100,7 @@ pub(crate) async fn handle_instructions<W: WorldTrait>(
     #[allow(clippy::map_err_ignore)]
     let push_result = queue.push(transaction).map_err(|(_, err)| err);
     if let Err(ref error) = push_result {
-        iroha_logger::warn!(%error, "Failed to push to queue")
+        iroha_logger::warn!(%error, "Failed to push into queue")
     }
     push_result
         .map_err(Box::new)
@@ -46,22 +114,32 @@ pub(crate) async fn handle_queries<W: WorldTrait>(
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
-) -> Result<Scale<VersionedQueryResult>, warp::http::Response<warp::hyper::Body>> {
+) -> Result<Scale<VersionedPaginatedQueryResult>, warp::http::Response<warp::hyper::Body>> {
     let valid_request = request
         .validate(&wsv, &query_validator)
         .map_err(into_reply)?;
-    let result = valid_request.execute(&wsv).map_err(into_reply)?;
-    let result = QueryResult(if let Value::Vec(value) = result {
+    let original_result = valid_request.execute(&wsv).map_err(into_reply)?;
+    let total: u64 = original_result
+        .len()
+        .try_into()
+        .map_err(|e: TryFromIntError| QueryError::Conversion(e.to_string()))
+        .map_err(into_reply)?;
+    let result = QueryResult(if let Value::Vec(value) = original_result {
         Value::Vec(value.into_iter().paginate(pagination).collect())
     } else {
-        result
+        original_result
     });
-    Ok(Scale(result.into()))
+    let paginated_result = PaginatedQueryResult {
+        result,
+        pagination,
+        total,
+    };
+    Ok(Scale(paginated_result.into()))
 }
 
 #[allow(clippy::needless_pass_by_value)] // Required for `map_err`.
-fn into_reply(error: query::Error) -> warp::http::Response<warp::hyper::Body> {
-    reply::with_status(Scale(&error), error.status_code()).into_response()
+fn into_reply(error: QueryError) -> warp::http::Response<warp::hyper::Body> {
+    reply::with_status(Scale(&error), super::query_status_code(&error)).into_response()
 }
 
 #[derive(serde::Serialize)]
@@ -78,7 +156,7 @@ async fn handle_health() -> Json {
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "schema-endpoint")]
 async fn handle_schema() -> Json {
-    reply::json(&iroha_schema_bin::build_schemas())
+    reply::json(&iroha_schema_gen::build_schemas())
 }
 
 #[iroha_futures::telemetry_future]
@@ -108,9 +186,7 @@ async fn handle_get_configuration(
         Docs(field) => {
             Configuration::get_doc_recursive(field.iter().map(AsRef::as_ref).collect::<Vec<&str>>())
                 .wrap_err("Failed to get docs {:?field}")
-                .and_then(|doc| {
-                    Context::wrap_err(serde_json::to_value(doc), "Failed to serialize docs")
-                })
+                .and_then(|doc| serde_json::to_value(doc).wrap_err("Failed to serialize docs"))
         }
         Value => serde_json::to_value(iroha_cfg).wrap_err("Failed to serialize value"),
     }
@@ -190,9 +266,8 @@ async fn stream_blocks<W: WorldTrait>(
 mod subscription {
     //! Contains the `handle_subscription` functions and used for general routing.
 
-    use iroha_core::event;
-
     use super::*;
+    use crate::event;
 
     /// Type for any error during subscription handling
     #[derive(thiserror::Error, Debug)]
@@ -233,18 +308,19 @@ mod subscription {
     /// There should be a [`warp::filters::ws::Message::close()`] message to end subscription
     #[iroha_futures::telemetry_future]
     pub async fn handle_subscription(events: EventsSender, stream: WebSocket) -> eyre::Result<()> {
-        match subscribe_forever(events, stream).await {
-            Ok(()) | Err(Error::CloseMessage) => Ok(()),
+        let mut consumer = event::Consumer::new(stream).await?;
+
+        match subscribe_forever(events, &mut consumer).await {
+            Ok(()) | Err(Error::CloseMessage) => consumer.close_stream().await.map_err(Into::into),
             Err(err) => Err(err.into()),
         }
     }
 
-    /// Make endless `stream` subscription for `events`
+    /// Make endless `consumer` subscription for `events`
     ///
     /// Ideally should return `Result<!>` cause it either runs forever either returns `Err` variant
-    async fn subscribe_forever(events: EventsSender, stream: WebSocket) -> Result<()> {
+    async fn subscribe_forever(events: EventsSender, consumer: &mut event::Consumer) -> Result<()> {
         let mut events = events.subscribe();
-        let mut consumer = Consumer::new(stream).await?;
 
         loop {
             tokio::select! {
@@ -311,10 +387,10 @@ async fn update_metrics<W: WorldTrait>(
     for domain in domains {
         wsv.metrics
             .accounts
-            .get_metric_with_label_values(&[domain.id.name.as_ref()])
+            .get_metric_with_label_values(&[domain.id().name.as_ref()])
             .wrap_err("Failed to compose domains")
             .map_err(Error::Prometheus)?
-            .set(domain.accounts.values().len() as u64);
+            .set(domain.accounts().len() as u64);
     }
     Ok(())
 }
@@ -334,7 +410,9 @@ pub(crate) async fn handle_rejection(rejection: Rejection) -> Result<Response, R
 
     #[allow(clippy::match_same_arms)]
     let response = match err {
-        Query(err) => reply::with_status(utils::Scale(err), err.status_code()).into_response(),
+        Query(err) => {
+            reply::with_status(utils::Scale(err), super::query_status_code(err)).into_response()
+        }
         VersionedTransaction(err) => {
             reply::with_status(err.to_string(), err.status_code()).into_response()
         }
@@ -387,7 +465,9 @@ impl<W: WorldTrait> Torii<W> {
 
     #[cfg(feature = "telemetry")]
     /// Helper function to create router. This router can tested without starting up an HTTP server
-    fn create_telemetry_router(&self) -> impl Filter<Extract = impl warp::Reply> + Clone + Send {
+    fn create_telemetry_router(
+        &self,
+    ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router_status = endpoint2(
             handle_status,
             warp::path(uri::STATUS).and(add_state!(self.wsv, self.network)),
@@ -406,7 +486,7 @@ impl<W: WorldTrait> Torii<W> {
     /// Helper function to create router. This router can tested without starting up an HTTP server
     pub(crate) fn create_api_router(
         &self,
-    ) -> impl Filter<Extract = impl warp::Reply> + Clone + Send {
+    ) -> impl warp::Filter<Extract = impl warp::Reply> + Clone + Send {
         let get_router = warp::path(uri::HEALTH)
             .and_then(|| async { Ok::<_, Infallible>(handle_health().await) })
             .or(endpoint2(

@@ -29,7 +29,7 @@ impl<W: WorldTrait> ValidQuery<W> for FindTransactionByHash {
             .evaluate(wsv, &Context::default())
             .wrap_err("Failed to get hash")
             .map_err(|e| query::Error::Evaluate(e.to_string()))?;
-        let hash = HashOf::from_hash(hash);
+        let hash = hash.typed();
         if !wsv.has_transaction(&hash) {
             return Err(FindError::Transaction(hash).into());
         };

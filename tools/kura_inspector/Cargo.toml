@@ -1,6 +1,6 @@
 [package]
 name = "kura_inspector"
-version = "2.0.0-pre-rc.3"
+version = "2.0.0-pre-rc.4"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
@@ -10,7 +10,7 @@ edition = "2021"
 iroha_core = { path = "../../core" }
 iroha_config = { path = "../../config" }
 
-clap = { version = "3.0", features = ["derive"] }
+clap = { version = "3.1.10", features = ["derive", "cargo"] }
 futures-util = "0.3"
 tokio = { version = "1.6.0", features = ["rt"]}
 

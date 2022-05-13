@@ -383,15 +383,15 @@ mod tests {
     fn conditional_multisignature_quorum() -> Result<()> {
         let asset_quantity_high = Value::U32(750);
         let asset_quantity_low = Value::U32(300);
-        let key_pair_teller_1 = KeyPair::generate()?;
-        let key_pair_teller_2 = KeyPair::generate()?;
-        let key_pair_manager = KeyPair::generate()?;
+        let (public_key_teller_1, _) = KeyPair::generate()?.into();
+        let (public_key_teller_2, _) = KeyPair::generate()?.into();
+        let (manager_public_key, _) = KeyPair::generate()?.into();
         let teller_signatory_set = Value::Vec(vec![
-            Value::PublicKey(key_pair_teller_1.clone().public_key),
-            Value::PublicKey(key_pair_teller_2.public_key),
+            Value::PublicKey(public_key_teller_1.clone()),
+            Value::PublicKey(public_key_teller_2),
         ]);
-        let one_teller_set = Value::Vec(vec![Value::PublicKey(key_pair_teller_1.public_key)]);
-        let manager_signatory = Value::PublicKey(key_pair_manager.public_key);
+        let one_teller_set = Value::Vec(vec![Value::PublicKey(public_key_teller_1)]);
+        let manager_signatory = Value::PublicKey(manager_public_key);
         let manager_signatory_set = Value::Vec(vec![manager_signatory.clone()]);
         let condition: ExpressionBox = IfBuilder::condition(And::new(
             Greater::new(ContextValue::new("usd_quantity"), 500_u32),

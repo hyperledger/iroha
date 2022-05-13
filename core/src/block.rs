@@ -10,10 +10,8 @@ use std::{collections::BTreeSet, error::Error, iter, marker::PhantomData};
 
 use dashmap::{mapref::one::Ref as MapRef, DashMap};
 use eyre::{eyre, Context, Result};
-use iroha_crypto::{HashOf, KeyPair, SignatureOf, SignaturesOf};
-use iroha_data_model::{
-    current_time, events::prelude::*, merkle::MerkleTree, transaction::prelude::*,
-};
+use iroha_crypto::{HashOf, KeyPair, MerkleTree, SignatureOf, SignaturesOf};
+use iroha_data_model::{current_time, events::prelude::*, transaction::prelude::*};
 use iroha_schema::IntoSchema;
 use iroha_version::{declare_versioned_with_scale, version_with_scale};
 use parity_scale_codec::{Decode, Encode};
@@ -49,7 +47,7 @@ impl<T> Default for EmptyChainHash<T> {
 
 impl<T> From<EmptyChainHash<T>> for HashOf<T> {
     fn from(EmptyChainHash(PhantomData): EmptyChainHash<T>) -> Self {
-        Self::from_hash(Hash([0_u8; 32]))
+        Hash::zeroed().typed()
     }
 }
 
@@ -98,14 +96,14 @@ impl Chain {
 }
 
 /// Chain iterator
-pub struct ChainIterator<'a> {
-    chain: &'a Chain,
+pub struct ChainIterator<'itm> {
+    chain: &'itm Chain,
     pos_front: u64,
     pos_back: u64,
 }
 
-impl<'a> ChainIterator<'a> {
-    fn new(chain: &'a Chain) -> Self {
+impl<'itm> ChainIterator<'itm> {
+    fn new(chain: &'itm Chain) -> Self {
         ChainIterator {
             chain,
             pos_front: 1,
@@ -118,8 +116,8 @@ impl<'a> ChainIterator<'a> {
     }
 }
 
-impl<'a> Iterator for ChainIterator<'a> {
-    type Item = MapRef<'a, u64, VersionedCommittedBlock>;
+impl<'itm> Iterator for ChainIterator<'itm> {
+    type Item = MapRef<'itm, u64, VersionedCommittedBlock>;
     fn next(&mut self) -> Option<Self::Item> {
         if !self.is_exhausted() {
             let val = self.chain.blocks.get(&self.pos_front);
@@ -152,7 +150,7 @@ impl<'a> Iterator for ChainIterator<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for ChainIterator<'a> {
+impl<'itm> DoubleEndedIterator for ChainIterator<'itm> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.is_exhausted() {
             let val = self.chain.blocks.get(&self.pos_back);
@@ -220,8 +218,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: height + 1,
                 previous_block_hash,
-                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
-                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                transactions_hash: Hash::zeroed().typed(),
+                rejected_transactions_hash: Hash::zeroed().typed(),
                 view_change_proofs,
                 invalidated_blocks_hashes,
                 genesis_topology: None,
@@ -239,8 +237,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
-                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
-                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                transactions_hash: Hash::zeroed().typed(),
+                rejected_transactions_hash: Hash::zeroed().typed(),
                 view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: Some(genesis_topology),
@@ -258,8 +256,8 @@ impl PendingBlock {
                 consensus_estimation: DEFAULT_CONSENSUS_ESTIMATION_MS,
                 height: 1,
                 previous_block_hash: EmptyChainHash::default().into(),
-                transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
-                rejected_transactions_hash: HashOf::from_hash(Hash([0_u8; 32])),
+                transactions_hash: Hash::zeroed().typed(),
+                rejected_transactions_hash: Hash::zeroed().typed(),
                 view_change_proofs: ViewChangeProofs::empty(),
                 invalidated_blocks_hashes: Vec::new(),
                 genesis_topology: None,
@@ -649,9 +647,9 @@ impl From<&ValidBlock> for Vec<Event> {
         block
             .transactions
             .iter()
-            .map(|transaction| {
+            .map(|transaction| -> Event {
                 PipelineEvent::new(
-                    PipelineEntityType::Transaction,
+                    PipelineEntityKind::Transaction,
                     PipelineStatus::Validating,
                     transaction.hash().into(),
                 )
@@ -659,7 +657,7 @@ impl From<&ValidBlock> for Vec<Event> {
             })
             .chain(block.rejected_transactions.iter().map(|transaction| {
                 PipelineEvent::new(
-                    PipelineEntityType::Transaction,
+                    PipelineEntityKind::Transaction,
                     PipelineStatus::Validating,
                     transaction.hash().into(),
                 )
@@ -667,7 +665,7 @@ impl From<&ValidBlock> for Vec<Event> {
             }))
             .chain(iter::once(
                 PipelineEvent::new(
-                    PipelineEntityType::Block,
+                    PipelineEntityKind::Block,
                     PipelineStatus::Validating,
                     block.hash().into(),
                 )
@@ -721,7 +719,7 @@ impl VersionedCommittedBlock {
 }
 
 /// When Kura receives `ValidBlock`, the block is stored and
-/// then sent to later stage of the pipeline as `CommitedBlock`.
+/// then sent to later stage of the pipeline as `CommittedBlock`.
 #[version_with_scale(n = 1, versioned = "VersionedCommittedBlock")]
 #[derive(Debug, Clone, Decode, Encode, IntoSchema)]
 pub struct CommittedBlock {
@@ -792,7 +790,7 @@ impl From<&CommittedBlock> for Vec<Event> {
             .cloned()
             .map(|transaction| {
                 PipelineEvent::new(
-                    PipelineEntityType::Transaction,
+                    PipelineEntityKind::Transaction,
                     PipelineStatus::Rejected(transaction.as_v1().rejection_reason.clone().into()),
                     transaction.hash().into(),
                 )
@@ -800,7 +798,7 @@ impl From<&CommittedBlock> for Vec<Event> {
             });
         let tx = block.transactions.iter().cloned().map(|transaction| {
             PipelineEvent::new(
-                PipelineEntityType::Transaction,
+                PipelineEntityKind::Transaction,
                 PipelineStatus::Committed,
                 transaction.hash().into(),
             )
@@ -813,7 +811,7 @@ impl From<&CommittedBlock> for Vec<Event> {
             .copied()
             .map(|hash| {
                 PipelineEvent::new(
-                    PipelineEntityType::Block,
+                    PipelineEntityKind::Block,
                     //TODO: store rejection reasons for blocks?
                     PipelineStatus::Rejected(PipelineRejectionReason::Block(
                         BlockRejectionReason::ConsensusBlockRejection,
@@ -824,7 +822,7 @@ impl From<&CommittedBlock> for Vec<Event> {
             });
         let current_block: iter::Once<Event> = iter::once(
             PipelineEvent::new(
-                PipelineEntityType::Block,
+                PipelineEntityKind::Block,
                 PipelineStatus::Committed,
                 block.hash().into(),
             )

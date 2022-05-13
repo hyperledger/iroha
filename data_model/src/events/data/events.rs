@@ -1,11 +1,15 @@
 //! This module contains data events
 
+use iroha_data_primitives::small::SmallVec;
+
 use super::*;
 
 /// Trait for retrieving id from events
 pub trait IdTrait {
+    /// Type of id
     type Id;
 
+    /// Get object id
     fn id(&self) -> &Self::Id;
 }
 
@@ -46,10 +50,14 @@ mod asset {
     #[allow(missing_docs)]
     pub enum AssetDefinitionEvent {
         Created(AssetDefinitionId),
+        MintabilityChanged(AssetDefinitionId),
         Deleted(AssetDefinitionId),
         MetadataInserted(AssetDefinitionId),
         MetadataRemoved(AssetDefinitionId),
     }
+    // NOTE: Whenever you add a new event here, please also update the
+    // AssetDefinitionEventFilter enum and its `impl Filter for
+    // AssetDefinitionEventFilter`.
 
     impl IdTrait for AssetDefinitionEvent {
         type Id = AssetDefinitionId;
@@ -58,6 +66,7 @@ mod asset {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
+                | Self::MintabilityChanged(id)
                 | Self::MetadataInserted(id)
                 | Self::MetadataRemoved(id) => id,
             }
@@ -89,7 +98,6 @@ mod peer {
     }
 }
 
-#[cfg(feature = "roles")]
 mod role {
     //! This module contains `RoleEvent` and its impls
 
@@ -226,10 +234,8 @@ mod trigger {
 )]
 #[allow(missing_docs)]
 pub enum WorldEvent {
-    Domain(domain::DomainEvent),
     Peer(peer::PeerEvent),
-
-    #[cfg(feature = "roles")]
+    Domain(domain::DomainEvent),
     Role(role::RoleEvent),
     Trigger(trigger::TriggerEvent),
 }
@@ -239,13 +245,10 @@ pub enum WorldEvent {
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum Event {
-    /// Domain event
-    Domain(domain::DomainEvent),
     /// Peer event
     Peer(peer::PeerEvent),
-    /// Role event
-    #[cfg(feature = "roles")]
-    Role(role::RoleEvent),
+    /// Domain event
+    Domain(domain::DomainEvent),
     /// Account event
     Account(account::AccountEvent),
     /// Asset definition event
@@ -254,17 +257,53 @@ pub enum Event {
     Asset(asset::AssetEvent),
     /// Trigger event
     Trigger(trigger::TriggerEvent),
+    /// Role event
+    Role(role::RoleEvent),
+}
+
+impl From<WorldEvent> for SmallVec<[Event; 3]> {
+    fn from(world_event: WorldEvent) -> Self {
+        let mut events = SmallVec::new();
+
+        match world_event {
+            WorldEvent::Domain(domain_event) => {
+                match &domain_event {
+                    DomainEvent::Account(account_event) => {
+                        if let AccountEvent::Asset(asset_event) = account_event {
+                            events.push(DataEvent::Asset(asset_event.clone()));
+                        }
+                        events.push(DataEvent::Account(account_event.clone()));
+                    }
+                    DomainEvent::AssetDefinition(asset_definition_event) => {
+                        events.push(DataEvent::AssetDefinition(asset_definition_event.clone()));
+                    }
+                    _ => (),
+                }
+                events.push(DataEvent::Domain(domain_event));
+            }
+            WorldEvent::Peer(peer_event) => {
+                events.push(DataEvent::Peer(peer_event));
+            }
+            WorldEvent::Role(role_event) => {
+                events.push(DataEvent::Role(role_event));
+            }
+            WorldEvent::Trigger(trigger_event) => {
+                events.push(DataEvent::Trigger(trigger_event));
+            }
+        }
+
+        events
+    }
 }
 
 pub mod prelude {
-    #[cfg(feature = "roles")]
-    pub use super::role::RoleEvent;
     pub use super::{
         account::AccountEvent,
         asset::{AssetDefinitionEvent, AssetEvent},
         domain::DomainEvent,
         peer::PeerEvent,
+        role::RoleEvent,
         trigger::TriggerEvent,
-        Event as DataEvent, WorldEvent,
+        Event as DataEvent, IdTrait as DataEventsIdTrait, WorldEvent,
     };
 }

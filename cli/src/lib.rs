@@ -4,7 +4,7 @@
 //!
 //! `Iroha` is the main instance of the peer program. `Arguments`
 //! should be constructed externally: (see `main.rs`).
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use config::Configuration;
@@ -26,7 +26,9 @@ use tokio::sync::broadcast;
 use torii::Torii;
 
 pub mod config;
+mod event;
 pub mod samples;
+mod stream;
 pub mod torii;
 
 /// Arguments for Iroha2 - usually parsed from cli.
@@ -105,7 +107,10 @@ where
         query_validator: IsQueryAllowedBoxed<K::World>,
     ) -> Result<Self> {
         let broker = Broker::new();
-        let mut config = Configuration::from_path(&args.config_path)?;
+        let mut config = match Configuration::from_path(&args.config_path) {
+            Ok(config) => config,
+            Err(_) => Configuration::default(),
+        };
         config.load_environment()?;
 
         let genesis = G::from_configuration(
@@ -141,7 +146,9 @@ where
         broker: Broker,
     ) -> Result<Self> {
         if !config.disable_panic_terminal_colors {
-            color_eyre::install()?;
+            if let Err(e) = color_eyre::install() {
+                iroha_logger::error!("Tried to install eyre_hook twice: {:?}", e);
+            }
         }
         let telemetry = iroha_logger::init(&config.logger)?;
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");
@@ -163,7 +170,7 @@ where
             WorldStateView::from_configuration(
                 config.wsv,
                 W::with(
-                    domains(&config).wrap_err("Failed to get initial domains")?,
+                    domains(&config),
                     config.sumeragi.trusted_peers.peers.clone(),
                 ),
             )
@@ -305,16 +312,7 @@ where
 ///
 /// # Errors
 /// - Genesis account public key not specified.
-fn domains(configuration: &config::Configuration) -> Result<BTreeMap<DomainId, Domain>> {
-    let key = configuration
-        .genesis
-        .account_public_key
-        .clone()
-        .ok_or_else(|| eyre!("Genesis account public key is not specified."))?;
-    #[allow(clippy::expect_used)]
-    Ok([(
-        DomainId::new(GENESIS_DOMAIN_NAME).expect("valid name"),
-        Domain::from(GenesisDomain::new(key)),
-    )]
-    .into())
+fn domains(configuration: &config::Configuration) -> impl Iterator<Item = Domain> {
+    let key = configuration.genesis.account_public_key.clone();
+    [Domain::from(GenesisDomain::new(key))].into_iter()
 }

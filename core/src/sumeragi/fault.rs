@@ -121,7 +121,6 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
     ) -> Result<Self> {
         let network_topology = Topology::builder()
             .at_block(EmptyChainHash::default().into())
-            .reshuffle_after(configuration.n_topology_shifts_before_reshuffle)
             .with_peers(configuration.trusted_peers.peers.clone())
             .build()?;
 
@@ -678,6 +677,15 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         }
         let signed_block = block.sign(self.key_pair.clone())?;
         if !network_topology.is_consensus_required() {
+            self.broadcast_msg_to(
+                BlockCommitted::from(signed_block.clone()),
+                network_topology
+                    .validating_peers()
+                    .iter()
+                    .chain(std::iter::once(network_topology.leader()))
+                    .chain(network_topology.peers_set_b()),
+            )
+            .await;
             self.commit_block(signed_block).await;
             return Ok(());
         }
@@ -738,14 +746,15 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         let block = block.commit();
         let block_hash = block.hash();
 
+        if let Err(error) = self.wsv.apply(block.clone()).await {
+            warn!(?error, %block_hash, "Failed to apply block on WSV");
+        }
+
         for event in Vec::<Event>::from(&block) {
             trace!(?event);
             drop(self.events_sender.send(event));
         }
 
-        if let Err(error) = self.wsv.apply(block.clone()).await {
-            warn!(%error, %block_hash, "Failed to apply block on WSV");
-        }
         let previous_role = self.topology.role(&self.peer_id);
         self.topology.apply_block(block_hash);
         info!(
@@ -775,6 +784,10 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
             self.invalidated_blocks_hashes.push(hash)
         }
         self.topology.apply_view_change(proof.clone());
+        self.wsv
+            .metrics
+            .view_changes
+            .set(self.number_of_view_changes());
         self.voting_block = None;
         error!(
             peer_addr = %self.peer_id.address,
@@ -881,7 +894,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Deb
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sumeragi")
-            .field("public_key", &self.key_pair.public_key)
+            .field("public_key", &self.key_pair.public_key())
             .field("network_topology", &self.topology)
             .field("peer_id", &self.peer_id)
             .field("voting_block", &self.voting_block)
@@ -899,7 +912,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Con
         info!("Starting Sumeragi");
         self.connect_peers().await;
 
-        if height != 0 && *last_block != Hash([0; 32]) {
+        if height != 0 && last_block != Hash::zeroed().typed() {
             self.init(last_block, height);
         } else if let Some(genesis_network) = self.genesis_network.take() {
             let addr = self.network.clone();

@@ -4,9 +4,8 @@
 use std::{
     convert::Infallible,
     fmt::Debug,
-    iter::once,
     ops::{Deref, DerefMut},
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Duration,
 };
 
@@ -24,11 +23,10 @@ use tokio::task;
 
 use crate::{
     block::Chain,
-    event::EventsSender,
     prelude::*,
     smartcontracts::{isi::Error, wasm, Execute, FindError},
     triggers::TriggerSet,
-    DomainsMap, PeersIds,
+    DomainsMap, EventsSender, PeersIds,
 };
 
 /// Sender type of the new block notification channel
@@ -42,7 +40,7 @@ pub trait WorldTrait:
 {
     /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
     fn with(
-        domains: impl IntoIterator<Item = (DomainId, Domain)>,
+        domains: impl IntoIterator<Item = Domain>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
     ) -> Self;
 }
@@ -51,17 +49,16 @@ pub trait WorldTrait:
 /// For example registration of domain, will have this as an ISI target.
 #[derive(Debug, Default, Clone)]
 pub struct World {
-    /// Identifications of discovered trusted peers.
-    pub trusted_peers_ids: PeersIds,
-    /// Roles. [`Role`] pairs.
-    #[cfg(feature = "roles")]
-    pub roles: crate::RolesMap,
-    /// Registered domains.
-    pub domains: DomainsMap,
-    /// Triggers
-    pub triggers: TriggerSet,
     /// Iroha parameters.
     pub parameters: Vec<Parameter>,
+    /// Identifications of discovered trusted peers.
+    pub trusted_peers_ids: PeersIds,
+    /// Registered domains.
+    pub domains: DomainsMap,
+    /// Roles. [`Role`] pairs.
+    pub roles: crate::RolesMap,
+    /// Triggers
+    pub triggers: TriggerSet,
 }
 
 impl Deref for World {
@@ -94,8 +91,6 @@ pub struct WorldStateView<W: WorldTrait> {
     pub metrics: Arc<Metrics>,
     /// Notifies subscribers when new block is applied
     new_block_notifier: Arc<NewBlockNotificationSender>,
-    /// Events produced in the current block
-    events: RwLock<Vec<Event>>,
     /// Transmitter to broadcast [`WorldStateView`]-related events.
     events_sender: Option<EventsSender>,
 }
@@ -117,12 +112,6 @@ impl<W: WorldTrait + Clone> Clone for WorldStateView<W> {
             transactions: self.transactions.clone(),
             metrics: Arc::clone(&self.metrics),
             new_block_notifier: Arc::clone(&self.new_block_notifier),
-            events: RwLock::new(
-                self.events
-                    .read()
-                    .expect("Failed to lock events while cloning")
-                    .clone(),
-            ),
             events_sender: self.events_sender.clone(),
         }
     }
@@ -138,10 +127,13 @@ impl World {
 
 impl WorldTrait for World {
     fn with(
-        domains: impl IntoIterator<Item = (DomainId, Domain)>,
+        domains: impl IntoIterator<Item = Domain>,
         trusted_peers_ids: impl IntoIterator<Item = PeerId>,
     ) -> Self {
-        let domains = domains.into_iter().collect();
+        let domains = domains
+            .into_iter()
+            .map(|domain| (domain.id().clone(), domain))
+            .collect();
         let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
         World {
             domains,
@@ -167,27 +159,23 @@ impl<W: WorldTrait> WorldStateView<W> {
         self
     }
 
-    /// Get `Account`'s `Asset`s and pass it to closure
+    /// Get `Account`'s `Asset`s
     ///
     /// # Errors
-    /// Fails if account finding fails
+    /// Fails if there is no domain or account
     pub fn account_assets(&self, id: &AccountId) -> Result<Vec<Asset>, FindError> {
-        self.map_account(id, |account| account.assets.values().cloned().collect())
+        self.map_account(id, |account| account.assets().cloned().collect())
     }
 
     /// Returns a set of permission tokens granted to this account as part of roles and separately.
     #[allow(clippy::unused_self)]
-    pub fn account_permission_tokens(
-        &self,
-        account: &Account,
-    ) -> iroha_data_model::account::Permissions {
+    pub fn account_permission_tokens(&self, account: &Account) -> Vec<PermissionToken> {
         #[allow(unused_mut)]
-        let mut tokens = account.permission_tokens.clone();
-        #[cfg(feature = "roles")]
-        for role_id in &account.roles {
+        let mut tokens: Vec<PermissionToken> = account.permissions().cloned().collect();
+
+        for role_id in account.roles() {
             if let Some(role) = self.world.roles.get(role_id) {
-                let mut role_tokens = role.permissions.clone();
-                tokens.append(&mut role_tokens);
+                tokens.append(&mut role.permissions().cloned().collect());
             }
         }
         tokens
@@ -202,7 +190,8 @@ impl<W: WorldTrait> WorldStateView<W> {
                 })?;
             }
             Executable::Wasm(bytes) => {
-                let mut wasm_runtime = wasm::Runtime::new()?;
+                let mut wasm_runtime =
+                    wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
                 wasm_runtime.execute(self, authority, bytes)?;
             }
         }
@@ -228,25 +217,27 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[log(skip(self, block))]
     #[allow(clippy::expect_used)]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
-        let time_event = Event::Time(self.create_time_event(block.as_v1())?);
-        self.produce_events(once(time_event.clone()));
+        let time_event = self.create_time_event(block.as_v1())?;
+        self.produce_event(Event::Time(time_event));
 
         self.execute_transactions(block.as_v1()).await?;
 
-        let events: Vec<Event> = self
-            .events
-            .write()
-            .expect("Failed to lock events while applying block")
-            .drain(..)
-            .collect();
+        self.world.triggers.handle_time_event(&time_event);
 
-        let triggers = self.world.triggers.find_matching(
-            events
-                .iter()
-                .chain(&block.as_v1().event_recommendations)
-                .chain(once(&time_event)),
-        );
-        self.execute_triggers(triggers).await?;
+        let res = self
+            .world
+            .triggers
+            .inspect_matched(|action| -> Result<()> {
+                self.process_executable(action.executable(), action.technical_account())
+            })
+            .await;
+
+        if let Err(errors) = res {
+            warn!(
+                ?errors,
+                "The following errors have occurred during trigger execution"
+            );
+        }
 
         self.blocks.push(block);
         self.block_commit_metrics_update_callback();
@@ -301,24 +292,6 @@ impl<W: WorldTrait> WorldStateView<W> {
         Ok(())
     }
 
-    /// Execute `triggers` and apply them to `self`
-    ///
-    /// # Errors
-    /// Fails if trigger execution fails
-    async fn execute_triggers<T, I>(&self, triggers: T) -> Result<()>
-    where
-        T: IntoIterator<Item = Action, IntoIter = I> + Send,
-        I: Iterator<Item = Action> + Send,
-    {
-        // TODO: Validate the trigger executables as well as the technical account.
-        for trigger in triggers {
-            self.process_executable(&trigger.executable, &trigger.technical_account)?;
-            task::yield_now().await;
-        }
-
-        Ok(())
-    }
-
     /// Get `Asset` by its id
     ///
     /// # Errors
@@ -327,50 +300,50 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, FindError> {
         self.map_account(&id.account_id, |account| -> Result<Asset, FindError> {
             account
-                .assets
-                .get(id)
+                .asset(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))
                 .map(Clone::clone)
         })?
     }
 
     /// Send [`Event`]s to known subscribers.
-    fn produce_events<E>(&self, events: E)
-    where
-        E: IntoIterator<Item = Event>,
-    {
+    fn produce_event(&self, event: impl Into<Event>) {
         let events_sender = if let Some(sender) = &self.events_sender {
             sender
         } else {
             return warn!("wsv does not equip an events sender");
         };
 
-        for event in events {
-            drop(events_sender.send(event))
-        }
+        drop(events_sender.send(event.into()))
     }
 
     /// Tries to get asset or inserts new with `default_asset_value`.
     ///
     /// # Errors
     /// Fails if there is no account with such name.
+    #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
         &self,
         id: &<Asset as Identifiable>::Id,
         default_asset_value: impl Into<AssetValue>,
     ) -> Result<Asset, Error> {
+        if let Ok(asset) = self.asset(id) {
+            return Ok(asset);
+        }
+
         // This function is strictly infallible.
         self.modify_account(&id.account_id, |account| {
-            let _ = account
-                .assets
-                .entry(id.clone())
-                .or_insert_with(|| Asset::new(id.clone(), default_asset_value.into()));
+            assert!(account
+                .add_asset(Asset::new(id.clone(), default_asset_value.into()))
+                .is_none());
+
             Ok(AccountEvent::Asset(AssetEvent::Created(id.clone())))
         })
         .map_err(|err| {
             iroha_logger::warn!(?err);
             err
         })?;
+
         self.asset(id).map_err(Into::into)
     }
 
@@ -413,9 +386,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// **Locking behaviour**: Holding references to blocks stored in the blockchain can induce
     /// deadlock. This limitation is imposed by the fact that blockchain is backed by [`dashmap::DashMap`]
     #[inline]
-    pub fn blocks(
-        &self,
-    ) -> impl Iterator<Item = impl Deref<Target = VersionedCommittedBlock> + '_> + '_ {
+    pub fn blocks(&self) -> crate::block::ChainIterator {
         self.blocks.iter()
     }
 
@@ -446,37 +417,14 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
-        let mut cur_events: SmallVec<[Event; 3]> = SmallVec(smallvec::smallvec![]);
-        let event = f(&self.world)?;
+        let world_event = f(&self.world)?;
+        let data_events: SmallVec<[DataEvent; 3]> = world_event.into();
 
-        match event {
-            WorldEvent::Domain(domain_event) => {
-                match &domain_event {
-                    DomainEvent::Account(account_event) => {
-                        if let AccountEvent::Asset(asset_event) = account_event {
-                            cur_events.push(DataEvent::Asset(asset_event.clone()).into())
-                        }
-                        cur_events.push(DataEvent::Account(account_event.clone()).into());
-                    }
-                    DomainEvent::AssetDefinition(asset_definition_event) => cur_events
-                        .push(DataEvent::AssetDefinition(asset_definition_event.clone()).into()),
-                    _ => (),
-                }
-                cur_events.push(DataEvent::Domain(domain_event).into());
-            }
-            WorldEvent::Peer(peer_event) => cur_events.push(DataEvent::Peer(peer_event).into()),
-            #[cfg(feature = "roles")]
-            WorldEvent::Role(role_event) => cur_events.push(DataEvent::Role(role_event).into()),
-            WorldEvent::Trigger(trigger_event) => {
-                cur_events.push(DataEvent::Trigger(trigger_event).into())
-            }
+        for event in data_events {
+            self.world.triggers.handle_data_event(&event);
+            self.produce_event(event);
         }
 
-        self.produce_events(cur_events.iter().cloned());
-        self.events
-            .write()
-            .expect("Failed to lock events while modifying world")
-            .extend(cur_events);
         Ok(())
     }
 
@@ -583,7 +531,6 @@ impl<W: WorldTrait> WorldStateView<W> {
             blocks: Arc::new(Chain::new()),
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
-            events: RwLock::new(Vec::new()),
             events_sender: None,
         }
     }
@@ -626,9 +573,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     pub fn latest_block_hash(&self) -> HashOf<VersionedCommittedBlock> {
         self.blocks
             .latest_block()
-            .map_or(HashOf::from_hash(Hash([0_u8; 32])), |block| {
-                block.value().hash()
-            })
+            .map_or(Hash::zeroed().typed(), |block| block.value().hash())
     }
 
     /// Get `Account` and pass it to closure.
@@ -642,8 +587,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<T, FindError> {
         let domain = self.domain(&id.domain_id)?;
         let account = domain
-            .accounts
-            .get(id)
+            .account(id)
             .ok_or_else(|| FindError::Account(id.clone()))?;
         Ok(f(account))
     }
@@ -659,8 +603,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<(), Error> {
         self.modify_domain(&id.domain_id, |domain| {
             let account = domain
-                .accounts
-                .get_mut(id)
+                .account_mut(id)
                 .ok_or_else(|| FindError::Account(id.clone()))?;
             f(account).map(DomainEvent::Account)
         })
@@ -670,6 +613,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ///
     /// # Errors
     /// Fails if there are no such asset or account
+    #[allow(clippy::missing_panics_doc)]
     pub fn modify_asset(
         &self,
         id: &<Asset as Identifiable>::Id,
@@ -677,13 +621,14 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<(), Error> {
         self.modify_account(&id.account_id, |account| {
             let asset = account
-                .assets
-                .get_mut(id)
+                .asset_mut(id)
                 .ok_or_else(|| FindError::Asset(id.clone()))?;
+
             let event_result = f(asset);
-            if asset.value.is_zero_value() {
-                account.assets.remove(id);
+            if asset.value().is_zero_value() {
+                assert!(account.remove_asset(id).is_some());
             }
+
             event_result.map(AccountEvent::Asset)
         })
     }
@@ -699,8 +644,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     ) -> Result<(), Error> {
         self.modify_domain(&id.domain_id, |domain| {
             let asset_definition_entry = domain
-                .asset_definitions
-                .get_mut(id)
+                .asset_definition_mut(id)
                 .ok_or_else(|| FindError::AssetDefinition(id.clone()))?;
             f(asset_definition_entry).map(DomainEvent::AssetDefinition)
         })
@@ -724,12 +668,11 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// - Asset definition entry not found
     pub fn asset_definition_entry(
         &self,
-        id: &<AssetDefinition as Identifiable>::Id,
+        asset_id: &<AssetDefinition as Identifiable>::Id,
     ) -> Result<AssetDefinitionEntry, FindError> {
-        self.domain(&id.domain_id)?
-            .asset_definitions
-            .get(id)
-            .ok_or_else(|| FindError::AssetDefinition(id.clone()))
+        self.domain(&asset_id.domain_id)?
+            .asset_definition(asset_id)
+            .ok_or_else(|| FindError::AssetDefinition(asset_id.clone()))
             .map(Clone::clone)
     }
 
@@ -843,12 +786,9 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// (Rare) Panics if can't lock `self.events` for writing
     #[allow(clippy::expect_used)]
     pub fn execute_trigger(&self, trigger_id: TriggerId, authority: AccountId) {
-        let event: Event = ExecuteTriggerEvent::new(trigger_id, authority).into();
-        self.events
-            .write()
-            .expect("Failed to lock events while executing trigger")
-            .push(event.clone());
-        self.produce_events(once(event));
+        let event = ExecuteTriggerEvent::new(trigger_id, authority);
+        self.world.triggers.handle_execute_trigger_event(&event);
+        self.produce_event(event);
     }
 }
 
@@ -857,6 +797,8 @@ pub mod config {
     use iroha_config::derive::Configurable;
     use iroha_data_model::{metadata::Limits as MetadataLimits, LengthLimits};
     use serde::{Deserialize, Serialize};
+
+    use crate::smartcontracts::wasm;
 
     const DEFAULT_METADATA_LIMITS: MetadataLimits =
         MetadataLimits::new(2_u32.pow(20), 2_u32.pow(12));
@@ -877,6 +819,8 @@ pub mod config {
         pub domain_metadata_limits: MetadataLimits,
         /// [`LengthLimits`] for the number of chars in identifiers that can be stored in the WSV.
         pub ident_length_limits: LengthLimits,
+        /// [`WASM Runtime`](wasm::Runtime) configuration
+        pub wasm_runtime_config: wasm::config::Configuration,
     }
 
     impl Default for Configuration {
@@ -887,6 +831,7 @@ pub mod config {
                 account_metadata_limits: DEFAULT_METADATA_LIMITS,
                 domain_metadata_limits: DEFAULT_METADATA_LIMITS,
                 ident_length_limits: DEFAULT_IDENT_LENGTH_LIMITS,
+                wasm_runtime_config: wasm::config::Configuration::default(),
             }
         }
     }

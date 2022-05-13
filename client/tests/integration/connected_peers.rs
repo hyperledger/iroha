@@ -14,13 +14,6 @@ fn connected_peers_with_f_2_1_2() {
 }
 
 #[test]
-// TODO This case does not have to be supported, but at least have to
-// be error-handled AP: Re-opening
-// [#1716](https://github.com/hyperledger/iroha/issues/1716). The
-// solution might be to add a field to status that indicates whether
-// or not there have been many view changes.
-#[ignore]
-#[should_panic] // Stop gap solution until we fix 1716.
 fn connected_peers_with_f_1_0_1() {
     connected_peers_with_f(1)
 }
@@ -54,9 +47,7 @@ fn connected_peers_with_f(faults: u64) {
 
     // Re-register the peer: committed with f = `faults` - 1 then
     // `status.peers` increments
-    let register_peer = RegisterBox::new(IdentifiableBox::Peer(
-        DataModelPeer::new(peer.id.clone()).into(),
-    ));
+    let register_peer = RegisterBox::new(DataModelPeer::new(peer.id.clone()));
     genesis_client.submit(register_peer).unwrap();
     thread::sleep(pipeline_time * 4);
     status = genesis_client.get_status().unwrap();

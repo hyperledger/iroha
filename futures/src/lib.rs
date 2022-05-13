@@ -122,8 +122,8 @@ impl<F: Future> Future for TelemetryFuture<F> {
         let id = self.id;
         let now = Instant::now();
 
-        // SAFETY: This is safe because `future` is a field of pinned structure and therefore is also pinned
         #[allow(unsafe_code)]
+        // SAFETY: This is safe because `future` is a field of pinned structure and therefore is also pinned
         let future = unsafe { self.map_unchecked_mut(|telemetry| &mut telemetry.future) };
         let result = future.poll(cx);
 

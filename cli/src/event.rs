@@ -5,15 +5,10 @@
 use futures::TryStreamExt;
 use iroha_data_model::events::prelude::*;
 use iroha_macro::error::ErrorTryFromEnum;
-use tokio::sync::broadcast;
 use warp::ws::WebSocket;
 
 use crate::stream::{self, Sink, Stream};
 
-/// Type of `Sender<Event>` which should be used for channels of `Event` messages.
-pub type EventsSender = broadcast::Sender<Event>;
-/// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
-pub type EventsReceiver = broadcast::Receiver<Event>;
 /// Type of Stream error
 pub type StreamError = stream::Error<<WebSocket as Stream<VersionedEventSubscriberMessage>>::Err>;
 
@@ -25,7 +20,7 @@ pub enum Error {
     Stream(Box<StreamError>),
     /// Error from converting received message to filter
     #[error("Can't retrieve subscription filter: {0}")]
-    CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriberMessage, EventFilter>),
+    CantRetrieveSubscriptionFilter(#[from] ErrorTryFromEnum<EventSubscriberMessage, FilterBox>),
     /// Error, that occurs when client answered not with `EventReceived` message
     #[error("Got unexpected response. Expected `EventReceived`")]
     ExpectedEventReceived,
@@ -52,7 +47,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[derive(Debug)]
 pub struct Consumer {
     stream: WebSocket,
-    filter: EventFilter,
+    filter: FilterBox,
 }
 
 impl Consumer {
@@ -110,5 +105,13 @@ impl Consumer {
             iroha_logger::trace!("Unexpected message received: {:?}", message);
         }
         Err(Error::CantReceiveMessage)
+    }
+
+    /// Close stream. See [`WebSocket::close()`]
+    ///
+    /// # Errors
+    /// Throws up [`WebSocket::close()`] errors
+    pub async fn close_stream(self) -> Result<()> {
+        self.stream.close().await.map_err(Into::into)
     }
 }

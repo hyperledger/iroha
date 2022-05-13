@@ -35,6 +35,8 @@ pub const WASM_MAIN_FN_NAME: &str = "_iroha_wasm_main";
 pub const EXECUTE_ISI_FN_NAME: &str = "execute_instruction";
 /// Name of the imported function to execute queries
 pub const EXECUTE_QUERY_FN_NAME: &str = "execute_query";
+/// Name of the imported function to debug print object
+pub const DBG_FN_NAME: &str = "dbg";
 
 /// `WebAssembly` execution error type
 #[derive(Debug, thiserror::Error)]
@@ -68,7 +70,7 @@ impl From<ParseError> for Error {
     }
 }
 
-struct Validator<'a, W: WorldTrait> {
+struct Validator<'wrld, W: WorldTrait> {
     /// Number of instructions in the smartcontract
     instruction_count: u64,
     /// Max allowed number of instructions in the smartcontract
@@ -78,7 +80,7 @@ struct Validator<'a, W: WorldTrait> {
     /// If this particular query is allowed
     is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
     /// Current [`WorldStateview`]
-    wsv: &'a WorldStateView<W>,
+    wsv: &'wrld WorldStateView<W>,
 }
 
 impl<W: WorldTrait> Validator<'_, W> {
@@ -125,16 +127,16 @@ impl<W: WorldTrait> Validator<'_, W> {
     }
 }
 
-struct State<'a, W: WorldTrait> {
+struct State<'wrld, W: WorldTrait> {
     account_id: AccountId,
     /// Ensures smartcontract adheres to limits
-    validator: Option<Validator<'a, W>>,
+    validator: Option<Validator<'wrld, W>>,
     store_limits: StoreLimits,
-    wsv: &'a WorldStateView<W>,
+    wsv: &'wrld WorldStateView<W>,
 }
 
-impl<'a, W: WorldTrait> State<'a, W> {
-    fn new(wsv: &'a WorldStateView<W>, account_id: AccountId, config: Configuration) -> Self {
+impl<'wrld, W: WorldTrait> State<'wrld, W> {
+    fn new(wsv: &'wrld WorldStateView<W>, account_id: AccountId, config: Configuration) -> Self {
         Self {
             wsv,
             account_id,
@@ -171,13 +173,13 @@ impl<'a, W: WorldTrait> State<'a, W> {
 }
 
 /// `WebAssembly` virtual machine
-pub struct Runtime<'a, W: WorldTrait> {
+pub struct Runtime<'wrld, W: WorldTrait> {
     engine: Engine,
-    linker: Linker<State<'a, W>>,
+    linker: Linker<State<'wrld, W>>,
     config: Configuration,
 }
 
-impl<'a, W: WorldTrait> Runtime<'a, W> {
+impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
     /// `Runtime` constructor with default configuration.
     ///
     /// # Errors
@@ -239,7 +241,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         // Store length as byte array in front of encoding
         for (i, byte) in WasmUsize::try_from(r.len())
             .map_err(|e| Trap::new(e.to_string()))?
-            .to_be_bytes()
+            .to_le_bytes()
             .into_iter()
             .enumerate()
         {
@@ -312,7 +314,7 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
     /// # Warning
     ///
     /// This function doesn't take ownership of the provided allocation
-    /// but it does tranasfer ownership of the result to the caller
+    /// but it does transfer ownership of the result to the caller
     ///
     /// # Errors
     ///
@@ -344,15 +346,38 @@ impl<'a, W: WorldTrait> Runtime<'a, W> {
         Ok(())
     }
 
-    fn create_linker(engine: &Engine) -> Result<Linker<State<'a, W>>, Error> {
+    /// Host defined function which prints given string. When calling
+    /// this function, module serializes ISI to linear memory and
+    /// provides offset and length as parameters
+    ///
+    /// # Warning
+    ///
+    /// This function doesn't take ownership of the provided
+    /// allocation
+    ///
+    /// # Errors
+    ///
+    /// If string decoding fails
+    #[allow(clippy::print_stdout)]
+    fn dbg(mut caller: Caller<State<W>>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
+        let memory = Self::get_memory(&mut caller)?;
+        let string_mem_range = offset as usize..(offset + len) as usize;
+        let mut string_bytes = &memory.data(&caller)[string_mem_range];
+        let s = String::decode(&mut string_bytes).map_err(|error| Trap::new(error.to_string()))?;
+        println!("{s}");
+        Ok(())
+    }
+
+    fn create_linker(engine: &Engine) -> Result<Linker<State<'wrld, W>>, Error> {
         let mut linker = Linker::new(engine);
 
         linker
             .func_wrap("iroha", EXECUTE_ISI_FN_NAME, Self::execute_instruction)
+            .and_then(|l| l.func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query))
             .map_err(Error::Initialization)?;
 
         linker
-            .func_wrap("iroha", EXECUTE_QUERY_FN_NAME, Self::execute_query)
+            .func_wrap("iroha", DBG_FN_NAME, Self::dbg)
             .map_err(Error::Initialization)?;
 
         Ok(linker)
@@ -523,23 +548,24 @@ pub mod config {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use std::str::FromStr as _;
+
     use iroha_crypto::KeyPair;
 
     use super::*;
     use crate::{
         smartcontracts::permissions::{AllowAll, DenyAll},
-        DomainsMap, PeersIds, World,
+        PeersIds, World,
     };
 
     fn world_with_test_account(account_id: AccountId) -> World {
         let domain_id = account_id.domain_id.clone();
-        let public_key = KeyPair::generate().unwrap().public_key;
-        let account = Account::with_signatory(account_id, public_key);
-        let domain = Domain::with_accounts(domain_id.name.as_ref(), std::iter::once(account));
+        let (public_key, _) = KeyPair::generate().unwrap().into();
+        let account = Account::new(account_id, [public_key]).build();
+        let mut domain = Domain::new(domain_id).build();
+        assert!(domain.add_account(account).is_none());
 
-        let domains = DomainsMap::new();
-        domains.insert(domain_id, domain);
-        World::with(domains, PeersIds::new())
+        World::with([domain], PeersIds::new())
     }
 
     fn memory_and_alloc(isi_hex: &str) -> String {
@@ -583,12 +609,12 @@ mod tests {
 
     #[test]
     fn execute_instruction_exported() -> Result<(), Error> {
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
-            let new_account_id = AccountId::new("mad_hatter", "wonderland")?;
-            let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+            let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
+            let register_isi = RegisterBox::new(Account::new(new_account_id, []));
             encode_hex(Instruction::Register(register_isi))
         };
 
@@ -618,7 +644,7 @@ mod tests {
 
     #[test]
     fn execute_query_exported() -> Result<(), Error> {
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let query_hex = {
@@ -656,12 +682,12 @@ mod tests {
 
     #[test]
     fn instruction_limit_reached() -> Result<(), Error> {
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
-            let new_account_id = AccountId::new("mad_hatter", "wonderland")?;
-            let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+            let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
+            let register_isi = RegisterBox::new(Account::new(new_account_id, []));
             encode_hex(Instruction::Register(register_isi))
         };
 
@@ -703,12 +729,12 @@ mod tests {
 
     #[test]
     fn instructions_not_allowed() -> Result<(), Error> {
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
-            let new_account_id = AccountId::new("mad_hatter", "wonderland")?;
-            let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+            let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
+            let register_isi = RegisterBox::new(Account::new(new_account_id, []));
             encode_hex(Instruction::Register(register_isi))
         };
 
@@ -750,7 +776,7 @@ mod tests {
 
     #[test]
     fn queries_not_allowed() -> Result<(), Error> {
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let query_hex = {

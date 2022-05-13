@@ -1,12 +1,11 @@
 //! Module for schematizing rust types in other languages for translation.
 
-#![allow(clippy::expect_used)]
 #![no_std]
 
 extern crate alloc;
 
 use alloc::{
-    borrow::ToOwned as _,
+    boxed::Box,
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
     format,
     string::String,
@@ -24,14 +23,8 @@ pub type MetaMap = BTreeMap<String, Metadata>;
 /// `IntoSchema` trait
 pub trait IntoSchema {
     /// Returns unique type name.
-    /// WARN: `core::any::type_name` is compiler related, so is not unique.
-    /// I guess we should change it somehow later
-    // TODO: Should return &str if possible
-    fn type_name() -> String {
-        core::any::type_name::<Self>()
-            .replace("alloc::string::String", "String")
-            .replace("alloc::vec::Vec", "Vec")
-    }
+    // TODO: Should return &str if possible or be immutable string
+    fn type_name() -> String;
 
     /// Returns info about current type. Will return map from type names to its metadata
     fn get_schema() -> MetaMap {
@@ -57,7 +50,7 @@ pub enum Metadata {
     /// Structure with named fields
     Struct(NamedFieldsMeta),
     /// Unnamed structure
-    TupleStruct(UnnamedFieldsMeta),
+    Tuple(UnnamedFieldsMeta),
     /// Enum
     Enum(EnumMeta),
     /// Integer
@@ -71,11 +64,11 @@ pub enum Metadata {
     /// Array
     Array(ArrayMeta),
     /// Vector with type
-    Vec(String),
+    Vec(VecMeta),
+    /// Associative array
+    Map(MapMeta),
     /// Option with type
     Option(String),
-    /// Map
-    Map(MapMeta),
     /// Result
     Result(ResultMeta),
 }
@@ -87,6 +80,17 @@ pub struct ArrayMeta {
     pub ty: String,
     /// Length
     pub len: u64,
+    /// Order elements
+    pub sorted: bool,
+}
+
+/// Array metadata
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct VecMeta {
+    /// Type
+    pub ty: String,
+    /// Order elements
+    pub sorted: bool,
 }
 
 /// Named fields
@@ -94,7 +98,6 @@ pub struct ArrayMeta {
 pub struct NamedFieldsMeta {
     /// Fields
     pub declarations: Vec<Declaration>,
-    //todo add collection of properties meta defined in struct
 }
 
 /// Field
@@ -106,12 +109,11 @@ pub struct Declaration {
     pub ty: String,
 }
 
-/// Unnamed fileds
+/// Unnamed fields
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct UnnamedFieldsMeta {
     /// Field types
     pub types: Vec<String>,
-    //todo add collection of properties meta defined in struct
 }
 
 /// Enum metadata
@@ -130,7 +132,6 @@ pub struct EnumVariant {
     pub discriminant: u8,
     /// Its type
     pub ty: Option<String>,
-    //todo add collection of properties meta defined in enum variant
 }
 
 /// Result variant
@@ -141,7 +142,6 @@ pub struct ResultMeta {
     /// Err type
     pub err: String,
 }
-
 /// Map variant
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct MapMeta {
@@ -149,6 +149,8 @@ pub struct MapMeta {
     pub key: String,
     /// Value type
     pub value: String,
+    /// Order key-value pairs by key
+    pub sorted_by_key: bool,
 }
 
 /// Integer mode
@@ -172,10 +174,10 @@ pub struct FixedMeta {
 }
 
 macro_rules! impl_schema_int {
-    ($($t:ty,)*) => {$(
+    ($($t:ty),*) => {$(
         impl IntoSchema for $t {
             fn type_name() -> String {
-                core::any::type_name::<Self>().to_owned()
+                String::from(stringify!($t))
             }
             fn schema(map: &mut MetaMap) {
                 let _ = map.entry(Self::type_name()).or_insert(
@@ -186,7 +188,7 @@ macro_rules! impl_schema_int {
 
         impl IntoSchema for Compact<$t> {
             fn type_name() -> String {
-                format!("iroha_schema::Compact<{}>", <$t as IntoSchema>::type_name())
+                format!("Compact<{}>", <$t as IntoSchema>::type_name())
             }
             fn schema(map: &mut MetaMap) {
                 let _ = map.entry(Self::type_name()).or_insert(Metadata::Int(IntMode::Compact));
@@ -195,7 +197,7 @@ macro_rules! impl_schema_int {
     )*};
 }
 
-impl_schema_int!(u128, u64, u32, u16, u8, i128, i64, i32, i16, i8,);
+impl_schema_int!(u128, u64, u32, u16, u8, i128, i64, i32, i16, i8);
 
 impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for fixnum::FixedPoint<I, P> {
     fn type_name() -> String {
@@ -223,7 +225,7 @@ impl DecimalPlacesAware for fixnum::typenum::U9 {
 
 impl IntoSchema for String {
     fn type_name() -> String {
-        "String".to_owned()
+        String::from("String")
     }
     fn schema(map: &mut MetaMap) {
         let _ = map.entry(Self::type_name()).or_insert(Metadata::String);
@@ -232,7 +234,7 @@ impl IntoSchema for String {
 
 impl IntoSchema for bool {
     fn type_name() -> String {
-        core::any::type_name::<Self>().to_owned()
+        String::from("bool")
     }
     fn schema(map: &mut MetaMap) {
         let _ = map.entry(Self::type_name()).or_insert(Metadata::Bool);
@@ -244,9 +246,12 @@ impl<T: IntoSchema> IntoSchema for Vec<T> {
         format!("Vec<{}>", T::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        let _ = map
-            .entry(Self::type_name())
-            .or_insert_with(|| Metadata::Vec(T::type_name()));
+        let _ = map.entry(Self::type_name()).or_insert_with(|| {
+            Metadata::Vec(VecMeta {
+                ty: T::type_name(),
+                sorted: false,
+            })
+        });
         if !map.contains_key(&T::type_name()) {
             T::schema(map);
         }
@@ -267,7 +272,7 @@ impl<T: IntoSchema> IntoSchema for Option<T> {
     }
 }
 
-impl<T: IntoSchema> IntoSchema for alloc::boxed::Box<T> {
+impl<T: IntoSchema> IntoSchema for Box<T> {
     fn type_name() -> String {
         T::type_name()
     }
@@ -299,15 +304,17 @@ impl<T: IntoSchema, E: IntoSchema> IntoSchema for Result<T, E> {
 
 impl<K: IntoSchema, V: IntoSchema> IntoSchema for BTreeMap<K, V> {
     fn type_name() -> String {
-        format!("BTreeMap<{}, {}>", K::type_name(), V::type_name())
+        format!("Map<{}, {}>", K::type_name(), V::type_name(),)
     }
     fn schema(map: &mut MetaMap) {
-        let _ = map.entry(Self::type_name()).or_insert_with(|| {
+        map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Map(MapMeta {
                 key: K::type_name(),
                 value: V::type_name(),
+                sorted_by_key: true,
             })
         });
+
         if !map.contains_key(&K::type_name()) {
             K::schema(map);
         }
@@ -317,28 +324,32 @@ impl<K: IntoSchema, V: IntoSchema> IntoSchema for BTreeMap<K, V> {
     }
 }
 
-impl<V: IntoSchema> IntoSchema for BTreeSet<V> {
+impl<K: IntoSchema> IntoSchema for BTreeSet<K> {
     fn type_name() -> String {
-        format!("BTreeSet<{}>", V::type_name())
+        format!("Vec<{}>", K::type_name())
     }
     fn schema(map: &mut MetaMap) {
-        map.entry(Self::type_name())
-            .or_insert_with(|| Metadata::Vec(V::type_name()));
-        if !map.contains_key(&V::type_name()) {
-            Vec::<V>::schema(map)
+        map.entry(Self::type_name()).or_insert_with(|| {
+            Metadata::Vec(VecMeta {
+                ty: K::type_name(),
+                sorted: true,
+            })
+        });
+        if !map.contains_key(&K::type_name()) {
+            K::schema(map)
         }
     }
 }
 
 impl IntoSchema for core::time::Duration {
     fn type_name() -> String {
-        core::any::type_name::<Self>().to_owned()
+        String::from("Duration")
     }
     // Look at:
     //   https://docs.rs/parity-scale-codec/2.1.1/src/parity_scale_codec/codec.rs.html#1182-1192
     fn schema(map: &mut MetaMap) {
         let _ = map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::TupleStruct(UnnamedFieldsMeta {
+            Metadata::Tuple(UnnamedFieldsMeta {
                 types: vec![u64::type_name(), u32::type_name()],
             })
         });
@@ -358,9 +369,11 @@ impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
 
     fn schema(map: &mut MetaMap) {
         let _ = map.entry(Self::type_name()).or_insert_with(|| {
+            #[allow(clippy::expect_used)]
             Metadata::Array(ArrayMeta {
                 ty: T::type_name(),
                 len: L.try_into().expect("usize should always fit in u64"),
+                sorted: false,
             })
         });
         if !map.contains_key(&T::type_name()) {
@@ -368,42 +381,6 @@ impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
         }
     }
 }
-
-macro_rules! impl_schema_tuple {
-    ($( ( $($id:ident),* ) ),* ) => {$(
-        impl<$($id: IntoSchema),*> IntoSchema for ($($id),*) {
-            fn type_name() -> String {
-                format!("({})", vec![$($id::type_name()),*].join(", "))
-            }
-
-            fn schema(map: &mut MetaMap) {
-                let _ = map.entry(Self::type_name()).or_insert_with(|| {
-                    Metadata::TupleStruct(UnnamedFieldsMeta {
-                        types: vec![$($id::type_name()),*],
-                    })
-                });
-                $(
-                if !map.contains_key(& $id::type_name()) {
-                    $id::schema(map);
-                }
-                )*
-            }
-        }
-    )*};
-}
-
-impl_schema_tuple!(
-    (A0, A1),
-    (A0, A1, A2),
-    (A0, A1, A2, A3),
-    (A0, A1, A2, A3, A4),
-    (A0, A1, A2, A3, A4, A5),
-    (A0, A1, A2, A3, A4, A5, A6),
-    (A0, A1, A2, A3, A4, A5, A6, A7),
-    (A0, A1, A2, A3, A4, A5, A6, A7, A8),
-    (A0, A1, A2, A3, A4, A5, A6, A7, A8, A9),
-    (A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10)
-);
 
 pub mod prelude {
     //! Exports common types.

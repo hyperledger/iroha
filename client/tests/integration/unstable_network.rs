@@ -64,7 +64,6 @@ fn unstable_network(
     let (network, mut iroha_client) = rt.block_on(async {
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = MAXIMUM_TRANSACTIONS_IN_BLOCK;
-        configuration.sumeragi.n_topology_shifts_before_reshuffle = u64::from(n_peers);
         configuration.logger.max_log_level = Level(logger::Level::ERROR).into();
         let network =
             <Network>::new_with_offline_peers(Some(configuration), n_peers, n_offline_peers)
@@ -80,8 +79,8 @@ fn unstable_network(
 
     let pipeline_time = Configuration::pipeline_time();
 
-    let account_id = AccountId::new("alice", "wonderland").expect("Valid");
-    let asset_definition_id = AssetDefinitionId::new("rose", "wonderland").expect("Valid");
+    let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().expect("Valid");
     // Initially there are 13 roses.
     let mut account_has_quantity = 13;
 
@@ -105,15 +104,17 @@ fn unstable_network(
     thread::sleep(pipeline_time);
 
     //Then
-    iroha_client.poll_request_with_period(
-        client::asset::by_account_id(account_id),
-        polling_period,
-        polling_max_attempts,
-        |result| {
-            result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(account_has_quantity)
-            })
-        },
-    );
+    iroha_client
+        .poll_request_with_period(
+            client::asset::by_account_id(account_id),
+            polling_period,
+            polling_max_attempts,
+            |result| {
+                result.iter().any(|asset| {
+                    asset.id().definition_id == asset_definition_id
+                        && *asset.value() == AssetValue::Quantity(account_has_quantity)
+                })
+            },
+        )
+        .expect("Test case failure.");
 }

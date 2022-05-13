@@ -2,7 +2,7 @@
 
 #![allow(clippy::restriction, clippy::future_not_send)]
 
-use core::{fmt::Debug, str::FromStr, time::Duration};
+use core::{fmt::Debug, str::FromStr as _, time::Duration};
 use std::{collections::HashMap, thread};
 
 use eyre::{Error, Result};
@@ -101,20 +101,18 @@ impl std::cmp::Eq for Peer {}
 /// Get a standardised key-pair from the hard-coded literals.
 ///
 /// # Panics
-/// Programmer error. The key must be given in Multihash format.
+/// Programmer error. Given keys must be in proper format.
 pub fn get_key_pair() -> KeyPair {
-    KeyPair {
-        public_key: PublicKey::from_str(
+    KeyPair::new(
+        PublicKey::from_str(
             r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,
         )
-        .expect("Works"),
-        private_key: PrivateKey {
-            digest_function: "ed25519".to_string(),
-            payload: hex_literal::hex!("9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0"
-            )
-            .into(),
-        },
-    }
+        .expect("Public key not in mulithash format"),
+        PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "9AC47ABF 59B356E0 BD7DCBBB B4DEC080 E302156A 48CA907E 47CB6AEA 1D32719E 7233BFC8 9DCBD68C 19FDE6CE 61582252 98EC1131 B6A130D1 AEB454C1 AB5183C0",
+        ).expect("Private key not hex encoded")
+    ).expect("Key pair mismatch")
 }
 
 /// Trait used to differentiate a test instance of `genesis`.
@@ -127,32 +125,35 @@ pub trait TestGenesis: Sized {
 impl<G: GenesisNetworkTrait> TestGenesis for G {
     fn test(submit_genesis: bool) -> Option<Self> {
         let cfg = Configuration::test();
-        let mut genesis = RawGenesisBlock::new("alice", "wonderland", &get_key_pair().public_key)
-            .expect("Valid names never fail to parse");
+        let mut genesis = RawGenesisBlock::new(
+            "alice".parse().expect("Valid"),
+            "wonderland".parse().expect("Valid"),
+            get_key_pair().public_key().clone(),
+        );
         genesis.transactions[0].isi.push(
-            RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(
-                    AssetDefinitionId::new("rose", "wonderland").expect("valid names"),
+            RegisterBox::new(
+                AssetDefinition::quantity(
+                    AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
                 )
-                .into(),
-            ))
+                .build(),
+            )
             .into(),
         );
         genesis.transactions[0].isi.push(
-            RegisterBox::new(IdentifiableBox::AssetDefinition(
-                AssetDefinition::new_quantity(
-                    AssetDefinitionId::new("tulip", "wonderland").expect("valid names"),
+            RegisterBox::new(
+                AssetDefinition::quantity(
+                    AssetDefinitionId::from_str("tulip#wonderland").expect("valid names"),
                 )
-                .into(),
-            ))
+                .build(),
+            )
             .into(),
         );
         genesis.transactions[0].isi.push(
             MintBox::new(
                 Value::U32(13),
                 IdBox::AssetId(AssetId::new(
-                    AssetDefinitionId::new("rose", "wonderland").expect("valid names"),
-                    AccountId::new("alice", "wonderland").expect("valid names"),
+                    AssetDefinitionId::from_str("rose#wonderland").expect("valid names"),
+                    AccountId::from_str("alice@wonderland").expect("valid names"),
                 )),
             )
             .into(),
@@ -231,11 +232,9 @@ where
         n_peers: u32,
         max_txs_in_block: u32,
         offline_peers: u32,
-        n_shifts: u64,
     ) -> (Self, Client) {
         let mut configuration = Configuration::test();
         configuration.queue.maximum_transactions_in_block = max_txs_in_block;
-        configuration.sumeragi.n_topology_shifts_before_reshuffle = n_shifts;
         let network = Network::new_with_offline_peers(Some(configuration), n_peers, offline_peers)
             .await
             .expect("Failed to init peers");
@@ -258,7 +257,6 @@ where
             n_peers,
             maximum_transactions_in_block,
             offline_peers,
-            SumeragiConfiguration::default().n_topology_shifts_before_reshuffle,
         )
         .await
     }
@@ -273,9 +271,7 @@ where
         peer.start_with_config(GenesisNetwork::test(false), config)
             .await;
         time::sleep(Configuration::pipeline_time() + Configuration::block_sync_gossip_time()).await;
-        let add_peer = RegisterBox::new(IdentifiableBox::Peer(
-            DataModelPeer::new(peer.id.clone()).into(),
-        ));
+        let add_peer = RegisterBox::new(DataModelPeer::new(peer.id.clone()));
         client.submit(add_peer).expect("Failed to add new peer.");
         let client = Client::test(&peer.api_address, &peer.telemetry_address);
         (peer, client)
@@ -425,8 +421,8 @@ where
             logger: LoggerConfiguration {
                 ..configuration.logger
             },
-            public_key: self.key_pair.public_key.clone(),
-            private_key: self.key_pair.private_key.clone(),
+            public_key: self.key_pair.public_key().clone(),
+            private_key: self.key_pair.private_key().clone(),
             disable_panic_terminal_colors: true,
             ..configuration
         }
@@ -564,7 +560,7 @@ where
         let telemetry_address = local_unique_port()?;
         let id = PeerId {
             address: p2p_address.clone(),
-            public_key: key_pair.public_key.clone(),
+            public_key: key_pair.public_key().clone(),
         };
         let shutdown = None;
         Ok(Self {
@@ -663,47 +659,63 @@ pub trait TestClient: Sized {
     ) -> Self;
 
     /// loops for events with filter and handler function
-    fn for_each_event(self, event_filter: EventFilter, f: impl Fn(Result<Event>));
+    fn for_each_event(self, event_filter: FilterBox, f: impl Fn(Result<Event>));
 
     /// Submits instruction with polling
+    ///
+    /// # Errors
+    /// If predicate is not satisfied, after maximum retries.
     fn submit_till<R>(
         &mut self,
         instruction: impl Into<Instruction> + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
     /// Submits instructions with polling
+    ///
+    /// # Errors
+    /// If predicate is not satisfied, after maximum retries.
     fn submit_all_till<R>(
         &mut self,
         instructions: Vec<Instruction>,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied, with default period and max attempts.
-    fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
+    ///
+    /// # Errors
+    /// If predicate is not satisfied after maximum retries.
+    fn poll_request<R>(
+        &mut self,
+        request: R,
+        f: impl Fn(&R::Output) -> bool,
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
     /// Polls request till predicate `f` is satisfied with `period` and `max_attempts` supplied.
+    ///
+    /// # Errors
+    /// If predicate is not satisfied after maximum retries.
     fn poll_request_with_period<R>(
         &mut self,
         request: R,
         period: Duration,
         max_attempts: u32,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -730,7 +742,7 @@ pub mod query {
             };
             assets.iter().find_map(|asset| {
                 if let Value::Identifiable(IdentifiableBox::Asset(asset)) = asset {
-                    if &asset.id.definition_id == asset_id {
+                    if &asset.id().definition_id == asset_id {
                         return Some(asset.as_ref());
                     }
                 }
@@ -758,9 +770,9 @@ impl TestConfiguration for Configuration {
         configuration
             .load_environment()
             .expect("Failed to load configuration from environment");
-        let keypair = KeyPair::generate().unwrap();
-        configuration.public_key = keypair.public_key;
-        configuration.private_key = keypair.private_key;
+        let (public_key, private_key) = KeyPair::generate().unwrap().into();
+        configuration.public_key = public_key;
+        configuration.private_key = private_key;
         configuration
     }
 
@@ -793,13 +805,15 @@ impl TestClientConfiguration for ClientConfiguration {
 impl TestClient for Client {
     fn test(api_url: &str, telemetry_url: &str) -> Self {
         Client::new(&ClientConfiguration::test(api_url, telemetry_url))
+            .expect("Invalid client configuration")
     }
 
     fn test_with_key(api_url: &str, telemetry_url: &str, keys: KeyPair) -> Self {
         let mut configuration = ClientConfiguration::test(api_url, telemetry_url);
-        configuration.public_key = keys.public_key;
-        configuration.private_key = keys.private_key;
-        Client::new(&configuration)
+        let (public_key, private_key) = keys.into();
+        configuration.public_key = public_key;
+        configuration.private_key = private_key;
+        Client::new(&configuration).expect("Invalid client configuration")
     }
 
     fn test_with_account(
@@ -810,17 +824,18 @@ impl TestClient for Client {
     ) -> Self {
         let mut configuration = ClientConfiguration::test(api_url, telemetry_url);
         configuration.account_id = account_id.clone();
-        configuration.public_key = keys.public_key;
-        configuration.private_key = keys.private_key;
-        Client::new(&configuration)
+        let (public_key, private_key) = keys.into();
+        configuration.public_key = public_key;
+        configuration.private_key = private_key;
+        Client::new(&configuration).expect("Invalid client configuration")
     }
 
-    fn for_each_event(mut self, event_filter: EventFilter, f: impl Fn(Result<Event>)) {
-        for event in self
+    fn for_each_event(mut self, event_filter: FilterBox, f: impl Fn(Result<Event>)) {
+        for event_result in self
             .listen_for_events(event_filter)
             .expect("Failed to create event iterator.")
         {
-            f(event)
+            f(event_result)
         }
     }
 
@@ -829,7 +844,7 @@ impl TestClient for Client {
         instruction: impl Into<Instruction> + Debug,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -845,7 +860,7 @@ impl TestClient for Client {
         instructions: Vec<Instruction>,
         request: R,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -862,7 +877,7 @@ impl TestClient for Client {
         period: Duration,
         max_attempts: u32,
         f: impl Fn(&R::Output) -> bool,
-    ) -> R::Output
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
@@ -871,15 +886,19 @@ impl TestClient for Client {
         let mut query_result = None;
         for _ in 0..max_attempts {
             query_result = match self.request(request.clone()) {
-                Ok(result) if f(&result) => return result,
+                Ok(result) if f(&result) => return Ok(result),
                 result => Some(result),
             };
             thread::sleep(period);
         }
-        panic!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", &query_result)
+        Err(eyre::eyre!("Failed to wait for query request completion that would satisfy specified closure. Got this query result instead: {:?}", &query_result))
     }
 
-    fn poll_request<R>(&mut self, request: R, f: impl Fn(&R::Output) -> bool) -> R::Output
+    fn poll_request<R>(
+        &mut self,
+        request: R,
+        f: impl Fn(&R::Output) -> bool,
+    ) -> eyre::Result<R::Output>
     where
         R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,

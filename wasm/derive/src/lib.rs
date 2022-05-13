@@ -34,6 +34,7 @@ pub fn iroha_wasm(_: TokenStream, item: TokenStream) -> TokenStream {
             #fn_name(iroha_wasm::_decode_from_raw::<AccountId>(ptr, len))
         }
 
+        #[allow(clippy::needless_pass_by_value)]
         #(#attrs)*
         #vis #sig
         #block

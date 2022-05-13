@@ -21,15 +21,15 @@ pub fn sort_peers_by_hash(
 }
 
 /// Sorts peers based on the `hash` and `counter` combined as a seed.
-pub fn sort_peers_by_hash_and_counter(
+fn sort_peers_by_hash_and_counter(
     mut peers: Vec<PeerId>,
     hash: &HashOf<VersionedCommittedBlock>,
     counter: u64,
 ) -> Vec<PeerId> {
     peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
     let mut bytes: Vec<u8> = counter.to_le_bytes().to_vec();
-    bytes.append(hash.as_ref().to_vec().as_mut());
-    let Hash(bytes) = Hash::new(&bytes);
+    bytes.extend(hash.as_ref());
+    let bytes = Hash::new(&bytes).into();
     let mut rng = StdRng::from_seed(bytes);
     peers.shuffle(&mut rng);
     peers
@@ -70,8 +70,6 @@ pub struct GenesisBuilder {
     set_a: Option<HashSet<PeerId>>,
 
     set_b: Option<HashSet<PeerId>>,
-
-    reshuffle_after_n_view_changes: Option<u64>,
 }
 
 impl GenesisBuilder {
@@ -98,12 +96,6 @@ impl GenesisBuilder {
         self
     }
 
-    /// Set `reshuffle_after_n_view_changes` config param.
-    pub fn reshuffle_after(mut self, n_view_changes: u64) -> Self {
-        self.reshuffle_after_n_view_changes = Some(n_view_changes);
-        self
-    }
-
     /// Build and get topology.
     ///
     /// # Errors
@@ -114,8 +106,6 @@ impl GenesisBuilder {
         let leader = field_is_some_or_err!(self.leader)?;
         let mut set_a = field_is_some_or_err!(self.set_a)?;
         let mut set_b = field_is_some_or_err!(self.set_b)?;
-        let reshuffle_after_n_view_changes =
-            field_is_some_or_err!(self.reshuffle_after_n_view_changes)?;
         let max_faults_rem = (set_a.len() - 1) % 2;
         if max_faults_rem > 0 {
             return Err(eyre!("Could not deduce max faults. As given: 2f+1=set_a.len() We get a non integer f. f should be an integer."));
@@ -137,7 +127,6 @@ impl GenesisBuilder {
             .collect();
         Ok(Topology {
             sorted_peers,
-            reshuffle_after_n_view_changes,
             at_block: EmptyChainHash::default().into(),
             view_change_proofs: ViewChangeProofs::empty(),
         })
@@ -150,11 +139,9 @@ impl GenesisBuilder {
 pub struct Builder {
     /// Current order of peers. The roles of peers are defined based on this order.
     peers: Option<HashSet<PeerId>>,
-
-    reshuffle_after_n_view_changes: Option<u64>,
-
+    /// Hash of the last committed block.
     at_block: Option<HashOf<VersionedCommittedBlock>>,
-
+    /// [`ViewChangeProofs`] accumulated during this round.
     view_change_proofs: ViewChangeProofs,
 }
 
@@ -167,12 +154,6 @@ impl Builder {
     /// Set peers that participate in consensus.
     pub fn with_peers(mut self, peers: HashSet<PeerId>) -> Self {
         self.peers = Some(peers);
-        self
-    }
-
-    /// Set `reshuffle_after_n_view_changes` config param.
-    pub fn reshuffle_after(mut self, n_view_changes: u64) -> Self {
-        self.reshuffle_after_n_view_changes = Some(n_view_changes);
         self
     }
 
@@ -196,25 +177,22 @@ impl Builder {
     pub fn build(self) -> Result<Topology> {
         let peers = field_is_some_or_err!(self.peers)?;
         if peers.is_empty() {
-            return Err(eyre::eyre!(
-                "There must be at least one peer in the network."
-            ));
+            return Err(eyre!("There must be at least one peer in the network."));
         }
-        let reshuffle_after_n_view_changes =
-            field_is_some_or_err!(self.reshuffle_after_n_view_changes)?;
         let at_block = field_is_some_or_err!(self.at_block)?;
-
         let peers: Vec<_> = peers.into_iter().collect();
-        let sorted_peers = if self.view_change_proofs.len() as u64 > reshuffle_after_n_view_changes
-        {
-            sort_peers_by_hash_and_counter(peers, &at_block, self.view_change_proofs.len() as u64)
+        let n_view_changes = self.view_change_proofs.len();
+        let since_last_shuffle = n_view_changes % peers.len();
+        let is_full_circle = since_last_shuffle == 0;
+        let sorted_peers = if is_full_circle {
+            sort_peers_by_hash_and_counter(peers, &at_block, n_view_changes as u64)
         } else {
-            let peers = sort_peers_by_hash(peers, &at_block);
-            shift_peers_by_n(peers, self.view_change_proofs.len() as u64)
+            let last_shuffled_at = n_view_changes - since_last_shuffle;
+            let peers = sort_peers_by_hash_and_counter(peers, &at_block, last_shuffled_at as u64);
+            shift_peers_by_n(peers, since_last_shuffle as u64)
         };
         Ok(Topology {
             sorted_peers,
-            reshuffle_after_n_view_changes,
             at_block,
             view_change_proofs: self.view_change_proofs,
         })
@@ -226,11 +204,9 @@ impl Builder {
 pub struct Topology {
     /// Current order of peers. The roles of peers are defined based on this order.
     sorted_peers: Vec<PeerId>,
-
-    reshuffle_after_n_view_changes: u64,
-
+    /// Hash of the last committed block.
     at_block: HashOf<VersionedCommittedBlock>,
-
+    /// [`ViewChangeProofs`] accumulated during this round.
     view_change_proofs: ViewChangeProofs,
 }
 
@@ -244,7 +220,6 @@ impl Topology {
     pub fn into_builder(self) -> Builder {
         Builder {
             peers: Some(self.sorted_peers.into_iter().collect()),
-            reshuffle_after_n_view_changes: Some(self.reshuffle_after_n_view_changes),
             at_block: Some(self.at_block),
             view_change_proofs: self.view_change_proofs,
         }
@@ -277,7 +252,7 @@ impl Topology {
 
     /// Answers if the consensus stage is required with the current number of peers.
     pub fn is_consensus_required(&self) -> bool {
-        self.sorted_peers.len() > 1
+        self.min_votes_for_commit() > 1
     }
 
     /// The minimum number of signatures needed to commit a block
@@ -352,7 +327,7 @@ impl Topology {
         if role
             .peers(self)
             .iter()
-            .any(|peer| peer.public_key == signature.public_key)
+            .any(|peer| peer.public_key == *signature.public_key())
         {
             Ok(())
         } else {
@@ -366,10 +341,10 @@ impl Topology {
     }
 
     /// Returns signatures of the peers with the specified `roles` from all `signatures`.
-    pub fn filter_signatures_by_roles<'a>(
-        &'a self,
-        roles: &'a [Role],
-        signatures: impl IntoIterator<Item = &'a SignatureOf<VersionedValidBlock>> + 'a,
+    pub fn filter_signatures_by_roles<'slf>(
+        &'slf self,
+        roles: &'slf [Role],
+        signatures: impl IntoIterator<Item = &'slf SignatureOf<VersionedValidBlock>> + 'slf,
     ) -> Vec<SignatureOf<VersionedValidBlock>> {
         let roles: HashSet<Role> = roles.iter().copied().collect();
         let public_keys: HashSet<_> = roles
@@ -379,19 +354,14 @@ impl Topology {
             .collect();
         signatures
             .into_iter()
-            .filter(|signature| public_keys.contains(&signature.public_key))
+            .filter(|signature| public_keys.contains(signature.public_key()))
             .cloned()
             .collect()
     }
 
     /// Sorted peers that this topology has.
     pub fn sorted_peers(&self) -> &[PeerId] {
-        &self.sorted_peers[..]
-    }
-
-    /// Config param telling topology when to reshuffle at view change.
-    pub const fn reshuffle_after(&self) -> u64 {
-        self.reshuffle_after_n_view_changes
+        &*self.sorted_peers
     }
 
     /// Block hash on which this topology is based.
@@ -451,19 +421,22 @@ mod tests {
             address: "127.0.0.1".to_owned(),
             public_key: KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
-                .public_key,
+                .public_key()
+                .clone(),
         };
         let peer_2: PeerId = PeerId {
             address: "127.0.0.2".to_owned(),
             public_key: KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
-                .public_key,
+                .public_key()
+                .clone(),
         };
         let peer_3: PeerId = PeerId {
             address: "127.0.0.3".to_owned(),
             public_key: KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
-                .public_key,
+                .public_key()
+                .clone(),
         };
         // set_a.len() = 2, is wrong as it is not possible to get integer f in: 2f + 1 = 2
         let set_a: HashSet<_> = vec![peer_1.clone(), peer_2].into_iter().collect();
@@ -472,7 +445,6 @@ mod tests {
             .with_leader(peer_1)
             .with_set_a(set_a)
             .with_set_b(set_b)
-            .reshuffle_after(1)
             .build()
             .expect("Failed to create topology.");
     }
@@ -481,13 +453,12 @@ mod tests {
     fn correct_number_of_peers_genesis() {
         let peers = topology_test_peers();
         // set_a.len() = 2, is wrong as it is not possible to get integer f in: 2f + 1 = 2
-        let set_a: HashSet<_> = topology_test_peers().iter().cloned().take(3).collect();
-        let set_b: HashSet<_> = topology_test_peers().iter().cloned().skip(3).collect();
+        let set_a: HashSet<_> = topology_test_peers().iter().take(3).cloned().collect();
+        let set_b: HashSet<_> = topology_test_peers().iter().skip(3).cloned().collect();
         let _network_topology = GenesisBuilder::new()
             .with_leader(peers.iter().next().unwrap().clone())
             .with_set_a(set_a)
             .with_set_b(set_b)
-            .reshuffle_after(1)
             .build()
             .expect("Failed to create topology.");
     }
@@ -499,25 +470,29 @@ mod tests {
                 address: "127.0.0.1:7878".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
-                    .public_key,
+                    .public_key()
+                    .clone(),
             },
             PeerId {
                 address: "127.0.0.1:7879".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
-                    .public_key,
+                    .public_key()
+                    .clone(),
             },
             PeerId {
                 address: "127.0.0.1:7880".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
-                    .public_key,
+                    .public_key()
+                    .clone(),
             },
             PeerId {
                 address: "127.0.0.1:7881".to_owned(),
                 public_key: KeyPair::generate()
                     .expect("Failed to generate KeyPair.")
-                    .public_key,
+                    .public_key()
+                    .clone(),
             },
         ]
         .into_iter()
@@ -526,37 +501,86 @@ mod tests {
 
     #[test]
     fn different_order() {
+        let hash1 = Hash::prehashed([1_u8; Hash::LENGTH]).typed();
+        let hash2 = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
+
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash(peers.clone(), &HashOf::from_hash(Hash([1_u8; 32])));
-        let peers_2 = sort_peers_by_hash(peers, &HashOf::from_hash(Hash([2_u8; 32])));
+        let peers_1 = sort_peers_by_hash(peers.clone(), &hash1);
+        let peers_2 = sort_peers_by_hash(peers, &hash2);
         assert_ne!(peers_1, peers_2);
     }
 
     #[test]
     fn same_order() {
+        let hash = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
+
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 = sort_peers_by_hash(peers.clone(), &HashOf::from_hash(Hash([2_u8; 32])));
-        let peers_2 = sort_peers_by_hash(peers, &HashOf::from_hash(Hash([2_u8; 32])));
+        let peers_1 = sort_peers_by_hash(peers.clone(), &hash);
+        let peers_2 = sort_peers_by_hash(peers, &hash);
         assert_eq!(peers_1, peers_2);
     }
 
     #[test]
     fn same_order_by_hash_and_counter() {
+        let hash = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
+
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 =
-            sort_peers_by_hash_and_counter(peers.clone(), &HashOf::from_hash(Hash([2_u8; 32])), 1);
-        let peers_2 =
-            sort_peers_by_hash_and_counter(peers, &HashOf::from_hash(Hash([2_u8; 32])), 1);
+        let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), &hash, 1);
+        let peers_2 = sort_peers_by_hash_and_counter(peers, &hash, 1);
         assert_eq!(peers_1, peers_2);
     }
 
     #[test]
     fn different_order_by_hash_and_counter() {
+        let hash = Hash::prehashed([2_u8; Hash::LENGTH]).typed();
+
         let peers: Vec<_> = topology_test_peers().into_iter().collect();
-        let peers_1 =
-            sort_peers_by_hash_and_counter(peers.clone(), &HashOf::from_hash(Hash([2_u8; 32])), 1);
-        let peers_2 =
-            sort_peers_by_hash_and_counter(peers, &HashOf::from_hash(Hash([2_u8; 32])), 2);
+        let peers_1 = sort_peers_by_hash_and_counter(peers.clone(), &hash, 1);
+        let peers_2 = sort_peers_by_hash_and_counter(peers, &hash, 2);
         assert_ne!(peers_1, peers_2);
+    }
+
+    #[test]
+    fn topology_shifts_or_shuffles() -> Result<()> {
+        let peers = topology_test_peers();
+        let n_peers = peers.len();
+        let dummy_hash = Hash::prehashed([0_u8; Hash::LENGTH]).typed();
+        let dummy_proof = crate::sumeragi::Proof::commit_timeout(
+            dummy_hash,
+            dummy_hash.transmute(),
+            dummy_hash.transmute(),
+            KeyPair::generate()?,
+        )?;
+        let mut last_topology = Builder::new()
+            .with_peers(peers)
+            .at_block(dummy_hash.transmute())
+            .build()?;
+        for _a_view_change in 0..2 * n_peers {
+            let mut topology = last_topology.clone();
+            // When
+            last_topology.sorted_peers.rotate_right(1);
+            topology.apply_view_change(dummy_proof.clone());
+            // Then
+            let is_shifted_by_one = last_topology.sorted_peers == topology.sorted_peers;
+            let nth_view_change = topology.view_change_proofs.len();
+            let is_full_circle = nth_view_change % n_peers == 0;
+            if is_full_circle {
+                // `topology` should have shuffled
+                if is_shifted_by_one {
+                    return Err(eyre!(
+                        "At {nth_view_change}: shifted by one despite full circle"
+                    ));
+                }
+            } else {
+                // `topology` should have shifted by one
+                if !is_shifted_by_one {
+                    return Err(eyre!(
+                        "At {nth_view_change}: not shifted by one despite incomplete circle"
+                    ));
+                }
+            }
+            last_topology = topology;
+        }
+        Ok(())
     }
 }

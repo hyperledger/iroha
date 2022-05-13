@@ -52,11 +52,15 @@ impl EventFilter {
             authority,
         }
     }
+}
+
+impl Filter for EventFilter {
+    type EventType = Event;
 
     /// Check if `event` matches filter
     ///
     /// Event considered as matched if trigger ids are equal
-    pub fn matches(&self, event: &Event) -> bool {
+    fn matches(&self, event: &Event) -> bool {
         self.trigger_id == event.trigger_id && self.authority == event.authority
     }
 }

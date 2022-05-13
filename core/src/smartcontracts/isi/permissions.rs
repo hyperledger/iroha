@@ -7,7 +7,6 @@ use std::{iter, sync::Arc};
 use eyre::Result;
 use iroha_data_model::{isi::RevokeBox, prelude::*};
 
-#[cfg(feature = "roles")]
 use super::Evaluate;
 use crate::wsv::{WorldStateView, WorldTrait};
 
@@ -588,7 +587,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for HasTokenBoxed<W> {
             .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
         let contain = wsv
             .map_account(authority, |account| {
-                account.permission_tokens.contains(&permission_token)
+                account.contains_permission(&permission_token)
             })
             .map_err(|e| e.to_string())?;
         if contain {
@@ -693,7 +692,6 @@ impl<W: WorldTrait> From<IsRevokeAllowedBoxed<W>> for IsInstructionAllowedBoxed<
 ///
 /// # Errors
 /// Evaluation failure of instruction fields.
-#[cfg(feature = "roles")]
 fn unpack_if_role_grant<W: WorldTrait>(
     instruction: Instruction,
     wsv: &WorldStateView<W>,
@@ -711,8 +709,7 @@ fn unpack_if_role_grant<W: WorldTrait>(
 
     let instructions = if let Some(role) = wsv.world.roles.get(&id) {
         let destination_id = grant.destination_id.evaluate(wsv, &Context::new())?;
-        role.permissions
-            .iter()
+        role.permissions()
             .cloned()
             .map(|permission_token| GrantBox::new(permission_token, destination_id.clone()).into())
             .collect()
@@ -735,7 +732,6 @@ fn unpack_if_role_grant<W: WorldTrait>(
 ///
 /// # Errors
 /// Evaluation failure of each of the instruction fields.
-#[cfg(feature = "roles")]
 pub fn unpack_if_role_revoke<W: WorldTrait>(
     instruction: Instruction,
     wsv: &WorldStateView<W>,
@@ -753,8 +749,7 @@ pub fn unpack_if_role_revoke<W: WorldTrait>(
 
     let instructions = if let Some(role) = wsv.world.roles.get(&id) {
         let destination_id = revoke.destination_id.evaluate(wsv, &Context::new())?;
-        role.permissions
-            .iter()
+        role.permissions()
             .cloned()
             .map(|permission_token| RevokeBox::new(permission_token, destination_id.clone()).into())
             .collect()
@@ -777,11 +772,8 @@ pub fn check_instruction_permissions<W: WorldTrait>(
     is_query_allowed: &IsQueryAllowedBoxed<W>,
     wsv: &WorldStateView<W>,
 ) -> Result<(), TransactionRejectionReason> {
-    #[cfg(feature = "roles")]
     let granted_instructions = &unpack_if_role_grant(instruction.clone(), wsv)
         .expect("Infallible. Evaluations have been checked by instruction execution.");
-    #[cfg(not(feature = "roles"))]
-    let granted_instructions = std::iter::once(instruction);
 
     for isi in granted_instructions {
         is_instruction_allowed
@@ -809,7 +801,7 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::{collections::BTreeSet, str::FromStr as _};
 
     use iroha_data_model::{expression::prelude::*, isi::*};
 
@@ -873,8 +865,7 @@ mod tests {
             _wsv: &WorldStateView<W>,
         ) -> Result<PermissionToken, String> {
             Ok(PermissionToken::new(
-                Name::new("token").expect("Valid"),
-                BTreeMap::new(),
+                Name::from_str("token").expect("Valid"),
             ))
         }
     }
@@ -886,8 +877,14 @@ mod tests {
         account_domain: &str,
     ) -> IdBox {
         IdBox::AssetId(AssetId::new(
-            AssetDefinitionId::new(asset_name, asset_domain).expect("Valid"),
-            AccountId::new(account_name, account_domain).expect("Valid"),
+            AssetDefinitionId::new(
+                asset_name.parse().expect("Valid"),
+                asset_domain.parse().expect("Valid"),
+            ),
+            AccountId::new(
+                account_name.parse().expect("Valid"),
+                account_domain.parse().expect("Valid"),
+            ),
         ))
     }
 
@@ -902,8 +899,8 @@ mod tests {
         let instruction_fail = Instruction::Fail(FailBox {
             message: "fail message".to_owned(),
         });
-        let account_bob = <Account as Identifiable>::Id::new("bob", "test").expect("Valid");
-        let account_alice = <Account as Identifiable>::Id::new("alice", "test").expect("Valid");
+        let account_bob = <Account as Identifiable>::Id::from_str("bob@test").expect("Valid");
+        let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check(&account_bob, &instruction_burn, &wsv)
@@ -931,7 +928,7 @@ mod tests {
         });
         let nested_instruction_sequence =
             Instruction::If(If::new(true, instruction_burn.clone()).into());
-        let account_alice = <Account as Identifiable>::Id::new("alice", "test").expect("Valid");
+        let account_alice = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         let wsv = WorldStateView::new(World::new());
         assert!(permissions_validator
             .check(&account_alice, &instruction_fail, &wsv)
@@ -946,22 +943,20 @@ mod tests {
 
     #[test]
     pub fn granted_permission() -> Result<()> {
-        let alice_id = <Account as Identifiable>::Id::new("alice", "test")?;
-        let bob_id = <Account as Identifiable>::Id::new("bob", "test")?;
+        let alice_id = <Account as Identifiable>::Id::from_str("alice@test")?;
+        let bob_id = <Account as Identifiable>::Id::from_str("bob@test")?;
         let alice_xor_id = <Asset as Identifiable>::Id::new(
-            AssetDefinitionId::new("xor", "test").expect("Valid"),
-            AccountId::new("alice", "test").expect("Valid"),
+            AssetDefinitionId::from_str("xor#test").expect("Valid"),
+            AccountId::from_str("alice@test").expect("Valid"),
         );
         let instruction_burn: Instruction = BurnBox::new(Value::U32(10), alice_xor_id).into();
-        let mut domain = Domain::new(DomainId::new("test").expect("Valid"));
-        let mut bob_account = Account::new(bob_id.clone());
-        let _ = bob_account.permission_tokens.insert(PermissionToken::new(
-            Name::new("token").expect("Valid"),
-            BTreeMap::default(),
-        ));
-        domain.accounts.insert(bob_id.clone(), bob_account);
-        let domains = vec![(DomainId::new("test").expect("Valid"), domain)];
-        let wsv = WorldStateView::new(World::with(domains, BTreeSet::new()));
+        let mut domain = Domain::new(DomainId::from_str("test").expect("Valid")).build();
+        let mut bob_account = Account::new(bob_id.clone(), []).build();
+        assert!(bob_account.add_permission(PermissionToken::new(
+            Name::from_str("token").expect("Valid")
+        )));
+        assert!(domain.add_account(bob_account).is_none());
+        let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
         let validator: HasTokenBoxed<_> = Box::new(GrantedToken);
         assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());
         assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_ok());
@@ -976,8 +971,8 @@ mod tests {
                 Expression::Add(Add::new(
                     Expression::Query(
                         FindAssetQuantityById::new(AssetId::new(
-                            AssetDefinitionId::new("btc2eth_rate", "exchange").expect("Valid"),
-                            AccountId::new("dex", "exchange").expect("Valid"),
+                            AssetDefinitionId::from_str("btc2eth_rate#exchange").expect("Valid"),
+                            AccountId::from_str("dex@exchange").expect("Valid"),
                         ))
                         .into(),
                     ),
@@ -993,7 +988,7 @@ mod tests {
         )
         .into();
         let wsv = WorldStateView::new(World::new());
-        let alice_id = <Account as Identifiable>::Id::new("alice", "test").expect("Valid");
+        let alice_id = <Account as Identifiable>::Id::from_str("alice@test").expect("Valid");
         assert!(check_query_in_instruction(&alice_id, &instruction, &wsv, &DenyAll.into()).is_err())
     }
 }

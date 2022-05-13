@@ -1,44 +1,37 @@
 #![allow(missing_docs, clippy::pedantic, clippy::restriction)]
 
 use iroha::samples::get_config;
-use iroha_core::{
-    genesis::{GenesisNetwork, GenesisNetworkTrait, GenesisTransaction, RawGenesisBlock},
-    prelude::*,
+use iroha_core::genesis::{
+    GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock, RawGenesisBlockBuilder,
 };
 use iroha_data_model::prelude::*;
 use test_network::{get_key_pair, Peer as TestPeer, TestRuntime};
 use tokio::runtime::Runtime;
 
 fn main() {
-    fn generate_accounts(num: u32) -> small::SmallVec<[GenesisTransaction; 2]> {
-        use iroha_data_model::*;
+    fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
+        let mut builder = RawGenesisBlockBuilder::new();
 
-        let mut ret = small::SmallVec::new();
-        for i in 0_u32..num {
-            ret.push(
-                GenesisTransaction::new(
-                    &format!("Alice-{}", i),
-                    &format!("wonderland-{}", i),
-                    &PublicKey::default(),
+        let key_pair = get_key_pair();
+        for i in 0_u32..num_domains {
+            builder = builder
+                .domain(format!("wonderland-{}", i).parse().expect("Valid"))
+                .with_account(
+                    format!("Alice-{}", i).parse().expect("Valid"),
+                    key_pair.public_key().clone(),
                 )
-                .expect("Failed to create Genesis"),
-            );
-            let asset_definition_id =
-                AssetDefinitionId::new(&format!("xor-{}", num), &format!("wonderland-{}", num))
-                    .expect("Valid");
-            let create_asset = RegisterBox::new(IdentifiableBox::from(
-                AssetDefinition::new_quantity(asset_definition_id.clone()),
-            ));
-            ret.push(GenesisTransaction {
-                isi: small::SmallVec(smallvec::smallvec![create_asset.into()]),
-            });
+                .with_asset(
+                    AssetDefinition::quantity(
+                        format!("xor-{}", i)
+                            .parse::<<AssetDefinition as Identifiable>::Id>()
+                            .expect("Valid"),
+                    )
+                    .build(),
+                )
+                .finish_domain();
         }
-        ret
-    }
 
-    fn generate_genesis(num: u32) -> RawGenesisBlock {
-        let transactions = generate_accounts(num);
-        RawGenesisBlock { transactions }
+        builder.build()
     }
     let mut peer = <TestPeer>::new().expect("Failed to create peer");
     let configuration = get_config(

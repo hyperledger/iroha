@@ -21,6 +21,11 @@ pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::iroha_wasm;
 use parity_scale_codec::{Decode, Encode};
 
+#[cfg(feature = "debug")]
+mod debug;
+#[cfg(feature = "debug")]
+pub use debug::*;
+
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
@@ -65,6 +70,7 @@ impl Execute for data_model::isi::Instruction {
         unsafe { encode_and_execute(self, host_execute_instruction) };
     }
 }
+
 impl Execute for data_model::query::QueryBox {
     type Result = Value;
 
@@ -112,6 +118,16 @@ mod host {
         /// This function doesn't take ownership of the provided allocation
         /// but it does transfer ownership of the result to the caller
         pub(super) fn execute_instruction(ptr: WasmUsize, len: WasmUsize);
+
+        /// Prints string to the standard output by providing offset and length
+        /// into WebAssembly's linear memory where string is stored
+        ///
+        /// # Warning
+        ///
+        /// This function doesn't take ownership of the provided allocation
+        /// but it does transfer ownership of the result to the caller
+        #[cfg(feature = "debug")]
+        pub(super) fn dbg(ptr: WasmUsize, len: WasmUsize);
     }
 }
 
@@ -130,7 +146,7 @@ unsafe fn decode_with_length_prefix_from_raw<T: Decode>(ptr: WasmUsize) -> T {
     let len_size_bytes = core::mem::size_of::<WasmUsize>();
 
     #[allow(clippy::expect_used)]
-    let len = WasmUsize::from_be_bytes(
+    let len = WasmUsize::from_le_bytes(
         core::slice::from_raw_parts(ptr as *mut _, len_size_bytes)
             .try_into()
             .expect("Prefix length size(bytes) incorrect. This is a bug."),
@@ -237,7 +253,7 @@ mod tests {
         res.encode_to(&mut r);
 
         // Store length of encoded object as byte array at the beginning of the vec
-        for (i, byte) in (r.len() as WasmUsize).to_be_bytes().into_iter().enumerate() {
+        for (i, byte) in (r.len() as WasmUsize).to_le_bytes().into_iter().enumerate() {
             r[i] = byte;
         }
 
@@ -245,13 +261,13 @@ mod tests {
     }
 
     fn get_test_instruction() -> Instruction {
-        let new_account_id = AccountId::new("mad_hatter", "wonderland").expect("Valid");
-        let register_isi = RegisterBox::new(NewAccount::new(new_account_id));
+        let new_account_id = "mad_hatter@wonderland".parse().expect("Valid");
+        let register_isi = RegisterBox::new(Account::new(new_account_id, []));
 
         Instruction::Register(register_isi)
     }
     fn get_test_query() -> QueryBox {
-        let account_id = AccountId::new("alice", "wonderland").expect("Valid");
+        let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
         FindAccountById::new(account_id).into()
     }
 
@@ -264,6 +280,10 @@ mod tests {
         let instruction = Instruction::decode(&mut &*bytes);
         assert_eq!(get_test_instruction(), instruction.unwrap());
     }
+
+    #[cfg(feature = "debug")]
+    #[no_mangle]
+    pub(super) unsafe extern "C" fn _dbg(_ptr: WasmUsize, _len: WasmUsize) {}
 
     #[no_mangle]
     pub(super) unsafe extern "C" fn _iroha_wasm_execute_query_mock(

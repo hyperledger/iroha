@@ -104,7 +104,7 @@ fn metadata(data: &Data) -> TokenStream2 {
             fields: Fields::Unit,
             ..
         }) => {
-            let expr = syn::parse2(quote! {iroha_schema::Metadata::TupleStruct(
+            let expr = syn::parse2(quote! {iroha_schema::Metadata::Tuple(
                 iroha_schema::UnnamedFieldsMeta {
                     types: Vec::new()
                 }
@@ -135,7 +135,7 @@ fn metadata_for_tuplestructs(fields: &FieldsUnnamed) -> (Vec<Type>, Expr) {
         .map(|field| field.ty)
         .map(|ty| quote! { <#ty as iroha_schema::IntoSchema>::type_name()});
     let expr = syn::parse2(quote! {
-        iroha_schema::Metadata::TupleStruct(
+        iroha_schema::Metadata::Tuple(
             iroha_schema::UnnamedFieldsMeta {
                 types: {
                     let mut types = Vec::new();
@@ -299,10 +299,10 @@ fn variant_index(v: &Variant, i: usize) -> TokenStream2 {
 }
 
 /// Finds specific attribute with codec ident satisfying predicate
-fn find_meta_item<'a, F, R, I, M>(mut itr: I, mut pred: F) -> Option<R>
+fn find_meta_item<'attr, F, R, I, M>(mut itr: I, mut pred: F) -> Option<R>
 where
     F: FnMut(M) -> Option<R> + Clone,
-    I: Iterator<Item = &'a Attribute>,
+    I: Iterator<Item = &'attr Attribute>,
     M: Parse,
 {
     itr.find_map(|attr| {

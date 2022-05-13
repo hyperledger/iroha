@@ -6,7 +6,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTC_BOOTSTRAP: 1
 
 jobs:
   coverage:
@@ -14,19 +13,30 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
+      # TODO Remove this step #2165
+      - name: Add component
+        run: rustup component add llvm-tools-preview
+
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
-        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2 || true
+        run: |
+          mold --run cargo test \
+          --quiet --workspace --no-fail-fast -- \
+          --skip unstable_network --skip ui --test-threads 3
         env:
-          RUSTFLAGS: "-Zinstrument-coverage"
+          RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate a grcov coverage report
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        run: |
+          grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        if: always()
       - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v2
+        if: always()
         with:
           file: lcov.info
+
 
   deploy:
     runs-on: ubuntu-latest
@@ -45,38 +55,38 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push Iroha Docker image
+      - name: Build and push docker image
         uses: docker/build-push-action@v2
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2:2.0.0-pre-rc.2
+          tags: hyperledger/iroha2:stable
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
-      - name: Build and push Iroha client cli Docker image
+      - name: Build and push docker image (iroha_client_cli)
         uses: docker/build-push-action@v2
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2:client-cli
+          tags: hyperledger/iroha2:client-cli-stable
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
             BIN=iroha_client_cli
-      - name: Build and push Iroha Crypto CLI Docker image
+      - name: Build and push docker image (kagami)
         uses: docker/build-push-action@v2
         with:
           context: .
           push: true
-          tags: hyperledger/iroha2:crypto-cli
+          tags: hyperledger/iroha2:kagami-stable
           build-args: |
             TARGET_DIR=release
             PROFILE=--release
-            BIN=iroha_crypto_cli
+            BIN=kagami
 
-      - name: Build and push load-rs:release docker image
-        run: |          
+      - name: Build and push docker image (load-rs:release)
+        run: |
           sleep 10s
           echo "wait to finish other workflow"
       - uses: convictional/trigger-workflow-and-wait@v1.6.0
@@ -85,4 +95,4 @@ jobs:
           repo: iroha2-longevity-load-rs
           github_token: ${{ secrets.G_ACCESS_TOKEN }}
           workflow_file_name: load-rs-push-from-release.yaml
-          ref: release      
+          ref: release

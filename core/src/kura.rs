@@ -1,5 +1,7 @@
-//! This module contains persistence related Iroha logic.
-//! [`Kura`] is the main entity which should be used to store new [`Block`](`crate::block::VersionedCommittedBlock`)s on the blockchain.
+//! Translates to warehouse. File-system and persistence-related
+//! logic.  [`Kura`] is the main entity which should be used to store
+//! new [`Block`](`crate::block::VersionedCommittedBlock`)s on the
+//! blockchain.
 
 use std::{
     collections::BTreeSet,
@@ -14,8 +16,7 @@ use std::{
 use async_trait::async_trait;
 use futures::{Stream, StreamExt, TryStreamExt};
 use iroha_actor::{broker::*, prelude::*};
-use iroha_crypto::HashOf;
-use iroha_data_model::merkle::MerkleTree;
+use iroha_crypto::{HashOf, MerkleTree};
 use iroha_logger::prelude::*;
 use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
 use pin_project::pin_project;

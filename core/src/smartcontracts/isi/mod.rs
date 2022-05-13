@@ -12,7 +12,6 @@ pub mod world;
 
 pub use error::*;
 use eyre::Result;
-use iroha_crypto::HashOf;
 use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_logger::prelude::*;
 
@@ -35,7 +34,9 @@ pub mod error {
     };
 
     use iroha_crypto::HashOf;
-    use iroha_data_model::{fixed::FixedPointOperationError, metadata, prelude::*};
+    use iroha_data_model::{
+        fixed::FixedPointOperationError, metadata, prelude::*, MintabilityError,
+    };
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use thiserror::Error;
@@ -53,7 +54,7 @@ pub mod error {
         Type(#[source] TypeError),
         /// Failed to assert mintability
         #[error("Mintability violation. {0}")]
-        Mintability(#[source] MintabilityError),
+        Mintability(#[from] MintabilityError),
         /// Failed due to math exception
         #[error("Math error. {0}")]
         Math(#[source] MathError),
@@ -68,16 +69,16 @@ pub mod error {
         Unsupported(InstructionType),
         /// [`FailBox`] error
         #[error("Execution failed {0}")]
-        FailBox(std::string::String),
+        FailBox(String),
         /// Conversion Error
         #[error("Conversion Error: {0}")]
-        Conversion(std::string::String),
+        Conversion(String),
         /// Repeated instruction
         #[error("Repetition")]
         Repetition(InstructionType, IdBox),
         /// Failed to validate.
         #[error("Failed to validate: {0}")]
-        Validate(#[source] ValidationError),
+        Validate(#[from] ValidationError),
     }
 
     // The main reason these are needed is because `FromVariant` can
@@ -150,10 +151,6 @@ pub mod error {
         /// Failed to find metadata key
         #[error("Failed to find metadata key")]
         MetadataKey(Name),
-        /// Failed to find Role by id.
-        #[cfg(feature = "roles")]
-        #[error("Failed to find role by id: `{0}`")]
-        Role(RoleId),
         /// Block with supplied parent hash not found. More description in a string.
         #[error("Block not found")]
         Block(#[source] ParentHashNotFound),
@@ -169,14 +166,9 @@ pub mod error {
         /// Trigger not found.
         #[error("Trigger not found.")]
         Trigger(TriggerId),
-    }
-
-    /// Mintability logic error
-    #[derive(Debug, Clone, Error, Copy, PartialEq, Eq)]
-    pub enum MintabilityError {
-        /// Tried to mint an Un-mintable asset.
-        #[error("Minting of this asset is forbidden")]
-        MintUnmintableError,
+        /// Failed to find Role by id.
+        #[error("Failed to find role by id: `{0}`")]
+        Role(RoleId),
     }
 
     /// Type assertion error
@@ -307,23 +299,24 @@ impl<W: WorldTrait> Execute<W> for Instruction {
 impl<W: WorldTrait> Execute<W> for RegisterBox {
     type Error = Error;
 
-    #[log]
     fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
+
         match self.object.evaluate(wsv, &context)? {
-            IdentifiableBox::NewAccount(account) => {
-                Register::<NewAccount>::new(*account).execute(authority, wsv)
-            }
-            IdentifiableBox::AssetDefinition(asset_definition) => {
-                Register::<AssetDefinition>::new(*asset_definition).execute(authority, wsv)
-            }
-            IdentifiableBox::Domain(domain) => {
+            RegistrableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
+            RegistrableBox::Domain(domain) => {
                 Register::<Domain>::new(*domain).execute(authority, wsv)
             }
-            IdentifiableBox::Peer(peer) => Register::<Peer>::new(*peer).execute(authority, wsv),
-            IdentifiableBox::Trigger(trigger) => {
-                Register::<Trigger>::new(*trigger).execute(authority, wsv)
+            RegistrableBox::Account(account) => {
+                Register::<Account>::new(*account).execute(authority, wsv)
             }
+            RegistrableBox::AssetDefinition(asset_definition) => {
+                Register::<AssetDefinition>::new(*asset_definition).execute(authority, wsv)
+            }
+            RegistrableBox::Trigger(trigger) => {
+                Register::<Trigger<FilterBox>>::new(*trigger).execute(authority, wsv)
+            }
+            RegistrableBox::Role(role) => Register::<Role>::new(*role).execute(authority, wsv),
             _ => Err(Error::Unsupported(InstructionType::Register)),
         }
     }
@@ -332,7 +325,6 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
 impl<W: WorldTrait> Execute<W> for UnregisterBox {
     type Error = Error;
 
-    #[log]
     fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
         let context = Context::new();
         match self.object_id.evaluate(wsv, &context)? {
@@ -354,7 +346,6 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
 impl<W: WorldTrait> Execute<W> for MintBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -381,6 +372,9 @@ impl<W: WorldTrait> Execute<W> for MintBox {
                 Mint::<Account, SignatureCheckCondition>::new(condition, account_id)
                     .execute(authority, wsv)
             }
+            (IdBox::TriggerId(trigger_id), Value::U32(quantity)) => {
+                Mint::<Trigger<FilterBox>, u32>::new(quantity, trigger_id).execute(authority, wsv)
+            }
             _ => Err(Error::Unsupported(InstructionType::Mint)),
         }
     }
@@ -389,7 +383,6 @@ impl<W: WorldTrait> Execute<W> for MintBox {
 impl<W: WorldTrait> Execute<W> for BurnBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -417,7 +410,6 @@ impl<W: WorldTrait> Execute<W> for BurnBox {
 impl<W: WorldTrait> Execute<W> for TransferBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -447,7 +439,6 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
 impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -479,7 +470,6 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
 impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -506,7 +496,6 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
 impl<W: WorldTrait> Execute<W> for If {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -526,7 +515,6 @@ impl<W: WorldTrait> Execute<W> for If {
 impl<W: WorldTrait> Execute<W> for Pair {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -541,7 +529,6 @@ impl<W: WorldTrait> Execute<W> for Pair {
 impl<W: WorldTrait> Execute<W> for SequenceBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -557,7 +544,6 @@ impl<W: WorldTrait> Execute<W> for SequenceBox {
 impl<W: WorldTrait> Execute<W> for FailBox {
     type Error = Error;
 
-    #[log(skip(_authority, _wsv))]
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
@@ -570,7 +556,6 @@ impl<W: WorldTrait> Execute<W> for FailBox {
 impl<W: WorldTrait> Execute<W> for GrantBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -585,7 +570,6 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
                 Grant::<Account, PermissionToken>::new(permission_token, account_id)
                     .execute(authority, wsv)
             }
-            #[cfg(feature = "roles")]
             (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
                 Grant::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
             }
@@ -597,7 +581,6 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
 impl<W: WorldTrait> Execute<W> for RevokeBox {
     type Error = Error;
 
-    #[log]
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
@@ -612,7 +595,6 @@ impl<W: WorldTrait> Execute<W> for RevokeBox {
                 Revoke::<Account, PermissionToken>::new(permission_token, account_id)
                     .execute(authority, wsv)
             }
-            #[cfg(feature = "roles")]
             (IdBox::AccountId(account_id), Value::Id(IdBox::RoleId(role_id))) => {
                 Revoke::<Account, RoleId>::new(role_id, account_id).execute(authority, wsv)
             }
@@ -630,43 +612,46 @@ pub mod prelude {
 mod tests {
     #![allow(clippy::restriction)]
 
+    use core::str::FromStr;
+
     use iroha_crypto::KeyPair;
 
     use super::*;
-    use crate::{wsv::World, DomainsMap, PeersIds};
+    use crate::{wsv::World, PeersIds};
 
     fn world_with_test_domains() -> Result<World> {
-        let domains = DomainsMap::new();
-        let mut domain = Domain::new(DomainId::new("wonderland")?);
-        let account_id = AccountId::new("alice", "wonderland")?;
-        let mut account = Account::new(account_id.clone());
-        let key_pair = KeyPair::generate()?;
-        account.signatories.push(key_pair.public_key);
-        domain.accounts.insert(account_id.clone(), account);
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
-        domain.asset_definitions.insert(
-            asset_definition_id.clone(),
-            AssetDefinitionEntry::new(AssetDefinition::new_store(asset_definition_id), account_id),
-        );
-        domains.insert(DomainId::new("wonderland")?, domain);
-        Ok(World::with(domains, PeersIds::new()))
+        let mut domain = Domain::new(DomainId::from_str("wonderland")?).build();
+        let account_id = AccountId::from_str("alice@wonderland")?;
+        let (public_key, _) = KeyPair::generate()?.into();
+        let account = Account::new(account_id.clone(), [public_key]).build();
+        assert!(domain.add_account(account).is_none());
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
+        assert!(domain
+            .add_asset_definition(
+                AssetDefinition::store(asset_definition_id).build(),
+                account_id
+            )
+            .is_none());
+        Ok(World::with([domain], PeersIds::new()))
     }
 
     #[test]
     fn asset_store() -> Result<()> {
         let wsv = WorldStateView::<World>::new(world_with_test_domains()?);
-        let account_id = AccountId::new("alice", "wonderland")?;
-        let asset_definition_id = AssetDefinitionId::new("rose", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
+        let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());
         SetKeyValueBox::new(
             IdBox::from(asset_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
         let asset = wsv.asset(&asset_id)?;
         let metadata: &Metadata = asset.try_as_ref()?;
-        let bytes = metadata.get(&Name::new("Bytes").expect("Valid")).cloned();
+        let bytes = metadata
+            .get(&Name::from_str("Bytes").expect("Valid"))
+            .cloned();
         assert_eq!(
             bytes,
             Some(Value::Vec(vec![
@@ -681,17 +666,17 @@ mod tests {
     #[test]
     fn account_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(account_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id.clone(), &wsv)?;
         let bytes = wsv.map_account(&account_id, |account| {
             account
-                .metadata
-                .get(&Name::new("Bytes").expect("Valid"))
+                .metadata()
+                .get(&Name::from_str("Bytes").expect("Valid"))
                 .cloned()
         })?;
         assert_eq!(
@@ -708,19 +693,19 @@ mod tests {
     #[test]
     fn asset_definition_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
-        let definition_id = AssetDefinitionId::new("rose", "wonderland")?;
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(definition_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
         let bytes = wsv
             .asset_definition_entry(&definition_id)?
-            .definition
-            .metadata
-            .get(&Name::new("Bytes")?)
+            .definition()
+            .metadata()
+            .get(&Name::from_str("Bytes")?)
             .cloned();
         assert_eq!(
             bytes,
@@ -736,18 +721,18 @@ mod tests {
     #[test]
     fn domain_metadata() -> Result<()> {
         let wsv = WorldStateView::new(world_with_test_domains()?);
-        let domain_id = DomainId::new("wonderland")?;
-        let account_id = AccountId::new("alice", "wonderland")?;
+        let domain_id = DomainId::from_str("wonderland")?;
+        let account_id = AccountId::from_str("alice@wonderland")?;
         SetKeyValueBox::new(
             IdBox::from(domain_id.clone()),
-            Name::new("Bytes")?,
+            Name::from_str("Bytes")?,
             vec![1_u32, 2_u32, 3_u32],
         )
         .execute(account_id, &wsv)?;
         let bytes = wsv
             .domain(&domain_id)?
-            .metadata
-            .get(&Name::new("Bytes")?)
+            .metadata()
+            .get(&Name::from_str("Bytes")?)
             .cloned();
         assert_eq!(
             bytes,

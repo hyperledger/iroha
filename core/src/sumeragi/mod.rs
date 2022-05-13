@@ -1,4 +1,4 @@
-//! This module contains consensus related logic of the Iroha.
+//! Translates to Emperor. Consensus-related logic of Iroha.
 //!
 //! `Consensus` trait is now implemented only by `Sumeragi` for now.
 
@@ -32,14 +32,13 @@ use self::{
 };
 use crate::{
     block::{BlockHeader, ChainedBlock, EmptyChainHash, VersionedPendingBlock},
-    event::EventsSender,
     genesis::GenesisNetworkTrait,
     kura::{GetBlockHash, KuraTrait, StoreBlock},
     prelude::*,
     queue::Queue,
     tx::TransactionValidator,
     wsv::WorldTrait,
-    IrohaNetwork, NetworkMessage, VersionedValidBlock,
+    EventsSender, IrohaNetwork, NetworkMessage, VersionedValidBlock,
 };
 
 trait Consensus {

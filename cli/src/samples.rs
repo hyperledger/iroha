@@ -7,7 +7,9 @@ use iroha_core::{
     genesis::config::GenesisConfiguration,
     kura::config::KuraConfiguration,
     queue::Configuration as QueueConfiguration,
+    smartcontracts::wasm::config::Configuration as WasmConfiguration,
     sumeragi::config::{SumeragiConfiguration, TrustedPeers},
+    wsv::config::Configuration as WsvConfiguration,
 };
 use iroha_crypto::{KeyPair, PublicKey};
 use iroha_data_model::peer::Id as PeerId;
@@ -75,10 +77,8 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
             ..KuraConfiguration::default()
         },
         sumeragi: SumeragiConfiguration {
-            key_pair: KeyPair {
-                public_key: public_key.clone(),
-                private_key: private_key.clone(),
-            },
+            key_pair: KeyPair::new(public_key.clone(), private_key.clone())
+                .expect("Key pair mismatch"),
             peer_id: PeerId::new(DEFAULT_TORII_P2P_ADDR, &public_key),
             trusted_peers: TrustedPeers {
                 peers: trusted_peers,
@@ -100,9 +100,16 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
             ..QueueConfiguration::default()
         },
         genesis: GenesisConfiguration {
-            account_public_key: Some(public_key),
+            account_public_key: public_key,
             account_private_key: Some(private_key),
             ..GenesisConfiguration::default()
+        },
+        wsv: WsvConfiguration {
+            wasm_runtime_config: WasmConfiguration {
+                fuel_limit: 10_000_000,
+                ..WasmConfiguration::default()
+            },
+            ..WsvConfiguration::default()
         },
         ..Configuration::default()
     }

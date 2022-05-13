@@ -9,6 +9,7 @@
 
 use std::{fmt, fs::File, str::FromStr, time::Duration};
 
+use clap::StructOpt;
 use color_eyre::{
     eyre::{Error, WrapErr},
     Result,
@@ -17,7 +18,6 @@ use dialoguer::Confirm;
 use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
 use iroha_crypto::prelude::*;
 use iroha_data_model::prelude::*;
-use structopt::StructOpt;
 
 /// Metadata wrapper, which can be captured from cli arguments (from user supplied file).
 #[derive(Debug, Clone)]
@@ -60,15 +60,11 @@ impl FromStr for Configuration {
 
 /// Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.
 #[derive(StructOpt, Debug)]
-#[structopt(
-    name = "iroha_client_cli",
-    version = "0.1.0",
-    author = "Soramitsu Iroha2 team (https://github.com/orgs/soramitsu/teams/iroha2)"
-)]
+#[structopt(name = "iroha_client_cli", version, author)]
 pub struct Args {
     /// Sets a config file path
-    #[structopt(short, long, default_value = "config.json")]
-    config: Configuration,
+    #[structopt(short, long)]
+    config: Option<Configuration>,
     /// Subcommands of client cli
     #[structopt(subcommand)]
     subcommand: Subcommand,
@@ -77,14 +73,19 @@ pub struct Args {
 #[derive(StructOpt, Debug)]
 pub enum Subcommand {
     /// The subcommand related to domains
+    #[clap(subcommand)]
     Domain(domain::Args),
     /// The subcommand related to accounts
+    #[clap(subcommand)]
     Account(account::Args),
     /// The subcommand related to assets
+    #[clap(subcommand)]
     Asset(asset::Args),
     /// The subcommand related to p2p networking
+    #[clap(subcommand)]
     Peer(peer::Args),
     /// The subcommand related to event streaming
+    #[clap(subcommand)]
     Events(events::Args),
 }
 
@@ -119,10 +120,15 @@ const RETRY_IN_MST: Duration = Duration::from_millis(100);
 fn main() -> Result<()> {
     color_eyre::install()?;
     let Args {
-        config: Configuration(config),
+        config: config_opt,
         subcommand,
-    } = Args::from_args();
-    println!("Iroha Client CLI: build v0.0.1 [release]");
+    } = clap::Parser::parse();
+    let config = if let Some(config) = config_opt {
+        config
+    } else {
+        Configuration::from_str("config.json")?
+    };
+    let Configuration(config) = config;
     println!(
         "User: {}@{}",
         config.account_id.name, config.account_id.domain_id
@@ -149,7 +155,7 @@ pub fn submit(
     metadata: UnlimitedMetadata,
 ) -> Result<()> {
     let instruction = instruction.into();
-    let mut iroha_client = Client::new(cfg);
+    let iroha_client = Client::new(cfg)?;
     #[cfg(debug_assertions)]
     let err_msg = format!(
         "Failed to build transaction from instruction {:?}",
@@ -200,15 +206,15 @@ mod events {
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
             let filter = match self {
-                Args::Pipeline => EventFilter::Pipeline(PipelineEventFilter::default()),
-                Args::Data => EventFilter::Data(DataEventFilter::AcceptAll),
+                Args::Pipeline => FilterBox::Pipeline(PipelineEventFilter::new()),
+                Args::Data => FilterBox::Data(DataEventFilter::AcceptAll),
             };
             listen(filter, cfg)
         }
     }
 
-    pub fn listen(filter: EventFilter, cfg: &Configuration) -> Result<()> {
-        let mut iroha_client = Client::new(cfg);
+    pub fn listen(filter: FilterBox, cfg: &Configuration) -> Result<()> {
+        let mut iroha_client = Client::new(cfg)?;
         println!("Listening to events with filter: {:?}", filter);
         for event in iroha_client
             .listen_for_events(filter)
@@ -229,11 +235,12 @@ mod domain {
     use super::*;
 
     /// Arguments for domain subcommand
-    #[derive(Debug, StructOpt)]
+    #[derive(Debug, clap::Subcommand)]
     pub enum Args {
         /// Register domain
         Register(Register),
         /// List domains
+        #[clap(subcommand)]
         List(List),
     }
 
@@ -260,7 +267,7 @@ mod domain {
                 id,
                 metadata: Metadata(metadata),
             } = self;
-            let create_domain = RegisterBox::new(IdentifiableBox::from(Domain::new(id)));
+            let create_domain = RegisterBox::new(Domain::new(id));
             submit(create_domain, cfg, metadata).wrap_err("Failed to create domain")
         }
     }
@@ -274,7 +281,7 @@ mod domain {
 
     impl RunArgs for List {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            let mut client = Client::new(cfg);
+            let client = Client::new(cfg)?;
 
             let vec = match self {
                 Self::All => client
@@ -301,8 +308,10 @@ mod account {
         /// Register account
         Register(Register),
         /// Set something in account
+        #[clap(subcommand)]
         Set(Set),
         /// List accounts
+        #[clap(subcommand)]
         List(List),
     }
 
@@ -333,8 +342,7 @@ mod account {
                 key,
                 metadata: Metadata(metadata),
             } = self;
-            let create_account =
-                RegisterBox::new(IdentifiableBox::from(NewAccount::with_signatory(id, key)));
+            let create_account = RegisterBox::new(Account::new(id, [key]));
             submit(create_account, cfg, metadata).wrap_err("Failed to register account")
         }
     }
@@ -380,7 +388,7 @@ mod account {
 
     impl RunArgs for SignatureCondition {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            let account = Account::new(cfg.account_id.clone());
+            let account = Account::new(cfg.account_id.clone(), []);
             let Self {
                 condition: Signature(condition),
                 metadata: Metadata(metadata),
@@ -399,7 +407,7 @@ mod account {
 
     impl RunArgs for List {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            let mut client = Client::new(cfg);
+            let client = Client::new(cfg)?;
 
             let vec = match self {
                 Self::All => client
@@ -414,6 +422,7 @@ mod account {
 
 mod asset {
     use iroha_client::client::{self, asset, Client};
+    use iroha_data_model::asset::definition_builder::NewAssetDefinition;
 
     use super::*;
 
@@ -429,6 +438,7 @@ mod asset {
         /// Get info of asset
         Get(Get),
         /// List assets
+        #[clap(subcommand)]
         List(List),
     }
 
@@ -467,9 +477,7 @@ mod asset {
                 metadata: Metadata(metadata),
             } = self;
             submit(
-                RegisterBox::new(IdentifiableBox::AssetDefinition(
-                    AssetDefinition::new(id, value_type, !unmintable).into(),
-                )),
+                RegisterBox::new(NewAssetDefinition::new(id, value_type, !unmintable).build()),
                 cfg,
                 metadata,
             )
@@ -562,7 +570,7 @@ mod asset {
     impl RunArgs for Get {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
             let Self { account, asset } = self;
-            let mut iroha_client = Client::new(cfg);
+            let iroha_client = Client::new(cfg)?;
             let asset_id = AssetId::new(asset, account);
             let value = iroha_client
                 .request(asset::by_id(asset_id))
@@ -581,7 +589,7 @@ mod asset {
 
     impl RunArgs for List {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
-            let mut client = Client::new(cfg);
+            let client = Client::new(cfg)?;
 
             let vec = match self {
                 Self::All => client
@@ -637,9 +645,7 @@ mod peer {
                 metadata: Metadata(metadata),
             } = self;
             submit(
-                RegisterBox::new(IdentifiableBox::Peer(
-                    Peer::new(PeerId::new(&address, &key)).into(),
-                )),
+                RegisterBox::new(Peer::new(PeerId::new(&address, &key))),
                 cfg,
                 metadata,
             )

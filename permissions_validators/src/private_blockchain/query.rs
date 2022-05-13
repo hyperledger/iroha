@@ -20,7 +20,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
             FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => {
                 Err("Only access to the assets of the same domain is permitted.".to_owned())
             }
-            FindAllAccounts(_) | FindAccountsByName(_) => {
+            FindAllAccounts(_) | FindAccountsByName(_) | FindAccountsWithAsset(_) => {
                 Err("Only access to the accounts of the same domain is permitted.".to_owned())
             }
             FindAllAssetsDefinitions(_) => Err(
@@ -29,9 +29,53 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
             FindAllDomains(_) => {
                 Err("Only access to the domain of the account is permitted.".to_owned())
             }
-            #[cfg(feature = "roles")]
-            FindAllRoles(_) => Ok(()),
-            FindAllPeers(_) => Ok(()),
+            FindAllRoles(_) => {
+                Err("Only access to roles of the same domain is permitted.".to_owned())
+            }
+            FindAllRoleIds(_) => Ok(()), // In case you need to debug the permissions.
+            FindRoleByRoleId(_) => {
+                Err("Only access to roles of the same domain is permitted.".to_owned())
+            }
+            FindAllPeers(_) => Ok(()), // Can be obtained in other ways, so why hide it.
+            FindAllActiveTriggerIds(_) => Ok(()),
+            // Private blockchains should have debugging too, hence
+            // all accounts should also be
+            FindTriggerById(query) => {
+                let id = query
+                    .id
+                    .evaluate(wsv, &context)
+                    .map_err(|e| e.to_string())?;
+                wsv.world
+                    .triggers
+                    .inspect(&id, |action| {
+                        if action.technical_account() == authority {
+                            Ok(())
+                        } else {
+                            Err("Cannot access Trigger if you're not the technical account."
+                                .to_owned())
+                        }
+                    })
+                    .map_err(|err| err.to_string())?
+            }
+            FindTriggerKeyValueByIdAndKey(query) => {
+                let id = query
+                    .id
+                    .evaluate(wsv, &context)
+                    .map_err(|e| e.to_string())?;
+                wsv.world
+                    .triggers
+                    .inspect(&id, |action| {
+                        if action.technical_account() == authority {
+                            Ok(())
+                        } else {
+                            Err(
+                        "Cannot access Trigger internal state if you're not the technical account."
+                            .to_owned(),
+                    )
+                        }
+                    })
+                    .map_err(|err| err.to_string())?
+            }
             FindAccountById(query) => {
                 let account_id = query
                     .id
@@ -197,7 +241,6 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                 }
             }
             FindTransactionByHash(_query) => Ok(()),
-            #[cfg(feature = "roles")]
             FindRolesByAccountId(query) => {
                 let account_id = query
                     .id
@@ -226,9 +269,6 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                     ))
                 }
             }
-            #[cfg(not(feature = "roles"))]
-            #[allow(unreachable_patterns)]
-            _ => Err("Unable to compile with tests enabled, but without \"roles\", because it's a dev-dependency of `iroha_data_model`, and due to https://github.com/rust-lang/cargo/issues/6915".to_owned())
         }
     }
 }
@@ -252,23 +292,66 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
         let context = Context::new();
         match query {
             FindAccountsByName(_)
-            | FindAccountsByDomainId(_)
-            | FindAllAccounts(_)
-            | FindAllAssetsDefinitions(_)
-            | FindAssetsByAssetDefinitionId(_)
-            | FindAssetsByDomainId(_)
-            | FindAssetsByName(_)
-            | FindAllDomains(_)
-            | FindDomainById(_)
-            | FindDomainKeyValueByIdAndKey(_)
-            | FindAssetsByDomainIdAndAssetDefinitionId(_)
-            | FindAssetDefinitionKeyValueByIdAndKey(_)
-            | FindAllAssets(_) => {
-                Err("Only access to the assets of the same domain is permitted.".to_owned())
+                | FindAccountsByDomainId(_)
+                | FindAccountsWithAsset(_)
+                | FindAllAccounts(_) => {
+                    Err("Other accounts are private.".to_owned())
+                }
+                | FindAllDomains(_)
+                | FindDomainById(_)
+                | FindDomainKeyValueByIdAndKey(_) => {
+                    Err("Only access to your account's data is permitted.".to_owned())
+                },
+            FindAssetsByDomainIdAndAssetDefinitionId(_)
+                | FindAssetsByName(_) // TODO: I think this is a mistake.
+                | FindAssetsByDomainId(_)
+                | FindAllAssetsDefinitions(_)
+                | FindAssetsByAssetDefinitionId(_)
+                | FindAssetDefinitionKeyValueByIdAndKey(_)
+                | FindAllAssets(_) => {
+                    Err("Only access to the assets of your account is permitted.".to_owned())
+                }
+            FindAllRoles(_) | FindAllRoleIds(_) | FindRoleByRoleId(_) => {
+                Err("Only access to roles of the same account is permitted.".to_owned())
+            },
+            | FindAllActiveTriggerIds(_) => {
+                Err("Only access to the triggers of the same account is permitted.".to_owned())
             }
-            #[cfg(feature = "roles")]
-            FindAllRoles(_) => Ok(()),
-            FindAllPeers(_) => Ok(()),
+            FindAllPeers(_) => {
+                Err("Only access to your account-local data is permitted.".to_owned())
+            }
+            FindTriggerById(query) => {
+                // TODO: should differentiate between global and domain-local triggers.
+                let id = query
+                    .id
+                    .evaluate(wsv, &context)
+                    .map_err(|e| e.to_string())?;
+                if let Ok(true) = wsv.world.triggers.inspect(&id, |action|
+                    action.technical_account() == authority
+                ) {
+                    return Ok(())
+                }
+                Err(format!(
+                    "A trigger with the specified Id: {} is not accessible to you",
+                    id
+                ))
+            }
+            FindTriggerKeyValueByIdAndKey(query) => {
+                // TODO: should differentiate between global and domain-local triggers.
+                let id = query
+                    .id
+                    .evaluate(wsv, &context)
+                    .map_err(|e| e.to_string())?;
+                if let Ok(true) = wsv.world.triggers.inspect(&id, |action|
+                    action.technical_account() == authority
+                ) {
+                    return Ok(())
+                }
+                Err(format!(
+                    "A trigger with the specified Id: {} is not accessible to you",
+                    id
+                ))
+            }
             FindAccountById(query) => {
                 let account_id = query
                     .id
@@ -278,8 +361,9 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                     Ok(())
                 } else {
                     Err(format!(
-                        "Cannot access account {} as only access to your own account is permitted..",
-                        account_id
+                        "Cannot access account {} as only access to your own account, {} is permitted..",
+                        account_id,
+                        authority
                     ))
                 }
             }
@@ -367,7 +451,6 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                 }
             }
             FindTransactionByHash(_query) => Ok(()),
-            #[cfg(feature = "roles")]
             FindRolesByAccountId(query) => {
                 let account_id = query
                     .id
@@ -390,9 +473,6 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                     Err(format!("Cannot access another account: {}.", account_id))
                 }
             }
-            #[cfg(not(feature = "roles" ))]
-            #[allow(unreachable_patterns)]
-            _ => Err("Unable to compile with tests enabled, but without \"roles\", because it's a dev-dependency of `iroha_data_model`, and due to https://github.com/rust-lang/cargo/issues/6915".to_owned())
         }
     }
 }

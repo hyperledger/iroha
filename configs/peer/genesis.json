@@ -7,12 +7,11 @@
             "object": {
               "Raw": {
                 "Identifiable": {
-                  "Domain": {
+                  "NewDomain": {
                     "id": {
                       "name": "wonderland"
                     },
-                    "accounts": {},
-                    "asset_definitions": {},
+                    "logo": null,
                     "metadata": {}
                   }
                 }
@@ -55,8 +54,8 @@
                       }
                     },
                     "value_type": "Quantity",
-                    "metadata": {},
-                    "mintable": true
+                    "mintable": "Infinitely",
+                    "metadata": {}
                   }
                 }
               }

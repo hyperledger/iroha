@@ -12,8 +12,9 @@ use core::{fmt, marker::PhantomData};
 use std::collections::{btree_map, btree_set};
 
 use derive_more::{Deref, DerefMut};
+use getset::Getters;
 use iroha_schema::prelude::*;
-use parity_scale_codec::{Decode, Encode, Error as ScaleError, Input};
+use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
 use ursa::{
@@ -30,32 +31,42 @@ use ursa::{
 use crate::{Algorithm, HashOf, KeyPair};
 use crate::{Error, PublicKey};
 
+/// Signature payload(i.e THE signature)
+pub type Payload = Vec<u8>;
+
 /// Represents signature of the data (`Block` or `Transaction` for example).
 #[derive(
-    Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Decode, Serialize, Deserialize, IntoSchema,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Getters,
+    Encode,
+    Decode,
+    Serialize,
+    Deserialize,
+    IntoSchema,
 )]
+#[getset(get = "pub")]
 pub struct Signature {
     /// Public key that is used for verification. Payload is verified by algorithm
     /// that corresponds with the public key's digest function.
-    pub public_key: PublicKey,
+    public_key: PublicKey,
     /// Actual signature payload is placed here.
-    signature: Vec<u8>,
+    payload: Payload,
 }
 
-#[cfg(feature = "std")]
 impl Signature {
     /// Creates new [`Signature`] by signing payload via [`KeyPair::private_key`].
     ///
     /// # Errors
-    /// Fails if decoding digest of key pair fails
-    pub fn new(
-        KeyPair {
-            public_key,
-            private_key,
-        }: KeyPair,
-        payload: &[u8],
-    ) -> Result<Self, Error> {
-        let algorithm: Algorithm = public_key.digest_function.parse()?;
+    /// Fails if signing fails
+    #[cfg(feature = "std")]
+    fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Self, Error> {
+        let (public_key, private_key) = key_pair.into();
+
+        let algorithm: Algorithm = private_key.digest_function();
         let private_key = UrsaPrivateKey(private_key.payload);
 
         let signature = match algorithm {
@@ -67,27 +78,35 @@ impl Signature {
 
         Ok(Self {
             public_key,
-            signature,
+            payload: signature,
         })
+    }
+
+    /// Adds type information to the signature. Be careful about using this function
+    /// since it is not possible to validate the correctness of the conversion.
+    /// Prefer creating new signatures with [`SignatureOf::new`] whenever possible
+    #[inline]
+    #[cfg_attr(not(feature = "std"), allow(dead_code))]
+    fn typed<T>(self) -> SignatureOf<T> {
+        SignatureOf(self, PhantomData)
     }
 
     /// Verify `message` using signed data and [`KeyPair::public_key`].
     ///
     /// # Errors
-    /// Fails if decoding digest of key pair fails or if message didn't pass verification
+    /// Fails if message didn't pass verification
+    #[cfg(feature = "std")]
     pub fn verify(&self, payload: &[u8]) -> Result<(), Error> {
-        let algorithm: Algorithm = self.public_key.digest_function.parse()?;
-        let public_key = UrsaPublicKey(self.public_key.payload.clone());
+        let algorithm: Algorithm = self.public_key.digest_function();
+        let public_key = UrsaPublicKey(self.public_key.payload().clone());
 
         match algorithm {
-            Algorithm::Ed25519 => {
-                Ed25519Sha512::new().verify(payload, &self.signature, &public_key)
-            }
+            Algorithm::Ed25519 => Ed25519Sha512::new().verify(payload, self.payload(), &public_key),
             Algorithm::Secp256k1 => {
-                EcdsaSecp256k1Sha256::new().verify(payload, &self.signature, &public_key)
+                EcdsaSecp256k1Sha256::new().verify(payload, self.payload(), &public_key)
             }
-            Algorithm::BlsSmall => BlsSmall::new().verify(payload, &self.signature, &public_key),
-            Algorithm::BlsNormal => BlsNormal::new().verify(payload, &self.signature, &public_key),
+            Algorithm::BlsSmall => BlsSmall::new().verify(payload, self.payload(), &public_key),
+            Algorithm::BlsNormal => BlsNormal::new().verify(payload, self.payload(), &public_key),
         }?;
 
         Ok(())
@@ -98,8 +117,25 @@ impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct(core::any::type_name::<Self>())
             .field("public_key", &self.public_key)
-            .field("signature", &hex::encode_upper(self.signature.as_slice()))
+            .field("signature", &hex::encode_upper(self.payload().as_slice()))
             .finish()
+    }
+}
+
+impl From<Signature> for (PublicKey, Payload) {
+    fn from(
+        Signature {
+            public_key,
+            payload: signature,
+        }: Signature,
+    ) -> Self {
+        (public_key, signature)
+    }
+}
+
+impl<T> From<SignatureOf<T>> for Signature {
+    fn from(SignatureOf(signature, ..): SignatureOf<T>) -> Self {
+        signature
     }
 }
 
@@ -150,12 +186,15 @@ impl<T> Ord for SignatureOf<T> {
     }
 }
 
-impl<T> IntoSchema for SignatureOf<T> {
+impl<T: IntoSchema> IntoSchema for SignatureOf<T> {
+    fn type_name() -> String {
+        format!("{}::SignatureOf<{}>", module_path!(), T::type_name())
+    }
     fn schema(map: &mut MetaMap) {
         Signature::schema(map);
 
         map.entry(Self::type_name()).or_insert_with(|| {
-            Metadata::TupleStruct(UnnamedFieldsMeta {
+            Metadata::Tuple(UnnamedFieldsMeta {
                 types: vec![Signature::type_name()],
             })
         });
@@ -163,13 +202,13 @@ impl<T> IntoSchema for SignatureOf<T> {
 }
 
 impl<T> SignatureOf<T> {
-    /// Create new [`SignatureOf`] via signing `T` values by [`KeyPair::private_key`]
+    /// Create [`SignatureOf`] from the given hash with [`KeyPair::private_key`].
     ///
     /// # Errors
-    /// Fails if decoding digest of key pair fails
+    /// Fails if signing fails
     #[cfg(feature = "std")]
     pub fn from_hash(key_pair: KeyPair, hash: &HashOf<T>) -> Result<Self, Error> {
-        Ok(Self(Signature::new(key_pair, hash.as_ref())?, PhantomData))
+        Ok(Signature::new(key_pair, hash.as_ref())?.typed())
     }
 
     /// Transmutes signature to some specific type
@@ -197,7 +236,7 @@ impl<T> SignatureOf<T> {
     ///
     /// # Errors
     ///
-    /// Forwards the 0-th tuple variant verification error
+    /// Fails if the given hash didn't pass verification
     #[cfg(feature = "std")]
     pub fn verify_hash(&self, hash: &HashOf<T>) -> Result<(), Error> {
         self.0.verify(hash.as_ref())
@@ -206,10 +245,12 @@ impl<T> SignatureOf<T> {
 
 #[cfg(feature = "std")]
 impl<T: Encode> SignatureOf<T> {
-    /// Creates new [`SignatureOf`] by signing value via [`KeyPair::private_key`]
+    /// Create [`SignatureOf`] by signing the given value with [`KeyPair::private_key`].
+    /// The value provided will be hashed before being signed. If you already have the
+    /// hash of the value you can sign it with [`SignatureOf::from_hash`] instead.
     ///
     /// # Errors
-    /// Fails if decoding digest of key pair fails
+    /// Fails if signing fails
     pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
         Self::from_hash(key_pair, &HashOf::new(value))
     }
@@ -230,7 +271,6 @@ impl<T: Encode> SignatureOf<T> {
 ///
 /// GUARANTEE 1: This container always contains at least 1 signature
 /// GUARANTEE 2: Each signature corresponds to a different public key
-#[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Encode, Serialize, IntoSchema)]
 #[serde(transparent)]
 // Transmute guard
@@ -286,7 +326,7 @@ impl<'de, T> Deserialize<'de> for SignaturesOf<T> {
     }
 }
 impl<T> Decode for SignaturesOf<T> {
-    fn decode<I: Input>(input: &mut I) -> Result<Self, ScaleError> {
+    fn decode<I: Input>(input: &mut I) -> Result<Self, parity_scale_codec::Error> {
         let signatures = <btree_map::BTreeMap<PublicKey, SignatureOf<T>>>::decode(input)?;
 
         if signatures.is_empty() {
@@ -305,9 +345,9 @@ impl<T> IntoIterator for SignaturesOf<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a SignaturesOf<T> {
-    type Item = &'a SignatureOf<T>;
-    type IntoIter = btree_map::Values<'a, PublicKey, SignatureOf<T>>;
+impl<'itm, T> IntoIterator for &'itm SignaturesOf<T> {
+    type Item = &'itm SignatureOf<T>;
+    type IntoIter = btree_map::Values<'itm, PublicKey, SignatureOf<T>>;
     fn into_iter(self) -> Self::IntoIter {
         self.signatures.values()
     }
@@ -338,7 +378,7 @@ impl<T> TryFrom<btree_set::BTreeSet<SignatureOf<T>>> for SignaturesOf<T> {
             return Ok(Self {
                 signatures: signatures
                     .into_iter()
-                    .map(|signature| (signature.public_key.clone(), signature))
+                    .map(|signature| (signature.public_key().clone(), signature))
                     .collect(),
             });
         }
@@ -363,7 +403,7 @@ impl<T> SignaturesOf<T> {
     /// # Warning:
     ///
     /// This method uses [`core::mem::transmute`] internally
-    #[allow(unsafe_code)]
+    #[allow(unsafe_code, clippy::transmute_undefined_repr)]
     pub fn transmute<F>(self) -> SignaturesOf<F> {
         // SAFETY: Safe because we are transmuting to a pointer of
         // type `<F>` which is related to type `<T>`.
@@ -371,19 +411,10 @@ impl<T> SignaturesOf<T> {
         SignaturesOf { signatures }
     }
 
-    /// Builds container using single signature
-    pub fn from_signature(sign: SignatureOf<T>) -> Self {
-        let mut me = Self {
-            signatures: btree_map::BTreeMap::new(),
-        };
-        me.insert(sign);
-        me
-    }
-
     /// Adds a signature. If the signature with this key was present, replaces it.
     pub fn insert(&mut self, signature: SignatureOf<T>) {
         self.signatures
-            .insert(signature.public_key.clone(), signature);
+            .insert(signature.public_key().clone(), signature);
     }
 
     /// Returns signatures that have passed verification.
@@ -396,25 +427,26 @@ impl<T> SignaturesOf<T> {
 
     /// Returns signatures that have passed verification.
     #[cfg(feature = "std")]
-    pub fn into_verified_by_hash(self, hash: HashOf<T>) -> impl Iterator<Item = SignatureOf<T>> {
+    pub fn into_verified_by_hash(
+        self,
+        hash: &HashOf<T>,
+    ) -> impl Iterator<Item = SignatureOf<T>> + '_ {
         self.signatures
             .into_values()
-            .filter(move |sign| sign.verify_hash(&hash).is_ok())
+            .filter(move |sign| sign.verify_hash(hash).is_ok())
     }
 
     /// Returns all signatures.
-    pub fn iter(&self) -> impl Iterator<Item = &SignatureOf<T>> {
+    #[inline]
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &SignatureOf<T>> {
         self.into_iter()
     }
 
     /// Number of signatures.
+    #[inline]
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.signatures.len()
-    }
-
-    /// Number of signatures.
-    pub fn is_empty(&self) -> bool {
-        self.signatures.is_empty()
     }
 
     /// Verify signatures for this hash
@@ -438,7 +470,7 @@ impl<T: Encode> SignaturesOf<T> {
     /// # Errors
     /// Forwards [`SignatureOf::new`] errors
     pub fn new(key_pair: KeyPair, value: &T) -> Result<Self, Error> {
-        SignatureOf::new(key_pair, value).map(Self::from_signature)
+        [SignatureOf::new(key_pair, value)?].into_iter().collect()
     }
 
     /// Verifies all signatures
@@ -446,14 +478,12 @@ impl<T: Encode> SignaturesOf<T> {
     /// # Errors
     /// Fails if validation of any signature fails
     pub fn verify(&self, item: &T) -> Result<(), SignatureVerificationFail<T>> {
-        let hash = HashOf::new(item);
-        self.verify_hash(&hash)
+        self.verify_hash(&HashOf::new(item))
     }
 
     /// Returns signatures that have passed verification.
     pub fn verified(&self, value: &T) -> impl Iterator<Item = &SignatureOf<T>> {
-        let hash = HashOf::new(value);
-        self.verified_by_hash(hash)
+        self.verified_by_hash(HashOf::new(value))
     }
 }
 
@@ -492,7 +522,8 @@ impl<T> fmt::Display for SignatureVerificationFail<T> {
         write!(
             f,
             "Failed to verify signatures because of signature {}: {}",
-            self.signature.public_key, self.reason,
+            self.signature.public_key(),
+            self.reason,
         )
     }
 }
@@ -519,7 +550,7 @@ mod tests {
         let message = b"Test message to sign.";
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
+        assert_eq!(signature.public_key(), key_pair.public_key());
         assert!(signature.verify(message).is_ok())
     }
 
@@ -533,7 +564,7 @@ mod tests {
         let message = b"Test message to sign.";
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
+        assert_eq!(signature.public_key(), key_pair.public_key());
         assert!(signature.verify(message).is_ok())
     }
 
@@ -547,7 +578,7 @@ mod tests {
         let message = b"Test message to sign.";
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
+        assert_eq!(signature.public_key(), key_pair.public_key());
         assert!(signature.verify(message).is_ok())
     }
 
@@ -561,7 +592,7 @@ mod tests {
         let message = b"Test message to sign.";
         let signature =
             Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
-        assert_eq!(signature.public_key, key_pair.public_key);
+        assert_eq!(signature.public_key(), key_pair.public_key());
         assert!(signature.verify(message).is_ok())
     }
 
@@ -580,8 +611,6 @@ mod tests {
     #[test]
     #[cfg(feature = "std")]
     fn deserialize_signatures_of() -> Result<(), serde_json::Error> {
-        use serde_json;
-
         let no_signatures: SignaturesOf<i32> = SignaturesOf {
             signatures: btree_map::BTreeMap::new(),
         };

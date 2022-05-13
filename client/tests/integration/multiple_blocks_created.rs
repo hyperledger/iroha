@@ -19,23 +19,15 @@ fn long_multiple_blocks_created() {
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new("domain").expect("Valid")).into(),
-    ));
-    let account_id = AccountId::new("account", "domain").expect("Valid");
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(
-            account_id.clone(),
-            KeyPair::generate()
-                .expect("Failed to generate KeyPair.")
-                .public_key,
-        )
-        .into(),
-    ));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let create_domain = RegisterBox::new(Domain::new("domain".parse().expect("Valid")));
+    let account_id: AccountId = "account@domain".parse().expect("Valid");
+    let (public_key, _) = KeyPair::generate()
+        .expect("Failed to generate KeyPair")
+        .into();
+    let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
+    let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
 
     iroha_client
         .submit_all(vec![
@@ -69,13 +61,12 @@ fn long_multiple_blocks_created() {
 
     //Then
     let peer = network.peers().last().unwrap();
-    Client::test(&peer.api_address, &peer.telemetry_address).poll_request(
-        client::asset::by_account_id(account_id),
-        |result| {
+    Client::test(&peer.api_address, &peer.telemetry_address)
+        .poll_request(client::asset::by_account_id(account_id), |result| {
             result.iter().any(|asset| {
-                asset.id.definition_id == asset_definition_id
-                    && asset.value == AssetValue::Quantity(account_has_quantity)
+                asset.id().definition_id == asset_definition_id
+                    && *asset.value() == AssetValue::Quantity(account_has_quantity)
             })
-        },
-    );
+        })
+        .expect("Panic on case assertion failure.");
 }

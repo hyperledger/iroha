@@ -43,8 +43,8 @@ pub struct EvaluatesTo<V: TryFrom<Value>> {
 }
 
 impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
-    fn from(expression: E) -> EvaluatesTo<V> {
-        EvaluatesTo {
+    fn from(expression: E) -> Self {
+        Self {
             expression: expression.into(),
             _value_type: PhantomData::default(),
         }
@@ -59,7 +59,10 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     }
 }
 
-impl<V: TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
+impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
+    fn type_name() -> String {
+        format!("{}::EvaluatesTo<{}>", module_path!(), V::type_name())
+    }
     fn schema(map: &mut MetaMap) {
         ExpressionBox::schema(map);
 

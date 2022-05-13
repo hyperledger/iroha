@@ -14,7 +14,6 @@ pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
 pub const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
 /// Default amount of time Peer waits for `TxReceipt` from the leader.
 pub const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
-const DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE: u64 = 1;
 const DEFAULT_MAILBOX_SIZE: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
@@ -39,8 +38,6 @@ pub struct SumeragiConfiguration {
     pub commit_time_ms: u64,
     /// Amount of time Peer waits for TxReceipt from the leader.
     pub tx_receipt_time_ms: u64,
-    /// After N view changes topology will change tactic from shifting by one, to reshuffle.
-    pub n_topology_shifts_before_reshuffle: u64,
     /// Limits to which transactions must adhere
     pub transaction_limits: TransactionLimits,
     /// Mailbox size
@@ -54,13 +51,12 @@ pub struct SumeragiConfiguration {
 impl Default for SumeragiConfiguration {
     fn default() -> Self {
         Self {
-            key_pair: KeyPair::default(),
-            trusted_peers: TrustedPeers::default(),
-            peer_id: PeerId::default(),
+            key_pair: Self::placeholder_keypair(),
+            peer_id: Self::placeholder_peer_id(),
+            trusted_peers: Self::placeholder_trusted_peers(),
             block_time_ms: DEFAULT_BLOCK_TIME_MS,
             commit_time_ms: DEFAULT_COMMIT_TIME_MS,
             tx_receipt_time_ms: DEFAULT_TX_RECEIPT_TIME_MS,
-            n_topology_shifts_before_reshuffle: DEFAULT_N_TOPOLOGY_SHIFTS_BEFORE_RESHUFFLE,
             transaction_limits: TransactionLimits {
                 max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
                 max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
@@ -73,6 +69,35 @@ impl Default for SumeragiConfiguration {
 }
 
 impl SumeragiConfiguration {
+    /// Key-pair used by default for demo purposes
+    #[allow(clippy::expect_used)]
+    fn placeholder_keypair() -> KeyPair {
+        let public_key = "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+            .parse()
+            .expect("Public key not in mulithash format");
+        let private_key = PrivateKey::from_hex(
+            Algorithm::Ed25519,
+            "282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
+        ).expect("Private key not hex encoded");
+
+        KeyPair::new(public_key, private_key).expect("Key pair mismatch")
+    }
+
+    fn placeholder_peer_id() -> PeerId {
+        let (public_key, _) = Self::placeholder_keypair().into();
+
+        PeerId {
+            address: "127.0.0.1:1337".to_owned(),
+            public_key,
+        }
+    }
+
+    fn placeholder_trusted_peers() -> TrustedPeers {
+        let mut peers = HashSet::new();
+        peers.insert(Self::placeholder_peer_id());
+        TrustedPeers { peers }
+    }
+
     /// Set `trusted_peers` configuration parameter. Will overwrite
     /// existing `trusted_peers` but does not check for duplication.
     #[inline]

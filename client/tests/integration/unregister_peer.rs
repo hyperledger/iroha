@@ -8,8 +8,9 @@ use test_network::*;
 
 use super::Configuration;
 
+// Note the test is marked as `unstable`,  not the network.
 #[test]
-fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
+fn unstable_network_stable_after_add_and_after_remove_peer() -> Result<()> {
     // Given a network
     let (rt, network, mut genesis_client, pipeline_time, account_id, asset_definition_id) = init()?;
     wait_for_genesis_committed(&network.clients(), 0);
@@ -45,23 +46,26 @@ fn network_stable_after_add_and_after_remove_peer() -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::expect_used)]
 fn check_assets(
     iroha_client: &mut client::Client,
     account_id: &AccountId,
     asset_definition_id: &AssetDefinitionId,
     quantity: u32,
 ) {
-    iroha_client.poll_request_with_period(
-        client::asset::by_account_id(account_id.clone()),
-        Configuration::block_sync_gossip_time(),
-        15,
-        |result| {
-            result.iter().any(|asset| {
-                asset.id.definition_id == *asset_definition_id
-                    && asset.value == AssetValue::Quantity(quantity)
-            })
-        },
-    );
+    iroha_client
+        .poll_request_with_period(
+            client::asset::by_account_id(account_id.clone()),
+            Configuration::block_sync_gossip_time(),
+            15,
+            |result| {
+                result.iter().any(|asset| {
+                    asset.id().definition_id == *asset_definition_id
+                        && *asset.value() == AssetValue::Quantity(quantity)
+                })
+            },
+        )
+        .expect("Test case failure");
 }
 
 fn mint(
@@ -97,17 +101,13 @@ fn init() -> Result<(
     let pipeline_time = Configuration::pipeline_time();
     thread::sleep(pipeline_time * 2);
     iroha_logger::info!("Started");
-    let create_domain = RegisterBox::new(IdentifiableBox::Domain(
-        Domain::new(DomainId::new("domain").expect("Valid")).into(),
-    ));
-    let account_id = AccountId::new("account", "domain").expect("Valid");
-    let create_account = RegisterBox::new(IdentifiableBox::NewAccount(
-        NewAccount::with_signatory(account_id.clone(), KeyPair::generate()?.public_key).into(),
-    ));
-    let asset_definition_id = AssetDefinitionId::new("xor", "domain").expect("Valid");
-    let create_asset = RegisterBox::new(IdentifiableBox::AssetDefinition(
-        AssetDefinition::new_quantity(asset_definition_id.clone()).into(),
-    ));
+    let create_domain = RegisterBox::new(Domain::new("domain".parse().expect("Valid")));
+    let account_id: AccountId = "account@domain".parse().expect("Valid");
+    let (public_key, _) = KeyPair::generate()?.into();
+    let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
+    let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     client.submit_all(vec![
         create_domain.into(),
         create_account.into(),

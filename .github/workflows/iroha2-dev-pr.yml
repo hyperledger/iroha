@@ -14,7 +14,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTC_BOOTSTRAP: 1
 
 jobs:
   test:
@@ -26,38 +25,58 @@ jobs:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
-        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2
+        run: mold --run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2
       - name: Run iroha tests with network mock
-        run: mold -run cargo test --quiet --features mock -- --ignored --skip unstable_network --test-threads 2
+        run: mold --run cargo test --quiet --features mock -- --ignored --skip unstable_network --test-threads 2
         working-directory: core/test_network
       - name: Run iroha_actor deadlock detection tests
-        run: mold -run cargo test --quiet --features deadlock_detection -- --skip unstable_network --test-threads 2
+        run: mold --run cargo test --quiet --features deadlock_detection -- --skip unstable_network --test-threads 2
         working-directory: actor
         if: always()
       - name: Verify wasm smartcontracts are able to build
-        run: mold -run cargo build --target wasm32-unknown-unknown --quiet
+        run: mold --run cargo build --target wasm32-unknown-unknown --quiet
         working-directory: wasm
         env:
           RUSTC_BOOTSTRAP: 1
+      - name: Documentation check
+        run: |
+          cargo doc --no-deps --quiet
+          ./scripts/check.sh docs
+        if: always()
+      - name: Check genesis
+        run: |
+           ./scripts/check.sh genesis
+        if: always()
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
-  # 2. Coverage bot can have results from `iroha2-dev` to report coverage changes.
+  # 2. Coverage bot can have results from
+  # `iroha2-dev` to report coverage changes.
   coverage:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
     steps:
+      # TODO Remove this step #2165
+      - name: Add component
+        run: rustup component add llvm-tools-preview
+
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
-        run: mold -run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2 || true
+        run: |
+          mold --run cargo +nightly-2022-04-20 test \
+          --quiet --workspace --no-fail-fast -- \
+          --skip unstable_network --skip ui --test-threads 3
         env:
-          RUSTFLAGS: "-Zinstrument-coverage"
+          RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
       - name: Generate a grcov coverage report
-        run: grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        run: |
+          grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+        if: always()
       - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v2
+        if: always()
         with:
           file: lcov.info

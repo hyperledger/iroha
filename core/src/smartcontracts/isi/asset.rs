@@ -11,6 +11,7 @@ use super::prelude::*;
 /// - update metadata
 /// - transfer, etc.
 pub mod isi {
+    use iroha_data_model::{asset::Mintable, MintabilityError};
     use iroha_logger::prelude::*;
 
     use super::*;
@@ -21,13 +22,15 @@ pub mod isi {
         wsv: &WorldStateView<W>,
         expected_value_type: AssetValueType,
     ) -> Result<AssetDefinition, Error> {
-        let definition = wsv.asset_definition_entry(definition_id)?.definition;
-        if definition.value_type == expected_value_type {
-            Ok(definition)
+        let asset_definition = wsv.asset_definition_entry(definition_id)?;
+        let definition = asset_definition.definition();
+
+        if *definition.value_type() == expected_value_type {
+            Ok(definition.clone())
         } else {
             Err(Error::Type(TypeError::Asset(AssetTypeError {
                 expected: expected_value_type,
-                got: definition.value_type,
+                got: *definition.value_type(),
             })))
         }
     }
@@ -39,10 +42,19 @@ pub mod isi {
         expected_value_type: AssetValueType,
     ) -> Result<(), Error> {
         let definition = assert_asset_type(definition_id, wsv, expected_value_type)?;
-        if !definition.mintable {
-            return Err(Error::Mintability(MintabilityError::MintUnmintableError));
+        match definition.mintable() {
+            Mintable::Infinitely => Ok(()),
+            Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
+            Mintable::Once => {
+                wsv.modify_asset_definition_entry(definition_id, |entry| {
+                    entry.forbid_minting()?;
+                    Ok(AssetDefinitionEvent::MintabilityChanged(
+                        definition_id.clone(),
+                    ))
+                })?;
+                Ok(())
+            }
         }
-        Ok(())
     }
 
     impl<W: WorldTrait> Execute<W> for Mint<Asset, u32> {
@@ -277,14 +289,14 @@ pub mod isi {
             let destination_asset_id = self.destination_id;
 
             if destination_asset_id.definition_id != source_asset_id.definition_id {
-                let expected = wsv
+                let expected = *wsv
                     .asset_definition_entry(&destination_asset_id.definition_id)?
-                    .definition
-                    .value_type;
-                let got = wsv
+                    .definition()
+                    .value_type();
+                let got = *wsv
                     .asset_definition_entry(&source_asset_id.definition_id)?
-                    .definition
-                    .value_type;
+                    .definition()
+                    .value_type();
                 return Err(Error::Type(TypeError::Asset(AssetTypeError {
                     expected,
                     got,
@@ -331,7 +343,7 @@ pub mod isi {
 
 /// Asset-related query implementations.
 pub mod query {
-    use eyre::{Result, WrapErr};
+    use eyre::{Result, WrapErr as _};
     use iroha_logger::prelude::*;
 
     use super::*;
@@ -343,8 +355,8 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts.values() {
-                    for asset in account.assets.values() {
+                for account in domain.accounts() {
+                    for asset in account.assets() {
                         vec.push(asset.clone())
                     }
                 }
@@ -359,8 +371,8 @@ pub mod query {
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for asset_definition_entry in domain.asset_definitions.values() {
-                    vec.push(asset_definition_entry.definition.clone())
+                for asset_definition_entry in domain.asset_definitions() {
+                    vec.push(asset_definition_entry.definition().clone())
                 }
             }
             Ok(vec)
@@ -398,9 +410,9 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts.values() {
-                    for asset in account.assets.values() {
-                        if asset.id.definition_id.name == name {
+                for account in domain.accounts() {
+                    for asset in account.assets() {
+                        if asset.id().definition_id.name == name {
                             vec.push(asset.clone())
                         }
                     }
@@ -434,9 +446,9 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
             for domain in wsv.domains().iter() {
-                for account in domain.accounts.values() {
-                    for asset in account.assets.values() {
-                        if asset.id.definition_id == id {
+                for account in domain.accounts() {
+                    for asset in account.assets() {
+                        if asset.id().definition_id == id {
                             vec.push(asset.clone())
                         }
                     }
@@ -456,8 +468,8 @@ pub mod query {
                 .wrap_err("Failed to get domain id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let mut vec = Vec::new();
-            for account in wsv.domain(&id)?.accounts.values() {
-                for asset in account.assets.values() {
+            for account in wsv.domain(&id)?.accounts() {
+                for asset in account.assets() {
                     vec.push(asset.clone())
                 }
             }
@@ -481,14 +493,13 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
             let domain = wsv.domain(&domain_id)?;
             let _definition = domain
-                .asset_definitions
-                .get(&asset_definition_id)
+                .asset_definition(&asset_definition_id)
                 .ok_or_else(|| FindError::AssetDefinition(asset_definition_id.clone()))?;
             let mut assets = Vec::new();
-            for account in domain.accounts.values() {
-                for asset in account.assets.values() {
-                    if asset.id.account_id.domain_id == domain_id
-                        && asset.id.definition_id == asset_definition_id
+            for account in domain.accounts() {
+                for asset in account.assets() {
+                    if asset.id().account_id.domain_id == domain_id
+                        && asset.id().definition_id == asset_definition_id
                     {
                         assets.push(asset.clone())
                     }
@@ -514,7 +525,7 @@ pub mod query {
                         Err(definition_err) => Error::Find(Box::new(definition_err)),
                     },
                 )?
-                .value
+                .value()
                 .try_as_ref()
                 .map_err(eyre::Error::from)
                 .map_err(|e| Error::Conversion(e.to_string()))
@@ -543,7 +554,7 @@ pub mod query {
                 }
             })?;
             let store: &Metadata = asset
-                .value
+                .value()
                 .try_as_ref()
                 .map_err(eyre::Error::from)
                 .map_err(|e| Error::Conversion(e.to_string()))?;

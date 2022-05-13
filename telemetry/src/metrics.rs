@@ -27,10 +27,14 @@ pub struct Status {
     pub peers: u64,
     /// Number of committed blocks
     pub blocks: u64,
-    /// Number of transactions committed in the last block
-    pub txs: u64,
+    /// Number of accepted transactions
+    pub txs_accepted: u64,
+    /// Number of rejected transactions
+    pub txs_rejected: u64,
     /// Uptime since genesis block creation
     pub uptime: Uptime,
+    /// Number of view changes in the current round
+    pub view_changes: u64,
 }
 
 impl<T: Deref<Target = Metrics>> From<&T> for Status {
@@ -39,8 +43,10 @@ impl<T: Deref<Target = Metrics>> From<&T> for Status {
         Self {
             peers: val.connected_peers.get(),
             blocks: val.block_height.get(),
-            txs: val.txs.with_label_values(&["total"]).get(),
+            txs_accepted: val.txs.with_label_values(&["accepted"]).get(),
+            txs_rejected: val.txs.with_label_values(&["rejected"]).get(),
             uptime: Uptime(Duration::from_millis(val.uptime_since_genesis_ms.get())),
+            view_changes: val.view_changes.get(),
         }
     }
 }
@@ -48,7 +54,7 @@ impl<T: Deref<Target = Metrics>> From<&T> for Status {
 /// A strict superset of [`Status`].
 #[derive(Debug)]
 pub struct Metrics {
-    /// Transactions in the last committed block
+    /// Total number of transactions
     pub txs: IntCounterVec,
     /// Current block height
     pub block_height: IntCounter,
@@ -66,6 +72,8 @@ pub struct Metrics {
     pub isi: IntCounterVec,
     /// Query handle time Histogram
     pub isi_times: HistogramVec,
+    /// Number of view changes in the current round
+    pub view_changes: GenericGauge<AtomicU64>,
     // Internal use only.
     registry: Registry,
 }
@@ -109,17 +117,22 @@ impl Default for Metrics {
             &["domain"],
         )
         .expect("Infallible");
+        let view_changes = GenericGauge::new(
+            "view_changes",
+            "Number of view changes in the current round",
+        )
+        .expect("Infallible");
         let registry = Registry::new();
 
         macro_rules! register {
-			($metric:expr)=> {
-				registry.register(Box::new($metric.clone())).expect("Infallible");
-			};
-			($metric:expr,$($metrics:expr),+)=>{
-				register!($metric);
-				register!($($metrics),+);
-			}
-		}
+            ($metric:expr)=> {
+                registry.register(Box::new($metric.clone())).expect("Infallible");
+            };
+            ($metric:expr,$($metrics:expr),+)=>{
+                register!($metric);
+                register!($($metrics),+);
+            }
+        }
 
         register!(
             txs,
@@ -130,7 +143,8 @@ impl Default for Metrics {
             domains,
             accounts,
             isi,
-            isi_times
+            isi_times,
+            view_changes
         );
 
         Self {
@@ -144,6 +158,7 @@ impl Default for Metrics {
             tx_amounts,
             isi,
             isi_times,
+            view_changes,
         }
     }
 }
