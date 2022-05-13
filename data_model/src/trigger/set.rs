@@ -8,39 +8,53 @@
 //! search trees (common lisp) or hash tables (racket) to quickly
 //! trigger hooks.
 
-#![allow(clippy::expect_used, clippy::unwrap_in_result)]
+#![allow(clippy::expect_used)]
 
-use std::{cmp::min, sync::Arc};
+use std::{cmp::min, result::Result, sync::Arc};
 
 use dashmap::DashMap;
-use iroha_data_model::{events::Filter as _, prelude::*, trigger};
 use tokio::{sync::RwLock, task};
 
-use crate::smartcontracts::{self, FindError, InstructionType, MathError};
+use super::Id;
+use crate::{events::Filter as _, prelude::*};
 
-type Result<T> = std::result::Result<T, smartcontracts::Error>;
+/// [`Set::mod_repeats()`] error
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ModRepeatsError {
+    /// Trigger not found error
+    #[error("Trigger with id = {0} not found")]
+    NotFound(Id),
+    /// Trigger repeats count overflow error
+    #[error("{0}")]
+    RepeatsOverflow(#[from] RepeatsOverflowError),
+}
+
+/// Trigger repeats count overflow error
+#[derive(Debug, Copy, Clone, thiserror::Error)]
+#[error("Trigger repeats count overflow")]
+pub struct RepeatsOverflowError;
 
 /// Specialized structure that maps event filters to Triggers.
 /// TODO: trigger strong-typing
 #[derive(Debug, Default)]
-pub struct TriggerSet {
+pub struct Set {
     /// Triggers using [`DataEventFilter`]
-    data_triggers: DashMap<trigger::Id, Action<DataEventFilter>>,
+    data_triggers: DashMap<Id, Action<DataEventFilter>>,
     /// Triggers using [`PipelineEventFilter`]
-    pipeline_triggers: DashMap<trigger::Id, Action<PipelineEventFilter>>,
+    pipeline_triggers: DashMap<Id, Action<PipelineEventFilter>>,
     /// Triggers using [`TimeEventFilter`]
-    time_triggers: DashMap<trigger::Id, Action<TimeEventFilter>>,
+    time_triggers: DashMap<Id, Action<TimeEventFilter>>,
     /// Triggers using [`ExecuteTriggerEventFilter`]
-    by_call_triggers: DashMap<trigger::Id, Action<ExecuteTriggerEventFilter>>,
+    by_call_triggers: DashMap<Id, Action<ExecuteTriggerEventFilter>>,
     /// Trigger ids with type of events they process
-    ids: DashMap<trigger::Id, EventType>,
+    ids: DashMap<Id, EventType>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
     /// Vector is used to save the exact triggers order.
     /// Not being cloned
-    matched_ids: RwLock<Vec<(EventType, trigger::Id)>>,
+    matched_ids: RwLock<Vec<(EventType, Id)>>,
 }
 
-impl Clone for TriggerSet {
+impl Clone for Set {
     fn clone(&self) -> Self {
         Self {
             data_triggers: self.data_triggers.clone(),
@@ -53,135 +67,126 @@ impl Clone for TriggerSet {
     }
 }
 
-impl TriggerSet {
+impl Set {
     /// Add trigger with [`DataEventFilter`]
     ///
-    /// # Errors
-    /// - If trigger with such id already exists
-    pub fn add_data_trigger(&self, trigger: Trigger<DataEventFilter>) -> Result<()> {
+    /// Returns `false` if trigger with such id already exists
+    pub fn add_data_trigger(&self, trigger: Trigger<DataEventFilter>) -> bool {
         self.add_to(trigger, EventType::Data, &self.data_triggers)
     }
 
     /// Add trigger with [`PipelineEventFilter`]
     ///
-    /// # Errors
-    /// - If trigger with such id already exists
-    pub fn add_pipeline_trigger(&self, trigger: Trigger<PipelineEventFilter>) -> Result<()> {
+    /// Returns `false` if trigger with such id already exists
+    pub fn add_pipeline_trigger(&self, trigger: Trigger<PipelineEventFilter>) -> bool {
         self.add_to(trigger, EventType::Pipeline, &self.pipeline_triggers)
     }
 
     /// Add trigger with [`TimeEventFilter`]
     ///
-    /// # Errors
-    /// - If trigger with such id already exists
-    pub fn add_time_trigger(&self, trigger: Trigger<TimeEventFilter>) -> Result<()> {
+    /// Returns `false` if trigger with such id already exists
+    pub fn add_time_trigger(&self, trigger: Trigger<TimeEventFilter>) -> bool {
         self.add_to(trigger, EventType::Time, &self.time_triggers)
     }
 
     /// Add trigger with [`ExecuteTriggerEventFilter`]
     ///
-    /// # Errors
-    /// - If trigger with such id already exists
-    pub fn add_by_call_trigger(&self, trigger: Trigger<ExecuteTriggerEventFilter>) -> Result<()> {
+    /// Returns `false` if trigger with such id already exists
+    pub fn add_by_call_trigger(&self, trigger: Trigger<ExecuteTriggerEventFilter>) -> bool {
         self.add_to(trigger, EventType::ExecuteTrigger, &self.by_call_triggers)
     }
 
     /// Add generic trigger to generic collection
     ///
-    /// # Errors
-    /// - If trigger with such id already exists
+    /// Returns `false` if trigger with such id already exists
     fn add_to<F: Filter>(
         &self,
         trigger: Trigger<F>,
         event_type: EventType,
-        map: &DashMap<trigger::Id, Action<F>>,
-    ) -> Result<()> {
+        map: &DashMap<Id, Action<F>>,
+    ) -> bool {
         if self.contains(&trigger.id) {
-            return Err(smartcontracts::Error::Repetition(
-                InstructionType::Register,
-                IdBox::TriggerId(trigger.id),
-            ));
+            return false;
         }
 
         map.insert(trigger.id.clone(), trigger.action);
         self.ids.insert(trigger.id, event_type);
-        Ok(())
+        true
     }
 
     /// Get all contained triggers ids without particular order
-    pub fn ids(&self) -> Vec<trigger::Id> {
+    pub fn ids(&self) -> Vec<Id> {
         self.ids.iter().map(|entry| entry.key().clone()).collect()
     }
 
     /// Apply `f` to the trigger identified by `id`
     ///
-    /// # Errors
-    /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
-    pub fn inspect<F, R>(&self, id: &trigger::Id, f: F) -> std::result::Result<R, FindError>
+    /// Returns [`None`] if [`Set`] doesn't contain the trigger with the given `id`.
+    pub fn inspect<F, R>(&self, id: &Id, f: F) -> Option<R>
     where
         F: Fn(&dyn ActionTrait) -> R,
     {
-        match self.ids.get(id) {
-            Some(event_type) => Ok(match event_type.value() {
+        self.ids.get(id).map(|event_type| match event_type.value() {
+            EventType::Data => self
+                .data_triggers
+                .get(id)
+                .map(|entry| f(entry.value()))
+                .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
+            EventType::Pipeline => self
+                .pipeline_triggers
+                .get(id)
+                .map(|entry| f(entry.value()))
+                .expect("`Set::pipeline_triggers` doesn't contain required id. This is a bug"),
+            EventType::Time => self
+                .time_triggers
+                .get(id)
+                .map(|entry| f(entry.value()))
+                .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
+            EventType::ExecuteTrigger => self
+                .by_call_triggers
+                .get(id)
+                .map(|entry| f(entry.value()))
+                .expect("`Set::by_call_triggers` doesn't contain required id. This is a bug"),
+        })
+    }
+
+    /// Remove a trigger from the [`Set`].
+    ///
+    /// Returns `false` if [`Set`] doesn't contain the trigger with the given `id`.
+    pub fn remove(&self, id: &Id) -> bool {
+        self.ids
+            .get(id)
+            .map(|entry| match entry.value() {
                 EventType::Data => self
                     .data_triggers
-                    .get(id)
-                    .map(|entry| f(entry.value()))
-                    .expect("`TriggerSet::data_triggers` doesn't contain required id. This is a bug"),
-                EventType::Pipeline => self
-                    .pipeline_triggers
-                    .get(id)
-                    .map(|entry| f(entry.value()))
-                    .expect("`TriggerSet::pipeline_triggers` doesn't contain required id. This is a bug"),
+                    .remove(id)
+                    .map(|_| ())
+                    .expect("`Set::data_triggers` doesn't contain required id. This is a bug"),
+                EventType::Pipeline => {
+                    self.pipeline_triggers.remove(id).map(|_| ()).expect(
+                        "`Set::pipeline_triggers` doesn't contain required id. This is a bug",
+                    )
+                }
                 EventType::Time => self
                     .time_triggers
-                    .get(id)
-                    .map(|entry| f(entry.value()))
-                    .expect("`TriggerSet::time_triggers` doesn't contain required id. This is a bug"),
-                EventType::ExecuteTrigger => self
-                    .by_call_triggers
-                    .get(id)
-                    .map(|entry| f(entry.value()))
-                    .expect("`TriggerSet::by_call_triggers` doesn't contain required id. This is a bug"),
-            }),
-            None => Err(FindError::Trigger(id.clone())),
-        }
+                    .remove(id)
+                    .map(|_| ())
+                    .expect("`Set::time_triggers` doesn't contain required id. This is a bug"),
+                EventType::ExecuteTrigger => {
+                    self.by_call_triggers.remove(id).map(|_| ()).expect(
+                        "`Set::by_call_triggers` doesn't contain required id. This is a bug",
+                    )
+                }
+            })
+            .is_some()
     }
 
-    /// Remove a trigger from the [`TriggerSet`].
-    ///
-    /// # Errors
-    /// - If [`TriggerSet`] doesn't contain the trigger with the given `id`.
-    pub fn remove(&self, id: &trigger::Id) -> Result<()> {
-        match self.ids.get(id) {
-            #[allow(clippy::unit_arg)]
-            Some(event_type) => Ok(match event_type.value() {
-                EventType::Data => self.data_triggers.remove(id).map(|_| ()).expect(
-                    "`TriggerSet::data_triggers` doesn't contain required id. This is a bug",
-                ),
-                EventType::Pipeline => self.pipeline_triggers.remove(id).map(|_| ()).expect(
-                    "`TriggerSet::pipeline_triggers` doesn't contain required id. This is a bug",
-                ),
-                EventType::Time => self.time_triggers.remove(id).map(|_| ()).expect(
-                    "`TriggerSet::time_triggers` doesn't contain required id. This is a bug",
-                ),
-                EventType::ExecuteTrigger => self.by_call_triggers.remove(id).map(|_| ()).expect(
-                    "`TriggerSet::by_call_triggers` doesn't contain required id. This is a bug",
-                ),
-            }),
-            None => Err(smartcontracts::Error::Repetition(
-                InstructionType::Unregister,
-                IdBox::TriggerId(id.clone()),
-            )),
-        }
-    }
-
-    /// Check if [`TriggerSet`] contains `id`.
-    pub fn contains(&self, id: &trigger::Id) -> bool {
+    /// Check if [`Set`] contains `id`.
+    pub fn contains(&self, id: &Id) -> bool {
         self.ids.contains_key(id)
     }
 
-    /// Modify repetitions of the hook identified by [`trigger::Id`].
+    /// Modify repetitions of the hook identified by [`Id`].
     ///
     /// # Errors
     /// - if trigger not found.
@@ -190,23 +195,30 @@ impl TriggerSet {
     /// exact time always cause an overflow.
     pub fn mod_repeats(
         &self,
-        id: &trigger::Id,
-        f: impl Fn(u32) -> std::result::Result<u32, MathError>,
-    ) -> Result<()> {
-        self.inspect(id, |action| match action.repeats() {
-            Repeats::Exactly(atomic) => {
-                let new_repeats = f(atomic.get()).map_err(smartcontracts::Error::from)?;
-                atomic.set(new_repeats);
-                Ok(())
-            }
-            _ => Err(smartcontracts::Error::Math(MathError::Overflow)),
-        })?
+        id: &Id,
+        f: impl Fn(u32) -> std::result::Result<u32, RepeatsOverflowError>,
+    ) -> Result<(), ModRepeatsError> {
+        let res = self
+            .inspect(id, |action| match action.repeats() {
+                Repeats::Exactly(atomic) => {
+                    let new_repeats = f(atomic.get())?;
+                    atomic.set(new_repeats);
+                    Ok(())
+                }
+                _ => Err(ModRepeatsError::RepeatsOverflow(RepeatsOverflowError)),
+            })
+            .ok_or_else(|| ModRepeatsError::NotFound(id.clone()));
+        // .flatten() -- unstable
+        match res {
+            Ok(r) => r,
+            Err(e) => Err(e),
+        }
     }
 
     /// Handle [`DataEvent`].
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
-    /// This actions will be inspected ln the next `TriggerSet::inspect_matched()` call
+    /// This actions will be inspected in the next `Set::inspect_matched()` call
     pub fn handle_data_event(&self, event: &DataEvent) {
         self.handle_event(&self.data_triggers, event, EventType::Data)
     }
@@ -214,7 +226,7 @@ impl TriggerSet {
     /// Handle [`PipelineEvent`].
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
-    /// This actions will be inspected ln the next `TriggerSet::inspect_matched()` call
+    /// This actions will be inspected in the next `Set::inspect_matched()` call
     pub fn handle_pipeline_event(&self, event: &PipelineEvent) {
         self.handle_event(&self.pipeline_triggers, event, EventType::Pipeline)
     }
@@ -222,7 +234,7 @@ impl TriggerSet {
     /// Handle [`TimeEvent`].
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
-    /// This actions will be inspected ln the next `TriggerSet::inspect_matched()` call
+    /// This actions will be inspected in the next `Set::inspect_matched()` call
     pub fn handle_time_event(&self, event: &TimeEvent) {
         for entry in &self.time_triggers {
             let action = entry.value();
@@ -248,7 +260,7 @@ impl TriggerSet {
     /// Handle [`ExecuteTriggerEvent`].
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
-    /// This actions will be inspected ln the next `TriggerSet::inspect_matched()` call
+    /// This actions will be inspected ln the next `Set::inspect_matched()` call
     pub fn handle_execute_trigger_event(&self, event: &ExecuteTriggerEvent) {
         self.handle_event(&self.by_call_triggers, event, EventType::ExecuteTrigger)
     }
@@ -256,7 +268,7 @@ impl TriggerSet {
     /// Handle generic event
     fn handle_event<F, E>(
         &self,
-        triggers: &DashMap<trigger::Id, Action<F>>,
+        triggers: &DashMap<Id, Action<F>>,
         event: &E,
         event_type: EventType,
     ) where
@@ -323,7 +335,7 @@ impl TriggerSet {
     ///
     /// Returns vector of successfully executed triggers
     /// and result with errors vector if there are some
-    async fn map_matched<F, E>(&self, f: F) -> (Vec<trigger::Id>, std::result::Result<(), Vec<E>>)
+    async fn map_matched<F, E>(&self, f: F) -> (Vec<Id>, std::result::Result<(), Vec<E>>)
     where
         F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send + Copy,
         E: Send + Sync,
@@ -333,7 +345,7 @@ impl TriggerSet {
 
         let succeed_clone = Arc::clone(&succeed);
         let errors_clone = Arc::clone(&errors);
-        let apply_f = move |id: trigger::Id, action: &dyn ActionTrait| {
+        let apply_f = move |id: Id, action: &dyn ActionTrait| {
             if let Repeats::Exactly(atomic) = action.repeats() {
                 if atomic.get() == 0 {
                     return;
@@ -405,8 +417,8 @@ impl TriggerSet {
     }
 
     /// Remove actions with zero execution count from `triggers`
-    fn remove_zeros<F: Filter>(&self, triggers: &DashMap<trigger::Id, Action<F>>) {
-        let to_remove: Vec<trigger::Id> = triggers
+    fn remove_zeros<F: Filter>(&self, triggers: &DashMap<Id, Action<F>>) {
+        let to_remove: Vec<Id> = triggers
             .iter()
             .filter_map(|entry| {
                 if let Repeats::Exactly(atomic) = &entry.value().repeats {
@@ -423,8 +435,8 @@ impl TriggerSet {
                 .remove(&id)
                 .and_then(|_| self.ids.remove(&id))
                 .expect(
-                "Removing existing keys from `TriggerSet` should be always possible. This is a bug",
-            );
+                    "Removing existing keys from `Set` should be always possible. This is a bug",
+                );
         }
     }
 }

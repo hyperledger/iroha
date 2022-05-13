@@ -10,7 +10,7 @@ use iroha_telemetry::metrics;
 /// - TODO: technical accounts.
 /// - TODO: technical account permissions.
 pub mod isi {
-    use iroha_data_model::trigger::Trigger;
+    use iroha_data_model::trigger::{self, prelude::*};
 
     use super::{super::prelude::*, *};
 
@@ -37,29 +37,36 @@ pub mod isi {
 
             wsv.modify_triggers(|triggers| {
                 let trigger_id = new_trigger.id.clone();
-                match &new_trigger.action.filter {
+                let success = match &new_trigger.action.filter {
                     FilterBox::Data(_) => triggers.add_data_trigger(
                         new_trigger
                             .try_into()
                             .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
-                    )?,
+                    ),
                     FilterBox::Pipeline(_) => triggers.add_pipeline_trigger(
                         new_trigger
                             .try_into()
                             .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
-                    )?,
+                    ),
                     FilterBox::Time(_) => triggers.add_time_trigger(
                         new_trigger
                             .try_into()
                             .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
-                    )?,
+                    ),
                     FilterBox::ExecuteTrigger(_) => triggers.add_by_call_trigger(
                         new_trigger
                             .try_into()
                             .map_err(|e: &str| Self::Error::Conversion(e.to_owned()))?,
-                    )?,
+                    ),
+                };
+                if success {
+                    Ok(TriggerEvent::Created(trigger_id))
+                } else {
+                    Err(Error::Repetition(
+                        InstructionType::Register,
+                        trigger_id.into(),
+                    ))
                 }
-                Ok(TriggerEvent::Created(trigger_id))
             })
         }
     }
@@ -73,10 +80,16 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView<W>,
         ) -> Result<(), Self::Error> {
-            let trigger = self.object_id.clone();
+            let trigger_id = self.object_id.clone();
             wsv.modify_triggers(|triggers| {
-                triggers.remove(&trigger)?;
-                Ok(TriggerEvent::Deleted(self.object_id))
+                if triggers.remove(&trigger_id) {
+                    Ok(TriggerEvent::Deleted(self.object_id))
+                } else {
+                    Err(Error::Repetition(
+                        InstructionType::Unregister,
+                        trigger_id.into(),
+                    ))
+                }
             })
         }
     }
@@ -93,16 +106,19 @@ pub mod isi {
             let id = self.destination_id;
 
             wsv.modify_triggers(|triggers| {
-                triggers.inspect(&id, |action| -> Result<(), Self::Error> {
-                    if action.mintable() {
-                        Ok(())
-                    } else {
-                        Err(MathError::Overflow.into())
-                    }
-                })??;
+                triggers
+                    .inspect(&id, |action| -> Result<(), Self::Error> {
+                        if action.mintable() {
+                            Ok(())
+                        } else {
+                            Err(MathError::Overflow.into())
+                        }
+                    })
+                    .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))??;
 
                 triggers.mod_repeats(&id, |n| {
-                    n.checked_add(self.object).ok_or(MathError::Overflow)
+                    n.checked_add(self.object)
+                        .ok_or(trigger::set::RepeatsOverflowError)
                 })?;
                 Ok(TriggerEvent::Extended(id))
             })
@@ -121,7 +137,8 @@ pub mod isi {
             let trigger = self.destination_id;
             wsv.modify_triggers(|triggers| {
                 triggers.mod_repeats(&trigger, |n| {
-                    n.checked_sub(self.object).ok_or(MathError::Overflow)
+                    n.checked_sub(self.object)
+                        .ok_or(trigger::set::RepeatsOverflowError)
                 })?;
                 // TODO: Is it okay to remove triggers with 0 repeats count from `TriggerSet` only
                 // when they will match some of the events?
@@ -174,7 +191,8 @@ pub mod query {
             let action = wsv
                 .world
                 .triggers
-                .inspect(&id, |action| action.clone_and_box())?;
+                .inspect(&id, |action| action.clone_and_box())
+                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))?;
 
             // TODO: Should we redact the metadata if the account is not the technical account/owner?
             Ok(Trigger::<FilterBox>::new(id, action))
@@ -192,15 +210,17 @@ pub mod query {
                 .key
                 .evaluate(wsv, &Context::new())
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {}", e)))?;
-
             iroha_logger::trace!(%id, %key);
-            wsv.world.triggers.inspect(&id, |action| {
-                action
-                    .metadata()
-                    .get(&key)
-                    .map(Clone::clone)
-                    .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
-            })?
+            wsv.world
+                .triggers
+                .inspect(&id, |action| {
+                    action
+                        .metadata()
+                        .get(&key)
+                        .map(Clone::clone)
+                        .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
+                })
+                .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id))))?
         }
     }
 }
