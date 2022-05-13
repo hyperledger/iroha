@@ -226,6 +226,9 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                     Err(format!("Cannot access a different domain: {}.", domain_id))
                 }
             }
+            FindAllTransactions(_) => Err(
+                "Only access to the asset definitions of the same domain is permitted.".to_owned(),
+            ),
             FindTransactionsByAccountId(query) => {
                 let account_id = query
                     .account_id
@@ -438,7 +441,9 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                     ))
                 }
             }
-
+            FindAllTransactions(_) => {
+                Err("Only access to transactions of the same account is permitted.".to_owned())
+            },
             FindTransactionsByAccountId(query) => {
                 let account_id = query
                     .account_id

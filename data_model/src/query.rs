@@ -78,6 +78,8 @@ pub enum QueryBox {
     FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
     /// [`FindAllPeers`] variant.
     FindAllPeers(FindAllPeers),
+    /// [`FindAllTransactions`] variant.
+    FindAllTransactions(FindAllTransactions),
     /// [`FindTransactionsByAccountId`] variant.
     FindTransactionsByAccountId(FindTransactionsByAccountId),
     /// [`FindTransactionByHash`] variant.
@@ -1249,6 +1251,34 @@ pub mod transaction {
         account::prelude::AccountId, expression::EvaluatesTo, transaction::TransactionValue,
     };
 
+    /// `FindAllTransactions` Iroha Query will list all transactions included in blockchain
+    #[derive(
+        Default,
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindAllTransactions {}
+
+    impl Query for FindAllTransactions {
+        type Output = Vec<TransactionValue>;
+    }
+
+    impl FindAllTransactions {
+        /// Construct [`FindAllTransactions`].
+        pub fn new() -> Self {
+            Self {}
+        }
+    }
+
     /// `FindTransactionsByAccountId` Iroha Query will find all transaction included in blockchain
     /// for the account
     #[derive(
@@ -1315,7 +1345,7 @@ pub mod transaction {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindTransactionByHash, FindTransactionsByAccountId};
+        pub use super::{FindAllTransactions, FindTransactionByHash, FindTransactionsByAccountId};
     }
 }
 

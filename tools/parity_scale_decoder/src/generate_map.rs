@@ -149,6 +149,7 @@ pub fn generate_map() -> DumpDecodedMap {
         FindAllPeers,
         FindAllRoles,
         FindAllRoleIds,
+        FindAllTransactions,
         FindAllActiveTriggerIds,
         FindAssetById,
         FindAssetDefinitionKeyValueByIdAndKey,

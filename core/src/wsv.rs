@@ -684,6 +684,33 @@ impl<W: WorldTrait> WorldStateView<W> {
         self.new_block_notifier.subscribe()
     }
 
+    pub fn transaction_values(&self) -> Vec<TransactionValue> {
+        let mut txs = self
+            .blocks()
+            .flat_map(|block| {
+                let block = block.as_v1();
+                block
+                    .rejected_transactions
+                    .iter()
+                    .cloned()
+                    .map(Box::new)
+                    .map(TransactionValue::RejectedTransaction)
+                    .chain(
+                        block
+                            .transactions
+                            .iter()
+                            .cloned()
+                            .map(VersionedTransaction::from)
+                            .map(Box::new)
+                            .map(TransactionValue::Transaction),
+                    )
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        txs.sort();
+        txs
+    }
+
     /// Find a [`VersionedTransaction`] by hash.
     pub fn transaction_value_by_hash(
         &self,
