@@ -1,13 +1,18 @@
-use iroha_ffi::{ffi_bindgen, FfiResult, Pair};
 use std::{collections::BTreeMap, mem::MaybeUninit};
+
+use getset::Getters;
+use iroha_ffi::{ffi_bindgen, FfiResult, Pair};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub struct Name(&'static str);
 pub struct Value(&'static str);
 
 #[ffi_bindgen]
+#[derive(Getters)]
+#[getset(get = "pub")]
 pub struct FfiStruct {
     name: Name,
+    #[getset(skip)]
     params: BTreeMap<Name, Value>,
 }
 

@@ -6,20 +6,6 @@ The library crate that is used for writing Iroha-compliant smart contracts in Ru
 
 Check the [WASM section of our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/advanced/wasm.html) for a detailed guide.
 
-## How to build smart contract?
-
-When building smart contract it has to import both `memory` and `table`. This can most
-easily be done by defining the build script `build.rs` in the root of the package:
-
-```rs
-fn main() {
-    println!("cargo:rustc-link-arg=--import-memory");
-    println!("cargo:rustc-link-arg=--import-table");
-}
-```
-
-Alternatively, you can also define linker arguments in the cargo configuration `.cargo/config.toml`
-
 ## Reducing the size of WASM
 
 Since smart contracts are stored directly on the blockchain, you would want to reduce their size.

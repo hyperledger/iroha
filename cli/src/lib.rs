@@ -178,7 +178,7 @@ where
             config.sumeragi.trusted_peers.peers.clone(),
         );
         let wsv = Arc::new(
-            WorldStateView::from_configuration(config.wsv.clone(), world)
+            WorldStateView::from_configuration(config.wsv, world)
                 .with_events(events_sender.clone()),
         );
 

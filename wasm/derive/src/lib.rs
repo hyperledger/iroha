@@ -29,8 +29,9 @@ pub fn iroha_wasm(_: TokenStream, item: TokenStream) -> TokenStream {
     );
 
     quote! {
+        /// Smart contract entry point
         #[no_mangle]
-        unsafe extern "C" fn _iroha_wasm_main(ptr: *const u8, len: usize) {
+        pub unsafe extern "C" fn _iroha_wasm_main(ptr: *const u8, len: usize) {
             #fn_name(iroha_wasm::_decode_from_raw::<<Account as Identifiable>::Id>(ptr, len))
         }
 

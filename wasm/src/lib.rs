@@ -11,11 +11,11 @@ compile_error!("Target architectures other then 32-bit are not supported");
 #[cfg(all(not(test), not(all(target_arch = "wasm32", target_os = "unknown"))))]
 compile_error!("Targets other then wasm32-unknown-unknown are not supported");
 
-extern crate alloc as core_alloc;
+extern crate alloc;
 
+use alloc::{boxed::Box, format, vec::Vec};
 use core::ops::RangeFrom;
 
-use core_alloc::{boxed::Box, format};
 use data_model::prelude::*;
 #[cfg(feature = "debug")]
 pub use debug::*;
@@ -23,10 +23,11 @@ pub use iroha_data_model as data_model;
 pub use iroha_wasm_derive::iroha_wasm;
 use parity_scale_codec::{Decode, Encode};
 
-#[cfg(not(test))]
-mod alloc;
 #[cfg(feature = "debug")]
 mod debug;
+
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[no_mangle]
 #[cfg(not(test))]
@@ -43,6 +44,11 @@ fn panic(_info: &::core::panic::PanicInfo) -> ! {
 #[alloc_error_handler]
 fn oom(layout: ::core::alloc::Layout) -> ! {
     panic!("Allocation({} bytes) failed", layout.size())
+}
+
+#[no_mangle]
+extern "C" fn _iroha_wasm_alloc(len: usize) -> *const u8 {
+    core::mem::ManuallyDrop::new(Vec::<u8>::with_capacity(len)).as_mut_ptr()
 }
 
 pub trait Execute {
@@ -201,9 +207,9 @@ mod tests {
     #![allow(clippy::restriction)]
     #![allow(clippy::pedantic)]
 
+    use alloc::vec::Vec;
     use core::{mem::ManuallyDrop, slice};
 
-    use core_alloc::vec::Vec;
     use webassembly_test::webassembly_test;
 
     use super::*;
