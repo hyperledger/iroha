@@ -63,8 +63,8 @@ impl FromStr for Configuration {
 #[structopt(name = "iroha_client_cli", version, author)]
 pub struct Args {
     /// Sets a config file path
-    #[structopt(short, long, default_value = "config.json")]
-    config: Configuration,
+    #[structopt(short, long)]
+    config: Option<Configuration>,
     /// Subcommands of client cli
     #[structopt(subcommand)]
     subcommand: Subcommand,
@@ -120,9 +120,15 @@ const RETRY_IN_MST: Duration = Duration::from_millis(100);
 fn main() -> Result<()> {
     color_eyre::install()?;
     let Args {
-        config: Configuration(config),
+        config: config_opt,
         subcommand,
     } = clap::Parser::parse();
+    let config = if let Some(config) = config_opt {
+        config
+    } else {
+        Configuration::from_str("config.json")?
+    };
+    let Configuration(config) = config;
     println!(
         "User: {}@{}",
         config.account_id.name, config.account_id.domain_id
