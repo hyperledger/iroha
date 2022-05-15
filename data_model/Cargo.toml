@@ -21,7 +21,7 @@ default = ["std"]
 # Enable static linkage of the rust standard library.
 # Disabled for WASM interoperability, to reduce the binary size.
 # Please refer to https://docs.rust-embedded.org/book/intro/no-std.html
-std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_data_primitives/std", "thiserror"]
+std = ["iroha_macro/std", "iroha_version/std", "iroha_version/warp", "iroha_crypto/std", "iroha_data_primitives/std", "thiserror", "strum/std"]
 
 # Internal use only
 mutable_api = []
@@ -40,6 +40,7 @@ serde_json = { version = "1.0.59", default-features = false }
 warp = { version = "0.3", default-features = false, optional = true }
 thiserror = { version = "1.0.28", optional = true }
 getset = "0.1.2"
+strum = { version = "0.24.0", default-features = false, features = ["derive"] }
 
 [dev-dependencies]
 iroha_core = { path = "../core", version = "=2.0.0-pre-rc.4" }
