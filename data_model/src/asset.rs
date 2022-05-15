@@ -16,6 +16,7 @@ use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use strum::EnumString;
 
 use self::definition_builder::NewAssetDefinition;
 use crate::{
@@ -175,6 +176,7 @@ pub struct Asset {
     Deserialize,
     Serialize,
     IntoSchema,
+    EnumString,
 )]
 pub enum AssetValueType {
     /// Asset's Quantity.
@@ -186,31 +188,6 @@ pub enum AssetValueType {
     /// Asset's key-value structured data.
     Store,
 }
-
-/// A declarative macro that implements `FromStr` for a given
-/// C like enumeration. The macro is invoked like follows:
-/// `easy_from_str_impl! { NameOfEnum, EnumVariation1, EnumVariation2, ... }`
-macro_rules! easy_from_str_impl {
-    (eval_to $cmp:expr, $enum_type:ty, $enum_value:tt) => {
-        if $cmp == stringify!($enum_value) {
-            return Ok(<$enum_type>::$enum_value);
-        }
-    };
-    ($enum_type:ty, $( $enum_value:tt ),+ ) => {
-        impl FromStr for $enum_type {
-            type Err = &'static str;
-
-            fn from_str(value_type: &str) -> Result<Self, Self::Err> {
-                $(
-                    easy_from_str_impl!{eval_to value_type, $enum_type, $enum_value}
-                )+
-                return Err(concat!("Unknown variant for type ", stringify!($enum_type)));
-            }
-        }
-    };
-}
-
-easy_from_str_impl! {AssetValueType, Quantity, BigQuantity, Fixed, Store}
 
 /// Asset's inner value.
 #[derive(
