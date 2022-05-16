@@ -1,11 +1,15 @@
 //! This module contains data events
 
+use iroha_data_primitives::small::SmallVec;
+
 use super::*;
 
 /// Trait for retrieving id from events
 pub trait IdTrait {
+    /// Type of id
     type Id;
 
+    /// Get object id
     fn id(&self) -> &Self::Id;
 }
 
@@ -257,6 +261,41 @@ pub enum Event {
     Role(role::RoleEvent),
 }
 
+impl From<WorldEvent> for SmallVec<[Event; 3]> {
+    fn from(world_event: WorldEvent) -> Self {
+        let mut events = SmallVec::new();
+
+        match world_event {
+            WorldEvent::Domain(domain_event) => {
+                match &domain_event {
+                    DomainEvent::Account(account_event) => {
+                        if let AccountEvent::Asset(asset_event) = account_event {
+                            events.push(DataEvent::Asset(asset_event.clone()));
+                        }
+                        events.push(DataEvent::Account(account_event.clone()));
+                    }
+                    DomainEvent::AssetDefinition(asset_definition_event) => {
+                        events.push(DataEvent::AssetDefinition(asset_definition_event.clone()));
+                    }
+                    _ => (),
+                }
+                events.push(DataEvent::Domain(domain_event));
+            }
+            WorldEvent::Peer(peer_event) => {
+                events.push(DataEvent::Peer(peer_event));
+            }
+            WorldEvent::Role(role_event) => {
+                events.push(DataEvent::Role(role_event));
+            }
+            WorldEvent::Trigger(trigger_event) => {
+                events.push(DataEvent::Trigger(trigger_event));
+            }
+        }
+
+        events
+    }
+}
+
 pub mod prelude {
     pub use super::{
         account::AccountEvent,
@@ -265,6 +304,6 @@ pub mod prelude {
         peer::PeerEvent,
         role::RoleEvent,
         trigger::TriggerEvent,
-        Event as DataEvent, WorldEvent,
+        Event as DataEvent, IdTrait as DataEventsIdTrait, WorldEvent,
     };
 }

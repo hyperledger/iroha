@@ -44,9 +44,15 @@ impl Event {
 )]
 pub struct EventFilter(pub ExecutionTime);
 
-impl EventFilter {
-    /// Compute how much times trigger with `self` as filter should be executed on `event`
-    pub fn count_matches(&self, event: &Event) -> u32 {
+impl Filter for EventFilter {
+    type EventType = Event;
+
+    /// Isn't useful for time-triggers
+    fn matches(&self, event: &Event) -> bool {
+        self.count_matches(event) > 0
+    }
+
+    fn count_matches(&self, event: &Event) -> u32 {
         match &self.0 {
             ExecutionTime::PreCommit => 1,
             ExecutionTime::Schedule(schedule) => {
@@ -56,57 +62,61 @@ impl EventFilter {
                     Interval::new(prev_estimation, estimation.saturating_sub(prev_estimation))
                 });
 
-                Self::count_matches_in_interval(schedule, &current_interval)
+                count_matches_in_interval(schedule, &current_interval)
             }
         }
     }
 
-    /// Count something with the `schedule` within the `interval`
-    #[allow(clippy::expect_used)]
-    fn count_matches_in_interval(schedule: &Schedule, interval: &Interval) -> u32 {
-        schedule.period.map_or_else(
-            || u32::from(Range::from(*interval).contains(&schedule.start)),
-            |period| {
-                #[allow(clippy::integer_division)]
-                let k =
-                    interval.since.saturating_sub(schedule.start).as_millis() / period.as_millis();
-                let start = schedule.start + Self::multiply_duration_by_u128(period, k);
-                let range = Range::from(*interval);
-                (0..)
-                    .map(|i| start + period * i)
-                    .skip_while(|time| *time < interval.since)
-                    .take_while(|time| range.contains(time))
-                    .count()
-                    .try_into()
-                    .expect(
-                        "Overflow. The schedule is too frequent relative to the interval length",
-                    )
-            },
+    fn mintable(&self) -> bool {
+        !matches!(
+            self.0,
+            ExecutionTime::Schedule(Schedule { period: None, .. })
         )
     }
+}
 
-    /// Multiply `duration` by `n`
-    ///
-    /// Usage of this function allows to operate with much longer time *intervals*
-    /// with much less *periods* than just `impl Mul<u32> for Duration` does
-    ///
-    /// # Panics
-    /// Panics if resulting number in seconds can't be represented as `u64`
-    #[allow(clippy::expect_used, clippy::integer_division)]
-    fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
-        if let Ok(n) = u32::try_from(n) {
-            return duration * n;
-        }
+/// Count something with the `schedule` within the `interval`
+#[allow(clippy::expect_used)]
+fn count_matches_in_interval(schedule: &Schedule, interval: &Interval) -> u32 {
+    schedule.period.map_or_else(
+        || u32::from(Range::from(*interval).contains(&schedule.start)),
+        |period| {
+            #[allow(clippy::integer_division)]
+            let k = interval.since.saturating_sub(schedule.start).as_millis() / period.as_millis();
+            let start = schedule.start + multiply_duration_by_u128(period, k);
+            let range = Range::from(*interval);
+            (0..)
+                .map(|i| start + period * i)
+                .skip_while(|time| *time < interval.since)
+                .take_while(|time| range.contains(time))
+                .count()
+                .try_into()
+                .expect("Overflow. The schedule is too frequent relative to the interval length")
+        },
+    )
+}
 
-        let new_ms = duration.as_millis() * n;
-        if let Ok(ms) = u64::try_from(new_ms) {
-            return Duration::from_millis(ms);
-        }
-
-        let new_secs = u64::try_from(new_ms / 1000)
-            .expect("Overflow. Resulting number in seconds can't be represented as `u64`");
-        Duration::from_secs(new_secs)
+/// Multiply `duration` by `n`
+///
+/// Usage of this function allows to operate with much longer time *intervals*
+/// with much less *periods* than just `impl Mul<u32> for Duration` does
+///
+/// # Panics
+/// Panics if resulting number in seconds can't be represented as `u64`
+#[allow(clippy::expect_used, clippy::integer_division)]
+fn multiply_duration_by_u128(duration: Duration, n: u128) -> Duration {
+    if let Ok(n) = u32::try_from(n) {
+        return duration * n;
     }
+
+    let new_ms = duration.as_millis() * n;
+    if let Ok(ms) = u64::try_from(new_ms) {
+        return Duration::from_millis(ms);
+    }
+
+    let new_secs = u64::try_from(new_ms / 1000)
+        .expect("Overflow. Resulting number in seconds can't be represented as `u64`");
+    Duration::from_secs(new_secs)
 }
 
 /// Trigger execution time
@@ -225,7 +235,7 @@ pub mod prelude {
 mod tests {
     use super::*;
 
-    /// Tests for `EventFilter::count_matches_in_interval()`
+    /// Tests for `count_matches_in_interval()`
     mod count_matches_in_interval {
         use super::*;
 
@@ -239,10 +249,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 5));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                0
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }
 
         #[test]
@@ -253,10 +260,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                1
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
         }
 
         #[test]
@@ -266,10 +270,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 5));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                1
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
         }
 
         #[test]
@@ -280,10 +281,7 @@ mod tests {
 
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 10));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                0
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }
 
         #[test]
@@ -294,10 +292,7 @@ mod tests {
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP + 5))
                 .with_period(Duration::from_secs(30));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(10));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                1
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
         }
 
         #[test]
@@ -309,10 +304,7 @@ mod tests {
                 .with_period(Duration::from_secs(10));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP + 35), Duration::from_secs(4));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                0
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }
 
         #[test]
@@ -324,10 +316,7 @@ mod tests {
                 .with_period(Duration::from_secs(6));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(4));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                0
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }
 
         #[test]
@@ -339,10 +328,7 @@ mod tests {
                 .with_period(Duration::from_secs(6));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(30));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                4
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 4);
         }
 
         #[test]
@@ -356,10 +342,7 @@ mod tests {
                 Duration::from_secs(TIMESTAMP + 3) + Duration::from_millis(500),
                 Duration::from_secs(2),
             );
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                4
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 4);
         }
 
         #[test]
@@ -371,10 +354,7 @@ mod tests {
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 10))
                 .with_period(Duration::from_secs(10));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                1
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
         }
 
         #[test]
@@ -387,10 +367,7 @@ mod tests {
                 .with_period(Duration::from_secs(5));
             let interval =
                 Interval::new(Duration::from_secs(TIMESTAMP - 10), Duration::from_secs(15));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                1
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 1);
         }
 
         #[test]
@@ -402,10 +379,7 @@ mod tests {
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP - 10))
                 .with_period(Duration::from_secs(15));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(5));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                0
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 0);
         }
 
         #[test]
@@ -417,10 +391,7 @@ mod tests {
             let schedule = Schedule::starting_at(Duration::from_secs(TIMESTAMP))
                 .with_period(Duration::from_secs(1));
             let interval = Interval::new(Duration::from_secs(TIMESTAMP), Duration::from_secs(7));
-            assert_eq!(
-                EventFilter::count_matches_in_interval(&schedule, &interval),
-                7
-            );
+            assert_eq!(count_matches_in_interval(&schedule, &interval), 7);
         }
     }
 }

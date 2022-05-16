@@ -46,6 +46,8 @@ pub enum QueryBox {
     FindAccountsByName(FindAccountsByName),
     /// [`FindAccountsByDomainId`] variant.
     FindAccountsByDomainId(FindAccountsByDomainId),
+    /// [`FindAccountsWithAsset`] variant.
+    FindAccountsWithAsset(FindAccountsWithAsset),
     /// [`FindAllAssets`] variant.
     FindAllAssets(FindAllAssets),
     /// [`FindAllAssetsDefinitions`] variant.
@@ -478,6 +480,30 @@ pub mod account {
         type Output = Vec<Account>;
     }
 
+    /// `FindAccountsWithAsset` Iroha Query will get `AssetDefinition`s id as input and
+    /// find all `Account`s storing `Asset` with such definition.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindAccountsWithAsset {
+        /// `Id` of the definition of the asset which should be stored in founded accounts.
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
+    }
+
+    impl Query for FindAccountsWithAsset {
+        type Output = Vec<Account>;
+    }
+
     impl FindAllAccounts {
         /// Construct [`FindAllAccounts`].
         pub const fn new() -> Self {
@@ -521,11 +547,21 @@ pub mod account {
         }
     }
 
+    impl FindAccountsWithAsset {
+        /// Construct [`FindAccountsWithAsset`].
+        pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+            let asset_definition_id = asset_definition_id.into();
+            FindAccountsWithAsset {
+                asset_definition_id,
+            }
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
             FindAccountById, FindAccountKeyValueByIdAndKey, FindAccountsByDomainId,
-            FindAccountsByName, FindAllAccounts,
+            FindAccountsByName, FindAccountsWithAsset, FindAllAccounts,
         };
     }
 }
@@ -1114,7 +1150,9 @@ pub mod trigger {
     use serde::{Deserialize, Serialize};
 
     use super::Query;
-    use crate::{expression::EvaluatesTo, trigger::Trigger, Identifiable, Name, Value};
+    use crate::{
+        events::FilterBox, expression::EvaluatesTo, trigger::Trigger, Identifiable, Name, Value,
+    };
 
     /// Find all currently active (as in not disabled and/or expired)
     /// trigger IDs.
@@ -1136,7 +1174,7 @@ pub mod trigger {
     pub struct FindAllActiveTriggerIds;
 
     impl Query for FindAllActiveTriggerIds {
-        type Output = Vec<<Trigger as Identifiable>::Id>;
+        type Output = Vec<<Trigger<FilterBox> as Identifiable>::Id>;
     }
 
     /// Find Trigger given its ID.
@@ -1155,11 +1193,11 @@ pub mod trigger {
     )]
     pub struct FindTriggerById {
         /// The Identification of the trigger to be found.
-        pub id: EvaluatesTo<<Trigger as Identifiable>::Id>,
+        pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
     }
 
     impl Query for FindTriggerById {
-        type Output = Trigger;
+        type Output = Trigger<FilterBox>;
     }
 
     #[derive(
@@ -1178,7 +1216,7 @@ pub mod trigger {
     /// Find Trigger's metadata key-value pairs.
     pub struct FindTriggerKeyValueByIdAndKey {
         /// The Identification of the trigger to be found.
-        pub id: EvaluatesTo<<Trigger as Identifiable>::Id>,
+        pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
         /// The key inside the metadata dictionary to be returned.
         pub key: EvaluatesTo<Name>,
     }

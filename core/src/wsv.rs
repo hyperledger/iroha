@@ -4,9 +4,8 @@
 use std::{
     convert::Infallible,
     fmt::Debug,
-    iter::once,
     ops::{Deref, DerefMut},
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Duration,
 };
 
@@ -92,8 +91,6 @@ pub struct WorldStateView<W: WorldTrait> {
     pub metrics: Arc<Metrics>,
     /// Notifies subscribers when new block is applied
     new_block_notifier: Arc<NewBlockNotificationSender>,
-    /// Events produced in the current block
-    events: RwLock<Vec<Event>>,
     /// Transmitter to broadcast [`WorldStateView`]-related events.
     events_sender: Option<EventsSender>,
 }
@@ -115,12 +112,6 @@ impl<W: WorldTrait + Clone> Clone for WorldStateView<W> {
             transactions: self.transactions.clone(),
             metrics: Arc::clone(&self.metrics),
             new_block_notifier: Arc::clone(&self.new_block_notifier),
-            events: RwLock::new(
-                self.events
-                    .read()
-                    .expect("Failed to lock events while cloning")
-                    .clone(),
-            ),
             events_sender: self.events_sender.clone(),
         }
     }
@@ -226,25 +217,27 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[log(skip(self, block))]
     #[allow(clippy::expect_used)]
     pub async fn apply(&self, block: VersionedCommittedBlock) -> Result<()> {
-        let time_event = Event::Time(self.create_time_event(block.as_v1())?);
-        self.produce_events(once(time_event.clone()));
+        let time_event = self.create_time_event(block.as_v1())?;
+        self.produce_event(Event::Time(time_event));
 
         self.execute_transactions(block.as_v1()).await?;
 
-        let events: Vec<Event> = self
-            .events
-            .write()
-            .expect("Failed to lock events while applying block")
-            .drain(..)
-            .collect();
+        self.world.triggers.handle_time_event(&time_event);
 
-        let triggers = self.world.triggers.find_matching(
-            events
-                .iter()
-                .chain(&block.as_v1().event_recommendations)
-                .chain(once(&time_event)),
-        );
-        self.execute_triggers(triggers).await?;
+        let res = self
+            .world
+            .triggers
+            .inspect_matched(|action| -> Result<()> {
+                self.process_executable(action.executable(), action.technical_account())
+            })
+            .await;
+
+        if let Err(errors) = res {
+            warn!(
+                ?errors,
+                "The following errors have occurred during trigger execution"
+            );
+        }
 
         self.blocks.push(block);
         self.block_commit_metrics_update_callback();
@@ -299,24 +292,6 @@ impl<W: WorldTrait> WorldStateView<W> {
         Ok(())
     }
 
-    /// Execute `triggers` and apply them to `self`
-    ///
-    /// # Errors
-    /// Fails if trigger execution fails
-    async fn execute_triggers<T, I>(&self, triggers: T) -> Result<()>
-    where
-        T: IntoIterator<Item = Action, IntoIter = I> + Send,
-        I: Iterator<Item = Action> + Send,
-    {
-        // TODO: Validate the trigger executables as well as the technical account.
-        for trigger in triggers {
-            self.process_executable(&trigger.executable, &trigger.technical_account)?;
-            task::yield_now().await;
-        }
-
-        Ok(())
-    }
-
     /// Get `Asset` by its id
     ///
     /// # Errors
@@ -332,19 +307,14 @@ impl<W: WorldTrait> WorldStateView<W> {
     }
 
     /// Send [`Event`]s to known subscribers.
-    fn produce_events<E>(&self, events: E)
-    where
-        E: IntoIterator<Item = Event>,
-    {
+    fn produce_event(&self, event: impl Into<Event>) {
         let events_sender = if let Some(sender) = &self.events_sender {
             sender
         } else {
             return warn!("wsv does not equip an events sender");
         };
 
-        for event in events {
-            drop(events_sender.send(event))
-        }
+        drop(events_sender.send(event.into()))
     }
 
     /// Tries to get asset or inserts new with `default_asset_value`.
@@ -447,36 +417,14 @@ impl<W: WorldTrait> WorldStateView<W> {
         &self,
         f: impl FnOnce(&World) -> Result<WorldEvent, Error>,
     ) -> Result<(), Error> {
-        let mut cur_events: SmallVec<[Event; 3]> = SmallVec::new();
-        let event = f(&self.world)?;
+        let world_event = f(&self.world)?;
+        let data_events: SmallVec<[DataEvent; 3]> = world_event.into();
 
-        match event {
-            WorldEvent::Domain(domain_event) => {
-                match &domain_event {
-                    DomainEvent::Account(account_event) => {
-                        if let AccountEvent::Asset(asset_event) = account_event {
-                            cur_events.push(DataEvent::Asset(asset_event.clone()).into())
-                        }
-                        cur_events.push(DataEvent::Account(account_event.clone()).into());
-                    }
-                    DomainEvent::AssetDefinition(asset_definition_event) => cur_events
-                        .push(DataEvent::AssetDefinition(asset_definition_event.clone()).into()),
-                    _ => (),
-                }
-                cur_events.push(DataEvent::Domain(domain_event).into());
-            }
-            WorldEvent::Peer(peer_event) => cur_events.push(DataEvent::Peer(peer_event).into()),
-            WorldEvent::Role(role_event) => cur_events.push(DataEvent::Role(role_event).into()),
-            WorldEvent::Trigger(trigger_event) => {
-                cur_events.push(DataEvent::Trigger(trigger_event).into())
-            }
+        for event in data_events {
+            self.world.triggers.handle_data_event(&event);
+            self.produce_event(event);
         }
 
-        self.produce_events(cur_events.iter().cloned());
-        self.events
-            .write()
-            .expect("Failed to lock events while modifying world")
-            .extend(cur_events);
         Ok(())
     }
 
@@ -583,7 +531,6 @@ impl<W: WorldTrait> WorldStateView<W> {
             blocks: Arc::new(Chain::new()),
             metrics: Arc::new(Metrics::default()),
             new_block_notifier: Arc::new(new_block_notifier),
-            events: RwLock::new(Vec::new()),
             events_sender: None,
         }
     }
@@ -839,12 +786,9 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// (Rare) Panics if can't lock `self.events` for writing
     #[allow(clippy::expect_used)]
     pub fn execute_trigger(&self, trigger_id: TriggerId, authority: AccountId) {
-        let event: Event = ExecuteTriggerEvent::new(trigger_id, authority).into();
-        self.events
-            .write()
-            .expect("Failed to lock events while executing trigger")
-            .push(event.clone());
-        self.produce_events(once(event));
+        let event = ExecuteTriggerEvent::new(trigger_id, authority);
+        self.world.triggers.handle_execute_trigger_event(&event);
+        self.produce_event(event);
     }
 }
 

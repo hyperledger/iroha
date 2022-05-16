@@ -77,7 +77,17 @@ cargo run --bin kagami -- crypto --json
 
 For the Iroha peer binary to run, a configuration file must be provided. Iroha will not run with defaults if the configuration file is not available.
 
-The Iroha binary looks for either a file `config.json` in the current directory, or for a JSON file `IROHA2_CONFIG_PATH`. If the latter environment variable is defined, but not a valid configuration file, the Iroha peer binary will exit and do nothing.
+The Iroha binary looks for either a `config.json` file in the current directory, or for a JSON file `IROHA2_CONFIG_PATH`. If the configuration file is not valid, the Iroha peer binary exits and does nothing. If neither of these files is provided, all the fields from the default `config.json` should be specified as environment variables. Note that environment variables override the variables in their respective fields provided via `config.json`.
+
+The environment variables replacing `config.json` should be passed as JSON strings, meaning that any inner quotes should be properly escaped in the command line as shown in the rather unwieldy example below.
+
+<details>
+
+``` bash
+IROHA_TORII="{\"P2P_ADDR\": \"127.0.0.1:1339\", \"API_URL\": \"127.0.0.1:8080\"}" IROHA_SUMERAGI="{\"TRUSTED_PEERS\": [{\"address\": \"127.0.0.1:1337\",\"public_key\": \"ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b\"},{\"address\": \"127.0.0.1:1338\",\"public_key\": \"ed0120cc25624d62896d3a0bfd8940f928dc2abf27cc57cefeb442aa96d9081aae58a1\"},{\"address\": \"127.0.0.1:1339\",\"public_key\": \"ed0120faca9e8aa83225cb4d16d67f27dd4f93fc30ffa11adc1f5c88fd5495ecc91020\"},{\"address\": \"127.0.0.1:1340\",\"public_key\": \"ed01208e351a70b6a603ed285d666b8d689b680865913ba03ce29fb7d13a166c4e7f1f\"}]}" IROHA_KURA="{\"INIT_MODE\": \"strict\",\"BLOCK_STORE_PATH\": \"./blocks\"}" IROHA_BLOCK_SYNC="{\"GOSSIP_PERIOD_MS\": 10000,\"BATCH_SIZE\": 2}" IROHA_PUBLIC_KEY="ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b" IROHA_PRIVATE_KEY="{\"digest_function\": \"ed25519\",\"payload\": \"282ed9f3cf92811c3818dbc4ae594ed59dc1a2f78e4241e31924e101d6b1fb831c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b\"}" IROHA_GENESIS="{\"ACCOUNT_PUBLIC_KEY\": \"ed01204cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf\",\"ACCOUNT_PRIVATE_KEY\": {\"digest_function\": \"ed25519\",\"payload\": \"d748e18ce60cb30dea3e73c9019b7af45a8d465e3d71bcc9a5ef99a008205e534cffd0ee429b1bdd36b3910ec570852b8bb63f18750341772fb46bc856c5caaf\"}}" ./iroha 
+```
+
+</details>
 
 The  [configuration options reference](../docs/source/references/config.md) provides detailed explanations of each configuration variable. All variables defined in `config.json` can be overridden with environment variables. **We don't recommend using environment variables for configuration outside docker-compose and Kubernetes deployments**. Please change the values in the configuration file instead, so that we can better debug the problems that you might be having.
 

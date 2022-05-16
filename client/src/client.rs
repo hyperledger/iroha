@@ -657,7 +657,7 @@ impl Client {
     /// # Errors
     /// Fails if handler construction fails
     #[inline]
-    pub fn events_handler(&self, event_filter: EventFilter) -> Result<events_api::flow::Init> {
+    pub fn events_handler(&self, event_filter: FilterBox) -> Result<events_api::flow::Init> {
         events_api::flow::Init::new(
             event_filter,
             self.headers.clone(),
@@ -855,7 +855,7 @@ pub mod events_api {
         /// Initialization struct for Events API flow.
         pub struct Init {
             /// Event filter
-            filter: EventFilter,
+            filter: FilterBox,
             /// HTTP request headers
             headers: HashMap<String, String>,
             /// TORII URL
@@ -869,7 +869,7 @@ pub mod events_api {
             /// Fails if [`transform_ws_url`] fails.
             #[inline]
             pub(in super::super) fn new(
-                filter: EventFilter,
+                filter: FilterBox,
                 headers: HashMap<String, String>,
                 url: impl AsRef<str>,
             ) -> Result<Self> {
@@ -1040,6 +1040,13 @@ pub mod account {
     /// Get query to get account by id
     pub fn by_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindAccountById {
         FindAccountById::new(account_id)
+    }
+
+    /// Get query to get all accounts containing specified asset
+    pub fn all_with_asset(
+        asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
+    ) -> FindAccountsWithAsset {
+        FindAccountsWithAsset::new(asset_definition_id)
     }
 }
 

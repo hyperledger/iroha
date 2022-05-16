@@ -63,8 +63,8 @@ impl FromStr for Configuration {
 #[structopt(name = "iroha_client_cli", version, author)]
 pub struct Args {
     /// Sets a config file path
-    #[structopt(short, long, default_value = "config.json")]
-    config: Configuration,
+    #[structopt(short, long)]
+    config: Option<Configuration>,
     /// Subcommands of client cli
     #[structopt(subcommand)]
     subcommand: Subcommand,
@@ -120,9 +120,15 @@ const RETRY_IN_MST: Duration = Duration::from_millis(100);
 fn main() -> Result<()> {
     color_eyre::install()?;
     let Args {
-        config: Configuration(config),
+        config: config_opt,
         subcommand,
     } = clap::Parser::parse();
+    let config = if let Some(config) = config_opt {
+        config
+    } else {
+        Configuration::from_str("config.json")?
+    };
+    let Configuration(config) = config;
     println!(
         "User: {}@{}",
         config.account_id.name, config.account_id.domain_id
@@ -200,14 +206,14 @@ mod events {
     impl RunArgs for Args {
         fn run(self, cfg: &ClientConfiguration) -> Result<()> {
             let filter = match self {
-                Args::Pipeline => EventFilter::Pipeline(PipelineEventFilter::new()),
-                Args::Data => EventFilter::Data(DataEventFilter::AcceptAll),
+                Args::Pipeline => FilterBox::Pipeline(PipelineEventFilter::new()),
+                Args::Data => FilterBox::Data(DataEventFilter::AcceptAll),
             };
             listen(filter, cfg)
         }
     }
 
-    pub fn listen(filter: EventFilter, cfg: &Configuration) -> Result<()> {
+    pub fn listen(filter: FilterBox, cfg: &Configuration) -> Result<()> {
         let iroha_client = Client::new(cfg)?;
         println!("Listening to events with filter: {:?}", filter);
         for event in iroha_client

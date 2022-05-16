@@ -64,7 +64,7 @@ impl Checker {
         thread::spawn(move || {
             let mut event_iterator = self
                 .listener
-                .listen_for_events(EventFilter::Pipeline(
+                .listen_for_events(FilterBox::Pipeline(
                     PipelineEventFilter::new()
                         .entity_kind(PipelineEntityKind::Transaction)
                         .status_kind(status_kind)
