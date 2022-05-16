@@ -264,7 +264,7 @@ mod tests {
 
         let num_blocks: u64 = 100;
 
-        for height in 1u64..=num_blocks {
+        for height in 1u64..num_blocks {
             let block = PendingBlock::new(vec![], vec![])
                 .chain(
                     height,

@@ -751,22 +751,10 @@ impl VersionedCommittedBlock {
             invalidated_blocks_hashes: invalidated_blocks_hashes.into_iter().map(|h| *h).collect(),
         };
 
-        let transaction_values = transactions
-            .into_iter()
-            .map(VersionedTransaction::from)
-            .map(Box::new)
-            .map(TransactionValue::Transaction)
-            .chain(
-                rejected_transactions
-                    .into_iter()
-                    .map(Box::new)
-                    .map(TransactionValue::RejectedTransaction),
-            )
-            .collect();
-
         BlockValue {
             header: header_value,
-            transactions: transaction_values,
+            transactions,
+            rejected_transactions,
             event_recommendations,
         }
     }

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     events::Event,
-    transaction::{TransactionValue, VersionedTransaction},
+    transaction::{VersionedRejectedTransaction, VersionedTransaction, VersionedValidTransaction},
 };
 
 /// Block header
@@ -50,7 +50,9 @@ pub struct BlockValue {
     /// Header
     pub header: BlockHeaderValue,
     /// Array of transactions
-    pub transactions: Vec<TransactionValue>,
+    pub transactions: Vec<VersionedValidTransaction>,
+    /// Array of rejected transactions.
+    pub rejected_transactions: Vec<VersionedRejectedTransaction>,
     /// Event recommendations
     pub event_recommendations: Vec<Event>,
 }
@@ -60,6 +62,7 @@ impl BlockValue {
     pub fn nested_len(&self) -> usize {
         self.event_recommendations.len()
             + self.transactions.len()
+            + self.rejected_transactions.len()
             + self.header.invalidated_blocks_hashes.len()
     }
 }
