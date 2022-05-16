@@ -43,4 +43,4 @@ jobs:
 
       # Tests
       - name: Run tests
-        run: mold --run cargo test --tests --quiet --no-fail-fast
+        run: mold --run cargo +nightly-2022-04-20 test --tests --quiet --no-fail-fast
