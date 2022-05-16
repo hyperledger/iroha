@@ -11,6 +11,7 @@
 #include <chrono>
 
 #include "logger/logger.hpp"
+#include "network/channel_constants.hpp"
 #include "network/impl/tls_credentials.hpp"
 
 using namespace iroha::network;
@@ -61,6 +62,8 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
 
   builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, reuse_ ? 1 : 0);
   builder.AddListeningPort(server_address_, credentials_, &selected_port);
+  builder.SetMaxReceiveMessageSize(k_max_msg_size);
+  builder.SetMaxSendMessageSize(k_max_msg_size);
 
   for (auto &service : services_) {
     builder.RegisterService(service.get());

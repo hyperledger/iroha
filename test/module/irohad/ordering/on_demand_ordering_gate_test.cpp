@@ -133,6 +133,8 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
 
   OnDemandOrderingService::BatchesSetType transactions;
+  EXPECT_CALL(*notification, getRequestDelay())
+      .WillOnce(Return(std::chrono::milliseconds(1)));
   EXPECT_CALL(*ordering_service, forCachedBatches(_))
       .WillOnce(InvokeArgument<0>(transactions));
 
@@ -352,6 +354,8 @@ TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
 
   OnDemandOrderingService::BatchesSetType collection{batch1, batch2};
   OnDemandOrderingService::BatchesSetType collection2{batch1, batch2};
+  EXPECT_CALL(*notification, getRequestDelay())
+      .WillOnce(Return(std::chrono::milliseconds(1)));
   EXPECT_CALL(*ordering_service, forCachedBatches(_))
       .WillOnce(InvokeArgument<0>(collection2));
 
