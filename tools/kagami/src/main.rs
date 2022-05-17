@@ -33,15 +33,15 @@ pub trait RunArgs<T: Write> {
     fn run(self, writer: &mut BufWriter<T>) -> Outcome;
 }
 
-/// Tool generating the cryptorgraphic key pairs, schema, genesis block and configuration reference.
+/// Tool generating the cryptographic key pairs, schema, genesis block and configuration reference.
 #[derive(StructOpt, Debug)]
 #[structopt(name = "kagami", version, author)]
 pub enum Args {
-    /// Generate cryptorgraphic key pairs
+    /// Generate cryptographic key pairs
     Crypto(crypto::Args),
-    /// Generate schema used for code generation in Iroha SDKs
+    /// Generate the schema used for code generation in Iroha SDKs
     Schema(schema::Args),
-    /// Generate a default genesis block that is used in tests
+    /// Generate the default genesis block that is used in tests
     Genesis(genesis::Args),
     /// Generate a Markdown reference of configuration parameters
     Docs(docs::Args),
