@@ -59,14 +59,17 @@ jobs:
       image: 7272721/i2-ci:latest
     steps:
       # TODO Remove this step #2165
-      - name: Add component
-        run: rustup component add llvm-tools-preview
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2022-04-20
+          override: true
+          components: llvm-tools-preview
 
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
         run: |
-          mold --run cargo +nightly-2022-04-20 test \
+          mold --run cargo test \
           --quiet --workspace --no-fail-fast -- \
           --skip unstable_network --skip ui --test-threads 3
         env:
