@@ -78,9 +78,8 @@ jobs:
       - name: Generate a grcov coverage report
         run: |
           grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
-        if: always()
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v2
-        if: always()
         with:
           file: lcov.info
+          fail_ci_if_error: true
