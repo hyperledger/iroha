@@ -7,6 +7,8 @@ use core::{fmt, str::FromStr};
 use std::collections::btree_set;
 
 use getset::Getters;
+#[cfg(feature = "ffi")]
+use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -79,7 +81,7 @@ impl FromStr for Id {
     IntoSchema,
 )]
 #[getset(get = "pub")]
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+#[cfg_attr(feature = "ffi", ffi_bindgen)]
 pub struct Role {
     /// Unique name of the role.
     id: <Self as Identifiable>::Id,
@@ -88,7 +90,7 @@ pub struct Role {
     permissions: Permissions,
 }
 
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+#[cfg_attr(feature = "ffi", ffi_bindgen)]
 impl Role {
     /// Constructor.
     #[inline]

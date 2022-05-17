@@ -39,38 +39,48 @@ impl FfiStruct {
 fn main() -> Result<(), ()> {
     let name = Name("X");
 
-    let mut ffi_struct: MaybeUninit<*mut FfiStruct> = MaybeUninit::uninit();
-    if unsafe { ffi_struct_new(&name, ffi_struct.as_mut_ptr()) } != FfiResult::Ok {
-        return Err(());
-    }
-    let ffi_struct = unsafe { ffi_struct.assume_init() };
+    let ffi_struct = unsafe {
+        let mut ffi_struct: MaybeUninit<*mut FfiStruct> = MaybeUninit::uninit();
 
-    let params = vec![(Name("Nomen"), Value("Omen"))];
-    let params_ffi: Vec<_> = params
+        assert_eq!(
+            FfiResult::Ok,
+            ffi_struct_new(&name, ffi_struct.as_mut_ptr())
+        );
+
+        ffi_struct.assume_init()
+    };
+
+    let in_params: Vec<Pair<*const Name, *const Value>> = vec![(Name("Nomen"), Value("Omen"))]
         .iter()
-        .map(|(key, val)| Pair(key as *const _, val as *const _)).collect();
-    if unsafe { ffi_struct_with_params(ffi_struct, params_ffi.as_ptr(), params.len()) }
-        != FfiResult::Ok
-    {
-        return Err(());
-    }
+        .map(|(key, val)| Pair(key as *const _, val as *const _))
+        .collect();
 
     let mut param: MaybeUninit<*const Value> = MaybeUninit::uninit();
-    if unsafe { ffi_struct_get_param(ffi_struct, &name, param.as_mut_ptr()) } != FfiResult::Ok {
-        return Err(());
-    }
-
-    // TODO: Type should be *const Pair even when transfering ownership because it's not possible to reallocate
-    let mut params: MaybeUninit<*mut Pair<*const Name, *const Value>> = MaybeUninit::uninit();
+    let mut out_params: Vec<Pair<*const Name, *const Value>> = Vec::new();
     let mut params_len: MaybeUninit<usize> = MaybeUninit::uninit();
-    if unsafe { ffi_struct_params(ffi_struct, params.as_mut_ptr(), params_len.as_mut_ptr()) }
-        != FfiResult::Ok
-    {
-        return Err(());
-    }
 
-    if unsafe { ffi_struct_drop(ffi_struct) } != FfiResult::Ok {
-        return Err(());
+    unsafe {
+        assert_eq!(
+            FfiResult::Ok,
+            ffi_struct_with_params(ffi_struct, in_params.as_ptr(), in_params.len())
+        );
+
+        assert_eq!(
+            FfiResult::Ok,
+            ffi_struct_get_param(ffi_struct, &name, param.as_mut_ptr())
+        );
+
+        assert_eq!(
+            FfiResult::Ok,
+            ffi_struct_params(
+                ffi_struct,
+                out_params.as_mut_ptr(),
+                out_params.capacity(),
+                params_len.as_mut_ptr(),
+            )
+        );
+
+        ffi_struct_drop(ffi_struct);
     }
 
     Ok(())

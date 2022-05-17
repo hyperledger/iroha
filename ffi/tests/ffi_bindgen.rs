@@ -10,7 +10,10 @@ pub struct Name(&'static str);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Value(&'static str);
 
-const DEFAULT_PARAMS: [(Name, Value); 1] = [(Name("Nomen"), Value("Omen"))];
+const DEFAULT_PARAMS: [(Name, Value); 2] = [
+    (Name("Nomen"), Value("Omen")),
+    (Name("Nomen2"), Value("Omen2")),
+];
 
 #[ffi_bindgen]
 #[derive(getset::Getters)]
@@ -86,7 +89,8 @@ fn constructor() {
     unsafe {
         assert_eq!(Name("X"), (*ffi_struct).name);
         assert!((*ffi_struct).params.is_empty());
-        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
+
+        ffi_struct_drop(ffi_struct);
     }
 }
 
@@ -107,7 +111,7 @@ fn into_iter_item_impl_into() {
         assert_eq!(2, (*ffi_struct).tokens.len());
         assert_eq!((*ffi_struct).tokens, tokens);
 
-        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
+        ffi_struct_drop(ffi_struct);
     }
 }
 
@@ -116,9 +120,10 @@ fn builder_method() {
     let ffi_struct = get_new_struct_with_params();
 
     unsafe {
-        assert_eq!(1, (*ffi_struct).params.len());
+        assert_eq!(2, (*ffi_struct).params.len());
         assert_eq!((*ffi_struct).params, DEFAULT_PARAMS.into_iter().collect());
-        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
+
+        ffi_struct_drop(ffi_struct);
     }
 }
 
@@ -143,34 +148,59 @@ fn return_option() {
     unsafe {
         assert!(!param2.assume_init().is_null());
         assert_eq!(&Value("Omen"), &*param2.assume_init());
-        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
+
+        ffi_struct_drop(ffi_struct);
+    }
+}
+
+#[test]
+fn empty_return_iterator() {
+    let ffi_struct = get_new_struct_with_params();
+    let mut params_len = MaybeUninit::new(0);
+
+    unsafe {
+        assert_eq!(
+            FfiResult::Ok,
+            ffi_struct_params(
+                ffi_struct,
+                core::ptr::null_mut(),
+                0_usize,
+                params_len.as_mut_ptr(),
+            )
+        );
+
+        assert!(params_len.assume_init() == 2);
+        ffi_struct_drop(ffi_struct);
     }
 }
 
 #[test]
 fn return_iterator() {
     let ffi_struct = get_new_struct_with_params();
-
-    let mut params = MaybeUninit::new(core::ptr::null_mut());
     let mut params_len = MaybeUninit::new(0);
+    let mut params = Vec::with_capacity(1);
 
     assert_eq!(FfiResult::Ok, unsafe {
-        ffi_struct_params(ffi_struct, params.as_mut_ptr(), params_len.as_mut_ptr())
+        ffi_struct_params(
+            ffi_struct,
+            params.as_mut_ptr(),
+            params.capacity(),
+            params_len.as_mut_ptr(),
+        )
     });
 
     unsafe {
-        let (params, params_len) = (params.assume_init(), params_len.assume_init());
+        let params_len = params_len.assume_init();
 
-        assert!(params_len == 1);
-        assert!(!params.is_null());
+        assert!(params_len == 2);
+        params.set_len(1);
 
-        assert!(core::slice::from_raw_parts_mut(params, params_len)
+        assert!(params
             .iter()
             .map(|&Pair(key, val)| (&*key, &*val))
-            .eq(DEFAULT_PARAMS.iter().map(|pair| (&pair.0, &pair.1))));
+            .eq(DEFAULT_PARAMS.iter().take(1).map(|pair| (&pair.0, &pair.1))));
 
-        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
-        // TODO: Call FFI destructor for the received params vector
+        ffi_struct_drop(ffi_struct);
     }
 }
 
@@ -180,6 +210,6 @@ fn getset_getter() {
 
     unsafe {
         assert_eq!(Name("X"), *(*ffi_struct).name());
-        assert_eq!(FfiResult::Ok, ffi_struct_drop(ffi_struct));
+        ffi_struct_drop(ffi_struct);
     }
 }

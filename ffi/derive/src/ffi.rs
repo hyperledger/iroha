@@ -60,6 +60,7 @@ impl quote::ToTokens for FfiFnDescriptor {
         let fn_body = self.get_fn_body();
 
         tokens.extend(quote! {
+            #[no_mangle]
             #[doc = "Generated FFI function equivalent of [`#self_ty::#method_name`]"]
             pub unsafe extern "C" fn #ffi_fn_name(#(#self_arg,)* #(#fn_args,)* #ret_arg) -> iroha_ffi::FfiResult {
                 #fn_body
@@ -76,9 +77,7 @@ impl quote::ToTokens for FfiFnArgDescriptor {
 
         if self.is_slice_ref() || self.is_slice_ref_mut() {
             tokens.extend(quote! { mut #ffi_name: #ffi_type, });
-
-            let slice_len_arg_name = &self.get_slice_len_arg_name();
-            slice_len_arg_to_tokens(src_type, slice_len_arg_name, tokens);
+            slice_len_arg_to_tokens(src_type, self, tokens);
         } else {
             tokens.extend(quote! { #ffi_name: #ffi_type });
         };
@@ -87,21 +86,18 @@ impl quote::ToTokens for FfiFnArgDescriptor {
 
 fn slice_len_arg_to_tokens(
     src_type: &Type,
-    slice_len_arg_name: &Ident,
+    ffi_fn_arg: &FfiFnArgDescriptor,
     tokens: &mut proc_macro2::TokenStream,
 ) {
-    let mut slice_len_to_tokens = |mutability| {
-        if mutability {
-            tokens.extend(quote! { #slice_len_arg_name: *mut usize });
-        } else {
-            tokens.extend(quote! { #slice_len_arg_name: usize });
-        }
+    let mut slice_len_to_tokens = || {
+        let slice_len_arg_name = ffi_fn_arg.get_slice_len_arg_name();
+        tokens.extend(quote! { #slice_len_arg_name: usize });
     };
 
     match &src_type {
         Type::Reference(type_) => {
             if matches!(*type_.elem, Type::Slice(_)) {
-                slice_len_to_tokens(type_.mutability.is_some());
+                slice_len_to_tokens();
             }
         }
         Type::ImplTrait(type_) => {
@@ -111,9 +107,11 @@ fn slice_len_arg_to_tokens(
                 let last_seg = &trait_.path.segments.last().expect_or_abort("Defined");
 
                 if last_seg.ident == "IntoIterator" {
-                    slice_len_to_tokens(false);
+                    slice_len_to_tokens();
                 } else if last_seg.ident == "ExactSizeIterator" {
-                    slice_len_to_tokens(true);
+                    slice_len_to_tokens();
+                    let slice_elems_arg_name = ffi_fn_arg.get_slice_elems_arg_name();
+                    tokens.extend(quote! {, #slice_elems_arg_name: *mut usize });
                 } else {
                     abort!(src_type, "Unsupported impl trait slice type")
                 }
@@ -210,15 +208,20 @@ impl FfiFnDescriptor {
     }
 
     fn add_output_arg(&mut self) {
-        let (src_type, ffi_type) = self.curr_arg_ty.take().expect_or_abort("Defined");
+        let (src_type, mut ffi_type) = self.curr_arg_ty.take().expect_or_abort("Defined");
 
         assert!(self.curr_arg_name.is_none());
         assert!(self.output_arg.is_none());
 
+        let ffi_name = self.get_output_arg_name(&ffi_type);
+        if !matches!(src_type, Type::ImplTrait(_)) {
+            ffi_type = parse_quote! { *mut #ffi_type };
+        }
+
         self.output_arg = Some(FfiFnArgDescriptor {
-            ffi_name: self.get_output_arg_name(&ffi_type),
+            ffi_name,
             src_type,
-            ffi_type: parse_quote! { *mut #ffi_type },
+            ffi_type,
         });
     }
 
@@ -232,36 +235,26 @@ impl FfiFnDescriptor {
         });
 
         for arg in &self.input_args {
-            if let Some(stmt) = arg.get_ptr_null_check_stmt() {
-                stmts.push(stmt);
-            }
-
-            let arg_name = &arg.ffi_name;
             if arg.is_slice_ref() {
-                let slice_len_arg_name = arg.get_slice_len_arg_name();
-
-                stmts.push(parse_quote! {
-                    if #slice_len_arg_name == 0_usize {
-                        // NOTE: `slice::from_raw_parts` takes a non-null aligned pointer
-                        #arg_name = core::ptr::NonNull::dangling().as_ptr();
-                    }
-                });
+                stmts.push(arg.get_dangling_ptr_assignment());
+            } else if let Some(stmt) = arg.get_ptr_null_check_stmt() {
+                stmts.push(stmt);
             }
         }
 
         if let Some(output_arg) = self.output_arg() {
-            if let Some(stmt) = output_arg.get_ptr_null_check_stmt() {
-                stmts.push(stmt);
-            }
-
             if output_arg.is_slice_ref_mut() {
-                let slice_len_arg_name = output_arg.get_slice_len_arg_name();
+                let slice_elems_arg_name = output_arg.get_slice_elems_arg_name();
 
                 stmts.push(parse_quote! {
-                    if #slice_len_arg_name.is_null() {
+                    if #slice_elems_arg_name.is_null() {
                         return iroha_ffi::FfiResult::ArgIsNull;
                     }
                 });
+
+                stmts.push(output_arg.get_dangling_ptr_assignment());
+            } else if let Some(stmt) = output_arg.get_ptr_null_check_stmt() {
+                stmts.push(stmt);
             }
         }
 
@@ -340,12 +333,19 @@ impl FfiFnDescriptor {
             let output_arg_name = &output_arg.ffi_name;
 
             if output_arg.is_slice_ref_mut() {
-                let slice_len_arg_name = output_arg.get_slice_len_arg_name();
+                let (slice_len_arg_name, slice_elems_arg_name) = (
+                    output_arg.get_slice_len_arg_name(),
+                    output_arg.get_slice_elems_arg_name(),
+                );
 
-                stmts.extend([
-                    parse_quote! { #output_arg_name.write(method_res.as_mut_ptr()); },
-                    parse_quote! { #slice_len_arg_name.write(method_res.len()); },
-                ]);
+                stmts.push(parse_quote! {{
+                    let #output_arg_name = core::slice::from_raw_parts_mut(#output_arg_name, #slice_len_arg_name);
+
+                    #slice_elems_arg_name.write(method_res.len());
+                    for (i, elem) in method_res.take(#slice_len_arg_name).enumerate() {
+                        #output_arg_name[i] = elem;
+                    }
+                }});
             } else {
                 assert!(matches!(output_arg.ffi_type, Type::Ptr(_)));
                 stmts.push(parse_quote! { #output_arg_name.write(method_res); });
@@ -436,47 +436,23 @@ impl FfiFnArgDescriptor {
         None
     }
 
-    fn get_slice_len_arg_name(&self) -> Ident {
-        Ident::new(&format!("{}_len", self.ffi_name), Span::call_site())
+    fn get_dangling_ptr_assignment(&self) -> syn::Stmt {
+        let (arg_name, slice_len_arg_name) = (&self.ffi_name, self.get_slice_len_arg_name());
+
+        parse_quote! {
+            if #slice_len_arg_name == 0_usize {
+                // NOTE: `slice::from_raw_parts` takes a non-null aligned pointer
+                #arg_name = core::ptr::NonNull::dangling().as_ptr();
+            }
+        }
     }
 
-    fn get_src_to_ffi_impl_iterator_conversion_stmts(
-        &self,
-        ffi_type: &syn::TypePtr,
-    ) -> Vec<syn::Stmt> {
-        let mut stmts = vec![];
+    fn get_slice_elems_arg_name(&self) -> Ident {
+        Ident::new(&format!("{}_elems", self.ffi_name), Span::call_site())
+    }
 
-        match &*ffi_type.elem {
-            Type::Path(type_) => {
-                let last_seg = type_.path.segments.last().expect_or_abort("Defined");
-
-                if last_seg.ident == "Pair" {
-                    stmts.push(parse_quote! {
-                        let method_res = method_res.map(|(key, val)| {
-                            iroha_ffi::Pair(key as *const _, val as *const _)
-                        });
-                    });
-                } else {
-                    abort!(self, "Unsupported FFI type conversion");
-                }
-            }
-            Type::Ptr(type_) => {
-                stmts.push(if type_.mutability.is_some() {
-                    parse_quote! { let method_res = method_res.map(|arg| arg as *mut _); }
-                } else {
-                    parse_quote! { let method_res = method_res.map(|arg| arg as *const _); }
-                });
-            }
-            _ => abort!(self, "Unsupported FFI type conversion"),
-        }
-
-        stmts.push(parse_quote! {
-            // TODO: Seems that the implementation reallocates even for `ExactSizeIterator`
-            // Optimize collecting to avoid reallocation in case of `ExactSizeIterator`
-            let mut method_res = core::mem::ManuallyDrop::new(method_res.collect::<Box<[_]>>());
-        });
-
-        stmts
+    fn get_slice_len_arg_name(&self) -> Ident {
+        Ident::new(&format!("{}_len", self.ffi_name), Span::call_site())
     }
 
     fn get_ffi_to_src_impl_into_iterator_conversion_stmts(
@@ -570,18 +546,29 @@ impl FfiFnArgDescriptor {
                     parse_quote! { let method_res: *const _ = method_res; }
                 });
             }
-            (Type::ImplTrait(src_ty), Type::Ptr(ffi_ty)) => {
-                if let syn::TypeParamBound::Trait(trait_) = &src_ty.bounds[0] {
-                    let last_seg = &trait_.path.segments.last().expect_or_abort("Defined");
-
-                    match last_seg.ident.to_string().as_ref() {
-                        "ExactSizeIterator" => {
-                            stmts.push(parse_quote! { let method_res = method_res.into_iter(); });
-                            stmts.extend(self.get_src_to_ffi_impl_iterator_conversion_stmts(ffi_ty))
-                        }
-                        _ => abort!(last_seg, "impl Trait type not supported"),
-                    }
+            (Type::ImplTrait(_), Type::Path(ffi_ty)) => {
+                if ffi_ty.path.segments.last().expect_or_abort("Defined").ident != "Pair" {
+                    abort!(self, "Unsupported FFI type conversion");
                 }
+
+                stmts.push(parse_quote! {
+                    let method_res = method_res.into_iter().map(|(key, val)| {
+                        iroha_ffi::Pair(key as *const _, val as *const _)
+                    });
+                });
+            }
+            (Type::ImplTrait(_), Type::Ptr(ffi_ty)) => {
+                stmts.push(parse_quote! { let method_res = method_res.into_iter(); });
+
+                if !matches!(*ffi_ty.elem, Type::Path(_)) {
+                    abort!(self, "Unsupported FFI type conversion");
+                }
+
+                stmts.push(if ffi_ty.mutability.is_some() {
+                    parse_quote! { let method_res = method_res.map(|arg| arg as *mut _); }
+                } else {
+                    parse_quote! { let method_res = method_res.map(|arg| arg as *const _); }
+                });
             }
             (Type::Path(src_ty), Type::Ptr(ffi_ty)) => {
                 let is_option_type = is_option_type(src_ty);

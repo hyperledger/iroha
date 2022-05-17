@@ -44,11 +44,11 @@ pub fn ffi_bindgen(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
                 #( #ffi_fns )*
 
+                #[no_mangle]
                 #[doc = "Drop function for [`#struct_name`]"]
                 // TODO: This fn could be made generic? Which pointer type to take if so?
-                pub unsafe extern "C" fn #drop_ffi_fn_name(handle: *mut #struct_name) -> iroha_ffi::FfiResult {
-                    core::mem::drop(Box::from_raw(handle));
-                    iroha_ffi::FfiResult::Ok
+                pub unsafe extern "C" fn #drop_ffi_fn_name(handle: *mut #struct_name) {
+                    Box::from_raw(handle);
                 }
             }
         }
