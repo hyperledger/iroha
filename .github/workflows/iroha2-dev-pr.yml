@@ -17,6 +17,7 @@ env:
 
 jobs:
   test:
+    if: ${{ false }}
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
