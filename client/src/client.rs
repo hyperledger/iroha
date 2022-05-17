@@ -647,7 +647,7 @@ impl Client {
     /// Fails if subscribing to websocket fails
     pub fn listen_for_events(
         &self,
-        event_filter: EventFilter,
+        event_filter: FilterBox,
     ) -> Result<impl Iterator<Item = Result<Event>>> {
         events_api::EventIterator::new(self.events_handler(event_filter)?)
     }
