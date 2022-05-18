@@ -12,6 +12,7 @@ use crate::{
     events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name, ParseError,
 };
 
+#[cfg(feature = "std")]
 pub mod set;
 
 /// Type which is used for registering a `Trigger`.
@@ -372,7 +373,10 @@ pub mod action {
 
 pub mod prelude {
     //! Re-exports of commonly used types.
-    pub use super::{action::prelude::*, set::Set as TriggerSet, Id as TriggerId, Trigger};
+
+    #[cfg(feature = "std")]
+    pub use super::set::Set as TriggerSet;
+    pub use super::{action::prelude::*, Id as TriggerId, Trigger};
 }
 
 #[cfg(test)]
