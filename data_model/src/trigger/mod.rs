@@ -12,7 +12,6 @@ use crate::{
     events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name, ParseError,
 };
 
-#[cfg(feature = "std")]
 pub mod set;
 
 /// Type which is used for registering a `Trigger`.

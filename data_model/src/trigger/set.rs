@@ -8,6 +8,7 @@
 //! search trees (common lisp) or hash tables (racket) to quickly
 //! trigger hooks.
 
+#![cfg(feature = "std")]
 #![allow(clippy::expect_used)]
 
 use std::{cmp::min, result::Result, sync::Arc};
