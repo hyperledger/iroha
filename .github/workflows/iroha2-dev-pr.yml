@@ -61,7 +61,7 @@ jobs:
       # TODO Remove these steps #2165
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-2022-04-20
+          toolchain: stable
           override: true
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
