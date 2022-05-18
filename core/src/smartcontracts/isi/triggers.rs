@@ -147,7 +147,6 @@ pub mod isi {
 
 pub mod query {
     //! Queries associated to triggers.
-    use iroha_logger::prelude::*;
 
     use super::*;
     use crate::{
@@ -156,7 +155,6 @@ pub mod query {
     };
 
     impl<W: WorldTrait> ValidQuery<W> for FindAllActiveTriggerIds {
-        #[log]
         #[metrics(+"find_all_active_triggers")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             Ok(wsv.world.triggers.clone().ids())
@@ -164,14 +162,13 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindTriggerById {
-        #[log]
         #[metrics(+"find_trigger_by_id")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::new())
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate trigger id. {}", e)))?;
-
+            iroha_logger::trace!(%id);
             // Can't use just `ActionTrait::clone_and_box` cause this will trigger lifetime mismatch
             #[allow(clippy::redundant_closure_for_method_calls)]
             let action = wsv
@@ -185,7 +182,6 @@ pub mod query {
     }
 
     impl<W: WorldTrait> ValidQuery<W> for FindTriggerKeyValueByIdAndKey {
-        #[log]
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
             let id = self
@@ -196,6 +192,8 @@ pub mod query {
                 .key
                 .evaluate(wsv, &Context::new())
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {}", e)))?;
+
+            iroha_logger::trace!(%id, %key);
             wsv.world.triggers.inspect(&id, |action| {
                 action
                     .metadata()

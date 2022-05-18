@@ -659,11 +659,6 @@ where
     }
 }
 
-/// Marker trait for values.
-pub trait ValueMarker: Debug + Clone + Into<Value> {}
-
-impl<V: Into<Value> + Debug + Clone> ValueMarker for V {}
-
 /// This trait marks entity that implement it as identifiable with an `Id` type to find them by.
 pub trait Identifiable: Debug + Clone {
     /// Type of entity's identification.
@@ -719,8 +714,8 @@ pub mod prelude {
         peer::prelude::*,
         role::prelude::*,
         trigger::prelude::*,
-        uri, EnumTryAsError, IdBox, Identifiable, IdentifiableBox, Name, Parameter, RegistrableBox,
-        TryAsMut, TryAsRef, ValidationError, Value,
+        uri, EnumTryAsError, IdBox, Identifiable, IdentifiableBox, MintabilityError, Name,
+        Parameter, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

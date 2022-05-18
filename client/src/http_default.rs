@@ -18,15 +18,16 @@ trait SetSingleHeader {
 }
 
 impl SetSingleHeader for AttoHttpRequestBuilderWithBytes {
-    #[allow(clippy::only_used_in_recursion)] // False-positive
     fn header(self, key: HeaderName, value: String) -> Self {
-        self.header(key, value)
+        // We don't want the linter to get confused and think that this is recursive.
+        AttoHttpRequestBuilderWithBytes::header(self, key, value)
     }
 }
 
 impl SetSingleHeader for http::request::Builder {
     fn header(self, key: HeaderName, value: String) -> Self {
-        self.header(key, value)
+        // We don't want the linter to get confused and think that this is recursive.
+        http::request::Builder::header(self, key, value)
     }
 }
 

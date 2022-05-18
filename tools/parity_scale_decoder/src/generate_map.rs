@@ -338,7 +338,6 @@ pub fn generate_map() -> DumpDecodedMap {
         i64,
         query::Payload,
         smartcontracts::isi::error::FindError,
-        smartcontracts::isi::error::ParentHashNotFound,
         smartcontracts::isi::query::Error,
         smartcontracts::isi::query::UnsupportedVersionError,
         sumeragi::network_topology::Topology,

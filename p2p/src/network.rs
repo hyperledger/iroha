@@ -278,7 +278,7 @@ where
 {
     type Result = ();
 
-    #[log]
+    #[log] // Keep this
     async fn handle(&mut self, msg: PeerMessage<T>) {
         use PeerMessage::*;
 

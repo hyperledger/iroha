@@ -10,7 +10,46 @@ use test_network::{Peer as TestPeer, *};
 use super::Configuration;
 
 #[test]
-fn client_can_transfer_asset_to_another_account() {
+fn simulate_transfer_quantity() {
+    simulate_transfer(200_u32, 20_u32, |id| AssetDefinition::quantity(id).build())
+}
+
+#[test]
+fn simulate_transfer_big_quantity() {
+    simulate_transfer(200_u128, 20_u128, |id| {
+        AssetDefinition::big_quantity(id).build()
+    })
+}
+
+#[test]
+fn simulate_transfer_fixed() {
+    simulate_transfer(
+        Fixed::try_from(200_f64).expect("Valid"),
+        Fixed::try_from(20_f64).expect("Valid"),
+        |id| AssetDefinition::fixed(id).build(),
+    )
+}
+
+#[should_panic]
+#[test]
+#[ignore = "long"]
+fn simulate_insufficient_funds() {
+    simulate_transfer(
+        Fixed::try_from(20_f64).expect("Valid"),
+        Fixed::try_from(200_f64).expect("Valid"),
+        |id| AssetDefinition::fixed(id).build(),
+    )
+}
+
+// TODO add tests when the transfer uses the wrong AssetId.
+
+fn simulate_transfer<T: Into<AssetValue> + Clone, D: FnOnce(AssetDefinitionId) -> AssetDefinition>(
+    starting_amount: T,
+    amount_to_transfer: T,
+    value_type: D,
+) where
+    Value: From<T>,
+{
     let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
@@ -27,11 +66,9 @@ fn client_can_transfer_asset_to_another_account() {
     let create_account1 = RegisterBox::new(Account::new(account1_id.clone(), [public_key1]));
     let create_account2 = RegisterBox::new(Account::new(account2_id.clone(), [public_key2]));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
-    let quantity: u32 = 200;
-    let create_asset =
-        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
+    let create_asset = RegisterBox::new(value_type(asset_definition_id.clone()));
     let mint_asset = MintBox::new(
-        Value::U32(quantity),
+        Value::from(starting_amount),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account1_id.clone(),
@@ -51,10 +88,9 @@ fn client_can_transfer_asset_to_another_account() {
     thread::sleep(pipeline_time * 2);
 
     //When
-    let quantity = 20;
     let transfer_asset = TransferBox::new(
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), account1_id)),
-        Value::U32(quantity),
+        Value::from(amount_to_transfer.clone()),
         IdBox::AssetId(AssetId::new(
             asset_definition_id.clone(),
             account2_id.clone(),
@@ -67,7 +103,7 @@ fn client_can_transfer_asset_to_another_account() {
             |result| {
                 result.iter().any(|asset| {
                     asset.id().definition_id == asset_definition_id
-                        && *asset.value() == AssetValue::Quantity(quantity)
+                        && *asset.value() == amount_to_transfer.clone().into()
                         && asset.id().account_id == account2_id
                 })
             },

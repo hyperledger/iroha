@@ -331,7 +331,7 @@ impl Account {
         self.permission_tokens.remove(token)
     }
 
-    /// Add [`Role`] into the [`Account`].
+    /// Add [`Role`](crate::role::Role) into the [`Account`].
     ///
     /// If `Account` did not have this role present, `true` is returned.
     /// If `Account` did have this role present, `false` is returned.

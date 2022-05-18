@@ -3,6 +3,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    borrow::ToOwned as _,
     collections::btree_map,
     format,
     string::{String, ToString as _},
@@ -81,6 +82,14 @@ pub struct Pagination {
     pub start: Option<u32>,
     /// limit of indexing
     pub limit: Option<u32>,
+}
+
+impl fmt::Display for Pagination {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let start = self.start.unwrap_or(0);
+        let end = self.limit.map_or(".inf".to_owned(), |n| n.to_string());
+        write!(f, "{}-{}", start, end)
+    }
 }
 
 impl Pagination {
