@@ -17,7 +17,6 @@ env:
 
 jobs:
   checks:
-    if: ${{ false }}
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -55,13 +54,12 @@ jobs:
           override: true
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: taiki-e/install-action@nextest
       #
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests and generate lcov report
         if: always()
-        run: mold --run cargo llvm-cov nextest --all-features --workspace --lcov --output-path lcov.info
+        run: mold --run cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v2
         with:
@@ -69,7 +67,6 @@ jobs:
           fail_ci_if_error: true
 
   integration_tests:
-    if: ${{ false }}
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
