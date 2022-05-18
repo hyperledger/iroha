@@ -63,7 +63,7 @@ jobs:
         with:
           toolchain: stable
           override: true
-          components: llvm-tools-preview
+          # components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       #
       - uses: actions/checkout@v2
