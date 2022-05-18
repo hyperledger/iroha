@@ -1,3 +1,5 @@
+#![cfg(not(coverage))]
+
 pub use iroha::config::Configuration;
 
 mod add_account;
@@ -24,5 +26,4 @@ mod triggers;
 mod tx_history;
 mod tx_rollback;
 mod unregister_peer;
-#[cfg(not(coverage))]
 mod unstable_network;
