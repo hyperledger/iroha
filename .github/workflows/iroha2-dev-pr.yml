@@ -16,44 +16,33 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    if: ${{ false }}
+  checks:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
-    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
-      - name: Run tests
-        run: mold --run cargo test --quiet --workspace --no-fail-fast -- --skip unstable_network --test-threads 2
-      - name: Run iroha tests with network mock
-        run: mold --run cargo test --quiet --features mock -- --ignored --skip unstable_network --test-threads 2
-        working-directory: core/test_network
-      - name: Run iroha_actor deadlock detection tests
-        run: mold --run cargo test --quiet --features deadlock_detection -- --skip unstable_network --test-threads 2
-        working-directory: actor
-        if: always()
-      - name: Verify wasm smartcontracts are able to build
-        run: mold --run cargo build --target wasm32-unknown-unknown --quiet
-        working-directory: wasm
-        env:
-          RUSTC_BOOTSTRAP: 1
       - name: Documentation check
+        if: always()
         run: |
           cargo doc --no-deps --quiet
           ./scripts/check.sh docs
-        if: always()
       - name: Check genesis
-        run: |
-           ./scripts/check.sh genesis
         if: always()
+        run: |
+          ./scripts/check.sh genesis
+      - name: Wasm build check
+        if: always()
+        env:
+          RUSTC_BOOTSTRAP: 1
+        working-directory: wasm
+        run: mold --run cargo build --target wasm32-unknown-unknown --quiet
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
-  # 2. Coverage bot can have results from
-  # `iroha2-dev` to report coverage changes.
-  coverage:
+  # 2. Coverage bot can have results from `iroha2-dev` to report coverage changes.
+  tests_with_coverage:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
@@ -69,10 +58,26 @@ jobs:
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
       - name: Run tests and generate lcov report
-        run: |
-          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+        if: always()
+        run: mold --run cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v2
         with:
           file: lcov.info
           fail_ci_if_error: true
+
+  integration_tests:
+    runs-on: ubuntu-latest
+    container:
+      image: 7272721/i2-ci:latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v2
+      - uses: Swatinem/rust-cache@v1
+      - name: Run tests
+        if: always()
+        run: |
+          mold --run cargo test --test '*' --all-features -- \
+          integration:: \
+          --test-threads 2 \
+          --skip unstable_network
