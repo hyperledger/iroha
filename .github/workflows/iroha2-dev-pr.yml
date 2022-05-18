@@ -63,7 +63,7 @@ jobs:
         with:
           toolchain: nightly-2022-04-20
           override: true
-          # components: llvm-tools-preview
+          components: llvm-tools-preview
 
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
