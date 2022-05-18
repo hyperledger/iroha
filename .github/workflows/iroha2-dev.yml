@@ -176,33 +176,27 @@ jobs:
 
   # Coverage is both in PR and in push pipelines so that:
   # 1. PR can get coverage report from bot.
-  # 2. Coverage bot can have results from
-  # `iroha2-dev` to report coverage changes.
+  # 2. Coverage bot can have results from `iroha2-dev` to report coverage changes.
   coverage:
     runs-on: ubuntu-latest
     container:
       image: 7272721/i2-ci:latest
     steps:
-      # TODO Remove this step #2165
-      - name: Add component
-        run: rustup component add llvm-tools-preview
-
+      # TODO Remove these steps #2165
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      #
       - uses: actions/checkout@v2
       - uses: Swatinem/rust-cache@v1
-      - name: Run tests
-        run: |
-          mold --run cargo test \
-          --quiet --workspace --no-fail-fast -- \
-          --skip unstable_network --skip ui --test-threads 3
-        env:
-          RUSTFLAGS: "-C instrument-coverage"
-          LLVM_PROFILE_FILE: "iroha-%p-%m.profraw"
-      - name: Generate a grcov coverage report
-        run: |
-          grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
+      - name: Run tests and generate lcov report
         if: always()
+        run: mold --run cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v2
-        if: always()
         with:
           file: lcov.info
+          fail_ci_if_error: true
