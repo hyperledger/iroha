@@ -27,3 +27,5 @@ pub const STATUS: &str = "status";
 pub const METRICS: &str = "metrics";
 /// URI for retrieving the schema with which Iroha was built.
 pub const SCHEMA: &str = "schema";
+/// URI for getting the API version currently used
+pub const API_VERSION: &str = "api_version";

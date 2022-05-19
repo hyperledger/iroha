@@ -303,6 +303,27 @@ view_changes 0
 
 Learn [how to use metrics](../guides/metrics.md).
 
+### API version
+
+**Protocol**: HTTP
+
+**Encoding**: JSON
+
+**Endpoint**: `/api_version`
+
+**Method**: `GET`
+
+**Expects**: -
+
+**Responses**:
+- 200 OK - The current version of API used by Iroha returned as a json string.
+Grabbed from the genesis block's version, so at least a minimal subnet of 4 peers
+should be running and the genesis be submitted at the time of request.
+```
+"1"
+```
+
+
 ## Parity Scale Codec
 
 For more information on codec check [Substrate Dev Hub](https://substrate.dev/docs/en/knowledgebase/advanced/codec) and codec's [Github repository](https://github.com/paritytech/parity-scale-codec).
