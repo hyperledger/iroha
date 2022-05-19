@@ -116,7 +116,7 @@ type UnitName = u32;
 impl MeasurerUnit {
     /// Submit initial transactions for measurement
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    fn ready(mut self) -> Result<Self> {
+    fn ready(self) -> Result<Self> {
         let (public_key, _) = iroha_core::prelude::KeyPair::generate()
             .expect("Failed to generate KeyPair.")
             .into();
@@ -133,7 +133,7 @@ impl MeasurerUnit {
     /// Spawn who checks if all the expected blocks are committed
     #[allow(clippy::expect_used)]
     fn spawn_event_counter(&self) -> thread::JoinHandle<Result<()>> {
-        let mut listener = self.client.clone();
+        let listener = self.client.clone();
         let (init_sender, init_receiver) = mpsc::channel();
         let event_filter = PipelineEventFilter::new()
             .entity_kind(PipelineEntityKind::Block)
@@ -157,7 +157,7 @@ impl MeasurerUnit {
 
     /// Spawn who periodically submits transactions
     fn spawn_transaction_submitter(&self) {
-        let mut submitter = self.client.clone();
+        let submitter = self.client.clone();
         let interval_us_per_tx = self.config.interval_us_per_tx;
         let instructions = self.instructions();
         thread::spawn(move || -> Result<()> {

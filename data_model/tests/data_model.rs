@@ -180,8 +180,7 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     client_configuration.torii_api_url =
         SmallStr::from_string("http://".to_owned() + &peer.api_address);
-    let mut iroha_client =
-        Client::new(&client_configuration).expect("Invalid client configuration");
+    let iroha_client = Client::new(&client_configuration).expect("Invalid client configuration");
     iroha_client
         .submit_all(vec![
             register::domain("exchange").into(),

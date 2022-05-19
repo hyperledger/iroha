@@ -100,7 +100,7 @@ fn transaction_execution_should_produce_events(executable: Executable) -> Result
     let pipeline_time = Configuration::pipeline_time();
 
     // spawn event reporter
-    let mut listener = client.clone();
+    let listener = client.clone();
     let (init_sender, init_receiver) = mpsc::channel();
     let (event_sender, event_receiver) = mpsc::channel();
     let event_filter = DataEventFilter::AcceptAll.into();

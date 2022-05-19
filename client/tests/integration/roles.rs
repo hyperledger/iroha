@@ -91,7 +91,7 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
 
 #[test]
 fn register_empty_role() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
@@ -103,7 +103,7 @@ fn register_empty_role() -> Result<()> {
 
 #[test]
 fn register_role_with_empty_token_params() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
@@ -124,7 +124,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
 /// SDK, I'll update both tests to actually verify functionality.
 #[test]
 fn register_metadata_role() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland")?;
