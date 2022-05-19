@@ -219,7 +219,7 @@ impl Set {
     /// Handle [`DataEvent`].
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
-    /// This actions will be inspected in the next `Set::inspect_matched()` call
+    /// This actions will be inspected in the next [`Set::handle_data_event()`] call
     pub fn handle_data_event(&self, event: &DataEvent) {
         self.handle_event(&self.data_triggers, event, EventType::Data)
     }
@@ -227,7 +227,7 @@ impl Set {
     /// Handle [`PipelineEvent`].
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
-    /// This actions will be inspected in the next `Set::inspect_matched()` call
+    /// This actions will be inspected in the next [`Set::inspect_matched()`] call
     pub fn handle_pipeline_event(&self, event: &PipelineEvent) {
         self.handle_event(&self.pipeline_triggers, event, EventType::Pipeline)
     }
@@ -235,7 +235,7 @@ impl Set {
     /// Handle [`TimeEvent`].
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
-    /// This actions will be inspected in the next `Set::inspect_matched()` call
+    /// This actions will be inspected in the next [`Set::inspect_matched()`] call
     pub fn handle_time_event(&self, event: &TimeEvent) {
         for entry in &self.time_triggers {
             let action = entry.value();
@@ -261,7 +261,7 @@ impl Set {
     /// Handle [`ExecuteTriggerEvent`].
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
-    /// This actions will be inspected ln the next `Set::inspect_matched()` call
+    /// This actions will be inspected ln the next [`Set::inspect_matched()`] call
     pub fn handle_execute_trigger_event(&self, event: &ExecuteTriggerEvent) {
         self.handle_event(&self.by_call_triggers, event, EventType::ExecuteTrigger)
     }
