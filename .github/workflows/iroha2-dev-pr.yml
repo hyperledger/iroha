@@ -79,5 +79,4 @@ jobs:
         run: |
           mold --run cargo test --test '*' --all-features -- \
           integration:: \
-          --test-threads 2 \
           --skip unstable_network

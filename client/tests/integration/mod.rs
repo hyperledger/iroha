@@ -1,5 +1,3 @@
-#![cfg(not(coverage))]
-
 pub use iroha::config::Configuration;
 
 mod add_account;
