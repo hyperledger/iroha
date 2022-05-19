@@ -7,7 +7,6 @@ use iroha_telemetry::metrics;
 use super::*;
 
 impl<W: WorldTrait> ValidQuery<W> for FindAllTransactions {
-    #[log]
     #[metrics(+"find_all_transactions")]
     fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, query::Error> {
         let mut txs = wsv.transaction_values();
