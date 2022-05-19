@@ -16,7 +16,7 @@ use crate::{
     Identifiable, Name, ParseError,
 };
 
-/// Collection of [`RoleId`]s
+/// Collection of [`RoleId`](Id)s
 pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
 
 /// Identification of a role.

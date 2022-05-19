@@ -1,0 +1,7 @@
+* Flaky tests
+
+** test: integration::triggers::event_trigger::test_mint_asset_when_new_asset_definition_created (25/100)
+
+** test: multiple_networks stdout (1/100)
+
+** test: integration::roles::add_role_to_limit_transfer_count (6/100)

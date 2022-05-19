@@ -177,11 +177,13 @@ pub trait Configurable: Serialize + DeserializeOwned {
         T: AsRef<[&'tl str]> + Send + 'tl;
 
     /// Fails if fails to deserialize from environment
+    ///
     /// # Errors
     /// Fails if fails to deserialize from environment
     fn load_environment(&mut self) -> Result<(), Self::Error>;
 
     /// Gets docs of inner field of arbitrary depth
+    ///
     /// # Errors
     /// Fails if field was unknown
     fn get_doc_recursive<'tl>(
