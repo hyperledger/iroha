@@ -196,7 +196,14 @@ impl GenesisNetworkTrait for GenesisNetwork {
 
                     raw_transaction.sign_and_accept(genesis_key_pair, tx_limits)
                 })
-                .filter_map(Result::ok)
+                .enumerate()
+                .filter_map(|(i, res)| {
+                    res.map_err(|error| {
+                        let error_msg = format!("{error:#}");
+                        iroha_logger::error!(error = %error_msg, "Genesis transaction #{i} didn't succeed")
+                    })
+                    .ok()
+                })
                 .collect(),
             wait_for_peers_retry_count: genesis_config.wait_for_peers_retry_count,
             wait_for_peers_retry_period_ms: genesis_config.wait_for_peers_retry_period_ms,
@@ -276,7 +283,7 @@ impl GenesisTransaction {
     /// Convert `GenesisTransaction` into `AcceptedTransaction` with signature
     ///
     /// # Errors
-    /// Fails if signing fails
+    /// Fails if signing or accepting fails
     pub fn sign_and_accept(
         &self,
         genesis_key_pair: KeyPair,

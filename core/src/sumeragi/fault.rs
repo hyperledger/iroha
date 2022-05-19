@@ -466,7 +466,9 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
         ctx: &mut Context<Self>,
     ) -> Result<()> {
         if transactions.is_empty() {
-            Err(eyre!("Genesis transactions set is empty."))
+            Err(eyre!(
+                "Genesis transactions set is empty or all of the transactions are incorrect"
+            ))
         } else if genesis_topology.leader() != &self.peer_id {
             Err(eyre!(
                 "Incorrect network topology this peer should be {:?} but is {:?}",

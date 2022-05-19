@@ -435,10 +435,15 @@ where
     /// - Block store path not readable
     /// - [`Iroha::start_as_task`] failed or produced empty job handle.
     /// - `receiver` fails to produce a message.
+    ///
+    /// # TODO
+    /// Use *Builder* pattern (#2238)
     pub async fn start_with_config_permissions_dir(
         &mut self,
         configuration: Configuration,
-        permissions: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
+        genesis: Option<G>,
+        instruction_validator: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
+        query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
         temp_dir: &TempDir,
     ) {
         let mut configuration = self.get_config(configuration);
@@ -453,15 +458,18 @@ where
             telemetry_addr = %self.telemetry_address
         );
         let broker = self.broker.clone();
+        let telemetry =
+            iroha_logger::init(&configuration.logger).expect("Failed to initialize telemetry");
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let handle = task::spawn(
             async move {
                 let mut iroha = <Iroha<W, G, K, S, B>>::with_genesis(
-                    G::test(true),
+                    genesis,
                     configuration,
-                    permissions.into(),
-                    AllowAll.into(),
+                    instruction_validator.into(),
+                    query_validator.into(),
                     broker,
+                    telemetry,
                 )
                 .await
                 .expect("Failed to start iroha");
@@ -473,6 +481,7 @@ where
         );
 
         self.iroha = Some(receiver.recv().unwrap());
+        time::sleep(Duration::from_millis(300)).await;
         self.shutdown = Some(handle);
     }
 
@@ -480,6 +489,7 @@ where
     ///
     /// # Panics
     /// - [`TempDir::new`] failed.
+    /// - Initializing [telemetry](iroha_logger::init()) failed
     /// - [`Iroha::with_genesis`] failed.
     /// - Failed to send [`Iroha`] via sender.
     /// - [`Iroha::start_as_task`] failed or produced empty job handle.
@@ -491,41 +501,14 @@ where
         query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
     ) {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
-        let mut configuration = self.get_config(configuration);
-        configuration
-            .kura
-            .block_store_path(temp_dir.path())
-            .expect("Guaranteed to exist");
-        let info_span = iroha_logger::info_span!(
-            "test-peer",
-            p2p_addr = %self.p2p_address,
-            api_addr = %self.api_address,
-            telemetry_addr = %self.telemetry_address
-        );
-        let broker = self.broker.clone();
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        let join_handle = tokio::spawn(
-            async move {
-                let _temp_dir = temp_dir;
-                let mut iroha = <Iroha<W, G, K, S, B>>::with_genesis(
-                    genesis,
-                    configuration,
-                    instruction_validator.into(),
-                    query_validator.into(),
-                    broker,
-                )
-                .await
-                .expect("Failed to start Iroha");
-                let job_handle = iroha.start_as_task().unwrap();
-                sender.send(iroha).unwrap();
-                job_handle.await.unwrap().unwrap();
-            }
-            .instrument(info_span),
-        );
-
-        self.iroha = Some(receiver.recv().unwrap());
-        time::sleep(Duration::from_millis(300)).await;
-        self.shutdown = Some(join_handle);
+        self.start_with_config_permissions_dir(
+            configuration,
+            genesis,
+            instruction_validator,
+            query_validator,
+            &temp_dir,
+        )
+        .await;
     }
 
     /// Start peer with config

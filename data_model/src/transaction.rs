@@ -67,14 +67,18 @@ pub trait Txn {
                 let instruction_count: usize = instructions.iter().map(Instruction::len).sum();
 
                 if instruction_count as u64 > limits.max_instruction_number {
-                    return Err(TransactionLimitError(String::from(
-                        "Too many instructions in payload",
+                    return Err(TransactionLimitError(format!(
+                        "Too many instructions in payload, max number is {}",
+                        limits.max_instruction_number
                     )));
                 }
             }
             Executable::Wasm(WasmSmartContract { raw_data }) => {
                 if raw_data.len() as u64 > limits.max_wasm_size_bytes {
-                    return Err(TransactionLimitError(String::from("wasm binary too large")));
+                    return Err(TransactionLimitError(format!(
+                        "Wasm binary too large, max size is {}",
+                        limits.max_wasm_size_bytes
+                    )));
                 }
             }
         }
