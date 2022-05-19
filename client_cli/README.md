@@ -1,35 +1,41 @@
 # Iroha CLI Client
 
-## Description
+With the Iroha CLI Client, you can interact with Iroha Peers Web API.
+It is a "thin" wrapper around functionality exposed in the `iroha_client` crate. Specifically, it should be used as a reference for using `iroha_client`'s features, and not as a production-ready client. As such, the CLI client is not guaranteed to support all features supported by the client library.
 
-Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.
-It's a "light" client which only converts Command Line Interface commands into Iroha Web API Network Requests.
+## Features
 
-### Features
-
-* Iroha CLI Client can submit Transactions with your Iroha Special Instructions to Iroha Peers
-* Iroha CLI Client can send Requests with your Queries to Iroha Peers
+* Submit Transactions with your Iroha Special Instructions to Iroha Peers
+* Send Requests with your Queries to Iroha Peers
 
 ## Installation
 
-### Requirements
+**Requirements:** a working [Rust toolchain](https://www.rust-lang.org/learn/get-started) (version 1.60), installed and configured.
 
-* [Rust](https://www.rust-lang.org/learn/get-started)
-
-### Build
+Build Iroha and its binaries:
 
 ```bash
 cargo build
 ```
 
-### Artifact
+The above command will produce the `iroha_client_cli` ELF executable file for Linux/BSD, the `iroha_client_cli` executable for MacOS, and the `iroha_client_cli.exe` executable for Windows, depending on your platform and configuration.
 
-`iroha_client_cli` executable file for Unix and `iroha_client_cli.exe` executable file for Windows will appear.
-All examples below are Unix oriented, to run them on Windows replace `./iroha_client_cli` with `iroha_client_cli.exe`.
+## Usage Examples
 
-## Examples
+:grey_exclamation: All examples below are Unix-oriented. If you're working on Windows, we would highly encourage you to consider using WSL, as most documentation assumes a POSIX-like shell running on your system. Please be advised that the differences in the syntax may go beyond executing `iroha_client_cli.exe` instead of `iroha_client_cli`.
 
-Full description and list of commands detailed in `./iroha_client_cli --help`.
+In this section we will show you how to use Iroha CLI Client to do the following:
+
+- [Create a new domain](#create-new-domain)
+- [Create a new account](#create-new-account)
+- [Mint an asset to an account's wallet](#mint-asset-to-account)
+- [Query an account's assets](#query-account-assets-quantity)
+
+To get the full list of commands and their descriptions, run:
+
+```
+./iroha_client_cli --help
+```
 
 ### TL;DR
 
@@ -43,20 +49,19 @@ Full description and list of commands detailed in `./iroha_client_cli --help`.
 
 ### Create new Domain
 
-Let's start with domain creation. We need to provide `register` command first, 
-following by entity type (domain in our case) and list of required parameters.
-For domain entity we only need `id` parameter as a string.
+Let's start with domain creation. To create a domain, you need to specify the entity type first (`domain` in our case) and then the command (`register`) with a list of required parameters.
+For the `domain` entity, you only need to provide the `id` argument as a string that doesn't contain the `@` and `#` symbols.
 
 ```bash
 ./iroha_client_cli domain register --id="Soramitsu"
 ```
 
+Now you have a domain without any accounts.
+
 ### Create new Account
 
-Right now we have the only domain without any accounts, let's fix it.
-Like in the previous example, we need to define account name, it is done using `id` flag.
-We also give a `key` argument with account's public key as a double-quoted
-string value.
+Let's create a new account. Like in the previous example, specify the entity type (`account`) and the command (`register`). Then define the account name as the value of the `id` argument.
+Additionally, you need to provide the `key` argument with the account's public key as a double-quoted multihash representation of the key. Providing an empty string also works (but is highly discouraged), while omitting the argument altogether will produce an error.
 
 ```bash
 ./iroha_client_cli account register --id="White Rabbit@Soramitsu" --key=""
@@ -64,50 +69,36 @@ string value.
 
 ### Mint Asset to Account
 
-Okay, it's time to give something to our Account. We will add some Assets quantity to it.
-This time we need to register an Asset Definition first and then add some Assets to the account.
-As you can see, we use new command `asset` and it's subcommands `register` and `mint`. 
-Every asset has its own value type, here we define domain as quantity (integer/number).
+It's time to give something to the Account you created. Let's add some Assets of the type `Quantity` to the account.
+
+To do so, you must first register an Asset Definition and only then add some Assets to the account. Specify the `asset` entity and then use the `register` and `mint` commands respectively. 
+	
+Every asset has its own value type. In this example, it is defined as `Quantity`, a 32-bit unsigned integer. We also support `BigQuantity` and `Fixed`, which are a 128-bit unsigned integer and a 64-bit fixed-precision binary fraction, as well as `Store` for key-value structured data.
 
 ```bash
 ./iroha_client_cli asset register --id="XOR#Soramitsu" --value-type=Quantity
 ./iroha_client_cli asset mint --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" --quantity=1010 
 ```
 
+You created `XOR#Soramitsu`, an asset of type `Quantity`, and then gave `1010` units of this asset to the account `White Rabbit@Soramitsu`.
+
 ### Query Account Assets Quantity
 
-Because distributed systems heavily relay on the concept of eventual consistency and Iroha works in Consensus between peers, your requests may or may not be processed
-while Iroha Client will successfully send them and Iroha Peer will accept them. Different stages of transactions processing and different cases may lead to
-rejection of transaction after your receive response from Command Line Interface. To check that your instruction were applied and system now in the desired state
-you need to become familiar and use Query API.
+Because distributed systems heavily rely on the concept of _eventual_ consistency and Iroha works by awaiting consensus between peers, your request is not guaranteed to be processed (or be accepted) even if it is correctly formed. 
+While the Iroha Client will successfully send your transactions and the Iroha Peer will confirm receiving them, it is possible that your request will not appear in the next block.
 
-Let's use Get Account Assets Query as an example. Command will look familiar because it almost the same as the update command.
-We need to know quantity so we skip this argument and replace `update asset add` part with `get asset`.
+Different causes such as a transaction timeout, a faulty peer in the network, catastrophic failure of the peer that you've sent your data towards, and many other conditions naturally occurring inside of any blockchain may lead to a rejection of your transaction at many different stages of processing.
+
+It should be noted that Iroha is designed to reduce the incidence of such rejections, and only rejects properly formed transactions in situations when not rejecting it would lead to data corruption and a hard-fork of the network.
+
+As such it's important to check that your instructions were applied and the _world_ is now in the desired state.
+For this you need to use Query API.
+
+Let's use Get Account Assets Query as an example.
+To know how many units of a particular asset an account has, use `asset get` with the specified account and asset:
 
 ```bash
 ./iroha_client_cli asset get --account="White Rabbit@Soramitsu" --asset="XOR#Soramitsu" 
 ```
 
-### Want to help us develop Iroha?
-
-That's great! 
-Check out [this document](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md)
-
-## [Need help?](https://github.com/hyperledger/iroha/blob/iroha2-dev/CONTRIBUTING.md#contact)
-
-## License
-
-Iroha codebase is licensed under the Apache License,
-Version 2.0 (the "License"); you may not use this file except
-in compliance with the License. You may obtain a copy of the
-License at http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
-Iroha documentation files are made available under the Creative Commons
-Attribution 4.0 International License (CC-BY-4.0), available at
-http://creativecommons.org/licenses/by/4.0/
+This query returns the quantity of `XOR#Soramitsu` asset for the `White Rabbit@Soramitsu` account.
