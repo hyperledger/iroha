@@ -1,5 +1,4 @@
-#![allow(unsafe_code)]
-#![allow(clippy::restriction)]
+#![allow(unsafe_code, clippy::restriction, clippy::pedantic)]
 
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
@@ -14,6 +13,20 @@ const DEFAULT_PARAMS: [(Name, Value); 2] = [
     (Name("Nomen"), Value("Omen")),
     (Name("Nomen2"), Value("Omen2")),
 ];
+
+//#[ffi_bindgen]
+//impl FromStr for Name {
+//    type Err = ParseError;
+//
+//    fn from_str(candidate: &str) -> Result<Self, Self::Err> {
+//        if candidate.chars().any(char::is_whitespace) {
+//            return Err(ParseError {
+//                reason: "White space not allowed in `Name` constructs",
+//            });
+//        }
+//        Ok(Self(String::from(candidate)))
+//    }
+//}
 
 #[ffi_bindgen]
 #[derive(getset::Getters)]
@@ -50,6 +63,13 @@ impl FfiStruct {
     }
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.params.iter()
+    }
+    pub fn fallible(flag: bool) -> Result<u32, &'static str> {
+        if flag {
+            Ok(42)
+        } else {
+            Err("fail")
+        }
     }
 }
 
@@ -180,19 +200,18 @@ fn return_iterator() {
     let mut params_len = MaybeUninit::new(0);
     let mut params = Vec::with_capacity(1);
 
-    assert_eq!(FfiResult::Ok, unsafe {
-        ffi_struct_params(
-            ffi_struct,
-            params.as_mut_ptr(),
-            params.capacity(),
-            params_len.as_mut_ptr(),
-        )
-    });
-
     unsafe {
-        let params_len = params_len.assume_init();
+        assert_eq!(
+            FfiResult::Ok,
+            ffi_struct_params(
+                ffi_struct,
+                params.as_mut_ptr(),
+                params.capacity(),
+                params_len.as_mut_ptr(),
+            )
+        );
 
-        assert!(params_len == 2);
+        assert!(params_len.assume_init() == 2);
         params.set_len(1);
 
         assert!(params
@@ -201,6 +220,24 @@ fn return_iterator() {
             .eq(DEFAULT_PARAMS.iter().take(1).map(|pair| (&pair.0, &pair.1))));
 
         ffi_struct_drop(ffi_struct);
+    }
+}
+
+#[test]
+fn return_result() {
+    let mut output = MaybeUninit::new(0);
+
+    unsafe {
+        assert_eq!(
+            FfiResult::ExecutionFail,
+            ffi_struct_fallible(u8::from(false), output.as_mut_ptr())
+        );
+        assert_eq!(0, output.assume_init());
+        assert_eq!(
+            FfiResult::Ok,
+            ffi_struct_fallible(u8::from(true), output.as_mut_ptr())
+        );
+        assert_eq!(42, output.assume_init());
     }
 }
 

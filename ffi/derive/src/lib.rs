@@ -6,9 +6,9 @@ use proc_macro_error::{abort, OptionExt};
 use quote::quote;
 use syn::{parse_macro_input, parse_quote, visit::Visit, visit_mut::VisitMut, Item, ItemStruct};
 
-use crate::ffi::{FfiTypePath, ImplDescriptor};
+use crate::visitor::{ImplDescriptor, SelfResolver};
 
-mod ffi;
+mod visitor;
 
 #[proc_macro_attribute]
 #[proc_macro_error::proc_macro_error]
@@ -46,7 +46,6 @@ pub fn ffi_bindgen(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
                 #[no_mangle]
                 #[doc = "Drop function for [`#struct_name`]"]
-                // TODO: This fn could be made generic? Which pointer type to take if so?
                 pub unsafe extern "C" fn #drop_ffi_fn_name(handle: *mut #struct_name) {
                     Box::from_raw(handle);
                 }
@@ -95,7 +94,7 @@ fn generate_ffi_getter(struct_name: &syn::Ident, field: &syn::Field) -> Option<s
     }
 
     if let syn::Type::Path(mut field_ty) = field.ty.clone() {
-        FfiTypePath::new(parse_quote! { #struct_name }).visit_type_path_mut(&mut field_ty);
+        SelfResolver::new(parse_quote! { #struct_name }).visit_type_path_mut(&mut field_ty);
 
         let ffi_fn_name = syn::Ident::new(
             &format!("{}_{}", snake_case_ident(struct_name), field_name),
