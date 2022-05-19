@@ -25,10 +25,9 @@ RUN set -ex; \
     rm /tmp/*.sh
 
 RUN set -ex; \
-    rustup install --profile default nightly-2022-04-20; \
+    rustup toolchain install --profile default nightly-2022-04-20; \
     rustup target add wasm32-unknown-unknown; \
-    rustup component add rust-src --toolchain nightly-2022-04-20-x86_64-unknown-linux-gnu
-
+    rustup component add rust-src
 
 FROM rust-base as cargo-chef
 RUN cargo install cargo-chef
