@@ -155,8 +155,10 @@ where
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
         if !config.disable_panic_terminal_colors {
-            // Ignoring error if `iroha_logger` has already installed colors
-            let _color_res = color_eyre::install();
+            if let Err(e) = color_eyre::install() {
+                let error_message = format!("{e:#}");
+                iroha_logger::error!(error = %error_message, "Tried to install eyre_hook twice",);
+            }
         }
         let listen_addr = config.torii.p2p_addr.clone();
         iroha_logger::info!(%listen_addr, "Starting peer");

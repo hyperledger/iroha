@@ -61,23 +61,34 @@ pub trait Txn {
     ///
     /// Fails if number of instructions or wasm size exceeds maximum
     #[inline]
+    #[allow(clippy::expect_used)]
     fn check_limits(&self, limits: &TransactionLimits) -> Result<(), TransactionLimitError> {
         match &self.payload().instructions {
             Executable::Instructions(instructions) => {
-                let instruction_count: usize = instructions.iter().map(Instruction::len).sum();
+                let instruction_count: u64 = instructions
+                    .iter()
+                    .map(Instruction::len)
+                    .sum::<usize>()
+                    .try_into()
+                    .expect("`usize` should always fit in `u64`");
 
-                if instruction_count as u64 > limits.max_instruction_number {
+                if instruction_count > limits.max_instruction_number {
                     return Err(TransactionLimitError(format!(
-                        "Too many instructions in payload, max number is {}",
-                        limits.max_instruction_number
+                        "Too many instructions in payload, max number is {}, but got {}",
+                        limits.max_instruction_number, instruction_count
                     )));
                 }
             }
             Executable::Wasm(WasmSmartContract { raw_data }) => {
-                if raw_data.len() as u64 > limits.max_wasm_size_bytes {
+                let len: u64 = raw_data
+                    .len()
+                    .try_into()
+                    .expect("`usize` should always fit in `u64`");
+
+                if len > limits.max_wasm_size_bytes {
                     return Err(TransactionLimitError(format!(
-                        "Wasm binary too large, max size is {}",
-                        limits.max_wasm_size_bytes
+                        "Wasm binary too large, max size is {}, but got {}",
+                        limits.max_wasm_size_bytes, len
                     )));
                 }
             }

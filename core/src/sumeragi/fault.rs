@@ -467,7 +467,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection>
     ) -> Result<()> {
         if transactions.is_empty() {
             Err(eyre!(
-                "Genesis transactions set is empty or all of the transactions are incorrect"
+                "Genesis transactions set contains no valid transactions"
             ))
         } else if genesis_topology.leader() != &self.peer_id {
             Err(eyre!(

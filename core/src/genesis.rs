@@ -200,7 +200,7 @@ impl GenesisNetworkTrait for GenesisNetwork {
                 .filter_map(|(i, res)| {
                     res.map_err(|error| {
                         let error_msg = format!("{error:#}");
-                        iroha_logger::error!(error = %error_msg, "Genesis transaction #{i} didn't succeed")
+                        iroha_logger::error!(error = %error_msg, "Genesis transaction #{i} failed")
                     })
                     .ok()
                 })
