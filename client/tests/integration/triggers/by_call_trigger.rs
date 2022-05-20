@@ -35,7 +35,7 @@ fn call_execute_trigger() -> Result<()> {
 
 #[test]
 fn execute_trigger_should_produce_event() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -49,7 +49,7 @@ fn execute_trigger_should_produce_event() -> Result<()> {
     let trigger_id = TriggerId::new(TRIGGER_NAME.parse()?);
     let call_trigger = ExecuteTriggerBox::new(trigger_id.clone());
 
-    let mut thread_client = test_client.clone();
+    let thread_client = test_client.clone();
     let (sender, receiver) = mpsc::channel();
     let _handle = thread::spawn(move || -> Result<()> {
         let mut event_it = thread_client

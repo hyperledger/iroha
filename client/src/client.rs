@@ -24,9 +24,11 @@ use small::SmallStr;
 
 use crate::{
     config::Configuration,
-    http::{Headers as HttpHeaders, Method as HttpMethod, RequestBuilder, Response, StatusCode},
+    http::{Method as HttpMethod, RequestBuilder, Response, StatusCode},
     http_default::{self, DefaultRequestBuilder, WebSocketError, WebSocketMessage},
 };
+
+const APPLICATION_JSON: &str = "application/json";
 
 /// General trait for all response handlers
 pub trait ResponseHandler<T = Vec<u8>> {
@@ -241,7 +243,7 @@ pub struct Client {
     /// Current account
     account_id: AccountId,
     /// Http headers which will be appended to each request
-    headers: HttpHeaders,
+    headers: HashMap<String, String>,
     /// If `true` add nonce, which makes different hashes for
     /// transactions which occur repeatedly and/or simultaneously
     add_transaction_nonce: bool,
@@ -254,7 +256,7 @@ impl Client {
     /// # Errors
     /// If configuration isn't valid (e.g public/private keys don't match)
     pub fn new(configuration: &Configuration) -> Result<Self> {
-        Self::with_headers(configuration, HttpHeaders::default())
+        Self::with_headers(configuration, HashMap::new())
     }
 
     /// Constructor for client from configuration and headers
@@ -343,7 +345,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit(
-        &mut self,
+        &self,
         instruction: impl Into<Instruction> + Debug,
     ) -> Result<HashOf<VersionedTransaction>> {
         let isi = instruction.into();
@@ -356,7 +358,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all(
-        &mut self,
+        &self,
         instructions: impl IntoIterator<Item = Instruction>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_with_metadata(instructions, UnlimitedMetadata::new())
@@ -369,7 +371,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_with_metadata(
-        &mut self,
+        &self,
         instruction: Instruction,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
@@ -383,7 +385,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_with_metadata(
-        &mut self,
+        &self,
         instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
@@ -403,6 +405,7 @@ impl Client {
         let (req, hash, resp_handler) =
             self.prepare_transaction_request::<DefaultRequestBuilder>(transaction)?;
         let response = req
+            .build()?
             .send()
             .wrap_err_with(|| format!("Failed to send transaction with hash {:?}", hash))?;
         resp_handler.handle(response)?;
@@ -419,13 +422,10 @@ impl Client {
     ///
     /// # Errors
     /// Fails if transaction check fails
-    pub fn prepare_transaction_request<B>(
+    pub fn prepare_transaction_request<B: RequestBuilder>(
         &self,
         transaction: Transaction,
-    ) -> Result<(B, HashOf<VersionedTransaction>, TransactionResponseHandler)>
-    where
-        B: RequestBuilder,
-    {
+    ) -> Result<(B, HashOf<VersionedTransaction>, TransactionResponseHandler)> {
         transaction.check_limits(&self.transaction_limits)?;
         let transaction: VersionedTransaction = transaction.into();
         let hash = transaction.hash();
@@ -436,8 +436,8 @@ impl Client {
                 HttpMethod::POST,
                 format!("{}/{}", &self.torii_url, uri::TRANSACTION),
             )
-            .bytes(transaction_bytes)
-            .headers(self.headers.clone()),
+            .headers(self.headers.clone())
+            .body(transaction_bytes),
             hash,
             TransactionResponseHandler,
         ))
@@ -449,7 +449,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking(
-        &mut self,
+        &self,
         instruction: impl Into<Instruction>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking(vec![instruction.into()])
@@ -461,7 +461,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking(
-        &mut self,
+        &self,
         instructions: impl IntoIterator<Item = Instruction>,
     ) -> Result<HashOf<VersionedTransaction>> {
         self.submit_all_blocking_with_metadata(instructions, UnlimitedMetadata::new())
@@ -474,7 +474,7 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_blocking_with_metadata(
-        &mut self,
+        &self,
         instruction: impl Into<Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
@@ -488,13 +488,13 @@ impl Client {
     /// # Errors
     /// Fails if sending transaction to peer fails or if it response with error
     pub fn submit_all_blocking_with_metadata(
-        &mut self,
+        &self,
         instructions: impl IntoIterator<Item = Instruction>,
         metadata: UnlimitedMetadata,
     ) -> Result<HashOf<VersionedTransaction>> {
         struct EventListenerInitialized;
 
-        let mut client = self.clone();
+        let client = self.clone();
         let (event_sender, event_receiver) = mpsc::channel();
         let (init_sender, init_receiver) = mpsc::channel();
         let transaction = self.build_transaction(instructions.into(), metadata)?;
@@ -597,9 +597,9 @@ impl Client {
                 HttpMethod::POST,
                 format!("{}/{}", &self.torii_url, uri::QUERY),
             )
-            .bytes(request.encode_versioned())
             .params(pagination)
-            .headers(self.headers.clone()),
+            .headers(self.headers.clone())
+            .body(request.encode_versioned()),
             QueryResponseHandler::default(),
         ))
     }
@@ -607,7 +607,7 @@ impl Client {
     /// Query API entry point. Requests queries from `Iroha` peers with pagination.
     ///
     /// Uses default blocking http-client. If you need some custom integration, look at
-    /// [`Self::prepare_query_request()`].
+    /// [`Self::prepare_query_request`].
     ///
     /// # Errors
     /// Fails if sending request fails
@@ -623,7 +623,7 @@ impl Client {
         iroha_logger::trace!(?request, %pagination);
         let (req, resp_handler) =
             self.prepare_query_request::<R, DefaultRequestBuilder>(request, pagination)?;
-        let response = req.send()?;
+        let response = req.build()?.send()?;
         resp_handler.handle(response)
     }
 
@@ -645,14 +645,23 @@ impl Client {
     /// # Errors
     /// Fails if subscribing to websocket fails
     pub fn listen_for_events(
-        &mut self,
+        &self,
         event_filter: FilterBox,
     ) -> Result<impl Iterator<Item = Result<Event>>> {
         iroha_logger::trace!(?event_filter);
-        EventIterator::new(
-            &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
+        events_api::EventIterator::new(self.events_handler(event_filter)?)
+    }
+
+    /// Constructs an Events API handler. With it, you can use any WS client you want.
+    ///
+    /// # Errors
+    /// Fails if handler construction fails
+    #[inline]
+    pub fn events_handler(&self, event_filter: FilterBox) -> Result<events_api::flow::Init> {
+        events_api::flow::Init::new(
             event_filter,
             self.headers.clone(),
+            &format!("{}/{}", &self.torii_url, uri::SUBSCRIPTION),
         )
     }
 
@@ -677,6 +686,7 @@ impl Client {
             )
             .params(pagination.clone())
             .headers(self.headers.clone())
+            .build()?
             .send()?;
 
             if response.status() == StatusCode::OK {
@@ -725,15 +735,13 @@ impl Client {
     }
 
     fn get_config<T: DeserializeOwned>(&self, get_config: &GetConfiguration) -> Result<T> {
-        let headers = [("Content-Type".to_owned(), "application/json".to_owned())]
-            .into_iter()
-            .collect();
         let resp = DefaultRequestBuilder::new(
             HttpMethod::GET,
             format!("{}/{}", &self.torii_url, uri::CONFIGURATION),
         )
-        .bytes(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)
-        .headers(headers)
+        .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
+        .body(serde_json::to_vec(get_config).wrap_err("Failed to serialize")?)
+        .build()?
         .send()?;
 
         if resp.status() != StatusCode::OK {
@@ -751,15 +759,13 @@ impl Client {
     /// # Errors
     /// If sending request or decoding fails
     pub fn set_config(&self, post_config: PostConfiguration) -> Result<bool> {
-        let headers = [("Content-type".to_owned(), "application/json".to_owned())]
-            .into_iter()
-            .collect();
         let body = serde_json::to_vec(&post_config)
             .wrap_err(format!("Failed to serialize {:?}", post_config))?;
         let url = &format!("{}/{}", self.torii_url, uri::CONFIGURATION);
         let resp = DefaultRequestBuilder::new(HttpMethod::POST, url)
-            .bytes(body)
-            .headers(headers)
+            .header(http::header::CONTENT_TYPE, APPLICATION_JSON)
+            .body(body)
+            .build()?
             .send()?;
 
         if resp.status() != StatusCode::OK {
@@ -798,11 +804,11 @@ impl Client {
     /// Fails if sending request or decoding fails
     pub fn get_status(&self) -> Result<Status> {
         let (req, resp_handler) = self.prepare_status_request::<DefaultRequestBuilder>();
-        let resp = req.send()?;
+        let resp = req.build()?.send()?;
         resp_handler.handle(resp)
     }
 
-    /// Prepares http-request to implement [`Self::get_status()`] on your own.
+    /// Prepares http-request to implement [`Self::get_status`] on your own.
     ///
     /// For general usage example see [`Client::prepare_query_request`].
     ///
@@ -823,99 +829,6 @@ impl Client {
     }
 }
 
-/// Iterator for getting events from the `WebSocket` stream.
-#[derive(Debug)]
-pub struct EventIterator {
-    stream: WebSocketStream,
-}
-
-impl EventIterator {
-    /// Constructs `EventIterator` and sends the subscription request.
-    ///
-    /// # Errors
-    /// Fails if connecting and sending subscription to web socket fails
-    pub fn new(url: &str, event_filter: FilterBox, headers: HttpHeaders) -> Result<Self> {
-        let mut stream = http_default::web_socket_connect(url, headers)?;
-        stream.write_message(WebSocketMessage::Binary(
-            VersionedEventSubscriberMessage::from(EventSubscriberMessage::from(event_filter))
-                .encode_versioned(),
-        ))?;
-        loop {
-            match stream.read_message() {
-                Ok(WebSocketMessage::Binary(message)) => {
-                    if let EventPublisherMessage::SubscriptionAccepted =
-                        VersionedEventPublisherMessage::decode_versioned(&message)?.into_v1()
-                    {
-                        break;
-                    }
-                    return Err(eyre!("Expected `SubscriptionAccepted`."));
-                }
-                Ok(_) => continue,
-                Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
-                    return Err(eyre!("WebSocket connection closed."))
-                }
-                Err(err) => return Err(err.into()),
-            }
-        }
-        Ok(Self { stream })
-    }
-}
-
-impl Iterator for EventIterator {
-    type Item = Result<Event>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.stream.read_message() {
-                Ok(WebSocketMessage::Binary(message)) => {
-                    let event_socket_message =
-                        match VersionedEventPublisherMessage::decode_versioned(&message) {
-                            Ok(event_socket_message) => event_socket_message.into_v1(),
-                            Err(err) => return Some(Err(err.into())),
-                        };
-                    let event = match event_socket_message {
-                        EventPublisherMessage::Event(event) => event,
-                        msg => return Some(Err(eyre!("Expected Event but got {:?}", msg))),
-                    };
-                    let versioned_message = VersionedEventSubscriberMessage::from(
-                        EventSubscriberMessage::EventReceived,
-                    )
-                    .encode_versioned();
-                    return match self
-                        .stream
-                        .write_message(WebSocketMessage::Binary(versioned_message))
-                    {
-                        Ok(_) => Some(Ok(event)),
-                        Err(err) => Some(Err(eyre!("Failed to send receipt: {}", err))),
-                    };
-                }
-                Ok(_) => continue,
-                Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
-                    return None
-                }
-                Err(err) => return Some(Err(err.into())),
-            }
-        }
-    }
-}
-
-impl Drop for EventIterator {
-    fn drop(&mut self) {
-        let mut close = || -> eyre::Result<()> {
-            self.stream.close(None)?;
-            let mes = self.stream.read_message()?;
-            if !mes.is_close() {
-                return Err(eyre!(
-                    "Server hasn't sent `Close` message for websocket handshake"
-                ));
-            }
-            Ok(())
-        };
-
-        let _ = close().map_err(|e| warn!(%e));
-    }
-}
-
 impl Debug for Client {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
@@ -923,6 +836,196 @@ impl Debug for Client {
             .field("torii_url", &self.torii_url)
             .field("telemetry_url", &self.telemetry_url)
             .finish()
+    }
+}
+
+/// Logic related to Events API client implementation.
+pub mod events_api {
+    use super::*;
+    use crate::http::ws::{
+        conn_flow::{
+            EventData, Events as FlowEvents, Handshake as FlowHandshake, Init as FlowInit, InitData,
+        },
+        transform_ws_url,
+    };
+
+    /// Events API flow. For documentation and example usage please follow to [`crate::http::ws::conn_flow`].
+    pub mod flow {
+        use super::*;
+
+        /// Initialization struct for Events API flow.
+        pub struct Init {
+            /// Event filter
+            filter: FilterBox,
+            /// HTTP request headers
+            headers: HashMap<String, String>,
+            /// TORII URL
+            url: String,
+        }
+
+        impl Init {
+            /// Construct new item with provided filter, headers and url.
+            ///
+            /// # Errors
+            /// Fails if [`transform_ws_url`] fails.
+            #[inline]
+            pub(in super::super) fn new(
+                filter: FilterBox,
+                headers: HashMap<String, String>,
+                url: impl AsRef<str>,
+            ) -> Result<Self> {
+                Ok(Self {
+                    filter,
+                    headers,
+                    url: transform_ws_url(url.as_ref())?,
+                })
+            }
+        }
+
+        impl<R: RequestBuilder> FlowInit<R> for Init {
+            type Next = Handshake;
+
+            fn init(self) -> InitData<R, Self::Next> {
+                let Self {
+                    filter,
+                    headers,
+                    url,
+                } = self;
+
+                let msg =
+                    VersionedEventSubscriberMessage::from(EventSubscriberMessage::from(filter))
+                        .encode_versioned();
+
+                InitData::new(
+                    R::new(HttpMethod::GET, url).headers(headers),
+                    msg,
+                    Handshake,
+                )
+            }
+        }
+
+        /// Events API flow handshake handler
+        #[derive(Copy, Clone)]
+        pub struct Handshake;
+
+        impl FlowHandshake for Handshake {
+            type Next = Events;
+
+            fn message(self, message: Vec<u8>) -> Result<Self::Next>
+            where
+                Self::Next: FlowEvents,
+            {
+                if let EventPublisherMessage::SubscriptionAccepted =
+                    VersionedEventPublisherMessage::decode_versioned(&message)?.into_v1()
+                {
+                    return Ok(Events);
+                }
+                return Err(eyre!("Expected `SubscriptionAccepted`."));
+            }
+        }
+
+        /// Events API flow events handler
+        #[derive(Debug, Copy, Clone)]
+        pub struct Events;
+
+        impl FlowEvents for Events {
+            type Event = iroha_data_model::prelude::Event;
+
+            fn message(&self, message: Vec<u8>) -> Result<EventData<Self::Event>> {
+                let event_socket_message =
+                    VersionedEventPublisherMessage::decode_versioned(&message)
+                        .map(iroha_data_model::events::VersionedEventPublisherMessage::into_v1)
+                        .map_err(Into::<eyre::Error>::into)?;
+                let event = match event_socket_message {
+                    EventPublisherMessage::Event(event) => event,
+                    msg => return Err(eyre!("Expected Event but got {:?}", msg)),
+                };
+                let versioned_message =
+                    VersionedEventSubscriberMessage::from(EventSubscriberMessage::EventReceived)
+                        .encode_versioned();
+
+                Ok(EventData::new(event, versioned_message))
+            }
+        }
+    }
+
+    /// Iterator for getting events from the `WebSocket` stream.
+    #[derive(Debug)]
+    pub(super) struct EventIterator {
+        stream: WebSocketStream,
+        handler: flow::Events,
+    }
+
+    impl EventIterator {
+        /// Constructs `EventIterator` and sends the subscription request.
+        ///
+        /// # Errors
+        /// Fails if connecting and sending subscription to web socket fails
+        pub fn new(handler: flow::Init) -> Result<Self> {
+            let InitData {
+                first_message,
+                req,
+                next: handler,
+            } = FlowInit::<http_default::DefaultWebSocketRequestBuilder>::init(handler);
+
+            let mut stream = req.build()?.connect()?;
+            stream.write_message(WebSocketMessage::Binary(first_message))?;
+
+            let handler = loop {
+                match stream.read_message() {
+                    Ok(WebSocketMessage::Binary(message)) => break handler.message(message)?,
+                    Ok(_) => continue,
+                    Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
+                        return Err(eyre!("WebSocket connection closed."))
+                    }
+                    Err(err) => return Err(err.into()),
+                }
+            };
+            Ok(Self { stream, handler })
+        }
+    }
+
+    impl Iterator for EventIterator {
+        type Item = Result<Event>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            loop {
+                match self.stream.read_message() {
+                    Ok(WebSocketMessage::Binary(message)) => {
+                        return Some(self.handler.message(message).and_then(
+                            |EventData { reply, event }| {
+                                self.stream
+                                    .write_message(WebSocketMessage::Binary(reply))
+                                    .map(|_| event)
+                                    .wrap_err("Failed to reply")
+                            },
+                        ));
+                    }
+                    Ok(_) => continue,
+                    Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed) => {
+                        return None
+                    }
+                    Err(err) => return Some(Err(err.into())),
+                }
+            }
+        }
+    }
+
+    impl Drop for EventIterator {
+        fn drop(&mut self) {
+            let mut close = || -> eyre::Result<()> {
+                self.stream.close(None)?;
+                let mes = self.stream.read_message()?;
+                if !mes.is_close() {
+                    return Err(eyre!(
+                        "Server hasn't sent `Close` message for websocket handshake"
+                    ));
+                }
+                Ok(())
+            };
+
+            let _ = close().map_err(|e| warn!(%e));
+        }
     }
 }
 

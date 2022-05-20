@@ -10,7 +10,7 @@ use test_network::{Peer as TestPeer, *};
 #[test]
 fn client_add_account_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()>
 {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let pipeline_time = super::Configuration::pipeline_time();

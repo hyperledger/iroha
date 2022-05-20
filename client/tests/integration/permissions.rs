@@ -151,7 +151,7 @@ fn permissions_disallow_asset_burn() {
 #[test]
 fn account_can_query_only_its_own_domain() {
     let rt = Runtime::test();
-    let (_not_drop, mut iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
+    let (_not_drop, iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
         AllowAll.into(),
         private_blockchain::query::OnlyAccountsDomain.into(),
     ));
@@ -186,7 +186,7 @@ fn account_can_query_only_its_own_domain() {
 // a potential security liability that gives an attacker a backdoor for gaining root access
 fn permissions_checked_before_transaction_execution() {
     let rt = Runtime::test();
-    let (_not_drop, mut iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
+    let (_not_drop, iroha_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
         // New domain registration is the only permitted instruction
         private_blockchain::register::GrantedAllowedRegisterDomains.into(),
         DenyAll.into(),

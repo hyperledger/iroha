@@ -5,7 +5,7 @@ use iroha_data_model::prelude::*;
 use test_network::{wait_for_genesis_committed, Peer as TestPeer};
 
 fn create_million_accounts_directly() {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     for i in 0_u32..10_000_000_u32 {
         let domain_id: DomainId = format!("wonderland-{}", i).parse().expect("Valid");

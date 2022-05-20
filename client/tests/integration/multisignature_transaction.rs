@@ -48,8 +48,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         &network.genesis.api_address,
         &network.genesis.telemetry_address,
     );
-    let mut iroha_client =
-        Client::new(&client_configuration).expect("Invalid client configuration");
+    let iroha_client = Client::new(&client_configuration).expect("Invalid client configuration");
     iroha_client
         .submit_all(vec![
             create_domain.into(),
