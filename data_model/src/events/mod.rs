@@ -88,7 +88,9 @@ pub enum EventSubscriberMessage {
 }
 
 /// Event.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, FromVariant, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+)]
 pub enum Event {
     /// Pipeline event.
     Pipeline(pipeline::Event),

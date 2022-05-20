@@ -344,6 +344,22 @@ mod subscription {
     }
 }
 
+#[iroha_futures::telemetry_future]
+#[cfg(feature = "telemetry")]
+async fn handle_version<W: WorldTrait>(wsv: Arc<WorldStateView<W>>) -> Json {
+    use iroha_version::Version;
+
+    #[allow(clippy::expect_used)]
+    reply::json(
+        &wsv.blocks()
+            .last()
+            .expect("At least genesis should always exist")
+            .value()
+            .version()
+            .to_string(),
+    )
+}
+
 #[cfg(feature = "telemetry")]
 async fn handle_metrics<W: WorldTrait>(
     wsv: Arc<WorldStateView<W>>,
@@ -476,10 +492,14 @@ impl<W: WorldTrait> Torii<W> {
             handle_metrics,
             warp::path(uri::METRICS).and(add_state!(self.wsv, self.network)),
         );
+        let get_api_version = warp::path(uri::API_VERSION)
+            .and(add_state!(self.wsv))
+            .and_then(|wsv: Arc<_>| async { Ok::<_, Infallible>(handle_version(wsv).await) });
 
         warp::get()
             .and(get_router_status)
             .or(get_router_metrics)
+            .or(get_api_version)
             .with(warp::trace::request())
     }
 

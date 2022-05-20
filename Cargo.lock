@@ -1858,6 +1858,7 @@ name = "iroha_data_model"
 version = "2.0.0-pre-rc.4"
 dependencies = [
  "criterion",
+ "dashmap",
  "derive_more",
  "getset",
  "iroha",
