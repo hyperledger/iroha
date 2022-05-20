@@ -195,7 +195,7 @@ impl From<warp::http::Response<warp::hyper::body::Bytes>> for QueryResponseBody 
         if StatusCode::OK == src.status() {
             let body = VersionedQueryResult::decode_versioned(src.body())
                 .expect("The response body failed to be decoded to VersionedQueryResult even though the status is Ok 200");
-            Self::Ok(body)
+            Self::Ok(Box::new(body))
         } else {
             let body = query::Error::decode(&mut src.body().as_ref())
                 .expect("The response body failed to be decoded to query::Error even though the status is not Ok 200");
@@ -213,7 +213,7 @@ struct QueryResponseTest {
 
 #[allow(variant_size_differences)]
 enum QueryResponseBody {
-    Ok(VersionedQueryResult),
+    Ok(Box<VersionedQueryResult>),
     Err(query::Error),
 }
 
