@@ -424,7 +424,7 @@ impl PartialOrd for TransactionValue {
     }
 }
 
-declare_versioned_with_scale!(VersionedValidTransaction 1..2, Debug, Clone, FromVariant, IntoSchema);
+declare_versioned!(VersionedValidTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema);
 
 impl VersionedValidTransaction {
     /// Converts from `&VersionedValidTransaction` to V1 reference
@@ -463,7 +463,7 @@ impl Txn for VersionedValidTransaction {
 
 /// `ValidTransaction` represents trustfull Transaction state.
 #[version_with_scale(n = 1, versioned = "VersionedValidTransaction")]
-#[derive(Debug, Clone, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct ValidTransaction {
     /// The [`Transaction`]'s payload.
     pub payload: Payload,

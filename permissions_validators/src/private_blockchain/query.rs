@@ -226,6 +226,10 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                     Err(format!("Cannot access a different domain: {}.", domain_id))
                 }
             }
+            FindAllBlocks(_) => Err("Access to all blocks not permitted".to_owned()),
+            FindAllTransactions(_) => {
+                Err("Only access to transactions in the same domain is permitted.".to_owned())
+            }
             FindTransactionsByAccountId(query) => {
                 let account_id = query
                     .account_id
@@ -438,7 +442,12 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                     ))
                 }
             }
-
+            FindAllBlocks(_) => {
+                Err("Access to all blocks not permitted".to_owned())
+            }
+            FindAllTransactions(_) => {
+                Err("Only access to transactions of the same account is permitted.".to_owned())
+            },
             FindTransactionsByAccountId(query) => {
                 let account_id = query
                     .account_id

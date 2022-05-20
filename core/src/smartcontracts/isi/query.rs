@@ -108,6 +108,8 @@ impl<W: WorldTrait> ValidQuery<W> for QueryBox {
             FindAllPeers(query) => query.execute_into_value(wsv),
             FindAssetKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
             FindAccountKeyValueByIdAndKey(query) => query.execute_into_value(wsv),
+            FindAllBlocks(query) => query.execute_into_value(wsv),
+            FindAllTransactions(query) => query.execute_into_value(wsv),
             FindTransactionsByAccountId(query) => query.execute_into_value(wsv),
             FindTransactionByHash(query) => query.execute_into_value(wsv),
             FindPermissionTokensByAccountId(query) => query.execute_into_value(wsv),
@@ -232,6 +234,140 @@ mod tests {
             bytes,
             Value::Vec(vec![Value::U32(1), Value::U32(2), Value::U32(3)])
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn find_all_blocks() -> Result<()> {
+        let wsv = Arc::new(WorldStateView::new(world_with_test_domains()));
+
+        let validator = TransactionValidator::new(
+            TransactionLimits {
+                max_instruction_number: 0,
+                max_wasm_size_bytes: 0,
+            },
+            AllowAll::new(),
+            AllowAll::new(),
+            Arc::clone(&wsv),
+        );
+
+        let first_block = PendingBlock::new(vec![], vec![])
+            .chain_first()
+            .validate(&validator)
+            .sign(ALICE_KEYS.clone())
+            .expect("Failed to sign blocks.")
+            .commit();
+
+        let mut curr_hash = first_block.hash();
+
+        wsv.apply(first_block).await?;
+
+        let num_blocks: u64 = 100;
+
+        for height in 1u64..num_blocks {
+            let block = PendingBlock::new(vec![], vec![])
+                .chain(
+                    height,
+                    curr_hash,
+                    crate::sumeragi::view_change::ProofChain::empty(),
+                    vec![],
+                )
+                .validate(&validator)
+                .sign(ALICE_KEYS.clone())
+                .expect("Failed to sign blocks.")
+                .commit();
+            curr_hash = block.hash();
+            wsv.apply(block).await?;
+        }
+
+        let blocks = FindAllBlocks::new().execute(&wsv)?;
+
+        assert_eq!(blocks.len() as u64, num_blocks);
+        assert!(blocks.windows(2).all(|wnd| wnd[0] >= wnd[1]));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn find_all_transactions() -> Result<()> {
+        let wsv = Arc::new(WorldStateView::new(world_with_test_domains()));
+        let limits = TransactionLimits {
+            max_instruction_number: 1,
+            max_wasm_size_bytes: 0,
+        };
+        let huge_limits = TransactionLimits {
+            max_instruction_number: 1000,
+            max_wasm_size_bytes: 0,
+        };
+        let valid_tx = {
+            let tx = Transaction::new(ALICE_ID.clone(), Vec::<Instruction>::new().into(), 4000)
+                .sign(ALICE_KEYS.clone())?;
+            crate::VersionedAcceptedTransaction::from_transaction(tx, &limits)?
+        };
+
+        let invalid_tx = {
+            let isi = Instruction::Fail(FailBox::new("fail"));
+            let tx = Transaction::new(ALICE_ID.clone(), vec![isi.clone(), isi].into(), 4000)
+                .sign(ALICE_KEYS.clone())?;
+            crate::VersionedAcceptedTransaction::from_transaction(tx, &huge_limits)?
+        };
+
+        let first_block = PendingBlock::new(vec![], vec![])
+            .chain_first()
+            .validate(&TransactionValidator::new(
+                limits,
+                AllowAll::new(),
+                AllowAll::new(),
+                Arc::clone(&wsv),
+            ))
+            .sign(ALICE_KEYS.clone())
+            .expect("Failed to sign blocks.")
+            .commit();
+
+        let mut curr_hash = first_block.hash();
+
+        wsv.apply(first_block).await?;
+
+        let num_blocks: u64 = 100;
+
+        for height in 1u64..=num_blocks {
+            let block = PendingBlock::new(vec![valid_tx.clone(), invalid_tx.clone()], vec![])
+                .chain(
+                    height,
+                    curr_hash,
+                    crate::sumeragi::view_change::ProofChain::empty(),
+                    vec![],
+                )
+                .validate(&TransactionValidator::new(
+                    limits,
+                    AllowAll::new(),
+                    AllowAll::new(),
+                    Arc::clone(&wsv),
+                ))
+                .sign(ALICE_KEYS.clone())
+                .expect("Failed to sign blocks.")
+                .commit();
+            curr_hash = block.hash();
+            wsv.apply(block).await?;
+        }
+
+        let txs = FindAllTransactions::new().execute(&wsv)?;
+
+        assert_eq!(txs.len() as u64, num_blocks * 2);
+        assert_eq!(
+            txs.iter()
+                .filter(|txn| matches!(txn, TransactionValue::RejectedTransaction(_)))
+                .count() as u64,
+            num_blocks
+        );
+        assert_eq!(
+            txs.iter()
+                .filter(|txn| matches!(txn, TransactionValue::Transaction(_)))
+                .count() as u64,
+            num_blocks
+        );
+        assert!(txs.windows(2).all(|wnd| wnd[0] >= wnd[1]));
+
         Ok(())
     }
 

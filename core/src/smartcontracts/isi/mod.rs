@@ -3,6 +3,7 @@
 //! implementations.
 pub mod account;
 pub mod asset;
+pub mod block;
 pub mod domain;
 pub mod expression;
 pub mod permissions;
