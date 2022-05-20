@@ -34,6 +34,7 @@ pub fn ffi_bindgen(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
             let struct_name = &item.ident;
             let ffi_fns = get_ffi_getters(&item);
+            let drop_fn_doc = format!(" Drop function for [`{}`]", struct_name);
             let drop_ffi_fn_name = syn::Ident::new(
                 &format!("{}_drop", snake_case_ident(struct_name)),
                 proc_macro2::Span::call_site(),
@@ -44,8 +45,8 @@ pub fn ffi_bindgen(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
                 #( #ffi_fns )*
 
+                #[doc = #drop_fn_doc]
                 #[no_mangle]
-                #[doc = "Drop function for [`#struct_name`]"]
                 pub unsafe extern "C" fn #drop_ffi_fn_name(handle: *mut #struct_name) {
                     Box::from_raw(handle);
                 }
@@ -94,15 +95,22 @@ fn generate_ffi_getter(struct_name: &syn::Ident, field: &syn::Field) -> Option<s
     }
 
     if let syn::Type::Path(mut field_ty) = field.ty.clone() {
-        SelfResolver::new(parse_quote! { #struct_name }).visit_type_path_mut(&mut field_ty);
+        SelfResolver::new(&parse_quote! { #struct_name }).visit_type_path_mut(&mut field_ty);
 
         let ffi_fn_name = syn::Ident::new(
             &format!("{}_{}", snake_case_ident(struct_name), field_name),
             proc_macro2::Span::call_site(),
         );
 
+        let ffi_fn_doc = format!(
+            " FFI function equivalent of [`{}::get_{}`]",
+            struct_name,
+            field.ident.as_ref().expect_or_abort("Defined")
+        );
+
         return Some(parse_quote! {
-            /// Generated FFI function equivalent of [`#field_name`]
+            #[doc = #ffi_fn_doc]
+            #[no_mangle]
             pub unsafe extern "C" fn #ffi_fn_name(handle: *const #struct_name, output: *mut *const #field_ty) -> iroha_ffi::FfiResult {
                 let handle = &*handle;
                 output.write(handle.#field_name() as *const _);

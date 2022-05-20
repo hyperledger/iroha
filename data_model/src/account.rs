@@ -108,7 +108,7 @@ impl Default for SignatureCheckCondition {
     }
 }
 
-/// Builder which can be submitted in a transaction to create a new [`Account`]
+/// Builder which should be submitted in a transaction to create a new [`Account`]
 #[allow(clippy::multiple_inherent_impl)]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct NewAccount {

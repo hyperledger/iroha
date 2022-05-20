@@ -14,20 +14,6 @@ const DEFAULT_PARAMS: [(Name, Value); 2] = [
     (Name("Nomen2"), Value("Omen2")),
 ];
 
-//#[ffi_bindgen]
-//impl FromStr for Name {
-//    type Err = ParseError;
-//
-//    fn from_str(candidate: &str) -> Result<Self, Self::Err> {
-//        if candidate.chars().any(char::is_whitespace) {
-//            return Err(ParseError {
-//                reason: "White space not allowed in `Name` constructs",
-//            });
-//        }
-//        Ok(Self(String::from(candidate)))
-//    }
-//}
-
 #[ffi_bindgen]
 #[derive(getset::Getters)]
 #[getset(get = "pub")]

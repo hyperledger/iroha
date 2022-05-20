@@ -8,21 +8,26 @@ use syn::{
     parse_quote, visit::Visit, visit_mut::VisitMut, Ident, PathArguments::AngleBracketed, Type,
 };
 
-pub struct ImplDescriptor {
+pub struct ImplDescriptor<'ast> {
+    /// Whether current impl is a trait impl
+    is_inherent_impl: bool,
     /// Resolved type of the `Self` type
-    self_ty: Option<syn::Path>,
+    self_ty: Option<&'ast syn::Path>,
 
     /// Collection of FFI functions
-    pub fns: Vec<FfiFnDescriptor>,
+    pub fns: Vec<FfiFnDescriptor<'ast>>,
 }
 
 #[derive(Debug)]
-pub struct FfiFnDescriptor {
+pub struct FfiFnDescriptor<'ast> {
+    /// Whether currently visited method is a trait method
+    is_inherent_method: bool,
+
     /// Resolved type of the `Self` type
-    self_ty: syn::Path,
+    self_ty: &'ast syn::Path,
 
     /// Name of the method in the original implementation
-    method_name: Option<Ident>,
+    method_name: Option<&'ast Ident>,
     /// Receiver argument
     self_arg: Option<FfiFnArgDescriptor>,
     /// Input fn arguments
@@ -31,7 +36,7 @@ pub struct FfiFnDescriptor {
     output_arg: Option<FfiFnArgDescriptor>,
 
     /// Name of the argument being visited
-    curr_arg_name: Option<Ident>,
+    curr_arg_name: Option<&'ast Ident>,
 }
 
 #[derive(Debug)]
@@ -44,7 +49,7 @@ pub struct FfiFnArgDescriptor {
     ffi_type: Type,
 }
 
-impl quote::ToTokens for FfiFnDescriptor {
+impl quote::ToTokens for FfiFnDescriptor<'_> {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let ffi_fn_name = self.get_ffi_fn_name();
 
@@ -57,9 +62,15 @@ impl quote::ToTokens for FfiFnDescriptor {
         let ret_arg = self.output_arg();
         let fn_body = self.get_fn_body();
 
+        let ffi_fn_doc = format!(
+            " FFI function equivalent of [`{}::{}`]",
+            self.self_ty.get_ident().expect_or_abort("Defined"),
+            self.method_name.expect_or_abort("Defined")
+        );
+
         tokens.extend(quote! {
+            #[doc = #ffi_fn_doc]
             #[no_mangle]
-            #[doc = "Generated FFI function equivalent of [`#self_ty::#method_name`]"]
             pub unsafe extern "C" fn #ffi_fn_name(#(#self_arg,)* #(#fn_args,)* #ret_arg) -> iroha_ffi::FfiResult {
                 #fn_body
             }
@@ -119,30 +130,32 @@ fn slice_len_arg_to_tokens(
     }
 }
 
-impl ImplDescriptor {
+impl<'ast> ImplDescriptor<'ast> {
     pub fn new() -> Self {
         Self {
+            is_inherent_impl: true,
             self_ty: None,
             fns: vec![],
         }
     }
 
-    fn visit_self_type(&mut self, node: &Type) {
+    fn visit_self_type(&mut self, node: &'ast Type) {
         if let Type::Path(self_ty) = node {
             if self_ty.qself.is_some() {
                 abort!(self_ty, "Qualified types not supported as self type");
             }
 
-            self.self_ty = Some(self_ty.path.clone());
+            self.self_ty = Some(&self_ty.path);
         } else {
             abort!(node, "Only nominal types supported as self type");
         }
     }
 }
 
-impl FfiFnDescriptor {
-    pub fn new(self_ty: syn::Path) -> Self {
+impl<'ast> FfiFnDescriptor<'ast> {
+    pub fn new(self_ty: &'ast syn::Path, is_inherent_method: bool) -> Self {
         Self {
+            is_inherent_method,
             self_ty,
 
             method_name: None,
@@ -181,7 +194,7 @@ impl FfiFnDescriptor {
     }
 
     fn add_input_arg(&mut self, src_type: Type, ffi_type: Type) {
-        let ffi_name = self.curr_arg_name.take().expect_or_abort("Defined");
+        let ffi_name = self.curr_arg_name.take().expect_or_abort("Defined").clone();
 
         self.input_args.push(FfiFnArgDescriptor {
             ffi_name,
@@ -609,7 +622,7 @@ impl FfiFnArgDescriptor {
     }
 }
 
-impl<'ast> Visit<'ast> for ImplDescriptor {
+impl<'ast> Visit<'ast> for ImplDescriptor<'ast> {
     fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
         for it in &node.attrs {
             self.visit_attribute(it);
@@ -622,9 +635,7 @@ impl<'ast> Visit<'ast> for ImplDescriptor {
         }
         // TODO: What to do about generics?
         //self.visit_generics(&node.generics);
-        if node.trait_.is_some() {
-            // NOTE: Its's irrelevant
-        }
+        self.is_inherent_impl = node.trait_.is_none();
         self.visit_self_type(&*node.self_ty);
 
         for it in &node.items {
@@ -632,17 +643,18 @@ impl<'ast> Visit<'ast> for ImplDescriptor {
         }
     }
     fn visit_impl_item(&mut self, node: &'ast syn::ImplItem) {
-        let mut ffi_fn_descriptor =
-            FfiFnDescriptor::new(self.self_ty.as_ref().expect_or_abort("Defined").clone());
+        let mut ffi_fn_descriptor = FfiFnDescriptor::new(
+            self.self_ty.expect_or_abort("Defined"),
+            self.is_inherent_impl,
+        );
 
         match node {
             syn::ImplItem::Method(method) => {
                 ffi_fn_descriptor.visit_impl_item_method(method);
+                self.fns.push(ffi_fn_descriptor);
             }
             _ => abort!(node, "Only methods are supported inside impl blocks"),
         }
-
-        self.fns.push(ffi_fn_descriptor);
     }
 }
 
@@ -650,7 +662,7 @@ struct TypeVisitor {
     ffi_type: Option<Type>,
 }
 impl TypeVisitor {
-    fn resolve_ffi_type(self_ty: syn::Path, mut src_type: Type) -> Type {
+    fn resolve_ffi_type(self_ty: &syn::Path, mut src_type: Type) -> Type {
         SelfResolver::new(self_ty).visit_type_mut(&mut src_type);
         let mut visitor = Self { ffi_type: None };
         visitor.visit_type(&src_type);
@@ -812,12 +824,12 @@ impl<'ast> Visit<'ast> for TypeVisitor {
     }
 }
 
-impl<'ast> Visit<'ast> for FfiFnDescriptor {
+impl<'ast> Visit<'ast> for FfiFnDescriptor<'ast> {
     fn visit_impl_item_method(&mut self, node: &'ast syn::ImplItemMethod) {
         for it in &node.attrs {
             self.visit_attribute(it);
         }
-        if !matches!(node.vis, syn::Visibility::Public(_)) {
+        if self.is_inherent_method && !matches!(node.vis, syn::Visibility::Public(_)) {
             abort!(node.vis, "Methods defined in the impl block must be public");
         }
 
@@ -836,7 +848,7 @@ impl<'ast> Visit<'ast> for FfiFnDescriptor {
         if node.abi.is_some() {
             abort!(node.abi, "Extern fn declarations not supported")
         }
-        self.method_name = Some(node.ident.clone());
+        self.method_name = Some(&node.ident);
         // TODO: Support generics
         //self.visit_generics(&node.generics);
         for fn_input_arg in &node.inputs {
@@ -858,7 +870,7 @@ impl<'ast> Visit<'ast> for FfiFnDescriptor {
             }
         }
 
-        let self_type = &self.self_ty;
+        let self_type = self.self_ty;
         let (src_type, ffi_type) = node.reference.as_ref().map_or_else(
             || {
                 (
@@ -909,7 +921,7 @@ impl<'ast> Visit<'ast> for FfiFnDescriptor {
 
         self.add_input_arg(
             *node.ty.clone(),
-            TypeVisitor::resolve_ffi_type(self.self_ty.clone(), *node.ty.clone()),
+            TypeVisitor::resolve_ffi_type(self.self_ty, *node.ty.clone()),
         );
     }
 
@@ -927,15 +939,14 @@ impl<'ast> Visit<'ast> for FfiFnDescriptor {
             abort!(node, "Subpatterns not supported in argument name");
         }
 
-        self.curr_arg_name = Some(node.ident.clone());
+        self.curr_arg_name = Some(&node.ident);
     }
 
     fn visit_return_type(&mut self, node: &'ast syn::ReturnType) {
         match node {
             syn::ReturnType::Default => {}
             syn::ReturnType::Type(_, src_type) => {
-                let mut ffi_type =
-                    TypeVisitor::resolve_ffi_type(self.self_ty.clone(), *src_type.clone());
+                let mut ffi_type = TypeVisitor::resolve_ffi_type(self.self_ty, *src_type.clone());
 
                 // NOTE: Transcribe owned output types to *mut ptr
                 if let (Type::Path(src_ty), Type::Ptr(ffi_ty)) = (*src_type.clone(), &mut ffi_type)
@@ -966,17 +977,17 @@ impl<'ast> Visit<'ast> for FfiFnDescriptor {
 }
 
 /// Visitor for path types which replaces all occurrences of `Self` with a fully qualified type
-pub struct SelfResolver {
-    self_ty: syn::Path,
+pub struct SelfResolver<'ast> {
+    self_ty: &'ast syn::Path,
 }
 
-impl SelfResolver {
-    pub fn new(self_ty: syn::Path) -> Self {
+impl<'ast> SelfResolver<'ast> {
+    pub fn new(self_ty: &'ast syn::Path) -> Self {
         Self { self_ty }
     }
 }
 
-impl VisitMut for SelfResolver {
+impl VisitMut for SelfResolver<'_> {
     fn visit_path_mut(&mut self, node: &mut syn::Path) {
         if node.leading_colon.is_some() {
             // NOTE: It's irrelevant

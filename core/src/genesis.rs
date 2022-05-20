@@ -460,9 +460,8 @@ impl RawGenesisDomainBuilder {
     #[must_use]
     pub fn with_account(mut self, account_name: Name, public_key: PublicKey) -> Self {
         let account_id = AccountId::new(account_name, self.domain_id.clone());
-        self.transaction
-            .isi
-            .push(RegisterBox::new(Account::new(account_id, [public_key])).into());
+        let register = RegisterBox::new(Account::new(account_id, [public_key]));
+        self.transaction.isi.push(register.into());
         self
     }
 
