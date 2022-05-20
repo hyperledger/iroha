@@ -3,7 +3,7 @@
 #![allow(clippy::restriction, clippy::future_not_send)]
 
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
-use std::{collections::HashMap, thread};
+use std::{collections::HashMap, sync::Arc, thread};
 
 use eyre::{Error, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
@@ -444,7 +444,7 @@ where
         genesis: Option<G>,
         instruction_validator: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
         query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
-        temp_dir: &TempDir,
+        temp_dir: Arc<TempDir>,
     ) {
         let mut configuration = self.get_config(configuration);
         configuration
@@ -463,6 +463,8 @@ where
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let handle = task::spawn(
             async move {
+                // Prevent temporary directory deleting
+                let _temp_dir = Arc::clone(&temp_dir);
                 let mut iroha = <Iroha<W, G, K, S, B>>::with_genesis(
                     genesis,
                     configuration,
@@ -500,13 +502,13 @@ where
         instruction_validator: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
         query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
     ) {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir.");
+        let temp_dir = Arc::new(TempDir::new().expect("Failed to create temp dir."));
         self.start_with_config_permissions_dir(
             configuration,
             genesis,
             instruction_validator,
             query_validator,
-            &temp_dir,
+            temp_dir,
         )
         .await;
     }

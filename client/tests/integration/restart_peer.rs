@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::{str::FromStr, thread, time::Duration};
+use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
 use eyre::Result;
 use iroha_client::client::{self, Client};
@@ -14,7 +14,7 @@ use super::Configuration;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = Arc::new(TempDir::new()?);
 
     let mut configuration = Configuration::test();
     let mut peer = <TestPeer>::new()?;
@@ -29,7 +29,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         GenesisNetwork::test(true),
         AllowAll,
         AllowAll,
-        &temp_dir,
+        Arc::clone(&temp_dir),
     ));
     let mut iroha_client = Client::test(&peer.api_address, &peer.telemetry_address);
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
@@ -40,7 +40,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     iroha_client.submit(create_asset)?;
     thread::sleep(pipeline_time * 2);
-    //When
+    // When
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),
@@ -52,7 +52,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     iroha_client.submit(mint_asset)?;
     thread::sleep(pipeline_time * 2);
 
-    //Then
+    // Then
     let asset = iroha_client
         .request(client::asset::by_account_id(account_id.clone()))?
         .into_iter()
@@ -71,7 +71,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         GenesisNetwork::test(true),
         AllowAll,
         AllowAll,
-        &temp_dir,
+        temp_dir,
     ));
 
     let account_asset = iroha_client
