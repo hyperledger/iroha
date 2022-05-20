@@ -1,10 +1,10 @@
 #![allow(clippy::restriction)]
 
-use std::{str::FromStr, thread, time::Duration};
+use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
 use eyre::Result;
 use iroha_client::client::{self, Client};
-use iroha_core::prelude::*;
+use iroha_core::{genesis::GenesisNetwork, prelude::*};
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
 use test_network::{Peer as TestPeer, *};
@@ -14,7 +14,7 @@ use super::Configuration;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = Arc::new(TempDir::new()?);
 
     let mut configuration = Configuration::test();
     let mut peer = <TestPeer>::new()?;
@@ -24,7 +24,13 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
 
     // Given
     let rt = Runtime::test();
-    rt.block_on(peer.start_with_config_permissions_dir(configuration.clone(), AllowAll, &temp_dir));
+    rt.block_on(peer.start_with_config_permissions_dir(
+        configuration.clone(),
+        GenesisNetwork::test(true),
+        AllowAll,
+        AllowAll,
+        Arc::clone(&temp_dir),
+    ));
     let mut iroha_client = Client::test(&peer.api_address, &peer.telemetry_address);
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
@@ -34,7 +40,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
         RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     iroha_client.submit(create_asset)?;
     thread::sleep(pipeline_time * 2);
-    //When
+    // When
     let quantity: u32 = 200;
     let mint_asset = MintBox::new(
         Value::U32(quantity),
@@ -46,7 +52,7 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     iroha_client.submit(mint_asset)?;
     thread::sleep(pipeline_time * 2);
 
-    //Then
+    // Then
     let asset = iroha_client
         .request(client::asset::by_account_id(account_id.clone()))?
         .into_iter()
@@ -60,7 +66,13 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     thread::sleep(Duration::from_millis(2000));
 
     let rt = Runtime::test();
-    rt.block_on(peer.start_with_config_permissions_dir(configuration, AllowAll, &temp_dir));
+    rt.block_on(peer.start_with_config_permissions_dir(
+        configuration,
+        GenesisNetwork::test(true),
+        AllowAll,
+        AllowAll,
+        temp_dir,
+    ));
 
     let account_asset = iroha_client
         .poll_request(client::asset::by_account_id(account_id), |assets| {

@@ -96,11 +96,15 @@ where
     /// To make `Iroha` peer work all actors should be started first.
     /// After that moment it you can start it with listening to torii events.
     ///
+    /// # Side effect
+    /// - Prints welcome message in the log
+    ///
     /// # Errors
     /// - Reading genesis from disk
     /// - Reading telemetry configs
     /// - telemetry setup
-    /// - Initialisation of [`Sumeragi`]
+    /// - Initialization of [`Sumeragi`]
+    #[allow(clippy::non_ascii_literal)]
     pub async fn new(
         args: &Arguments,
         instruction_validator: IsInstructionAllowedBoxed<K::World>,
@@ -112,6 +116,10 @@ where
             Err(_) => Configuration::default(),
         };
         config.load_environment()?;
+
+        let telemetry = iroha_logger::init(&config.logger)?;
+        iroha_logger::info!("Hyperledgerいろは2にようこそ！");
+        iroha_logger::info!("(translation) Welcome to Hyperledger Iroha 2!");
 
         let genesis = G::from_configuration(
             args.submit_genesis,
@@ -127,6 +135,7 @@ where
             instruction_validator,
             query_validator,
             broker,
+            telemetry,
         )
         .await
     }
@@ -137,22 +146,20 @@ where
     /// - Reading telemetry configs
     /// - telemetry setup
     /// - Initialization of [`Sumeragi`]
-    #[allow(clippy::non_ascii_literal)]
     pub async fn with_genesis(
         genesis: Option<G>,
         config: Configuration,
         instruction_validator: IsInstructionAllowedBoxed<K::World>,
         query_validator: IsQueryAllowedBoxed<K::World>,
         broker: Broker,
+        telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
         if !config.disable_panic_terminal_colors {
             if let Err(e) = color_eyre::install() {
-                iroha_logger::error!("Tried to install eyre_hook twice: {:?}", e);
+                let error_message = format!("{e:#}");
+                iroha_logger::error!(error = %error_message, "Tried to install eyre_hook twice",);
             }
         }
-        let telemetry = iroha_logger::init(&config.logger)?;
-        iroha_logger::info!("Hyperledgerいろは2にようこそ！");
-        iroha_logger::info!("(translation) Welcome to Hyperledger Iroha 2!");
         let listen_addr = config.torii.p2p_addr.clone();
         iroha_logger::info!(%listen_addr, "Starting peer");
         let network = IrohaNetwork::new(
