@@ -12,6 +12,8 @@ use crate::{
     events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name, ParseError,
 };
 
+pub mod set;
+
 /// Type which is used for registering a `Trigger`.
 #[derive(
     Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
@@ -370,6 +372,9 @@ pub mod action {
 
 pub mod prelude {
     //! Re-exports of commonly used types.
+
+    #[cfg(feature = "std")]
+    pub use super::set::Set as TriggerSet;
     pub use super::{action::prelude::*, Id as TriggerId, Trigger};
 }
 

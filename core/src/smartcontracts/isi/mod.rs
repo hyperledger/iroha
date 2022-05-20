@@ -3,6 +3,7 @@
 //! implementations.
 pub mod account;
 pub mod asset;
+pub mod block;
 pub mod domain;
 pub mod expression;
 pub mod permissions;
@@ -32,7 +33,7 @@ pub mod error {
 
     use iroha_crypto::HashOf;
     use iroha_data_model::{
-        fixed::FixedPointOperationError, metadata, prelude::*, MintabilityError,
+        fixed::FixedPointOperationError, metadata, prelude::*, trigger, MintabilityError,
     };
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
@@ -81,6 +82,19 @@ pub mod error {
     impl From<FindError> for Error {
         fn from(err: FindError) -> Self {
             Self::Find(Box::new(err))
+        }
+    }
+
+    impl From<trigger::set::ModRepeatsError> for Error {
+        fn from(err: trigger::set::ModRepeatsError) -> Self {
+            match err {
+                trigger::set::ModRepeatsError::NotFound(not_found_id) => {
+                    Error::Find(Box::new(FindError::Trigger(not_found_id)))
+                }
+                trigger::set::ModRepeatsError::RepeatsOverflow(_) => {
+                    Error::Math(MathError::Overflow)
+                }
+            }
         }
     }
 

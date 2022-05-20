@@ -11,6 +11,7 @@ extern crate alloc;
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
+use block_value::BlockValue;
 use derive_more::Display;
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
@@ -27,6 +28,7 @@ use crate::{
 
 pub mod account;
 pub mod asset;
+pub mod block_value;
 pub mod domain;
 pub mod events;
 pub mod expression;
@@ -414,6 +416,8 @@ pub enum Value {
     PermissionToken(PermissionToken),
     /// [`struct@Hash`]
     Hash(Hash),
+    /// Block
+    Block(BlockValue),
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -426,6 +430,7 @@ impl Value {
             U32(_) | U128(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
             | String(_) | Name(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_)
             | Hash(_) => 1_usize,
+            Block(v) => v.nested_len() + 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
@@ -708,6 +713,7 @@ pub mod prelude {
     pub use super::{
         account::prelude::*,
         asset::prelude::*,
+        block_value::prelude::*,
         domain::prelude::*,
         fixed::prelude::*,
         pagination::{prelude::*, Pagination},

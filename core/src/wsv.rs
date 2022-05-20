@@ -25,7 +25,6 @@ use crate::{
     block::Chain,
     prelude::*,
     smartcontracts::{isi::Error, wasm, Execute, FindError},
-    triggers::TriggerSet,
     DomainsMap, EventsSender, PeersIds,
 };
 
@@ -682,6 +681,34 @@ impl<W: WorldTrait> WorldStateView<W> {
     #[inline]
     pub fn subscribe_to_new_block_notifications(&self) -> NewBlockNotificationReceiver {
         self.new_block_notifier.subscribe()
+    }
+
+    /// Get all transactions
+    pub fn transaction_values(&self) -> Vec<TransactionValue> {
+        let mut txs = self
+            .blocks()
+            .flat_map(|block| {
+                let block = block.as_v1();
+                block
+                    .rejected_transactions
+                    .iter()
+                    .cloned()
+                    .map(Box::new)
+                    .map(TransactionValue::RejectedTransaction)
+                    .chain(
+                        block
+                            .transactions
+                            .iter()
+                            .cloned()
+                            .map(VersionedTransaction::from)
+                            .map(Box::new)
+                            .map(TransactionValue::Transaction),
+                    )
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        txs.sort();
+        txs
     }
 
     /// Find a [`VersionedTransaction`] by hash.

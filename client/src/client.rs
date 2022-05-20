@@ -1097,6 +1097,11 @@ pub mod transaction {
 
     use super::*;
 
+    /// Get query to find all transactions
+    pub fn all() -> FindAllTransactions {
+        FindAllTransactions::new()
+    }
+
     /// Get query to retrieve transactions for account
     pub fn by_account_id(
         account_id: impl Into<EvaluatesTo<AccountId>>,

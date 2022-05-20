@@ -116,7 +116,7 @@ pub enum EntityKind {
 }
 
 /// Strongly-typed [`Event`], which tells the receiver the kind of entity that changed, the change, and the hash of the entity.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Event {
     /// [`EntityKind`] of the entity that caused this [`Event`].
     pub entity_kind: EntityKind,
@@ -138,7 +138,9 @@ impl Event {
 }
 
 /// [`Status`] of the entity.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, FromVariant, IntoSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize, FromVariant, IntoSchema,
+)]
 pub enum Status {
     /// Entity has been seen in blockchain, but has not passed validation.
     Validating,

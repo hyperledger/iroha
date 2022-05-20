@@ -8,7 +8,6 @@ pub mod modules;
 pub mod queue;
 pub mod smartcontracts;
 pub mod sumeragi;
-pub mod triggers;
 pub mod tx;
 pub mod wsv;
 
