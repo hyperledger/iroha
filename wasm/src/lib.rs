@@ -202,7 +202,7 @@ unsafe fn _decode_from_raw_in_range<T: Decode>(
 ///
 /// # Warning
 ///
-/// Ownership of the returned allocation is transfered to the caller
+/// Ownership of the returned allocation is transferred to the caller
 ///
 /// # Safety
 ///
