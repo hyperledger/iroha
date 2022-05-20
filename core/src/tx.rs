@@ -440,8 +440,9 @@ mod tests {
         assert_eq!(
             chain.next().unwrap().to_string(),
             format!(
-                "Too many instructions in payload, max number is {}",
-                tx_limits.max_instruction_number
+                "Too many instructions in payload, max number is {}, but got {}",
+                tx_limits.max_instruction_number,
+                DEFAULT_MAX_INSTRUCTION_NUMBER + 1
             )
         );
     }
