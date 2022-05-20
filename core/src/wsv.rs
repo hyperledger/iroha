@@ -25,7 +25,6 @@ use crate::{
     block::Chain,
     prelude::*,
     smartcontracts::{isi::Error, wasm, Execute, FindError},
-    triggers::TriggerSet,
     DomainsMap, EventsSender, PeersIds,
 };
 

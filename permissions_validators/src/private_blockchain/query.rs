@@ -55,7 +55,12 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                                 .to_owned())
                         }
                     })
-                    .map_err(|err| err.to_string())?
+                    .ok_or_else(|| {
+                        format!(
+                            "A trigger with the specified Id: {} is not accessible to you",
+                            id.clone()
+                        )
+                    })?
             }
             FindTriggerKeyValueByIdAndKey(query) => {
                 let id = query
@@ -74,7 +79,12 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                     )
                         }
                     })
-                    .map_err(|err| err.to_string())?
+                    .ok_or_else(|| {
+                        format!(
+                            "A trigger with the specified Id: {} is not accessible to you",
+                            id.clone()
+                        )
+                    })?
             }
             FindAccountById(query) => {
                 let account_id = query
@@ -330,9 +340,9 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                     .id
                     .evaluate(wsv, &context)
                     .map_err(|e| e.to_string())?;
-                if let Ok(true) = wsv.world.triggers.inspect(&id, |action|
+                if wsv.world.triggers.inspect(&id, |action|
                     action.technical_account() == authority
-                ) {
+                ) == Some(true) {
                     return Ok(())
                 }
                 Err(format!(
@@ -346,9 +356,9 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                     .id
                     .evaluate(wsv, &context)
                     .map_err(|e| e.to_string())?;
-                if let Ok(true) = wsv.world.triggers.inspect(&id, |action|
+                if wsv.world.triggers.inspect(&id, |action|
                     action.technical_account() == authority
-                ) {
+                ) == Some(true) {
                     return Ok(())
                 }
                 Err(format!(
