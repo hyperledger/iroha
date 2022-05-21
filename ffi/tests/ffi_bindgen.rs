@@ -4,18 +4,20 @@ use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use iroha_ffi::{ffi_bindgen, FfiResult, Pair};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Name(&'static str);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Value(&'static str);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Name(String);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Value(String);
 
-const DEFAULT_PARAMS: [(Name, Value); 2] = [
-    (Name("Nomen"), Value("Omen")),
-    (Name("Nomen2"), Value("Omen2")),
-];
+fn get_default_params() -> [(Name, Value); 2] {
+    [
+        (Name(String::from("Nomen")), Value(String::from("Omen"))),
+        (Name(String::from("Nomen2")), Value(String::from("Omen2"))),
+    ]
+}
 
 #[ffi_bindgen]
-#[derive(getset::Getters)]
+#[derive(Debug, Clone, getset::Getters)]
 #[getset(get = "pub")]
 pub struct FfiStruct {
     name: Name,
@@ -61,8 +63,8 @@ impl FfiStruct {
 
 fn get_new_struct() -> *mut FfiStruct {
     let mut ffi_struct = MaybeUninit::new(core::ptr::null_mut());
+    let name = Name(String::from("X"));
 
-    let name = Name("X");
     assert_eq!(FfiResult::Ok, unsafe {
         ffi_struct_new(&name, ffi_struct.as_mut_ptr())
     },);
@@ -77,7 +79,9 @@ fn get_new_struct() -> *mut FfiStruct {
 #[allow(trivial_casts)]
 fn get_new_struct_with_params() -> *mut FfiStruct {
     let ffi_struct = get_new_struct();
-    let params_ffi: Vec<_> = DEFAULT_PARAMS
+    let params = get_default_params();
+
+    let params_ffi: Vec<_> = params
         .iter()
         .map(|(key, val)| Pair(key as *const _, val as *const _))
         .collect();
@@ -93,7 +97,7 @@ fn constructor() {
     let ffi_struct = get_new_struct();
 
     unsafe {
-        assert_eq!(Name("X"), (*ffi_struct).name);
+        assert_eq!(Name(String::from('X')), (*ffi_struct).name);
         assert!((*ffi_struct).params.is_empty());
 
         ffi_struct_drop(ffi_struct);
@@ -105,7 +109,10 @@ fn constructor() {
 fn into_iter_item_impl_into() {
     let ffi_struct = get_new_struct();
 
-    let tokens = vec![Value("My omen"), Value("Your omen")];
+    let tokens = vec![
+        Value(String::from("My omen")),
+        Value(String::from("Your omen")),
+    ];
     let tokens_ffi: Vec<_> = tokens.iter().map(|t| t as *const _).collect();
 
     unsafe {
@@ -127,7 +134,10 @@ fn builder_method() {
 
     unsafe {
         assert_eq!(2, (*ffi_struct).params.len());
-        assert_eq!((*ffi_struct).params, DEFAULT_PARAMS.into_iter().collect());
+        assert_eq!(
+            (*ffi_struct).params,
+            get_default_params().into_iter().collect()
+        );
 
         ffi_struct_drop(ffi_struct);
     }
@@ -140,20 +150,20 @@ fn return_option() {
     let mut param1 = MaybeUninit::new(core::ptr::null());
     let mut param2 = MaybeUninit::new(core::ptr::null());
 
-    let name1 = Name("Non");
+    let name1 = Name(String::from("Non"));
     assert_eq!(FfiResult::Ok, unsafe {
         ffi_struct_get_param(ffi_struct, &name1, param1.as_mut_ptr())
     });
     unsafe { assert!(param1.assume_init().is_null()) };
 
-    let name2 = Name("Nomen");
+    let name2 = Name(String::from("Nomen"));
     assert_eq!(FfiResult::Ok, unsafe {
         ffi_struct_get_param(ffi_struct, &name2, param2.as_mut_ptr())
     });
 
     unsafe {
         assert!(!param2.assume_init().is_null());
-        assert_eq!(&Value("Omen"), &*param2.assume_init());
+        assert_eq!(&Value(String::from("Omen")), &*param2.assume_init());
 
         ffi_struct_drop(ffi_struct);
     }
@@ -203,7 +213,7 @@ fn return_iterator() {
         assert!(params
             .iter()
             .map(|&Pair(key, val)| (&*key, &*val))
-            .eq(DEFAULT_PARAMS.iter().take(1).map(|pair| (&pair.0, &pair.1))));
+            .eq(get_default_params().iter().take(1).map(|pair| (&pair.0, &pair.1))));
 
         ffi_struct_drop(ffi_struct);
     }
@@ -232,7 +242,7 @@ fn getset_getter() {
     let ffi_struct = get_new_struct_with_params();
 
     unsafe {
-        assert_eq!(Name("X"), *(*ffi_struct).name());
+        assert_eq!(Name(String::from('X')), *(*ffi_struct).name());
         ffi_struct_drop(ffi_struct);
     }
 }

@@ -18,7 +18,6 @@ pub struct ImplDescriptor<'ast> {
     pub fns: Vec<FfiFnDescriptor<'ast>>,
 }
 
-#[derive(Debug)]
 pub struct FfiFnDescriptor<'ast> {
     /// Whether currently visited method is a trait method
     is_inherent_method: bool,
@@ -479,8 +478,8 @@ impl FfiFnArgDescriptor {
 
                 if last_seg.ident == "Pair" {
                     stmts.push(parse_quote! {
-                        let #arg_name = #arg_name.map(|iroha_ffi::Pair(key, val)| {
-                            (key.read(), val.read())
+                        let #arg_name = #arg_name.map(|&iroha_ffi::Pair(key, val)| {
+                            (Clone::clone(&*key), Clone::clone(&*val))
                         });
                     });
                 } else {
@@ -489,7 +488,7 @@ impl FfiFnArgDescriptor {
             }
             Type::Ptr(_) => {
                 stmts.push(parse_quote! {
-                    let #arg_name = #arg_name.map(|ptr| ptr.read());
+                    let #arg_name = #arg_name.map(|&ptr| Clone::clone(&*ptr));
                 });
             }
             _ => abort!(self, "Unsupported FFI type conversion"),
@@ -519,14 +518,14 @@ impl FfiFnArgDescriptor {
                             self.get_ffi_to_src_impl_into_iterator_conversion_stmts(ffi_ty),
                         ),
                         "Into" => stmts.push(parse_quote! {
-                            let #arg_name = #arg_name.read();
+                            let #arg_name = Clone::clone(&*#arg_name);
                         }),
                         _ => abort!(last_seg, "impl Trait type not supported"),
                     }
                 }
             }
             (Type::Path(_), Type::Ptr(_)) => {
-                stmts.push(parse_quote! { let #arg_name = #arg_name.read(); });
+                stmts.push(parse_quote! { let #arg_name = Clone::clone(&*#arg_name); });
             }
             (Type::Path(src_ty), Type::Path(_)) => {
                 let last_seg = src_ty.path.segments.last().expect_or_abort("Defined");
