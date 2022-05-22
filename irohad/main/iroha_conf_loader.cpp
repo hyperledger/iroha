@@ -788,3 +788,11 @@ iroha::expected::Result<IrohadConfig, std::string> parse_iroha_config(
     return e.what();
   };
 }
+
+uint32_t IrohadConfig::getProposalDelay() const {
+  return getProposalCreationTimeout()* 2ul;
+}
+
+uint32_t IrohadConfig::getProposalCreationTimeout() const {
+  return proposal_creation_timeout.value_or(3000ul);
+}
