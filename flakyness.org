@@ -1,7 +1,20 @@
-* Flaky tests
+#+TITLE: Iroha 2 flaky test document
 
-** test: integration::triggers::event_trigger::test_mint_asset_when_new_asset_definition_created (25/100)
+This document serves to test and track changes to the flaky-ness of the
+tests used in the Iroha 2 CI pipeline.
 
-** test: multiple_networks stdout (1/100)
+This file should be updated after any performance critical
+changes. Note, because most flaky tests are of the =integration=
+variety, updating the flakyness report can take upwards of 10 hours
+given the minimum of =300= repetitions.
 
-** test: integration::roles::add_role_to_limit_transfer_count (6/100)
+Unfortunately it is impossible to expedite the process,  and doing
+something in parallel to the testing can worsen the results,  so
+beware of repeating the tests on your work machine.
+
+|------------------------------------------+------------------+--------------+---------------------------|
+| Commit_sha                               | unstable…7_p…_1… | Two_networks | network_stable_after_add… |
+|------------------------------------------+------------------+--------------+---------------------------|
+| 938a3168387bb5a67aac19057d94c220c137dd96 | 1/300            | 3/300        | 5/300                     |
+|                                          |                  |              |                           |
+|------------------------------------------+------------------+--------------+---------------------------|
