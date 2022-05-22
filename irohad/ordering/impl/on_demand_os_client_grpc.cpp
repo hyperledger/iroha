@@ -90,8 +90,7 @@ OnDemandOsClientGrpc::~OnDemandOsClientGrpc() {
 }
 
 void OnDemandOsClientGrpc::onBatchesToWholeNetwork(CollectionType batches) {
-  // This code should not be called.
-  assert(false);
+  assert(!"This code should not be called.");
 }
 
 void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
