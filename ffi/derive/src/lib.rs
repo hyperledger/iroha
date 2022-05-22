@@ -1,13 +1,14 @@
 #![allow(clippy::str_to_string, missing_docs)]
 
+use bindgen::gen_ffi_fn;
 use heck::ToSnakeCase;
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
-use syn::{parse_macro_input, parse_quote, visit::Visit, visit_mut::VisitMut, Item, ItemStruct};
+use syn::{parse_macro_input, parse_quote, visit_mut::VisitMut, Item, ItemStruct};
+use visitor::{ImplDescriptor, SelfResolver};
 
-use crate::visitor::{ImplDescriptor, SelfResolver};
-
+mod bindgen;
 mod visitor;
 
 #[proc_macro_attribute]
@@ -15,12 +16,12 @@ mod visitor;
 pub fn ffi_bindgen(_attr: TokenStream, item: TokenStream) -> TokenStream {
     match parse_macro_input!(item) {
         Item::Impl(item) => {
-            let mut impl_descriptor = ImplDescriptor::new();
-            impl_descriptor.visit_item_impl(&item);
-            let ffi_fns = impl_descriptor.fns;
+            let impl_descriptor = ImplDescriptor::from_impl(&item);
+            let ffi_fns = impl_descriptor.fns.iter().map(gen_ffi_fn);
 
             quote! {
                 #item
+
                 #( #ffi_fns )*
             }
         }
@@ -58,7 +59,7 @@ pub fn ffi_bindgen(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Look for a `skip` of the attribute identified by `attr_ident`.
-pub(crate) fn should_skip(attrs: &[syn::Attribute], attr_ident: &str) -> bool {
+fn should_skip(attrs: &[syn::Attribute], attr_ident: &str) -> bool {
     attrs.iter().any(|attr| {
         if attr.path.is_ident(attr_ident) {
             if let Ok(path) = attr.parse_args::<syn::Path>() {
@@ -124,4 +125,8 @@ fn generate_ffi_getter(struct_name: &syn::Ident, field: &syn::Field) -> Option<s
 
 fn snake_case_ident(ident: &syn::Ident) -> String {
     ident.to_string().to_snake_case()
+}
+
+fn get_ident(path: &syn::Path) -> &syn::Ident {
+    &path.segments.last().expect_or_abort("Defined").ident
 }

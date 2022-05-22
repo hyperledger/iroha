@@ -1,138 +1,105 @@
 #![allow(clippy::unimplemented)]
 
-use heck::ToSnakeCase;
 use proc_macro2::Span;
 use proc_macro_error::{abort, OptionExt};
-use quote::quote;
 use syn::{
     parse_quote, visit::Visit, visit_mut::VisitMut, Ident, PathArguments::AngleBracketed, Type,
 };
 
-pub struct ImplDescriptor<'ast> {
-    /// Whether current impl is a trait impl
-    is_inherent_impl: bool,
-    /// Resolved type of the `Self` type
-    self_ty: Option<&'ast syn::Path>,
+use crate::get_ident;
 
-    /// Collection of FFI functions
-    pub fns: Vec<FfiFnDescriptor<'ast>>,
+pub struct ImplDescriptor<'ast> {
+    /// Functions in the impl block
+    pub fns: Vec<FnDescriptor<'ast>>,
 }
 
-pub struct FfiFnDescriptor<'ast> {
-    /// Whether currently visited method is a trait method
-    is_inherent_method: bool,
+pub struct FnDescriptor<'ast> {
+    /// Resolved type of the `Self` type
+    pub self_ty: &'ast syn::Path,
 
+    /// Name of the method in the original implementation
+    pub method_name: &'ast Ident,
+    /// Receiver argument, i.e. `self`
+    pub receiver: Option<FnArgDescriptor>,
+    /// Input fn arguments
+    pub input_args: Vec<FnArgDescriptor>,
+    /// Output fn argument
+    pub output_arg: Option<FnArgDescriptor>,
+}
+
+#[derive(Debug)]
+pub struct FnArgDescriptor {
+    /// Name of the argument in an FFI function
+    pub ffi_name: Ident,
+    /// Type of the argument in a method implementation
+    pub src_type: Type,
+    /// Type of the argument in an FFI function
+    pub ffi_type: Type,
+}
+
+struct ImplVisitor<'ast> {
+    /// Resolved type of the `Self` type
+    self_ty: Option<&'ast syn::Path>,
+    /// Collection of FFI functions
+    pub fns: Vec<FnDescriptor<'ast>>,
+}
+
+struct FnVisitor<'ast> {
     /// Resolved type of the `Self` type
     self_ty: &'ast syn::Path,
 
     /// Name of the method in the original implementation
     method_name: Option<&'ast Ident>,
-    /// Receiver argument
-    self_arg: Option<FfiFnArgDescriptor>,
+    /// Receiver argument, i.e. `self`
+    receiver: Option<FnArgDescriptor>,
     /// Input fn arguments
-    input_args: Vec<FfiFnArgDescriptor>,
+    input_args: Vec<FnArgDescriptor>,
     /// Output fn argument
-    output_arg: Option<FfiFnArgDescriptor>,
+    output_arg: Option<FnArgDescriptor>,
 
     /// Name of the argument being visited
     curr_arg_name: Option<&'ast Ident>,
 }
 
-#[derive(Debug)]
-pub struct FfiFnArgDescriptor {
-    /// Name of the argument in an FFI function
-    ffi_name: Ident,
-    /// Type of the argument in a method implementation
-    src_type: Type,
-    /// Type of the argument in an FFI function
-    ffi_type: Type,
-}
-
-impl quote::ToTokens for FfiFnDescriptor<'_> {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let ffi_fn_name = self.get_ffi_fn_name();
-
-        let self_arg = self
-            .self_arg
-            .as_ref()
-            .map_or_else(Vec::new, |self_arg| vec![self_arg]);
-
-        let fn_args = &self.input_args;
-        let ret_arg = self.output_arg();
-        let fn_body = self.get_fn_body();
-
-        let ffi_fn_doc = format!(
-            " FFI function equivalent of [`{}::{}`]",
-            self.self_ty.get_ident().expect_or_abort("Defined"),
-            self.method_name.expect_or_abort("Defined")
-        );
-
-        tokens.extend(quote! {
-            #[doc = #ffi_fn_doc]
-            #[no_mangle]
-            pub unsafe extern "C" fn #ffi_fn_name(#(#self_arg,)* #(#fn_args,)* #ret_arg) -> iroha_ffi::FfiResult {
-                #fn_body
-            }
-        });
-    }
-}
-
-impl quote::ToTokens for FfiFnArgDescriptor {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let ffi_name = &self.ffi_name;
-        let src_type = &self.src_type;
-        let ffi_type = &self.ffi_type;
-
-        if self.is_slice_ref() || self.is_slice_ref_mut() {
-            tokens.extend(quote! { mut #ffi_name: #ffi_type, });
-            slice_len_arg_to_tokens(src_type, self, tokens);
-        } else {
-            tokens.extend(quote! { #ffi_name: #ffi_type });
-        };
-    }
-}
-
-fn slice_len_arg_to_tokens(
-    src_type: &Type,
-    ffi_fn_arg: &FfiFnArgDescriptor,
-    tokens: &mut proc_macro2::TokenStream,
-) {
-    let mut slice_len_to_tokens = || {
-        let slice_len_arg_name = ffi_fn_arg.get_slice_len_arg_name();
-        tokens.extend(quote! { #slice_len_arg_name: usize });
-    };
-
-    match &src_type {
-        Type::Reference(type_) => {
-            if matches!(*type_.elem, Type::Slice(_)) {
-                slice_len_to_tokens();
-            }
-        }
-        Type::ImplTrait(type_) => {
-            assert_eq!(type_.bounds.len(), 1);
-
-            if let syn::TypeParamBound::Trait(trait_) = &type_.bounds[0] {
-                let last_seg = &trait_.path.segments.last().expect_or_abort("Defined");
-
-                if last_seg.ident == "IntoIterator" {
-                    slice_len_to_tokens();
-                } else if last_seg.ident == "ExactSizeIterator" {
-                    slice_len_to_tokens();
-                    let slice_elems_arg_name = ffi_fn_arg.get_slice_elems_arg_name();
-                    tokens.extend(quote! {, #slice_elems_arg_name: *mut usize });
-                } else {
-                    abort!(src_type, "Unsupported impl trait slice type")
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
 impl<'ast> ImplDescriptor<'ast> {
-    pub fn new() -> Self {
+    pub fn from_impl(node: &'ast syn::ItemImpl) -> Self {
+        let mut visitor = ImplVisitor::new();
+        visitor.visit_item_impl(node);
+
+        ImplDescriptor::from_visitor(visitor)
+    }
+
+    fn from_visitor(visitor: ImplVisitor<'ast>) -> Self {
+        Self { fns: visitor.fns }
+    }
+}
+
+impl<'ast> FnDescriptor<'ast> {
+    fn from_impl_method(self_ty: &'ast syn::Path, node: &'ast syn::ImplItemMethod) -> Self {
+        let mut visitor = FnVisitor::new(self_ty);
+        visitor.visit_impl_item_method(node);
+
+        FnDescriptor::from_visitor(visitor)
+    }
+
+    fn from_visitor(visitor: FnVisitor<'ast>) -> Self {
         Self {
-            is_inherent_impl: true,
+            self_ty: visitor.self_ty,
+            method_name: visitor.method_name.expect_or_abort("Defined"),
+            receiver: visitor.receiver,
+            input_args: visitor.input_args,
+            output_arg: visitor.output_arg,
+        }
+    }
+
+    pub fn self_ty_name(&self) -> &Ident {
+        get_ident(self.self_ty)
+    }
+}
+
+impl<'ast> ImplVisitor<'ast> {
+    fn new() -> Self {
+        Self {
             self_ty: None,
             fns: vec![],
         }
@@ -151,240 +118,9 @@ impl<'ast> ImplDescriptor<'ast> {
     }
 }
 
-impl<'ast> FfiFnDescriptor<'ast> {
-    pub fn new(self_ty: &'ast syn::Path, is_inherent_method: bool) -> Self {
-        Self {
-            is_inherent_method,
-            self_ty,
-
-            method_name: None,
-            self_arg: None,
-            input_args: vec![],
-            output_arg: None,
-
-            curr_arg_name: None,
-        }
-    }
-
-    fn get_ffi_fn_name(&self) -> Ident {
-        let self_ty_name = self
-            .self_ty
-            .segments
-            .last()
-            .expect_or_abort("Path must have at least one segment")
-            .ident
-            .to_string()
-            .to_snake_case();
-
-        Ident::new(
-            &format!(
-                "{}_{}",
-                self_ty_name,
-                self.method_name
-                    .as_ref()
-                    .expect_or_abort("Method name must be defined")
-            ),
-            Span::call_site(),
-        )
-    }
-
-    fn get_self_arg_name() -> Ident {
-        Ident::new("handle", Span::call_site())
-    }
-
-    fn add_input_arg(&mut self, src_type: Type, ffi_type: Type) {
-        let ffi_name = self.curr_arg_name.take().expect_or_abort("Defined").clone();
-
-        self.input_args.push(FfiFnArgDescriptor {
-            ffi_name,
-            src_type,
-            ffi_type,
-        });
-    }
-
-    /// Produces name of the return type. Name of the self argument is used for dummy output type.
-    /// Dummy output type is a type which is not present in the FFI function signature. Dummy
-    /// type is used to signal that the self type passes through the method being transcribed
-    fn get_output_arg_name(&self, output_ffi_type: &Type) -> Ident {
-        if let Some(self_arg) = &self.self_arg {
-            if &self_arg.ffi_type == output_ffi_type {
-                return self_arg.ffi_name.clone();
-            }
-        }
-
-        Ident::new("output", Span::call_site())
-    }
-
-    fn add_output_arg(&mut self, src_type: Type, mut ffi_type: Type) {
-        assert!(self.curr_arg_name.is_none());
-        assert!(self.output_arg.is_none());
-
-        let ffi_name = self.get_output_arg_name(&ffi_type);
-        if !matches!(src_type, Type::ImplTrait(_)) {
-            ffi_type = parse_quote! { *mut #ffi_type };
-        }
-
-        self.output_arg = Some(FfiFnArgDescriptor {
-            ffi_name,
-            src_type,
-            ffi_type,
-        });
-    }
-
-    fn get_type_check_stmts(&self) -> Vec<syn::Stmt> {
-        let mut stmts = vec![];
-
-        self.self_arg.as_ref().map(|self_arg| {
-            self_arg
-                .get_ptr_null_check_stmt()
-                .map(|stmt| stmts.push(stmt))
-        });
-
-        for arg in &self.input_args {
-            if arg.is_slice_ref() {
-                stmts.push(arg.get_dangling_ptr_assignment());
-            } else if let Some(stmt) = arg.get_ptr_null_check_stmt() {
-                stmts.push(stmt);
-            }
-        }
-
-        if let Some(output_arg) = self.output_arg() {
-            if output_arg.is_slice_ref_mut() {
-                let slice_elems_arg_name = output_arg.get_slice_elems_arg_name();
-
-                stmts.push(parse_quote! {
-                    if #slice_elems_arg_name.is_null() {
-                        return iroha_ffi::FfiResult::ArgIsNull;
-                    }
-                });
-
-                stmts.push(output_arg.get_dangling_ptr_assignment());
-            } else if let Some(stmt) = output_arg.get_ptr_null_check_stmt() {
-                stmts.push(stmt);
-            }
-        }
-
-        stmts
-    }
-
-    /// Return output argument if present and not dummy
-    fn output_arg(&self) -> Option<&FfiFnArgDescriptor> {
-        self.output_arg.as_ref().and_then(|output_arg| {
-            if let Some(self_arg) = &self.self_arg {
-                if self_arg.ffi_name == output_arg.ffi_name {
-                    return None;
-                }
-            }
-
-            Some(output_arg)
-        })
-    }
-
-    fn get_ffi_to_src_conversion_stmts(&self) -> Vec<syn::Stmt> {
-        let mut stmts = vec![];
-
-        if let Some(self_arg) = &self.self_arg {
-            let arg_name = &self_arg.ffi_name;
-
-            match &self_arg.src_type {
-                Type::Path(_) => stmts.push(parse_quote! {
-                    let _handle = #arg_name.read();
-                }),
-                Type::Reference(type_) => {
-                    stmts.push(if type_.mutability.is_some() {
-                        parse_quote! { let #arg_name = &mut *#arg_name; }
-                    } else {
-                        parse_quote! { let #arg_name = &*#arg_name; }
-                    });
-                }
-                _ => unreachable!("Self can only be taken by value or by reference"),
-            }
-        }
-
-        for arg in &self.input_args {
-            stmts.extend(arg.get_ffi_to_src_conversion_stmts());
-        }
-
-        stmts
-    }
-
-    fn get_method_call_stmt(&self) -> syn::Stmt {
-        let method_name = &self.method_name;
-        let self_type = &self.self_ty;
-
-        let self_arg_name = self.self_arg.as_ref().map_or_else(Vec::new, |self_arg| {
-            if matches!(self_arg.src_type, Type::Path(_)) {
-                return vec![Ident::new("_handle", Span::call_site())];
-            }
-
-            vec![self_arg.ffi_name.clone()]
-        });
-
-        let fn_arg_names = self.input_args.iter().map(|arg| &arg.ffi_name);
-        parse_quote! { let method_res = #self_type::#method_name(#(#self_arg_name,)* #(#fn_arg_names),*); }
-    }
-
-    fn get_src_to_ffi_conversion_stmts(&self) -> Vec<syn::Stmt> {
-        if let Some(output_arg) = self.output_arg() {
-            return output_arg.get_src_to_ffi_conversion_stmts();
-        }
-
-        vec![]
-    }
-
-    fn get_output_assignment_stmts(&self) -> Vec<syn::Stmt> {
-        let mut stmts = vec![];
-
-        if let Some(output_arg) = &self.output_arg {
-            let output_arg_name = &output_arg.ffi_name;
-
-            if output_arg.is_slice_ref_mut() {
-                let (slice_len_arg_name, slice_elems_arg_name) = (
-                    output_arg.get_slice_len_arg_name(),
-                    output_arg.get_slice_elems_arg_name(),
-                );
-
-                stmts.push(parse_quote! {{
-                    let #output_arg_name = core::slice::from_raw_parts_mut(#output_arg_name, #slice_len_arg_name);
-
-                    #slice_elems_arg_name.write(method_res.len());
-                    for (i, elem) in method_res.take(#slice_len_arg_name).enumerate() {
-                        #output_arg_name[i] = elem;
-                    }
-                }});
-            } else {
-                assert!(matches!(output_arg.ffi_type, Type::Ptr(_)));
-                stmts.push(parse_quote! { #output_arg_name.write(method_res); });
-            }
-        }
-
-        stmts
-    }
-
-    fn get_fn_body(&self) -> syn::Block {
-        let checks = self.get_type_check_stmts();
-        let input_conversions = self.get_ffi_to_src_conversion_stmts();
-        let method_call_stmt = self.get_method_call_stmt();
-        let output_conversions = self.get_src_to_ffi_conversion_stmts();
-        let output_assignment = self.get_output_assignment_stmts();
-
-        parse_quote! {{
-            #( #checks )*
-            #( #input_conversions )*
-
-            #method_call_stmt
-
-            #( #output_conversions )*
-            #( #output_assignment )*
-
-            iroha_ffi::FfiResult::Ok
-        }}
-    }
-}
-
-impl FfiFnArgDescriptor {
+impl FnArgDescriptor {
     /// Returns true if this argument is a shared slice reference
-    fn is_slice_ref(&self) -> bool {
+    pub fn is_slice_ref(&self) -> bool {
         match &self.src_type {
             Type::Reference(type_) => {
                 return type_.mutability.is_none() && matches!(*type_.elem, Type::Slice(_));
@@ -393,7 +129,7 @@ impl FfiFnArgDescriptor {
                 assert_eq!(type_.bounds.len(), 1);
 
                 if let syn::TypeParamBound::Trait(trait_) = &type_.bounds[0] {
-                    let trait_name = &trait_.path.segments.last().expect_or_abort("Defined").ident;
+                    let trait_name = get_ident(&trait_.path);
                     return trait_name == "IntoIterator";
                 }
             }
@@ -404,7 +140,7 @@ impl FfiFnArgDescriptor {
     }
 
     /// Returns true if this argument is a mutable slice reference
-    fn is_slice_ref_mut(&self) -> bool {
+    pub fn is_slice_ref_mut(&self) -> bool {
         match &self.src_type {
             Type::Reference(type_) => {
                 return type_.mutability.is_some() && matches!(*type_.elem, Type::Slice(_));
@@ -413,7 +149,7 @@ impl FfiFnArgDescriptor {
                 assert_eq!(type_.bounds.len(), 1);
 
                 if let syn::TypeParamBound::Trait(trait_) = &type_.bounds[0] {
-                    let trait_name = &trait_.path.segments.last().expect_or_abort("Defined").ident;
+                    let trait_name = get_ident(&trait_.path);
                     return trait_name == "ExactSizeIterator";
                 }
             }
@@ -423,205 +159,70 @@ impl FfiFnArgDescriptor {
         false
     }
 
-    fn is_ffi_ptr(&self) -> bool {
+    pub fn is_ffi_ptr(&self) -> bool {
         matches!(self.ffi_type, Type::Ptr(_))
-    }
-
-    /// Returns a null check statement for this argument if it's FFI type is [`Type::Ptr`]
-    fn get_ptr_null_check_stmt(&self) -> Option<syn::Stmt> {
-        let arg_name = &self.ffi_name;
-
-        if self.is_ffi_ptr() {
-            return Some(parse_quote! {
-                if #arg_name.is_null() {
-                    return iroha_ffi::FfiResult::ArgIsNull;
-                }
-            });
-        }
-
-        None
-    }
-
-    fn get_dangling_ptr_assignment(&self) -> syn::Stmt {
-        let (arg_name, slice_len_arg_name) = (&self.ffi_name, self.get_slice_len_arg_name());
-
-        parse_quote! {
-            if #slice_len_arg_name == 0_usize {
-                // NOTE: `slice::from_raw_parts` takes a non-null aligned pointer
-                #arg_name = core::ptr::NonNull::dangling().as_ptr();
-            }
-        }
-    }
-
-    fn get_slice_elems_arg_name(&self) -> Ident {
-        Ident::new(&format!("{}_elems", self.ffi_name), Span::call_site())
-    }
-
-    fn get_slice_len_arg_name(&self) -> Ident {
-        Ident::new(&format!("{}_len", self.ffi_name), Span::call_site())
-    }
-
-    fn get_ffi_to_src_impl_into_iterator_conversion_stmts(
-        &self,
-        ffi_type: &syn::TypePtr,
-    ) -> Vec<syn::Stmt> {
-        let slice_len_arg_name = self.get_slice_len_arg_name();
-
-        let arg_name = &self.ffi_name;
-        let mut stmts = vec![parse_quote! {
-            let #arg_name = core::slice::from_raw_parts(#arg_name, #slice_len_arg_name).into_iter();
-        }];
-
-        match &*ffi_type.elem {
-            Type::Path(type_) => {
-                let last_seg = type_.path.segments.last().expect_or_abort("Defined");
-
-                if last_seg.ident == "Pair" {
-                    stmts.push(parse_quote! {
-                        let #arg_name = #arg_name.map(|&iroha_ffi::Pair(key, val)| {
-                            (Clone::clone(&*key), Clone::clone(&*val))
-                        });
-                    });
-                } else {
-                    abort!(last_seg, "Collection item not supported in FFI")
-                }
-            }
-            Type::Ptr(_) => {
-                stmts.push(parse_quote! {
-                    let #arg_name = #arg_name.map(|&ptr| Clone::clone(&*ptr));
-                });
-            }
-            _ => abort!(self, "Unsupported FFI type conversion"),
-        }
-
-        stmts
-    }
-
-    fn get_ffi_to_src_conversion_stmts(&self) -> Vec<syn::Stmt> {
-        let mut stmts = vec![];
-
-        let arg_name = &self.ffi_name;
-        match (&self.src_type, &self.ffi_type) {
-            (Type::Reference(src_ty), Type::Ptr(_)) => {
-                if matches!(*src_ty.elem, Type::Slice(_)) {
-                    // TODO: slice is here
-                } else {
-                    stmts.push(parse_quote! { let #arg_name = &*#arg_name; });
-                }
-            }
-            (Type::ImplTrait(src_ty), Type::Ptr(ffi_ty)) => {
-                if let syn::TypeParamBound::Trait(trait_) = &src_ty.bounds[0] {
-                    let last_seg = &trait_.path.segments.last().expect_or_abort("Defined");
-
-                    match last_seg.ident.to_string().as_ref() {
-                        "IntoIterator" => stmts.extend(
-                            self.get_ffi_to_src_impl_into_iterator_conversion_stmts(ffi_ty),
-                        ),
-                        "Into" => stmts.push(parse_quote! {
-                            let #arg_name = Clone::clone(&*#arg_name);
-                        }),
-                        _ => abort!(last_seg, "impl Trait type not supported"),
-                    }
-                }
-            }
-            (Type::Path(_), Type::Ptr(_)) => {
-                stmts.push(parse_quote! { let #arg_name = Clone::clone(&*#arg_name); });
-            }
-            (Type::Path(src_ty), Type::Path(_)) => {
-                let last_seg = src_ty.path.segments.last().expect_or_abort("Defined");
-
-                match last_seg.ident.to_string().as_ref() {
-                    "bool" => stmts.push(parse_quote! { let #arg_name = #arg_name != 0; }),
-                    // TODO: Wasm conversions?
-                    _ => unreachable!("Unsupported FFI conversion"),
-                }
-            }
-            _ => abort!(self, "Unsupported FFI type conversion"),
-        }
-
-        stmts
-    }
-
-    fn get_src_to_ffi_conversion_stmts(&self) -> Vec<syn::Stmt> {
-        let ffi_type = if let Type::Ptr(ffi_type) = &self.ffi_type {
-            &*ffi_type.elem
-        } else {
-            unreachable!("Output must be an out-pointer")
-        };
-
-        let mut stmts = vec![];
-        match (&self.src_type, ffi_type) {
-            (Type::Reference(src_ty), Type::Ptr(_)) => {
-                stmts.push(if src_ty.mutability.is_some() {
-                    parse_quote! { let method_res: *mut _ = method_res; }
-                } else {
-                    parse_quote! { let method_res: *const _ = method_res; }
-                });
-            }
-            (Type::ImplTrait(_), Type::Path(ffi_ty)) => {
-                if ffi_ty.path.segments.last().expect_or_abort("Defined").ident != "Pair" {
-                    abort!(self, "Unsupported FFI type conversion");
-                }
-
-                stmts.push(parse_quote! {
-                    let method_res = method_res.into_iter().map(|(key, val)| {
-                        iroha_ffi::Pair(key as *const _, val as *const _)
-                    });
-                });
-            }
-            (Type::ImplTrait(_), Type::Ptr(ffi_ty)) => {
-                stmts.push(parse_quote! { let method_res = method_res.into_iter(); });
-
-                if !matches!(*ffi_ty.elem, Type::Path(_)) {
-                    abort!(self, "Unsupported FFI type conversion");
-                }
-
-                stmts.push(if ffi_ty.mutability.is_some() {
-                    parse_quote! { let method_res = method_res.map(|arg| arg as *mut _); }
-                } else {
-                    parse_quote! { let method_res = method_res.map(|arg| arg as *const _); }
-                });
-            }
-            (Type::Path(src_ty), Type::Ptr(ffi_ty)) => {
-                let is_option_type = is_option_type(src_ty);
-
-                stmts.push(if is_option_type && ffi_ty.mutability.is_some() {
-                    parse_quote! {
-                        let method_res = method_res.map_or(core::ptr::null_mut(), |elem| elem as *mut _);
-                    }
-                } else if is_option_type && ffi_ty.mutability.is_none() {
-                    parse_quote! {
-                        let method_res = method_res.map_or(core::ptr::null(), |elem| elem as *const _);
-                    }
-                } else {
-                    parse_quote! { let method_res = Box::into_raw(Box::new(method_res)); }
-                });
-            }
-            (Type::Path(src_ty), Type::Path(_)) => {
-                let last_seg = src_ty.path.segments.last().expect_or_abort("Defined");
-
-                match last_seg.ident.to_string().as_ref() {
-                    "bool" => stmts.push(parse_quote! { let method_res = method_res as u8; }),
-                    "Result" => stmts.push(parse_quote! {
-                        let method_res = match method_res {
-                            Ok(method_res) => method_res,
-                            Err(error) => {
-                                return iroha_ffi::FfiResult::ExecutionFail;
-                            }
-                        };
-                    }),
-                    // TODO: Wasm conversions?
-                    _ => unreachable!("Unsupported FFI conversion"),
-                }
-            }
-            _ => abort!(self, "Unsupported FFI type conversion"),
-        }
-
-        stmts
     }
 }
 
-impl<'ast> Visit<'ast> for ImplDescriptor<'ast> {
+impl<'ast> FnVisitor<'ast> {
+    pub fn new(self_ty: &'ast syn::Path) -> Self {
+        Self {
+            self_ty,
+
+            method_name: None,
+            receiver: None,
+            input_args: vec![],
+            output_arg: None,
+
+            curr_arg_name: None,
+        }
+    }
+
+    fn gen_self_arg_name() -> Ident {
+        Ident::new("handle", Span::call_site())
+    }
+
+    fn add_input_arg(&mut self, src_type: Type, ffi_type: Type) {
+        let ffi_name = self.curr_arg_name.take().expect_or_abort("Defined").clone();
+
+        self.input_args.push(FnArgDescriptor {
+            ffi_name,
+            src_type,
+            ffi_type,
+        });
+    }
+
+    /// Produces name of the return type. Name of the self argument is used for dummy
+    /// output type which is not present in the FFI function signature. Dummy type is
+    /// used to signal that the self type passes through the method being transcribed
+    fn gen_output_arg_name(&self, output_ffi_type: &Type) -> Ident {
+        if let Some(receiver) = &self.receiver {
+            if &receiver.ffi_type == output_ffi_type {
+                return receiver.ffi_name.clone();
+            }
+        }
+
+        Ident::new("output", Span::call_site())
+    }
+
+    fn add_output_arg(&mut self, src_type: Type, mut ffi_type: Type) {
+        assert!(self.curr_arg_name.is_none());
+        assert!(self.output_arg.is_none());
+
+        let ffi_name = self.gen_output_arg_name(&ffi_type);
+        if !matches!(src_type, Type::ImplTrait(_)) {
+            ffi_type = parse_quote! { *mut #ffi_type };
+        }
+
+        self.output_arg = Some(FnArgDescriptor {
+            ffi_name,
+            src_type,
+            ffi_type,
+        });
+    }
+}
+
+impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
     fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
         for it in &node.attrs {
             self.visit_attribute(it);
@@ -632,9 +233,9 @@ impl<'ast> Visit<'ast> for ImplDescriptor<'ast> {
         if node.unsafety.is_some() {
             // NOTE: Its's irrelevant
         }
-        // TODO: What to do about generics?
-        //self.visit_generics(&node.generics);
-        self.is_inherent_impl = node.trait_.is_none();
+        if let Some(trait_) = &node.trait_ {
+            abort!(trait_.1, "Only inherent impls are supported");
+        }
         self.visit_self_type(&*node.self_ty);
 
         for it in &node.items {
@@ -642,17 +243,164 @@ impl<'ast> Visit<'ast> for ImplDescriptor<'ast> {
         }
     }
     fn visit_impl_item(&mut self, node: &'ast syn::ImplItem) {
-        let mut ffi_fn_descriptor = FfiFnDescriptor::new(
-            self.self_ty.expect_or_abort("Defined"),
-            self.is_inherent_impl,
-        );
+        let self_ty = self.self_ty.expect_or_abort("Defined");
 
         match node {
             syn::ImplItem::Method(method) => {
-                ffi_fn_descriptor.visit_impl_item_method(method);
-                self.fns.push(ffi_fn_descriptor);
+                self.fns
+                    .push(FnDescriptor::from_impl_method(self_ty, method));
             }
             _ => abort!(node, "Only methods are supported inside impl blocks"),
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for FnVisitor<'ast> {
+    fn visit_impl_item_method(&mut self, node: &'ast syn::ImplItemMethod) {
+        for it in &node.attrs {
+            self.visit_attribute(it);
+        }
+        if !matches!(node.vis, syn::Visibility::Public(_)) {
+            abort!(node.vis, "Methods defined in the impl block must be public");
+        }
+
+        self.visit_signature(&node.sig);
+    }
+    fn visit_signature(&mut self, node: &'ast syn::Signature) {
+        if node.constness.is_some() {
+            // NOTE: It's irrelevant
+        }
+        if node.asyncness.is_some() {
+            abort!(node.asyncness, "Async functions not supported");
+        }
+        if node.unsafety.is_some() {
+            // NOTE: It's irrelevant
+        }
+        if node.abi.is_some() {
+            abort!(node.abi, "Extern fn declarations not supported")
+        }
+        self.method_name = Some(&node.ident);
+        for fn_input_arg in &node.inputs {
+            self.visit_fn_arg(fn_input_arg);
+        }
+        if node.variadic.is_some() {
+            abort!(node.variadic, "Variadic arguments not supported")
+        }
+        self.visit_return_type(&node.output);
+    }
+
+    fn visit_receiver(&mut self, node: &'ast syn::Receiver) {
+        for it in &node.attrs {
+            self.visit_attribute(it);
+        }
+        if let Some((_, lifetime)) = &node.reference {
+            if lifetime.is_some() {
+                abort!(lifetime, "Explicit lifetimes not supported");
+            }
+        }
+
+        let self_type = self.self_ty;
+        let (src_type, ffi_type) = node.reference.as_ref().map_or_else(
+            || {
+                (
+                    syn::TypePath {
+                        qself: None,
+                        path: self_type.clone(),
+                    }
+                    .into(),
+                    parse_quote! { *mut #self_type },
+                )
+            },
+            |it| {
+                if it.1.is_some() {
+                    abort!(it.1, "Explicit lifetime not supported");
+                }
+
+                if node.mutability.is_some() {
+                    (
+                        parse_quote! { &mut #self_type },
+                        parse_quote! { *mut #self_type },
+                    )
+                } else {
+                    (
+                        parse_quote! { & #self_type },
+                        parse_quote! { *const #self_type },
+                    )
+                }
+            },
+        );
+
+        self.receiver = Some(FnArgDescriptor {
+            ffi_name: Self::gen_self_arg_name(),
+            src_type,
+            ffi_type,
+        });
+    }
+
+    fn visit_pat_type(&mut self, node: &'ast syn::PatType) {
+        for it in &node.attrs {
+            self.visit_attribute(it);
+        }
+
+        if let syn::Pat::Ident(ident) = &*node.pat {
+            self.visit_pat_ident(ident);
+        } else {
+            abort!(node.pat, "Unsupported pattern in variable name binding");
+        }
+
+        self.add_input_arg(
+            *node.ty.clone(),
+            TypeVisitor::resolve_ffi_type(self.self_ty, *node.ty.clone()),
+        );
+    }
+
+    fn visit_pat_ident(&mut self, node: &'ast syn::PatIdent) {
+        for it in &node.attrs {
+            self.visit_attribute(it);
+        }
+        if node.by_ref.is_some() {
+            abort!(node.by_ref, "ref patterns not supported in argument name");
+        }
+        if node.mutability.is_some() {
+            // NOTE: It's irrelevant
+        }
+        if node.subpat.is_some() {
+            abort!(node, "Subpatterns not supported in argument name");
+        }
+
+        self.curr_arg_name = Some(&node.ident);
+    }
+
+    fn visit_return_type(&mut self, node: &'ast syn::ReturnType) {
+        match node {
+            syn::ReturnType::Default => {}
+            syn::ReturnType::Type(_, src_type) => {
+                let mut ffi_type = TypeVisitor::resolve_ffi_type(self.self_ty, *src_type.clone());
+
+                // NOTE: Transcribe owned output types to *mut ptr
+                if let (Type::Path(src_ty), Type::Ptr(ffi_ty)) = (*src_type.clone(), &mut ffi_type)
+                {
+                    let ffi_ptr_subty = &ffi_ty.elem;
+
+                    if get_ident(&src_ty.path) != "Option" {
+                        *ffi_ty = parse_quote! { *mut #ffi_ptr_subty };
+                    }
+                }
+
+                self.add_output_arg(*src_type.clone(), ffi_type);
+            }
+        }
+
+        if let Some(receiver) = &self.receiver {
+            let self_src_type = &receiver.src_type;
+
+            if matches!(self_src_type, Type::Path(_)) {
+                let output_arg = self.output_arg.as_ref();
+
+                if output_arg.map_or(true, |out_arg| receiver.ffi_name != out_arg.ffi_name) {
+                    abort!(self_src_type, "Methods which consume self not supported");
+                }
+            }
         }
     }
 }
@@ -823,158 +571,6 @@ impl<'ast> Visit<'ast> for TypeVisitor {
     }
 }
 
-impl<'ast> Visit<'ast> for FfiFnDescriptor<'ast> {
-    fn visit_impl_item_method(&mut self, node: &'ast syn::ImplItemMethod) {
-        for it in &node.attrs {
-            self.visit_attribute(it);
-        }
-        if self.is_inherent_method && !matches!(node.vis, syn::Visibility::Public(_)) {
-            abort!(node.vis, "Methods defined in the impl block must be public");
-        }
-
-        self.visit_signature(&node.sig);
-    }
-    fn visit_signature(&mut self, node: &'ast syn::Signature) {
-        if node.constness.is_some() {
-            // NOTE: It's irrelevant
-        }
-        if node.asyncness.is_some() {
-            abort!(node.asyncness, "Async functions not supported");
-        }
-        if node.unsafety.is_some() {
-            // NOTE: It's irrelevant
-        }
-        if node.abi.is_some() {
-            abort!(node.abi, "Extern fn declarations not supported")
-        }
-        self.method_name = Some(&node.ident);
-        // TODO: Support generics
-        //self.visit_generics(&node.generics);
-        for fn_input_arg in &node.inputs {
-            self.visit_fn_arg(fn_input_arg);
-        }
-        if node.variadic.is_some() {
-            abort!(node.variadic, "Variadic arguments not supported")
-        }
-        self.visit_return_type(&node.output);
-    }
-
-    fn visit_receiver(&mut self, node: &'ast syn::Receiver) {
-        for it in &node.attrs {
-            self.visit_attribute(it);
-        }
-        if let Some((_, lifetime)) = &node.reference {
-            if lifetime.is_some() {
-                abort!(lifetime, "Explicit lifetimes not supported");
-            }
-        }
-
-        let self_type = self.self_ty;
-        let (src_type, ffi_type) = node.reference.as_ref().map_or_else(
-            || {
-                (
-                    syn::TypePath {
-                        qself: None,
-                        path: self_type.clone(),
-                    }
-                    .into(),
-                    parse_quote! { *mut #self_type },
-                )
-            },
-            |it| {
-                if it.1.is_some() {
-                    abort!(it.1, "Explicit lifetime not supported");
-                }
-
-                if node.mutability.is_some() {
-                    (
-                        parse_quote! { &mut #self_type },
-                        parse_quote! { *mut #self_type },
-                    )
-                } else {
-                    (
-                        parse_quote! { & #self_type },
-                        parse_quote! { *const #self_type },
-                    )
-                }
-            },
-        );
-
-        self.self_arg = Some(FfiFnArgDescriptor {
-            ffi_name: Self::get_self_arg_name(),
-            src_type,
-            ffi_type,
-        });
-    }
-
-    fn visit_pat_type(&mut self, node: &'ast syn::PatType) {
-        for it in &node.attrs {
-            self.visit_attribute(it);
-        }
-
-        if let syn::Pat::Ident(ident) = &*node.pat {
-            self.visit_pat_ident(ident);
-        } else {
-            abort!(node.pat, "Unsupported pattern in variable name binding");
-        }
-
-        self.add_input_arg(
-            *node.ty.clone(),
-            TypeVisitor::resolve_ffi_type(self.self_ty, *node.ty.clone()),
-        );
-    }
-
-    fn visit_pat_ident(&mut self, node: &'ast syn::PatIdent) {
-        for it in &node.attrs {
-            self.visit_attribute(it);
-        }
-        if node.by_ref.is_some() {
-            abort!(node.by_ref, "ref patterns not supported in argument name");
-        }
-        if node.mutability.is_some() {
-            // NOTE: It's irrelevant
-        }
-        if node.subpat.is_some() {
-            abort!(node, "Subpatterns not supported in argument name");
-        }
-
-        self.curr_arg_name = Some(&node.ident);
-    }
-
-    fn visit_return_type(&mut self, node: &'ast syn::ReturnType) {
-        match node {
-            syn::ReturnType::Default => {}
-            syn::ReturnType::Type(_, src_type) => {
-                let mut ffi_type = TypeVisitor::resolve_ffi_type(self.self_ty, *src_type.clone());
-
-                // NOTE: Transcribe owned output types to *mut ptr
-                if let (Type::Path(src_ty), Type::Ptr(ffi_ty)) = (*src_type.clone(), &mut ffi_type)
-                {
-                    let ffi_ptr_subty = &ffi_ty.elem;
-
-                    if !is_option_type(&src_ty) {
-                        *ffi_ty = parse_quote! { *mut #ffi_ptr_subty };
-                    }
-                }
-
-                self.add_output_arg(*src_type.clone(), ffi_type);
-            }
-        }
-
-        if let Some(self_arg) = &self.self_arg {
-            let self_src_type = &self_arg.src_type;
-
-            if matches!(self_src_type, Type::Path(_)) {
-                let output_arg = self.output_arg.as_ref();
-
-                if output_arg.map_or(true, |out_arg| self_arg.ffi_name != out_arg.ffi_name) {
-                    abort!(self_src_type, "Methods which consume self not supported");
-                }
-            }
-        }
-    }
-}
-
 /// Visitor for path types which replaces all occurrences of `Self` with a fully qualified type
 pub struct SelfResolver<'ast> {
     self_ty: &'ast syn::Path,
@@ -1005,10 +601,6 @@ impl VisitMut for SelfResolver<'_> {
             node.segments = node_segments;
         }
     }
-}
-
-fn is_option_type(type_: &syn::TypePath) -> bool {
-    type_.path.segments.last().expect_or_abort("Defined").ident == "Option"
 }
 
 fn generic_arg_types(seg: &syn::PathSegment) -> Vec<&Type> {
