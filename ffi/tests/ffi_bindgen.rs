@@ -52,7 +52,7 @@ impl FfiStruct {
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.params.iter()
     }
-    pub fn fallible(flag: bool) -> Result<u32, &'static str> {
+    pub fn fallible_int_output(flag: bool) -> Result<u32, &'static str> {
         if flag {
             Ok(42)
         } else {
@@ -213,7 +213,10 @@ fn return_iterator() {
         assert!(params
             .iter()
             .map(|&Pair(key, val)| (&*key, &*val))
-            .eq(get_default_params().iter().take(1).map(|pair| (&pair.0, &pair.1))));
+            .eq(get_default_params()
+                .iter()
+                .take(1)
+                .map(|pair| (&pair.0, &pair.1))));
 
         ffi_struct_drop(ffi_struct);
     }
@@ -226,12 +229,12 @@ fn return_result() {
     unsafe {
         assert_eq!(
             FfiResult::ExecutionFail,
-            ffi_struct_fallible(u8::from(false), output.as_mut_ptr())
+            ffi_struct_fallible_int_output(u8::from(false), output.as_mut_ptr())
         );
         assert_eq!(0, output.assume_init());
         assert_eq!(
             FfiResult::Ok,
-            ffi_struct_fallible(u8::from(true), output.as_mut_ptr())
+            ffi_struct_fallible_int_output(u8::from(true), output.as_mut_ptr())
         );
         assert_eq!(42, output.assume_init());
     }

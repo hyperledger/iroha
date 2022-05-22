@@ -605,7 +605,7 @@ impl FfiFnArgDescriptor {
                     "Result" => stmts.push(parse_quote! {
                         let method_res = match method_res {
                             Ok(method_res) => method_res,
-                            Err(method_res) => {
+                            Err(error) => {
                                 return iroha_ffi::FfiResult::ExecutionFail;
                             }
                         };

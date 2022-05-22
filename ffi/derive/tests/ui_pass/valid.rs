@@ -3,8 +3,9 @@ use std::{collections::BTreeMap, mem::MaybeUninit};
 use getset::Getters;
 use iroha_ffi::{ffi_bindgen, FfiResult, Pair};
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Name(&'static str);
+#[derive(Clone)]
 pub struct Value(&'static str);
 
 #[ffi_bindgen]

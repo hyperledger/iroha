@@ -158,6 +158,33 @@ impl FromStr for Name {
     }
 }
 
+#[cfg(features = "ffi")]
+pub unsafe extern "C" fn name_from_str(
+    candidate: *const u8,
+    candidate_len: usize,
+    output: *mut *mut Name,
+) -> iroha_ffi::FfiResult {
+    let candidate = core::slice::from_raw_parts(candidate, candidate_len);
+
+    let method_res = match core::str::from_utf8(candidate) {
+        Err(_error) => return iroha_ffi::FfiResult::Utf8Error,
+        Ok(candidate) => Name::from_str(candidate),
+    };
+    let method_res = match method_res {
+        Err(_error) => return iroha_ffi::FfiResult::ExecutionFail,
+        Ok(method_res) => method_res,
+    };
+    let method_res = Box::into_raw(Box::new(method_res));
+
+    output.write(method_res);
+    iroha_ffi::FfiResult::Ok
+}
+
+#[cfg(features = "ffi")]
+pub unsafe extern "C" fn name_drop(handle: *mut Name) {
+    Box::from_raw(handle);
+}
+
 impl Debug for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.0)
@@ -762,5 +789,34 @@ mod tests {
 
             assert!(name.is_err());
         }
+    }
+
+    #[test]
+    #[cfg(features = "ffi")]
+    fn ffi_name_from_str() -> Result<(), ParseError> {
+        let candidate = "Name";
+        let candidate_bytes = candidate.as_bytes();
+        let candidate_bytes_len = candidate_bytes.len();
+
+        unsafe {
+            let mut name = core::mem::MaybeUninit::new(core::ptr::null_mut());
+
+            assert_eq!(
+                iroha_ffi::FfiResult::Ok,
+                name_from_str(
+                    candidate_bytes.as_ptr(),
+                    candidate_bytes_len,
+                    name.as_mut_ptr()
+                )
+            );
+
+            let name = name.assume_init();
+            assert_ne!(core::ptr::null_mut(), name);
+            assert_eq!(Name::from_str(candidate)?, *name);
+
+            name_drop(name);
+        }
+
+        Ok(())
     }
 }
