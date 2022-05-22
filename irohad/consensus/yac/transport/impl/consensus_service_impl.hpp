@@ -31,7 +31,7 @@ namespace iroha::consensus::yac {
      * perform on another machine;
      */
     grpc::Status SendState(::grpc::ServerContext *context,
-                           const ::iroha::consensus::yac::proto::State *request,
+                           ::grpc::ServerReader< ::iroha::consensus::yac::proto::State>* reader,
                            ::google::protobuf::Empty *response) override;
 
    private:

@@ -12,6 +12,8 @@
 #include <memory>
 #include <mutex>
 
+#include "interfaces/common_objects/peer.hpp"
+#include "common/common.hpp"
 #include "consensus/yac/vote_message.hpp"
 #include "logger/logger_fwd.hpp"
 #include "network/impl/client_factory.hpp"
@@ -40,6 +42,18 @@ namespace iroha::consensus::yac {
      * Yac stub creator
      */
     std::unique_ptr<ClientFactory> client_factory_;
+    google::protobuf::Empty response_;
+
+    using StubData = std::tuple<shared_model::interface::types::AddressType,
+                                std::unique_ptr<proto::Yac::StubInterface>,
+                                std::unique_ptr<grpc::ClientContext>,
+                                std::shared_ptr<::grpc::ClientWriterInterface<
+                                    ::iroha::consensus::yac::proto::State>>,
+                                std::unique_ptr<::google::protobuf::Empty>>;
+
+    utils::ReadWriteObject<std::unordered_map<std::string, StubData>,
+                           std::mutex>
+        stubs_;
 
     std::mutex stop_mutex_;
     bool stop_requested_{false};

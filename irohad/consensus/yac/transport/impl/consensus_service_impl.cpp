@@ -15,25 +15,30 @@ ServiceImpl::ServiceImpl(logger::LoggerPtr log,
 
 grpc::Status ServiceImpl::SendState(
     ::grpc::ServerContext *context,
-    const ::iroha::consensus::yac::proto::State *request,
+    //const ::iroha::consensus::yac::proto::State *request,
+    ::grpc::ServerReader< ::iroha::consensus::yac::proto::State>* reader,
     ::google::protobuf::Empty *response) {
-  std::vector<VoteMessage> state;
-  for (const auto &pb_vote : request->votes()) {
-    if (auto vote = PbConverters::deserializeVote(pb_vote, log_)) {
-      state.push_back(*vote);
+  ::iroha::consensus::yac::proto::State request;
+  while (reader->Read(&request)) {
+    std::vector<VoteMessage> state;
+    for (const auto &pb_vote : request.votes()) {
+      if (auto vote = PbConverters::deserializeVote(pb_vote, log_)) {
+        state.push_back(*vote);
+      }
     }
-  }
-  if (state.empty()) {
-    log_->info("Received an empty votes collection");
-    return grpc::Status::CANCELLED;
-  }
-  if (not sameKeys(state)) {
-    log_->info("Votes are statelessly invalid: proposal rounds are different");
-    return grpc::Status::CANCELLED;
-  }
 
-  log_->info("Received votes[size={}] from {}", state.size(), context->peer());
+    if (state.empty()) {
+      log_->info("Received an empty votes collection");
+      return grpc::Status::CANCELLED;
+    }
 
-  callback_(std::move(state));
+    if (not sameKeys(state)) {
+      log_->info("Votes are statelessly invalid: proposal rounds are different");
+      return grpc::Status::CANCELLED;
+    }
+
+    log_->info("Received votes[size={}] from {}", state.size(), context->peer());
+    callback_(std::move(state));
+  }
   return grpc::Status::OK;
 }
