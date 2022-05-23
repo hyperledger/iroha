@@ -63,6 +63,8 @@ jobs:
               - "**/Dockerfile"
               - "docker/release/entrypoint.sh"
               - "docker/release/wait-for-it.sh"
+            build_dependecies:
+              - "vcpkg/build_iroha_deps.sh"
             
       - name: verify .github folder is not changed
         if: steps.filter.outputs.github == 'true'
@@ -74,6 +76,12 @@ jobs:
         if: steps.filter.outputs.dockerfile == 'true'
         run: |
           echo "Pull requests from forks are not allowed to change Dockerfiles"
+          false
+      
+      - name: verify build depedencies script is not changed
+        if: steps.filter.outputs.build_dependecies == 'true'
+        run: |
+          echo "Pull requests from forks are not allowed to change build dependencies script"
           false
       
 
@@ -196,13 +204,15 @@ jobs:
         name: Build info
         run: |
           cat << 'END'
-          ref:${{github.ref}}
+          ref:$github_ref
           sha:${{github.sha}}
           run_number:${{github.run_number}}
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
           END
+        env:
+          github_ref: ${{ github.ref }}
       - *step_detect_commented_pr
       - &step_checkout_base
         name: Checkout base

@@ -57,6 +57,8 @@ jobs:
               - "**/Dockerfile"
               - "docker/release/entrypoint.sh"
               - "docker/release/wait-for-it.sh"
+            build_dependecies:
+              - "vcpkg/build_iroha_deps.sh"
       - name: verify .github folder is not changed
         if: steps.filter.outputs.github == 'true'
         run: |
@@ -66,6 +68,11 @@ jobs:
         if: steps.filter.outputs.dockerfile == 'true'
         run: |
           echo "Pull requests from forks are not allowed to change Dockerfiles"
+          false
+      - name: verify build depedencies script is not changed
+        if: steps.filter.outputs.build_dependecies == 'true'
+        run: |
+          echo "Pull requests from forks are not allowed to change build dependencies script"
           false
   ## This job is to generate build matrixes for build jobs
   ## The matrixes depend on what is requeted to be build
@@ -200,13 +207,15 @@ jobs:
       - name: Build info
         run: |
           cat << 'END'
-          ref:${{github.ref}}
+          ref:$github_ref
           sha:${{github.sha}}
           run_number:${{github.run_number}}
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
           END
+        env:
+          github_ref: ${{ github.ref }}
       - name: REF and SHA of commented PR to ENV
         if: github.event.comment
         run: >
@@ -379,13 +388,15 @@ jobs:
       - name: Build info
         run: |
           cat << 'END'
-          ref:${{github.ref}}
+          ref:$github_ref
           sha:${{github.sha}}
           run_number:${{github.run_number}}
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
           END
+        env:
+          github_ref: ${{ github.ref }}
       - name: export CC,BuildType from matrix.buildspec
         run: |
           echo >>$GITHUB_ENV  OS=$(echo ${{matrix.buildspec}} | awk '{print $1}')
@@ -659,13 +670,15 @@ jobs:
       - name: Build info
         run: |
           cat << 'END'
-          ref:${{github.ref}}
+          ref:$github_ref
           sha:${{github.sha}}
           run_number:${{github.run_number}}
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
           END
+        env:
+          github_ref: ${{ github.ref }}
       - name: export CC,BuildType from matrix.buildspec
         run: |
           echo >>$GITHUB_ENV  OS=$(echo ${{matrix.buildspec}} | awk '{print $1}')
@@ -952,13 +965,15 @@ jobs:
       - name: Build info
         run: |
           cat << 'END'
-          ref:${{github.ref}}
+          ref:$github_ref
           sha:${{github.sha}}
           run_number:${{github.run_number}}
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
           END
+        env:
+          github_ref: ${{ github.ref }}
       - name: export CC,BuildType from matrix.buildspec
         run: |
           echo >>$GITHUB_ENV  OS=$(echo ${{matrix.buildspec}} | awk '{print $1}')
@@ -1337,13 +1352,15 @@ jobs:
       - name: Build info
         run: |
           cat << 'END'
-          ref:${{github.ref}}
+          ref:$github_ref
           sha:${{github.sha}}
           run_number:${{github.run_number}}
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
           END
+        env:
+          github_ref: ${{ github.ref }}
       - name: export CC,BuildType from matrix.buildspec
         run: |
           echo >>$GITHUB_ENV  OS=$(echo ${{matrix.buildspec}} | awk '{print $1}')
@@ -1508,13 +1525,15 @@ jobs:
       - name: Build info
         run: |
           cat << 'END'
-          ref:${{github.ref}}
+          ref:$github_ref
           sha:${{github.sha}}
           run_number:${{github.run_number}}
           event_name:${{github.event_name}}
           event.action:${{github.event.action}}
           event.issue.number:${{ github.event.issue.number }}
           END
+        env:
+          github_ref: ${{ github.ref }}
       - name: export CC,BuildType from matrix.buildspec
         run: |
           echo >>$GITHUB_ENV  OS=$(echo ${{matrix.buildspec}} | awk '{print $1}')
