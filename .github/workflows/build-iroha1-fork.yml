@@ -7,7 +7,7 @@ permissions:
   actions: read
   checks: read
   contents: read
-  deployments: none
+  deployments: read
   issues: read
   packages: write
   pull-requests: read
@@ -28,6 +28,7 @@ jobs:
   ## Also checks that .github folder, Dockerfiles and scripts in docker directory are not changed
   check_if_pull_request_comes_from_fork:
     runs-on: ubuntu-20.04 #ubuntu-latest
+    permissions: read-all
     name: Pull requests from forks should use this workflow
     if: github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
@@ -84,6 +85,7 @@ jobs:
   generate_matrixes:
     environment: test-env
     runs-on: ubuntu-20.04
+    permissions: read-all
     needs: check_if_pull_request_comes_from_fork
     steps:
       - name: Show context
@@ -347,6 +349,7 @@ jobs:
       - Docker-iroha-builder
       - generate_matrixes
     runs-on: [self-hosted, Linux]
+    permissions: read-all
     container: ## Container is taken from previous job
       image: ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
@@ -633,6 +636,7 @@ jobs:
       - Docker-iroha-builder
       - generate_matrixes
     runs-on: [self-hosted, Linux]
+    permissions: read-all
     container: ## Container is taken from previous job
       image: ${{needs.Docker-iroha-builder.outputs.container}}
       options: --user root
@@ -918,6 +922,7 @@ jobs:
     needs: check_if_pull_request_comes_from_fork
     environment: test-env
     runs-on: macos-latest
+    permissions: read-all
     steps:
       - name: Show context
         run: |
@@ -935,6 +940,7 @@ jobs:
       - prepare-macos-env
       - generate_matrixes
     runs-on: macos-latest #[ self-hosted, MacOS ] #
+    permissions: read-all
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_macos ) }}
@@ -1217,6 +1223,7 @@ jobs:
     needs: check_if_pull_request_comes_from_fork
     environment: test-env
     runs-on: windows-latest
+    permissions: read-all
     steps:
       - name: Show context
         run: |
