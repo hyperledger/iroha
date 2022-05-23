@@ -663,44 +663,6 @@ mod tests {
     use super::*;
     use crate::{sumeragi::view_change, tx::TransactionValidator, wsv::World};
 
-    #[tokio::test]
-    async fn no_checkin_display_filenames() {
-        let dir = tempfile::tempdir().unwrap();
-        let block_store = BlockStore::new(
-            dir.path(),
-            NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),
-            DefaultIO,
-        )
-        .await
-        .unwrap();
-        let n = 210;
-        let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let mut block = PendingBlock::new(Vec::new(), Vec::new())
-            .chain_first()
-            .validate(&get_transaction_validator())
-            .sign(keypair.clone())
-            .expect("Failed to sign blocks.")
-            .commit();
-        for height in 1_u64..=n {
-            let file_path = block_store
-                .get_block_path(NonZeroU64::new(height).unwrap())
-                .await
-                .unwrap();
-
-            println!("{} - {:?}", height, file_path);
-            let hash = block_store
-                .write(&block)
-                .await
-                .expect("Failed to write block to file.");
-            block = PendingBlock::new(Vec::new(), Vec::new())
-                .chain(height, hash, view_change::ProofChain::empty(), Vec::new())
-                .validate(&get_transaction_validator())
-                .sign(keypair.clone())
-                .expect("Failed to sign blocks.")
-                .commit();
-        }
-    }
-
     const TEST_STORAGE_FILE_SIZE: u64 = 3_u64;
 
     #[tokio::test]
