@@ -68,7 +68,7 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
     .await;
 
     (
-        Torii::from_configuration(config, wsv, queue, AllowAll::new(), events, network),
+        Torii::from_configuration(config, wsv, queue, AllowAll::new(), events, network, Arc::new(Notify::new())),
         keys,
     )
 }

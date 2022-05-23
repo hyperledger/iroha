@@ -22,7 +22,7 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use tokio::sync::broadcast;
+use tokio::{sync::{broadcast, Notify}, signal};
 use torii::Torii;
 
 pub mod config;
@@ -192,6 +192,8 @@ where
             Arc::clone(&wsv),
         );
 
+        let notify_shutdown = Arc::new(Notify::new());
+
         let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
         let telemetry_started = Self::start_telemetry(telemetry, &config).await?;
         let kura = K::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())
@@ -234,7 +236,10 @@ where
             query_validator,
             events_sender,
             network_addr.clone(),
+            notify_shutdown.clone(),
         );
+
+        Self::start_terminate_signal(notify_shutdown).await;
 
         let torii = Some(torii);
         Ok(Self {
@@ -312,6 +317,20 @@ where
         _config: &Configuration,
     ) -> Result<bool> {
         Ok(false)
+    }
+
+    async fn start_terminate_signal(notify_shutdown: Arc<Notify>) {
+        tokio::spawn(async move {
+            let mut sig_int_listen = signal::unix::signal(signal::unix::SignalKind::interrupt()).expect("failed to make signal");
+            let mut sig_term_listen = signal::unix::signal(signal::unix::SignalKind::terminate()).expect("failed to make signal");
+
+            tokio::select! {
+                _ = sig_int_listen.recv() => {},
+                _ = sig_term_listen.recv() => {}
+            }
+
+            notify_shutdown.notify_waiters();
+        }).await.expect("failed to start signal handling");
     }
 }
 

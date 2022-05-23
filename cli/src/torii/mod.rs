@@ -14,6 +14,7 @@ use iroha_core::{
     EventsSender, IrohaNetwork,
 };
 use thiserror::Error;
+use tokio::sync::Notify;
 use utils::*;
 use warp::{
     http::StatusCode,
@@ -36,6 +37,7 @@ pub struct Torii<W: WorldTrait> {
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     network: iroha_actor::Addr<IrohaNetwork>,
+    notify_shutdown: Arc<Notify>,
 }
 
 /// Torii errors.
