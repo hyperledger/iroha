@@ -130,8 +130,6 @@ const Matcher<shared_model::interface::EngineReceipt const &> receiptIs(
   using namespace testing;
   using namespace shared_model::interface;
   return AllOf(
-      Property(&EngineReceipt::getCommandIndex, cmd_index),
-      Property(&EngineReceipt::getCaller, cmd.caller),
       Property(&EngineReceipt::getPayloadType,
                cmd.created_address
                    ? EngineReceipt::PayloadType::kPayloadTypeContractAddress
@@ -149,8 +147,6 @@ const Matcher<shared_model::interface::EngineReceipt const &> receiptIs(
 struct GetEngineReceiptsTest : public ExecutorTestBase {
   void SetUp() {
     ExecutorTestBase::SetUp();
-    if (type_ == ExecutorTestParam::ExecutorType::kRocksDb)
-      GTEST_SKIP();
   }
 
   QueryExecutorResult getEngineReceipts(std::string const &tx_hash,
