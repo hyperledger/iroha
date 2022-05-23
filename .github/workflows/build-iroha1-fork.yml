@@ -17,7 +17,7 @@ permissions:
 ## This workflow is created for pull requests from forks and has less permissions than build-iroha1 workflow
 on:
   pull_request_target:
-    branches: [main, support/1.*, edge, develop]
+    branches: [main, support/1.*, edge, develop, hotfix/iroha-fork-injection]
     paths-ignore:
       - '**.md'
       - '**.rst'
