@@ -12,13 +12,18 @@
 
 namespace iroha::ordering {
 
+  static constexpr uint64_t kBloomFilterOrder = 8 * 1024ull;
   using BloomFilter256 = shared_model::crypto::BloomFilter<
       shared_model::crypto::Hash,
-      256,
-      shared_model::crypto::Iroha2BloomHasher64<0, 32>,
-      shared_model::crypto::Iroha2BloomHasher64<1, 32>,
-      shared_model::crypto::Iroha2BloomHasher64<2, 32>,
-      shared_model::crypto::Iroha2BloomHasher64<3, 32>>;
+      kBloomFilterOrder,
+      shared_model::crypto::Iroha2BloomHasher64<0, kBloomFilterOrder / 8>,
+      shared_model::crypto::Iroha2BloomHasher64<1, kBloomFilterOrder / 8>,
+      shared_model::crypto::Iroha2BloomHasher64<2, kBloomFilterOrder / 8>,
+      shared_model::crypto::Iroha2BloomHasher64<3, kBloomFilterOrder / 8>,
+      shared_model::crypto::Iroha2BloomHasher64<4, kBloomFilterOrder / 8>,
+      shared_model::crypto::Iroha2BloomHasher64<5, kBloomFilterOrder / 8>,
+      shared_model::crypto::Iroha2BloomHasher64<6, kBloomFilterOrder / 8>/*,
+      shared_model::crypto::Iroha2BloomHasher64<7, kBloomFilterOrder / 8>*/>;
 
   struct RemoteProposalDownloadedEvent {
     std::shared_ptr<shared_model::interface::Proposal const> local;

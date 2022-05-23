@@ -17,15 +17,13 @@ namespace shared_model::crypto {
 
   template <size_t kIndex, size_t kSize>
   class Iroha2BloomHasher64 {
-    static_assert(kIndex * sizeof(uint64_t) < kSize, "Unexpected size.");
-    static_assert(kSize % sizeof(uint64_t) == 0, "Inconsistent size.");
+    static_assert(kIndex * sizeof(uint32_t) < kSize, "Unexpected size.");
+    static_assert(kSize % sizeof(uint32_t) == 0, "Inconsistent size.");
 
    public:
     static auto pack8(shared_model::crypto::Hash const &hash) {
-      auto const input = *(((uint64_t *)&hash.blob()[0]) + kIndex);
-      auto const pack1 = (input >> 32) ^ input;
-      auto const pack2 = (pack1 >> 16) ^ pack1;
-      auto const pack3 = (((pack2 >> 8) ^ pack2) & 0xff);
+      auto const input = *(((uint32_t *)&hash.blob()[0]) + kIndex);
+      auto const pack3 = input & ((kSize * 8ull) - 1ull);
 
       assert((pack3 >> 3) < kSize);
       return std::make_pair(pack3 >> 3, pack3 & 0x7);
