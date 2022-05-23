@@ -4,7 +4,7 @@ use quote::quote;
 use syn::{parse_quote, Ident, Type};
 
 use crate::{
-    get_ident, snake_case_ident,
+    get_ident,
     visitor::{FnArgDescriptor, FnDescriptor},
 };
 
@@ -40,10 +40,10 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> proc_macro2::TokenStream {
 }
 
 fn gen_ffi_fn_name(fn_descriptor: &FnDescriptor) -> Ident {
-    let self_ty_name = snake_case_ident(fn_descriptor.self_ty_name());
+    let self_ty_name = fn_descriptor.self_ty_name();
 
     Ident::new(
-        &format!("{}_{}", self_ty_name, fn_descriptor.method_name),
+        &format!("{}__{}", self_ty_name, fn_descriptor.method_name),
         Span::call_site(),
     )
 }

@@ -66,7 +66,7 @@ fn get_new_struct() -> *mut FfiStruct {
     let name = Name(String::from("X"));
 
     assert_eq!(FfiResult::Ok, unsafe {
-        ffi_struct_new(&name, ffi_struct.as_mut_ptr())
+        FfiStruct__new(&name, ffi_struct.as_mut_ptr())
     },);
 
     unsafe {
@@ -86,7 +86,7 @@ fn get_new_struct_with_params() -> *mut FfiStruct {
         .map(|(key, val)| Pair(key as *const _, val as *const _))
         .collect();
     assert_eq!(FfiResult::Ok, unsafe {
-        ffi_struct_with_params(ffi_struct, params_ffi.as_ptr(), params_ffi.len())
+        FfiStruct__with_params(ffi_struct, params_ffi.as_ptr(), params_ffi.len())
     });
 
     ffi_struct
@@ -100,7 +100,7 @@ fn constructor() {
         assert_eq!(Name(String::from('X')), (*ffi_struct).name);
         assert!((*ffi_struct).params.is_empty());
 
-        ffi_struct_drop(ffi_struct);
+        FfiStruct__drop(ffi_struct);
     }
 }
 
@@ -118,13 +118,13 @@ fn into_iter_item_impl_into() {
     unsafe {
         assert_eq!(
             FfiResult::Ok,
-            ffi_struct_with_tokens(ffi_struct, tokens_ffi.as_ptr(), tokens_ffi.len())
+            FfiStruct__with_tokens(ffi_struct, tokens_ffi.as_ptr(), tokens_ffi.len())
         );
 
         assert_eq!(2, (*ffi_struct).tokens.len());
         assert_eq!((*ffi_struct).tokens, tokens);
 
-        ffi_struct_drop(ffi_struct);
+        FfiStruct__drop(ffi_struct);
     }
 }
 
@@ -139,7 +139,7 @@ fn builder_method() {
             get_default_params().into_iter().collect()
         );
 
-        ffi_struct_drop(ffi_struct);
+        FfiStruct__drop(ffi_struct);
     }
 }
 
@@ -152,20 +152,20 @@ fn return_option() {
 
     let name1 = Name(String::from("Non"));
     assert_eq!(FfiResult::Ok, unsafe {
-        ffi_struct_get_param(ffi_struct, &name1, param1.as_mut_ptr())
+        FfiStruct__get_param(ffi_struct, &name1, param1.as_mut_ptr())
     });
     unsafe { assert!(param1.assume_init().is_null()) };
 
     let name2 = Name(String::from("Nomen"));
     assert_eq!(FfiResult::Ok, unsafe {
-        ffi_struct_get_param(ffi_struct, &name2, param2.as_mut_ptr())
+        FfiStruct__get_param(ffi_struct, &name2, param2.as_mut_ptr())
     });
 
     unsafe {
         assert!(!param2.assume_init().is_null());
         assert_eq!(&Value(String::from("Omen")), &*param2.assume_init());
 
-        ffi_struct_drop(ffi_struct);
+        FfiStruct__drop(ffi_struct);
     }
 }
 
@@ -177,7 +177,7 @@ fn empty_return_iterator() {
     unsafe {
         assert_eq!(
             FfiResult::Ok,
-            ffi_struct_params(
+            FfiStruct__params(
                 ffi_struct,
                 core::ptr::null_mut(),
                 0_usize,
@@ -186,7 +186,7 @@ fn empty_return_iterator() {
         );
 
         assert!(params_len.assume_init() == 2);
-        ffi_struct_drop(ffi_struct);
+        FfiStruct__drop(ffi_struct);
     }
 }
 
@@ -199,7 +199,7 @@ fn return_iterator() {
     unsafe {
         assert_eq!(
             FfiResult::Ok,
-            ffi_struct_params(
+            FfiStruct__params(
                 ffi_struct,
                 params.as_mut_ptr(),
                 params.capacity(),
@@ -218,7 +218,7 @@ fn return_iterator() {
                 .take(1)
                 .map(|pair| (&pair.0, &pair.1))));
 
-        ffi_struct_drop(ffi_struct);
+        FfiStruct__drop(ffi_struct);
     }
 }
 
@@ -229,12 +229,12 @@ fn return_result() {
     unsafe {
         assert_eq!(
             FfiResult::ExecutionFail,
-            ffi_struct_fallible_int_output(u8::from(false), output.as_mut_ptr())
+            FfiStruct__fallible_int_output(u8::from(false), output.as_mut_ptr())
         );
         assert_eq!(0, output.assume_init());
         assert_eq!(
             FfiResult::Ok,
-            ffi_struct_fallible_int_output(u8::from(true), output.as_mut_ptr())
+            FfiStruct__fallible_int_output(u8::from(true), output.as_mut_ptr())
         );
         assert_eq!(42, output.assume_init());
     }
@@ -246,6 +246,6 @@ fn getset_getter() {
 
     unsafe {
         assert_eq!(Name(String::from('X')), *(*ffi_struct).name());
-        ffi_struct_drop(ffi_struct);
+        FfiStruct__drop(ffi_struct);
     }
 }

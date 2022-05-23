@@ -148,7 +148,7 @@ impl fmt::Display for Id {
 }
 
 impl Id {
-    /// Construct [`Id`], while performing lenght checks and acceptable character validation.
+    /// Construct [`Id`]
     pub fn new(name: Name) -> Self {
         Self { name }
     }

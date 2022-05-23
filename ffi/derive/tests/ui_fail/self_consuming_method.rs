@@ -1,3 +1,6 @@
+//! Test which assures that methods consuming self are not allowed in FFI. If the need arises,
+//! this limitation can be lifted in the future, and consequently this test nullified
+
 use iroha_ffi::{ffi_bindgen, FfiResult};
 use std::mem::MaybeUninit;
 
@@ -7,7 +10,7 @@ struct FfiStruct;
 #[ffi_bindgen]
 impl FfiStructBuilder {
     pub fn new() -> Self {
-        FfiStruct
+        Self
     }
 
     pub fn build(self) -> FfiStruct {
@@ -17,13 +20,13 @@ impl FfiStructBuilder {
 
 fn main() -> Result<(), ()> {
     let s_builder: MaybeUninit<*mut FfiStructBuilder> = MaybeUninit::uninit();
-    if FfiResult::Ok != ffi_struct_builder_new(s_builder.as_mut_ptr()) {
+    if FfiResult::Ok != FfiStructBuilder__new(s_builder.as_mut_ptr()) {
         return Err(());
     }
 
     let s_builder = unsafe { s_builder.assume_init() };
     let s: MaybeUninit<*mut FfiStruct> = MaybeUninit::uninit();
-    if FfiResult::Ok != ffi_struct_builder_build(s_builder, s.as_mut_ptr()) {
+    if FfiResult::Ok != FfiStructBuilder__build(s_builder, s.as_mut_ptr()) {
         return Err(());
     }
 

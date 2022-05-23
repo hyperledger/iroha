@@ -159,7 +159,7 @@ impl FromStr for Name {
 }
 
 #[cfg(features = "ffi")]
-pub unsafe extern "C" fn name_from_str(
+pub unsafe extern "C" fn Name__from_str(
     candidate: *const u8,
     candidate_len: usize,
     output: *mut *mut Name,
@@ -181,7 +181,7 @@ pub unsafe extern "C" fn name_from_str(
 }
 
 #[cfg(features = "ffi")]
-pub unsafe extern "C" fn name_drop(handle: *mut Name) {
+pub unsafe extern "C" fn Name__drop(handle: *mut Name) {
     Box::from_raw(handle);
 }
 
@@ -803,7 +803,7 @@ mod tests {
 
             assert_eq!(
                 iroha_ffi::FfiResult::Ok,
-                name_from_str(
+                Name__from_str(
                     candidate_bytes.as_ptr(),
                     candidate_bytes_len,
                     name.as_mut_ptr()
@@ -814,7 +814,7 @@ mod tests {
             assert_ne!(core::ptr::null_mut(), name);
             assert_eq!(Name::from_str(candidate)?, *name);
 
-            name_drop(name);
+            Name__drop(name);
         }
 
         Ok(())

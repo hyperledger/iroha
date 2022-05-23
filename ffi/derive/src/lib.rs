@@ -1,7 +1,6 @@
 #![allow(clippy::str_to_string, missing_docs)]
 
 use bindgen::gen_ffi_fn;
-use heck::ToSnakeCase;
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
@@ -34,10 +33,10 @@ pub fn ffi_bindgen(_attr: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             let struct_name = &item.ident;
-            let ffi_fns = get_ffi_getters(&item);
+            let ffi_fns = gen_ffi_getters(&item);
             let drop_fn_doc = format!(" Drop function for [`{}`]", struct_name);
             let drop_ffi_fn_name = syn::Ident::new(
-                &format!("{}_drop", snake_case_ident(struct_name)),
+                &format!("{}__drop", struct_name),
                 proc_macro2::Span::call_site(),
             );
 
@@ -71,14 +70,14 @@ fn should_skip(attrs: &[syn::Attribute], attr_ident: &str) -> bool {
     })
 }
 
-fn get_ffi_getters(item: &ItemStruct) -> Vec<syn::ItemFn> {
+fn gen_ffi_getters(item: &ItemStruct) -> Vec<syn::ItemFn> {
     match &item.fields {
         syn::Fields::Unnamed(_) | syn::Fields::Unit => unreachable!("Only named structs supported"),
         syn::Fields::Named(fields) => {
             let mut ffi_fns = vec![];
 
             for field in &fields.named {
-                if let Some(ffi_fn) = generate_ffi_getter(&item.ident, field) {
+                if let Some(ffi_fn) = gen_ffi_getter(&item.ident, field) {
                     ffi_fns.push(ffi_fn);
                 }
             }
@@ -88,7 +87,7 @@ fn get_ffi_getters(item: &ItemStruct) -> Vec<syn::ItemFn> {
     }
 }
 
-fn generate_ffi_getter(struct_name: &syn::Ident, field: &syn::Field) -> Option<syn::ItemFn> {
+fn gen_ffi_getter(struct_name: &syn::Ident, field: &syn::Field) -> Option<syn::ItemFn> {
     let field_name = field.ident.as_ref().expect_or_abort("Defined");
 
     if should_skip(&field.attrs, "getset") {
@@ -99,7 +98,7 @@ fn generate_ffi_getter(struct_name: &syn::Ident, field: &syn::Field) -> Option<s
         SelfResolver::new(&parse_quote! { #struct_name }).visit_type_path_mut(&mut field_ty);
 
         let ffi_fn_name = syn::Ident::new(
-            &format!("{}_{}", snake_case_ident(struct_name), field_name),
+            &format!("{}__{}", struct_name, field_name),
             proc_macro2::Span::call_site(),
         );
 
@@ -121,10 +120,6 @@ fn generate_ffi_getter(struct_name: &syn::Ident, field: &syn::Field) -> Option<s
     }
 
     None
-}
-
-fn snake_case_ident(ident: &syn::Ident) -> String {
-    ident.to_string().to_snake_case()
 }
 
 fn get_ident(path: &syn::Path) -> &syn::Ident {

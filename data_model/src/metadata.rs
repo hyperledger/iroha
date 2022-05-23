@@ -140,8 +140,7 @@ impl Metadata {
 }
 
 impl Metadata {
-    /// Returns a `Some(reference)` to the value corresponding to
-    /// the key, and `None` if not found.
+    /// Get the `Some(&Value)` associated to `key`. Return `None` if not found.
     #[inline]
     pub fn get<K: Ord + ?Sized>(&self, key: &K) -> Option<&Value>
     where

@@ -20,7 +20,7 @@ use data_model::prelude::*;
 #[cfg(feature = "debug")]
 pub use debug::*;
 pub use iroha_data_model as data_model;
-pub use iroha_wasm_derive::iroha_wasm;
+pub use iroha_wasm_derive::entrypoint;
 use parity_scale_codec::{Decode, Encode};
 
 #[cfg(feature = "debug")]
@@ -35,7 +35,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 fn panic(_info: &::core::panic::PanicInfo) -> ! {
     // Need to provide a tiny `panic` implementation for `#![no_std]`.
     // This translates into an `unreachable` instruction that will
-    // raise a `trap` in the WebAssembly if it panics at runtime.
+    // raise a `trap` in the `WebAssembly` if execution of said WASM panics.
     unreachable!("Program should have aborted")
 }
 
@@ -199,7 +199,7 @@ unsafe fn encode_and_execute<T: Encode, O>(
 
 /// Most used items
 pub mod prelude {
-    pub use crate::{iroha_wasm, Execute};
+    pub use crate::{entrypoint, Execute};
 }
 
 #[cfg(test)]

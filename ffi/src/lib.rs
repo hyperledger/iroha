@@ -12,15 +12,16 @@ pub struct Pair<K, V>(pub K, pub V);
 
 /// Result of execution of an FFI function
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// TODO: What should be the repr?
-#[repr(C)]
+// NOTE: Enum is `repr(i32)` becasuse WebAssembly supports only
+// u32/i32, u64/i64 natively. Otherwise, `repr(i8)` would suffice
+#[repr(i32)]
 pub enum FfiResult {
     /// Executing the wrapped method on handle returned error
-    ExecutionFail = -3,
+    ExecutionFail = -3_i32,
     /// Raw pointer input argument to FFI function was null
-    ArgIsNull = -2,
+    ArgIsNull = -2_i32,
     /// Given bytes don't comprise a valid UTF8 string
-    Utf8Error = -1,
+    Utf8Error = -1_i32,
     /// FFI function executed successfully
-    Ok = 0,
+    Ok = 0_i32,
 }

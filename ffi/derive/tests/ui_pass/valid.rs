@@ -45,7 +45,7 @@ fn main() -> Result<(), ()> {
 
         assert_eq!(
             FfiResult::Ok,
-            ffi_struct_new(&name, ffi_struct.as_mut_ptr())
+            FfiStruct__new(&name, ffi_struct.as_mut_ptr())
         );
 
         ffi_struct.assume_init()
@@ -63,17 +63,17 @@ fn main() -> Result<(), ()> {
     unsafe {
         assert_eq!(
             FfiResult::Ok,
-            ffi_struct_with_params(ffi_struct, in_params.as_ptr(), in_params.len())
+            FfiStruct__with_params(ffi_struct, in_params.as_ptr(), in_params.len())
         );
 
         assert_eq!(
             FfiResult::Ok,
-            ffi_struct_get_param(ffi_struct, &name, param.as_mut_ptr())
+            FfiStruct__get_param(ffi_struct, &name, param.as_mut_ptr())
         );
 
         assert_eq!(
             FfiResult::Ok,
-            ffi_struct_params(
+            FfiStruct__params(
                 ffi_struct,
                 out_params.as_mut_ptr(),
                 out_params.capacity(),
@@ -81,7 +81,7 @@ fn main() -> Result<(), ()> {
             )
         );
 
-        ffi_struct_drop(ffi_struct);
+        FfiStruct__drop(ffi_struct);
     }
 
     Ok(())

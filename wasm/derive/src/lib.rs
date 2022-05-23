@@ -10,7 +10,7 @@ use syn::{parse_macro_input, parse_quote, ItemFn, Path, ReturnType, Signature, T
 /// Used to annotate user-defined function which starts the execution of smartcontract
 #[proc_macro_error]
 #[proc_macro_attribute]
-pub fn iroha_wasm(_: TokenStream, item: TokenStream) -> TokenStream {
+pub fn entrypoint(_: TokenStream, item: TokenStream) -> TokenStream {
     let ItemFn {
         attrs,
         vis,
@@ -29,6 +29,9 @@ pub fn iroha_wasm(_: TokenStream, item: TokenStream) -> TokenStream {
     );
 
     quote! {
+        // NOTE: The size of the `len` parameter is defined by the target architecture
+        // which is `wasm32-unknown-unknown` and therefore not dependent by the architecture
+        // smart contract is compiled on or the architecture smart contract is run on
         /// Smart contract entry point
         #[no_mangle]
         pub unsafe extern "C" fn _iroha_wasm_main(ptr: *const u8, len: usize) {
@@ -59,7 +62,7 @@ fn verify_function_signature(sig: &Signature) {
         if !type_is_account_id(&pat.ty) {
             abort!(
                 pat.ty,
-                "Argument to the exported function must be of the `AccountId` type"
+                "Argument to the exported function must be of the `Account::Id` type"
             );
         }
     }
