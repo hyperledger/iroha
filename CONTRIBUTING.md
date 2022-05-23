@@ -191,6 +191,7 @@ To pass the *`check-PR-title`* check, the pull request should have the title tha
 - [Fork](https://docs.github.com/en/get-started/quickstart/fork-a-repo) the [repository](https://github.com/hyperledger/iroha/tree/iroha2-dev) and [create a feature branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository) for your contributions.
 - [Configure the remote](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/configuring-a-remote-for-a-fork) to sync your fork with the [Hyperledger Iroha repository](https://github.com/hyperledger/iroha/tree/iroha2-dev).
 - Use the [Git Rebase Workflow](https://git-rebase.io/). Avoid using `git pull`. Use `git pull --rebase` instead.
+- Use the provided [git hooks](./hooks/) to ease the development process.
 
 Follow these commit guidelines:
 
@@ -199,6 +200,8 @@ Follow these commit guidelines:
   Use `git commit -s` to automatically add `Signed-off-by: $NAME <$EMAIL>` as the final line of your commit message. Your name and email should be the same as specified in your GitHub account.
 
   We also encourage you to sign your commits with GPG key using `git commit -sS` ([learn more](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits)).
+
+  You may use [the `commit-msg` hook](./hooks/) to automatically sign-off your commits.
 
 - Follow the same naming schema as for [pull request titles](#pull-request-titles): `[type] #<issue number>: Description`. This means:
   - **Use present tense** ("Add feature", not "Added feature")
