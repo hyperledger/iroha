@@ -353,6 +353,9 @@ IntegrationTestFramework::~IntegrationTestFramework() {
   if (iroha_instance_ and iroha_instance_->getTestIrohad()) {
     iroha_instance_->getTestIrohad()->terminate();
   }
+
+  if (subscription.use_count() == 1ull)
+    subscription->dispose();
 }
 
 std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(
