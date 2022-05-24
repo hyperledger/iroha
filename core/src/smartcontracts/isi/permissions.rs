@@ -2,16 +2,17 @@
 
 //! This module contains permissions related Iroha functionality.
 
-use std::{iter, sync::Arc};
+use std::{fmt::Debug, iter, sync::Arc};
 
 use eyre::Result;
 use iroha_data_model::{isi::RevokeBox, prelude::*};
+use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
 use super::Evaluate;
 use crate::wsv::{WorldStateView, WorldTrait};
 
 /// Operation for which the permission should be checked.
-pub trait NeedsPermission {}
+pub trait NeedsPermission: Debug {}
 
 impl NeedsPermission for Instruction {}
 
@@ -24,7 +25,9 @@ impl NeedsPermission for Expression {}
 pub type DenialReason = String;
 
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
-pub trait IsAllowed<W: WorldTrait, O: NeedsPermission> {
+pub trait IsAllowed<W: WorldTrait, O: NeedsPermission>:
+    Debug + dyn_clone::DynClone + erased_serde::Serialize
+{
     /// Checks if the `authority` is allowed to perform `instruction`
     /// given the current state of `wsv`.
     ///
@@ -38,6 +41,9 @@ pub trait IsAllowed<W: WorldTrait, O: NeedsPermission> {
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason>;
 }
+
+dyn_clone::clone_trait_object!(<W, O> IsAllowed<W, O> where W: WorldTrait, O: NeedsPermission);
+erased_serde::serialize_trait_object!(<W, O> IsAllowed<W, O> where W: WorldTrait, O: NeedsPermission);
 
 /// Box with permissions validator.
 pub type IsAllowedBoxed<W, O> = Box<dyn IsAllowed<W, O> + Send + Sync>;
@@ -67,9 +73,33 @@ impl<W: WorldTrait, O: NeedsPermission, V: Into<IsAllowedBoxed<W, O>>> Validator
 }
 
 /// `check` succeeds if either `first` or `second` validator succeeds.
+#[derive(Debug)]
 pub struct Or<W: WorldTrait, O: NeedsPermission> {
     first: IsAllowedBoxed<W, O>,
     second: IsAllowedBoxed<W, O>,
+}
+
+/// Using custom implementation, cause derive will put `Clone` bound on `W` and `O`.
+/// See <https://github.com/rust-lang/rust/issues/26925>
+impl<W: WorldTrait, O: NeedsPermission> Clone for Or<W, O> {
+    fn clone(&self) -> Self {
+        Self {
+            first: self.first.clone(),
+            second: self.second.clone(),
+        }
+    }
+}
+
+impl<W: WorldTrait, O: NeedsPermission> Serialize for Or<W, O> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("Or", 2)?;
+        state.serialize_field("first", &self.first)?;
+        state.serialize_field("second", &self.second)?;
+        state.end()
+    }
 }
 
 impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for Or<W, O> {
@@ -103,8 +133,30 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<Or<W, O>> for IsAllowedBo
 /// Wraps validator to check nested permissions.  Pay attention to
 /// wrap only validators that do not check nested intructions by
 /// themselves.
+#[derive(Debug)]
 pub struct CheckNested<W: WorldTrait, O: NeedsPermission> {
     validator: IsAllowedBoxed<W, O>,
+}
+
+/// Using custom implementation, cause derive will put `Clone` bound on `W` and `O`.
+/// See <https://github.com/rust-lang/rust/issues/26925>
+impl<W: WorldTrait, O: NeedsPermission> Clone for CheckNested<W, O> {
+    fn clone(&self) -> Self {
+        Self {
+            validator: self.validator.clone(),
+        }
+    }
+}
+
+impl<W: WorldTrait, O: NeedsPermission> Serialize for CheckNested<W, O> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("CheckNested", 1)?;
+        state.serialize_field("validator", &self.validator)?;
+        state.end()
+    }
 }
 
 impl<W: WorldTrait, O: NeedsPermission> CheckNested<W, O> {
@@ -375,8 +427,30 @@ impl<W: WorldTrait> From<CheckNested<W, Instruction>> for IsAllowedBoxed<W, Inst
 }
 
 /// A container for multiple permissions validators. It will succeed if all validators succeed.
+#[derive(Debug)]
 pub struct AllShouldSucceed<W: WorldTrait, O: NeedsPermission> {
     validators: Vec<IsAllowedBoxed<W, O>>,
+}
+
+/// Using custom implementation, cause derive will put `Clone` bound on `W` and `O`.
+/// See <https://github.com/rust-lang/rust/issues/26925>
+impl<W: WorldTrait, O: NeedsPermission> Clone for AllShouldSucceed<W, O> {
+    fn clone(&self) -> Self {
+        Self {
+            validators: self.validators.clone(),
+        }
+    }
+}
+
+impl<W: WorldTrait, O: NeedsPermission> Serialize for AllShouldSucceed<W, O> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("AllShouldSucceed", 1)?;
+        state.serialize_field("validators", &self.validators)?;
+        state.end()
+    }
 }
 
 impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllShouldSucceed<W, O> {
@@ -402,9 +476,33 @@ impl<W: WorldTrait, O: NeedsPermission + 'static> From<AllShouldSucceed<W, O>>
 }
 
 /// A container for multiple permissions validators. It will succeed if any validator succeeds.
+#[derive(Debug)]
 pub struct AnyShouldSucceed<W: WorldTrait, O: NeedsPermission> {
     name: String,
     validators: Vec<IsAllowedBoxed<W, O>>,
+}
+
+/// Using custom implementation, cause derive will put `Clone` bound on `W` and `O`.
+/// See <https://github.com/rust-lang/rust/issues/26925>
+impl<W: WorldTrait, O: NeedsPermission> Clone for AnyShouldSucceed<W, O> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            validators: self.validators.clone(),
+        }
+    }
+}
+
+impl<W: WorldTrait, O: NeedsPermission> Serialize for AnyShouldSucceed<W, O> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("AnyShouldSucceed", 2)?;
+        state.serialize_field("name", &self.name)?;
+        state.serialize_field("validators", &self.validators)?;
+        state.end()
+    }
 }
 
 impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AnyShouldSucceed<W, O> {
@@ -489,7 +587,7 @@ impl<W: WorldTrait> ValidatorBuilder<W, Instruction> {
 }
 
 /// Allows all operations to be executed for all possible values. Mostly for tests and simple cases.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AllowAll;
 
 impl AllowAll {
@@ -505,7 +603,7 @@ impl AllowAll {
 
 /// Disallows all operations to be executed for all possible
 /// values. Mostly for tests and simple cases.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct DenyAll;
 
 impl DenyAll {
@@ -557,7 +655,7 @@ impl<W: WorldTrait, O: NeedsPermission> From<DenyAll> for IsAllowedBoxed<W, O> {
 pub type HasTokenBoxed<W> = Box<dyn HasToken<W> + Send + Sync>;
 
 /// Trait that should be implemented by validator that checks the need to have permission token for a certain action.
-pub trait HasToken<W: WorldTrait> {
+pub trait HasToken<W: WorldTrait>: Debug + dyn_clone::DynClone + erased_serde::Serialize {
     /// This function should return the token that `authority` should
     /// possess, given the `instruction` they are planning to execute
     /// on the current state of `wsv`
@@ -574,6 +672,9 @@ pub trait HasToken<W: WorldTrait> {
         wsv: &WorldStateView<W>,
     ) -> Result<PermissionToken, String>;
 }
+
+dyn_clone::clone_trait_object!(<W> HasToken<W> where W: WorldTrait);
+erased_serde::serialize_trait_object!(<W> HasToken<W> where W: WorldTrait);
 
 impl<W: WorldTrait> IsAllowed<W, Instruction> for HasTokenBoxed<W> {
     fn check(
@@ -610,7 +711,9 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for HasTokenBoxed<W> {
 pub type IsGrantAllowedBoxed<W> = Box<dyn IsGrantAllowed<W> + Send + Sync>;
 
 /// Checks the [`GrantBox`] instruction.
-pub trait IsGrantAllowed<W: WorldTrait> {
+pub trait IsGrantAllowed<W: WorldTrait>:
+    Debug + dyn_clone::DynClone + erased_serde::Serialize
+{
     /// Checks the [`GrantBox`] instruction.
     ///
     /// # Errors
@@ -623,11 +726,16 @@ pub trait IsGrantAllowed<W: WorldTrait> {
     ) -> Result<(), DenialReason>;
 }
 
+dyn_clone::clone_trait_object!(<W> IsGrantAllowed<W> where W: WorldTrait);
+erased_serde::serialize_trait_object!(<W> IsGrantAllowed<W> where W: WorldTrait);
+
 /// Boxed validator implementing the [`IsRevokeAllowed`] trait.
 pub type IsRevokeAllowedBoxed<W> = Box<dyn IsRevokeAllowed<W> + Send + Sync>;
 
 /// Checks the [`RevokeBox`] instruction.
-pub trait IsRevokeAllowed<W: WorldTrait> {
+pub trait IsRevokeAllowed<W: WorldTrait>:
+    Debug + dyn_clone::DynClone + erased_serde::Serialize
+{
     /// Checks the [`RevokeBox`] instruction.
     ///
     /// # Errors
@@ -639,6 +747,9 @@ pub trait IsRevokeAllowed<W: WorldTrait> {
         wsv: &WorldStateView<W>,
     ) -> Result<(), DenialReason>;
 }
+
+dyn_clone::clone_trait_object!(<W> IsRevokeAllowed<W> where W: WorldTrait);
+erased_serde::serialize_trait_object!(<W> IsRevokeAllowed<W> where W: WorldTrait);
 
 impl<W: WorldTrait> IsAllowed<W, Instruction> for IsGrantAllowedBoxed<W> {
     fn check(
@@ -808,6 +919,7 @@ mod tests {
     use super::*;
     use crate::wsv::World;
 
+    #[derive(Debug, Clone, Serialize)]
     struct DenyBurn;
 
     impl<W: WorldTrait> From<DenyBurn> for IsInstructionAllowedBoxed<W> {
@@ -830,6 +942,7 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Serialize)]
     struct DenyAlice;
 
     impl<W: WorldTrait> From<DenyAlice> for IsInstructionAllowedBoxed<W> {
@@ -853,6 +966,7 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Serialize)]
     struct GrantedToken;
 
     // TODO: ADD some Revoke tests.
