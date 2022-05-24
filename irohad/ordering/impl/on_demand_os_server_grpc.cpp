@@ -73,8 +73,8 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   if (maybe_proposal.has_value()) {
     auto const &[sptr_proposal, bf_local] = maybe_proposal.value();
 #if USE_BLOOM_FILTER
-      response->set_bloom_filter(bf_local.load().data(), bf_local.load().size());
-#endif//USE_BLOOM_FILTER
+    response->set_bloom_filter(bf_local.load().data(), bf_local.load().size());
+#endif  // USE_BLOOM_FILTER
     response->set_proposal_hash(sptr_proposal->hash().blob().data(),
                                 sptr_proposal->hash().blob().size());
 
@@ -87,7 +87,7 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
 #if USE_BLOOM_FILTER
     if (!request->has_bloom_filter()
         || request->bloom_filter().size() != BloomFilter256::kBytesCount) {
-#endif//USE_BLOOM_FILTER
+#endif  // USE_BLOOM_FILTER
       log_->info("Response with full {} txs proposal.",
                  sptr_proposal->transactions().size());
       *response->mutable_proposal() = proto_proposal;
@@ -113,7 +113,7 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
         }
       }
     }
-#endif//USE_BLOOM_FILTER
+#endif  // USE_BLOOM_FILTER
   }
   return ::grpc::Status::OK;
 }

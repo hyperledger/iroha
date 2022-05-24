@@ -239,7 +239,7 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_wholeIntersection) {
   ASSERT_TRUE(response.has_proposal());
   ASSERT_TRUE(response.proposal().transactions().empty());
 }
-#endif//USE_BLOOM_FILTER
+#endif  // USE_BLOOM_FILTER
 
 TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_noIntersection) {
   shared_model::proto::ProtoProposalFactory<
@@ -255,10 +255,10 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_noIntersection) {
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
 
-#if USE_BLOOM_FILTER  
+#if USE_BLOOM_FILTER
   request.set_bloom_filter(std::get<1>(proposal_pack_1).load().data(),
                            std::get<1>(proposal_pack_1).load().size());
-#endif//USE_BLOOM_FILTER
+#endif  // USE_BLOOM_FILTER
 
   proto::ProposalResponse response;
   std::chrono::milliseconds delay(0);
@@ -339,4 +339,4 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_partIntersection) {
       == shared_model::proto::Transaction(
              std::get<0>(proposal_pack).transactions()[2]));
 }
-#endif//USE_BLOOM_FILTER
+#endif  // USE_BLOOM_FILTER

@@ -31,7 +31,7 @@ namespace iroha {
      */
     inline auto nowUs() {
       return std::chrono::high_resolution_clock::now().time_since_epoch()
-             / std::chrono::microseconds(1);
+          / std::chrono::microseconds(1);
     }
 
     /**

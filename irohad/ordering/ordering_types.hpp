@@ -15,17 +15,27 @@ namespace iroha::ordering {
 #define USE_BLOOM_FILTER 0
 
   static constexpr uint64_t kBloomFilterOrder = 32 * 1024ull;
-  using BloomFilter256 = shared_model::crypto::BloomFilter<
-      shared_model::crypto::Hash,
-      kBloomFilterOrder,
-      shared_model::crypto::Iroha2BloomHasher64<0, kBloomFilterOrder / 8>,
-      shared_model::crypto::Iroha2BloomHasher64<1, kBloomFilterOrder / 8>,
-      shared_model::crypto::Iroha2BloomHasher64<2, kBloomFilterOrder / 8>,
-      shared_model::crypto::Iroha2BloomHasher64<3, kBloomFilterOrder / 8>,
-      shared_model::crypto::Iroha2BloomHasher64<4, kBloomFilterOrder / 8>,
-      shared_model::crypto::Iroha2BloomHasher64<5, kBloomFilterOrder / 8>,
-      shared_model::crypto::Iroha2BloomHasher64<6, kBloomFilterOrder / 8>/*,
-      shared_model::crypto::Iroha2BloomHasher64<7, kBloomFilterOrder / 8>*/>;
+  using BloomFilter256 =
+      shared_model::
+          crypto::BloomFilter<shared_model::crypto::Hash,
+                              kBloomFilterOrder,
+                              shared_model::crypto::
+                                  Iroha2BloomHasher64<0, kBloomFilterOrder / 8>,
+                              shared_model::crypto::
+                                  Iroha2BloomHasher64<1, kBloomFilterOrder / 8>,
+                              shared_model::crypto::
+                                  Iroha2BloomHasher64<2, kBloomFilterOrder / 8>,
+                              shared_model::crypto::
+                                  Iroha2BloomHasher64<3, kBloomFilterOrder / 8>,
+                              shared_model::crypto::
+                                  Iroha2BloomHasher64<4, kBloomFilterOrder / 8>,
+                              shared_model::crypto::
+                                  Iroha2BloomHasher64<5, kBloomFilterOrder / 8>,
+                              shared_model::crypto::
+                                  Iroha2BloomHasher64<6,
+                                                      kBloomFilterOrder / 8> /*,
+          shared_model::crypto::Iroha2BloomHasher64<7, kBloomFilterOrder /
+          8>*/>;
 
   struct RemoteProposalDownloadedEvent {
     std::shared_ptr<shared_model::interface::Proposal const> local;
