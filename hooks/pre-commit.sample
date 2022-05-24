@@ -1,5 +1,5 @@
 #!/bin/sh
 set -e
-cargo run --bin kagami -- --docs >docs/source/references/config.md
-cargo run --bin kagami -- --genesis >configs/peer/genesis.json
+cargo run --bin kagami -- docs >docs/source/references/config.md
+cargo run --bin kagami -- genesis >configs/peer/genesis.json
 git add docs/source/references/config.md configs/peer/genesis.json

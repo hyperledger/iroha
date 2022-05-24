@@ -133,13 +133,10 @@ mod register {
     }
 
     pub fn asset_definition(asset_name: &str, domain_name: &str) -> RegisterBox {
-        RegisterBox::new(
-            AssetDefinition::quantity(AssetDefinitionId::new(
-                asset_name.parse().expect("Valid"),
-                domain_name.parse().expect("Valid"),
-            ))
-            .build(),
-        )
+        RegisterBox::new(AssetDefinition::quantity(AssetDefinitionId::new(
+            asset_name.parse().expect("Valid"),
+            domain_name.parse().expect("Valid"),
+        )))
     }
 }
 

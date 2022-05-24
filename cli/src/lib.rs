@@ -173,15 +173,13 @@ where
         let network_addr = network.start().await;
 
         let (events_sender, _) = broadcast::channel(100);
+        let world = W::with(
+            domains(&config),
+            config.sumeragi.trusted_peers.peers.clone(),
+        );
         let wsv = Arc::new(
-            WorldStateView::from_configuration(
-                config.wsv,
-                W::with(
-                    domains(&config),
-                    config.sumeragi.trusted_peers.peers.clone(),
-                ),
-            )
-            .with_events(events_sender.clone()),
+            WorldStateView::from_configuration(config.wsv, world)
+                .with_events(events_sender.clone()),
         );
 
         let query_validator = Arc::new(query_validator);

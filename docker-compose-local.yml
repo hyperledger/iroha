@@ -4,6 +4,7 @@ services:
     build: .
     image: iroha0:debug
     volumes:
+      - './configs/peer:/config'
       - './:/root/soramitsu/iroha'
     environment:
       TORII_P2P_ADDR: iroha0:1337
@@ -18,8 +19,6 @@ services:
       - "8180:8180"
     init: true
     command: ./iroha --submit-genesis
-    volumes:
-      - ./configs/peer:/config
 
 
   iroha1:
@@ -27,6 +26,7 @@ services:
       - iroha0
     image: iroha0:debug
     volumes:
+      - './configs/peer:/config'
       - './:/root/soramitsu/iroha'
     environment:
       TORII_P2P_ADDR: iroha1:1338
@@ -40,8 +40,6 @@ services:
       - "8081:8081"
       - "8181:8181"
     init: true
-    volumes:
-      - ./configs/peer:/config
 
 
   iroha2:
@@ -49,6 +47,7 @@ services:
       - iroha0
     image: iroha0:debug
     volumes:
+      - './configs/peer:/config'
       - './:/root/soramitsu/iroha'
     environment:
       TORII_P2P_ADDR: iroha2:1339
@@ -62,8 +61,6 @@ services:
       - "8082:8082"
       - "8182:8182"
     init: true
-    volumes:
-      - ./configs/peer:/config
 
 
   iroha3:
@@ -71,6 +68,7 @@ services:
       - iroha0
     image: iroha0:debug
     volumes:
+      - './configs/peer:/config'
       - './:/root/soramitsu/iroha'
     environment:
       TORII_P2P_ADDR: iroha3:1340
@@ -84,5 +82,3 @@ services:
       - "8083:8083"
       - "8183:8183"
     init: true
-    volumes:
-      - ./configs/peer:/config

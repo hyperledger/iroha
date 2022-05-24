@@ -158,6 +158,33 @@ impl FromStr for Name {
     }
 }
 
+#[cfg(features = "ffi")]
+pub unsafe extern "C" fn Name__from_str(
+    candidate: *const u8,
+    candidate_len: usize,
+    output: *mut *mut Name,
+) -> iroha_ffi::FfiResult {
+    let candidate = core::slice::from_raw_parts(candidate, candidate_len);
+
+    let method_res = match core::str::from_utf8(candidate) {
+        Err(_error) => return iroha_ffi::FfiResult::Utf8Error,
+        Ok(candidate) => Name::from_str(candidate),
+    };
+    let method_res = match method_res {
+        Err(_error) => return iroha_ffi::FfiResult::ExecutionFail,
+        Ok(method_res) => method_res,
+    };
+    let method_res = Box::into_raw(Box::new(method_res));
+
+    output.write(method_res);
+    iroha_ffi::FfiResult::Ok
+}
+
+#[cfg(features = "ffi")]
+pub unsafe extern "C" fn Name__drop(handle: *mut Name) {
+    Box::from_raw(handle);
+}
+
 impl Debug for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.0)
@@ -346,6 +373,8 @@ pub enum IdentifiableBox {
     NewDomain(Box<<domain::Domain as Identifiable>::RegisteredWith>),
     /// [`NewAccount`](`account::NewAccount`) variant.
     NewAccount(Box<<account::Account as Identifiable>::RegisteredWith>),
+    /// [`NewAssetDefinition`](`asset::NewAssetDefinition`) variant.
+    NewAssetDefinition(Box<<asset::AssetDefinition as Identifiable>::RegisteredWith>),
     /// [`Domain`](`domain::Domain`) variant.
     Domain(Box<domain::Domain>),
     /// [`Account`](`account::Account`) variant.
@@ -542,6 +571,7 @@ macro_rules! from_and_try_from_value_identifiable {
 from_and_try_from_value_identifiablebox!(
     NewDomain(Box<domain::NewDomain>),
     NewAccount(Box<account::NewAccount>),
+    NewAssetDefinition(Box<asset::NewAssetDefinition>),
     Peer(Box<peer::Peer>),
     Domain(Box<domain::Domain>),
     Account(Box<account::Account>),
@@ -555,6 +585,7 @@ from_and_try_from_value_identifiablebox!(Role(Box<role::Role>),);
 from_and_try_from_value_identifiable!(
     NewDomain(Box<domain::NewDomain>),
     NewAccount(Box<account::NewAccount>),
+    NewAssetDefinition(Box<asset::NewAssetDefinition>),
     Peer(Box<peer::Peer>),
     Domain(Box<domain::Domain>),
     Account(Box<account::Account>),
@@ -596,7 +627,7 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             Peer(peer) => Ok(RegistrableBox::Peer(peer)),
             NewDomain(domain) => Ok(RegistrableBox::Domain(domain)),
             NewAccount(account) => Ok(RegistrableBox::Account(account)),
-            AssetDefinition(asset) => Ok(RegistrableBox::AssetDefinition(asset)),
+            NewAssetDefinition(asset) => Ok(RegistrableBox::AssetDefinition(asset)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
             Role(role) => Ok(RegistrableBox::Role(role)),
@@ -613,7 +644,7 @@ impl From<RegistrableBox> for IdentifiableBox {
             Peer(peer) => IdentifiableBox::Peer(peer),
             Domain(domain) => IdentifiableBox::NewDomain(domain),
             Account(account) => IdentifiableBox::NewAccount(account),
-            AssetDefinition(asset) => IdentifiableBox::AssetDefinition(asset),
+            AssetDefinition(asset) => IdentifiableBox::NewAssetDefinition(asset),
             Asset(asset) => IdentifiableBox::Asset(asset),
             Trigger(trigger) => IdentifiableBox::Trigger(trigger),
             Role(role) => IdentifiableBox::Role(role),
@@ -758,5 +789,34 @@ mod tests {
 
             assert!(name.is_err());
         }
+    }
+
+    #[test]
+    #[cfg(features = "ffi")]
+    fn ffi_name_from_str() -> Result<(), ParseError> {
+        let candidate = "Name";
+        let candidate_bytes = candidate.as_bytes();
+        let candidate_bytes_len = candidate_bytes.len();
+
+        unsafe {
+            let mut name = core::mem::MaybeUninit::new(core::ptr::null_mut());
+
+            assert_eq!(
+                iroha_ffi::FfiResult::Ok,
+                Name__from_str(
+                    candidate_bytes.as_ptr(),
+                    candidate_bytes_len,
+                    name.as_mut_ptr()
+                )
+            );
+
+            let name = name.assume_init();
+            assert_ne!(core::ptr::null_mut(), name);
+            assert_eq!(Name::from_str(candidate)?, *name);
+
+            Name__drop(name);
+        }
+
+        Ok(())
     }
 }

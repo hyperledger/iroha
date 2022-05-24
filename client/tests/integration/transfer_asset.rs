@@ -11,14 +11,12 @@ use super::Configuration;
 
 #[test]
 fn simulate_transfer_quantity() {
-    simulate_transfer(200_u32, 20_u32, |id| AssetDefinition::quantity(id).build())
+    simulate_transfer(200_u32, 20_u32, AssetDefinition::quantity)
 }
 
 #[test]
 fn simulate_transfer_big_quantity() {
-    simulate_transfer(200_u128, 20_u128, |id| {
-        AssetDefinition::big_quantity(id).build()
-    })
+    simulate_transfer(200_u128, 20_u128, AssetDefinition::big_quantity)
 }
 
 #[test]
@@ -26,7 +24,7 @@ fn simulate_transfer_fixed() {
     simulate_transfer(
         Fixed::try_from(200_f64).expect("Valid"),
         Fixed::try_from(20_f64).expect("Valid"),
-        |id| AssetDefinition::fixed(id).build(),
+        AssetDefinition::fixed,
     )
 }
 
@@ -37,13 +35,16 @@ fn simulate_insufficient_funds() {
     simulate_transfer(
         Fixed::try_from(20_f64).expect("Valid"),
         Fixed::try_from(200_f64).expect("Valid"),
-        |id| AssetDefinition::fixed(id).build(),
+        AssetDefinition::fixed,
     )
 }
 
 // TODO add tests when the transfer uses the wrong AssetId.
 
-fn simulate_transfer<T: Into<AssetValue> + Clone, D: FnOnce(AssetDefinitionId) -> AssetDefinition>(
+fn simulate_transfer<
+    T: Into<AssetValue> + Clone,
+    D: FnOnce(AssetDefinitionId) -> <AssetDefinition as Identifiable>::RegisteredWith,
+>(
     starting_amount: T,
     amount_to_transfer: T,
     value_type: D,

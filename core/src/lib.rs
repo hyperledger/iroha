@@ -29,13 +29,13 @@ pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 pub type IrohaNetwork = iroha_p2p::Network<NetworkMessage>;
 
 /// Ids of peers.
-pub type PeersIds = dashmap::DashSet<PeerId>;
+pub type PeersIds = dashmap::DashSet<<Peer as Identifiable>::Id>;
 
 /// Provides an API to work with collection of key([`DomainId`]) - value([`Domain`]) pairs.
-pub type DomainsMap = dashmap::DashMap<DomainId, Domain>;
+pub type DomainsMap = dashmap::DashMap<<Domain as Identifiable>::Id, Domain>;
 
 /// `RolesMap` provides an API to work with collection of key(`PeerId`) - value(`Role`) pairs.
-pub type RolesMap = dashmap::DashMap<RoleId, Role>;
+pub type RolesMap = dashmap::DashMap<<Role as Identifiable>::Id, Role>;
 
 /// Type of `Sender<Event>` which should be used for channels of `Event` messages.
 pub type EventsSender = broadcast::Sender<Event>;

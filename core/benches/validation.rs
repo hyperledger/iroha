@@ -40,7 +40,7 @@ fn build_test_transaction(keys: KeyPair) -> Transaction {
         "xor".parse().expect("Valid"),
         domain_name.parse().expect("Valid"),
     );
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id).build());
+    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id));
     let instructions: Vec<Instruction> = vec![
         create_domain.into(),
         create_account.into(),

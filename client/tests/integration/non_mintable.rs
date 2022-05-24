@@ -15,11 +15,8 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(
-        AssetDefinition::quantity(asset_definition_id.clone())
-            .mintable_once()
-            .build(),
-    );
+    let create_asset =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).mintable_once());
 
     let metadata = UnlimitedMetadata::default();
 
