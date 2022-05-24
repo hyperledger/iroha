@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 
+use iroha_cli_derive::generate_endpoints;
 use iroha_version::scale::DecodeVersioned;
 use parity_scale_codec::Encode;
 use warp::{hyper::body::Bytes, reply::Response, Filter, Rejection, Reply};
@@ -90,27 +91,4 @@ impl<O: Reply, E: Reply> Reply for WarpResult<O, E> {
     }
 }
 
-macro_rules! impl_custom_and_then {
-    ( $name:ident ( $($arg_name:ident : $arg_gen:ident),* $(,)? ) ) => {
-        /// Maps filter to handler with `n` arguments (`n` is suffix of function)
-        pub fn $name<O, E, F, Fut, Fil, $($arg_gen,)*>(f: F, router: Fil)
-            -> impl Filter<Extract = (WarpResult<O, E>,), Error = Rejection> + Clone
-        where
-            Fil: Filter<Extract = ($($arg_gen,)*), Error = Rejection> + Clone,
-            F: Fn($($arg_gen,)*) -> Fut + Copy + Send + Sync + 'static,
-            Fut: std::future::Future<Output = Result<O, E>> + Send,
-            $($arg_gen: Send,)*
-        {
-            router.and_then(move |$($arg_name,)*|
-                async move {
-                    Ok::<_, Infallible>(WarpResult(f($($arg_name,)*).await))
-                }
-            )
-        }
-    }
-}
-
-// impl_custom_and_then!(endpoint1(a: A));
-impl_custom_and_then!(endpoint2(a: A, b: B));
-impl_custom_and_then!(endpoint3(a: A, b: B, c: C));
-impl_custom_and_then!(endpoint4(a: A, b: B, c: C, d: D));
+generate_endpoints!(2, 3, 4);
