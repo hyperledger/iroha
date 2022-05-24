@@ -15,7 +15,7 @@ fn get_config() {
 
     let cfg: Configuration =
         serde_json::from_value(test_client.get_config_value().unwrap()).unwrap();
-    let test = Configuration::test(false);
+    let test = Configuration::test();
     assert_eq!(cfg.block_sync, test.block_sync);
     assert_eq!(cfg.network, test.network);
     assert_eq!(cfg.telemetry, test.telemetry);

@@ -25,6 +25,7 @@ use iroha_data_model::prelude::*;
 use tokio::{
     signal,
     sync::{broadcast, Notify},
+    task,
 };
 use torii::Torii;
 
@@ -237,10 +238,10 @@ where
             query_validator,
             events_sender,
             network_addr.clone(),
-            notify_shutdown.clone(),
+            Arc::clone(&notify_shutdown),
         );
 
-        Self::start_listening_signal(notify_shutdown).await;
+        Self::start_listening_signal(notify_shutdown)?;
 
         let torii = Some(torii);
         Ok(Self {
@@ -320,31 +321,25 @@ where
         Ok(false)
     }
 
-    async fn start_listening_signal(notify_shutdown: Arc<Notify>) {
-        let res = tokio::spawn(async move {
-            let mut interrupt_signal = signal::unix::signal(signal::unix::SignalKind::interrupt())?;
-            let mut terminate_signal = signal::unix::signal(signal::unix::SignalKind::terminate())?;
+    fn start_listening_signal(notify_shutdown: Arc<Notify>) -> Result<task::JoinHandle<()>> {
+        let (mut sigint, mut sigterm) = signal::unix::signal(signal::unix::SignalKind::interrupt())
+            .and_then(|sigint| {
+                let sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
 
+                Ok((sigint, sigterm))
+            })
+            .wrap_err("Failed to start listening for OS signals")?;
+
+        let handle = task::spawn(async move {
             tokio::select! {
-                _ = interrupt_signal.recv() => {},
-                _ = terminate_signal.recv() => {},
+                _ = sigint.recv() => {},
+                _ = sigterm.recv() => {},
             }
 
             notify_shutdown.notify_waiters();
+        });
 
-            Ok::<(), ::std::io::Error>(())
-        })
-        .await;
-
-        match res {
-            Ok(Err(error)) => {
-                iroha_logger::warn!(%error, "Error: couldn't start listening to OS signals")
-            }
-            Err(error) => {
-                iroha_logger::warn!(%error, "Error: failed to spawn a task that listens to OS signals")
-            }
-            _ => {}
-        }
+        Ok(handle)
     }
 }
 

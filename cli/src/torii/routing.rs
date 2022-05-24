@@ -26,6 +26,7 @@ use iroha_data_model::{
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
 use parity_scale_codec::{Decode, Encode};
+use tokio::task;
 
 use super::*;
 use crate::{
@@ -610,7 +611,7 @@ impl<W: WorldTrait> Torii<W> {
                     let (_, serve_fut) =
                         warp::serve(telemetry_router).bind_with_graceful_shutdown(addr, signal_fut);
 
-                    handles.push(tokio::spawn(serve_fut));
+                    handles.push(task::spawn(serve_fut));
                 }
 
                 Ok(handles)
@@ -640,7 +641,7 @@ impl<W: WorldTrait> Torii<W> {
                     let (_, serve_fut) =
                         warp::serve(api_router).bind_with_graceful_shutdown(addr, signal_fut);
 
-                    handles.push(tokio::spawn(serve_fut));
+                    handles.push(task::spawn(serve_fut));
                 }
 
                 Ok(handles)
