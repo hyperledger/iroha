@@ -72,7 +72,9 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   auto maybe_proposal = ordering_service_->waitForLocalProposal(round, delay_);
   if (maybe_proposal.has_value()) {
     auto const &[sptr_proposal, bf_local] = maybe_proposal.value();
-    response->set_bloom_filter(bf_local.load().data(), bf_local.load().size());
+#if USE_BLOOM_FILTER
+      response->set_bloom_filter(bf_local.load().data(), bf_local.load().size());
+#endif//USE_BLOOM_FILTER
     response->set_proposal_hash(sptr_proposal->hash().blob().data(),
                                 sptr_proposal->hash().blob().size());
 
@@ -82,11 +84,14 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
     auto const &proto_proposal =
         static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
             ->getTransport();
+#if USE_BLOOM_FILTER
     if (!request->has_bloom_filter()
         || request->bloom_filter().size() != BloomFilter256::kBytesCount) {
+#endif//USE_BLOOM_FILTER
       log_->info("Response with full {} txs proposal.",
                  sptr_proposal->transactions().size());
       *response->mutable_proposal() = proto_proposal;
+#if USE_BLOOM_FILTER
     } else {
       response->mutable_proposal()->set_created_time(
           proto_proposal.created_time());
@@ -108,6 +113,7 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
         }
       }
     }
+#endif//USE_BLOOM_FILTER
   }
   return ::grpc::Status::OK;
 }

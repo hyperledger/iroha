@@ -8,9 +8,6 @@
 #include "backend/protobuf/proposal.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "interfaces/common_objects/peer.hpp"
-#include "interfaces/iroha_internal/transaction_batch.hpp"
-#include "interfaces/iroha_internal/transaction_batch_impl.hpp"
-#include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
 #include "main/subscription.hpp"
 #include "network/impl/client_factory.hpp"
@@ -169,10 +166,13 @@ void OnDemandOsClientGrpc::onRequestProposal(
   proto::ProposalRequest request;
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
+
+#if USE_BLOOM_FILTER
   if (ref_proposal.has_value())
     request.set_bloom_filter(
         std::string(ref_proposal.value().second.load().data(),
                     ref_proposal.value().second.load().size()));
+#endif  // USE_BLOOM_FILTER
 
   getSubscription()->dispatcher()->add(
       getSubscription()->dispatcher()->kExecuteInPool,
@@ -232,7 +232,8 @@ void OnDemandOsClientGrpc::onRequestProposal(
         } else
           remote_proposal = std::move(proposal_result).assumeValue();
 
-        /// merge if has local proposal or process directly if not
+      /// merge if has local proposal or process directly if not
+#if USE_BLOOM_FILTER
         if (ref_proposal.has_value()) {
           std::shared_ptr<shared_model::interface::Proposal const>
               local_proposal;
@@ -247,7 +248,9 @@ void OnDemandOsClientGrpc::onRequestProposal(
                   response.proposal_hash(),
                   round,
                   remote_proposal ? remote_proposal->createdTime() : 0ull});
-        } else if (!remote_proposal->transactions().empty())
+        } else
+#endif  // USE_BLOOM_FILTER
+            if (!remote_proposal->transactions().empty())
           iroha::getSubscription()->notify(
               iroha::EventTypes::kOnProposalResponse,
               ProposalEvent{std::move(remote_proposal), round});

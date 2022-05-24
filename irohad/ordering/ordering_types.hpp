@@ -12,7 +12,9 @@
 
 namespace iroha::ordering {
 
-  static constexpr uint64_t kBloomFilterOrder = 8 * 1024ull;
+#define USE_BLOOM_FILTER 0
+
+  static constexpr uint64_t kBloomFilterOrder = 32 * 1024ull;
   using BloomFilter256 = shared_model::crypto::BloomFilter<
       shared_model::crypto::Hash,
       kBloomFilterOrder,

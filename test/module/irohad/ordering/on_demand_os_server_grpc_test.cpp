@@ -204,6 +204,7 @@ std::tuple<iroha::protocol::Proposal, ordering::BloomFilter256> makeProposal(
   return result;
 }
 
+#if USE_BLOOM_FILTER
 TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_wholeIntersection) {
   shared_model::proto::ProtoProposalFactory<
       shared_model::validation::DefaultProposalValidator>
@@ -238,6 +239,7 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_wholeIntersection) {
   ASSERT_TRUE(response.has_proposal());
   ASSERT_TRUE(response.proposal().transactions().empty());
 }
+#endif//USE_BLOOM_FILTER
 
 TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_noIntersection) {
   shared_model::proto::ProtoProposalFactory<
@@ -252,8 +254,11 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_noIntersection) {
   proto::ProposalRequest request;
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
+
+#if USE_BLOOM_FILTER  
   request.set_bloom_filter(std::get<1>(proposal_pack_1).load().data(),
                            std::get<1>(proposal_pack_1).load().size());
+#endif//USE_BLOOM_FILTER
 
   proto::ProposalResponse response;
   std::chrono::milliseconds delay(0);
@@ -287,6 +292,7 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_noIntersection) {
              std::get<0>(proposal_pack_2).transactions()[1]));
 }
 
+#if USE_BLOOM_FILTER
 TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_partIntersection) {
   shared_model::proto::ProtoProposalFactory<
       shared_model::validation::DefaultProposalValidator>
@@ -333,3 +339,4 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_partIntersection) {
       == shared_model::proto::Transaction(
              std::get<0>(proposal_pack).transactions()[2]));
 }
+#endif//USE_BLOOM_FILTER
