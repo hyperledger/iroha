@@ -22,7 +22,10 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use tokio::{sync::{broadcast, Notify}, signal};
+use tokio::{
+    signal,
+    sync::{broadcast, Notify},
+};
 use torii::Torii;
 
 pub mod config;
@@ -237,7 +240,7 @@ where
             notify_shutdown.clone(),
         );
 
-        Self::start_terminate_signal(notify_shutdown).await;
+        Self::start_listening_signal(notify_shutdown).await;
 
         let torii = Some(torii);
         Ok(Self {
@@ -317,18 +320,31 @@ where
         Ok(false)
     }
 
-    async fn start_terminate_signal(notify_shutdown: Arc<Notify>) {
-        tokio::spawn(async move {
-            let mut sig_int_listen = signal::unix::signal(signal::unix::SignalKind::interrupt()).expect("failed to make signal");
-            let mut sig_term_listen = signal::unix::signal(signal::unix::SignalKind::terminate()).expect("failed to make signal");
+    async fn start_listening_signal(notify_shutdown: Arc<Notify>) {
+        let res = tokio::spawn(async move {
+            let mut interrupt_signal = signal::unix::signal(signal::unix::SignalKind::interrupt())?;
+            let mut terminate_signal = signal::unix::signal(signal::unix::SignalKind::terminate())?;
 
             tokio::select! {
-                _ = sig_int_listen.recv() => {},
-                _ = sig_term_listen.recv() => {}
+                _ = interrupt_signal.recv() => {},
+                _ = terminate_signal.recv() => {},
             }
 
             notify_shutdown.notify_waiters();
-        }).await.expect("failed to start signal handling");
+
+            Ok::<(), ::std::io::Error>(())
+        })
+        .await;
+
+        match res {
+            Ok(Err(error)) => {
+                iroha_logger::warn!(%error, "Error: couldn't start listening to OS signals")
+            }
+            Err(error) => {
+                iroha_logger::warn!(%error, "Error: failed to spawn a task that listens to OS signals")
+            }
+            _ => {}
+        }
     }
 }
 

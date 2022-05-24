@@ -468,7 +468,7 @@ impl<W: WorldTrait> Torii<W> {
         query_validator: Arc<IsQueryAllowedBoxed<W>>,
         events: EventsSender,
         network: Addr<IrohaNetwork>,
-        notify_shutdown: Arc<Notify>, 
+        notify_shutdown: Arc<Notify>,
     ) -> Self {
         Self {
             iroha_cfg,
@@ -607,7 +607,8 @@ impl<W: WorldTrait> Torii<W> {
 
                     let telemetry_router = torii.create_telemetry_router();
                     let signal_fut = async move { torii.notify_shutdown.notified().await };
-                    let (_, serve_fut) = warp::serve(telemetry_router).bind_with_graceful_shutdown(addr, signal_fut);
+                    let (_, serve_fut) =
+                        warp::serve(telemetry_router).bind_with_graceful_shutdown(addr, signal_fut);
 
                     handles.push(tokio::spawn(serve_fut));
                 }
@@ -636,7 +637,8 @@ impl<W: WorldTrait> Torii<W> {
 
                     let api_router = torii.create_api_router();
                     let signal_fut = async move { torii.notify_shutdown.notified().await };
-                    let (_, serve_fut) = warp::serve(api_router).bind_with_graceful_shutdown(addr, signal_fut);
+                    let (_, serve_fut) =
+                        warp::serve(api_router).bind_with_graceful_shutdown(addr, signal_fut);
 
                     handles.push(tokio::spawn(serve_fut));
                 }
