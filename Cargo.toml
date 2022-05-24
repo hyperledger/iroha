@@ -4,6 +4,7 @@ members = [
   "actor",
   "actor/derive",
   "cli",
+  "cli/derive",
   "client",
   "client_cli",
   "config",
