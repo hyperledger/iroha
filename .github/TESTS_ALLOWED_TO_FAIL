@@ -1,4 +1,4 @@
 system_irohad_test
+get_engine_receipts_test
 integration_add_peer_test
-regression_regression_test
 integration_remove_peer_test

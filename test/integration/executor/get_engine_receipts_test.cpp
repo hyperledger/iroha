@@ -50,7 +50,7 @@ static const EvmDataHexString kData1{"Ann has spilt the oil."};
 static const EvmDataHexString kTopic1_1{"wasted"};
 static const EvmDataHexString kTopic1_2{"fate"};
 
-static const EvmAddressHexString kAddress2{"302A Sadovaya Street"};
+static const EvmAddressHexString kAddress2{"302a sadovaya street  "};
 static const EvmDataHexString kData2{"Primus is being repared."};
 
 static const EvmAddressHexString kAddress3{"satan's ball"};
