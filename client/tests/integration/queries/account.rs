@@ -15,7 +15,7 @@ fn find_accounts_with_asset() -> Result<()> {
     // Registering new asset definition
     let definition_id =
         <AssetDefinition as Identifiable>::Id::from_str("test_coin#wonderland").expect("Valid");
-    let asset_definition = AssetDefinition::quantity(definition_id.clone()).build();
+    let asset_definition = AssetDefinition::quantity(definition_id.clone());
     test_client.submit_blocking(RegisterBox::new(asset_definition))?;
 
     let accounts: [AccountId; 5] = [

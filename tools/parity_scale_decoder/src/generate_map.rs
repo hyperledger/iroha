@@ -303,6 +303,7 @@ pub fn generate_map() -> DumpDecodedMap {
         WasmExecutionFail,
         Where,
         account::NewAccount,
+        asset::NewAssetDefinition,
         asset::Mintable,
         block::BlockHeader,
         block::CommittedBlock,

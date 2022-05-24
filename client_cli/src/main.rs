@@ -422,7 +422,6 @@ mod account {
 
 mod asset {
     use iroha_client::client::{self, asset, Client};
-    use iroha_data_model::asset::definition_builder::NewAssetDefinition;
 
     use super::*;
 
@@ -476,12 +475,17 @@ mod asset {
                 unmintable,
                 metadata: Metadata(metadata),
             } = self;
-            submit(
-                RegisterBox::new(NewAssetDefinition::new(id, value_type, !unmintable).build()),
-                cfg,
-                metadata,
-            )
-            .wrap_err("Failed to register asset")
+            let mut asset_definition = match value_type {
+                AssetValueType::Quantity => AssetDefinition::quantity(id),
+                AssetValueType::BigQuantity => AssetDefinition::big_quantity(id),
+                AssetValueType::Fixed => AssetDefinition::fixed(id),
+                AssetValueType::Store => AssetDefinition::store(id),
+            };
+            if unmintable {
+                asset_definition = asset_definition.mintable_once();
+            }
+            submit(RegisterBox::new(asset_definition), cfg, metadata)
+                .wrap_err("Failed to register asset")
         }
     }
 

@@ -46,7 +46,7 @@
             "object": {
               "Raw": {
                 "Identifiable": {
-                  "AssetDefinition": {
+                  "NewAssetDefinition": {
                     "id": {
                       "name": "rose",
                       "domain_id": {

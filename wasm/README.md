@@ -1,6 +1,6 @@
 # Iroha WASM
 
-The library crate that is used for writing Iroha-compliant smart contracts in Rust using the WebAssembly format. 
+The library crate that is used for writing Iroha-compliant smart contracts in Rust using the WebAssembly format.
 
 ## Usage
 
@@ -25,7 +25,7 @@ By following this list of optimization steps you can reduce the size of your bin
       # from the host environment. The host environment executes a smart contract by
       # calling the function that smart contract exports (entry point of execution)
     crate-type = ['cdylib']
- 
+
     [profile.release]
     strip = "debuginfo" # Remove debugging info from the binary
     panic = "abort"     # Panics are transcribed to Traps when compiling for WASM

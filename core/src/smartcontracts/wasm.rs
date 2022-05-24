@@ -221,6 +221,27 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         Engine::new(&Self::create_config()).map_err(Error::Initialization)
     }
 
+    fn create_store(
+        &self,
+        state: State<'wrld, W>,
+    ) -> Result<Store<State<'wrld, W>>, anyhow::Error> {
+        let mut store = Store::new(&self.engine, state);
+
+        store.limiter(|stat| &mut stat.store_limits);
+        store.add_fuel(self.config.fuel_limit)?;
+
+        Ok(store)
+    }
+
+    fn create_smart_contract(
+        &self,
+        store: &mut Store<State<'wrld, W>>,
+        bytes: impl AsRef<[u8]>,
+    ) -> Result<wasmtime::Instance, anyhow::Error> {
+        let module = Module::new(&self.engine, bytes)?;
+        self.linker.instantiate(store, &module)
+    }
+
     /// Encode the given object but also add it's length in front of it. This can be considered
     /// a custom encoding format
     ///
@@ -452,33 +473,13 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         bytes: impl AsRef<[u8]>,
         state: State<W>,
     ) -> Result<(), Error> {
+        let mut store = self.create_store(state).map_err(Error::Instantiation)?;
+
+        let smart_contract = self
+            .create_smart_contract(&mut store, bytes)
+            .map_err(Error::Instantiation)?;
+
         let account_bytes = account_id.encode();
-
-        let module = Module::new(&self.engine, bytes).map_err(Error::Instantiation)?;
-        let mut store = Store::new(&self.engine, state);
-        store.limiter(|stat| &mut stat.store_limits);
-
-        store
-            .add_fuel(self.config.fuel_limit)
-            .map_err(Error::Instantiation)?;
-
-        let instance = self
-            .linker
-            .instantiate(&mut store, &module)
-            .map_err(Error::Instantiation)?;
-        let alloc_fn = instance
-            .get_typed_func::<WasmUsize, WasmUsize, _>(&mut store, WASM_ALLOC_FN)
-            .map_err(Error::ExportNotFound)?;
-
-        let memory = instance
-            .get_memory(&mut store, WASM_MEMORY_NAME)
-            .ok_or_else(|| {
-                Error::ExportNotFound(anyhow::Error::msg(format!(
-                    "{}: export not found or not a memory",
-                    WASM_MEMORY_NAME
-                )))
-            })?;
-
         let account_bytes_len = account_bytes
             .len()
             .try_into()
@@ -489,18 +490,29 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
             .map_err(Error::Other)?;
 
         let account_offset = {
+            let alloc_fn = smart_contract
+                .get_typed_func::<WasmUsize, WasmUsize, _>(&mut store, WASM_ALLOC_FN)
+                .map_err(Error::ExportNotFound)?;
+
             let acc_offset = alloc_fn
                 .call(&mut store, account_bytes_len)
                 .map_err(Error::ExportFnCall)?;
 
-            memory
+            smart_contract
+                .get_memory(&mut store, WASM_MEMORY_NAME)
+                .ok_or_else(|| {
+                    Error::ExportNotFound(anyhow::Error::msg(format!(
+                        "{}: export not found or not a memory",
+                        WASM_MEMORY_NAME
+                    )))
+                })?
                 .write(&mut store, acc_offset as usize, &account_bytes)
                 .map_err(|error| Trap::new(error.to_string()))?;
 
             acc_offset
         };
 
-        let main_fn = instance
+        let main_fn = smart_contract
             .get_typed_func::<(WasmUsize, WasmUsize), (), _>(&mut store, WASM_MAIN_FN_NAME)
             .map_err(Error::ExportNotFound)?;
 

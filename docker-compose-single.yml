@@ -4,6 +4,7 @@ services:
     build: .
     image: iroha0:debug
     volumes:
+      - './configs/peer:/config'
       - './:/root/soramitsu/iroha'
     environment:
       TORII_P2P_ADDR: iroha0:1337
@@ -18,5 +19,3 @@ services:
       - "8180:8180"
     init: true
     command: ./iroha --submit-genesis
-    volumes:
-      - ./configs/peer:/config

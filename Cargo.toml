@@ -16,6 +16,8 @@ members = [
   "tools/kagami",
   "data_model",
   "data_model/primitives",
+  "ffi",
+  "ffi/derive",
   "futures",
   "futures/derive",
   "logger",

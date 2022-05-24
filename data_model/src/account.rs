@@ -12,6 +12,8 @@ use core::{fmt, str::FromStr};
 use std::collections::{btree_map, btree_set};
 
 use getset::{Getters, MutGetters, Setters};
+#[cfg(feature = "ffi")]
+use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -106,7 +108,8 @@ impl Default for SignatureCheckCondition {
     }
 }
 
-/// Builder which can be submitted in a transaction to create a new [`Account`]
+/// Builder which should be submitted in a transaction to create a new [`Account`]
+#[allow(clippy::multiple_inherent_impl)]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct NewAccount {
     id: Id,
@@ -140,13 +143,6 @@ impl NewAccount {
         }
     }
 
-    /// Add [`Metadata`] to the account replacing previously defined
-    #[must_use]
-    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
-        self.metadata = metadata;
-        self
-    }
-
     /// Construct [`Account`]
     #[must_use]
     #[cfg(feature = "mutable_api")]
@@ -160,6 +156,16 @@ impl NewAccount {
             metadata: self.metadata,
             roles: RoleIds::default(),
         }
+    }
+}
+
+#[cfg_attr(feature = "ffi", ffi_bindgen)]
+impl NewAccount {
+    /// Add [`Metadata`] to the account replacing previously defined
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = metadata;
+        self
     }
 }
 
@@ -180,6 +186,7 @@ impl NewAccount {
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
+#[cfg_attr(feature = "ffi", ffi_bindgen)]
 pub struct Account {
     /// An Identification of the [`Account`].
     id: <Self as Identifiable>::Id,
@@ -222,6 +229,7 @@ impl Ord for Account {
     }
 }
 
+#[cfg_attr(feature = "ffi", ffi_bindgen)]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]

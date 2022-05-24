@@ -11,6 +11,8 @@ use core::{cmp::Ordering, fmt, str::FromStr};
 
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
+#[cfg(feature = "ffi")]
+use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
 use serde::{Deserialize, Serialize};
@@ -68,6 +70,7 @@ impl From<GenesisDomain> for Domain {
 
 /// Builder which can be submitted in a transaction to create a new [`Domain`]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[allow(clippy::multiple_inherent_impl)]
 pub struct NewDomain {
     /// The identification associated to the domain builder.
     id: <Domain as Identifiable>::Id,
@@ -102,6 +105,22 @@ impl NewDomain {
         }
     }
 
+    /// Construct [`Domain`]
+    #[must_use]
+    #[cfg(feature = "mutable_api")]
+    pub fn build(self) -> Domain {
+        Domain {
+            id: self.id,
+            accounts: AccountsMap::default(),
+            asset_definitions: AssetDefinitionsMap::default(),
+            metadata: self.metadata,
+            logo: self.logo,
+        }
+    }
+}
+
+#[cfg_attr(feature = "ffi", ffi_bindgen)]
+impl NewDomain {
     /// Add [`logo`](IpfsPath) to the domain replacing previously defined value
     #[must_use]
     pub fn with_logo(mut self, logo: IpfsPath) -> Self {
@@ -114,19 +133,6 @@ impl NewDomain {
     pub fn with_metadata(mut self, metadata: Metadata) -> Self {
         self.metadata = metadata;
         self
-    }
-
-    /// Construct [`Domain`]
-    #[must_use]
-    #[cfg(feature = "mutable_api")]
-    pub fn build(self) -> Domain {
-        Domain {
-            id: self.id,
-            accounts: AccountsMap::default(),
-            asset_definitions: AssetDefinitionsMap::default(),
-            metadata: self.metadata,
-            logo: self.logo,
-        }
     }
 }
 
@@ -146,6 +152,7 @@ impl NewDomain {
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
+#[cfg_attr(feature = "ffi", ffi_bindgen)]
 pub struct Domain {
     /// Identification of this [`Domain`].
     id: <Self as Identifiable>::Id,
@@ -181,6 +188,7 @@ impl Ord for Domain {
     }
 }
 
+#[cfg_attr(feature = "ffi", ffi_bindgen)]
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {

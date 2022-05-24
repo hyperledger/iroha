@@ -138,7 +138,7 @@ pub mod error {
         AssetDefinition(AssetDefinitionId),
         /// Failed to find account
         #[error("Failed to find account: `{0}`")]
-        Account(AccountId),
+        Account(<Account as Identifiable>::Id),
         /// Failed to find domain
         #[error("Failed to find domain: `{0}`")]
         Domain(DomainId),

@@ -36,6 +36,7 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
     IntoSchema,
 )]
 #[getset(get = "pub")]
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 pub struct PermissionToken {
     /// Name of the permission rule given to account.
     name: Name,
@@ -44,6 +45,7 @@ pub struct PermissionToken {
     params: btree_map::BTreeMap<Name, Value>,
 }
 
+#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
 impl PermissionToken {
     /// Constructor.
     #[inline]
@@ -77,5 +79,5 @@ impl PermissionToken {
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.
 pub mod prelude {
-    pub use super::PermissionToken;
+    pub use super::{PermissionToken, Permissions};
 }
