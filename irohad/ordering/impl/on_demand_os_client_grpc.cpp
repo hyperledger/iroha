@@ -210,55 +210,58 @@ void OnDemandOsClientGrpc::onRequestProposal(
                           context->peer());
         }
 
-        if (!response.has_proposal_hash()) {
-          maybe_log->info("Remote node {} has no proposal.", context->peer());
-          iroha::getSubscription()->notify(
-              iroha::EventTypes::kOnProposalResponse,
-              ProposalEvent{std::nullopt, round});
-          return;
-        }
+        for (auto const &proposal : response.proposal()) {
+          if (proposal.proposal_hash().empty()) {
+            assert(!"Should have proposal hash!");
+            maybe_log->info("Remote node {} has no proposal.", context->peer());
+            iroha::getSubscription()->notify(
+                iroha::EventTypes::kOnProposalResponse,
+                ProposalEvent{std::nullopt, round});
+            return;
+          }
 
-        /// parse request
-        std::shared_ptr<shared_model::interface::Proposal const>
-            remote_proposal;
-        if (auto proposal_result =
-                maybe_proposal_factory->build(response.proposal());
-            expected::hasError(proposal_result)) {
-          maybe_log->warn("{}", proposal_result.assumeError().error);
-          iroha::getSubscription()->notify(
-              iroha::EventTypes::kOnProposalResponse,
-              ProposalEvent{std::nullopt, round});
-          return;
-        } else
-          remote_proposal = std::move(proposal_result).assumeValue();
-
-      /// merge if has local proposal or process directly if not
-#if USE_BLOOM_FILTER
-        if (ref_proposal.has_value()) {
+          /// parse request
           std::shared_ptr<shared_model::interface::Proposal const>
-              local_proposal;
-          local_proposal = ref_proposal.value().first;
+              remote_proposal;
+          if (auto proposal_result =
+                  maybe_proposal_factory->build(proposal);
+              expected::hasError(proposal_result)) {
+            maybe_log->warn("{}", proposal_result.assumeError().error);
+            iroha::getSubscription()->notify(
+                iroha::EventTypes::kOnProposalResponse,
+                ProposalEvent{std::nullopt, round});
+            return;
+          } else
+            remote_proposal = std::move(proposal_result).assumeValue();
 
-          iroha::getSubscription()->notify(
-              iroha::EventTypes::kRemoteProposalDiff,
-              RemoteProposalDownloadedEvent{
-                  local_proposal,
-                  remote_proposal,
-                  response.bloom_filter(),
-                  response.proposal_hash(),
-                  round,
-                  remote_proposal ? remote_proposal->createdTime() : 0ull});
-        } else
+        /// merge if has local proposal or process directly if not
+#if USE_BLOOM_FILTER
+          if (ref_proposal.has_value()) {
+            std::shared_ptr<shared_model::interface::Proposal const>
+                local_proposal;
+            local_proposal = ref_proposal.value().first;
+
+            iroha::getSubscription()->notify(
+                iroha::EventTypes::kRemoteProposalDiff,
+                RemoteProposalDownloadedEvent{
+                    local_proposal,
+                    remote_proposal,
+                    response.bloom_filter(),
+                    response.proposal_hash(),
+                    round,
+                    remote_proposal ? remote_proposal->createdTime() : 0ull});
+          } else
 #endif  // USE_BLOOM_FILTER
-            if (!remote_proposal->transactions().empty())
-          iroha::getSubscription()->notify(
-              iroha::EventTypes::kOnProposalResponse,
-              ProposalEvent{std::move(remote_proposal), round});
-        else {
-          maybe_log->info("Transactions sequence in proposal is empty");
-          iroha::getSubscription()->notify(
-              iroha::EventTypes::kOnProposalResponse,
-              ProposalEvent{std::nullopt, round});
+              if (!remote_proposal->transactions().empty())
+            iroha::getSubscription()->notify(
+                iroha::EventTypes::kOnProposalResponse,
+                ProposalEvent{std::move(remote_proposal), round});
+          else {
+            maybe_log->info("Transactions sequence in proposal is empty");
+            iroha::getSubscription()->notify(
+                iroha::EventTypes::kOnProposalResponse,
+                ProposalEvent{std::nullopt, round});
+          }
         }
       });
 }
