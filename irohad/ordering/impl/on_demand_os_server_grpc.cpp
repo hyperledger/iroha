@@ -75,7 +75,8 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
 #if USE_BLOOM_FILTER
     response->set_bloom_filter(bf_local.load().data(), bf_local.load().size());
 #endif  // USE_BLOOM_FILTER
-    response->set_proposal_hash(sptr_proposal->hash().blob().data(),
+    auto proposal = response->add_proposal();
+    proposal->set_proposal_hash(sptr_proposal->hash().blob().data(),
                                 sptr_proposal->hash().blob().size());
 
     log_->debug(
@@ -90,7 +91,7 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
 #endif  // USE_BLOOM_FILTER
       log_->info("Response with full {} txs proposal.",
                  sptr_proposal->transactions().size());
-      *response->mutable_proposal() = proto_proposal;
+      *proposal = proto_proposal;
 #if USE_BLOOM_FILTER
     } else {
       response->mutable_proposal()->set_created_time(

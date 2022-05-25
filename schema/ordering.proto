@@ -28,10 +28,7 @@ message ProposalRequest {
 }
 
 message ProposalResponse {
-  protocol.Proposal proposal = 1;
-  oneof optional_proposal_hash {
-    bytes proposal_hash = 2;
-  }
+  repeated protocol.Proposal proposal = 1;
 }
 
 service OnDemandOrdering {
