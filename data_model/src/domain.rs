@@ -22,7 +22,7 @@ use crate::{
     asset::AssetDefinitionsMap,
     metadata::Metadata,
     prelude::{AssetDefinition, AssetDefinitionEntry},
-    Identifiable, Name, ParseError,
+    HasMetadata, Identifiable, Name, ParseError, RegisteredWith,
 };
 
 /// The domain name of the genesis domain.
@@ -78,6 +78,13 @@ pub struct NewDomain {
     logo: Option<IpfsPath>,
     /// metadata associated to the domain builder.
     metadata: Metadata,
+}
+
+impl HasMetadata for NewDomain {
+    #[inline]
+    fn metadata(&self) -> &crate::metadata::Metadata {
+        &self.metadata
+    }
 }
 
 impl PartialOrd for NewDomain {
@@ -169,8 +176,21 @@ pub struct Domain {
     metadata: Metadata,
 }
 
+impl HasMetadata for Domain {
+    fn metadata(&self) -> &crate::metadata::Metadata {
+        &self.metadata
+    }
+}
+
 impl Identifiable for Domain {
     type Id = Id;
+
+    fn id(&self) -> &Self::Id {
+        &self.id
+    }
+}
+
+impl RegisteredWith for Domain {
     type RegisteredWith = NewDomain;
 }
 
@@ -191,8 +211,8 @@ impl Ord for Domain {
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
-    pub fn new(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
-        <Self as Identifiable>::RegisteredWith::new(id)
+    pub fn new(id: <Self as Identifiable>::Id) -> <Self as RegisteredWith>::RegisteredWith {
+        <Self as RegisteredWith>::RegisteredWith::new(id)
     }
 
     /// Return a reference to the [`Account`] corresponding to the account id.

@@ -326,19 +326,19 @@ pub enum IdBox {
 )]
 pub enum RegistrableBox {
     /// [`Peer`](`peer::Peer`) variant.
-    Peer(Box<<peer::Peer as Identifiable>::RegisteredWith>),
+    Peer(Box<<peer::Peer as RegisteredWith>::RegisteredWith>),
     /// [`Domain`](`domain::Domain`) variant.
-    Domain(Box<<domain::Domain as Identifiable>::RegisteredWith>),
+    Domain(Box<<domain::Domain as RegisteredWith>::RegisteredWith>),
     /// [`Account`](`account::Account`) variant.
-    Account(Box<<account::Account as Identifiable>::RegisteredWith>),
+    Account(Box<<account::Account as RegisteredWith>::RegisteredWith>),
     /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
-    AssetDefinition(Box<<asset::AssetDefinition as Identifiable>::RegisteredWith>),
+    AssetDefinition(Box<<asset::AssetDefinition as RegisteredWith>::RegisteredWith>),
     /// [`Asset`](`asset::Asset`) variant.
-    Asset(Box<<asset::Asset as Identifiable>::RegisteredWith>),
+    Asset(Box<<asset::Asset as RegisteredWith>::RegisteredWith>),
     /// [`Trigger`](`trigger::Trigger`) variant.
-    Trigger(Box<<trigger::Trigger<FilterBox> as Identifiable>::RegisteredWith>),
+    Trigger(Box<<trigger::Trigger<FilterBox> as RegisteredWith>::RegisteredWith>),
     /// [`Role`](`role::Role`) variant.
-    Role(Box<<role::Role as Identifiable>::RegisteredWith>),
+    Role(Box<<role::Role as RegisteredWith>::RegisteredWith>),
 }
 
 /// Sized container for all possible entities.
@@ -346,14 +346,14 @@ pub enum RegistrableBox {
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum IdentifiableBox {
+    /// [`NewDomain`](`domain::NewDomain`) variant.
+    NewDomain(Box<<domain::Domain as RegisteredWith>::RegisteredWith>),
+    /// [`NewAccount`](`account::NewAccount`) variant.
+    NewAccount(Box<<account::Account as RegisteredWith>::RegisteredWith>),
+    /// [`NewAssetDefinition`](`asset::NewAssetDefinition`) variant.
+    NewAssetDefinition(Box<<asset::AssetDefinition as RegisteredWith>::RegisteredWith>),
     /// [`Peer`](`peer::Peer`) variant.
     Peer(Box<peer::Peer>),
-    /// [`NewDomain`](`domain::NewDomain`) variant.
-    NewDomain(Box<<domain::Domain as Identifiable>::RegisteredWith>),
-    /// [`NewAccount`](`account::NewAccount`) variant.
-    NewAccount(Box<<account::Account as Identifiable>::RegisteredWith>),
-    /// [`NewAssetDefinition`](`asset::NewAssetDefinition`) variant.
-    NewAssetDefinition(Box<<asset::AssetDefinition as Identifiable>::RegisteredWith>),
     /// [`Domain`](`domain::Domain`) variant.
     Domain(Box<domain::Domain>),
     /// [`Account`](`account::Account`) variant.
@@ -366,6 +366,10 @@ pub enum IdentifiableBox {
     Trigger(Box<trigger::Trigger<FilterBox>>),
     /// [`Role`](`role::Role`) variant.
     Role(Box<role::Role>),
+}
+
+impl RegisteredWith for trigger::Trigger<FilterBox> {
+    type RegisteredWith = Self;
 }
 
 /// Boxed [`Value`].
@@ -663,10 +667,21 @@ where
 }
 
 /// This trait marks entity that implement it as identifiable with an `Id` type to find them by.
-pub trait Identifiable: Debug + Clone {
+pub trait Identifiable: Debug {
     /// Type of entity's identification.
     type Id: Into<IdBox> + Debug + Clone + Eq + Ord;
-    /// Type used to register `Identifiable` entity
+
+    fn id(&self) -> &Self::Id;
+}
+
+pub trait HasMetadata {
+    // type Metadata = metadata::Metadata;
+    // Uncomment when stable.
+
+    fn metadata(&self) -> &metadata::Metadata;
+}
+
+pub trait RegisteredWith: Identifiable {
     type RegisteredWith: Into<RegistrableBox>;
 }
 
@@ -789,8 +804,8 @@ pub mod prelude {
         peer::prelude::*,
         role::prelude::*,
         trigger::prelude::*,
-        uri, EnumTryAsError, IdBox, Identifiable, IdentifiableBox, MintabilityError, Name,
-        Parameter, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
+        uri, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, MintabilityError,
+        Name, Parameter, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

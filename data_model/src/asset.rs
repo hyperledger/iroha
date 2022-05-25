@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 use strum::EnumString;
 
 use crate::{
-    account::prelude::*, domain::prelude::*, fixed, fixed::Fixed, metadata::Metadata, Identifiable,
-    Name, ParseError, TryAsMut, TryAsRef, Value,
+    account::prelude::*, domain::prelude::*, fixed, fixed::Fixed, metadata::Metadata, HasMetadata,
+    Identifiable, Name, ParseError, RegisteredWith, TryAsMut, TryAsRef, Value,
 };
 
 /// [`AssetsMap`] provides an API to work with collection of key ([`Id`]) - value
@@ -124,6 +124,12 @@ pub struct AssetDefinition {
     /// Metadata of this asset definition as a key-value store.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
     metadata: Metadata,
+}
+
+impl HasMetadata for AssetDefinition {
+    fn metadata(&self) -> &crate::metadata::Metadata {
+        &self.metadata
+    }
 }
 
 impl PartialOrd for AssetDefinition {
@@ -355,6 +361,12 @@ pub struct NewAssetDefinition {
     metadata: Metadata,
 }
 
+impl HasMetadata for NewAssetDefinition {
+    fn metadata(&self) -> &crate::metadata::Metadata {
+        &self.metadata
+    }
+}
+
 impl PartialOrd for NewAssetDefinition {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -418,29 +430,31 @@ impl AssetDefinition {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn quantity(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
-        <Self as Identifiable>::RegisteredWith::new(id, AssetValueType::Quantity)
+    pub fn quantity(id: <Self as Identifiable>::Id) -> <Self as RegisteredWith>::RegisteredWith {
+        <Self as RegisteredWith>::RegisteredWith::new(id, AssetValueType::Quantity)
     }
 
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn big_quantity(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
-        <Self as Identifiable>::RegisteredWith::new(id, AssetValueType::BigQuantity)
+    pub fn big_quantity(
+        id: <Self as Identifiable>::Id,
+    ) -> <Self as RegisteredWith>::RegisteredWith {
+        <Self as RegisteredWith>::RegisteredWith::new(id, AssetValueType::BigQuantity)
     }
 
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn fixed(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
-        <Self as Identifiable>::RegisteredWith::new(id, AssetValueType::Fixed)
+    pub fn fixed(id: <Self as Identifiable>::Id) -> <Self as RegisteredWith>::RegisteredWith {
+        <Self as RegisteredWith>::RegisteredWith::new(id, AssetValueType::Fixed)
     }
 
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
-    pub fn store(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
-        <Self as Identifiable>::RegisteredWith::new(id, AssetValueType::Store)
+    pub fn store(id: <Self as Identifiable>::Id) -> <Self as RegisteredWith>::RegisteredWith {
+        <Self as RegisteredWith>::RegisteredWith::new(id, AssetValueType::Store)
     }
 }
 
@@ -467,7 +481,7 @@ impl Asset {
     pub fn new(
         id: <Asset as Identifiable>::Id,
         value: impl Into<AssetValue>,
-    ) -> <Self as Identifiable>::RegisteredWith {
+    ) -> <Self as RegisteredWith>::RegisteredWith {
         Self {
             id,
             value: value.into(),
@@ -533,11 +547,25 @@ impl Id {
 
 impl Identifiable for Asset {
     type Id = Id;
+
+    fn id(&self) -> &Self::Id {
+        &self.id
+    }
+}
+
+impl RegisteredWith for Asset {
     type RegisteredWith = Self;
 }
 
 impl Identifiable for AssetDefinition {
     type Id = DefinitionId;
+
+    fn id(&self) -> &Self::Id {
+        &self.id
+    }
+}
+
+impl RegisteredWith for AssetDefinition {
     type RegisteredWith = NewAssetDefinition;
 }
 

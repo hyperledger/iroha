@@ -130,7 +130,10 @@ impl TryFrom<Trigger<FilterBox>> for Trigger<ExecuteTriggerEventFilter> {
 
 impl Identifiable for Trigger<FilterBox> {
     type Id = Id;
-    type RegisteredWith = Self;
+
+    fn id(&self) -> &Self::Id {
+        &self.id
+    }
 }
 
 /// Identification of a `Trigger`.
@@ -181,6 +184,7 @@ pub mod action {
     use iroha_data_primitives::atomic::AtomicU32;
 
     use super::*;
+    use crate::HasMetadata;
 
     /// Trait for common methods for all [`Action`]'s
     pub trait ActionTrait {
@@ -237,6 +241,12 @@ pub mod action {
         pub filter: F,
         /// Metadata used as persistent storage for trigger data.
         pub metadata: Metadata,
+    }
+
+    impl<F: Filter> HasMetadata for Action<F> {
+        fn metadata(&self) -> &crate::metadata::Metadata {
+            &self.metadata
+        }
     }
 
     impl<F: Filter> Action<F> {

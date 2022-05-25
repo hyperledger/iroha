@@ -26,7 +26,7 @@ use crate::{
     permissions::{PermissionToken, Permissions},
     prelude::Asset,
     role::{prelude::RoleId, RoleIds},
-    Identifiable, Name, ParseError, PublicKey,
+    HasMetadata, Identifiable, Name, ParseError, PublicKey, RegisteredWith,
 };
 
 /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
@@ -129,6 +129,12 @@ impl Ord for NewAccount {
     }
 }
 
+impl HasMetadata for NewAccount {
+    fn metadata(&self) -> &crate::metadata::Metadata {
+        &self.metadata
+    }
+}
+
 impl NewAccount {
     fn new(
         id: <Account as Identifiable>::Id,
@@ -210,6 +216,19 @@ pub struct Account {
 
 impl Identifiable for Account {
     type Id = Id;
+
+    fn id(&self) -> &Self::Id {
+        &self.id
+    }
+}
+
+impl HasMetadata for Account {
+    fn metadata(&self) -> &crate::metadata::Metadata {
+        &self.metadata
+    }
+}
+
+impl RegisteredWith for Account {
     type RegisteredWith = NewAccount;
 }
 
@@ -234,8 +253,8 @@ impl Account {
     pub fn new(
         id: <Self as Identifiable>::Id,
         signatories: impl IntoIterator<Item = PublicKey>,
-    ) -> <Self as Identifiable>::RegisteredWith {
-        <Self as Identifiable>::RegisteredWith::new(id, signatories)
+    ) -> <Self as RegisteredWith>::RegisteredWith {
+        <Self as RegisteredWith>::RegisteredWith::new(id, signatories)
     }
 
     /// Return `true` if the `Account` contains signatory
