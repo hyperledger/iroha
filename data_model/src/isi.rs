@@ -12,6 +12,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
+use crate::RegisteredWith;
 
 /// Sized structure for all possible Instructions.
 #[derive(
@@ -230,7 +231,7 @@ where
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Register<O>
 where
-    O: Identifiable,
+    O: Identifiable + RegisteredWith,
 {
     /// The object that should be registered, should be uniquely identifiable by its id.
     pub object: O::RegisteredWith,
@@ -240,7 +241,7 @@ where
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Unregister<O>
 where
-    O: Identifiable,
+    O: Identifiable + RegisteredWith,
 {
     /// [`Identifiable::Id`] of the object which should be unregistered.
     pub object_id: O::Id,
@@ -290,7 +291,7 @@ where
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Grant<D, O>
 where
-    D: Identifiable,
+    D: Identifiable + RegisteredWith,
     O: Into<Value>,
 {
     /// Object to grant.
@@ -303,7 +304,7 @@ where
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct Revoke<D, O>
 where
-    D: Identifiable,
+    D: Identifiable + RegisteredWith,
     O: Into<Value>,
 {
     /// Object to revoke.
@@ -372,7 +373,7 @@ where
 
 impl<O> Register<O>
 where
-    O: Identifiable,
+    O: Identifiable + RegisteredWith,
 {
     /// Construct [`Register`].
     pub fn new(object: O::RegisteredWith) -> Self {
@@ -382,7 +383,7 @@ where
 
 impl<O> Unregister<O>
 where
-    O: Identifiable,
+    O: Identifiable + RegisteredWith,
 {
     /// Construct [`Register`].
     pub fn new(object_id: O::Id) -> Self {
@@ -392,7 +393,7 @@ where
 
 impl<D, O> Mint<D, O>
 where
-    D: Identifiable,
+    D: Identifiable + RegisteredWith,
     O: Into<Value>,
 {
     /// Construct [`Mint`].
@@ -406,7 +407,7 @@ where
 
 impl<D, O> Burn<D, O>
 where
-    D: Identifiable,
+    D: Identifiable + RegisteredWith,
     O: Into<Value>,
 {
     /// Construct [`Burn`].
@@ -420,8 +421,8 @@ where
 
 impl<S, O, D> Transfer<S, O, D>
 where
-    S: Identifiable,
-    D: Identifiable,
+    S: Identifiable + RegisteredWith,
+    D: Identifiable + RegisteredWith,
     O: Into<Value>,
 {
     /// Construct [`Transfer`].
@@ -436,7 +437,7 @@ where
 
 impl<D, O> Grant<D, O>
 where
-    D: Identifiable,
+    D: Identifiable + RegisteredWith,
     O: Into<Value>,
 {
     /// Constructor.
@@ -451,7 +452,7 @@ where
 
 impl<D, O> Revoke<D, O>
 where
-    D: Identifiable,
+    D: Identifiable + RegisteredWith,
     O: Into<Value>,
 {
     /// Constructor

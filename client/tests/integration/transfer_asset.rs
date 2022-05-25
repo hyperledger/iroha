@@ -4,8 +4,8 @@ use std::thread;
 
 use iroha_client::client;
 use iroha_core::prelude::*;
-use iroha_data_model::prelude::*;
-use test_network::*;
+use iroha_data_model::{prelude::*, RegisteredWith};
+use test_network::{Peer as TestPeer, *};
 
 use super::Configuration;
 
@@ -43,7 +43,7 @@ fn simulate_insufficient_funds() {
 
 fn simulate_transfer<
     T: Into<AssetValue> + Clone,
-    D: FnOnce(AssetDefinitionId) -> <AssetDefinition as Identifiable>::RegisteredWith,
+    D: FnOnce(AssetDefinitionId) -> <AssetDefinition as RegisteredWith>::RegisteredWith,
 >(
     starting_amount: T,
     amount_to_transfer: T,

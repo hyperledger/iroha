@@ -4,15 +4,6 @@ use iroha_data_primitives::small::SmallVec;
 
 use super::*;
 
-/// Trait for retrieving id from events
-pub trait IdTrait {
-    /// Type of id
-    type Id;
-
-    /// Get object id
-    fn id(&self) -> &Self::Id;
-}
-
 mod asset {
     //! This module contains `AssetEvent`, `AssetDefinitionEvent` and its impls
 
@@ -30,7 +21,7 @@ mod asset {
         MetadataRemoved(AssetId),
     }
 
-    impl IdTrait for AssetEvent {
+    impl Identifiable for AssetEvent {
         type Id = AssetId;
 
         fn id(&self) -> &AssetId {
@@ -59,7 +50,7 @@ mod asset {
     // AssetDefinitionEventFilter enum and its `impl Filter for
     // AssetDefinitionEventFilter`.
 
-    impl IdTrait for AssetDefinitionEvent {
+    impl Identifiable for AssetDefinitionEvent {
         type Id = AssetDefinitionId;
 
         fn id(&self) -> &AssetDefinitionId {
@@ -87,7 +78,7 @@ mod peer {
         Removed(PeerId),
     }
 
-    impl IdTrait for PeerEvent {
+    impl Identifiable for PeerEvent {
         type Id = PeerId;
 
         fn id(&self) -> &PeerId {
@@ -111,7 +102,7 @@ mod role {
         Deleted(RoleId),
     }
 
-    impl IdTrait for RoleEvent {
+    impl Identifiable for RoleEvent {
         type Id = RoleId;
 
         fn id(&self) -> &RoleId {
@@ -145,7 +136,7 @@ mod account {
         MetadataRemoved(AccountId),
     }
 
-    impl IdTrait for AccountEvent {
+    impl Identifiable for AccountEvent {
         type Id = AccountId;
 
         fn id(&self) -> &AccountId {
@@ -184,7 +175,7 @@ mod domain {
         MetadataRemoved(DomainId),
     }
 
-    impl IdTrait for DomainEvent {
+    impl Identifiable for DomainEvent {
         type Id = DomainId;
 
         fn id(&self) -> &DomainId {
@@ -216,7 +207,7 @@ mod trigger {
         Shortened(TriggerId),
     }
 
-    impl IdTrait for TriggerEvent {
+    impl Identifiable for TriggerEvent {
         type Id = TriggerId;
 
         fn id(&self) -> &TriggerId {
@@ -308,6 +299,6 @@ pub mod prelude {
         peer::PeerEvent,
         role::RoleEvent,
         trigger::TriggerEvent,
-        Event as DataEvent, IdTrait as DataEventsIdTrait, WorldEvent,
+        Event as DataEvent, WorldEvent,
     };
 }
