@@ -230,7 +230,7 @@ pub mod isi {
                     return Err(Error::Find(Box::new(FindError::Account(account_id))));
                 }
 
-                Ok(AccountEvent::PermissionRemoved(account_id))
+                Ok(AccountEvent::RoleRevoked(account_id))
             })
         }
     }

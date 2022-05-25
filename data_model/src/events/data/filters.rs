@@ -458,6 +458,8 @@ mod account {
         ByPermissionAdded,
         /// Filter by PermissionRemoved event
         ByPermissionRemoved,
+        /// Filter by RoleRevoked event
+        ByRoleRevoked,
         /// Filter by MetadataInserted event
         ByMetadataInserted,
         /// Filter by MetadataRemoved event
@@ -478,6 +480,7 @@ mod account {
                 | (Self::ByAuthenticationRemoved, AccountEvent::AuthenticationRemoved(_))
                 | (Self::ByPermissionAdded, AccountEvent::PermissionAdded(_))
                 | (Self::ByPermissionRemoved, AccountEvent::PermissionRemoved(_))
+                | (Self::ByRoleRevoked, AccountEvent::RoleRevoked(_))
                 | (Self::ByMetadataInserted, AccountEvent::MetadataInserted(_))
                 | (Self::ByMetadataRemoved, AccountEvent::MetadataRemoved(_)) => true,
                 _ => false,
