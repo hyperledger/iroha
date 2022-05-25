@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     permissions::{PermissionToken, Permissions},
-    Identifiable, Name, ParseError,
+    Identifiable, Name, ParseError, RegisteredWith,
 };
 
 /// Collection of [`RoleId`](Id)s
@@ -100,7 +100,7 @@ impl Role {
     pub fn new(
         id: <Self as Identifiable>::Id,
         permissions: impl IntoIterator<Item = impl Into<PermissionToken>>,
-    ) -> <Self as Identifiable>::RegisteredWith {
+    ) -> <Self as RegisteredWith>::RegisteredWith {
         Self {
             id,
             permissions: permissions.into_iter().map(Into::into).collect(),
@@ -116,6 +116,13 @@ impl Role {
 
 impl Identifiable for Role {
     type Id = Id;
+
+    fn id(&self) -> &Self::Id {
+        &self.id
+    }
+}
+
+impl RegisteredWith for Role {
     type RegisteredWith = Self;
 }
 

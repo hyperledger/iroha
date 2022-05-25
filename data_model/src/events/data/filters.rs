@@ -23,14 +23,14 @@ macro_rules! entity_filter {
         $(#[$meta])*
         #[doc = $struct_doc]
         $vis struct $name {
-            id_filter: FilterOpt<IdFilter<<$entity_type as IdTrait>::Id>>,
+            id_filter: FilterOpt<IdFilter<<$entity_type as Identifiable>::Id>>,
             event_filter: FilterOpt<$event_filter_type>,
         }
 
         impl $name {
             #[doc = $new_doc]
             pub const fn new(
-                id_filter: FilterOpt<IdFilter<<$entity_type as IdTrait>::Id>>,
+                id_filter: FilterOpt<IdFilter<<$entity_type as Identifiable>::Id>>,
                 event_filter: FilterOpt<$event_filter_type>,
             ) -> Self {
                 Self {
@@ -41,7 +41,7 @@ macro_rules! entity_filter {
 
             /// Get `id_filter`
             #[inline]
-            pub const fn id_filter(&self) -> &FilterOpt<IdFilter<<$entity_type as IdTrait>::Id>> {
+            pub const fn id_filter(&self) -> &FilterOpt<IdFilter<<$entity_type as Identifiable>::Id>> {
                 &self.id_filter
             }
 

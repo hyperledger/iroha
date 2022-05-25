@@ -12,7 +12,7 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{Identifiable, PublicKey, Value};
+use crate::{Identifiable, PublicKey, RegisteredWith, Value};
 
 /// Peer represents Iroha instance.
 #[derive(
@@ -71,13 +71,20 @@ impl fmt::Display for Id {
 impl Peer {
     /// Construct `Peer` given `id`.
     #[inline]
-    pub const fn new(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {
+    pub const fn new(id: <Self as Identifiable>::Id) -> <Self as RegisteredWith>::RegisteredWith {
         Self { id }
     }
 }
 
 impl Identifiable for Peer {
     type Id = Id;
+
+    fn id(&self) -> &Self::Id {
+        &self.id
+    }
+}
+
+impl RegisteredWith for Peer {
     type RegisteredWith = Self;
 }
 
