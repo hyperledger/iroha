@@ -859,7 +859,9 @@ mod tests {
     #[allow(unsafe_code)]
     #[cfg(feature = "ffi_api")]
     fn ffi_name_from_str() -> Result<(), ParseError> {
-        use iroha_ffi::{Handle, __drop};
+        use iroha_ffi::Handle;
+
+        use super::ffi::__drop;
 
         let candidate = "Name";
         let candidate_bytes = candidate.as_bytes();

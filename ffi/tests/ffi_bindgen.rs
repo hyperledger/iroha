@@ -73,14 +73,16 @@ impl FfiStruct {
 }
 
 fn get_new_struct() -> *mut FfiStruct {
-    let mut ffi_struct = MaybeUninit::new(core::ptr::null_mut());
     let name = Name(String::from("X"));
 
-    assert_eq!(FfiResult::Ok, unsafe {
-        FfiStruct__new(&name, ffi_struct.as_mut_ptr())
-    },);
-
     unsafe {
+        let mut ffi_struct = MaybeUninit::new(core::ptr::null_mut());
+
+        assert_eq!(
+            FfiResult::Ok,
+            FfiStruct__new(&name, ffi_struct.as_mut_ptr())
+        );
+
         let ffi_struct = ffi_struct.assume_init();
         assert!(!ffi_struct.is_null());
         ffi_struct

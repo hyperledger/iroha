@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use getset::Getters;
-use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, FfiResult, Handle, Pair};
+use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, Handle, Pair};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Name(&'static str);
@@ -47,17 +47,12 @@ impl FfiStruct {
     }
 }
 
-fn main() -> Result<(), ()> {
+fn main() {
     let name = Name("X");
 
     let ffi_struct = unsafe {
         let mut ffi_struct: MaybeUninit<*mut FfiStruct> = MaybeUninit::uninit();
-
-        assert_eq!(
-            FfiResult::Ok,
-            FfiStruct__new(&name, ffi_struct.as_mut_ptr())
-        );
-
+        FfiStruct__new(&name, ffi_struct.as_mut_ptr());
         ffi_struct.assume_init()
     };
 
@@ -71,28 +66,16 @@ fn main() -> Result<(), ()> {
     let mut params_len: MaybeUninit<usize> = MaybeUninit::uninit();
 
     unsafe {
-        assert_eq!(
-            FfiResult::Ok,
-            FfiStruct__with_params(ffi_struct, in_params.as_ptr(), in_params.len())
+        FfiStruct__with_params(ffi_struct, in_params.as_ptr(), in_params.len());
+        FfiStruct__get_param(ffi_struct, &name, param.as_mut_ptr());
+
+        FfiStruct__params(
+            ffi_struct,
+            out_params.as_mut_ptr(),
+            out_params.capacity(),
+            params_len.as_mut_ptr(),
         );
 
-        assert_eq!(
-            FfiResult::Ok,
-            FfiStruct__get_param(ffi_struct, &name, param.as_mut_ptr())
-        );
-
-        assert_eq!(
-            FfiResult::Ok,
-            FfiStruct__params(
-                ffi_struct,
-                out_params.as_mut_ptr(),
-                out_params.capacity(),
-                params_len.as_mut_ptr(),
-            )
-        );
-
-        assert_eq!(FfiResult::Ok, __drop(FfiStruct::ID, ffi_struct.cast()));
+        __drop(FfiStruct::ID, ffi_struct.cast());
     }
-
-    Ok(())
 }

@@ -49,54 +49,6 @@ macro_rules! handles {
     ( $id:expr, $(,)? ) => {};
 }
 
-extern "C" {
-    /// FFI function equivalent of [`Clone::clone`]
-    ///
-    /// # Safety
-    ///
-    /// All of the given pointers must be valid and the given handle id must match the expected
-    /// pointer type
-    pub fn __clone(
-        handle_id: HandleId,
-        handle_ptr: *const core::ffi::c_void,
-        output_ptr: *mut *mut core::ffi::c_void,
-    ) -> FfiResult;
-
-    /// FFI function equivalent of [`Eq::eq`]
-    ///
-    /// # Safety
-    ///
-    /// All of the given pointers must be valid and the given handle id must match the expected
-    /// pointer type
-    pub fn __eq(
-        handle_id: HandleId,
-        left_handle_ptr: *const core::ffi::c_void,
-        right_handle_ptr: *const core::ffi::c_void,
-        output_ptr: *mut bool,
-    ) -> FfiResult;
-
-    /// FFI function equivalent of [`Ord::ord`]
-    ///
-    /// # Safety
-    ///
-    /// All of the given pointers must be valid and the given handle id must match the expected
-    /// pointer type
-    pub fn __ord(
-        handle_id: HandleId,
-        left_handle_ptr: *const core::ffi::c_void,
-        right_handle_ptr: *const core::ffi::c_void,
-        output_ptr: *mut core::cmp::Ordering,
-    ) -> FfiResult;
-
-    /// FFI function equivalent of [`Drop::drop`]
-    ///
-    /// # Safety
-    ///
-    /// All of the given pointers must be valid and the given handle id must match the expected
-    /// pointer type
-    pub fn __drop(handle_id: HandleId, handle_ptr: *mut core::ffi::c_void) -> FfiResult;
-}
-
 /// Generate FFI equivalent implementation of the requested trait method (e.g. Clone, Eq, Ord)
 #[macro_export]
 macro_rules! gen_ffi_impl {
@@ -120,6 +72,9 @@ macro_rules! gen_ffi_impl {
         ) -> $crate::FfiResult {
             gen_ffi_impl!{@null_check_stmts handle_ptr, output_ptr}
 
+            // NOTE: Unreachable pattern occurs if at least two handle ids resolve to
+            // the same value. Denying it reduces chance of such implementation error
+            #[deny(unreachable_patterns)]
             match handle_id {
                 $( <$other as $crate::Handle>::ID => {
                     let handle = &*handle_ptr.cast::<$other>();
@@ -151,6 +106,9 @@ macro_rules! gen_ffi_impl {
         ) -> $crate::FfiResult {
             gen_ffi_impl!{@null_check_stmts left_handle_ptr, right_handle_ptr, output_ptr}
 
+            // NOTE: Unreachable pattern occurs if at least two handle ids resolve to
+            // the same value. Denying it reduces chance of such implementation error
+            #[deny(unreachable_patterns)]
             match handle_id {
                 $( <$other as $crate::Handle>::ID => {
                     let left_handle = &*left_handle_ptr.cast::<$other>();
@@ -180,6 +138,9 @@ macro_rules! gen_ffi_impl {
         ) -> $crate::FfiResult {
             gen_ffi_impl!{@null_check_stmts left_handle_ptr, right_handle_ptr, output_ptr}
 
+            // NOTE: Unreachable pattern occurs if at least two handle ids resolve to
+            // the same value. Denying it reduces chance of such implementation error
+            #[deny(unreachable_patterns)]
             match handle_id {
                 $( <$other as $crate::Handle>::ID => {
                     let left_handle = &*left_handle_ptr.cast::<$other>();
@@ -207,6 +168,9 @@ macro_rules! gen_ffi_impl {
         ) -> $crate::FfiResult {
             gen_ffi_impl!{@null_check_stmts handle_ptr}
 
+            // NOTE: Unreachable pattern occurs if at least two handle ids resolve to
+            // the same value. Denying it reduces chance of such implementation error
+            #[deny(unreachable_patterns)]
             match handle_id {
                 $( <$other as $crate::Handle>::ID => {
                     Box::from_raw(handle_ptr.cast::<$other>());
