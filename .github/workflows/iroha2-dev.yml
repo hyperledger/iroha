@@ -173,29 +173,3 @@ jobs:
         with:
           name: telemetry
           path: target/telemetry
-
-  # Coverage is both in PR and in push pipelines so that:
-  # 1. PR can get coverage report from bot.
-  # 2. Coverage bot can have results from `iroha2-dev` to report coverage changes.
-  coverage:
-    runs-on: ubuntu-latest
-    container:
-      image: 7272721/i2-ci:latest
-    steps:
-      # TODO Remove these steps #2165
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-          components: llvm-tools-preview
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      #
-      - uses: actions/checkout@v2
-      - uses: Swatinem/rust-cache@v1
-      - name: Run tests and generate lcov report
-        if: always()
-        run: mold --run cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v2
-        with:
-          file: lcov.info
