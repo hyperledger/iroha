@@ -8,7 +8,12 @@
 extern crate alloc;
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
 use block_value::BlockValue;
@@ -37,6 +42,7 @@ pub mod metadata;
 pub mod pagination;
 pub mod peer;
 pub mod permissions;
+pub mod predicate;
 pub mod query;
 pub mod role;
 pub mod transaction;
@@ -44,26 +50,14 @@ pub mod trigger;
 pub mod uri;
 
 /// Mintability logic error
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
 pub enum MintabilityError {
     /// Tried to mint an Un-mintable asset.
+    #[display(fmt = "This asset cannot be minted more than once and it was already minted.")]
     MintUnmintable,
     /// Tried to forbid minting on assets that should be mintable.
+    #[display(fmt = "This asset was set as infinitely mintable. You cannot forbid its minting.")]
     ForbidMintOnMintable,
-}
-
-impl fmt::Display for MintabilityError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let message = match self {
-            MintabilityError::MintUnmintable => {
-                "This asset cannot be minted more than once and it was already minted."
-            }
-            MintabilityError::ForbidMintOnMintable => {
-                "This asset was set as infinitely mintable. You cannot forbid its minting."
-            }
-        };
-        write!(f, "{}", message)
-    }
 }
 
 #[cfg(feature = "std")]
@@ -264,6 +258,7 @@ impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED,
 /// Represents Iroha Configuration parameters.
 #[derive(
     Debug,
+    Display,
     Clone,
     Copy,
     PartialEq,
@@ -278,18 +273,23 @@ impl<EXPECTED: Debug, GOT: Debug> std::error::Error for EnumTryAsError<EXPECTED,
 )]
 pub enum Parameter {
     /// Maximum amount of Faulty Peers in the system.
+    #[display(fmt = "Maximum number of faults is {}", _0)]
     MaximumFaultyPeersAmount(u32),
     /// Maximum time for a leader to create a block.
+    #[display(fmt = "Block time: {}ms", _0)]
     BlockTime(u128),
     /// Maximum time for a proxy tail to send commit message.
+    #[display(fmt = "Commit time: {}ms", _0)]
     CommitTime(u128),
     /// Time to wait for a transaction Receipt.
+    #[display(fmt = "Transaction receipt time: {}ms", _0)]
     TransactionReceiptTime(u128),
 }
 
 /// Sized container for all possible identifications.
 #[derive(
     Debug,
+    Display,
     Clone,
     PartialEq,
     Eq,
@@ -343,7 +343,19 @@ pub enum RegistrableBox {
 
 /// Sized container for all possible entities.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
 )]
 pub enum IdentifiableBox {
     /// [`NewDomain`](`domain::NewDomain`) variant.
@@ -372,12 +384,39 @@ impl RegisteredWith for trigger::Trigger<FilterBox> {
     type RegisteredWith = Self;
 }
 
+impl IdentifiableBox {
+    fn contains(&self, content: &str) -> bool {
+        match self {
+            IdentifiableBox::NewDomain(d) => d.id().to_string(),
+            IdentifiableBox::NewAccount(na) => na.id().to_string(),
+            IdentifiableBox::NewAssetDefinition(nad) => nad.id().to_string(),
+            IdentifiableBox::Peer(p) => p.id().to_string(),
+            IdentifiableBox::Domain(d) => d.id().to_string(),
+            IdentifiableBox::Account(a) => a.id().to_string(),
+            IdentifiableBox::AssetDefinition(ad) => ad.id().to_string(),
+            IdentifiableBox::Asset(a) => a.id().to_string(),
+            IdentifiableBox::Trigger(t) => t.id().to_string(),
+            IdentifiableBox::Role(r) => r.id().to_string(),
+        }
+        .contains(content)
+    }
+}
+
 /// Boxed [`Value`].
 pub type ValueBox = Box<Value>;
 
 /// Sized container for all possible values.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
 )]
 #[allow(clippy::enum_variant_names)]
 pub enum Value {
@@ -419,6 +458,36 @@ pub enum Value {
     Hash(Hash),
     /// Block
     Block(BlockValue),
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::U32(v) => fmt::Display::fmt(&v, f),
+            Value::U128(v) => fmt::Display::fmt(&v, f),
+            Value::Bool(v) => fmt::Display::fmt(&v, f),
+            Value::String(v) => fmt::Display::fmt(&v, f),
+            Value::Name(v) => fmt::Display::fmt(&v, f),
+            Value::Fixed(v) => fmt::Display::fmt(&v, f),
+            Value::Vec(v) => {
+                let list_of_display: Vec<_> = v.iter().map(ToString::to_string).collect();
+                // this prints with quotation marks, which is fine 90%
+                // of the time, and helps delineate where a display of
+                // one value stops and another one begins.
+                write!(f, "{:?}", list_of_display)
+            }
+            Value::LimitedMetadata(v) => fmt::Display::fmt(&v, f),
+            Value::Id(v) => fmt::Display::fmt(&v, f),
+            Value::Identifiable(v) => fmt::Display::fmt(&v, f),
+            Value::PublicKey(v) => fmt::Display::fmt(&v, f),
+            Value::Parameter(v) => fmt::Display::fmt(&v, f),
+            Value::SignatureCheckCondition(v) => fmt::Display::fmt(&v, f),
+            Value::TransactionValue(_) => write!(f, "TransactionValue"),
+            Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
+            Value::Hash(v) => fmt::Display::fmt(&v, f),
+            Value::Block(v) => fmt::Display::fmt(&v, f),
+        }
+    }
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -708,6 +777,12 @@ impl From<LengthLimits> for RangeInclusive<usize> {
     }
 }
 
+/// Trait for generic predicates.
+pub trait PredicateTrait<T: ?Sized> {
+    /// The result of applying the predicate to a value.
+    fn applies(&self, input: &T) -> bool;
+}
+
 /// Get the current system time as `Duration` since the unix epoch.
 #[cfg(feature = "std")]
 pub fn current_time() -> core::time::Duration {
@@ -804,8 +879,8 @@ pub mod prelude {
         peer::prelude::*,
         role::prelude::*,
         trigger::prelude::*,
-        uri, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, MintabilityError,
-        Name, Parameter, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
+        uri, EnumTryAsError, HasMetadata, IdBox, Identifiable, IdentifiableBox, Name, Parameter,
+        PredicateTrait, RegistrableBox, TryAsMut, TryAsRef, ValidationError, Value,
     };
     pub use crate::{
         events::prelude::*, expression::prelude::*, isi::prelude::*, metadata::prelude::*,

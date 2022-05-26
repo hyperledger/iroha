@@ -14,7 +14,7 @@ use http_default::WebSocketStream;
 use iroha_config::{GetConfiguration, PostConfiguration};
 use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_crypto::{HashOf, KeyPair};
-use iroha_data_model::{prelude::*, query::SignedQueryRequest};
+use iroha_data_model::{predicate::PredicateBox, prelude::*, query::SignedQueryRequest};
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
@@ -181,6 +181,8 @@ where
 {
     /// Query output
     pub output: R::Output,
+    /// The filter that was applied to the output.
+    pub filter: PredicateBox,
     /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
     pub pagination: Pagination,
     /// See [`iroha_data_model::prelude::PaginatedQueryResult`]
@@ -210,6 +212,7 @@ where
             result,
             pagination,
             total,
+            filter,
         }: PaginatedQueryResult,
     ) -> Result<Self> {
         let QueryResult(result) = result;
@@ -221,6 +224,7 @@ where
             output,
             pagination,
             total,
+            filter,
         })
     }
 }
@@ -582,6 +586,7 @@ impl Client {
         &self,
         request: R,
         pagination: Pagination,
+        filter: PredicateBox,
     ) -> Result<(B, QueryResponseHandler<R>)>
     where
         R: Query + Into<QueryBox> + Debug,
@@ -589,7 +594,7 @@ impl Client {
         B: RequestBuilder,
     {
         let pagination: Vec<_> = pagination.into();
-        let request = QueryRequest::new(request.into(), self.account_id.clone());
+        let request = QueryRequest::new(request.into(), self.account_id.clone(), filter.clone());
         let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
 
         Ok((
@@ -602,6 +607,23 @@ impl Client {
             .body(request.encode_versioned()),
             QueryResponseHandler::default(),
         ))
+    }
+
+    pub fn request_with_pagination_and_filter<R>(
+        &self,
+        request: R,
+        pagination: Pagination,
+        filter: PredicateBox,
+    ) -> QueryHandlerResult<ClientQueryOutput<R>>
+    where
+        R: Query + Into<QueryBox> + Debug,
+        <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
+    {
+        iroha_logger::trace!(?request, %pagination);
+        let (req, resp_handler) =
+            self.prepare_query_request::<R, DefaultRequestBuilder>(request, pagination, filter)?;
+        let response = req.build()?.send()?;
+        resp_handler.handle(response)
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers with pagination.
@@ -621,8 +643,11 @@ impl Client {
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
         iroha_logger::trace!(?request, %pagination);
-        let (req, resp_handler) =
-            self.prepare_query_request::<R, DefaultRequestBuilder>(request, pagination)?;
+        let (req, resp_handler) = self.prepare_query_request::<R, DefaultRequestBuilder>(
+            request,
+            pagination,
+            PredicateBox::default(),
+        )?;
         let response = req.build()?.send()?;
         resp_handler.handle(response)
     }
