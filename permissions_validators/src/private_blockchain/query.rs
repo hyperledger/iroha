@@ -193,7 +193,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                     Ok(())
                 } else {
                     Err(format!(
-                        "Cannot access asset definition from a different domain. Asset definition domain: {}. Signers account domain {}.",
+                        "Cannot access asset definition from a different domain. Asset definition domain: {}. Signer's account domain {}.",
                         asset_definition_id.domain_id,
                         authority.domain_id
                     ))
@@ -283,6 +283,22 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                     ))
                 }
             }
+            FindAssetDefinitionById(query) => {
+                let asset_definition_id = query
+                    .id
+                    .evaluate(wsv, &context)
+                    .map_err(|err| err.to_string())?;
+
+                if asset_definition_id.domain_id == authority.domain_id {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Cannot access asset definition from a different domain. Asset definition domain: {}. Signer's account domain {}.",
+                        asset_definition_id.domain_id,
+                        authority.domain_id,
+                    ))
+                }
+            }
         }
     }
 }
@@ -321,6 +337,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                 | FindAssetsByDomainId(_)
                 | FindAllAssetsDefinitions(_)
                 | FindAssetsByAssetDefinitionId(_)
+                | FindAssetDefinitionById(_)
                 | FindAssetDefinitionKeyValueByIdAndKey(_)
                 | FindAllAssets(_) => {
                     Err("Only access to the assets of your account is permitted.".to_owned())
