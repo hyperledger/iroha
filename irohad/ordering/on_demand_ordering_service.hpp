@@ -49,8 +49,9 @@ namespace iroha {
           std::set<std::shared_ptr<shared_model::interface::TransactionBatch>,
                    shared_model::interface::BatchHashLess>;
 
-      using PackedProposalData = std::optional<
+      using PackedProposalContainer = std::vector<
           std::pair<std::shared_ptr<ProposalType const>, BloomFilter256>>;
+      using PackedProposalData = std::optional<PackedProposalContainer>;
 
       /**
        * Type of stored transaction batches
@@ -110,6 +111,8 @@ namespace iroha {
           std::function<void(BatchesSetType &)> const &f) = 0;
 
       virtual bool isEmptyBatchesCache() = 0;
+
+      virtual uint32_t availableTxsCountBatchesCache() = 0;
 
       virtual bool hasEnoughBatchesInCache() const = 0;
 
