@@ -53,6 +53,8 @@ pub enum QueryBox {
     FindAllAssetsDefinitions(FindAllAssetsDefinitions),
     /// [`FindAssetById`] variant.
     FindAssetById(FindAssetById),
+    /// [`FindAssetDefinitionById`] variant.
+    FindAssetDefinitionById(FindAssetDefinitionById),
     /// [`FindAssetsByName`] variant.
     FindAssetsByName(FindAssetsByName),
     /// [`FindAssetsByAccountId`] variant.
@@ -654,6 +656,29 @@ pub mod asset {
         type Output = Asset;
     }
 
+    /// `FindAssetDefinitionById` Iroha Query will find an `AssetDefinition` by it's identification in Iroha `Peer`.
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Decode,
+        Encode,
+        Deserialize,
+        Serialize,
+        IntoSchema,
+    )]
+    pub struct FindAssetDefinitionById {
+        /// `Id` of an `AssetDefinition` to find.
+        pub id: EvaluatesTo<AssetDefinitionId>,
+    }
+
+    impl Query for FindAssetDefinitionById {
+        type Output = AssetDefinition;
+    }
+
     /// `FindAssetsByName` Iroha Query will get `Asset`s name as input and
     /// find all `Asset`s with it in Iroha `Peer`.
     #[derive(
@@ -875,6 +900,14 @@ pub mod asset {
         }
     }
 
+    impl FindAssetDefinitionById {
+        /// Construct [`FindAssetDefinitionById`].
+        pub fn new(id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+            let id = id.into();
+            Self { id }
+        }
+    }
+
     impl FindAssetsByName {
         /// Construct [`FindAssetsByName`].
         pub fn new(name: impl Into<EvaluatesTo<Name>>) -> Self {
@@ -944,7 +977,7 @@ pub mod asset {
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
-            FindAllAssets, FindAllAssetsDefinitions, FindAssetById,
+            FindAllAssets, FindAllAssetsDefinitions, FindAssetById, FindAssetDefinitionById,
             FindAssetDefinitionKeyValueByIdAndKey, FindAssetKeyValueByIdAndKey,
             FindAssetQuantityById, FindAssetsByAccountId, FindAssetsByAssetDefinitionId,
             FindAssetsByDomainId, FindAssetsByDomainIdAndAssetDefinitionId, FindAssetsByName,

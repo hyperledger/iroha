@@ -155,6 +155,7 @@ pub fn generate_map() -> DumpDecodedMap {
         FindAllTransactions,
         FindAllActiveTriggerIds,
         FindAssetById,
+        FindAssetDefinitionById,
         FindAssetDefinitionKeyValueByIdAndKey,
         FindAssetKeyValueByIdAndKey,
         FindAssetQuantityById,
