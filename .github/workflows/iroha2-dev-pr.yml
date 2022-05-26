@@ -39,9 +39,6 @@ jobs:
         working-directory: wasm
         run: mold --run cargo build --target wasm32-unknown-unknown --quiet
 
-  # Coverage is both in PR and in push pipelines so that:
-  # 1. PR can get coverage report from bot.
-  # 2. Coverage bot can have results from `iroha2-dev` to report coverage changes.
   tests_with_coverage:
     runs-on: ubuntu-latest
     container:
