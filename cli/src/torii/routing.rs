@@ -26,6 +26,7 @@ use iroha_data_model::{
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
 use parity_scale_codec::{Decode, Encode};
+use tokio::task;
 
 use super::*;
 use crate::{
@@ -468,6 +469,7 @@ impl<W: WorldTrait> Torii<W> {
         query_validator: Arc<IsQueryAllowedBoxed<W>>,
         events: EventsSender,
         network: Addr<IrohaNetwork>,
+        notify_shutdown: Arc<Notify>,
     ) -> Self {
         Self {
             iroha_cfg,
@@ -476,6 +478,7 @@ impl<W: WorldTrait> Torii<W> {
             query_validator,
             queue,
             network,
+            notify_shutdown,
         }
     }
 
@@ -603,10 +606,12 @@ impl<W: WorldTrait> Torii<W> {
                 for addr in addrs {
                     let torii = Arc::clone(&self);
 
-                    handles.push(tokio::spawn(async move {
-                        let telemetry_router = torii.create_telemetry_router();
-                        warp::serve(telemetry_router).run(addr).await;
-                    }));
+                    let telemetry_router = torii.create_telemetry_router();
+                    let signal_fut = async move { torii.notify_shutdown.notified().await };
+                    let (_, serve_fut) =
+                        warp::serve(telemetry_router).bind_with_graceful_shutdown(addr, signal_fut);
+
+                    handles.push(task::spawn(serve_fut));
                 }
 
                 Ok(handles)
@@ -631,10 +636,12 @@ impl<W: WorldTrait> Torii<W> {
                 for addr in addrs {
                     let torii = Arc::clone(&self);
 
-                    handles.push(tokio::spawn(async move {
-                        let api_router = torii.create_api_router();
-                        warp::serve(api_router).run(addr).await;
-                    }));
+                    let api_router = torii.create_api_router();
+                    let signal_fut = async move { torii.notify_shutdown.notified().await };
+                    let (_, serve_fut) =
+                        warp::serve(api_router).bind_with_graceful_shutdown(addr, signal_fut);
+
+                    handles.push(task::spawn(serve_fut));
                 }
 
                 Ok(handles)

@@ -22,7 +22,11 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
-use tokio::sync::broadcast;
+use tokio::{
+    signal,
+    sync::{broadcast, Notify},
+    task,
+};
 use torii::Torii;
 
 pub mod config;
@@ -190,6 +194,8 @@ where
             Arc::clone(&wsv),
         );
 
+        let notify_shutdown = Arc::new(Notify::new());
+
         let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
         let telemetry_started = Self::start_telemetry(telemetry, &config).await?;
         let kura = K::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())
@@ -232,7 +238,10 @@ where
             query_validator,
             events_sender,
             network_addr.clone(),
+            Arc::clone(&notify_shutdown),
         );
+
+        Self::start_listening_signal(notify_shutdown)?;
 
         let torii = Some(torii);
         Ok(Self {
@@ -310,6 +319,27 @@ where
         _config: &Configuration,
     ) -> Result<bool> {
         Ok(false)
+    }
+
+    fn start_listening_signal(notify_shutdown: Arc<Notify>) -> Result<task::JoinHandle<()>> {
+        let (mut sigint, mut sigterm) = signal::unix::signal(signal::unix::SignalKind::interrupt())
+            .and_then(|sigint| {
+                let sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
+
+                Ok((sigint, sigterm))
+            })
+            .wrap_err("Failed to start listening for OS signals")?;
+
+        let handle = task::spawn(async move {
+            tokio::select! {
+                _ = sigint.recv() => {},
+                _ = sigterm.recv() => {},
+            }
+
+            notify_shutdown.notify_waiters();
+        });
+
+        Ok(handle)
     }
 }
 
