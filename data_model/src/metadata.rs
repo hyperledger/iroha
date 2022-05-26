@@ -2,10 +2,10 @@
 //! transactions and assets.
 
 #[cfg(not(feature = "std"))]
-use alloc::{collections::btree_map, fmt, format, string::String, vec::Vec};
+use alloc::{collections::btree_map, format, string::String, vec::Vec};
 use core::borrow::Borrow;
 #[cfg(feature = "std")]
-use std::{collections::btree_map, fmt};
+use std::collections::btree_map;
 
 use derive_more::Display;
 #[cfg(feature = "ffi_api")]
@@ -20,18 +20,13 @@ use crate::{Name, Value};
 pub type UnlimitedMetadata = btree_map::BTreeMap<Name, Value>;
 
 /// Limits for [`Metadata`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
+#[display(fmt = "{max_len}L, {max_entry_byte_size}B")]
 pub struct Limits {
     /// Maximum number of entries
     pub max_len: u32,
     /// Maximum length of entry
     pub max_entry_byte_size: u32,
-}
-
-impl fmt::Display for Limits {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(self, f)
-    }
 }
 
 /// Metadata related errors.
@@ -79,10 +74,23 @@ impl Limits {
 
 /// Collection of parameters by their names with checked insertion.
 #[derive(
-    Debug, Clone, Default, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
 #[serde(transparent)]
 #[allow(clippy::multiple_inherent_impl)]
+#[display(fmt = "Metadata")]
 pub struct Metadata {
     map: btree_map::BTreeMap<Name, Value>,
 }

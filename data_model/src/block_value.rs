@@ -4,6 +4,7 @@
 use alloc::{format, string::String, vec::Vec};
 use core::cmp::Ordering;
 
+use derive_more::Display;
 use iroha_crypto::{Hash, HashOf, MerkleTree};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -15,7 +16,10 @@ use crate::{
 };
 
 /// Block header
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Clone, Display, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "Block №{height} (hash: {transactions_hash});")]
 pub struct BlockHeaderValue {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
@@ -47,7 +51,10 @@ impl Ord for BlockHeaderValue {
 }
 
 /// Representation of block on blockchain
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize, IntoSchema,
+)]
+#[display(fmt = "({})", header)]
 pub struct BlockValue {
     /// Header
     pub header: BlockHeaderValue,

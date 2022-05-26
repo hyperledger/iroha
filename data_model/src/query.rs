@@ -16,7 +16,9 @@ use self::{
     account::*, asset::*, block::*, domain::*, peer::*, permissions::*, role::*, transaction::*,
     trigger::*,
 };
-use crate::{account::Account, pagination::Pagination, Identifiable, Value};
+use crate::{
+    account::Account, pagination::Pagination, predicate::PredicateBox, Identifiable, Value,
+};
 
 /// Sized container for all possible Queries.
 #[allow(clippy::enum_variant_names)]
@@ -114,6 +116,8 @@ pub struct Payload {
     pub query: QueryBox,
     /// Account id of the user who will sign this query.
     pub account_id: <Account as Identifiable>::Id,
+    /// The filter that must be applied server-side to the query.
+    pub filter: PredicateBox,
 }
 
 impl Payload {
@@ -156,10 +160,12 @@ declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, 
 
 /// Paginated Query Result
 #[version_with_scale(n = 1, versioned = "VersionedPaginatedQueryResult")]
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct PaginatedQueryResult {
     /// The result of the query execution.
     pub result: QueryResult,
+    /// The filter that was applied to the Query result
+    pub filter: PredicateBox,
     /// pagination
     pub pagination: Pagination,
     /// Total query amount (if applicable) else 0.
@@ -169,13 +175,18 @@ pub struct PaginatedQueryResult {
 #[cfg(all(feature = "std", feature = "warp"))]
 impl QueryRequest {
     /// Constructs a new request with the `query`.
-    pub fn new(query: QueryBox, account_id: <Account as Identifiable>::Id) -> Self {
+    pub fn new(
+        query: QueryBox,
+        account_id: <Account as Identifiable>::Id,
+        filter: PredicateBox,
+    ) -> Self {
         let timestamp_ms = crate::current_time().as_millis();
         Self {
             payload: Payload {
                 timestamp_ms,
                 query,
                 account_id,
+                filter,
             },
         }
     }

@@ -44,6 +44,12 @@ pub type FixNum = fixnum::FixedPoint<Base, fixnum::typenum::U9>;
 )]
 pub struct Fixed(FixNum);
 
+impl core::fmt::Display for Fixed {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self.0, f)
+    }
+}
+
 impl Fixed {
     /// Constant, representing zero value
     pub const ZERO: Fixed = Fixed(FixNum::ZERO);

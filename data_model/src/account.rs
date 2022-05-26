@@ -11,6 +11,7 @@ use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
 
+use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
 #[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
@@ -73,7 +74,18 @@ impl From<GenesisAccount> for Account {
 }
 
 /// Condition which checks if the account has the right signatures.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+)]
 pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
 impl SignatureCheckCondition {
@@ -85,6 +97,7 @@ impl SignatureCheckCondition {
     }
 }
 
+// TODO: derive
 impl From<EvaluatesTo<bool>> for SignatureCheckCondition {
     #[inline]
     fn from(condition: EvaluatesTo<bool>) -> Self {
@@ -108,11 +121,22 @@ impl Default for SignatureCheckCondition {
 
 /// Builder which should be submitted in a transaction to create a new [`Account`]
 #[allow(clippy::multiple_inherent_impl)]
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "[{id}]")]
 pub struct NewAccount {
-    id: Id,
+    id: <NewAccount as Identifiable>::Id,
     signatories: Signatories,
     metadata: Metadata,
+}
+
+impl Identifiable for NewAccount {
+    type Id = Id;
+
+    fn id(&self) -> &Self::Id {
+        &self.id
+    }
 }
 
 impl PartialOrd for NewAccount {
@@ -176,6 +200,7 @@ impl NewAccount {
 /// Account entity is an authority which is used to execute `Iroha Special Instructions`.
 #[derive(
     Debug,
+    Display,
     Clone,
     PartialEq,
     Eq,
@@ -191,8 +216,10 @@ impl NewAccount {
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[display(fmt = "({id})")] // TODO: Add more?
 pub struct Account {
     /// An Identification of the [`Account`].
+    #[getset(skip)] // implemented by trait
     id: <Self as Identifiable>::Id,
     /// Asset's in this [`Account`].
     #[getset(skip)]
