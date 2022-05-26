@@ -571,6 +571,13 @@ impl fmt::Display for PrivateKey {
     }
 }
 
+#[cfg(feature = "ffi_api")]
+mod ffi {
+    use iroha_ffi::handles;
+
+    handles! {0, super::PublicKey, super::PrivateKey, super::KeyPair}
+}
+
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
 pub mod prelude {
     pub use super::{Algorithm, Hash, KeyPair, PrivateKey, PublicKey, Signature};

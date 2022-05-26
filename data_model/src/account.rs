@@ -12,7 +12,7 @@ use core::{fmt, str::FromStr};
 use std::collections::{btree_map, btree_set};
 
 use getset::{Getters, MutGetters, Setters};
-#[cfg(feature = "ffi")]
+#[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -120,7 +120,7 @@ pub struct NewAccount {
 impl PartialOrd for NewAccount {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.id.partial_cmp(&other.id)
+        Some(self.cmp(other))
     }
 }
 
@@ -159,7 +159,7 @@ impl NewAccount {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 impl NewAccount {
     /// Add [`Metadata`] to the account replacing previously defined
     #[must_use]
@@ -186,7 +186,7 @@ impl NewAccount {
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
-#[cfg_attr(feature = "ffi", ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 pub struct Account {
     /// An Identification of the [`Account`].
     id: <Self as Identifiable>::Id,
@@ -218,18 +218,18 @@ impl Identifiable for Account {
 impl PartialOrd for Account {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.id().partial_cmp(&other.id)
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Account {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.id().cmp(&other.id)
+        self.id().cmp(other.id())
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]

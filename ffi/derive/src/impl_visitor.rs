@@ -17,6 +17,8 @@ pub struct FnDescriptor<'ast> {
     /// Resolved type of the `Self` type
     pub self_ty: &'ast syn::Path,
 
+    /// Function documentation
+    pub doc: syn::LitStr,
     /// Name of the method in the original implementation
     pub method_name: &'ast Ident,
     /// Receiver argument, i.e. `self`
@@ -48,6 +50,8 @@ struct FnVisitor<'ast> {
     /// Resolved type of the `Self` type
     self_ty: &'ast syn::Path,
 
+    /// Function documentation
+    doc: Option<syn::LitStr>,
     /// Name of the method in the original implementation
     method_name: Option<&'ast Ident>,
     /// Receiver argument, i.e. `self`
@@ -85,6 +89,7 @@ impl<'ast> FnDescriptor<'ast> {
     fn from_visitor(visitor: FnVisitor<'ast>) -> Self {
         Self {
             self_ty: visitor.self_ty,
+            doc: visitor.doc.expect_or_abort("Missing documentation"),
             method_name: visitor.method_name.expect_or_abort("Defined"),
             receiver: visitor.receiver,
             input_args: visitor.input_args,
@@ -169,6 +174,7 @@ impl<'ast> FnVisitor<'ast> {
         Self {
             self_ty,
 
+            doc: None,
             method_name: None,
             receiver: None,
             input_args: vec![],
@@ -220,6 +226,21 @@ impl<'ast> FnVisitor<'ast> {
             ffi_type,
         });
     }
+
+    fn visit_impl_item_method_attribute(&mut self, node: &'ast syn::Attribute) {
+        if let Ok(meta) = node.parse_meta() {
+            if !meta.path().is_ident("doc") {
+                return;
+            }
+
+            self.doc = if let syn::Meta::NameValue(doc) = meta {
+                let lit = doc.lit;
+                Some(parse_quote! {#lit})
+            } else {
+                unreachable!()
+            };
+        }
+    }
 }
 
 impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
@@ -257,8 +278,8 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
 
 impl<'ast> Visit<'ast> for FnVisitor<'ast> {
     fn visit_impl_item_method(&mut self, node: &'ast syn::ImplItemMethod) {
-        for it in &node.attrs {
-            self.visit_attribute(it);
+        for attr in &node.attrs {
+            self.visit_impl_item_method_attribute(attr);
         }
         if !matches!(node.vis, syn::Visibility::Public(_)) {
             abort!(node.vis, "Methods defined in the impl block must be public");

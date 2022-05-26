@@ -15,14 +15,26 @@ use crate::{
 pub mod set;
 
 /// Type which is used for registering a `Trigger`.
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Decode, Encode, Deserialize, Serialize, IntoSchema,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub struct Trigger<F: Filter> {
     /// [`Id`] of the [`Trigger`].
     pub id: <Trigger<FilterBox> as Identifiable>::Id,
     /// Action to be performed when the trigger matches.
     pub action: action::Action<F>,
+}
+
+impl<F: Filter + PartialEq> PartialOrd for Trigger<F> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.id.cmp(&other.id))
+    }
+}
+
+impl<F: Filter + Eq> Ord for Trigger<F> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
 }
 
 impl<F: Filter> Trigger<F> {

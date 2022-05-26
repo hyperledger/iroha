@@ -8,7 +8,7 @@ use core::borrow::Borrow;
 use std::{collections::btree_map, fmt};
 
 use derive_more::Display;
-#[cfg(feature = "ffi")]
+#[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -101,7 +101,7 @@ pub struct Metadata {
 /// A path slice, composed of [`Name`]s.
 pub type Path = [Name];
 
-#[cfg_attr(feature = "ffi", ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 impl Metadata {
     /// Constructor.
     #[inline]

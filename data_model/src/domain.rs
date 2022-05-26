@@ -11,7 +11,7 @@ use core::{cmp::Ordering, fmt, str::FromStr};
 
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
-#[cfg(feature = "ffi")]
+#[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -83,7 +83,7 @@ pub struct NewDomain {
 impl PartialOrd for NewDomain {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.id.cmp(&other.id))
+        Some(self.cmp(other))
     }
 }
 
@@ -119,7 +119,7 @@ impl NewDomain {
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 impl NewDomain {
     /// Add [`logo`](IpfsPath) to the domain replacing previously defined value
     #[must_use]
@@ -152,7 +152,7 @@ impl NewDomain {
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
-#[cfg_attr(feature = "ffi", ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 pub struct Domain {
     /// Identification of this [`Domain`].
     id: <Self as Identifiable>::Id,
@@ -177,18 +177,18 @@ impl Identifiable for Domain {
 impl PartialOrd for Domain {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.id().cmp(&other.id))
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Domain {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        self.id().cmp(&other.id)
+        self.id().cmp(other.id())
     }
 }
 
-#[cfg_attr(feature = "ffi", ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Identifiable>::RegisteredWith {

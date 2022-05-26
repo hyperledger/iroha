@@ -13,8 +13,8 @@ default = ["std"]
 std = ["ursa"]
 # Force static linking
 vendored = ["openssl-sys"]
-# Generate FFI bindings
-ffi = ["iroha_ffi"]
+# Expose FFI API to facilitate dynamic linking
+ffi_api = ["iroha_ffi"]
 
 [dependencies]
 iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.4", optional = true }

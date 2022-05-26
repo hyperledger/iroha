@@ -5,19 +5,19 @@ error: Methods which consume self not supported
    |      ^^^^^^^^^^^^^^^^
 
 error[E0425]: cannot find function, tuple struct or tuple variant `FfiStructBuilder__new` in this scope
-  --> tests/ui_fail/self_consuming_method.rs:23:25
+  --> tests/ui_fail/self_consuming_method.rs:25:25
    |
 7  | struct FfiStructBuilder;
    | ------------------------ similarly named unit struct `FfiStructBuilder` defined here
 ...
-23 |     if FfiResult::Ok != FfiStructBuilder__new(s_builder.as_mut_ptr()) {
+25 |     if FfiResult::Ok != FfiStructBuilder__new(s_builder.as_mut_ptr()) {
    |                         ^^^^^^^^^^^^^^^^^^^^^ help: a unit struct with a similar name exists: `FfiStructBuilder`
 
 error[E0425]: cannot find function, tuple struct or tuple variant `FfiStructBuilder__build` in this scope
-  --> tests/ui_fail/self_consuming_method.rs:29:25
+  --> tests/ui_fail/self_consuming_method.rs:31:25
    |
 7  | struct FfiStructBuilder;
    | ------------------------ similarly named unit struct `FfiStructBuilder` defined here
 ...
-29 |     if FfiResult::Ok != FfiStructBuilder__build(s_builder, s.as_mut_ptr()) {
+31 |     if FfiResult::Ok != FfiStructBuilder__build(s_builder, s.as_mut_ptr()) {
    |                         ^^^^^^^^^^^^^^^^^^^^^^^ help: a unit struct with a similar name exists: `FfiStructBuilder`

@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use getset::Getters;
-use iroha_ffi::{ffi_bindgen, FfiResult, Pair};
+use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, FfiResult, Handle, Pair};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Name(&'static str);
@@ -17,21 +17,31 @@ pub struct FfiStruct {
     params: BTreeMap<Name, Value>,
 }
 
+handles! {0, FfiStruct}
+gen_ffi_impl! {Drop: FfiStruct}
+
 #[ffi_bindgen]
 impl FfiStruct {
+    /// New
     pub fn new(name: Name) -> Self {
         Self {
             name,
             params: BTreeMap::default(),
         }
     }
+
+    /// With params
     pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
         self.params = params.into_iter().collect();
         self
     }
+
+    /// Get param
     pub fn get_param(&self, name: &Name) -> Option<&Value> {
         self.params.get(name)
     }
+
+    /// Params
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.params.iter()
     }
@@ -81,7 +91,7 @@ fn main() -> Result<(), ()> {
             )
         );
 
-        FfiStruct__drop(ffi_struct);
+        assert_eq!(FfiResult::Ok, __drop(FfiStruct::ID, ffi_struct.cast()));
     }
 
     Ok(())
