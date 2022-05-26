@@ -65,6 +65,7 @@ namespace {
 
 OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t transaction_limit,
+    uint32_t max_proposal_pack,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
@@ -72,6 +73,7 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t number_of_proposals)
     : transaction_limit_(transaction_limit),
       number_of_proposals_(number_of_proposals),
+      max_proposal_pack_(max_proposal_pack),
       proposal_factory_(std::move(proposal_factory)),
       tx_cache_(std::move(tx_cache)),
       log_(std::move(log)) {
@@ -176,6 +178,10 @@ bool OnDemandOrderingServiceImpl::isEmptyBatchesCache() {
   return batches_cache_.isEmpty();
 }
 
+uint32_t OnDemandOrderingServiceImpl::availableTxsCountBatchesCache() {
+  return batches_cache_.availableTxsCount();
+}
+
 bool OnDemandOrderingServiceImpl::hasEnoughBatchesInCache() const {
   return batches_cache_.availableTxsCount() >= transaction_limit_;
 }
@@ -278,22 +284,38 @@ OnDemandOrderingServiceImpl::tryCreateProposal(
 
 OnDemandOrderingServiceImpl::PackedProposalData
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
-  auto now = iroha::time::now();
+  auto const available_txs_count = availableTxsCountBatchesCache();
+  auto const full_proposals_count = available_txs_count / transaction_limit_;
+  auto const number_of_packs =
+      (available_txs_count
+       + (full_proposals_count > 0 ? 0 : transaction_limit_ - 1))
+      / transaction_limit_;
+
+  OnDemandOrderingServiceImpl::PackedProposalContainer outcome;
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
   BloomFilter256 bf;
 
-  if (!isEmptyBatchesCache())
+  for (uint32_t ix = 0; ix < number_of_packs; ++ix) {
+    assert(!isEmptyBatchesCache());
     batches_cache_.getTransactions(
         transaction_limit_, txs, bf, [&](auto const &batch) {
           assert(batch);
           return batchAlreadyProcessed(*batch);
         });
 
-  log_->debug("Packed proposal contains: {} transactions.", txs.size());
-  if (auto result = tryCreateProposal(round, txs, now))
-    return std::make_pair(std::move(result).value(), bf);
+    log_->debug(
+        "Packed proposal {} contains: {} transactions.", ix, txs.size());
+    if (auto result =
+            tryCreateProposal(consensus::Round(round.block_round + ix, 0),
+                              txs,
+                              iroha::time::now()))
+      outcome.emplace_back(std::make_pair(std::move(result).value(), bf));
+    else
+      break;
+  }
 
-  return std::nullopt;
+  return outcome.empty() ? OnDemandOrderingServiceImpl::PackedProposalData{}
+                         : std::move(outcome);
 }
 
 void OnDemandOrderingServiceImpl::tryErase(

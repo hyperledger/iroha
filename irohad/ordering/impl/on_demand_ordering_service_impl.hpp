@@ -44,6 +44,7 @@ namespace iroha {
        */
       OnDemandOrderingServiceImpl(
           size_t transaction_limit,
+          uint32_t max_proposal_pack,
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               proposal_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
@@ -112,6 +113,8 @@ namespace iroha {
 
       bool isEmptyBatchesCache() override;
 
+      uint32_t availableTxsCountBatchesCache() override;
+
       bool hasEnoughBatchesInCache() const override;
 
       void forCachedBatches(
@@ -128,6 +131,11 @@ namespace iroha {
        * Max number of available proposals in one OS
        */
       size_t number_of_proposals_;
+
+      /**
+       * Maximum proposals count in a pack.
+       */
+      uint32_t const max_proposal_pack_;
 
       /**
        * Map of available proposals
