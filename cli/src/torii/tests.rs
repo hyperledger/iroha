@@ -18,7 +18,9 @@ use iroha_core::{
     tx::TransactionValidator,
     wsv::World,
 };
-use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, prelude::*};
+use iroha_data_model::{
+    account::GENESIS_ACCOUNT_NAME, asset::NewAssetDefinition, predicate::PredicateBox, prelude::*,
+};
 use iroha_version::prelude::*;
 use tokio::time;
 use warp::test::WsClient;
@@ -98,6 +100,7 @@ async fn torii_pagination() {
         let query: VerifiedQueryRequest = QueryRequest::new(
             QueryBox::FindAllDomains(Default::default()),
             AccountId::from_str("alice@wonderland").expect("Valid"),
+            PredicateBox::default(),
         )
         .sign(keys.clone())
         .expect("Failed to sign query with keys")
@@ -176,11 +179,14 @@ impl QuerySet {
 
         let router = torii.create_api_router();
 
-        let request: VersionedSignedQueryRequest =
-            QueryRequest::new(query, self.account.unwrap_or(authority))
-                .sign(self.keys.unwrap_or(keys))
-                .expect("Failed to sign query with keys")
-                .into();
+        let request: VersionedSignedQueryRequest = QueryRequest::new(
+            query,
+            self.account.unwrap_or(authority),
+            PredicateBox::default(),
+        )
+        .sign(self.keys.unwrap_or(keys))
+        .expect("Failed to sign query with keys")
+        .into();
 
         let response = warp::test::request()
             .method("POST")

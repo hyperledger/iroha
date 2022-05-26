@@ -15,6 +15,7 @@ use core::marker::PhantomData;
 #[cfg(feature = "std")]
 use std::collections::btree_map;
 
+use derive_more::Display;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
@@ -32,8 +33,11 @@ pub type Context = btree_map::BTreeMap<ValueName, Value>;
 pub type ExpressionBox = Box<Expression>;
 
 /// Struct for type checking and converting expression results.
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize,
+)]
 #[serde(transparent)]
+#[display(fmt = "Expressions aren't `fmt::Display` yet :(")] // TODO: implement
 pub struct EvaluatesTo<V: TryFrom<Value>> {
     /// Expression.
     #[serde(flatten)]
@@ -41,6 +45,8 @@ pub struct EvaluatesTo<V: TryFrom<Value>> {
     #[codec(skip)]
     _value_type: PhantomData<V>,
 }
+
+// TODO: Consider adding priorities as an implementation of PartialOrd
 
 impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
     fn from(expression: E) -> Self {
@@ -81,7 +87,16 @@ impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
 
 /// Represents all possible expressions.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
 )]
 pub enum Expression {
     /// Add expression.

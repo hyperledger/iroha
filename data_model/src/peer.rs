@@ -23,6 +23,12 @@ pub struct Peer {
     pub id: <Self as Identifiable>::Id,
 }
 
+impl fmt::Display for Peer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "@{}", self.id.address)
+    }
+}
+
 /// Peer's identification.
 ///
 /// Equality is tested by `public_key` field only.

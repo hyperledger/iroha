@@ -39,7 +39,7 @@ iroha_ffi = { path = "../ffi", version = "=2.0.0-pre-rc.5", optional = true }
 dashmap = { version = "4.0", optional = true}
 tokio = { version = "1.6.0", features = ["sync", "rt-multi-thread"], optional = true}
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
-derive_more = { version = "0.99.16", default-features = false, features = ["display"] }
+derive_more = { version = "0.99.16", default-features = false, features = ["display", "constructor", "from_str"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.59", default-features = false }
 warp = { version = "0.3", default-features = false, optional = true }
@@ -51,6 +51,7 @@ strum = { version = "0.24.0", default-features = false, features = ["derive"] }
 iroha_core = { path = "../core", version = "=2.0.0-pre-rc.5" }
 iroha_client = { path = "../client", version = "=2.0.0-pre-rc.5" }
 iroha = { path = "../cli" }
+hex = { version = "0.4.0", default-features = false, features = ["alloc", "serde"] }
 
 test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.5" }
 

@@ -87,6 +87,12 @@ impl HasMetadata for NewDomain {
     }
 }
 
+impl fmt::Display for NewDomain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.id, self.metadata)
+    }
+}
+
 impl PartialOrd for NewDomain {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -110,6 +116,11 @@ impl NewDomain {
             logo: None,
             metadata: Metadata::default(),
         }
+    }
+
+    #[inline]
+    pub fn id(&self) -> &<Domain as Identifiable>::Id {
+        &self.id
     }
 
     /// Construct [`Domain`]
@@ -162,6 +173,7 @@ impl NewDomain {
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 pub struct Domain {
     /// Identification of this [`Domain`].
+    #[getset(skip)]
     id: <Self as Identifiable>::Id,
     /// [`Account`]s of the domain.
     #[getset(skip)]
@@ -177,8 +189,15 @@ pub struct Domain {
 }
 
 impl HasMetadata for Domain {
+    #[inline]
     fn metadata(&self) -> &crate::metadata::Metadata {
         &self.metadata
+    }
+}
+
+impl fmt::Display for Domain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.id, self.metadata)
     }
 }
 

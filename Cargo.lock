@@ -1864,6 +1864,7 @@ dependencies = [
  "dashmap",
  "derive_more",
  "getset",
+ "hex",
  "iroha",
  "iroha_client",
  "iroha_core",
