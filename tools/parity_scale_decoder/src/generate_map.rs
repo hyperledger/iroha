@@ -347,7 +347,6 @@ pub fn generate_map() -> DumpDecodedMap {
         query::Payload,
         smartcontracts::isi::error::FindError,
         smartcontracts::isi::query::Error,
-        smartcontracts::isi::query::UnsupportedVersionError,
         sumeragi::network_topology::Topology,
         sumeragi::view_change::BlockCreationTimeout,
         sumeragi::view_change::CommitTimeout,
