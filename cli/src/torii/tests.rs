@@ -18,7 +18,7 @@ use iroha_core::{
     tx::TransactionValidator,
     wsv::World,
 };
-use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, asset::NewAssetDefinition, prelude::*};
+use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, prelude::*};
 use iroha_version::prelude::*;
 use tokio::time;
 use warp::test::WsClient;
@@ -275,31 +275,25 @@ fn register_account(name: &str) -> Instruction {
 }
 
 fn register_asset_definition(name: &str) -> Instruction {
-    RegisterBox::new(asset_definition_new(name)).into()
+    RegisterBox::new(AssetDefinition::quantity(asset_definition_id(name))).into()
 }
 
 fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
-    MintBox::new(Value::U32(quantity), asset_id_new(asset, DOMAIN, account)).into()
+    MintBox::new(Value::U32(quantity), asset_id(asset, account)).into()
 }
 
-fn asset_id_new(asset: &str, domain: &str, account: &str) -> AssetId {
+fn asset_definition_id(name: &str) -> AssetDefinitionId {
+    AssetDefinitionId::new(name.parse().expect("Valid"), DOMAIN.parse().expect("Valid"))
+}
+
+fn asset_id(name: &str, account: &str) -> AssetId {
     AssetId::new(
-        AssetDefinitionId::new(
-            asset.parse().expect("Valid"),
-            domain.parse().expect("Valid"),
-        ),
+        asset_definition_id(name),
         AccountId::new(
             account.parse().expect("Valid"),
             DOMAIN.parse().expect("Valid"),
         ),
     )
-}
-
-fn asset_definition_new(name: &str) -> NewAssetDefinition {
-    AssetDefinition::quantity(AssetDefinitionId::new(
-        name.parse().expect("Valid"),
-        DOMAIN.parse().expect("Valid"),
-    ))
 }
 
 // TODO: All the following tests must be parameterized and collapsed
@@ -311,8 +305,8 @@ async fn find_asset() {
         .given(register_account("alice"))
         .given(register_asset_definition("rose"))
         .given(mint_asset(99, "rose", "alice"))
-        .query(QueryBox::FindAssetById(FindAssetById::new(asset_id_new(
-            "rose", DOMAIN, "alice",
+        .query(QueryBox::FindAssetById(FindAssetById::new(asset_id(
+            "rose", "alice",
         ))))
         .await
         .status(StatusCode::OK)
@@ -338,7 +332,7 @@ async fn find_asset_with_no_mint() {
         .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            asset_id_new("rose", DOMAIN, "alice"),
+            asset_id("rose", "alice"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -360,7 +354,7 @@ async fn find_asset_with_no_asset_definition() {
     // .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            asset_id_new("rose", DOMAIN, "alice"),
+            asset_id("rose", "alice"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -382,7 +376,7 @@ async fn find_asset_with_no_account() {
         .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            asset_id_new("rose", DOMAIN, "alice"),
+            asset_id("rose", "alice"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -404,7 +398,7 @@ async fn find_asset_with_no_domain() {
     // .given(register_asset_definition("rose"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
-            asset_id_new("rose", DOMAIN, "alice"),
+            asset_id("rose", "alice"),
         )))
         .await
         .status(StatusCode::NOT_FOUND)
@@ -420,28 +414,50 @@ async fn find_asset_with_no_domain() {
 
 #[tokio::test]
 async fn find_asset_definition() {
-    let asset_definition = asset_definition_new("rose");
-
     QuerySet::new()
         .given(register_domain())
-        .given(RegisterBox::new(asset_definition.clone()).into())
+        .given(register_asset_definition("rose"))
         .query(QueryBox::FindAssetDefinitionById(
-            FindAssetDefinitionById::new(AssetDefinitionId::new(
-                "rose".parse().expect("Valid"),
-                DOMAIN.parse().expect("Valid"),
-            )),
+            FindAssetDefinitionById::new(asset_definition_id("rose")),
         ))
         .await
         .status(StatusCode::OK)
-        .body_matches_ok(|body| {
-            if let VersionedPaginatedQueryResult::V1(PaginatedQueryResult {
-                result: QueryResult(Value::Identifiable(
-                    IdentifiableBox::AssetDefinition(received),
-                )),
-                ..
-            }) = body
-            {
-                Box::new(asset_definition.clone().build()) == *received
+        .assert()
+}
+
+#[tokio::test]
+async fn find_asset_definition_with_no_asset_definition() {
+    QuerySet::new()
+        .given(register_domain())
+    // .given(register_asset_definition("rose"))
+        .query(QueryBox::FindAssetDefinitionById(
+            FindAssetDefinitionById::new(asset_definition_id("rose")),
+        ))
+        .await
+        .status(StatusCode::NOT_FOUND)
+        .body_matches_err(|body| {
+            if let query::Error::Find(err) = body {
+                matches!(**err, FindError::AssetDefinition(_))
+            } else {
+                false
+            }
+        })
+        .assert()
+}
+
+#[tokio::test]
+async fn find_asset_definition_with_no_domain() {
+    QuerySet::new()
+    // .given(register_domain())
+    // .given(register_asset_definition("rose"))
+        .query(QueryBox::FindAssetDefinitionById(
+            FindAssetDefinitionById::new(asset_definition_id("rose")),
+        ))
+        .await
+        .status(StatusCode::NOT_FOUND)
+        .body_matches_err(|body| {
+            if let query::Error::Find(err) = body {
+                matches!(**err, FindError::Domain(_))
             } else {
                 false
             }
