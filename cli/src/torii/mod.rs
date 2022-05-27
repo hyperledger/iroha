@@ -18,7 +18,6 @@ use tokio::sync::Notify;
 use utils::*;
 use warp::{
     http::StatusCode,
-    reject::Rejection,
     reply::{self, Json, Response},
     ws::{WebSocket, Ws},
     Filter as _, Reply,
@@ -96,43 +95,57 @@ pub(crate) const fn query_status_code(query_error: &query::Error) -> StatusCode 
 
 impl Reply for Error {
     fn into_response(self) -> Response {
-        const fn status_code(err: &Error) -> StatusCode {
-            use Error::*;
-            match err {
-                Query(e) => query_status_code(e),
-                VersionedTransaction(_)
-                | AcceptTransaction(_)
-                | RequestPendingTransactions(_)
-                | DecodeRequestPendingTransactions(_)
-                | EncodePendingTransactions(_)
-                | ConfigurationReload(_)
-                | TxTooBig => StatusCode::BAD_REQUEST,
-                Config(_) => StatusCode::NOT_FOUND,
-                PushIntoQueue(err) => match **err {
-                    queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,
-                    queue::Error::SignatureCondition(_) => StatusCode::UNAUTHORIZED,
-                    _ => StatusCode::BAD_REQUEST,
-                },
-                #[cfg(feature = "telemetry")]
-                Prometheus(_) | Status(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        use Error::*;
+        match self {
+            Query(err) => {
+                reply::with_status(utils::Scale(&err), query_status_code(&err)).into_response()
+            }
+            // TODO Have a type-preserved response body instead of a stringified one #2279
+            VersionedTransaction(err)
+            | DecodeRequestPendingTransactions(err)
+            | EncodePendingTransactions(err) => {
+                reply::with_status(err.to_string(), err.status_code()).into_response()
+            }
+            _ => reply::with_status(Self::to_string(&self), self.status_code()).into_response(),
+        }
+    }
+}
+
+impl Error {
+    const fn status_code(&self) -> StatusCode {
+        use Error::*;
+        match self {
+            Query(e) => query_status_code(e),
+            VersionedTransaction(err)
+            | DecodeRequestPendingTransactions(err)
+            | EncodePendingTransactions(err) => err.status_code(),
+            AcceptTransaction(_)
+            | RequestPendingTransactions(_)
+            | ConfigurationReload(_)
+            | TxTooBig => StatusCode::BAD_REQUEST,
+            Config(_) => StatusCode::NOT_FOUND,
+            PushIntoQueue(err) => match **err {
+                queue::Error::Full => StatusCode::INTERNAL_SERVER_ERROR,
+                queue::Error::SignatureCondition(_) => StatusCode::UNAUTHORIZED,
+                _ => StatusCode::BAD_REQUEST,
+            },
+            #[cfg(feature = "telemetry")]
+            Prometheus(_) | Status(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    fn to_string(mut err: &dyn std::error::Error) -> String {
+        let mut s = "Error:\n".to_owned();
+        let mut idx = 0_i32;
+
+        loop {
+            s += &format!("    {}: {}\n", idx, &err.to_string());
+            idx += 1_i32;
+            match err.source() {
+                Some(e) => err = e,
+                None => return s,
             }
         }
-
-        fn to_string(mut err: &dyn std::error::Error) -> String {
-            let mut s = "Error:\n".to_owned();
-            let mut idx = 0_i32;
-
-            loop {
-                s += &format!("    {}: {}\n", idx, &err.to_string());
-                idx += 1_i32;
-                match err.source() {
-                    Some(e) => err = e,
-                    None => return s,
-                }
-            }
-        }
-
-        reply::with_status(to_string(&self), status_code(&self)).into_response()
     }
 }
 

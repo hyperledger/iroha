@@ -1213,9 +1213,7 @@ mod tests {
             ];
 
             for (status_code, err) in responses {
-                let resp = Response::builder()
-                    .status(status_code)
-                    .body(err.clone().encode())?;
+                let resp = Response::builder().status(status_code).body(err.encode())?;
 
                 match sut.handle(resp) {
                     Err(ClientQueryError::QueryError(actual)) => {

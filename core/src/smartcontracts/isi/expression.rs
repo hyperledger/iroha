@@ -345,7 +345,7 @@ impl<W: WorldTrait> Evaluate<W> for Divide {
         let right: u32 = self.right.evaluate(wsv, context)?;
         left.checked_div(right)
             .map(Value::U32)
-            .ok_or(MathError::DivideByZero.into())
+            .ok_or_else(|| MathError::DivideByZero.into())
     }
 }
 
