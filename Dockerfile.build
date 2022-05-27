@@ -1,0 +1,4 @@
+FROM    iroha2:env
+WORKDIR /iroha
+COPY    . .
+RUN     mold --run cargo build --profile deploy --target x86_64-unknown-linux-musl --features vendored

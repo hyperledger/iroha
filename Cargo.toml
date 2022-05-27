@@ -33,3 +33,13 @@ members = [
   "version",
   "version/derive",
 ]
+
+
+[profile.deploy]
+inherits = "release"
+opt-level = 3
+debug = false
+strip = "symbols"
+debug-assertions = false
+lto = true
+incremental = false

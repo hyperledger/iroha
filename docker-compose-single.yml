@@ -5,7 +5,7 @@ services:
     image: iroha0:debug
     volumes:
       - './configs/peer:/config'
-      - './:/root/soramitsu/iroha'
+      - ./:/root/soramitsu/iroha
     environment:
       TORII_P2P_ADDR: iroha0:1337
       TORII_API_URL: iroha0:8080

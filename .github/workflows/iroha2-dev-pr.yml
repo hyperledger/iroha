@@ -47,24 +47,52 @@ jobs:
     container:
       image: 7272721/i2-ci:latest
     steps:
-      # TODO Remove these steps #2165
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Find hash
+        id: hash
+        uses: theowenyoung/folder-hash@v2.0.1
+        with:
+          path: |
+            .
+      - name: Copy a file from s3
+        id: copy
+        uses: prewk/s3-cp-action@v2
+        continue-on-error: true
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          source: 's3://infra-prod-docs/hyperledger/iroha2/codecov/lcov-${{ steps.hash.outputs.hash }}.xml'
+          dest: 'lcov.xml'
+      - name: Check coverage file existence
+        id: check_files
+        uses: andstor/file-existence-action@v1
+        with:
+          files: "lcov.xml"
+        # TODO Remove these steps #2165 ??
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
           components: llvm-tools-preview
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      #
-      - uses: actions/checkout@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov      
       - uses: Swatinem/rust-cache@v1
       - name: Run tests and generate lcov report
-        if: always()
-        run: mold --run cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v2
+        if: steps.check_files.outputs.files_exists == 'false'
+        run: mold --run cargo llvm-cov --all-features --workspace --lcov --output-path lcov.xml        
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
         with:
-          file: lcov.info
+          file: lcov.xml
           fail_ci_if_error: true
+      - name: Copy a file to s3
+        uses: prewk/s3-cp-action@v2
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          source: 'lcov.xml'
+          dest: 's3://infra-prod-docs/hyperledger/iroha2/codecov/lcov-${{ steps.hash.outputs.hash }}.xml'
+
 
   integration_tests:
     runs-on: ubuntu-latest

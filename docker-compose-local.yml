@@ -2,11 +2,9 @@ version: "3.8"
 services:
   iroha0:
     build: .
-    image: iroha0:debug
-    volumes:
-      - './configs/peer:/config'
-      - './:/root/soramitsu/iroha'
+    image: iroha2:dev
     environment:
+      KURA_BLOCK_STORE_PATH: /chain
       TORII_P2P_ADDR: iroha0:1337
       TORII_API_URL: iroha0:8080
       TORII_TELEMETRY_URL: iroha0:8180
@@ -18,17 +16,18 @@ services:
       - "8080:8080"
       - "8180:8180"
     init: true
-    command: ./iroha --submit-genesis
+    command: iroha --submit-genesis
+    volumes:
+      - ./configs/peer:/config
+      - ./:/root/soramitsu/iroha
 
 
   iroha1:
     depends_on:
       - iroha0
-    image: iroha0:debug
-    volumes:
-      - './configs/peer:/config'
-      - './:/root/soramitsu/iroha'
+    image: iroha2:dev
     environment:
+      KURA_BLOCK_STORE_PATH: /chain
       TORII_P2P_ADDR: iroha1:1338
       TORII_API_URL: iroha1:8081
       TORII_TELEMETRY_URL: iroha1:8181
@@ -40,16 +39,17 @@ services:
       - "8081:8081"
       - "8181:8181"
     init: true
+    volumes:
+      - ./configs/peer:/config
+      - ./:/root/soramitsu/iroha
 
 
   iroha2:
     depends_on:
       - iroha0
-    image: iroha0:debug
-    volumes:
-      - './configs/peer:/config'
-      - './:/root/soramitsu/iroha'
+    image: iroha2:dev
     environment:
+      KURA_BLOCK_STORE_PATH: /chain
       TORII_P2P_ADDR: iroha2:1339
       TORII_API_URL: iroha2:8082
       TORII_TELEMETRY_URL: iroha2:8182
@@ -61,16 +61,17 @@ services:
       - "8082:8082"
       - "8182:8182"
     init: true
+    volumes:
+      - ./configs/peer:/config
+      - ./:/root/soramitsu/iroha
 
 
   iroha3:
     depends_on:
       - iroha0
-    image: iroha0:debug
-    volumes:
-      - './configs/peer:/config'
-      - './:/root/soramitsu/iroha'
+    image: iroha2:dev
     environment:
+      KURA_BLOCK_STORE_PATH: /chain
       TORII_P2P_ADDR: iroha3:1340
       TORII_API_URL: iroha3:8083
       TORII_TELEMETRY_URL: iroha3:8183
@@ -82,3 +83,6 @@ services:
       - "8083:8083"
       - "8183:8183"
     init: true
+    volumes:
+      - ./configs/peer:/config
+      - ./:/root/soramitsu/iroha
