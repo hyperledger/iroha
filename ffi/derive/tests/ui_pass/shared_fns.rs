@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, mem::MaybeUninit};
 
-use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, Handle};
+use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FfiStruct1 {

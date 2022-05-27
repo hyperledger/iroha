@@ -7,12 +7,6 @@ pub use iroha_ffi_derive::*;
 /// Type of the handle id
 pub type HandleId = u32;
 
-/// Represents handle in an FFI context
-pub trait Handle {
-    /// Unique identifier of the handle
-    const ID: HandleId;
-}
-
 /// FFI compatible tuple with 2 elements
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -40,13 +34,19 @@ pub enum FfiResult {
 #[macro_export]
 macro_rules! handles {
     ( $id:expr, $ty:ty $(, $other:ty)* $(,)? ) => {
-        impl $crate::Handle for $ty {
+        impl Handle for $ty {
             const ID: $crate::HandleId = $id;
         }
 
         $crate::handles! {$id + 1, $( $other, )*}
     };
-    ( $id:expr, $(,)? ) => {};
+    ( $id:expr, $(,)? ) => {
+        /// Represents handle in an FFI context
+        pub trait Handle {
+            /// Unique identifier of the handle
+            const ID: $crate::HandleId;
+        }
+    };
 }
 
 /// Generate FFI equivalent implementation of the requested trait method (e.g. Clone, Eq, Ord)
@@ -72,11 +72,8 @@ macro_rules! gen_ffi_impl {
         ) -> $crate::FfiResult {
             gen_ffi_impl!{@null_check_stmts handle_ptr, output_ptr}
 
-            // NOTE: Unreachable pattern occurs if at least two handle ids resolve to
-            // the same value. Denying it reduces chance of such implementation error
-            #[deny(unreachable_patterns)]
             match handle_id {
-                $( <$other as $crate::Handle>::ID => {
+                $( <$other as Handle>::ID => {
                     let handle = &*handle_ptr.cast::<$other>();
 
                     let new_handle = Box::new(Clone::clone(handle));
@@ -106,11 +103,8 @@ macro_rules! gen_ffi_impl {
         ) -> $crate::FfiResult {
             gen_ffi_impl!{@null_check_stmts left_handle_ptr, right_handle_ptr, output_ptr}
 
-            // NOTE: Unreachable pattern occurs if at least two handle ids resolve to
-            // the same value. Denying it reduces chance of such implementation error
-            #[deny(unreachable_patterns)]
             match handle_id {
-                $( <$other as $crate::Handle>::ID => {
+                $( <$other as Handle>::ID => {
                     let left_handle = &*left_handle_ptr.cast::<$other>();
                     let right_handle = &*right_handle_ptr.cast::<$other>();
 
@@ -138,11 +132,8 @@ macro_rules! gen_ffi_impl {
         ) -> $crate::FfiResult {
             gen_ffi_impl!{@null_check_stmts left_handle_ptr, right_handle_ptr, output_ptr}
 
-            // NOTE: Unreachable pattern occurs if at least two handle ids resolve to
-            // the same value. Denying it reduces chance of such implementation error
-            #[deny(unreachable_patterns)]
             match handle_id {
-                $( <$other as $crate::Handle>::ID => {
+                $( <$other as Handle>::ID => {
                     let left_handle = &*left_handle_ptr.cast::<$other>();
                     let right_handle = &*right_handle_ptr.cast::<$other>();
 
@@ -168,11 +159,8 @@ macro_rules! gen_ffi_impl {
         ) -> $crate::FfiResult {
             gen_ffi_impl!{@null_check_stmts handle_ptr}
 
-            // NOTE: Unreachable pattern occurs if at least two handle ids resolve to
-            // the same value. Denying it reduces chance of such implementation error
-            #[deny(unreachable_patterns)]
             match handle_id {
-                $( <$other as $crate::Handle>::ID => {
+                $( <$other as Handle>::ID => {
                     Box::from_raw(handle_ptr.cast::<$other>());
                 } )+
                 _ => return $crate::FfiResult::UnknownHandle,

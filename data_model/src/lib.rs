@@ -743,14 +743,18 @@ mod ffi {
 
     use super::*;
 
-    handles! {15,
+    handles! {0,
         account::Account,
         asset::Asset,
         domain::Domain,
         metadata::Metadata,
         permissions::PermissionToken,
         role::Role,
-        Name
+        Name,
+
+        iroha_crypto::PublicKey,
+        iroha_crypto::PrivateKey,
+        iroha_crypto::KeyPair
     }
 
     gen_ffi_impl! { Clone:
@@ -859,9 +863,7 @@ mod tests {
     #[allow(unsafe_code)]
     #[cfg(feature = "ffi_api")]
     fn ffi_name_from_str() -> Result<(), ParseError> {
-        use iroha_ffi::Handle;
-
-        use super::ffi::__drop;
+        use ffi::{Handle, __drop};
 
         let candidate = "Name";
         let candidate_bytes = candidate.as_bytes();
