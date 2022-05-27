@@ -81,7 +81,7 @@ pub trait SumeragiTrait:
         configuration: &config::SumeragiConfiguration,
         events_sender: EventsSender,
         wsv: Arc<WorldStateView<Self::World>>,
-        transaction_validator: TransactionValidator<Self::World>,
+        transaction_validator: TransactionValidator,
         telemetry_started: bool,
         genesis_network: Option<Self::GenesisNetwork>,
         queue: Arc<Queue<Self::World>>,

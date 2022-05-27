@@ -446,8 +446,8 @@ where
         &mut self,
         configuration: Configuration,
         genesis: Option<G>,
-        instruction_validator: IsInstructionAllowedBoxed<W>,
-        query_validator: IsQueryAllowedBoxed<W>,
+        instruction_validator: impl Into<IsInstructionAllowedBoxed> + Send + 'static,
+        query_validator: impl Into<IsQueryAllowedBoxed> + Send + 'static,
         temp_dir: Arc<TempDir>,
     ) {
         let mut configuration = self.get_config(configuration);
@@ -490,6 +490,50 @@ where
         self.iroha = Some(receiver.recv().unwrap());
         time::sleep(Duration::from_millis(300)).await;
         self.shutdown = Some(handle);
+    }
+
+    /// Starts peer with config and permissions
+    ///
+    /// # Panics
+    /// - [`TempDir::new`] failed.
+    /// - Initializing [telemetry](iroha_logger::init()) failed
+    /// - [`Iroha::with_genesis`] failed.
+    /// - Failed to send [`Iroha`] via sender.
+    /// - [`Iroha::start_as_task`] failed or produced empty job handle.
+    pub async fn start_with_config_permissions(
+        &mut self,
+        configuration: Configuration,
+        genesis: Option<G>,
+        instruction_validator: impl Into<IsInstructionAllowedBoxed> + Send + 'static,
+        query_validator: impl Into<IsQueryAllowedBoxed> + Send + 'static,
+    ) {
+        let temp_dir = Arc::new(TempDir::new().expect("Failed to create temp dir."));
+        self.start_with_config_permissions_dir(
+            configuration,
+            genesis,
+            instruction_validator,
+            query_validator,
+            temp_dir,
+        )
+        .await;
+    }
+
+    /// Start peer with config
+    #[inline]
+    pub async fn start_with_config(&mut self, genesis: Option<G>, configuration: Configuration) {
+        self.start_with_config_permissions(configuration, genesis, AllowAll, AllowAll)
+            .await;
+    }
+
+    /// Start peer with config
+    pub async fn start_with_genesis(&mut self, genesis: Option<G>) {
+        self.start_with_config_permissions(Configuration::test(), genesis, AllowAll, AllowAll)
+            .await;
+    }
+
+    /// Start peer
+    pub async fn start(&mut self, submit_genesis: bool) {
+        self.start_with_genesis(G::test(submit_genesis)).await;
     }
 
     /// Creates peer
@@ -549,112 +593,18 @@ impl<G> From<Option<G>> for WithGenesis<G> {
     }
 }
 
-/// `PeerBuilder` structure that helps to create a peer.
-pub struct PeerBuilder<W = World, G = GenesisNetwork>
-where
-    W: WorldTrait,
-    G: GenesisNetworkTrait,
-{
-    configuration: Option<Configuration>,
-    genesis: WithGenesis<G>,
-    instruction_validator: Option<IsInstructionAllowedBoxed<W>>,
-    query_validator: Option<IsQueryAllowedBoxed<W>>,
-    temp_dir: Option<Arc<TempDir>>,
-}
-
-impl<W, G> PeerBuilder<W, G>
-where
-    W: WorldTrait,
-    G: GenesisNetworkTrait,
-{
-    /// Creates [`PeerBuilder`].
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Sets the optional genesis network.
-    #[must_use]
-    pub fn with_into_genesis(mut self, genesis: impl Into<WithGenesis<G>>) -> Self {
-        self.genesis = genesis.into();
-        self
-    }
-
-    /// Sets the genesis network.
-    #[must_use]
-    pub fn with_genesis(mut self, genesis: G) -> Self {
-        self.genesis = WithGenesis::<G>::Has(genesis);
-        self
-    }
-
-    /// Sets the test genesis network.
-    #[must_use]
-    pub fn with_test_genesis(self, submit_genesis: bool) -> Self {
-        self.with_into_genesis(G::test(submit_genesis))
-    }
-
-    /// Sets Iroha configuration
-    #[must_use]
-    pub fn with_configuration(mut self, configuration: Configuration) -> Self {
-        self.configuration.replace(configuration);
-        self
-    }
-
-    /// Sets permissions for instructions.
-    #[must_use]
-    pub fn with_instruction_validator(
-        mut self,
-        instruction_validator: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
-    ) -> Self {
-        self.instruction_validator
-            .replace(instruction_validator.into());
-        self
-    }
-
-    /// Sets permissions for queries.
-    #[must_use]
-    pub fn with_query_validator(
-        mut self,
-        query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
-    ) -> Self {
-        self.query_validator.replace(query_validator.into());
-        self
-    }
-
-    /// Sets the directory to be used as a stub.
-    #[must_use]
-    pub fn with_dir(mut self, temp_dir: Arc<TempDir>) -> Self {
-        self.temp_dir.replace(temp_dir);
-        self
-    }
-
-    /// Accepts a peer and starts it.
-    pub async fn start_with_peer<K, S, B>(self, peer: &mut Peer<W, G, K, S, B>)
-    where
-        K: KuraTrait<World = W>,
-        S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-        B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
-    {
-        let configuration = self.configuration.unwrap_or_else(|| {
-            let mut config = Configuration::test();
-            config.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
-            config
-        });
-        let genesis = match self.genesis {
-            WithGenesis::<G>::Default => G::test(true),
-            WithGenesis::<G>::None => None,
-            WithGenesis::<G>::Has(genesis) => Some(genesis),
-        };
-        let instruction_validator = self
-            .instruction_validator
-            .unwrap_or_else(|| AllowAll.into());
-        let query_validator = self.query_validator.unwrap_or_else(|| AllowAll.into());
-        let temp_dir = self
-            .temp_dir
-            .unwrap_or_else(|| Arc::new(TempDir::new().expect("Failed to create temp dir.")));
-
-        peer.start(
-            configuration,
-            genesis,
+    /// Starts peer with default configuration and specified permissions.
+    /// Returns its info and client for connecting to it.
+    pub async fn start_test_with_permissions(
+        instruction_validator: IsInstructionAllowedBoxed,
+        query_validator: IsQueryAllowedBoxed,
+    ) -> (Self, Client) {
+        let mut configuration = Configuration::test();
+        let mut peer = Self::new().expect("Failed to create peer.");
+        configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
+        peer.start_with_config_permissions(
+            configuration.clone(),
+            G::test(true),
             instruction_validator,
             query_validator,
             temp_dir,

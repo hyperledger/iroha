@@ -26,7 +26,7 @@ declare_token!(
 );
 
 /// Checks that account transfers only the assets that he owns.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyOwnedAssets;
 
 impl_from_item_for_instruction_validator_box!(OnlyOwnedAssets);
@@ -37,7 +37,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyOwnedAssets {
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+    ) -> Result<()> {
         let transfer_box = if let Instruction::Transfer(transfer) = instruction {
             transfer
         } else {
@@ -50,7 +50,9 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyOwnedAssets {
         let source_id: AssetId = try_into_or_exit!(source_id);
 
         if &source_id.account_id != authority {
-            return Err("Can't transfer assets of the other account.".to_owned());
+            return Err("Can't transfer assets of the other account."
+                .to_owned()
+                .into());
         }
         Ok(())
     }
@@ -58,7 +60,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyOwnedAssets {
 
 /// Allows transfering user's assets from a different account if the
 /// corresponding user granted this permission token.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantedByAssetOwner;
 
 impl_from_item_for_granted_token_validator_box!(GrantedByAssetOwner);
@@ -69,7 +71,7 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
         _authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView<W>,
-    ) -> Result<PermissionToken, String> {
+    ) -> std::result::Result<PermissionToken, String> {
         let transfer_box = if let Instruction::Transfer(transfer_box) = instruction {
             transfer_box
         } else {
@@ -90,7 +92,7 @@ impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
 
 /// Validator that checks Grant instruction so that the access is
 /// granted to the assets of the signer account.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantMyAssetAccess;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
@@ -101,11 +103,15 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+    ) -> Result<()> {
         let token: CanTransferUserAssets = extract_specialized_token(instruction, wsv)?;
 
         if &token.asset_id.account_id != authority {
-            return Err("Asset specified in permission token is not owned by signer.".to_owned());
+            return Err(
+                "Asset specified in permission token is not owned by signer."
+                    .to_owned()
+                    .into(),
+            );
         }
 
         Ok(())
@@ -114,7 +120,7 @@ impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
 
 /// Validator that checks that `Transfer` instruction execution count
 /// fits well in some time period
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct ExecutionCountFitsInLimit;
 
 impl_from_item_for_instruction_validator_box!(ExecutionCountFitsInLimit);
@@ -126,7 +132,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+    ) -> Result<()> {
         if !matches!(instruction, Instruction::Transfer(_)) {
             return Ok(());
         };
@@ -142,9 +148,9 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
             .try_into()
             .expect("`usize` should always fit in `u32`");
         if executions_count >= count {
-            return Err(DenialReason::from(
-                "Transfer transaction limit for current period is exceed",
-            ));
+            return Err("Transfer transaction limit for current period is exceed"
+                .to_owned()
+                .into());
         }
         Ok(())
     }
@@ -158,7 +164,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
 fn retrieve_permission_params<W: WorldTrait>(
     wsv: &WorldStateView<W>,
     authority: &AccountId,
-) -> Result<BTreeMap<Name, Value>, DenialReason> {
+) -> Result<BTreeMap<Name, Value>> {
     wsv.map_account(authority, |account| {
         wsv.account_permission_tokens(account)
             .iter()
@@ -167,7 +173,7 @@ fn retrieve_permission_params<W: WorldTrait>(
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect()
     })
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string().into())
 }
 
 /// Retrieve period from `params`
@@ -176,7 +182,7 @@ fn retrieve_permission_params<W: WorldTrait>(
 /// - There is no period parameter
 /// - Period has wrong value type
 /// - Failed conversion from `u128` to `u64`
-fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration, DenialReason> {
+fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration> {
     let period_param_name = CanTransferOnlyFixedNumberOfTimesPerPeriod::period();
     match params
         .get(period_param_name)
@@ -185,9 +191,10 @@ fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration, DenialRea
         Value::U128(period) => Ok(Duration::from_millis(
             u64::try_from(*period).map_err(|e| e.to_string())?,
         )),
-        _ => Err(format!(
-            "`{period_param_name}` parameter has wrong value type. Expected `u128`",
-        )),
+        _ => Err(
+            format!("`{period_param_name}` parameter has wrong value type. Expected `u128`",)
+                .into(),
+        ),
     }
 }
 
@@ -196,16 +203,16 @@ fn retrieve_period(params: &BTreeMap<Name, Value>) -> Result<Duration, DenialRea
 /// # Errors
 /// - There is no count parameter
 /// - Count has wrong value type
-fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32, DenialReason> {
+fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32> {
     let count_param_name = CanTransferOnlyFixedNumberOfTimesPerPeriod::count();
     match params
         .get(count_param_name)
         .ok_or_else(|| format!("Expected `{count_param_name}` parameter"))?
     {
         Value::U32(count) => Ok(*count),
-        _ => Err(format!(
-            "`{count_param_name}` parameter has wrong value type. Expected `u32`"
-        )),
+        _ => Err(
+            format!("`{count_param_name}` parameter has wrong value type. Expected `u32`").into(),
+        ),
     }
 }
 

@@ -12,9 +12,12 @@ use iroha_core::{
         BlockPublisherMessage, BlockSubscriberMessage, VersionedBlockPublisherMessage,
         VersionedBlockSubscriberMessage,
     },
-    smartcontracts::isi::{
-        permissions::IsQueryAllowedBoxed,
-        query::{Error as QueryError, ValidQueryRequest},
+    smartcontracts::{
+        isi::{
+            permissions::IsQueryAllowedBoxed,
+            query::{Error as QueryError, ValidQueryRequest},
+        },
+        permissions::IsAllowed as _,
     },
     wsv::WorldTrait,
 };
@@ -52,11 +55,11 @@ impl VerifiedQueryRequest {
     /// - Account doesn't exist.
     /// - Account doesn't have the correct public key.
     /// - Account has incorrect permissions.
-    pub fn validate<W: WorldTrait>(
+    pub fn validate(
         self,
-        wsv: &WorldStateView<W>,
-        query_validator: &IsQueryAllowedBoxed<W>,
-    ) -> Result<(ValidQueryRequest, PredicateBox), QueryError> {
+        wsv: &WorldStateView<World>,
+        query_validator: &IsQueryAllowedBoxed,
+    ) -> Result<ValidQueryRequest, QueryError> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
             account.contains_signatory(self.signature.public_key())
         })?;
@@ -67,11 +70,8 @@ impl VerifiedQueryRequest {
         }
         query_validator
             .check(&self.payload.account_id, &self.payload.query, wsv)
-            .map_err(QueryError::Permission)?;
-        Ok((
-            ValidQueryRequest::new(self.payload.query),
-            self.payload.filter,
-        ))
+            .map_err(|e| QueryError::Permission(e.to_string()))?;
+        Ok(ValidQueryRequest::new(self.payload.query))
     }
 }
 
@@ -114,14 +114,33 @@ pub(crate) async fn handle_instructions<W: WorldTrait>(
 }
 
 #[iroha_futures::telemetry_future]
+#[allow(unsafe_code, clippy::unimplemented)]
 pub(crate) async fn handle_queries<W: WorldTrait>(
     wsv: Arc<WorldStateView<W>>,
-    query_validator: Arc<IsQueryAllowedBoxed<W>>,
+    query_validator: Arc<IsQueryAllowedBoxed>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
-) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    let (valid_request, filter) = request.validate(&wsv, &query_validator)?;
-    let original_result = valid_request.execute(&wsv)?;
+) -> Result<Scale<VersionedPaginatedQueryResult>, warp::http::Response<warp::hyper::Body>> {
+    // TODO: Very dirty, need to do something with it
+    let world_wsv = if std::any::TypeId::of::<W>() == std::any::TypeId::of::<World>() {
+        // SAFETY: Always safe
+        unsafe {
+            let wsv_ptr: *const Arc<WorldStateView<W>> = &wsv;
+            &*wsv_ptr.cast::<Arc<WorldStateView<World>>>()
+        }
+    } else {
+        unimplemented!()
+    };
+
+    let valid_request = request
+        .validate(world_wsv, &query_validator)
+        .map_err(into_reply)?;
+    let original_result = valid_request.execute(&wsv).map_err(into_reply)?;
+    let total: u64 = original_result
+        .len()
+        .try_into()
+        .map_err(|e: TryFromIntError| QueryError::Conversion(e.to_string()))?;
+
     let result = filter.filter(original_result);
     let (total, result) = if let Value::Vec(value) = result {
         (
@@ -419,7 +438,7 @@ impl<W: WorldTrait> Torii<W> {
         iroha_cfg: Configuration,
         wsv: Arc<WorldStateView<W>>,
         queue: Arc<Queue<W>>,
-        query_validator: Arc<IsQueryAllowedBoxed<W>>,
+        query_validator: Arc<IsQueryAllowedBoxed>,
         events: EventsSender,
         network: Addr<IrohaNetwork>,
         notify_shutdown: Arc<Notify>,

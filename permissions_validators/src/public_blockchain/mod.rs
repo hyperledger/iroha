@@ -1,5 +1,6 @@
 //! Permission checks asociated with use cases that can be summarized as public blockchains.
 
+use iroha_core::smartcontracts::permissions::Result;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -64,23 +65,22 @@ impl From<PredefinedPermissionToken> for PermissionToken {
 }
 
 /// A preconfigured set of permissions for simple use cases.
-pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
+pub fn default_permissions() -> IsInstructionAllowedBoxed {
     // Grant instruction checks are or unioned, so that if one permission validator approves this Grant it will succeed.
-    let grant_instruction_validator = ValidatorBuilder::new()
-        .with_validator(transfer::GrantMyAssetAccess)
-        .with_validator(unregister::GrantRegisteredByMeAccess)
-        .with_validator(mint::GrantRegisteredByMeAccess)
-        .with_validator(burn::GrantMyAssetAccess)
-        .with_validator(burn::GrantRegisteredByMeAccess)
-        .with_validator(key_value::GrantMyAssetAccessRemove)
-        .with_validator(key_value::GrantMyAssetAccessSet)
-        .with_validator(key_value::GrantMyMetadataAccessSet)
-        .with_validator(key_value::GrantMyMetadataAccessRemove)
-        .with_validator(key_value::GrantMyAssetDefinitionSet)
-        .with_validator(key_value::GrantMyAssetDefinitionRemove)
-        .any_should_succeed("Grant instruction validator.");
-    ValidatorBuilder::new()
-        .with_recursive_validator(grant_instruction_validator)
+    let grant_instruction_validator: IsInstructionAllowedBoxed =
+        ValidatorBuilder::with_validator(transfer::GrantMyAssetAccess)
+            .with_validator(unregister::GrantRegisteredByMeAccess)
+            .with_validator(mint::GrantRegisteredByMeAccess)
+            .with_validator(burn::GrantMyAssetAccess)
+            .with_validator(burn::GrantRegisteredByMeAccess)
+            .with_validator(key_value::GrantMyAssetAccessRemove)
+            .with_validator(key_value::GrantMyAssetAccessSet)
+            .with_validator(key_value::GrantMyMetadataAccessSet)
+            .with_validator(key_value::GrantMyMetadataAccessRemove)
+            .with_validator(key_value::GrantMyAssetDefinitionSet)
+            .with_validator(key_value::GrantMyAssetDefinitionRemove)
+            .any_should_succeed("Grant instruction validator.");
+    ValidatorBuilder::with_recursive_validator(grant_instruction_validator)
         .with_recursive_validator(transfer::OnlyOwnedAssets.or(transfer::GrantedByAssetOwner))
         .with_recursive_validator(
             unregister::OnlyAssetsCreatedByThisAccount.or(unregister::GrantedByAssetCreator),
@@ -121,10 +121,7 @@ pub fn default_permissions<W: WorldTrait>() -> IsInstructionAllowedBoxed<W> {
 /// - Cannot evaluate `instruction`
 /// - `instruction` doesn't evaluate to `PermissionToken`
 /// - Generic `PermissionToken` can't be converted to requested specialized token.
-pub fn extract_specialized_token<T, W>(
-    instruction: &GrantBox,
-    wsv: &WorldStateView<W>,
-) -> Result<T, String>
+pub fn extract_specialized_token<T, W>(instruction: &GrantBox, wsv: &WorldStateView<W>) -> Result<T>
 where
     T: TryFrom<PermissionToken, Error = PredefinedTokenConversionError>,
     W: iroha_core::wsv::WorldTrait,
@@ -151,13 +148,17 @@ pub fn check_asset_creator_for_asset_definition<W: WorldTrait>(
     definition_id: &AssetDefinitionId,
     authority: &AccountId,
     wsv: &WorldStateView<W>,
-) -> Result<(), String> {
+) -> Result<()> {
     let registered_by_signer_account = wsv
         .asset_definition_entry(definition_id)
         .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
         .unwrap_or(false);
     if !registered_by_signer_account {
-        return Err("Can not grant access for assets, registered by another account.".to_owned());
+        return Err(
+            "Can not grant access for assets, registered by another account."
+                .to_owned()
+                .into(),
+        );
     }
     Ok(())
 }
@@ -225,7 +226,7 @@ mod tests {
             object: Value::U32(10).into(),
             destination_id: IdBox::AssetId(bob_xor_id).into(),
         });
-        let validator: IsInstructionAllowedBoxed<World> = transfer::OnlyOwnedAssets
+        let validator: IsInstructionAllowedBoxed = transfer::OnlyOwnedAssets
             .or(transfer::GrantedByAssetOwner)
             .into();
         assert!(validator.check(&alice_id, &transfer, &wsv).is_ok());
@@ -247,7 +248,7 @@ mod tests {
             permission_token_to_alice,
             IdBox::AccountId(bob_id.clone()),
         ));
-        let validator: IsInstructionAllowedBoxed<World> = transfer::GrantMyAssetAccess.into();
+        let validator: IsInstructionAllowedBoxed = transfer::GrantMyAssetAccess.into();
         assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
         assert!(validator.check(&bob_id, &grant, &wsv).is_err());
     }
@@ -291,10 +292,9 @@ mod tests {
             .is_none());
         let wsv = WorldStateView::<World>::new(World::with([domain], []));
         let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
-        let validator: IsInstructionAllowedBoxed<World> =
-            unregister::OnlyAssetsCreatedByThisAccount
-                .or(unregister::GrantedByAssetCreator)
-                .into();
+        let validator: IsInstructionAllowedBoxed = unregister::OnlyAssetsCreatedByThisAccount
+            .or(unregister::GrantedByAssetCreator)
+            .into();
         assert!(validator.check(&alice_id, &instruction, &wsv).is_ok());
         assert!(validator.check(&bob_id, &instruction, &wsv).is_ok());
     }
@@ -317,8 +317,7 @@ mod tests {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
-        let validator: IsInstructionAllowedBoxed<World> =
-            unregister::GrantRegisteredByMeAccess.into();
+        let validator: IsInstructionAllowedBoxed = unregister::GrantRegisteredByMeAccess.into();
         assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
         assert!(validator.check(&bob_id, &grant, &wsv).is_err());
     }
@@ -373,7 +372,7 @@ mod tests {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
-        let validator: IsInstructionAllowedBoxed<World> = mint::OnlyAssetsCreatedByThisAccount
+        let validator: IsInstructionAllowedBoxed = mint::OnlyAssetsCreatedByThisAccount
             .or(mint::GrantedByAssetCreator)
             .into();
         assert!(validator.check(&alice_id, &instruction, &wsv).is_ok());
@@ -397,7 +396,7 @@ mod tests {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
-        let validator: IsInstructionAllowedBoxed<World> = mint::GrantRegisteredByMeAccess.into();
+        let validator: IsInstructionAllowedBoxed = mint::GrantRegisteredByMeAccess.into();
         assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
         assert!(validator.check(&bob_id, &grant, &wsv).is_err());
     }
@@ -452,7 +451,7 @@ mod tests {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
-        let validator: IsInstructionAllowedBoxed<World> = burn::OnlyAssetsCreatedByThisAccount
+        let validator: IsInstructionAllowedBoxed = burn::OnlyAssetsCreatedByThisAccount
             .or(burn::GrantedByAssetCreator)
             .into();
         assert!(validator.check(&alice_id, &instruction, &wsv).is_ok());
@@ -476,7 +475,7 @@ mod tests {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
         });
-        let validator: IsInstructionAllowedBoxed<World> = burn::GrantRegisteredByMeAccess.into();
+        let validator: IsInstructionAllowedBoxed = burn::GrantRegisteredByMeAccess.into();
         assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
         assert!(validator.check(&bob_id, &grant, &wsv).is_err());
     }
@@ -499,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn burn_granted_assets() -> Result<(), String> {
+    fn burn_granted_assets() -> Result<()> {
         let alice_id = AccountId::from_str("alice@test").expect("Valid");
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
         let alice_xor_id = <Asset as Identifiable>::Id::new(
@@ -517,7 +516,7 @@ mod tests {
             object: Value::U32(10).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
         });
-        let validator: IsInstructionAllowedBoxed<World> =
+        let validator: IsInstructionAllowedBoxed =
             burn::OnlyOwnedAssets.or(burn::GrantedByAssetOwner).into();
         validator.check(&alice_id, &transfer, &wsv)?;
         assert!(validator.check(&bob_id, &transfer, &wsv).is_ok());
@@ -539,7 +538,7 @@ mod tests {
             permission_token_to_alice,
             IdBox::AccountId(bob_id.clone()),
         ));
-        let validator: IsInstructionAllowedBoxed<World> = burn::GrantMyAssetAccess.into();
+        let validator: IsInstructionAllowedBoxed = burn::GrantMyAssetAccess.into();
         assert!(validator.check(&alice_id, &grant, &wsv).is_ok());
         assert!(validator.check(&bob_id, &grant, &wsv).is_err());
     }

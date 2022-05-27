@@ -83,7 +83,7 @@ where
     /// Hashes of invalidated blocks
     pub invalidated_blocks_hashes: Vec<HashOf<VersionedValidBlock>>,
     pub(crate) transaction_limits: TransactionLimits,
-    pub(crate) transaction_validator: TransactionValidator<W>,
+    pub(crate) transaction_validator: TransactionValidator,
     pub(crate) telemetry_started: bool,
     /// Genesis network
     pub genesis_network: Option<G>,
@@ -111,7 +111,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
         configuration: &SumeragiConfiguration,
         events_sender: EventsSender,
         wsv: Arc<WorldStateView<W>>,
-        transaction_validator: TransactionValidator<W>,
+        transaction_validator: TransactionValidator,
         telemetry_started: bool,
         genesis_network: Option<G>,
         queue: Arc<Queue<W>>,

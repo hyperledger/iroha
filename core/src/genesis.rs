@@ -309,11 +309,15 @@ impl GenesisTransaction {
 
 /// Module with genesis configuration logic.
 pub mod config {
+    use std::fmt::Debug;
+
     use iroha_config::derive::Configurable;
     use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
     use serde::{Deserialize, Serialize};
 
-    const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT: u64 = 100;
+    // use crate::smartcontracts::isi::permissions::*;
+
+    const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT: u64 = 100;
     const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
     const DEFAULT_GENESIS_SUBMISSION_DELAY_MS: u64 = 1000;
 
@@ -338,6 +342,8 @@ pub mod config {
         /// Used to ensure that other peers had time to connect to each other.
         #[serde(default = "default_genesis_submission_delay_ms")]
         pub genesis_submission_delay_ms: u64,
+        // #[serde(default = "default_permissions")]
+        // pub permissions: Permissions,
     }
 
     #[allow(clippy::expect_used)]
@@ -351,6 +357,7 @@ pub mod config {
                 wait_for_peers_retry_count_limit: DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT,
                 wait_for_peers_retry_period_ms: DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS,
                 genesis_submission_delay_ms: DEFAULT_GENESIS_SUBMISSION_DELAY_MS,
+                // permissions: default_permissions(),
             }
         }
     }
@@ -372,8 +379,14 @@ pub mod config {
         }
     }
 
-    const fn default_wait_for_peers_retry_count_limit() -> u64 {
-        DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT
+    // #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+    // pub enum Permissions {
+    //     AllowAll(AllowAll),
+    //     Or(Or<World, Instruction>),
+    // }
+
+    const fn default_wait_for_peers_retry_count() -> u64 {
+        DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT
     }
 
     const fn default_wait_for_peers_retry_period_ms() -> u64 {
@@ -383,6 +396,10 @@ pub mod config {
     const fn default_genesis_submission_delay_ms() -> u64 {
         DEFAULT_GENESIS_SUBMISSION_DELAY_MS
     }
+
+    // const fn default_permissions() -> Permissions {
+    //     Permissions::AllowAll(AllowAll)
+    // }
 }
 
 /// Builder type for `RawGenesisBlock` that does

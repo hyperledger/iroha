@@ -317,10 +317,7 @@ impl BlockHeader {
 
 impl ChainedBlock {
     /// Validate block transactions against current state of the world.
-    pub fn validate<W: WorldTrait>(
-        self,
-        transaction_validator: &TransactionValidator<W>,
-    ) -> VersionedValidBlock {
+    pub fn validate(self, transaction_validator: &TransactionValidator) -> VersionedValidBlock {
         let mut txs = Vec::new();
         let mut rejected = Vec::new();
 
@@ -406,10 +403,7 @@ impl VersionedValidBlock {
 
     /// Validate block transactions against current state of the world.
     #[must_use]
-    pub fn revalidate<W: WorldTrait>(
-        self,
-        transaction_validator: &TransactionValidator<W>,
-    ) -> Self {
+    pub fn revalidate(self, transaction_validator: &TransactionValidator) -> Self {
         self.into_v1().revalidate(transaction_validator).into()
     }
 
@@ -552,10 +546,7 @@ impl ValidBlock {
 
     /// Validate block transactions against current state of the world.
     #[must_use]
-    pub fn revalidate<W: WorldTrait>(
-        self,
-        transaction_validator: &TransactionValidator<W>,
-    ) -> Self {
+    pub fn revalidate(self, transaction_validator: &TransactionValidator) -> Self {
         Self {
             signatures: self.signatures,
             ..ChainedBlock {

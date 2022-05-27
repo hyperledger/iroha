@@ -34,7 +34,7 @@ pub struct Torii<W: WorldTrait> {
     wsv: Arc<WorldStateView<W>>,
     queue: Arc<Queue<W>>,
     events: EventsSender,
-    query_validator: Arc<IsQueryAllowedBoxed<W>>,
+    query_validator: Arc<IsQueryAllowedBoxed>,
     network: iroha_actor::Addr<IrohaNetwork>,
     notify_shutdown: Arc<Notify>,
 }

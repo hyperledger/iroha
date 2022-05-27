@@ -683,7 +683,7 @@ mod tests {
         .is_ok());
     }
 
-    fn get_transaction_validator() -> TransactionValidator<World> {
+    fn get_transaction_validator() -> TransactionValidator {
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,

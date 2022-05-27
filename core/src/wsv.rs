@@ -75,6 +75,44 @@ impl DerefMut for World {
     }
 }
 
+// TODO: Normal mock?
+#[cfg(test)]
+mod mock {
+    use std::ops::{Deref, DerefMut};
+
+    use super::{World, WorldTrait};
+
+    #[derive(Debug, Default, Clone)]
+    pub struct MockWorld(World);
+
+    impl WorldTrait for MockWorld {
+        fn with(
+            domains: impl IntoIterator<Item = iroha_data_model::prelude::Domain>,
+            trusted_peers_ids: impl IntoIterator<Item = iroha_data_model::prelude::PeerId>,
+        ) -> Self {
+            Self(World::with(domains, trusted_peers_ids))
+        }
+    }
+
+    impl Deref for MockWorld {
+        type Target = World;
+        #[inline]
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl DerefMut for MockWorld {
+        #[inline]
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
+}
+
+#[cfg(test)]
+pub use mock::MockWorld;
+
 /// Current state of the blockchain aligned with `Iroha` module.
 #[derive(Debug)]
 pub struct WorldStateView<W: WorldTrait> {
@@ -180,6 +218,7 @@ impl<W: WorldTrait> WorldStateView<W> {
         tokens
     }
 
+    #[allow(unsafe_code, clippy::panic_in_result_fn, clippy::unimplemented)]
     fn process_executable(&self, executable: &Executable, authority: &AccountId) -> Result<()> {
         match executable {
             Executable::Instructions(instructions) => {
@@ -191,7 +230,17 @@ impl<W: WorldTrait> WorldStateView<W> {
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime =
                     wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
-                wasm_runtime.execute(self, authority, bytes)?;
+                // TODO: Very dirty, need to do something with it
+                if std::any::TypeId::of::<W>() == std::any::TypeId::of::<World>() {
+                    // SAFETY: Always safe
+                    let self_with_world = unsafe {
+                        let self_ptr: *const WorldStateView<W> = self;
+                        &*self_ptr.cast::<WorldStateView<World>>()
+                    };
+                    wasm_runtime.execute(self_with_world, authority, bytes)?;
+                } else {
+                    unimplemented!()
+                }
             }
         }
         Ok(())

@@ -313,7 +313,7 @@ fn impl_get_recursive(
             fn get_recursive<'a, T>(
                 &self,
                 inner_field: T,
-            ) -> iroha_config::BoxedFuture<'a, Result<serde_json::Value, Self::Error>>
+            ) -> iroha_config::BoxedFuture<'a, std::result::Result<serde_json::Value, Self::Error>>
             where
                 T: AsRef<[&'a str]> + Send + 'a,
             {
@@ -353,7 +353,7 @@ fn impl_get_recursive(
         fn get_recursive<'a, T>(
             &self,
             inner_field: T,
-        ) -> Result<serde_json::Value, Self::Error>
+        ) -> std::result::Result<serde_json::Value, Self::Error>
         where
             T: AsRef<[&'a str]> + Send + 'a,
         {

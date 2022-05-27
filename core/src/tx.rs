@@ -31,24 +31,24 @@ use crate::{
 ///
 /// Permission validation is skipped for genesis.
 #[derive(Clone)]
-pub struct TransactionValidator<W: WorldTrait> {
+pub struct TransactionValidator {
     transaction_limits: TransactionLimits,
 
-    is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
-    is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+    is_instruction_allowed: Arc<IsInstructionAllowedBoxed>,
+    is_query_allowed: Arc<IsQueryAllowedBoxed>,
 
-    wsv: Arc<WorldStateView<W>>,
+    wsv: Arc<WorldStateView<World>>,
 }
 
-impl<W: WorldTrait> TransactionValidator<W> {
+impl TransactionValidator {
     /// Construct [`TransactionValidator`]
     pub fn new(
         transaction_limits: TransactionLimits,
 
-        is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
-        is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+        is_instruction_allowed: Arc<IsInstructionAllowedBoxed>,
+        is_query_allowed: Arc<IsQueryAllowedBoxed>,
 
-        wsv: Arc<WorldStateView<W>>,
+        wsv: Arc<WorldStateView<World>>,
     ) -> Self {
         Self {
             transaction_limits,

@@ -10,7 +10,7 @@ pub static CAN_REGISTER_DOMAINS_TOKEN: Lazy<Name> =
     Lazy::new(|| Name::from_str("can_register_domains").expect("this mustn't panic"));
 
 /// Prohibits registering domains.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct ProhibitRegisterDomains;
 
 impl_from_item_for_instruction_validator_box!(ProhibitRegisterDomains);
@@ -27,12 +27,12 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for ProhibitRegisterDomains {
         } else {
             return Ok(());
         };
-        Err("Domain registration is prohibited.".to_owned())
+        Err("Domain registration is prohibited.".to_owned().into())
     }
 }
 
 /// Validator that allows to register domains for accounts with the corresponding permission token.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct GrantedAllowedRegisterDomains;
 
 impl_from_item_for_granted_token_validator_box!(GrantedAllowedRegisterDomains);

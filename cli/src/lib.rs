@@ -111,8 +111,8 @@ where
     #[allow(clippy::non_ascii_literal)]
     pub async fn new(
         args: &Arguments,
-        instruction_validator: IsInstructionAllowedBoxed<K::World>,
-        query_validator: IsQueryAllowedBoxed<K::World>,
+        instruction_validator: IsInstructionAllowedBoxed,
+        query_validator: IsQueryAllowedBoxed,
     ) -> Result<Self> {
         let broker = Broker::new();
         let mut config = match Configuration::from_path(&args.config_path) {
@@ -150,11 +150,12 @@ where
     /// - Reading telemetry configs
     /// - telemetry setup
     /// - Initialization of [`Sumeragi`]
+    #[allow(unsafe_code, clippy::unimplemented)]
     pub async fn with_genesis(
         genesis: Option<G>,
         config: Configuration,
-        instruction_validator: IsInstructionAllowedBoxed<K::World>,
-        query_validator: IsQueryAllowedBoxed<K::World>,
+        instruction_validator: IsInstructionAllowedBoxed,
+        query_validator: IsQueryAllowedBoxed,
         broker: Broker,
         telemetry: Option<iroha_logger::Telemetries>,
     ) -> Result<Self> {
@@ -187,11 +188,23 @@ where
         );
 
         let query_validator = Arc::new(query_validator);
+
+        // TODO: Very dirty, need to do something with it
+        let world_wsv = if std::any::TypeId::of::<W>() == std::any::TypeId::of::<World>() {
+            // SAFETY: Always safe
+            unsafe {
+                let wsv_ptr: *const Arc<WorldStateView<W>> = &wsv;
+                &*wsv_ptr.cast::<Arc<WorldStateView<World>>>()
+            }
+        } else {
+            unimplemented!()
+        };
+
         let transaction_validator = TransactionValidator::new(
             config.sumeragi.transaction_limits,
             Arc::new(instruction_validator),
             Arc::clone(&query_validator),
-            Arc::clone(&wsv),
+            Arc::clone(world_wsv),
         );
 
         let notify_shutdown = Arc::new(Notify::new());

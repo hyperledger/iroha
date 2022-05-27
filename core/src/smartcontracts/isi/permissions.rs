@@ -1,15 +1,18 @@
 #![allow(clippy::module_name_repetitions)]
+#![allow(missing_docs)] // TODO: Remove
 
 //! This module contains permissions related Iroha functionality.
 
-use std::{fmt::Debug, iter, sync::Arc};
+use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
-use eyre::Result;
 use iroha_data_model::{isi::RevokeBox, prelude::*};
-use serde::{ser::SerializeStruct, Deserialize, Serialize};
+use iroha_macro::FromVariant;
+use serde::{Deserialize, Serialize};
 
 use super::Evaluate;
-use crate::wsv::{WorldStateView, WorldTrait};
+#[cfg(test)]
+use crate::wsv::MockWorld;
+use crate::wsv::{World, WorldStateView, WorldTrait};
 
 /// Operation for which the permission should be checked.
 pub trait NeedsPermission: Debug {}
@@ -21,8 +24,92 @@ impl NeedsPermission for QueryBox {}
 // Expression might contain a query, therefore needs to be checked.
 impl NeedsPermission for Expression {}
 
-/// Reason for prohibiting the execution of the particular instruction.
-pub type DenialReason = String;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ValidatorType {
+    Instruction,
+    Query,
+    Expression,
+}
+
+impl ValidatorType {
+    /// Checks if `self` equals to `another`
+    ///
+    /// # Errors
+    /// If `self` doesn't equal to `another`
+    pub fn check_equal(
+        self,
+        another: ValidatorType,
+    ) -> std::result::Result<(), ValidatorTypeMismatch> {
+        if self != another {
+            return Err(ValidatorTypeMismatch::expected(another).found(self));
+        }
+
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for ValidatorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValidatorType::Instruction => write!(f, "Instruction"),
+            ValidatorType::Query => write!(f, "Query"),
+            ValidatorType::Expression => write!(f, "Expression"),
+        }
+    }
+}
+
+pub mod error {
+    use super::ValidatorType;
+
+    /// Reason for prohibiting the execution of the particular instruction.
+    #[derive(Debug, Clone, thiserror::Error)]
+    #[allow(variant_size_differences)]
+    pub enum DenialReason {
+        #[error("{0}")]
+        ValidatorTypeMismatch(#[from] ValidatorTypeMismatch),
+        #[error("{0}")]
+        Custom(String),
+        #[error("No validators provided")]
+        NoValidatorsProvided,
+    }
+
+    impl From<String> for DenialReason {
+        fn from(s: String) -> Self {
+            Self::Custom(s)
+        }
+    }
+
+    #[derive(Debug, Copy, Clone, thiserror::Error)]
+    #[error("Expected `{expected}` validator type, but found `{found}`")]
+    pub struct ValidatorTypeMismatch {
+        expected: ValidatorType,
+        found: ValidatorType,
+    }
+
+    impl ValidatorTypeMismatch {
+        pub fn expected(expected: ValidatorType) -> Expected {
+            Expected { expected }
+        }
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    pub struct Expected {
+        expected: ValidatorType,
+    }
+
+    impl Expected {
+        pub fn found(self, found: ValidatorType) -> ValidatorTypeMismatch {
+            ValidatorTypeMismatch {
+                expected: self.expected,
+                found,
+            }
+        }
+    }
+}
+
+use error::*;
+
+pub type Result<T> = std::result::Result<T, DenialReason>;
 
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
 pub trait IsAllowed<W: WorldTrait, O: NeedsPermission>:
@@ -34,81 +121,209 @@ pub trait IsAllowed<W: WorldTrait, O: NeedsPermission>:
     /// # Errors
     /// If the execution of `instruction` under given `authority` with
     /// the current state of `wsv` is disallowed.
-    fn check(
-        &self,
-        authority: &AccountId,
-        operation: &O,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason>;
+    fn check(&self, authority: &AccountId, operation: &O, wsv: &WorldStateView<W>) -> Result<()>;
 }
 
 dyn_clone::clone_trait_object!(<W, O> IsAllowed<W, O> where W: WorldTrait, O: NeedsPermission);
 erased_serde::serialize_trait_object!(<W, O> IsAllowed<W, O> where W: WorldTrait, O: NeedsPermission);
 
 /// Box with permissions validator.
-pub type IsAllowedBoxed<W, O> = Box<dyn IsAllowed<W, O> + Send + Sync>;
-
-/// Box with permissions validator for `Instruction`.
-pub type IsInstructionAllowedBoxed<W> = IsAllowedBoxed<W, Instruction>;
-
-/// Box with permissions validator for `Query`.
-pub type IsQueryAllowedBoxed<W> = IsAllowedBoxed<W, QueryBox>;
-
-/// Trait for joining validators with `or` method, auto-implemented
-/// for all types which convert to [`IsAllowedBoxed`].
-pub trait ValidatorApplyOr<W: WorldTrait, O: NeedsPermission> {
-    /// Combines two validators into [`Or`].
-    fn or(self, another: impl Into<IsAllowedBoxed<W, O>>) -> Or<W, O>;
+#[derive(Debug, Clone, FromVariant, Serialize)]
+pub enum IsAllowedBoxed {
+    Instruction(IsInstructionAllowedBoxed),
+    Query(IsQueryAllowedBoxed),
+    Expression(IsExpressionAllowedBoxed),
 }
 
-impl<W: WorldTrait, O: NeedsPermission, V: Into<IsAllowedBoxed<W, O>>> ValidatorApplyOr<W, O>
-    for V
-{
-    fn or(self, another: impl Into<IsAllowedBoxed<W, O>>) -> Or<W, O> {
-        Or {
-            first: self.into(),
-            second: another.into(),
+impl IsAllowedBoxed {
+    pub fn validator_type(&self) -> ValidatorType {
+        match self {
+            IsAllowedBoxed::Instruction(_) => ValidatorType::Instruction,
+            IsAllowedBoxed::Query(_) => ValidatorType::Query,
+            IsAllowedBoxed::Expression(_) => ValidatorType::Expression,
         }
+    }
+}
+
+impl IsAllowed<World, Instruction> for IsAllowedBoxed {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Instruction,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        if let IsAllowedBoxed::Instruction(instruction) = self {
+            instruction.check(authority, operation, wsv)
+        } else {
+            Err(ValidatorTypeMismatch::expected(ValidatorType::Instruction)
+                .found(self.validator_type())
+                .into())
+        }
+    }
+}
+
+impl IsAllowed<World, QueryBox> for IsAllowedBoxed {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &QueryBox,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        if let IsAllowedBoxed::Query(query) = self {
+            query.check(authority, operation, wsv)
+        } else {
+            Err(ValidatorTypeMismatch::expected(ValidatorType::Query)
+                .found(self.validator_type())
+                .into())
+        }
+    }
+}
+
+impl IsAllowed<World, Expression> for IsAllowedBoxed {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Expression,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        if let IsAllowedBoxed::Expression(expression) = self {
+            expression.check(authority, operation, wsv)
+        } else {
+            Err(ValidatorTypeMismatch::expected(ValidatorType::Expression)
+                .found(self.validator_type())
+                .into())
+        }
+    }
+}
+
+/// Box with permissions validator for [`Instruction`].
+#[derive(Debug, Clone, FromVariant, Serialize)]
+pub enum IsInstructionAllowedBoxed {
+    World(#[skip_container] Box<dyn IsAllowed<World, Instruction> + Send + Sync>),
+    #[cfg(test)]
+    Mock(#[skip_container] Box<dyn IsAllowed<MockWorld, Instruction> + Send + Sync>),
+}
+
+#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
+impl IsAllowed<World, Instruction> for IsInstructionAllowedBoxed {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Instruction,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        match self {
+            IsInstructionAllowedBoxed::World(instruction) => {
+                instruction.check(authority, operation, wsv)
+            }
+            #[cfg(test)]
+            IsInstructionAllowedBoxed::Mock(_) => unimplemented!(),
+        }
+    }
+}
+
+/// Box with permissions validator for [`QueryBox`].
+#[derive(Debug, Clone, FromVariant, Serialize)]
+pub enum IsQueryAllowedBoxed {
+    World(#[skip_container] Box<dyn IsAllowed<World, QueryBox> + Send + Sync>),
+    #[cfg(test)]
+    Mock(#[skip_container] Box<dyn IsAllowed<MockWorld, QueryBox> + Send + Sync>),
+}
+
+#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
+impl IsAllowed<World, QueryBox> for IsQueryAllowedBoxed {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &QueryBox,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        match self {
+            IsQueryAllowedBoxed::World(query) => query.check(authority, operation, wsv),
+            #[cfg(test)]
+            IsQueryAllowedBoxed::Mock(_) => unimplemented!(),
+        }
+    }
+}
+
+/// Box with permissions validator for [`Expression`].
+#[derive(Debug, Clone, FromVariant, Serialize)]
+pub enum IsExpressionAllowedBoxed {
+    World(#[skip_container] Box<dyn IsAllowed<World, Expression> + Send + Sync>),
+    #[cfg(test)]
+    Mock(#[skip_container] Box<dyn IsAllowed<MockWorld, Expression> + Send + Sync>),
+}
+
+#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
+impl IsAllowed<World, Expression> for IsExpressionAllowedBoxed {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Expression,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        match self {
+            IsExpressionAllowedBoxed::World(expression) => {
+                expression.check(authority, operation, wsv)
+            }
+            #[cfg(test)]
+            IsExpressionAllowedBoxed::Mock(_) => unimplemented!(),
+        }
+    }
+}
+
+/// Trait for joining validators with `or` method, auto-implemented
+/// for all types which are convertible to [`IsInstructionAllowedBoxed`], [`IsQueryAllowedBoxed`], [`IsExpressionAllowedBoxed`].
+pub trait ValidatorApplyOr<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>>: Into<V> {
+    /// Combines two validators into [`Or`].
+    ///
+    /// # Errors
+    /// If validators have different types
+    fn or(self, another: impl Into<V>) -> Or<W, O, V>;
+}
+
+impl<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>, I: Into<V>> ValidatorApplyOr<W, O, V>
+    for I
+{
+    fn or(self, another: impl Into<V>) -> Or<W, O, V> {
+        Or::new(self, another)
     }
 }
 
 /// `check` succeeds if either `first` or `second` validator succeeds.
-#[derive(Debug)]
-pub struct Or<W: WorldTrait, O: NeedsPermission> {
-    first: IsAllowedBoxed<W, O>,
-    second: IsAllowedBoxed<W, O>,
+#[derive(Debug, Clone, Serialize)]
+pub struct Or<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>> {
+    first: V,
+    second: V,
+    #[serde(skip_serializing, default)]
+    _phantom_world: PhantomData<W>,
+    #[serde(skip_serializing, default)]
+    _phantom_operation: PhantomData<O>,
 }
 
-/// Using custom implementation, cause derive will put `Clone` bound on `W` and `O`.
-/// See <https://github.com/rust-lang/rust/issues/26925>
-impl<W: WorldTrait, O: NeedsPermission> Clone for Or<W, O> {
-    fn clone(&self) -> Self {
-        Self {
-            first: self.first.clone(),
-            second: self.second.clone(),
+impl<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>> Or<W, O, V> {
+    /// Constructs new [`Or`]
+    ///
+    /// # Errors
+    /// If validators have different types
+    pub fn new(first: impl Into<V>, second: impl Into<V>) -> Self {
+        Or {
+            first: first.into(),
+            second: second.into(),
+            _phantom_world: PhantomData,
+            _phantom_operation: PhantomData,
         }
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission> Serialize for Or<W, O> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("Or", 2)?;
-        state.serialize_field("first", &self.first)?;
-        state.serialize_field("second", &self.second)?;
-        state.end()
-    }
-}
-
-impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for Or<W, O> {
+/// TODO: Use macro
+impl IsAllowed<World, Instruction> for Or<World, Instruction, IsInstructionAllowedBoxed> {
     fn check(
         &self,
         authority: &AccountId,
-        operation: &O,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+        operation: &Instruction,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
         self.first
             .check(authority, operation, wsv)
             .or_else(|first_error| {
@@ -119,60 +334,98 @@ impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for Or<W, O> {
                             "Failed to pass first check with {} and second check with {}.",
                             first_error, second_error
                         )
+                        .into()
                     })
             })
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission + 'static> From<Or<W, O>> for IsAllowedBoxed<W, O> {
-    fn from(validator: Or<W, O>) -> Self {
-        Box::new(validator)
+impl From<Or<World, Instruction, IsInstructionAllowedBoxed>> for IsInstructionAllowedBoxed {
+    fn from(value: Or<World, Instruction, IsInstructionAllowedBoxed>) -> Self {
+        IsInstructionAllowedBoxed::World(Box::new(value))
+    }
+}
+
+impl IsAllowed<World, QueryBox> for Or<World, QueryBox, IsQueryAllowedBoxed> {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &QueryBox,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        self.first
+            .check(authority, operation, wsv)
+            .or_else(|first_error| {
+                self.second
+                    .check(authority, operation, wsv)
+                    .map_err(|second_error| {
+                        format!(
+                            "Failed to pass first check with {} and second check with {}.",
+                            first_error, second_error
+                        )
+                        .into()
+                    })
+            })
+    }
+}
+
+impl From<Or<World, QueryBox, IsQueryAllowedBoxed>> for IsQueryAllowedBoxed {
+    fn from(value: Or<World, QueryBox, IsQueryAllowedBoxed>) -> Self {
+        IsQueryAllowedBoxed::World(Box::new(value))
+    }
+}
+
+impl IsAllowed<World, Expression> for Or<World, Expression, IsExpressionAllowedBoxed> {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Expression,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        self.first
+            .check(authority, operation, wsv)
+            .or_else(|first_error| {
+                self.second
+                    .check(authority, operation, wsv)
+                    .map_err(|second_error| {
+                        format!(
+                            "Failed to pass first check with {} and second check with {}.",
+                            first_error, second_error
+                        )
+                        .into()
+                    })
+            })
+    }
+}
+
+impl From<Or<World, Expression, IsExpressionAllowedBoxed>> for IsExpressionAllowedBoxed {
+    fn from(value: Or<World, Expression, IsExpressionAllowedBoxed>) -> Self {
+        IsExpressionAllowedBoxed::World(Box::new(value))
     }
 }
 
 /// Wraps validator to check nested permissions.  Pay attention to
-/// wrap only validators that do not check nested intructions by
+/// wrap only validators that do not check nested instructions by
 /// themselves.
-#[derive(Debug)]
-pub struct CheckNested<W: WorldTrait, O: NeedsPermission> {
-    validator: IsAllowedBoxed<W, O>,
+#[derive(Debug, Clone, Serialize)]
+pub struct CheckNested {
+    validator: IsInstructionAllowedBoxed,
 }
 
-/// Using custom implementation, cause derive will put `Clone` bound on `W` and `O`.
-/// See <https://github.com/rust-lang/rust/issues/26925>
-impl<W: WorldTrait, O: NeedsPermission> Clone for CheckNested<W, O> {
-    fn clone(&self) -> Self {
-        Self {
-            validator: self.validator.clone(),
-        }
-    }
-}
-
-impl<W: WorldTrait, O: NeedsPermission> Serialize for CheckNested<W, O> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("CheckNested", 1)?;
-        state.serialize_field("validator", &self.validator)?;
-        state.end()
-    }
-}
-
-impl<W: WorldTrait, O: NeedsPermission> CheckNested<W, O> {
+impl CheckNested {
     /// Wraps `validator` to check nested permissions.
-    pub fn new(validator: IsAllowedBoxed<W, O>) -> Self {
+    pub fn new(validator: IsInstructionAllowedBoxed) -> Self {
         CheckNested { validator }
     }
 }
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W, Instruction> {
+impl IsAllowed<World, Instruction> for CheckNested {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
         match instruction {
             Instruction::Register(_)
             | Instruction::Unregister(_)
@@ -214,12 +467,12 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for CheckNested<W, Instruction> {
 /// # Errors
 /// If a user is not allowed to execute one of the inner queries,
 /// given the current `validator`.
-fn check_query_in_expression<W: WorldTrait>(
+fn check_query_in_expression(
     authority: &AccountId,
     expression: &Expression,
-    wsv: &WorldStateView<W>,
-    validator: &IsQueryAllowedBoxed<W>,
-) -> Result<(), DenialReason> {
+    wsv: &WorldStateView<World>,
+    validator: &IsQueryAllowedBoxed,
+) -> Result<()> {
     macro_rules! check_binary_expression {
         ($e:ident) => {
             check_query_in_expression(authority, &($e).left.expression, wsv, validator).and(
@@ -305,12 +558,12 @@ fn check_query_in_expression<W: WorldTrait>(
 /// If a user is not allowed to execute one of the inner queries,
 /// given the current `validator`.
 #[allow(clippy::too_many_lines)]
-fn check_query_in_instruction<W: WorldTrait>(
+fn check_query_in_instruction(
     authority: &AccountId,
     instruction: &Instruction,
-    wsv: &WorldStateView<W>,
-    validator: &IsQueryAllowedBoxed<W>,
-) -> Result<(), DenialReason> {
+    wsv: &WorldStateView<World>,
+    validator: &IsQueryAllowedBoxed,
+) -> Result<()> {
     match instruction {
         Instruction::Register(instruction) => {
             check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
@@ -420,46 +673,73 @@ fn check_query_in_instruction<W: WorldTrait>(
     }
 }
 
-impl<W: WorldTrait> From<CheckNested<W, Instruction>> for IsAllowedBoxed<W, Instruction> {
-    fn from(validator: CheckNested<W, Instruction>) -> Self {
-        Box::new(validator)
+fn check_all_validators_have_the_same_type(validators: &[IsAllowedBoxed]) -> Result<()> {
+    let first_type = if let Some(first) = validators.first() {
+        first.validator_type()
+    } else {
+        return Ok(());
+    };
+
+    for validator in validators.iter().skip(1) {
+        let validator_type = validator.validator_type();
+        if validator_type != first_type {
+            return Err(ValidatorTypeMismatch::expected(first_type)
+                .found(validator_type)
+                .into());
+        }
     }
+
+    Ok(())
 }
 
 /// A container for multiple permissions validators. It will succeed if all validators succeed.
-#[derive(Debug)]
-pub struct AllShouldSucceed<W: WorldTrait, O: NeedsPermission> {
-    validators: Vec<IsAllowedBoxed<W, O>>,
+#[derive(Debug, Clone, Serialize)]
+pub struct AllShouldSucceed {
+    validators: Vec<IsAllowedBoxed>,
 }
 
-/// Using custom implementation, cause derive will put `Clone` bound on `W` and `O`.
-/// See <https://github.com/rust-lang/rust/issues/26925>
-impl<W: WorldTrait, O: NeedsPermission> Clone for AllShouldSucceed<W, O> {
-    fn clone(&self) -> Self {
-        Self {
-            validators: self.validators.clone(),
+impl AllShouldSucceed {
+    /// Creates new [`AllShouldSucceed`]
+    ///
+    /// # Errors
+    /// If provided validators have different types.
+    /// Type of the first element in the `validators` is considered exemplary
+    pub fn new(validators: Vec<IsAllowedBoxed>) -> Result<Self> {
+        check_all_validators_have_the_same_type(&validators)?;
+        Ok(Self { validators })
+    }
+
+    fn check_type(&self, validator_type: ValidatorType) -> Result<()> {
+        if let Ok(self_type) = self.validator_type() {
+            if self_type != validator_type {
+                return Err(ValidatorTypeMismatch::expected(validator_type)
+                    .found(self_type)
+                    .into());
+            }
         }
+
+        Ok(())
+    }
+
+    fn validator_type(&self) -> Result<ValidatorType> {
+        self.validators
+            .first()
+            .map_or(Err(DenialReason::NoValidatorsProvided), |first| {
+                Ok(first.validator_type())
+            })
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission> Serialize for AllShouldSucceed<W, O> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("AllShouldSucceed", 1)?;
-        state.serialize_field("validators", &self.validators)?;
-        state.end()
-    }
-}
-
-impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllShouldSucceed<W, O> {
+/// TODO: Use macro
+impl IsAllowed<World, Instruction> for AllShouldSucceed {
     fn check(
         &self,
         authority: &AccountId,
-        operation: &O,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+        operation: &Instruction,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        self.check_type(ValidatorType::Instruction)?;
+
         for validator in &self.validators {
             validator.check(authority, operation, wsv)?
         }
@@ -467,51 +747,136 @@ impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllShouldSucceed<W, 
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission + 'static> From<AllShouldSucceed<W, O>>
-    for IsAllowedBoxed<W, O>
-{
-    fn from(validator: AllShouldSucceed<W, O>) -> Self {
-        Box::new(validator)
+impl IsAllowed<World, QueryBox> for AllShouldSucceed {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &QueryBox,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        self.check_type(ValidatorType::Query)?;
+
+        for validator in &self.validators {
+            validator.check(authority, operation, wsv)?
+        }
+        Ok(())
     }
 }
 
-/// A container for multiple permissions validators. It will succeed if any validator succeeds.
-#[derive(Debug)]
-pub struct AnyShouldSucceed<W: WorldTrait, O: NeedsPermission> {
-    name: String,
-    validators: Vec<IsAllowedBoxed<W, O>>,
+impl IsAllowed<World, Expression> for AllShouldSucceed {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Expression,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        self.check_type(ValidatorType::Expression)?;
+
+        for validator in &self.validators {
+            validator.check(authority, operation, wsv)?
+        }
+        Ok(())
+    }
 }
 
-/// Using custom implementation, cause derive will put `Clone` bound on `W` and `O`.
-/// See <https://github.com/rust-lang/rust/issues/26925>
-impl<W: WorldTrait, O: NeedsPermission> Clone for AnyShouldSucceed<W, O> {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            validators: self.validators.clone(),
+impl TryFrom<AllShouldSucceed> for IsAllowedBoxed {
+    type Error = DenialReason;
+
+    fn try_from(value: AllShouldSucceed) -> std::result::Result<Self, Self::Error> {
+        match value.validator_type()? {
+            ValidatorType::Instruction => {
+                Ok(IsInstructionAllowedBoxed::World(Box::new(value)).into())
+            }
+            ValidatorType::Query => Ok(IsQueryAllowedBoxed::World(Box::new(value)).into()),
+            ValidatorType::Expression => {
+                Ok(IsExpressionAllowedBoxed::World(Box::new(value)).into())
+            }
         }
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission> Serialize for AnyShouldSucceed<W, O> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("AnyShouldSucceed", 2)?;
-        state.serialize_field("name", &self.name)?;
-        state.serialize_field("validators", &self.validators)?;
-        state.end()
+impl TryFrom<AllShouldSucceed> for IsInstructionAllowedBoxed {
+    type Error = DenialReason;
+
+    fn try_from(value: AllShouldSucceed) -> std::result::Result<Self, Self::Error> {
+        let validator_type = value.validator_type()?;
+        validator_type.check_equal(ValidatorType::Instruction)?;
+
+        Ok(IsInstructionAllowedBoxed::World(Box::new(value)))
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AnyShouldSucceed<W, O> {
+impl TryFrom<AllShouldSucceed> for IsQueryAllowedBoxed {
+    type Error = DenialReason;
+
+    fn try_from(value: AllShouldSucceed) -> std::result::Result<Self, Self::Error> {
+        let validator_type = value.validator_type()?;
+        validator_type.check_equal(ValidatorType::Query)?;
+
+        Ok(IsQueryAllowedBoxed::World(Box::new(value)))
+    }
+}
+
+impl TryFrom<AllShouldSucceed> for IsExpressionAllowedBoxed {
+    type Error = DenialReason;
+
+    fn try_from(value: AllShouldSucceed) -> std::result::Result<Self, Self::Error> {
+        let validator_type = value.validator_type()?;
+        validator_type.check_equal(ValidatorType::Expression)?;
+
+        Ok(IsExpressionAllowedBoxed::World(Box::new(value)))
+    }
+}
+
+/// A container for multiple permissions validators. It will succeed if any validator succeeds.
+#[derive(Debug, Clone, Serialize)]
+pub struct AnyShouldSucceed {
+    name: String,
+    validators: Vec<IsAllowedBoxed>,
+}
+
+impl AnyShouldSucceed {
+    /// Creates new [`AnyShouldSucceed`]
+    ///
+    /// # Errors
+    /// If provided validators have different types.
+    /// Type of the first element in the `validators` is considered exemplary
+    pub fn new(name: String, validators: Vec<IsAllowedBoxed>) -> Result<Self> {
+        check_all_validators_have_the_same_type(&validators)?;
+
+        Ok(Self { name, validators })
+    }
+
+    fn check_type(&self, validator_type: ValidatorType) -> Result<()> {
+        if let Ok(self_type) = self.validator_type() {
+            if self_type != validator_type {
+                return Err(ValidatorTypeMismatch::expected(validator_type)
+                    .found(self_type)
+                    .into());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validator_type(&self) -> Result<ValidatorType> {
+        self.validators
+            .first()
+            .map_or(Err(DenialReason::NoValidatorsProvided), |first| {
+                Ok(first.validator_type())
+            })
+    }
+}
+
+impl IsAllowed<World, Instruction> for AnyShouldSucceed {
     fn check(
         &self,
         authority: &AccountId,
-        operation: &O,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+        operation: &Instruction,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        self.check_type(ValidatorType::Instruction)?;
+
         for validator in &self.validators {
             if validator.check(authority, operation, wsv).is_ok() {
                 return Ok(());
@@ -520,69 +885,201 @@ impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AnyShouldSucceed<W, 
         Err(format!(
             "None of the instructions succeeded in Any permission check block with name: {}",
             self.name
-        ))
+        )
+        .into())
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission + 'static> From<AnyShouldSucceed<W, O>>
-    for IsAllowedBoxed<W, O>
-{
-    fn from(validator: AnyShouldSucceed<W, O>) -> Self {
-        Box::new(validator)
+impl IsAllowed<World, QueryBox> for AnyShouldSucceed {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &QueryBox,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        self.check_type(ValidatorType::Query)?;
+
+        for validator in &self.validators {
+            if validator.check(authority, operation, wsv).is_ok() {
+                return Ok(());
+            }
+        }
+        Err(format!(
+            "None of the instructions succeeded in Any permission check block with name: {}",
+            self.name
+        )
+        .into())
+    }
+}
+
+impl IsAllowed<World, Expression> for AnyShouldSucceed {
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Expression,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        self.check_type(ValidatorType::Expression)?;
+
+        for validator in &self.validators {
+            if validator.check(authority, operation, wsv).is_ok() {
+                return Ok(());
+            }
+        }
+        Err(format!(
+            "None of the instructions succeeded in Any permission check block with name: {}",
+            self.name
+        )
+        .into())
+    }
+}
+
+impl TryFrom<AnyShouldSucceed> for IsAllowedBoxed {
+    type Error = DenialReason;
+
+    fn try_from(value: AnyShouldSucceed) -> std::result::Result<Self, Self::Error> {
+        match value.validator_type()? {
+            ValidatorType::Instruction => {
+                Ok(IsInstructionAllowedBoxed::World(Box::new(value)).into())
+            }
+            ValidatorType::Query => Ok(IsQueryAllowedBoxed::World(Box::new(value)).into()),
+            ValidatorType::Expression => {
+                Ok(IsExpressionAllowedBoxed::World(Box::new(value)).into())
+            }
+        }
+    }
+}
+
+impl TryFrom<AnyShouldSucceed> for IsInstructionAllowedBoxed {
+    type Error = DenialReason;
+
+    fn try_from(value: AnyShouldSucceed) -> std::result::Result<Self, Self::Error> {
+        let validator_type = value.validator_type()?;
+        validator_type.check_equal(ValidatorType::Instruction)?;
+
+        Ok(IsInstructionAllowedBoxed::World(Box::new(value)))
+    }
+}
+
+impl TryFrom<AnyShouldSucceed> for IsQueryAllowedBoxed {
+    type Error = DenialReason;
+
+    fn try_from(value: AnyShouldSucceed) -> std::result::Result<Self, Self::Error> {
+        let validator_type = value.validator_type()?;
+        validator_type.check_equal(ValidatorType::Query)?;
+
+        Ok(IsQueryAllowedBoxed::World(Box::new(value)))
+    }
+}
+
+impl TryFrom<AnyShouldSucceed> for IsExpressionAllowedBoxed {
+    type Error = DenialReason;
+
+    fn try_from(value: AnyShouldSucceed) -> std::result::Result<Self, Self::Error> {
+        let validator_type = value.validator_type()?;
+        validator_type.check_equal(ValidatorType::Expression)?;
+
+        Ok(IsExpressionAllowedBoxed::World(Box::new(value)))
     }
 }
 
 /// Builder to combine multiple validation checks into one.
-#[derive(Default)]
-#[must_use = ".build() not used"]
-pub struct ValidatorBuilder<W: WorldTrait, O: NeedsPermission> {
-    validators: Vec<IsAllowedBoxed<W, O>>,
+#[derive(Debug, Copy, Clone)]
+pub struct ValidatorBuilder;
+
+/// Helper struct for [`ValidatorBuilder`].
+/// Makes sure there is at least one validator and all validators have the same type
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct ValidatorBuilderWithValidators<
+    O: NeedsPermission,
+    V: IsAllowed<World, O> + Into<IsAllowedBoxed>,
+> {
+    validators: Vec<IsAllowedBoxed>,
+    _phantom_operation: PhantomData<O>,
+    _phantom_validator: PhantomData<V>,
 }
 
-impl<W: WorldTrait, O: NeedsPermission + 'static> ValidatorBuilder<W, O> {
-    /// Returns new `ValidatorBuilder`, with empty set of validator checks.
-    pub fn new() -> Self {
-        ValidatorBuilder {
-            validators: Vec::new(),
+impl ValidatorBuilder {
+    /// Returns new [`ValidatorBuilderWithValidators`] with provided `validator`
+    pub fn with_validator<O, V, E>(validator: impl Into<V>) -> ValidatorBuilderWithValidators<O, V>
+    where
+        O: NeedsPermission,
+        V: IsAllowed<World, O>
+            + Into<IsAllowedBoxed>
+            + TryFrom<AllShouldSucceed, Error = E>
+            + TryFrom<AnyShouldSucceed, Error = E>,
+        E: Debug,
+    {
+        ValidatorBuilderWithValidators::new(validator)
+    }
+
+    /// Returns new [`ValidatorBuilderWithValidators`]
+    /// with provided recursive instruction `validator`
+    pub fn with_recursive_validator(
+        validator: impl Into<IsInstructionAllowedBoxed>,
+    ) -> ValidatorBuilderWithValidators<Instruction, IsInstructionAllowedBoxed> {
+        let instruction_validator =
+            IsInstructionAllowedBoxed::World(Box::new(CheckNested::new(validator.into())));
+        ValidatorBuilderWithValidators::new(instruction_validator)
+    }
+}
+
+#[allow(clippy::expect_used)]
+impl<O, V, E> ValidatorBuilderWithValidators<O, V>
+where
+    O: NeedsPermission,
+    V: IsAllowed<World, O>
+        + Into<IsAllowedBoxed>
+        + TryFrom<AllShouldSucceed, Error = E>
+        + TryFrom<AnyShouldSucceed, Error = E>,
+    E: Debug,
+{
+    fn new(validator: impl Into<V>) -> Self {
+        Self {
+            validators: vec![validator.into().into()],
+            _phantom_operation: PhantomData,
+            _phantom_validator: PhantomData,
         }
     }
 
     /// Adds a validator to the list.
-    pub fn with_validator(self, validator: impl Into<IsAllowedBoxed<W, O>>) -> Self {
-        ValidatorBuilder {
-            validators: self
-                .validators
-                .into_iter()
-                .chain(iter::once(validator.into()))
-                .collect(),
-        }
+    pub fn with_validator(mut self, validator: impl Into<V>) -> Self {
+        self.validators.push(validator.into().into());
+        self
     }
 
     /// Returns [`AllShouldSucceed`] that will check all the checks of previously supplied validators.
-    pub fn all_should_succeed(self) -> IsAllowedBoxed<W, O> {
-        AllShouldSucceed {
-            validators: self.validators,
-        }
-        .into()
+    pub fn all_should_succeed(self) -> V {
+        AllShouldSucceed::new(self.validators)
+            .expect(
+                "`ValidatorBuilder` guarantees that all validators have the same specified type",
+            )
+            .try_into()
+            .expect("`ValidatorBuilder` guarantees that there is at least one validator")
     }
 
-    /// Returns [`AnyShouldSucceed`] that will succeed if any of the checks of previously supplied validators succeds.
-    pub fn any_should_succeed(self, check_name: impl Into<String>) -> IsAllowedBoxed<W, O> {
-        AnyShouldSucceed {
-            name: check_name.into(),
-            validators: self.validators,
-        }
-        .into()
+    /// Returns [`AnyShouldSucceed`] that will succeed if any of the checks of previously supplied validators succeeds.
+    ///
+    /// # Errors
+    /// If provided validators have different types.
+    /// Type of the first validators is considered exemplary
+    pub fn any_should_succeed(self, check_name: impl Into<String>) -> V {
+        AnyShouldSucceed::new(check_name.into(), self.validators)
+            .expect(
+                "`ValidatorBuilder` guarantees that all validators have the same specified type",
+            )
+            .try_into()
+            .expect("`ValidatorBuilder` guarantees that there is at least one validator")
     }
 }
 
-impl<W: WorldTrait> ValidatorBuilder<W, Instruction> {
+impl ValidatorBuilderWithValidators<Instruction, IsInstructionAllowedBoxed> {
     /// Adds a validator to the list and wraps it with `CheckNested` to check nested permissions.
-    pub fn with_recursive_validator(
-        self,
-        validator: impl Into<IsInstructionAllowedBoxed<W>>,
-    ) -> Self {
-        self.with_validator(CheckNested::new(validator.into()))
+    pub fn with_recursive_validator(self, validator: impl Into<IsInstructionAllowedBoxed>) -> Self {
+        let instruction_validator =
+            IsInstructionAllowedBoxed::World(Box::new(CheckNested::new(validator.into())));
+        self.with_validator(instruction_validator)
     }
 }
 
@@ -623,8 +1120,26 @@ impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllowAll {
         _authority: &AccountId,
         _instruction: &O,
         _wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+    ) -> Result<()> {
         Ok(())
+    }
+}
+
+impl From<AllowAll> for IsInstructionAllowedBoxed {
+    fn from(value: AllowAll) -> Self {
+        IsInstructionAllowedBoxed::World(Box::new(value))
+    }
+}
+
+impl From<AllowAll> for IsQueryAllowedBoxed {
+    fn from(value: AllowAll) -> Self {
+        IsQueryAllowedBoxed::World(Box::new(value))
+    }
+}
+
+impl From<AllowAll> for IsExpressionAllowedBoxed {
+    fn from(value: AllowAll) -> Self {
+        IsExpressionAllowedBoxed::World(Box::new(value))
     }
 }
 
@@ -634,25 +1149,36 @@ impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for DenyAll {
         _authority: &AccountId,
         _instruction: &O,
         _wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
-        Err("All operations are denied.".to_owned())
+    ) -> Result<()> {
+        Err("All operations are denied.".to_owned().into())
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission> From<AllowAll> for IsAllowedBoxed<W, O> {
-    fn from(AllowAll: AllowAll) -> Self {
-        Box::new(AllowAll)
+impl From<DenyAll> for IsInstructionAllowedBoxed {
+    fn from(value: DenyAll) -> Self {
+        IsInstructionAllowedBoxed::World(Box::new(value))
     }
 }
 
-impl<W: WorldTrait, O: NeedsPermission> From<DenyAll> for IsAllowedBoxed<W, O> {
-    fn from(DenyAll: DenyAll) -> Self {
-        Box::new(DenyAll)
+impl From<DenyAll> for IsQueryAllowedBoxed {
+    fn from(value: DenyAll) -> Self {
+        IsQueryAllowedBoxed::World(Box::new(value))
+    }
+}
+
+impl From<DenyAll> for IsExpressionAllowedBoxed {
+    fn from(value: DenyAll) -> Self {
+        IsExpressionAllowedBoxed::World(Box::new(value))
     }
 }
 
 /// Boxed validator implementing [`HasToken`] validator trait.
-pub type HasTokenBoxed<W> = Box<dyn HasToken<W> + Send + Sync>;
+#[derive(Debug, Clone, FromVariant, Serialize)]
+pub enum HasTokenBoxed {
+    World(#[skip_container] Box<dyn HasToken<World> + Send + Sync>),
+    #[cfg(test)]
+    Mock(#[skip_container] Box<dyn HasToken<MockWorld> + Send + Sync>),
+}
 
 /// Trait that should be implemented by validator that checks the need to have permission token for a certain action.
 pub trait HasToken<W: WorldTrait>: Debug + dyn_clone::DynClone + erased_serde::Serialize {
@@ -663,26 +1189,42 @@ pub trait HasToken<W: WorldTrait>: Debug + dyn_clone::DynClone + erased_serde::S
     /// # Errors
     ///
     /// In the case when it is impossible to deduce the required token
-    /// given current data (e.g. unexistent account or unaplicable
+    /// given current data (e.g. inexistent account or unapplicable
     /// instruction).
     fn token(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
         wsv: &WorldStateView<W>,
-    ) -> Result<PermissionToken, String>;
+    ) -> std::result::Result<PermissionToken, String>;
+}
+
+#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
+impl HasToken<World> for HasTokenBoxed {
+    fn token(
+        &self,
+        authority: &AccountId,
+        instruction: &Instruction,
+        wsv: &WorldStateView<World>,
+    ) -> std::result::Result<PermissionToken, String> {
+        match self {
+            HasTokenBoxed::World(world) => world.token(authority, instruction, wsv),
+            #[cfg(test)]
+            HasTokenBoxed::Mock(_) => unimplemented!(),
+        }
+    }
 }
 
 dyn_clone::clone_trait_object!(<W> HasToken<W> where W: WorldTrait);
 erased_serde::serialize_trait_object!(<W> HasToken<W> where W: WorldTrait);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for HasTokenBoxed<W> {
+impl IsAllowed<World, Instruction> for HasTokenBoxed {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
         let permission_token = self
             .token(authority, instruction, wsv)
             .map_err(|err| format!("Unable to identify corresponding permission token: {}", err))?;
@@ -697,7 +1239,8 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for HasTokenBoxed<W> {
             Err(format!(
                 "Account does not have the needed permission token: {:?}.",
                 permission_token
-            ))
+            )
+            .into())
         }
     }
 }
@@ -708,7 +1251,12 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for HasTokenBoxed<W> {
 // when we have
 // impl <T: HasToken> PermissionsValidator for T {}
 /// Boxed validator implementing [`IsGrantAllowed`] trait.
-pub type IsGrantAllowedBoxed<W> = Box<dyn IsGrantAllowed<W> + Send + Sync>;
+#[derive(Debug, Clone, FromVariant, Serialize)]
+pub enum IsGrantAllowedBoxed {
+    World(#[skip_container] Box<dyn IsGrantAllowed<World> + Send + Sync>),
+    #[cfg(test)]
+    Mock(#[skip_container] Box<dyn IsGrantAllowed<MockWorld> + Send + Sync>),
+}
 
 /// Checks the [`GrantBox`] instruction.
 pub trait IsGrantAllowed<W: WorldTrait>:
@@ -723,14 +1271,35 @@ pub trait IsGrantAllowed<W: WorldTrait>:
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason>;
+    ) -> Result<()>;
 }
 
 dyn_clone::clone_trait_object!(<W> IsGrantAllowed<W> where W: WorldTrait);
 erased_serde::serialize_trait_object!(<W> IsGrantAllowed<W> where W: WorldTrait);
 
+#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
+impl IsGrantAllowed<World> for IsGrantAllowedBoxed {
+    fn check_grant(
+        &self,
+        authority: &AccountId,
+        instruction: &GrantBox,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        match self {
+            IsGrantAllowedBoxed::World(world) => world.check_grant(authority, instruction, wsv),
+            #[cfg(test)]
+            IsGrantAllowedBoxed::Mock(_) => unimplemented!(),
+        }
+    }
+}
+
 /// Boxed validator implementing the [`IsRevokeAllowed`] trait.
-pub type IsRevokeAllowedBoxed<W> = Box<dyn IsRevokeAllowed<W> + Send + Sync>;
+#[derive(Debug, Clone, FromVariant, Serialize)]
+pub enum IsRevokeAllowedBoxed {
+    World(#[skip_container] Box<dyn IsRevokeAllowed<World> + Send + Sync>),
+    #[cfg(test)]
+    Mock(#[skip_container] Box<dyn IsRevokeAllowed<MockWorld> + Send + Sync>),
+}
 
 /// Checks the [`RevokeBox`] instruction.
 pub trait IsRevokeAllowed<W: WorldTrait>:
@@ -745,19 +1314,35 @@ pub trait IsRevokeAllowed<W: WorldTrait>:
         authority: &AccountId,
         instruction: &RevokeBox,
         wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason>;
+    ) -> Result<()>;
 }
 
 dyn_clone::clone_trait_object!(<W> IsRevokeAllowed<W> where W: WorldTrait);
 erased_serde::serialize_trait_object!(<W> IsRevokeAllowed<W> where W: WorldTrait);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for IsGrantAllowedBoxed<W> {
+#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
+impl IsRevokeAllowed<World> for IsRevokeAllowedBoxed {
+    fn check_revoke(
+        &self,
+        authority: &AccountId,
+        instruction: &RevokeBox,
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
+        match self {
+            IsRevokeAllowedBoxed::World(world) => world.check_revoke(authority, instruction, wsv),
+            #[cfg(test)]
+            IsRevokeAllowedBoxed::Mock(_) => unimplemented!(),
+        }
+    }
+}
+
+impl IsAllowed<World, Instruction> for IsGrantAllowedBoxed {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
         if let Instruction::Grant(isi) = instruction {
             self.check_grant(authority, isi, wsv)
         } else {
@@ -766,30 +1351,18 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for IsGrantAllowedBoxed<W> {
     }
 }
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for IsRevokeAllowedBoxed<W> {
+impl IsAllowed<World, Instruction> for IsRevokeAllowedBoxed {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
-    ) -> Result<(), DenialReason> {
+        wsv: &WorldStateView<World>,
+    ) -> Result<()> {
         if let Instruction::Revoke(isi) = instruction {
             self.check_revoke(authority, isi, wsv)
         } else {
             Ok(())
         }
-    }
-}
-
-impl<W: WorldTrait> From<IsGrantAllowedBoxed<W>> for IsInstructionAllowedBoxed<W> {
-    fn from(validator: IsGrantAllowedBoxed<W>) -> Self {
-        Box::new(validator)
-    }
-}
-
-impl<W: WorldTrait> From<IsRevokeAllowedBoxed<W>> for IsInstructionAllowedBoxed<W> {
-    fn from(validator: IsRevokeAllowedBoxed<W>) -> Self {
-        Box::new(validator)
     }
 }
 
@@ -806,7 +1379,7 @@ impl<W: WorldTrait> From<IsRevokeAllowedBoxed<W>> for IsInstructionAllowedBoxed<
 fn unpack_if_role_grant<W: WorldTrait>(
     instruction: Instruction,
     wsv: &WorldStateView<W>,
-) -> Result<Vec<Instruction>> {
+) -> eyre::Result<Vec<Instruction>> {
     let grant = if let Instruction::Grant(grant) = &instruction {
         grant
     } else {
@@ -846,7 +1419,7 @@ fn unpack_if_role_grant<W: WorldTrait>(
 pub fn unpack_if_role_revoke<W: WorldTrait>(
     instruction: Instruction,
     wsv: &WorldStateView<W>,
-) -> Result<Vec<Instruction>> {
+) -> eyre::Result<Vec<Instruction>> {
     let revoke = if let Instruction::Revoke(revoke) = &instruction {
         revoke
     } else {
@@ -876,24 +1449,28 @@ pub fn unpack_if_role_revoke<W: WorldTrait>(
 ///
 /// If given instruction is not permitted to execute
 #[allow(clippy::expect_used)]
-pub fn check_instruction_permissions<W: WorldTrait>(
+pub fn check_instruction_permissions(
     account_id: &AccountId,
     instruction: &Instruction,
-    is_instruction_allowed: &IsInstructionAllowedBoxed<W>,
-    is_query_allowed: &IsQueryAllowedBoxed<W>,
-    wsv: &WorldStateView<W>,
-) -> Result<(), TransactionRejectionReason> {
+    is_instruction_allowed: &IsInstructionAllowedBoxed,
+    is_query_allowed: &IsQueryAllowedBoxed,
+    wsv: &WorldStateView<World>,
+) -> std::result::Result<(), TransactionRejectionReason> {
     let granted_instructions = &unpack_if_role_grant(instruction.clone(), wsv)
         .expect("Infallible. Evaluations have been checked by instruction execution.");
 
     for isi in granted_instructions {
         is_instruction_allowed
             .check(account_id, isi, wsv)
-            .map_err(|reason| NotPermittedFail { reason })
+            .map_err(|reason| NotPermittedFail {
+                reason: reason.to_string(),
+            })
             .map_err(TransactionRejectionReason::NotPermitted)?;
     }
     check_query_in_instruction(account_id, instruction, wsv, is_query_allowed)
-        .map_err(|reason| NotPermittedFail { reason })
+        .map_err(|reason| NotPermittedFail {
+            reason: reason.to_string(),
+        })
         .map_err(TransactionRejectionReason::NotPermitted)?;
 
     Ok(())
@@ -903,8 +1480,8 @@ pub mod prelude {
     //! Exports common types for permissions.
 
     pub use super::{
-        AllowAll, DenialReason, HasTokenBoxed, IsAllowedBoxed, IsGrantAllowed, IsGrantAllowedBoxed,
-        IsRevokeAllowed, IsRevokeAllowedBoxed,
+        error::DenialReason, AllowAll, HasTokenBoxed, IsAllowedBoxed, IsGrantAllowed,
+        IsGrantAllowedBoxed, IsRevokeAllowed, IsRevokeAllowedBoxed,
     };
 }
 
@@ -922,9 +1499,9 @@ mod tests {
     #[derive(Debug, Clone, Serialize)]
     struct DenyBurn;
 
-    impl<W: WorldTrait> From<DenyBurn> for IsInstructionAllowedBoxed<W> {
+    impl From<DenyBurn> for IsInstructionAllowedBoxed {
         fn from(permissions: DenyBurn) -> Self {
-            Box::new(permissions)
+            IsInstructionAllowedBoxed::World(Box::new(permissions))
         }
     }
 
@@ -934,9 +1511,9 @@ mod tests {
             _authority: &AccountId,
             instruction: &Instruction,
             _wsv: &WorldStateView<W>,
-        ) -> Result<(), super::DenialReason> {
+        ) -> Result<()> {
             match instruction {
-                Instruction::Burn(_) => Err("Denying sequence isi.".to_owned()),
+                Instruction::Burn(_) => Err("Denying sequence isi.".to_owned().into()),
                 _ => Ok(()),
             }
         }
@@ -945,24 +1522,24 @@ mod tests {
     #[derive(Debug, Clone, Serialize)]
     struct DenyAlice;
 
-    impl<W: WorldTrait> From<DenyAlice> for IsInstructionAllowedBoxed<W> {
-        fn from(permissions: DenyAlice) -> Self {
-            Box::new(permissions)
-        }
-    }
-
     impl<W: WorldTrait> IsAllowed<W, Instruction> for DenyAlice {
         fn check(
             &self,
             authority: &AccountId,
             _instruction: &Instruction,
             _wsv: &WorldStateView<W>,
-        ) -> Result<(), super::DenialReason> {
+        ) -> Result<()> {
             if authority.name.as_ref() == "alice" {
-                Err("Alice account is denied.".to_owned())
+                Err("Alice account is denied.".to_owned().into())
             } else {
                 Ok(())
             }
+        }
+    }
+
+    impl From<DenyAlice> for IsInstructionAllowedBoxed {
+        fn from(value: DenyAlice) -> Self {
+            IsInstructionAllowedBoxed::World(Box::new(value))
         }
     }
 
@@ -977,7 +1554,7 @@ mod tests {
             _authority: &AccountId,
             _instruction: &Instruction,
             _wsv: &WorldStateView<W>,
-        ) -> Result<PermissionToken, String> {
+        ) -> std::result::Result<PermissionToken, String> {
             Ok(PermissionToken::new(
                 Name::from_str("token").expect("Valid"),
             ))
@@ -1004,10 +1581,10 @@ mod tests {
 
     #[test]
     pub fn multiple_validators_combined() {
-        let permissions_validator = ValidatorBuilder::new()
-            .with_validator(DenyBurn)
-            .with_validator(DenyAlice)
-            .all_should_succeed();
+        let permissions_validator: IsInstructionAllowedBoxed =
+            ValidatorBuilder::with_validator(DenyBurn)
+                .with_validator(DenyAlice)
+                .all_should_succeed();
         let instruction_burn: Instruction =
             BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
         let instruction_fail = Instruction::Fail(FailBox {
@@ -1032,9 +1609,8 @@ mod tests {
 
     #[test]
     pub fn recursive_validator() {
-        let permissions_validator = ValidatorBuilder::new()
-            .with_recursive_validator(DenyBurn)
-            .all_should_succeed();
+        let permissions_validator =
+            ValidatorBuilder::with_recursive_validator(DenyBurn).all_should_succeed();
         let instruction_burn: Instruction =
             BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
         let instruction_fail = Instruction::Fail(FailBox {
@@ -1056,7 +1632,7 @@ mod tests {
     }
 
     #[test]
-    pub fn granted_permission() -> Result<()> {
+    pub fn granted_permission() -> eyre::Result<()> {
         let alice_id = <Account as Identifiable>::Id::from_str("alice@test")?;
         let bob_id = <Account as Identifiable>::Id::from_str("bob@test")?;
         let alice_xor_id = <Asset as Identifiable>::Id::new(
@@ -1071,7 +1647,7 @@ mod tests {
         )));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
-        let validator: HasTokenBoxed<_> = Box::new(GrantedToken);
+        let validator = HasTokenBoxed::World(Box::new(GrantedToken));
         assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());
         assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_ok());
         Ok(())
