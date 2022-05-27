@@ -18,7 +18,7 @@ pub struct Pair<K, V>(pub K, pub V);
 // u32/i32, u64/i64 natively. Otherwise, `repr(i8)` would suffice
 #[repr(i32)]
 pub enum FfiResult {
-    /// Handle id doesn't identify any known handle
+    /// Handle id doesn't identify any known handles
     UnknownHandle = -4_i32,
     /// Executing the wrapped method on handle returned error
     ExecutionFail = -3_i32,
@@ -43,7 +43,8 @@ macro_rules! handles {
     ( $id:expr, $(,)? ) => {
         /// Represents handle in an FFI context
         pub trait Handle {
-            /// Unique identifier of the handle
+            /// Unique identifier of the handle. Most commonly, it is
+            /// used to facilitate generic monomorphization over FFI
             const ID: $crate::HandleId;
         }
     };

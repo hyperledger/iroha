@@ -79,18 +79,7 @@ impl Limits {
 
 /// Collection of parameters by their names with checked insertion.
 #[derive(
-    Debug,
-    Clone,
-    Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Debug, Clone, Default, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[serde(transparent)]
 #[allow(clippy::multiple_inherent_impl)]

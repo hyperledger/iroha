@@ -322,18 +322,7 @@ pub enum IdBox {
 
 /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum RegistrableBox {
     /// [`Peer`](`peer::Peer`) variant.
@@ -354,18 +343,7 @@ pub enum RegistrableBox {
 
 /// Sized container for all possible entities.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum IdentifiableBox {
     /// [`Peer`](`peer::Peer`) variant.
@@ -395,18 +373,7 @@ pub type ValueBox = Box<Value>;
 
 /// Sized container for all possible values.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 #[allow(clippy::enum_variant_names)]
 pub enum Value {
@@ -787,7 +754,6 @@ mod ffi {
         account::Account,
         asset::Asset,
         domain::Domain,
-        metadata::Metadata,
         permissions::PermissionToken,
         role::Role,
         Name,
@@ -802,6 +768,10 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
+
+        iroha_crypto::PublicKey,
+        iroha_crypto::PrivateKey,
+        iroha_crypto::KeyPair
     }
 }
 
