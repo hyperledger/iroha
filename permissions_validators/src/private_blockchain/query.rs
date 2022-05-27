@@ -17,13 +17,13 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
         use QueryBox::*;
         let context = Context::new();
         match query {
-            FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => Err(
-                " Only access to the assets of the same domain is permitted."
+            FindAssetsByAssetDefinitionId(_) | FindAssetsByName(_) | FindAllAssets(_) => {
+                Err("Only access to the assets of the same domain is permitted."
                     .to_owned()
-                    .into(),
-            ),
+                    .into())
+            }
             FindAllAccounts(_) | FindAccountsByName(_) | FindAccountsWithAsset(_) => Err(
-                " Only access to the accounts of the same domain is permitted."
+                "Only access to the accounts of the same domain is permitted."
                     .to_owned()
                     .into(),
             ),
@@ -32,14 +32,14 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                     .to_owned()
                     .into(),
             ),
-            FindAllDomains(_) => Err(" Only access to the domain of the account is permitted."
+            FindAllDomains(_) => Err("Only access to the domain of the account is permitted."
                 .to_owned()
                 .into()),
-            FindAllRoles(_) => Err(" Only access to roles of the same domain is permitted."
+            FindAllRoles(_) => Err("Only access to roles of the same domain is permitted."
                 .to_owned()
                 .into()),
             FindAllRoleIds(_) => Ok(()), // In case you need to debug the permissions.
-            FindRoleByRoleId(_) => Err(" Only access to roles of the same domain is permitted."
+            FindRoleByRoleId(_) => Err("Only access to roles of the same domain is permitted."
                 .to_owned()
                 .into()),
             FindAllPeers(_) => Ok(()), // Can be obtained in other ways, so why hide it.
@@ -57,11 +57,9 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                         if action.technical_account() == authority {
                             Ok(())
                         } else {
-                            Err(
-                                " Cannot access Trigger if you're not the technical account."
-                                    .to_owned()
-                                    .into(),
-                            )
+                            Err("Cannot access Trigger if you're not the technical account."
+                                .to_owned()
+                                .into())
                         }
                     })
                     .ok_or_else(|| {
@@ -269,9 +267,9 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                     Err(format!("Cannot access a different domain: {}.", domain_id).into())
                 }
             }
-            FindAllBlocks(_) => Err(" Access to all blocks not permitted".to_owned().into()),
+            FindAllBlocks(_) => Err("Access to all blocks not permitted".to_owned().into()),
             FindAllTransactions(_) => Err(
-                " Only access to transactions in the same domain is permitted."
+                "Only access to transactions in the same domain is permitted."
                     .to_owned()
                     .into(),
             ),
@@ -363,12 +361,12 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                 | FindAccountsByDomainId(_)
                 | FindAccountsWithAsset(_)
                 | FindAllAccounts(_) => {
-                    Err(" Other accounts are private.".to_owned().into())
+                    Err("Other accounts are private.".to_owned().into())
                 }
                 | FindAllDomains(_)
                 | FindDomainById(_)
                 | FindDomainKeyValueByIdAndKey(_) => {
-                    Err(" Only access to your account's data is permitted.".to_owned().into())
+                    Err("Only access to your account's data is permitted.".to_owned().into())
                 },
             FindAssetsByDomainIdAndAssetDefinitionId(_)
                 | FindAssetsByName(_) // TODO: I think this is a mistake.
@@ -378,16 +376,16 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                 | FindAssetDefinitionById(_)
                 | FindAssetDefinitionKeyValueByIdAndKey(_)
                 | FindAllAssets(_) => {
-                    Err(" Only access to the assets of your account is permitted.".to_owned().into())
+                    Err("Only access to the assets of your account is permitted.".to_owned().into())
                 }
             FindAllRoles(_) | FindAllRoleIds(_) | FindRoleByRoleId(_) => {
-                Err(" Only access to roles of the same account is permitted.".to_owned().into())
+                Err("Only access to roles of the same account is permitted.".to_owned().into())
             },
             | FindAllActiveTriggerIds(_) => {
-                Err(" Only access to the triggers of the same account is permitted.".to_owned().into())
+                Err("Only access to the triggers of the same account is permitted.".to_owned().into())
             }
             FindAllPeers(_) => {
-                Err(" Only access to your account-local data is permitted.".to_owned().into())
+                Err("Only access to your account-local data is permitted.".to_owned().into())
             }
             FindTriggerById(query) => {
                 // TODO: should differentiate between global and domain-local triggers.
@@ -508,10 +506,10 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                 }
             }
             FindAllBlocks(_) => {
-                Err(" Access to all blocks not permitted".to_owned().into())
+                Err("Access to all blocks not permitted".to_owned().into())
             }
             FindAllTransactions(_) => {
-                Err(" Only access to transactions of the same account is permitted.".to_owned().into())
+                Err("Only access to transactions of the same account is permitted.".to_owned().into())
             },
             FindTransactionsByAccountId(query) => {
                 let account_id = query
