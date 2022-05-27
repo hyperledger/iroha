@@ -1,5 +1,4 @@
 #![allow(clippy::module_name_repetitions)]
-#![allow(missing_docs)] // TODO: Remove
 
 //! This module contains permissions related Iroha functionality.
 
@@ -24,10 +23,14 @@ impl NeedsPermission for QueryBox {}
 // Expression might contain a query, therefore needs to be checked.
 impl NeedsPermission for Expression {}
 
+/// Type of object validator can check
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ValidatorType {
+    /// [`Instruction`] variant
     Instruction,
+    /// [`QueryBox`] variant
     Query,
+    /// [`Expression`] variant
     Expression,
 }
 
@@ -59,16 +62,21 @@ impl std::fmt::Display for ValidatorType {
 }
 
 pub mod error {
+    //! Contains errors structures
+
     use super::ValidatorType;
 
     /// Reason for prohibiting the execution of the particular instruction.
     #[derive(Debug, Clone, thiserror::Error)]
     #[allow(variant_size_differences)]
     pub enum DenialReason {
+        /// [`ValidatorTypeMismatch`] variant
         #[error("{0}")]
         ValidatorTypeMismatch(#[from] ValidatorTypeMismatch),
+        /// Variant for custom error
         #[error("{0}")]
         Custom(String),
+        /// Variant used when at least one [`Validator`](super::IsAllowed) should be provided
         #[error("No validators provided")]
         NoValidatorsProvided,
     }
@@ -79,6 +87,11 @@ pub mod error {
         }
     }
 
+    /// Wrong validator expectation error
+    ///
+    /// I.e. used when user tries to validate [`QueryBox`](super::QueryBox) with
+    /// [`IsAllowedBoxed`](super::IsAllowedBoxed) containing
+    /// [`IsAllowedBoxed::Instruction`](super::IsAllowedBoxed::Instruction) variant
     #[derive(Debug, Copy, Clone, thiserror::Error)]
     #[error("Expected `{expected}` validator type, but found `{found}`")]
     pub struct ValidatorTypeMismatch {
@@ -87,17 +100,20 @@ pub mod error {
     }
 
     impl ValidatorTypeMismatch {
+        /// Start construction of [`ValidatorTypeMismatch`] by providing *expected* type
         pub fn expected(expected: ValidatorType) -> Expected {
             Expected { expected }
         }
     }
 
+    /// Helper struct for constructing [`ValidatorTypeMismatch`]
     #[derive(Debug, Copy, Clone)]
     pub struct Expected {
         expected: ValidatorType,
     }
 
     impl Expected {
+        /// Finish construction of [`ValidatorTypeMismatch`] by providing *found* type
         pub fn found(self, found: ValidatorType) -> ValidatorTypeMismatch {
             ValidatorTypeMismatch {
                 expected: self.expected,
@@ -109,6 +125,7 @@ pub mod error {
 
 use error::*;
 
+/// Result type for permission validators
 pub type Result<T> = std::result::Result<T, DenialReason>;
 
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
@@ -130,12 +147,16 @@ erased_serde::serialize_trait_object!(<W, O> IsAllowed<W, O> where W: WorldTrait
 /// Box with permissions validator.
 #[derive(Debug, Clone, FromVariant, Serialize)]
 pub enum IsAllowedBoxed {
+    /// [`Instruction`] validator
     Instruction(IsInstructionAllowedBoxed),
+    /// [`QueryBox`] validator
     Query(IsQueryAllowedBoxed),
+    /// [`Expression`] validator
     Expression(IsExpressionAllowedBoxed),
 }
 
 impl IsAllowedBoxed {
+    /// Get type of validator inside [`IsAllowedBoxed`]
     pub fn validator_type(&self) -> ValidatorType {
         match self {
             IsAllowedBoxed::Instruction(_) => ValidatorType::Instruction,
@@ -199,7 +220,9 @@ impl IsAllowed<World, Expression> for IsAllowedBoxed {
 /// Box with permissions validator for [`Instruction`].
 #[derive(Debug, Clone, FromVariant, Serialize)]
 pub enum IsInstructionAllowedBoxed {
+    /// Validator for [`World`]
     World(#[skip_container] Box<dyn IsAllowed<World, Instruction> + Send + Sync>),
+    /// Validator for [`MockWorld`]
     #[cfg(test)]
     Mock(#[skip_container] Box<dyn IsAllowed<MockWorld, Instruction> + Send + Sync>),
 }
@@ -225,7 +248,9 @@ impl IsAllowed<World, Instruction> for IsInstructionAllowedBoxed {
 /// Box with permissions validator for [`QueryBox`].
 #[derive(Debug, Clone, FromVariant, Serialize)]
 pub enum IsQueryAllowedBoxed {
+    /// Validator for [`World`]
     World(#[skip_container] Box<dyn IsAllowed<World, QueryBox> + Send + Sync>),
+    /// Validator for [`MockWorld`]
     #[cfg(test)]
     Mock(#[skip_container] Box<dyn IsAllowed<MockWorld, QueryBox> + Send + Sync>),
 }
@@ -249,7 +274,9 @@ impl IsAllowed<World, QueryBox> for IsQueryAllowedBoxed {
 /// Box with permissions validator for [`Expression`].
 #[derive(Debug, Clone, FromVariant, Serialize)]
 pub enum IsExpressionAllowedBoxed {
+    /// Validator for [`World`]
     World(#[skip_container] Box<dyn IsAllowed<World, Expression> + Send + Sync>),
+    /// Validator for [`MockWorld`]
     #[cfg(test)]
     Mock(#[skip_container] Box<dyn IsAllowed<MockWorld, Expression> + Send + Sync>),
 }
@@ -273,7 +300,7 @@ impl IsAllowed<World, Expression> for IsExpressionAllowedBoxed {
 }
 
 /// Trait for joining validators with `or` method, auto-implemented
-/// for all types which are convertible to [`IsInstructionAllowedBoxed`], [`IsQueryAllowedBoxed`], [`IsExpressionAllowedBoxed`].
+/// for all types which are convertible to something implementing [`IsAllowed`]
 pub trait ValidatorApplyOr<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>>: Into<V> {
     /// Combines two validators into [`Or`].
     ///
@@ -316,7 +343,6 @@ impl<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>> Or<W, O, V> {
     }
 }
 
-/// TODO: Use macro
 impl IsAllowed<World, Instruction> for Or<World, Instruction, IsInstructionAllowedBoxed> {
     fn check(
         &self,
@@ -730,7 +756,6 @@ impl AllShouldSucceed {
     }
 }
 
-/// TODO: Use macro
 impl IsAllowed<World, Instruction> for AllShouldSucceed {
     fn check(
         &self,
@@ -1049,7 +1074,7 @@ where
         self
     }
 
-    /// Returns [`AllShouldSucceed`] that will check all the checks of previously supplied validators.
+    /// Returns *validator* that will check all the checks of previously supplied validators.
     pub fn all_should_succeed(self) -> V {
         AllShouldSucceed::new(self.validators)
             .expect(
@@ -1059,7 +1084,7 @@ where
             .expect("`ValidatorBuilder` guarantees that there is at least one validator")
     }
 
-    /// Returns [`AnyShouldSucceed`] that will succeed if any of the checks of previously supplied validators succeeds.
+    /// Returns *validator* that will succeed if any of the checks of previously supplied validators succeeds.
     ///
     /// # Errors
     /// If provided validators have different types.
@@ -1175,7 +1200,9 @@ impl From<DenyAll> for IsExpressionAllowedBoxed {
 /// Boxed validator implementing [`HasToken`] validator trait.
 #[derive(Debug, Clone, FromVariant, Serialize)]
 pub enum HasTokenBoxed {
+    /// Validator for [`World`]
     World(#[skip_container] Box<dyn HasToken<World> + Send + Sync>),
+    /// Validator for [`MockWorld`]
     #[cfg(test)]
     Mock(#[skip_container] Box<dyn HasToken<MockWorld> + Send + Sync>),
 }
@@ -1253,7 +1280,9 @@ impl IsAllowed<World, Instruction> for HasTokenBoxed {
 /// Boxed validator implementing [`IsGrantAllowed`] trait.
 #[derive(Debug, Clone, FromVariant, Serialize)]
 pub enum IsGrantAllowedBoxed {
+    /// Validator for [`World`]
     World(#[skip_container] Box<dyn IsGrantAllowed<World> + Send + Sync>),
+    /// Validator for [`MockWorld`]
     #[cfg(test)]
     Mock(#[skip_container] Box<dyn IsGrantAllowed<MockWorld> + Send + Sync>),
 }
@@ -1296,7 +1325,9 @@ impl IsGrantAllowed<World> for IsGrantAllowedBoxed {
 /// Boxed validator implementing the [`IsRevokeAllowed`] trait.
 #[derive(Debug, Clone, FromVariant, Serialize)]
 pub enum IsRevokeAllowedBoxed {
+    /// Validator for [`World`]
     World(#[skip_container] Box<dyn IsRevokeAllowed<World> + Send + Sync>),
+    /// Validator for [`MockWorld`]
     #[cfg(test)]
     Mock(#[skip_container] Box<dyn IsRevokeAllowed<MockWorld> + Send + Sync>),
 }
