@@ -17,6 +17,8 @@ const SKIP_CONTAINER: &str = "skip_container";
 /// ```rust
 /// use iroha_derive::FromVariant;
 ///
+/// trait MyTrait {}
+///
 /// #[derive(FromVariant)]
 /// enum Obj {
 ///     Uint(u32),
