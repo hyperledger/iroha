@@ -225,10 +225,7 @@ impl<'wrld> Runtime<'wrld> {
         Engine::new(&Self::create_config()).map_err(Error::Initialization)
     }
 
-    fn create_store(
-        &self,
-        state: State<'wrld, W>,
-    ) -> Result<Store<State<'wrld, W>>, anyhow::Error> {
+    fn create_store(&self, state: State<'wrld>) -> Result<Store<State<'wrld>>, anyhow::Error> {
         let mut store = Store::new(&self.engine, state);
 
         store.limiter(|stat| &mut stat.store_limits);
@@ -239,7 +236,7 @@ impl<'wrld> Runtime<'wrld> {
 
     fn create_smart_contract(
         &self,
-        store: &mut Store<State<'wrld, W>>,
+        store: &mut Store<State<'wrld>>,
         bytes: impl AsRef<[u8]>,
     ) -> Result<wasmtime::Instance, anyhow::Error> {
         let module = Module::new(&self.engine, bytes)?;
