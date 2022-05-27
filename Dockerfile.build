@@ -1,0 +1,4 @@
+FROM    iroha2:env
+WORKDIR /iroha
+COPY    . .
+RUN     mold --run cargo build --release
