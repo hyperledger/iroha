@@ -5,7 +5,7 @@ use syn::{parse_quote, Ident, Type};
 
 use crate::{
     get_ident,
-    visitor::{FnArgDescriptor, FnDescriptor},
+    impl_visitor::{FnArgDescriptor, FnDescriptor},
 };
 
 pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> proc_macro2::TokenStream {
