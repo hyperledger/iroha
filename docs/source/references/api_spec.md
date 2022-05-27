@@ -338,7 +338,7 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 - `VersionedTransaction` - `iroha_data_model::transaction::VersionedTransaction`
 - `VersionedSignedQueryRequest` - `iroha_data_model::query::VersionedSignedQueryRequest`
 
-- `VersionedQueryResult` - `iroha_data_model::query::VersionedQueryResult`
+- `VersionedPaginatedQueryResult` - `iroha_data_model::query::VersionedPaginatedQueryResult`
 - `QueryError` - `iroha_core::smartcontracts::isi::query::Error`
 - `UnsupportedVersionError` - `iroha_core::smartcontracts::isi::query::UnsupportedVersionError`
 - `FindError` - `iroha_core::smartcontracts::isi::error::FindError`

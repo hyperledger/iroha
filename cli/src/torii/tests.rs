@@ -201,8 +201,8 @@ impl QuerySet {
 impl From<warp::http::Response<warp::hyper::body::Bytes>> for QueryResponseBody {
     fn from(src: warp::http::Response<warp::hyper::body::Bytes>) -> Self {
         if StatusCode::OK == src.status() {
-            let body = VersionedQueryResult::decode_versioned(src.body())
-                .expect("The response body failed to be decoded to VersionedQueryResult even though the status is Ok 200");
+            let body = VersionedPaginatedQueryResult::decode_versioned(src.body())
+                .expect("The response body failed to be decoded to VersionedPaginatedQueryResult even though the status is Ok 200");
             Self::Ok(Box::new(body))
         } else {
             let body = query::Error::decode(&mut src.body().as_ref())
@@ -221,7 +221,7 @@ struct QueryResponseTest {
 
 #[allow(variant_size_differences)]
 enum QueryResponseBody {
-    Ok(Box<VersionedQueryResult>),
+    Ok(Box<VersionedPaginatedQueryResult>),
     Err(query::Error),
 }
 
@@ -230,7 +230,10 @@ impl QueryResponseTest {
         self.status = Some(status);
         self
     }
-    fn body_matches_ok(mut self, predicate: impl Fn(&VersionedQueryResult) -> bool) -> Self {
+    fn body_matches_ok(
+        mut self,
+        predicate: impl Fn(&VersionedPaginatedQueryResult) -> bool,
+    ) -> Self {
         self.body_matches = if let QueryResponseBody::Ok(body) = &self.response_body {
             Some(predicate(body))
         } else {
@@ -299,7 +302,7 @@ fn asset_definition_new(name: &str) -> NewAssetDefinition {
     ))
 }
 
-// TODO: All the following tests must be parameterised and collapsed
+// TODO: All the following tests must be parameterized and collapsed
 
 #[tokio::test]
 async fn find_asset() {
@@ -314,9 +317,10 @@ async fn find_asset() {
         .await
         .status(StatusCode::OK)
         .body_matches_ok(|body| {
-            if let VersionedQueryResult::V1(QueryResult(Value::Identifiable(
-                IdentifiableBox::Asset(asset),
-            ))) = body
+            if let VersionedPaginatedQueryResult::V1(PaginatedQueryResult {
+                result: QueryResult(Value::Identifiable(IdentifiableBox::Asset(asset))),
+                ..
+            }) = body
             {
                 *asset.value() == AssetValue::Quantity(99)
             } else {
@@ -430,9 +434,12 @@ async fn find_asset_definition() {
         .await
         .status(StatusCode::OK)
         .body_matches_ok(|body| {
-            if let VersionedQueryResult::V1(QueryResult(Value::Identifiable(
-                IdentifiableBox::AssetDefinition(received),
-            ))) = body
+            if let VersionedPaginatedQueryResult::V1(PaginatedQueryResult {
+                result: QueryResult(Value::Identifiable(
+                    IdentifiableBox::AssetDefinition(received),
+                )),
+                ..
+            }) = body
             {
                 Box::new(asset_definition.clone().build()) == *received
             } else {
