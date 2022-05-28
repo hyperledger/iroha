@@ -19,4 +19,4 @@ help: consider importing one of these items instead
    |
 1  | use iroha_data_model::Value::Fixed;
    |
-     and 2 other candidates
+     and 3 other candidates

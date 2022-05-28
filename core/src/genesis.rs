@@ -5,6 +5,7 @@
 
 use std::{collections::HashSet, fmt::Debug, fs::File, io::BufReader, ops::Deref, path::Path};
 
+use derive_more::Deref;
 use eyre::{eyre, Result, WrapErr};
 use iroha_actor::Addr;
 use iroha_crypto::{KeyPair, PublicKey};
@@ -91,9 +92,10 @@ pub trait GenesisNetworkTrait:
 }
 
 /// [`GenesisNetwork`] contains initial transactions and genesis setup related parameters.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deref)]
 pub struct GenesisNetwork {
     /// transactions from `GenesisBlock`, any transaction is accepted
+    #[deref]
     pub transactions: Vec<VersionedAcceptedTransaction>,
     /// Number of attempts to connect to peers, while waiting for them to submit genesis.
     pub wait_for_peers_retry_count_limit: u64,
@@ -102,14 +104,6 @@ pub struct GenesisNetwork {
     /// Delay before genesis block submission after minimum number of peers were discovered to be online.
     /// Used to ensure that other peers had time to connect to each other.
     pub genesis_submission_delay_ms: u64,
-}
-
-impl Deref for GenesisNetwork {
-    type Target = Vec<VersionedAcceptedTransaction>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.transactions
-    }
 }
 
 async fn try_get_online_topology(

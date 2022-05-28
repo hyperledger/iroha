@@ -64,6 +64,7 @@ wasmtime = "0.36.0"
 
 # transitive dependencies
 anyhow = ">= 1.0"
+derive_more = "0.99.17"
 
 [dev-dependencies]
 tempfile = "3"

@@ -31,10 +31,9 @@ pub mod error {
     //! error shall be raised, there are types that wrap
     //! [`eyre::Report`].
 
+    use derive_more::Display;
     use iroha_crypto::HashOf;
-    use iroha_data_model::{
-        fixed::FixedPointOperationError, metadata, prelude::*, trigger, MintabilityError,
-    };
+    use iroha_data_model::{fixed::FixedPointOperationError, metadata, prelude::*, trigger};
     use iroha_schema::IntoSchema;
     use parity_scale_codec::{Decode, Encode};
     use thiserror::Error;
@@ -97,7 +96,7 @@ pub mod error {
     }
 
     /// Enumeration of instructions which can have unsupported variants.
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Display, Clone, Copy)]
     pub enum InstructionType {
         /// Mint
         Mint,
@@ -117,12 +116,6 @@ pub mod error {
         Unregister,
         /// Revoke
         Revoke,
-    }
-
-    impl std::fmt::Display for InstructionType {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            std::fmt::Debug::fmt(self, f)
-        }
     }
 
     /// Type assertion error
@@ -317,7 +310,7 @@ impl<W: WorldTrait> Execute<W> for MintBox {
         let context = Context::new();
         let destination_id = self.destination_id.evaluate(wsv, &context)?;
         let object = self.object.evaluate(wsv, &context)?;
-        iroha_logger::trace!(?destination_id, ?object, %authority); // TODO: maybe `impl fmt::Display`
+        iroha_logger::trace!(%destination_id, ?object, %authority);
         match (destination_id, object) {
             (IdBox::AssetId(asset_id), Value::U32(quantity)) => {
                 Mint::<Asset, u32>::new(quantity, asset_id).execute(authority, wsv)

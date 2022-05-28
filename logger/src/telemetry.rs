@@ -2,12 +2,9 @@
 
 #![allow(clippy::module_name_repetitions)]
 
-use std::{
-    error::Error,
-    fmt::Debug,
-    ops::{Deref, DerefMut},
-};
+use std::{error::Error, fmt::Debug};
 
+use derive_more::{Deref, DerefMut};
 use serde_json::Value;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{
@@ -23,7 +20,7 @@ pub const TELEMETRY_TARGET_PREFIX: &str = "telemetry::";
 pub const TELEMETRY_FUTURE_TARGET_PREFIX: &str = "telemetry_future::";
 
 /// Fields for telemetry (type for efficient saving)
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default, Deref, DerefMut)]
 pub struct TelemetryFields(pub Vec<(&'static str, Value)>);
 
 impl From<TelemetryFields> for Value {
@@ -32,20 +29,6 @@ impl From<TelemetryFields> for Value {
             .into_iter()
             .map(|(key, value)| (key.to_owned(), value))
             .collect()
-    }
-}
-
-impl Deref for TelemetryFields {
-    type Target = Vec<(&'static str, Value)>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for TelemetryFields {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 

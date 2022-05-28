@@ -1,8 +1,10 @@
 //! Predicate-related logic. Should contain predicate-related `impl`s.
-#![allow(unused_imports)]
+
+#[cfg(not(feature = "std"))]
+use alloc::vec;
 
 use super::*;
-use crate::{IdBox, Identifiable, IdentifiableBox, Name, Value};
+use crate::{IdBox, Name, Value};
 
 /// Predicate combinator enum.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
@@ -19,8 +21,50 @@ pub enum PredicateBox {
 
 impl PredicateBox {
     /// Construct [`PredicateBox::Raw`] variant.
+    #[inline]
     pub fn new(pred: impl Into<value::Predicate>) -> Self {
         Self::Raw(pred.into())
+    }
+
+    /// Construct [`PredicateBox::And`] variant.
+    #[inline]
+    pub fn and(left: impl Into<PredicateBox>, right: impl Into<PredicateBox>) -> Self {
+        Self::And(vec![left.into(), right.into()])
+    }
+
+    /// Construct [`PredicateBox::Or`] variant.
+    #[inline]
+    pub fn or(left: impl Into<PredicateBox>, right: impl Into<PredicateBox>) -> Self {
+        Self::Or(vec![left.into(), right.into()])
+    }
+
+    /// Convert instance into its negation.
+    #[must_use]
+    #[inline]
+    pub fn negate(self) -> Self {
+        match self {
+            Self::And(preds) => Self::Or(preds.into_iter().map(Self::negate).collect()),
+            Self::Or(preds) => Self::And(preds.into_iter().map(Self::negate).collect()),
+            Self::Not(pred) => *pred, // TODO: should we recursively simplify?
+            Self::Raw(pred) => Self::Not(Box::new(PredicateBox::Raw(pred))),
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    /// Filter [`Value`] using `self`.
+    pub fn filter(&self, value: Value) -> Value {
+        match value {
+            Value::Vec(v) => Value::Vec(v.into_iter().filter(|val| self.applies(val)).collect()),
+            other => other,
+            // We're not handling the LimitedMetadata case, because
+            // the predicate when applied to it is ambiguous. We could
+            // pattern match on that case, but we should assume that
+            // metadata (since it's limited) isn't going to be too
+            // difficult to filter client-side. I actually think that
+            // Metadata should be restricted in what types it can
+            // contain.
+        }
     }
 }
 
@@ -39,6 +83,61 @@ impl PredicateTrait<Value> for PredicateBox {
             PredicateBox::Not(predicate) => !predicate.applies(input),
             PredicateBox::Raw(predicate) => predicate.applies(input),
         }
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+    #![allow(clippy::print_stdout, clippy::use_debug)]
+
+    use super::{value, PredicateBox};
+    use crate::{PredicateTrait as _, Value};
+
+    #[test]
+    fn pass() {
+        let t = PredicateBox::new(value::Predicate::Pass);
+        let f = t.clone().negate();
+        let v_t = Value::from(true);
+        let v_f = Value::from(false);
+        println!("t: {t:?}, f: {f:?}");
+
+        assert!(t.applies(&v_t));
+        assert!(t.applies(&v_f));
+        assert!(!f.applies(&v_t));
+        assert!(!f.applies(&v_f));
+    }
+
+    #[test]
+    fn truth_table() {
+        let t = PredicateBox::new(value::Predicate::Pass);
+        let f = t.clone().negate();
+        let v = Value::from(true);
+
+        assert!(!PredicateBox::and(t.clone(), f.clone()).applies(&v));
+        assert!(PredicateBox::and(t.clone(), t.clone()).applies(&v));
+        assert!(!PredicateBox::and(f.clone(), f.clone()).applies(&v));
+        assert!(!PredicateBox::and(f.clone(), t.clone()).applies(&v));
+
+        assert!(PredicateBox::or(t.clone(), t.clone()).applies(&v));
+        assert!(PredicateBox::or(t.clone(), f.clone()).applies(&v));
+        assert!(PredicateBox::or(f.clone(), t).applies(&v));
+        assert!(!PredicateBox::or(f.clone(), f).applies(&v));
+    }
+
+    #[test]
+    fn negation() {
+        let t = PredicateBox::default();
+
+        assert!(matches!(t.clone().negate().negate(), PredicateBox::Raw(_)));
+        // De-morgan identities
+        assert!(matches!(
+            PredicateBox::and(t.clone(), t.clone()).negate(),
+            PredicateBox::Or(_)
+        ));
+        assert!(matches!(
+            PredicateBox::or(t.clone(), t).negate(),
+            PredicateBox::And(_)
+        ));
     }
 }
 
@@ -61,21 +160,25 @@ pub mod string {
 
     impl Predicate {
         /// Construct the [`Self::Contains`] variant
+        #[inline]
         pub fn contains(predicate: &str) -> Self {
             Self::Contains(predicate.to_owned())
         }
 
         /// Construct the [`Self::StartsWith`] variant
+        #[inline]
         pub fn starts_with(predicate: &str) -> Self {
             Self::StartsWith(predicate.to_owned())
         }
 
         /// Construct the [`Self::EndsWith`] variant
+        #[inline]
         pub fn ends_with(predicate: &str) -> Self {
             Self::EndsWith(predicate.to_owned())
         }
 
         /// Construct the [`Self::Is`] variant
+        #[inline]
         pub fn is(predicate: &str) -> Self {
             Self::Is(predicate.to_owned())
         }
@@ -111,8 +214,9 @@ pub mod string {
     }
 
     #[cfg(test)]
-    #[allow(clippy::expect_used)]
     mod tests {
+        #![allow(clippy::expect_used)]
+
         use super::*;
 
         mod id_box {
@@ -333,7 +437,14 @@ pub mod numerical {
         }
     }
 
-    /// General purpose predicate for working with Iroha numerical types.
+    /// General purpose predicate for working with Iroha numerical
+    /// types.
+    ///
+    /// # Type checking
+    ///
+    /// [`Self`] only applies to `Values` that have the same type. If
+    /// the type of the `Range` and the type of the type do not match,
+    /// it will default to `false`.
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
     pub enum Range {
         /// 32-bit
@@ -348,7 +459,11 @@ pub mod numerical {
     pub trait UnsignedMarker {
         /// The maximum attainable value
         const MAX: Self;
-        /// The additive neutral element, a.k.a zero, nil, null, 'nada, zilch, etc.
+        /// The additive neutral element, a.k.a zero, nil, null,
+        /// 'nada, zilch, etc.  Be advised that since this trait is
+        /// used to mark unsigned values, it coincides with what would
+        /// be `MIN`. However, do not implement it for types that are
+        /// non-zero (e.g. `NonZeroU64`), because `ZERO` is not `MIN`.
         const ZERO: Self;
     }
 
@@ -379,6 +494,8 @@ pub mod numerical {
         }
 
         /// Construct a semi-interval that ends at
+        #[inline]
+        #[must_use]
         pub fn ending(end: T) -> Self {
             Self {
                 start: T::ZERO,
@@ -417,12 +534,15 @@ pub mod numerical {
 
     #[cfg(test)]
     mod tests {
+        #![allow(clippy::print_stdout, clippy::use_debug)]
+
         use super::*;
 
         #[test]
         fn semi_interval_semantics_u32() {
             use Value::U32;
             let pred = Range::U32((1_u32, 100_u32).into());
+            println!("semi_interval range predicate: {pred:?}");
 
             assert!(pred.applies(&U32(1_u32)));
             assert!(!pred.applies(&U32(0_u32)));
@@ -498,7 +618,7 @@ pub mod value {
         Display(string::Predicate),
         /// Apply predicate to the numerical value.
         Numerical(numerical::Range),
-        /// Timestamp (currently for `BlockValue`) only.
+        /// Timestamp (currently for `BlockValue` only).
         TimeStamp(numerical::SemiInterval<u128>),
         /// Always return true.
         Pass,
@@ -571,21 +691,29 @@ pub mod value {
 
     impl Predicate {
         /// Construct [`Predicate::Container`] variant.
+        #[inline]
+        #[must_use]
         pub fn any(pred: impl Into<Predicate>) -> Self {
             Self::Container(Container::Any(Box::new(pred.into())))
         }
 
         /// Construct [`Predicate::Container`] variant.
+        #[inline]
+        #[must_use]
         pub fn all(pred: impl Into<Predicate>) -> Self {
             Self::Container(Container::All(Box::new(pred.into())))
         }
 
         /// Construct [`Predicate::Container`] variant.
+        #[inline]
+        #[must_use]
         pub fn has_key(key: Name) -> Self {
             Self::Container(Container::HasKey(key))
         }
 
         /// Construct [`Predicate::Container`] variant.
+        #[inline]
+        #[must_use]
         pub fn value_of(key: Name, pred: impl Into<Predicate>) -> Self {
             Self::Container(Container::ValueOfKey(ValueOfKey {
                 key,
@@ -594,6 +722,8 @@ pub mod value {
         }
 
         /// Construct [`Predicate::Container`] variant.
+        #[inline]
+        #[must_use]
         pub fn at_index(index: u32, pred: impl Into<Predicate>) -> Self {
             Self::Container(Container::AtIndex(AtIndex {
                 index,
@@ -616,7 +746,10 @@ pub mod value {
         predicate: Box<Predicate>,
     }
 
-    /// Predicate useful for working with containers. Currently only [`Metadata`](crate::metadata::Metadata) and [`Vec<Value>`] are supported.
+    /// Predicate that targets specific elements or groups; useful for
+    /// working with containers. Currently only
+    /// [`Metadata`](crate::metadata::Metadata) and [`Vec<Value>`] are
+    /// supported.
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
     pub enum Container {
         /// Forward to [`Iterator::any`]
@@ -634,7 +767,6 @@ pub mod value {
     #[cfg(test)]
     #[allow(clippy::print_stdout, clippy::use_debug, clippy::expect_used)]
     mod test {
-        use iroha_crypto::Algorithm;
         use peer::Peer;
         use prelude::Metadata;
 
@@ -745,6 +877,7 @@ pub mod value {
             // TODO: case with non-empty meta
 
             let value_key = Predicate::value_of("alice".parse().expect("Valid"), has_key);
+            println!("{value_key:?}");
             assert!(!value_key.applies(&list));
             assert!(!value_key.applies(&meta));
             // TODO: case with non-empty meta

@@ -116,7 +116,7 @@ pub struct Payload {
     pub query: QueryBox,
     /// Account id of the user who will sign this query.
     pub account_id: <Account as Identifiable>::Id,
-    /// The filter that must be applied server-side to the query.
+    /// The filter applied to the result on the server-side.
     pub filter: PredicateBox,
 }
 
@@ -164,7 +164,7 @@ declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, 
 pub struct PaginatedQueryResult {
     /// The result of the query execution.
     pub result: QueryResult,
-    /// The filter that was applied to the Query result
+    /// The filter that was applied to the Query result. Returned as a sanity check, but also to ease debugging on the front-end.
     pub filter: PredicateBox,
     /// pagination
     pub pagination: Pagination,

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     permissions::{PermissionToken, Permissions},
-    Identifiable, Name, RegisteredWith,
+    Identifiable, Name, Registered,
 };
 
 /// Collection of [`RoleId`](Id)s
@@ -58,7 +58,7 @@ pub struct Id {
     Serialize,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi", ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 #[display(fmt = "{id}")]
 #[getset(get = "pub")]
 pub struct Role {
@@ -91,7 +91,7 @@ impl Role {
     pub fn new(
         id: <Self as Identifiable>::Id,
         permissions: impl IntoIterator<Item = impl Into<PermissionToken>>,
-    ) -> <Self as RegisteredWith>::RegisteredWith {
+    ) -> <Self as Registered>::With {
         Self {
             id,
             permissions: permissions.into_iter().map(Into::into).collect(),
@@ -113,8 +113,8 @@ impl Identifiable for Role {
     }
 }
 
-impl RegisteredWith for Role {
-    type RegisteredWith = Self;
+impl Registered for Role {
+    type With = Self;
 }
 
 /// Builder for [`Role`]
