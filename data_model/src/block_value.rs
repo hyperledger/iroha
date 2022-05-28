@@ -30,6 +30,8 @@ pub struct BlockHeaderValue {
     pub rejected_transactions_hash: HashOf<MerkleTree<VersionedTransaction>>,
     /// Hashes of the blocks that were rejected by consensus.
     pub invalidated_blocks_hashes: Vec<Hash>,
+    /// Hash of the most recent block
+    pub current_block_hash: Hash,
 }
 
 impl PartialOrd for BlockHeaderValue {
