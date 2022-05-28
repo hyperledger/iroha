@@ -2,7 +2,6 @@
 
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
-use getset::{Getters, MutGetters, Setters};
 use iroha_ffi::{ffi_bindgen, FfiResult, Pair};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -18,15 +17,10 @@ fn get_default_params() -> [(Name, Value); 2] {
 }
 
 #[ffi_bindgen]
-#[derive(Debug, Clone, Setters, Getters, MutGetters)]
-#[getset(get = "pub")]
+#[derive(Clone)]
 pub struct FfiStruct {
-    #[getset(get_mut = "pub")]
-    id: u32,
     name: Option<Name>,
-    #[getset(skip)]
     tokens: Vec<Value>,
-    #[getset(skip)]
     params: BTreeMap<Name, Value>,
 }
 
@@ -35,7 +29,6 @@ impl FfiStruct {
     pub fn new(name: impl Into<Name>) -> Self {
         Self {
             name: Some(name.into()),
-            id: 42,
             tokens: Vec::new(),
             params: BTreeMap::default(),
         }
@@ -241,15 +234,5 @@ fn return_result() {
             FfiStruct__fallible_int_output(u8::from(true), output.as_mut_ptr())
         );
         assert_eq!(42, output.assume_init());
-    }
-}
-
-#[test]
-fn getset_getter() {
-    let ffi_struct = get_new_struct_with_params();
-
-    unsafe {
-        assert_eq!(Some(Name(String::from('X'))), *(*ffi_struct).name());
-        FfiStruct__drop(ffi_struct);
     }
 }

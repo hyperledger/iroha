@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt};
+use std::collections::HashSet;
 
 use proc_macro2::TokenStream;
 use proc_macro_error::{abort, OptionExt};
@@ -7,7 +7,7 @@ use syn::{parse_quote, visit_mut::VisitMut, Ident, ItemStruct, Type};
 
 use crate::{get_ident, impl_visitor::SelfResolver};
 
-/// What does structure derives for public fields
+/// Type of accessor method derived for a structure
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Derive {
     Set,
@@ -19,7 +19,7 @@ enum Derive {
 pub fn gen_fns_from_derives(item: &ItemStruct) -> Vec<syn::ItemFn> {
     let struct_derives = parse_derives(&item.attrs).unwrap_or_default();
 
-    let mut ffi_derives = vec![];
+    let mut ffi_derives = Vec::new();
     match &item.fields {
         syn::Fields::Named(syn::FieldsNamed { named, .. }) => named.iter().for_each(|field| {
             if let Some(mut field_derives) = parse_derives(&field.attrs) {
@@ -40,43 +40,41 @@ pub fn gen_fns_from_derives(item: &ItemStruct) -> Vec<syn::ItemFn> {
 
 /// Parses getset attributes to find out which methods it derives
 fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
-    let mut getset_attrs = HashSet::new();
-
-    for attr in attrs {
-        if let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() {
-            if !meta_list.path.is_ident("getset") {
-                continue;
+    attrs
+        .iter()
+        .filter_map(|attr| {
+            if let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() {
+                return meta_list.path.is_ident("getset").then(|| meta_list.nested);
             }
 
-            for nested in meta_list.nested {
-                if let syn::NestedMeta::Meta(item) = nested {
-                    match item {
-                        syn::Meta::NameValue(item) => {
-                            if item.lit != parse_quote! { "pub" } {
-                                continue;
-                            }
-
+            None
+        })
+        .flatten()
+        .try_fold(HashSet::new(), |mut acc, nested| {
+            if let syn::NestedMeta::Meta(item) = nested {
+                match item {
+                    syn::Meta::NameValue(item) => {
+                        if item.lit == parse_quote! {"pub"} {
                             if item.path.is_ident("set") {
-                                getset_attrs.insert(Derive::Set);
+                                acc.insert(Derive::Set);
                             } else if item.path.is_ident("get") {
-                                getset_attrs.insert(Derive::Get);
-                            } else if item.path.is_ident("GetMut") {
-                                getset_attrs.insert(Derive::GetMut);
+                                acc.insert(Derive::Get);
+                            } else if item.path.is_ident("get_mut") {
+                                acc.insert(Derive::GetMut);
                             }
                         }
-                        syn::Meta::Path(path) => {
-                            if path.is_ident("skip") {
-                                return None;
-                            }
-                        }
-                        _ => abort!(item, "Unsupported getset attribute"),
                     }
+                    syn::Meta::Path(path) => {
+                        if path.is_ident("skip") {
+                            return None;
+                        }
+                    }
+                    _ => abort!(item, "Unsupported getset attribute"),
                 }
             }
-        }
-    }
 
-    Some(getset_attrs)
+            Some(acc)
+        })
 }
 
 fn gen_derive_method_name(field_name: &Ident, derive: Derive) -> syn::Ident {
@@ -90,6 +88,7 @@ fn gen_derive_method_name(field_name: &Ident, derive: Derive) -> syn::Ident {
     )
 }
 
+// NOTE: [#docs = "some_doc"] expands to ///some_doc, therefore the leading space
 fn gen_ffi_docs(struct_name: &Ident, derive_method_name: &syn::Ident) -> String {
     format!(
         " FFI function equivalent of [`{}::{}`]",
@@ -187,14 +186,14 @@ fn gen_ffi_fn_body(method_name: &Ident, field_ty: &Type, derive: Derive) -> Toke
             }
         }
         Derive::GetMut => {
-            quote! {
-                null_ptr_checks.push(gen_null_ptr_check(&parse_quote! {output}));
+            null_ptr_checks.push(gen_null_ptr_check(&parse_quote! {output}));
 
+            quote! {
                 #( #null_ptr_checks )*
                 let handle = &mut *handle;
                 let method_res = handle.#method_name();
                 #option_ptr_conversion
-                output.write();
+                output.write(method_res);
                 iroha_ffi::FfiResult::Ok
             }
         }
