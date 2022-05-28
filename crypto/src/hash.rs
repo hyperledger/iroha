@@ -1,12 +1,8 @@
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec, vec::Vec};
-use core::{
-    fmt::{self, Debug, Display, Formatter},
-    hash,
-    marker::PhantomData,
-};
+use core::{hash, marker::PhantomData};
 
-use derive_more::{Deref, DerefMut, Display};
+use derive_more::{DebugCustom, Deref, DerefMut, Display};
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -20,6 +16,8 @@ use ursa::blake2::{
 #[derive(
     Clone,
     Copy,
+    Display,
+    DebugCustom,
     Hash,
     Eq,
     PartialEq,
@@ -31,6 +29,8 @@ use ursa::blake2::{
     Serialize,
     IntoSchema,
 )]
+#[display(fmt = "{}", "hex::encode(_0)")]
+#[debug(fmt = "{{ Hash({}) }}", "hex::encode(_0)")]
 pub struct Hash([u8; Self::LENGTH]);
 
 impl Hash {
@@ -72,20 +72,6 @@ impl Hash {
     }
 }
 
-impl Display for Hash {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let Hash(bytes) = self;
-        write!(f, "{}", hex::encode(bytes))
-    }
-}
-
-impl Debug for Hash {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let Hash(bytes) = self;
-        write!(f, "{}", hex::encode(bytes))
-    }
-}
-
 impl From<Hash> for [u8; Hash::LENGTH] {
     #[inline]
     fn from(Hash(bytes): Hash) -> Self {
@@ -109,8 +95,9 @@ impl<T> From<HashOf<T>> for Hash {
 /// Represents hash of Iroha entities like `Block` or `Transaction`. Currently supports only blake2b-32.
 // Lint triggers when expanding #[codec(skip)]
 #[allow(clippy::default_trait_access)]
-#[derive(Deref, DerefMut, Display, Decode, Encode, Deserialize, Serialize)]
+#[derive(DebugCustom, Deref, DerefMut, Display, Decode, Encode, Deserialize, Serialize)]
 #[display(fmt = "{}", _0)]
+#[debug(fmt = "{{ {} {_0} }}", "core::any::type_name::<Self>()")]
 #[serde(transparent)]
 pub struct HashOf<T>(
     #[deref]
@@ -118,14 +105,6 @@ pub struct HashOf<T>(
     Hash,
     #[codec(skip)] PhantomData<T>,
 );
-
-impl<T> fmt::Debug for HashOf<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple(core::any::type_name::<Self>())
-            .field(&self.0)
-            .finish()
-    }
-}
 
 impl<T> Clone for HashOf<T> {
     fn clone(&self) -> Self {

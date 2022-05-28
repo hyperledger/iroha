@@ -11,7 +11,7 @@ use core::{fmt, marker::PhantomData};
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
 
-use derive_more::{Deref, DerefMut};
+use derive_more::{DebugCustom, Deref, DerefMut};
 use getset::Getters;
 use iroha_schema::prelude::*;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -30,12 +30,12 @@ use ursa::{
 #[cfg(feature = "std")]
 use crate::{Algorithm, HashOf, KeyPair};
 use crate::{Error, PublicKey};
-
 /// Signature payload(i.e THE signature)
 pub type Payload = Vec<u8>;
 
 /// Represents signature of the data (`Block` or `Transaction` for example).
 #[derive(
+    DebugCustom,
     Clone,
     PartialEq,
     Eq,
@@ -49,6 +49,10 @@ pub type Payload = Vec<u8>;
     IntoSchema,
 )]
 #[getset(get = "pub")]
+#[debug(
+    fmt = "{{ pub_key: {public_key}, payload: {} }}",
+    "hex::encode_upper(payload.as_slice())"
+)]
 pub struct Signature {
     /// Public key that is used for verification. Payload is verified by algorithm
     /// that corresponds with the public key's digest function.
@@ -110,15 +114,6 @@ impl Signature {
         }?;
 
         Ok(())
-    }
-}
-
-impl fmt::Debug for Signature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct(core::any::type_name::<Self>())
-            .field("public_key", &self.public_key)
-            .field("signature", &hex::encode_upper(self.payload().as_slice()))
-            .finish()
     }
 }
 

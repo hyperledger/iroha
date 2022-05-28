@@ -9,6 +9,7 @@ extern crate alloc;
 
 #[cfg(not(feature = "std"))]
 use alloc::{
+    borrow::ToOwned as _,
     boxed::Box,
     format,
     string::{String, ToString},
@@ -17,7 +18,7 @@ use alloc::{
 use core::{fmt, fmt::Debug, ops::RangeInclusive, str::FromStr};
 
 use block_value::BlockValue;
-use derive_more::Display;
+use derive_more::{DebugCustom, Display};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
 use iroha_data_primitives::small::SmallVec;
@@ -49,20 +50,6 @@ pub mod transaction;
 pub mod trigger;
 pub mod uri;
 
-/// Mintability logic error
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
-pub enum MintabilityError {
-    /// Tried to mint an Un-mintable asset.
-    #[display(fmt = "This asset cannot be minted more than once and it was already minted.")]
-    MintUnmintable,
-    /// Tried to forbid minting on assets that should be mintable.
-    #[display(fmt = "This asset was set as infinitely mintable. You cannot forbid its minting.")]
-    ForbidMintOnMintable,
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for MintabilityError {}
-
 /// Error which occurs when parsing string into a data model entity
 #[derive(Debug, Display, Clone, Copy)]
 pub struct ParseError {
@@ -93,7 +80,9 @@ impl ValidationError {
 /// `Name` struct represents type for Iroha Entities names, like
 /// [`Domain`](`domain::Domain`)'s name or
 /// [`Account`](`account::Account`)'s name.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display, Encode, Serialize, IntoSchema)]
+#[derive(
+    DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema,
+)]
 #[repr(transparent)]
 pub struct Name(String);
 
@@ -178,12 +167,6 @@ pub unsafe extern "C" fn Name__from_str(
 
     output.write(method_res);
     iroha_ffi::FfiResult::Ok
-}
-
-impl Debug for Name {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
 }
 
 impl<'de> Deserialize<'de> for Name {
@@ -320,25 +303,33 @@ pub enum IdBox {
     RoleId(<role::Role as Identifiable>::Id),
 }
 
+impl Identifiable for IdBox {
+    type Id = Self;
+
+    fn id(&self) -> &Self::Id {
+        self
+    }
+}
+
 /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum RegistrableBox {
     /// [`Peer`](`peer::Peer`) variant.
-    Peer(Box<<peer::Peer as RegisteredWith>::RegisteredWith>),
+    Peer(Box<<peer::Peer as Registered>::With>),
     /// [`Domain`](`domain::Domain`) variant.
-    Domain(Box<<domain::Domain as RegisteredWith>::RegisteredWith>),
+    Domain(Box<<domain::Domain as Registered>::With>),
     /// [`Account`](`account::Account`) variant.
-    Account(Box<<account::Account as RegisteredWith>::RegisteredWith>),
+    Account(Box<<account::Account as Registered>::With>),
     /// [`AssetDefinition`](`asset::AssetDefinition`) variant.
-    AssetDefinition(Box<<asset::AssetDefinition as RegisteredWith>::RegisteredWith>),
+    AssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
     /// [`Asset`](`asset::Asset`) variant.
-    Asset(Box<<asset::Asset as RegisteredWith>::RegisteredWith>),
+    Asset(Box<<asset::Asset as Registered>::With>),
     /// [`Trigger`](`trigger::Trigger`) variant.
-    Trigger(Box<<trigger::Trigger<FilterBox> as RegisteredWith>::RegisteredWith>),
+    Trigger(Box<<trigger::Trigger<FilterBox> as Registered>::With>),
     /// [`Role`](`role::Role`) variant.
-    Role(Box<<role::Role as RegisteredWith>::RegisteredWith>),
+    Role(Box<<role::Role as Registered>::With>),
 }
 
 /// Sized container for all possible entities.
@@ -359,11 +350,11 @@ pub enum RegistrableBox {
 )]
 pub enum IdentifiableBox {
     /// [`NewDomain`](`domain::NewDomain`) variant.
-    NewDomain(Box<<domain::Domain as RegisteredWith>::RegisteredWith>),
+    NewDomain(Box<<domain::Domain as Registered>::With>),
     /// [`NewAccount`](`account::NewAccount`) variant.
-    NewAccount(Box<<account::Account as RegisteredWith>::RegisteredWith>),
+    NewAccount(Box<<account::Account as Registered>::With>),
     /// [`NewAssetDefinition`](`asset::NewAssetDefinition`) variant.
-    NewAssetDefinition(Box<<asset::AssetDefinition as RegisteredWith>::RegisteredWith>),
+    NewAssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
     /// [`Peer`](`peer::Peer`) variant.
     Peer(Box<peer::Peer>),
     /// [`Domain`](`domain::Domain`) variant.
@@ -380,25 +371,23 @@ pub enum IdentifiableBox {
     Role(Box<role::Role>),
 }
 
-impl RegisteredWith for trigger::Trigger<FilterBox> {
-    type RegisteredWith = Self;
-}
+// TODO: think of a way to `impl Identifiable for IdentifiableBox`.
+// The main problem is lifetimes and conversion cost.
 
 impl IdentifiableBox {
-    fn contains(&self, content: &str) -> bool {
+    fn id_box(&self) -> IdBox {
         match self {
-            IdentifiableBox::NewDomain(d) => d.id().to_string(),
-            IdentifiableBox::NewAccount(na) => na.id().to_string(),
-            IdentifiableBox::NewAssetDefinition(nad) => nad.id().to_string(),
-            IdentifiableBox::Peer(p) => p.id().to_string(),
-            IdentifiableBox::Domain(d) => d.id().to_string(),
-            IdentifiableBox::Account(a) => a.id().to_string(),
-            IdentifiableBox::AssetDefinition(ad) => ad.id().to_string(),
-            IdentifiableBox::Asset(a) => a.id().to_string(),
-            IdentifiableBox::Trigger(t) => t.id().to_string(),
-            IdentifiableBox::Role(r) => r.id().to_string(),
+            IdentifiableBox::NewDomain(a) => a.id().clone().into(),
+            IdentifiableBox::NewAccount(a) => a.id().clone().into(),
+            IdentifiableBox::NewAssetDefinition(a) => a.id().clone().into(),
+            IdentifiableBox::Peer(a) => a.id().clone().into(),
+            IdentifiableBox::Domain(a) => a.id().clone().into(),
+            IdentifiableBox::Account(a) => a.id().clone().into(),
+            IdentifiableBox::AssetDefinition(a) => a.id().clone().into(),
+            IdentifiableBox::Asset(a) => a.id().clone().into(),
+            IdentifiableBox::Trigger(a) => a.id().clone().into(),
+            IdentifiableBox::Role(a) => a.id().clone().into(),
         }
-        .contains(content)
     }
 }
 
@@ -407,16 +396,7 @@ pub type ValueBox = Box<Value>;
 
 /// Sized container for all possible values.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 #[allow(clippy::enum_variant_names)]
 pub enum Value {
@@ -461,6 +441,7 @@ pub enum Value {
 }
 
 impl fmt::Display for Value {
+    // TODO: Maybe derive
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::U32(v) => fmt::Display::fmt(&v, f),
@@ -469,7 +450,9 @@ impl fmt::Display for Value {
             Value::String(v) => fmt::Display::fmt(&v, f),
             Value::Name(v) => fmt::Display::fmt(&v, f),
             Value::Fixed(v) => fmt::Display::fmt(&v, f),
+            #[allow(clippy::use_debug)]
             Value::Vec(v) => {
+                // TODO: Remove so we can derive.
                 let list_of_display: Vec<_> = v.iter().map(ToString::to_string).collect();
                 // this prints with quotation marks, which is fine 90%
                 // of the time, and helps delineate where a display of
@@ -735,23 +718,34 @@ where
     }
 }
 
-/// This trait marks entity that implement it as identifiable with an `Id` type to find them by.
+/// This trait marks entity that implement it as identifiable with an
+/// `Id` type. `Id`s are unique, which is relevant for `PartialOrd`
+/// and `PartialCmp` implementations.
 pub trait Identifiable: Debug {
-    /// Type of entity's identification.
-    type Id: Into<IdBox> + Debug + Clone + Eq + Ord;
+    /// The type of the `Id` of the entity.
+    type Id: Into<IdBox> + fmt::Display + fmt::Debug + Clone + Eq + Ord;
 
+    /// Get reference to the type's `Id`. There should be no other
+    /// inherent `impl` with the same name (e.g. `getset`).
     fn id(&self) -> &Self::Id;
 }
 
+/// Trait that marks the entity as having metadata.
 pub trait HasMetadata {
     // type Metadata = metadata::Metadata;
     // Uncomment when stable.
 
+    /// The metadata associated to this object.
     fn metadata(&self) -> &metadata::Metadata;
 }
 
-pub trait RegisteredWith: Identifiable {
-    type RegisteredWith: Into<RegistrableBox>;
+/// Trait for objects that are registered by proxy.
+pub trait Registered: Identifiable {
+    /// The proxy type that is used to register this entity. Usually
+    /// `Self`, but if you have a complex structure where most fields
+    /// would be empty, to save space you create a builder for it, and
+    /// set `With` to the builder's type.
+    type With: Into<RegistrableBox>;
 }
 
 /// Limits of length of the identifiers (e.g. in [`domain::Domain`], [`account::Account`], [`asset::AssetDefinition`]) in number of chars
