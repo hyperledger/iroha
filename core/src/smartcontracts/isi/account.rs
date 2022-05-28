@@ -203,7 +203,7 @@ pub mod isi {
                     ));
                 }
 
-                Ok(AccountEvent::PermissionAdded(account_id))
+                Ok(AccountEvent::RoleGranted(account_id))
             })
         }
     }

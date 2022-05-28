@@ -477,6 +477,21 @@ pub mod query {
         }
     }
 
+    impl<W: WorldTrait> ValidQuery<W> for FindAssetDefinitionById {
+        #[metrics(+"find_asset_defintion_by_id")]
+        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+            let id = self
+                .id
+                .evaluate(wsv, &Context::default())
+                .wrap_err("Failed to get asset definition id")
+                .map_err(|e| Error::Evaluate(e.to_string()))?;
+
+            let entry = wsv.asset_definition_entry(&id).map_err(Error::from)?;
+
+            Ok(entry.definition().clone())
+        }
+    }
+
     impl<W: WorldTrait> ValidQuery<W> for FindAssetsByName {
         #[metrics(+"find_assets_by_name")]
         fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {

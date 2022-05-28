@@ -140,6 +140,7 @@ mod account {
         PermissionAdded(AccountId),
         PermissionRemoved(AccountId),
         RoleRevoked(AccountId),
+        RoleGranted(AccountId),
         MetadataInserted(AccountId),
         MetadataRemoved(AccountId),
     }
@@ -157,6 +158,7 @@ mod account {
                 | Self::PermissionAdded(id)
                 | Self::PermissionRemoved(id)
                 | Self::RoleRevoked(id)
+                | Self::RoleGranted(id)
                 | Self::MetadataInserted(id)
                 | Self::MetadataRemoved(id) => id,
             }

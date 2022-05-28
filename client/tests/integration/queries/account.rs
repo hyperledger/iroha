@@ -16,7 +16,13 @@ fn find_accounts_with_asset() -> Result<()> {
     let definition_id =
         <AssetDefinition as Identifiable>::Id::from_str("test_coin#wonderland").expect("Valid");
     let asset_definition = AssetDefinition::quantity(definition_id.clone());
-    test_client.submit_blocking(RegisterBox::new(asset_definition))?;
+    test_client.submit_blocking(RegisterBox::new(asset_definition.clone()))?;
+
+    // Checking results before all
+    let received_asset_definition =
+        test_client.request(client::asset::definition_by_id(definition_id.clone()))?;
+
+    assert_eq!(received_asset_definition, asset_definition.clone().build());
 
     let accounts: [AccountId; 5] = [
         "alice@wonderland".parse().expect("Valid"),
@@ -46,6 +52,11 @@ fn find_accounts_with_asset() -> Result<()> {
     let accounts = HashSet::from(accounts);
 
     // Checking results
+    let received_asset_definition =
+        test_client.request(client::asset::definition_by_id(definition_id.clone()))?;
+
+    assert_eq!(received_asset_definition, asset_definition.build());
+
     let found_accounts = test_client.request(client::account::all_with_asset(definition_id))?;
     let found_ids = found_accounts
         .into_iter()

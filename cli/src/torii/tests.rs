@@ -18,7 +18,7 @@ use iroha_core::{
     tx::TransactionValidator,
     wsv::World,
 };
-use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, prelude::*};
+use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, asset::NewAssetDefinition, prelude::*};
 use iroha_version::prelude::*;
 use tokio::time;
 use warp::test::WsClient;
@@ -68,7 +68,15 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
     .await;
 
     (
-        Torii::from_configuration(config, wsv, queue, AllowAll::new(), events, network),
+        Torii::from_configuration(
+            config,
+            wsv,
+            queue,
+            AllowAll::new(),
+            events,
+            network,
+            Arc::new(Notify::new()),
+        ),
         keys,
     )
 }
@@ -264,11 +272,7 @@ fn register_account(name: &str) -> Instruction {
 }
 
 fn register_asset_definition(name: &str) -> Instruction {
-    RegisterBox::new(AssetDefinition::quantity(AssetDefinitionId::new(
-        name.parse().expect("Valid"),
-        DOMAIN.parse().expect("Valid"),
-    )))
-    .into()
+    RegisterBox::new(asset_definition_new(name)).into()
 }
 
 fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
@@ -286,6 +290,13 @@ fn asset_id_new(asset: &str, domain: &str, account: &str) -> AssetId {
             DOMAIN.parse().expect("Valid"),
         ),
     )
+}
+
+fn asset_definition_new(name: &str) -> NewAssetDefinition {
+    AssetDefinition::quantity(AssetDefinitionId::new(
+        name.parse().expect("Valid"),
+        DOMAIN.parse().expect("Valid"),
+    ))
 }
 
 // TODO: All the following tests must be parameterised and collapsed
@@ -405,23 +416,25 @@ async fn find_asset_with_no_domain() {
 
 #[tokio::test]
 async fn find_asset_definition() {
+    let asset_definition = asset_definition_new("rose");
+
     QuerySet::new()
         .given(register_domain())
-        .given(register_asset_definition("rose"))
-        .query(QueryBox::FindAllAssetsDefinitions(Default::default()))
+        .given(RegisterBox::new(asset_definition.clone()).into())
+        .query(QueryBox::FindAssetDefinitionById(
+            FindAssetDefinitionById::new(AssetDefinitionId::new(
+                "rose".parse().expect("Valid"),
+                DOMAIN.parse().expect("Valid"),
+            )),
+        ))
         .await
         .status(StatusCode::OK)
         .body_matches_ok(|body| {
-            if let VersionedQueryResult::V1(QueryResult(Value::Vec(vec))) = body {
-                vec.iter().any(|value| {
-                    if let Value::Identifiable(IdentifiableBox::AssetDefinition(asset_definition)) =
-                        value
-                    {
-                        asset_definition.id().name.as_ref() == "rose"
-                    } else {
-                        false
-                    }
-                })
+            if let VersionedQueryResult::V1(QueryResult(Value::Identifiable(
+                IdentifiableBox::AssetDefinition(received),
+            ))) = body
+            {
+                Box::new(asset_definition.clone().build()) == *received
             } else {
                 false
             }
