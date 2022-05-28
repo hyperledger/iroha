@@ -22,7 +22,7 @@ impl fmt::Display for Config {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}peers-{}interval_us-{}max_txs-{}blocks-{}samples",
+            "{}peers-{}interval_µs-{}max_txs-{}blocks-{}samples",
             self.peers,
             self.interval_us_per_tx,
             self.max_txs_per_block,

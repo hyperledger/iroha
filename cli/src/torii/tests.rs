@@ -18,9 +18,7 @@ use iroha_core::{
     tx::TransactionValidator,
     wsv::World,
 };
-use iroha_data_model::{
-    account::GENESIS_ACCOUNT_NAME, asset::NewAssetDefinition, predicate::PredicateBox, prelude::*,
-};
+use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, predicate::PredicateBox, prelude::*};
 use iroha_version::prelude::*;
 use tokio::time;
 use warp::test::WsClient;

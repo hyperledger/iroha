@@ -1,8 +1,9 @@
 //! Structures related to proofs and reasons of view changes.
 //! Where view change is a process of changing topology due to some faulty network behavior.
 
-use std::{collections::HashSet, fmt::Display};
+use std::collections::HashSet;
 
+use derive_more::Display;
 use eyre::{Context, Result};
 use iroha_crypto::{HashOf, KeyPair, PublicKey, SignatureOf, SignaturesOf};
 use iroha_data_model::prelude::PeerId;
@@ -152,24 +153,18 @@ pub struct ProofPayload {
 }
 
 /// Reason for a view change.
-#[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
+#[derive(Debug, Display, Clone, Decode, Encode, FromVariant, IntoSchema)]
 pub enum Reason {
-    /// Proxy tail have not committed a block in time.
+    /// Proxy tail have not committed the block in time.
+    #[display(fmt = "Commit timeout")]
     CommitTimeout(CommitTimeout),
-    /// Transaction was sent to leader, but no corresponding receipt was received from the leader for it.
+    /// Transaction was sent to the leader and no corresponding
+    /// receipt was received from the leader for it in time.
+    #[display(fmt = "Transaction receipt not received")]
     NoTransactionReceiptReceived(NoTransactionReceiptReceived),
+    #[display(fmt = "Block creation timeout")]
     /// Transaction reached leader but no block was created.
     BlockCreationTimeout(Box<BlockCreationTimeout>),
-}
-
-impl Display for Reason {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Reason::CommitTimeout(_) => write!(f, "Commit Timeout"),
-            Reason::NoTransactionReceiptReceived(_) => write!(f, "No Transaction Receipt Received"),
-            Reason::BlockCreationTimeout(_) => write!(f, "Block Creation Timeout"),
-        }
-    }
 }
 
 /// Block `CommitTimeout` reason for a view change.

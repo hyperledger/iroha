@@ -20,8 +20,9 @@ use iroha_core::{
 };
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{
+    predicate::PredicateBox,
     prelude::*,
-    query::{self, SignedQueryRequest}, predicate::PredicateBox,
+    query::{self, SignedQueryRequest},
 };
 #[cfg(feature = "telemetry")]
 use iroha_telemetry::metrics::Status;
@@ -67,7 +68,10 @@ impl VerifiedQueryRequest {
         query_validator
             .check(&self.payload.account_id, &self.payload.query, wsv)
             .map_err(QueryError::Permission)?;
-        Ok((ValidQueryRequest::new(self.payload.query), self.payload.filter))
+        Ok((
+            ValidQueryRequest::new(self.payload.query),
+            self.payload.filter,
+        ))
     }
 }
 
@@ -116,27 +120,21 @@ pub(crate) async fn handle_queries<W: WorldTrait>(
     pagination: Pagination,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    let (valid_request, filter) = request
-        .validate(&wsv, &query_validator)?;
+    let (valid_request, filter) = request.validate(&wsv, &query_validator)?;
     let original_result = valid_request.execute(&wsv)?;
     let total: u64 = original_result
         .len()
         .try_into()
         .map_err(|e: TryFromIntError| QueryError::Conversion(e.to_string()))?;
 
-    let filtered_result = QueryResult(if let Value::Vec(value) = original_result {
-        Value::Vec(
-            value
-                .into_iter()
-                .filter(|val| filter.applies(val))
-                .paginate(pagination)
-                .collect(),
-        )
+    let result = filter.filter(original_result);
+    let result = QueryResult(if let Value::Vec(value) = result {
+        Value::Vec(value.into_iter().paginate(pagination).collect())
     } else {
-        original_result
+        result
     });
     let paginated_result = PaginatedQueryResult {
-        result: filtered_result,
+        result,
         pagination,
         filter,
         total,

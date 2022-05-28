@@ -11,7 +11,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::*;
-pub use crate::RegisteredWith;
+pub use crate::Registered;
 
 mod events;
 mod filters;

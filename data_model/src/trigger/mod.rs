@@ -9,22 +9,15 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::{events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name};
+use crate::{
+    events::prelude::*, metadata::Metadata, transaction::Executable, Identifiable, Name, Registered,
+};
 
 pub mod set;
 
 /// Type which is used for registering a `Trigger`.
 #[derive(
-    Debug,
-    Display,
-    Clone,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "@@{id}")]
 pub struct Trigger<F: Filter> {
@@ -32,6 +25,10 @@ pub struct Trigger<F: Filter> {
     pub id: <Trigger<FilterBox> as Identifiable>::Id,
     /// Action to be performed when the trigger matches.
     pub action: action::Action<F>,
+}
+
+impl Registered for Trigger<FilterBox> {
+    type With = Self;
 }
 
 impl<F: Filter + PartialEq> PartialOrd for Trigger<F> {
@@ -170,15 +167,6 @@ pub struct Id {
     pub name: Name,
 }
 
-// impl FromStr for Id {
-//     type Err = ParseError;
-
-//     fn from_str(name: &str) -> Result<Self, Self::Err> {
-//         Ok(Self {
-//             name: Name::from_str(name)?,
-//         })
-//     }
-// }
 pub mod action {
     //! Contains trigger action and common trait for all actions
 

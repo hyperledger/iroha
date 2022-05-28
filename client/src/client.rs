@@ -1,14 +1,10 @@
 //! Contains the end-point querying logic.  This is where you need to
 //! add any custom end-point related logic.
 use std::{
-    collections::HashMap,
-    fmt::{self, Debug, Formatter},
-    marker::PhantomData,
-    sync::mpsc,
-    thread,
-    time::Duration,
+    collections::HashMap, fmt::Debug, marker::PhantomData, sync::mpsc, thread, time::Duration,
 };
 
+use derive_more::{DebugCustom, Display};
 use eyre::{eyre, Result, WrapErr};
 use http_default::WebSocketStream;
 use iroha_config::{GetConfiguration, PostConfiguration};
@@ -230,7 +226,12 @@ where
 }
 
 /// Iroha client
-#[derive(Clone)]
+#[derive(Clone, DebugCustom, Display)]
+#[debug(
+    fmt = "Client {{ torii: {torii_url}, telemetry_url: {telemetry_url}, public_key: {} }}",
+    "key_pair.public_key()"
+)]
+#[display(fmt = "{}@{torii_url}", "key_pair.public_key()")]
 pub struct Client {
     /// Url for accessing iroha node
     torii_url: SmallStr,
@@ -259,6 +260,7 @@ impl Client {
     ///
     /// # Errors
     /// If configuration isn't valid (e.g public/private keys don't match)
+    #[inline]
     pub fn new(configuration: &Configuration) -> Result<Self> {
         Self::with_headers(configuration, HashMap::new())
     }
@@ -269,6 +271,7 @@ impl Client {
     ///
     /// # Errors
     /// If configuration isn't valid (e.g public/private keys don't match)
+    #[inline]
     pub fn with_headers(
         configuration: &Configuration,
         mut headers: HashMap<String, String>,
@@ -594,7 +597,7 @@ impl Client {
         B: RequestBuilder,
     {
         let pagination: Vec<_> = pagination.into();
-        let request = QueryRequest::new(request.into(), self.account_id.clone(), filter.clone());
+        let request = QueryRequest::new(request.into(), self.account_id.clone(), filter);
         let request: VersionedSignedQueryRequest = self.sign_query(request)?.into();
 
         Ok((
@@ -609,6 +612,10 @@ impl Client {
         ))
     }
 
+    /// Create a request with pagination and add the filter.
+    ///
+    /// # Errors
+    /// Forwards from [`prepare_query_request`].
     pub fn request_with_pagination_and_filter<R>(
         &self,
         request: R,
@@ -619,7 +626,7 @@ impl Client {
         R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>, // Seems redundant
     {
-        iroha_logger::trace!(?request, %pagination);
+        iroha_logger::trace!(?request, %pagination, ?filter);
         let (req, resp_handler) =
             self.prepare_query_request::<R, DefaultRequestBuilder>(request, pagination, filter)?;
         let response = req.build()?.send()?;
@@ -642,14 +649,7 @@ impl Client {
         R: Query + Into<QueryBox> + Debug,
         <R::Output as TryFrom<Value>>::Error: Into<eyre::Error>,
     {
-        iroha_logger::trace!(?request, %pagination);
-        let (req, resp_handler) = self.prepare_query_request::<R, DefaultRequestBuilder>(
-            request,
-            pagination,
-            PredicateBox::default(),
-        )?;
-        let response = req.build()?.send()?;
-        resp_handler.handle(response)
+        self.request_with_pagination_and_filter(request, pagination, PredicateBox::default())
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers.
@@ -851,16 +851,6 @@ impl Client {
             .headers(self.headers.clone()),
             StatusResponseHandler,
         )
-    }
-}
-
-impl Debug for Client {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Client")
-            .field("public_key", self.key_pair.public_key())
-            .field("torii_url", &self.torii_url)
-            .field("telemetry_url", &self.telemetry_url)
-            .finish()
     }
 }
 

@@ -80,8 +80,6 @@ impl Limits {
     Default,
     PartialEq,
     Eq,
-    PartialOrd,
-    Ord,
     Decode,
     Encode,
     Deserialize,
@@ -130,7 +128,12 @@ impl Metadata {
         map.get(key)
     }
 
-    /// Returns iterator over key - value pairs stored in [`Metadata`]
+    /// Check if the internal map contains the given key.
+    pub fn contains(&self, key: &Name) -> bool {
+        self.map.contains_key(key)
+    }
+
+    /// Iterate over key/value pairs stored in the internal map.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.map.iter()
     }
