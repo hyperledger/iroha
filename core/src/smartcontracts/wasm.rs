@@ -565,7 +565,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        smartcontracts::permissions::{AllowAll, DenyAll},
+        smartcontracts::permissions::combinators::{AllowAll, DenyAll},
         wsv::WorldTrait as _,
         PeersIds, World,
     };

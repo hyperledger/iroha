@@ -13,7 +13,7 @@ use iroha_core::{
         BlockHeader, EmptyChainHash,
     },
     queue::Queue,
-    smartcontracts::{isi::error::FindError, permissions::DenyAll},
+    smartcontracts::{isi::error::FindError, permissions::combinators::DenyAll},
     sumeragi::view_change::ProofChain,
     tx::TransactionValidator,
     wsv::World,
