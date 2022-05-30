@@ -186,19 +186,21 @@ pub trait Configurable: Serialize + DeserializeOwned {
     ///
     /// # Errors
     /// Fails if field was unknown
-    fn get_doc_recursive<'tl>(
-        field: impl AsRef<[&'tl str]>,
-    ) -> Result<Option<&'static str>, Self::Error>;
+    fn get_doc_recursive<'tl>(field: impl AsRef<[&'tl str]>)
+        -> Result<Option<String>, Self::Error>;
 
     /// Gets docs of field
     /// # Errors
     /// Fails if field was unknown
-    fn get_doc(field: &str) -> Result<Option<&'static str>, Self::Error> {
+    fn get_doc(field: &str) -> Result<Option<String>, Self::Error> {
         Self::get_doc_recursive([field])
     }
 
     /// Returns documentation for all fields in form of json object
     fn get_docs() -> Value;
+
+    /// Gets inner docs for non-leaf fields
+    fn get_inner_docs() -> String;
 }
 
 /// Json config for getting configuration
