@@ -211,7 +211,7 @@ pub mod error {
     impl From<FixedPointOperationError> for Error {
         fn from(err: FixedPointOperationError) -> Self {
             match err {
-                FixedPointOperationError::NegativeValue(_) => MathError::NegativeValue.into(),
+                FixedPointOperationError::NegativeValue(_) => Self::Math(MathError::NegativeValue),
                 FixedPointOperationError::Conversion(e) => {
                     Self::Conversion(format!("Mathematical conversion failed. {}", e))
                 }

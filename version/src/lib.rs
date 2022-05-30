@@ -8,10 +8,9 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-// TODO: #1854, CI doesn't catch errors with unused imports in this block.
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::{fmt, ops::Range};
+use core::ops::Range;
 
 use iroha_schema::IntoSchema;
 #[cfg(feature = "derive")]
@@ -48,10 +47,8 @@ pub mod error {
         /// Cannot encode unsupported version from Parity SCALE to JSON
         UnsupportedScaleEncode,
         /// JSON (de)serialization issue
-        #[cfg(feature = "json")]
         Serde,
         /// Parity SCALE (de)serialization issue
-        #[cfg(feature = "scale")]
         ParityScale,
         /// Problem with parsing integers
         ParseInt,
@@ -141,24 +138,23 @@ pub trait Version {
 }
 
 /// Structure describing a container content which version is not supported.
-#[derive(Debug, IntoSchema)]
+#[derive(Debug, Clone, IntoSchema)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
 #[cfg_attr(feature = "scale", derive(Encode, Decode))]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
+#[cfg_attr(
+    feature = "std",
+    error(
+        "Unsupported version. Expected: {}, got: {version}",
+        Self::expected_version()
+    )
+)]
 pub struct UnsupportedVersion {
     /// Version of the content.
     pub version: u8,
     /// Raw content.
     pub raw: RawVersioned,
 }
-
-impl fmt::Display for UnsupportedVersion {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Unsupported version: {}", self.version)
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for UnsupportedVersion {}
 
 impl UnsupportedVersion {
     /// Constructs [`UnsupportedVersion`].
@@ -167,10 +163,15 @@ impl UnsupportedVersion {
     pub const fn new(version: u8, raw: RawVersioned) -> Self {
         Self { version, raw }
     }
+
+    /// Expected version
+    pub const fn expected_version() -> u8 {
+        1
+    }
 }
 
 /// Raw versioned content, serialized.
-#[derive(Debug, IntoSchema)]
+#[derive(Debug, Clone, IntoSchema)]
 #[cfg_attr(feature = "scale", derive(Encode, Decode))]
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 pub enum RawVersioned {

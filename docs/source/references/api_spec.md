@@ -40,7 +40,6 @@
 | Response        | Status | Body [*](#iroha-structures) |
 | --------------- | ------ | ---- |
 | Decode err.     |    400 | `QueryError::Decode(Box<iroha_version::error::Error>)` |
-| Version err.    |    400 | `QueryError::Version(UnsupportedVersionError)` |
 | Signature err.  |    401 | `QueryError::Signature(String)` |
 | Permission err. |    403 | `QueryError::Permission(String)` |
 | Evaluate err.   |    400 | `QueryError::Evaluate(String)` |
@@ -225,8 +224,9 @@ Also returns current status of peer in json string:
 - 200 OK - reports status:
   + Number of connected peers, except for the reporting peer itself
   + Number of committed blocks (block height)
-  + Total number of accepted and rejected transactions
-  + Uptime since creation of the genesis block.
+  + Total number of accepted transactions
+  + Total number of rejected transactions
+  + Uptime with nanosecond precision since creation of the genesis block
   + Number of view changes in the current round
 
 ```json
@@ -340,7 +340,6 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 
 - `VersionedPaginatedQueryResult` - `iroha_data_model::query::VersionedPaginatedQueryResult`
 - `QueryError` - `iroha_core::smartcontracts::isi::query::Error`
-- `UnsupportedVersionError` - `iroha_core::smartcontracts::isi::query::UnsupportedVersionError`
 - `FindError` - `iroha_core::smartcontracts::isi::error::FindError`
 
 - `EventStreamSubscriptionRequest` - `iroha_data_model::events::EventSubscriberMessage::SubscriptionRequest`
