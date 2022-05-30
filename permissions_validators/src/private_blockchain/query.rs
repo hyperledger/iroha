@@ -392,7 +392,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
                 let id = query
                     .id
                     .evaluate(wsv, &context)
-                    .map_err(|err| err.to_string())?;
+                    .map_err(|e| e.to_string())?;
                 if wsv.world.triggers.inspect(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {

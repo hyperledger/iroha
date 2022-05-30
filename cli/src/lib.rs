@@ -189,7 +189,7 @@ where
 
         let query_validator = Arc::new(query_validator);
 
-        // TODO: Very dirty, need to do something with it
+        // TODO #2292: Very dirty, need to do something with it
         let world_wsv = if std::any::TypeId::of::<W>() == std::any::TypeId::of::<World>() {
             // SAFETY: Always safe
             unsafe {

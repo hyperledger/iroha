@@ -24,7 +24,7 @@ impl NeedsPermission for QueryBox {}
 impl NeedsPermission for Expression {}
 
 /// Type of object validator can check
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display)]
 pub enum ValidatorType {
     /// [`Instruction`] variant
     Instruction,
@@ -44,20 +44,13 @@ impl ValidatorType {
         another: ValidatorType,
     ) -> std::result::Result<(), ValidatorTypeMismatch> {
         if self != another {
-            return Err(ValidatorTypeMismatch::expected(another).found(self));
+            return Err(ValidatorTypeMismatch {
+                expected: another,
+                actual: self,
+            });
         }
 
         Ok(())
-    }
-}
-
-impl std::fmt::Display for ValidatorType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ValidatorType::Instruction => write!(f, "Instruction"),
-            ValidatorType::Query => write!(f, "Query"),
-            ValidatorType::Expression => write!(f, "Expression"),
-        }
     }
 }
 
@@ -65,13 +58,21 @@ pub mod error {
     //! Contains errors structures
 
     use super::ValidatorType;
+    use crate::smartcontracts::Mismatch;
+
+    /// Wrong validator expectation error
+    ///
+    /// I.e. used when user tries to validate [`QueryBox`](super::QueryBox) with
+    /// [`IsAllowedBoxed`](super::IsAllowedBoxed) containing
+    /// [`IsAllowedBoxed::Instruction`](super::IsAllowedBoxed::Instruction) variant
+    pub type ValidatorTypeMismatch = Mismatch<ValidatorType>;
 
     /// Reason for prohibiting the execution of the particular instruction.
     #[derive(Debug, Clone, thiserror::Error)]
     #[allow(variant_size_differences)]
     pub enum DenialReason {
         /// [`ValidatorTypeMismatch`] variant
-        #[error("{0}")]
+        #[error("Wrong validator type: {0}")]
         ValidatorTypeMismatch(#[from] ValidatorTypeMismatch),
         /// Variant for custom error
         #[error("{0}")]
@@ -84,41 +85,6 @@ pub mod error {
     impl From<String> for DenialReason {
         fn from(s: String) -> Self {
             Self::Custom(s)
-        }
-    }
-
-    /// Wrong validator expectation error
-    ///
-    /// I.e. used when user tries to validate [`QueryBox`](super::QueryBox) with
-    /// [`IsAllowedBoxed`](super::IsAllowedBoxed) containing
-    /// [`IsAllowedBoxed::Instruction`](super::IsAllowedBoxed::Instruction) variant
-    #[derive(Debug, Copy, Clone, thiserror::Error)]
-    #[error("Expected `{expected}` validator type, but found `{found}`")]
-    pub struct ValidatorTypeMismatch {
-        expected: ValidatorType,
-        found: ValidatorType,
-    }
-
-    impl ValidatorTypeMismatch {
-        /// Start construction of [`ValidatorTypeMismatch`] by providing *expected* type
-        pub fn expected(expected: ValidatorType) -> Expected {
-            Expected { expected }
-        }
-    }
-
-    /// Helper struct for constructing [`ValidatorTypeMismatch`]
-    #[derive(Debug, Copy, Clone)]
-    pub struct Expected {
-        expected: ValidatorType,
-    }
-
-    impl Expected {
-        /// Finish construction of [`ValidatorTypeMismatch`] by providing *found* type
-        pub fn found(self, found: ValidatorType) -> ValidatorTypeMismatch {
-            ValidatorTypeMismatch {
-                expected: self.expected,
-                found,
-            }
         }
     }
 }
@@ -176,9 +142,11 @@ impl IsAllowed<World, Instruction> for IsAllowedBoxed {
         if let IsAllowedBoxed::Instruction(instruction) = self {
             instruction.check(authority, operation, wsv)
         } else {
-            Err(ValidatorTypeMismatch::expected(ValidatorType::Instruction)
-                .found(self.validator_type())
-                .into())
+            Err(ValidatorTypeMismatch {
+                expected: ValidatorType::Instruction,
+                actual: self.validator_type(),
+            }
+            .into())
         }
     }
 }
@@ -193,9 +161,11 @@ impl IsAllowed<World, QueryBox> for IsAllowedBoxed {
         if let IsAllowedBoxed::Query(query) = self {
             query.check(authority, operation, wsv)
         } else {
-            Err(ValidatorTypeMismatch::expected(ValidatorType::Query)
-                .found(self.validator_type())
-                .into())
+            Err(ValidatorTypeMismatch {
+                expected: ValidatorType::Query,
+                actual: self.validator_type(),
+            }
+            .into())
         }
     }
 }
@@ -210,9 +180,11 @@ impl IsAllowed<World, Expression> for IsAllowedBoxed {
         if let IsAllowedBoxed::Expression(expression) = self {
             expression.check(authority, operation, wsv)
         } else {
-            Err(ValidatorTypeMismatch::expected(ValidatorType::Expression)
-                .found(self.validator_type())
-                .into())
+            Err(ValidatorTypeMismatch {
+                expected: ValidatorType::Expression,
+                actual: self.validator_type(),
+            }
+            .into())
         }
     }
 }
@@ -300,7 +272,7 @@ impl IsAllowed<World, Expression> for IsExpressionAllowedBoxed {
 }
 
 /// Trait for joining validators with `or` method, auto-implemented
-/// for all types which are convertible to something implementing [`IsAllowed`]
+/// for all types which are convertible to a concrete type implementing [`IsAllowed`]
 pub trait ValidatorApplyOr<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>>: Into<V> {
     /// Combines two validators into [`Or`].
     ///
@@ -709,9 +681,11 @@ fn check_all_validators_have_the_same_type(validators: &[IsAllowedBoxed]) -> Res
     for validator in validators.iter().skip(1) {
         let validator_type = validator.validator_type();
         if validator_type != first_type {
-            return Err(ValidatorTypeMismatch::expected(first_type)
-                .found(validator_type)
-                .into());
+            return Err(ValidatorTypeMismatch {
+                expected: first_type,
+                actual: validator_type,
+            }
+            .into());
         }
     }
 
@@ -725,7 +699,7 @@ pub struct AllShouldSucceed {
 }
 
 impl AllShouldSucceed {
-    /// Creates new [`AllShouldSucceed`]
+    /// Create new [`AllShouldSucceed`]
     ///
     /// # Errors
     /// If provided validators have different types.
@@ -738,9 +712,11 @@ impl AllShouldSucceed {
     fn check_type(&self, validator_type: ValidatorType) -> Result<()> {
         if let Ok(self_type) = self.validator_type() {
             if self_type != validator_type {
-                return Err(ValidatorTypeMismatch::expected(validator_type)
-                    .found(self_type)
-                    .into());
+                return Err(ValidatorTypeMismatch {
+                    expected: validator_type,
+                    actual: self_type,
+                }
+                .into());
             }
         }
 
@@ -875,9 +851,11 @@ impl AnyShouldSucceed {
     fn check_type(&self, validator_type: ValidatorType) -> Result<()> {
         if let Ok(self_type) = self.validator_type() {
             if self_type != validator_type {
-                return Err(ValidatorTypeMismatch::expected(validator_type)
-                    .found(self_type)
-                    .into());
+                return Err(ValidatorTypeMismatch {
+                    expected: validator_type,
+                    actual: self_type,
+                }
+                .into());
             }
         }
 
@@ -1139,6 +1117,22 @@ impl DenyAll {
     }
 }
 
+/// Generate [`From`] implementations from type implementing [`IsAllowed`] to boxed types like:
+/// [`IsInstructionAllowedBoxed`], [`IsQueryAllowedBoxed`] and [`IsExpressionAllowedBoxed`]
+///
+/// See usage below
+macro_rules! impl_from_for_allowed_boxed {
+    ($($t:ty => $b:ty),+ $(,)?) => {
+        $(
+            impl From<$t> for $b {
+                fn from(value: $t) -> Self {
+                    <$b>::World(Box::new(value))
+                }
+            }
+        )+
+    };
+}
+
 impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllowAll {
     fn check(
         &self,
@@ -1150,22 +1144,10 @@ impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllowAll {
     }
 }
 
-impl From<AllowAll> for IsInstructionAllowedBoxed {
-    fn from(value: AllowAll) -> Self {
-        IsInstructionAllowedBoxed::World(Box::new(value))
-    }
-}
-
-impl From<AllowAll> for IsQueryAllowedBoxed {
-    fn from(value: AllowAll) -> Self {
-        IsQueryAllowedBoxed::World(Box::new(value))
-    }
-}
-
-impl From<AllowAll> for IsExpressionAllowedBoxed {
-    fn from(value: AllowAll) -> Self {
-        IsExpressionAllowedBoxed::World(Box::new(value))
-    }
+impl_from_for_allowed_boxed! {
+    AllowAll => IsInstructionAllowedBoxed,
+    AllowAll => IsQueryAllowedBoxed,
+    AllowAll => IsExpressionAllowedBoxed,
 }
 
 impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for DenyAll {
@@ -1179,22 +1161,10 @@ impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for DenyAll {
     }
 }
 
-impl From<DenyAll> for IsInstructionAllowedBoxed {
-    fn from(value: DenyAll) -> Self {
-        IsInstructionAllowedBoxed::World(Box::new(value))
-    }
-}
-
-impl From<DenyAll> for IsQueryAllowedBoxed {
-    fn from(value: DenyAll) -> Self {
-        IsQueryAllowedBoxed::World(Box::new(value))
-    }
-}
-
-impl From<DenyAll> for IsExpressionAllowedBoxed {
-    fn from(value: DenyAll) -> Self {
-        IsExpressionAllowedBoxed::World(Box::new(value))
-    }
+impl_from_for_allowed_boxed! {
+    DenyAll => IsInstructionAllowedBoxed,
+    DenyAll => IsQueryAllowedBoxed,
+    DenyAll => IsExpressionAllowedBoxed,
 }
 
 /// Boxed validator implementing [`HasToken`] validator trait.
@@ -1216,7 +1186,7 @@ pub trait HasToken<W: WorldTrait>: Debug + dyn_clone::DynClone + erased_serde::S
     /// # Errors
     ///
     /// In the case when it is impossible to deduce the required token
-    /// given current data (e.g. inexistent account or unapplicable
+    /// given current data (e.g. non-existent account or inapplicable
     /// instruction).
     fn token(
         &self,

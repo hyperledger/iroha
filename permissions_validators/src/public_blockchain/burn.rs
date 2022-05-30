@@ -60,7 +60,7 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyAssetsCreatedByThisAccount
 
 /// Allows burning assets from a different account than the creator's of this asset if the corresponding user granted the permission token
 /// for a specific asset.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct GrantedByAssetCreator;
 
 impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);

@@ -121,7 +121,7 @@ pub(crate) async fn handle_queries<W: WorldTrait>(
     pagination: Pagination,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>, warp::http::Response<warp::hyper::Body>> {
-    // TODO: Very dirty, need to do something with it
+    // TODO #2292: Very dirty, need to do something with it
     let world_wsv = if std::any::TypeId::of::<W>() == std::any::TypeId::of::<World>() {
         // SAFETY: Always safe
         unsafe {

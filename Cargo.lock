@@ -1839,6 +1839,7 @@ dependencies = [
  "criterion",
  "crossbeam-queue",
  "dashmap",
+ "derive_more",
  "dyn-clone",
  "erased-serde",
  "eyre",

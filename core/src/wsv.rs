@@ -230,7 +230,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime =
                     wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
-                // TODO: Very dirty, need to do something with it
+                // TODO #2292: Very dirty, need to do something with it
                 if std::any::TypeId::of::<W>() == std::any::TypeId::of::<World>() {
                     // SAFETY: Always safe
                     let self_with_world = unsafe {

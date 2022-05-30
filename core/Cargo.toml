@@ -66,6 +66,7 @@ wasmtime = "0.36.0"
 anyhow = ">= 1.0"
 dyn-clone = "1.0.5"
 erased-serde = "0.3.20"
+derive_more = "0.99.17"
 
 [dev-dependencies]
 tempfile = "3"

@@ -158,7 +158,7 @@ pub mod error {
 
     /// Generic structure used to represent a mismatch
     #[derive(Debug, Clone, PartialEq, Eq, Error)]
-    #[error("Expected {expected:?},  actual {actual:?}")]
+    #[error("Expected {expected:?}, actual {actual:?}")]
     pub struct Mismatch<T> {
         /// The value that is needed for normal execution
         pub expected: T,
