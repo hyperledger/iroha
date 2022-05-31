@@ -446,21 +446,25 @@ mod account {
         /// Filter by Asset event.
         /// `AcceptAll` value will accept all `Asset` events that are related to Account
         ByAsset(FilterOpt<AssetFilter>),
-        /// Filter by Created event
+        /// Filter by `Created` event
         ByCreated,
-        /// Filter by Deleted event
+        /// Filter by `Deleted` event
         ByDeleted,
-        /// Filter by AuthenticationAdded event
+        /// Filter by `AuthenticationAdded` event
         ByAuthenticationAdded,
-        /// Filter by AuthenticationRemoved event
+        /// Filter by `AuthenticationRemoved` event
         ByAuthenticationRemoved,
-        /// Filter by PermissionAdded event
+        /// Filter by `PermissionAdded` event
         ByPermissionAdded,
-        /// Filter by PermissionRemoved event
+        /// Filter by `PermissionRemoved` event
         ByPermissionRemoved,
-        /// Filter by MetadataInserted event
+        /// Filter by `RoleRevoked` event
+        ByRoleRevoked,
+        /// Filter by `RoleGranted` event
+        ByRoleGranted,
+        /// Filter by `MetadataInserted` event
         ByMetadataInserted,
-        /// Filter by MetadataRemoved event
+        /// Filter by `MetadataRemoved` event
         ByMetadataRemoved,
     }
 
@@ -478,6 +482,8 @@ mod account {
                 | (Self::ByAuthenticationRemoved, AccountEvent::AuthenticationRemoved(_))
                 | (Self::ByPermissionAdded, AccountEvent::PermissionAdded(_))
                 | (Self::ByPermissionRemoved, AccountEvent::PermissionRemoved(_))
+                | (Self::ByRoleRevoked, AccountEvent::RoleRevoked(_))
+                | (Self::ByRoleGranted, AccountEvent::RoleGranted(_))
                 | (Self::ByMetadataInserted, AccountEvent::MetadataInserted(_))
                 | (Self::ByMetadataRemoved, AccountEvent::MetadataRemoved(_)) => true,
                 _ => false,
