@@ -12,7 +12,7 @@
 
 **Method**: `POST`
 
-**Expects**: Body: `VersionedTransaction` [*](#iroha-structures)
+**Expects**: Body: [`VersionedTransaction`](#iroha-structures)
 
 **Responses**:
 - 200 OK - Transaction Accepted (But not guaranteed to have passed consensus yet)
@@ -30,14 +30,14 @@
 **Method**: `POST`
 
 **Expects**:
-- Body: `VersionedSignedQueryRequest` [*](#iroha-structures)
+- Body: [`VersionedSignedQueryRequest`](#iroha-structures)
 - Query parameters:
   + `start` - Optional parameter in queries where results can be indexed. Use to return results from specified point. Results are ordered where can be by id which uses rust's [PartialOrd](https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html#derivable) and [Ord](https://doc.rust-lang.org/std/cmp/trait.Ord.html) traits.
   + `limit` - Optional parameter in queries where results can be indexed. Use to return specific number of results.
 
 **Responses**:
 
-| Response        | Status | Body [*](#iroha-structures) |
+| Response        | Status | [Body](#iroha-structures) |
 | --------------- | ------ | ---- |
 | Decode err.     |    400 | `QueryError::Decode(Box<iroha_version::error::Error>)` |
 | Signature err.  |    401 | `QueryError::Signature(String)` |
@@ -75,11 +75,11 @@ Whether each prerequisite object was found and `FindError`:
 
 **Expects**:
 
-First message after handshake from client: `EventStreamSubscriptionRequest` [*](#iroha-structures)
+First message after handshake from client: [`EventStreamSubscriptionRequest`](#iroha-structures)
 
-When server is ready to transmit events it sends: `EventStreamSubscriptionAccepted` [*](#iroha-structures)
+When server is ready to transmit events it sends: [`EventStreamSubscriptionAccepted`](#iroha-structures)
 
-Server sends `Event` and expects `EventReceived` [*](#iroha-structures) after each, before sending the next event.
+The server sends `Event` and expects to receive [`EventReceived`](#iroha-structures) before sending the next event.
 
 **Notes**:
 
@@ -121,11 +121,11 @@ _Internal use only_. Returns the transactions pending at the moment.
 
 **Expects**:
 
-First message after handshake to initiate communication from client: `BlockStreamSubscriptionRequest` [*](#iroha-structures)
+First message after handshake to initiate communication from client: [`BlockStreamSubscriptionRequest`](#iroha-structures)
 
-When server is ready to transmit blocks it sends: `BlockStreamSubscriptionAccepted` [*](#iroha-structures)
+When server is ready to transmit blocks it sends: [`BlockStreamSubscriptionAccepted`](#iroha-structures)
 
-Server sends `Block` and expects `BlockReceived` [*](#iroha-structures) after each, before sending the next block.
+The server sends `Block` and expects to receive [`BlockReceived`](#iroha-structures) before sending the next block.
 
 **Notes**:
 
@@ -242,7 +242,7 @@ Also returns current status of peer in json string:
     "view_changes": 0
 }
 ```
-- __CAUTION__: Almost all fields are 64-bit integers and should be handled with care in JavaScript. Only `nanos` field is 32-bit integer. See `iroha_telemetry::metrics::Status`
+__CAUTION__: Almost all fields are 64-bit integers and should be handled with care in JavaScript. Only the `nanos` field is 32-bit integer. See `iroha_telemetry::metrics::Status`.
 
 ### Metrics
 
