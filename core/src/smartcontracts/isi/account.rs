@@ -203,7 +203,7 @@ pub mod isi {
                     ));
                 }
 
-                Ok(AccountEvent::PermissionAdded(account_id))
+                Ok(AccountEvent::RoleGranted(account_id))
             })
         }
     }
@@ -230,7 +230,7 @@ pub mod isi {
                     return Err(FindError::Account(account_id).into());
                 }
 
-                Ok(AccountEvent::PermissionRemoved(account_id))
+                Ok(AccountEvent::RoleRevoked(account_id))
             })
         }
     }
