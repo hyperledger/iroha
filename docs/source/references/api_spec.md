@@ -79,15 +79,15 @@ First message after handshake from client: `EventStreamSubscriptionRequest` [*](
 
 When server is ready to transmit events it sends: `EventStreamSubscriptionAccepted` [*](#iroha-structures)
 
-Server sends `Event` and expects `EventReceived`  [*](#iroha-structures) after each, before sending the next event.
+Server sends `Event` and expects `EventReceived` [*](#iroha-structures) after each, before sending the next event.
 
 **Notes**:
 
-Usually, the client  waits for Transaction events.
+Usually, the client waits for Transaction events.
 
 Transaction event statuses can be either `Validating`, `Committed` or `Rejected`.
 
-Transaction statuses proceed from `Validating` to either  `Committed` or `Rejected`.
+Transaction statuses proceed from `Validating` to either `Committed` or `Rejected`.
 However, due to the distributed nature of the network, some peers might receive events out of order (e.g. `Committed` before `Validating`).
 
 It's possible that some peers in the network are offline for the validation round. If the client connects to them while they are offline, the peers might not respond with the `Validating` status.
@@ -125,7 +125,7 @@ First message after handshake to initiate communication from client: `BlockStrea
 
 When server is ready to transmit blocks it sends: `BlockStreamSubscriptionAccepted` [*](#iroha-structures)
 
-Server sends `Block` and expects `BlockReceived`  [*](#iroha-structures) after each, before sending the next block.
+Server sends `Block` and expects `BlockReceived` [*](#iroha-structures) after each, before sending the next block.
 
 **Notes**:
 
@@ -242,7 +242,7 @@ Also returns current status of peer in json string:
     "view_changes": 0
 }
 ```
-- __CAUTION__: Almost all fields are 64-bit integers and should be handled with care in JavaScript
+- __CAUTION__: Almost all fields are 64-bit integers and should be handled with care in JavaScript. Only `nanos` field is 32-bit integer. See `iroha_telemetry::metrics::Status`
 
 ### Metrics
 
