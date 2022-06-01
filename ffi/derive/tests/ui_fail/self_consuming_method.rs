@@ -9,10 +9,12 @@ struct FfiStruct;
 
 #[ffi_bindgen]
 impl FfiStructBuilder {
+    /// New
     pub fn new() -> Self {
         Self
     }
 
+    /// Build
     pub fn build(self) -> FfiStruct {
         FfiStruct
     }

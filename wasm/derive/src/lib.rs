@@ -33,6 +33,10 @@ pub fn entrypoint(_: TokenStream, item: TokenStream) -> TokenStream {
         // which is `wasm32-unknown-unknown` and therefore not dependent by the architecture
         // smart contract is compiled on or the architecture smart contract is run on
         /// Smart contract entry point
+        ///
+        /// # Safety
+        ///
+        /// Given pointer and length must comprise a valid memory slice
         #[no_mangle]
         pub unsafe extern "C" fn _iroha_wasm_main(ptr: *const u8, len: usize) {
             #fn_name(iroha_wasm::_decode_from_raw::<<Account as Identifiable>::Id>(ptr, len))

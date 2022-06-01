@@ -25,7 +25,11 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> proc_macro2::TokenStream {
     let fn_body = gen_fn_body(fn_descriptor);
 
     let ffi_fn_doc = format!(
-        " FFI function equivalent of [`{}::{}`]",
+        " FFI function equivalent of [`{}::{}`]\n \
+          \n \
+          # Safety\n \
+          \n \
+          All of the given pointers must be valid",
         fn_descriptor.self_ty.get_ident().expect_or_abort("Defined"),
         fn_descriptor.method_name
     );
@@ -69,7 +73,7 @@ fn gen_fn_body(fn_descriptor: &FnDescriptor) -> syn::Block {
 }
 
 fn gen_type_check_stmts(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
-    let mut stmts = vec![];
+    let mut stmts = gen_dangling_ptr_assignments(fn_descriptor);
 
     fn_descriptor
         .receiver
@@ -77,14 +81,15 @@ fn gen_type_check_stmts(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
         .map(|self_arg| gen_ptr_null_check_stmt(self_arg).map(|stmt| stmts.push(stmt)));
 
     for arg in &fn_descriptor.input_args {
-        if arg.is_slice_ref() {
-            stmts.push(gen_dangling_ptr_assignment(arg));
-        } else if let Some(stmt) = gen_ptr_null_check_stmt(arg) {
+        if let Some(stmt) = gen_ptr_null_check_stmt(arg) {
             stmts.push(stmt);
         }
     }
 
     if let Some(output_arg) = ffi_output_arg(fn_descriptor) {
+        if let Some(stmt) = gen_ptr_null_check_stmt(output_arg) {
+            stmts.push(stmt);
+        }
         if output_arg.is_slice_ref_mut() {
             let slice_elems_arg_name = gen_slice_elems_arg_name(output_arg);
 
@@ -93,10 +98,6 @@ fn gen_type_check_stmts(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
                     return iroha_ffi::FfiResult::ArgIsNull;
                 }
             });
-
-            stmts.push(gen_dangling_ptr_assignment(output_arg));
-        } else if let Some(stmt) = gen_ptr_null_check_stmt(output_arg) {
-            stmts.push(stmt);
         }
     }
 
@@ -205,7 +206,7 @@ fn gen_ffi_fn_arg(fn_arg_descriptor: &FnArgDescriptor) -> proc_macro2::TokenStre
     let ffi_type = &fn_arg_descriptor.ffi_type;
 
     if fn_arg_descriptor.is_slice_ref() || fn_arg_descriptor.is_slice_ref_mut() {
-        let mut tokens = quote! { mut #ffi_name: #ffi_type, };
+        let mut tokens = quote! { #ffi_name: #ffi_type, };
         slice_len_arg_to_tokens(src_type, fn_arg_descriptor, &mut tokens);
         tokens
     } else {
@@ -272,6 +273,24 @@ fn gen_ptr_null_check_stmt(fn_arg_descriptor: &FnArgDescriptor) -> Option<syn::S
     None
 }
 
+fn gen_dangling_ptr_assignments(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
+    let mut stmts = vec![];
+
+    for arg in &fn_descriptor.input_args {
+        if arg.is_slice_ref() {
+            stmts.push(gen_dangling_ptr_assignment(arg));
+        }
+    }
+    if let Some(output_arg) = ffi_output_arg(fn_descriptor) {
+        if output_arg.is_slice_ref_mut() {
+            stmts.push(gen_dangling_ptr_assignment(output_arg));
+        }
+    }
+
+    stmts
+}
+
+// NOTE: `slice::from_raw_parts` takes a non-null aligned pointer
 fn gen_dangling_ptr_assignment(fn_arg_descriptor: &FnArgDescriptor) -> syn::Stmt {
     let (arg_name, slice_len_arg_name) = (
         &fn_arg_descriptor.ffi_name,
@@ -279,10 +298,9 @@ fn gen_dangling_ptr_assignment(fn_arg_descriptor: &FnArgDescriptor) -> syn::Stmt
     );
 
     parse_quote! {
-        if #slice_len_arg_name == 0_usize {
-            // NOTE: `slice::from_raw_parts` takes a non-null aligned pointer
-            #arg_name = core::ptr::NonNull::dangling().as_ptr();
-        }
+        let #arg_name = if #slice_len_arg_name == 0_usize {
+            core::ptr::NonNull::dangling().as_ptr()
+        } else { #arg_name };
     }
 }
 

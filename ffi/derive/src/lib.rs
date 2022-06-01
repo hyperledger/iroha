@@ -34,24 +34,12 @@ pub fn ffi_bindgen(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 abort!(item.generics, "Generic structs not supported");
             }
 
-            let struct_name = &item.ident;
             let ffi_fns = gen_fns_from_derives(&item);
-            let drop_fn_doc = format!(" Drop function for [`{}`]", struct_name);
-            let drop_ffi_fn_name = syn::Ident::new(
-                &format!("{}__drop", struct_name),
-                proc_macro2::Span::call_site(),
-            );
 
             quote! {
                 #item
 
                 #( #ffi_fns )*
-
-                #[doc = #drop_fn_doc]
-                #[no_mangle]
-                pub unsafe extern "C" fn #drop_ffi_fn_name(handle: *mut #struct_name) {
-                    Box::from_raw(handle);
-                }
             }
         }
         item => abort!(item, "Item not supported"),
