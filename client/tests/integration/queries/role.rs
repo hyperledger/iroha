@@ -6,7 +6,7 @@ use eyre::Result;
 use iroha_client::client;
 use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_data_model::prelude::*;
-use test_network::{Peer as TestPeer, *};
+use test_network::*;
 
 fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
     [
@@ -20,7 +20,7 @@ fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
 
 #[test]
 fn find_roles() -> Result<()> {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_ids = create_role_ids();
@@ -49,7 +49,7 @@ fn find_roles() -> Result<()> {
 
 #[test]
 fn find_role_ids() -> Result<()> {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_ids = create_role_ids();
@@ -75,7 +75,7 @@ fn find_role_ids() -> Result<()> {
 
 #[test]
 fn find_role_by_id() -> Result<()> {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
@@ -94,7 +94,7 @@ fn find_role_by_id() -> Result<()> {
 
 #[test]
 fn find_unregistered_role_by_id() {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
@@ -111,7 +111,7 @@ fn find_unregistered_role_by_id() {
 
 #[test]
 fn find_roles_by_account_id() -> Result<()> {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_ids = create_role_ids();

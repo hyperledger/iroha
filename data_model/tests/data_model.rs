@@ -10,7 +10,7 @@ use iroha_core::{
 };
 use iroha_data_model::{prelude::*, ParseError};
 use small::SmallStr;
-use test_network::{Peer as TestPeer, TestRuntime};
+use test_network::{Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
 
 fn asset_id_new(
@@ -168,11 +168,16 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
         &configuration.genesis,
         &configuration.sumeragi.transaction_limits,
     )
+    .unwrap()
     .unwrap();
     let rt = Runtime::test();
     let mut client_configuration = get_client_config(&configuration.sumeragi.key_pair);
 
-    rt.block_on(peer.start_with_config_permissions(configuration, genesis, AllowAll, AllowAll));
+    let builder = PeerBuilder::new()
+        .with_configuration(configuration)
+        .with_genesis(genesis);
+
+    rt.block_on(builder.start_with_peer(&mut peer));
     thread::sleep(pipeline_time);
 
     client_configuration.torii_api_url =

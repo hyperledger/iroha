@@ -5,7 +5,7 @@ use iroha_core::genesis::{
     GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock, RawGenesisBlockBuilder,
 };
 use iroha_data_model::prelude::*;
-use test_network::{get_key_pair, Peer as TestPeer, TestRuntime};
+use test_network::{get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
 
 fn main() {
@@ -43,10 +43,14 @@ fn main() {
     )
     .expect("genesis creation failed");
 
+    let builder = PeerBuilder::new()
+        .with_into_genesis(genesis)
+        .with_configuration(configuration);
+
     // This only submits the genesis. It doesn't check if the accounts
     // are created, because that check is 1) not needed for what the
     // test is actually for, 2) incredibly slow, making this sort of
     // test impractical, 3) very likely to overflow memory on systems
     // with less than 16GiB of free memory.
-    rt.block_on(peer.start_with_config(genesis, configuration));
+    rt.block_on(builder.start_with_peer(&mut peer));
 }

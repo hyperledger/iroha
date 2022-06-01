@@ -5,13 +5,13 @@ use std::{str::FromStr as _, sync::mpsc, thread, time::Duration};
 use eyre::{eyre, Result, WrapErr};
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
-use test_network::{Peer as TestPeer, *};
+use test_network::*;
 
 const TRIGGER_NAME: &str = "mint_rose";
 
 #[test]
 fn call_execute_trigger() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -35,7 +35,7 @@ fn call_execute_trigger() -> Result<()> {
 
 #[test]
 fn execute_trigger_should_produce_event() -> Result<()> {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -70,7 +70,7 @@ fn execute_trigger_should_produce_event() -> Result<()> {
 
 #[test]
 fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -97,7 +97,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
 
 #[test]
 fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -151,7 +151,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
 
 #[test]
 fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -193,7 +193,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
 
 #[test]
 fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;
@@ -238,7 +238,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
 
 #[test]
 fn unregister_trigger() -> Result<()> {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let account_id = AccountId::from_str("alice@wonderland")?;

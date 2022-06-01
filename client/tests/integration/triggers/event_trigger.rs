@@ -5,11 +5,11 @@ use std::str::FromStr;
 use eyre::Result;
 use iroha_client::client::{self, Client};
 use iroha_data_model::prelude::*;
-use test_network::{Peer as TestPeer, *};
+use test_network::*;
 
 #[test]
 fn test_mint_asset_when_new_asset_definition_created() -> Result<()> {
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse()?;

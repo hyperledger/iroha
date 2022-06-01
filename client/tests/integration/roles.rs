@@ -10,8 +10,7 @@ use iroha_permissions_validators::public_blockchain::{
     key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
     transfer,
 };
-use test_network::{Peer as TestPeer, *};
-use tokio::runtime::Runtime;
+use test_network::*;
 
 #[test]
 fn add_role_to_limit_transfer_count() -> Result<()> {
@@ -20,13 +19,14 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
 
     // Setting up client and peer.
     // Peer has a special permission validator we need for this test
-    let rt = Runtime::test();
-    let (_peer, mut test_client) = rt.block_on(<TestPeer>::start_test_with_permissions(
-        ValidatorBuilder::new()
-            .with_recursive_validator(transfer::ExecutionCountFitsInLimit)
-            .all_should_succeed(),
-        AllowAll.into(),
-    ));
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
+        .with_instruction_validator(
+            ValidatorBuilder::new()
+                .with_recursive_validator(transfer::ExecutionCountFitsInLimit)
+                .all_should_succeed(),
+        )
+        .with_query_validator(AllowAll)
+        .start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
@@ -91,7 +91,7 @@ fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
 
 #[test]
 fn register_empty_role() -> Result<()> {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
@@ -103,7 +103,7 @@ fn register_empty_role() -> Result<()> {
 
 #[test]
 fn register_role_with_empty_token_params() -> Result<()> {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
@@ -126,7 +126,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
 /// @s8sato added: This test represents #2081 case.
 #[test]
 fn register_and_grant_role_for_metadata_access() -> Result<()> {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland")?;
@@ -155,7 +155,7 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
 
 #[test]
 fn unregistered_role_removed_from_account() -> Result<()> {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
