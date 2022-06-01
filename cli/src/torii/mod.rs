@@ -47,13 +47,13 @@ pub enum Error {
     Query(#[from] query::Error),
     /// Failed to decode transaction
     #[error("Failed to decode transaction")]
-    VersionedTransaction(#[from] iroha_version::error::Error),
+    VersionedTransaction(#[source] iroha_version::error::Error),
     /// Failed to accept transaction
     #[error("Failed to accept transaction: {0}")]
     AcceptTransaction(eyre::Report),
     /// Failed to get pending transaction
     #[error("Failed to get pending transactions: {0}")]
-    RequestPendingTransactions(eyre::Error),
+    RequestPendingTransactions(eyre::Report),
     /// Failed to decode pending transactions from leader
     #[error("Failed to decode pending transactions from leader")]
     DecodeRequestPendingTransactions(#[source] iroha_version::error::Error),
@@ -68,17 +68,17 @@ pub enum Error {
     Config(eyre::Report),
     /// Failed to push into queue
     #[error("Failed to push into queue")]
-    PushIntoQueue(#[source] Box<queue::Error>),
+    PushIntoQueue(#[from] Box<queue::Error>),
     #[cfg(feature = "telemetry")]
     /// Error while getting status
     #[error("Failed to get status")]
     Status(#[from] iroha_actor::Error),
     /// Configuration change error.
-    #[error("Attempt to change configuration failed. {0}")]
+    #[error("Attempt to change configuration failed")]
     ConfigurationReload(#[from] iroha_config::runtime_upgrades::ReloadError),
     #[cfg(feature = "telemetry")]
     /// Error while getting Prometheus metrics
-    #[error("Failed to produce Prometheus metrics. {0}")]
+    #[error("Failed to produce Prometheus metrics: {0}")]
     Prometheus(eyre::Report),
 }
 
@@ -134,18 +134,16 @@ impl Error {
         }
     }
 
-    fn to_string(mut err: &dyn std::error::Error) -> String {
+    fn to_string(err: &dyn std::error::Error) -> String {
         let mut s = "Error:\n".to_owned();
         let mut idx = 0_i32;
-
-        loop {
-            s += &format!("    {}: {}\n", idx, &err.to_string());
+        let mut err_opt = Some(err);
+        while let Some(e) = err_opt {
+            s += &format!("    {}: {}\n", idx, &e.to_string());
             idx += 1_i32;
-            match err.source() {
-                Some(e) => err = e,
-                None => return s,
-            }
+            err_opt = e.source()
         }
+        s
     }
 }
 
