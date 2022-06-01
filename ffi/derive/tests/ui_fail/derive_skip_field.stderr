@@ -1,0 +1,17 @@
+error[E0425]: cannot find function, tuple struct or tuple variant `FfiStruct__b` in this scope
+  --> tests/ui_fail/derive_skip_field.rs:26:9
+   |
+5  | #[ffi_bindgen]
+   | -------------- similarly named function `FfiStruct__a` defined here
+...
+26 |         FfiStruct__b(s, b.as_mut_ptr());
+   |         ^^^^^^^^^^^^ help: a function with a similar name exists: `FfiStruct__a`
+
+error[E0425]: cannot find function, tuple struct or tuple variant `FfiStruct__set_b` in this scope
+  --> tests/ui_fail/derive_skip_field.rs:28:9
+   |
+5  | #[ffi_bindgen]
+   | -------------- similarly named function `FfiStruct__set_a` defined here
+...
+28 |         FfiStruct__set_b(s, b);
+   |         ^^^^^^^^^^^^^^^^ help: a function with a similar name exists: `FfiStruct__set_a`
