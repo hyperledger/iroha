@@ -319,7 +319,7 @@ pub mod action {
     }
 
     /// Enumeration of possible repetitions schemes.
-    #[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema)]
     pub enum Repeats {
         /// Repeat indefinitely, until the trigger is unregistered.
         Indefinitely,
@@ -343,17 +343,6 @@ pub mod action {
             }
         }
     }
-
-    impl PartialEq for Repeats {
-        fn eq(&self, other: &Self) -> bool {
-            match (self, other) {
-                (Self::Exactly(l0), Self::Exactly(r0)) => l0 == r0,
-                _ => false,
-            }
-        }
-    }
-
-    impl Eq for Repeats {}
 
     impl From<u32> for Repeats {
         fn from(num: u32) -> Self {

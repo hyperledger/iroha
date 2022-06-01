@@ -236,6 +236,48 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn unregister_trigger() -> Result<()> {
+    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let account_id = AccountId::from_str("alice@wonderland")?;
+
+    // Registering trigger
+    let trigger_id = <Trigger<FilterBox> as Identifiable>::Id::from_str("empty_trigger")?;
+    let trigger_instructions = Vec::new();
+    let trigger = Trigger::new(
+        trigger_id.clone(),
+        Action::new(
+            Executable::from(trigger_instructions),
+            Repeats::Indefinitely,
+            account_id.clone(),
+            FilterBox::ExecuteTrigger(ExecuteTriggerEventFilter::new(
+                trigger_id.clone(),
+                account_id,
+            )),
+        ),
+    );
+    let register_trigger = RegisterBox::new(trigger.clone());
+    test_client.submit_blocking(register_trigger)?;
+
+    // Finding trigger
+    let find_trigger = FindTriggerById {
+        id: trigger_id.clone().into(),
+    };
+    let found_trigger = test_client.request(find_trigger.clone())?;
+    assert_eq!(found_trigger, trigger);
+
+    // Unregistering trigger
+    let unregister_trigger = UnregisterBox::new(trigger_id);
+    test_client.submit_blocking(unregister_trigger)?;
+
+    // Checking result
+    assert!(test_client.request(find_trigger).is_err());
+
+    Ok(())
+}
+
 fn get_asset_value(client: &mut Client, asset_id: AssetId) -> Result<u32> {
     let asset = client.request(client::asset::by_id(asset_id))?;
     Ok(*TryAsRef::<u32>::try_as_ref(asset.value())?)
