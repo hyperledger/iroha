@@ -158,7 +158,13 @@ impl FromStr for Name {
     }
 }
 
-#[cfg(features = "ffi")]
+/// FFI function equivalent of [`Name::from_str`]
+///
+/// # Safety
+///
+/// All of the given pointers must be valid
+#[cfg(feature = "ffi_api")]
+#[allow(non_snake_case, unsafe_code)]
 pub unsafe extern "C" fn Name__from_str(
     candidate: *const u8,
     candidate_len: usize,
@@ -178,11 +184,6 @@ pub unsafe extern "C" fn Name__from_str(
 
     output.write(method_res);
     iroha_ffi::FfiResult::Ok
-}
-
-#[cfg(features = "ffi")]
-pub unsafe extern "C" fn Name__drop(handle: *mut Name) {
-    Box::from_raw(handle);
 }
 
 impl Debug for Name {
@@ -321,18 +322,7 @@ pub enum IdBox {
 
 /// Sized container for constructors of all [`Identifiable`]s that can be registered via transaction
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum RegistrableBox {
     /// [`Peer`](`peer::Peer`) variant.
@@ -353,18 +343,7 @@ pub enum RegistrableBox {
 
 /// Sized container for all possible entities.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 pub enum IdentifiableBox {
     /// [`Peer`](`peer::Peer`) variant.
@@ -394,18 +373,7 @@ pub type ValueBox = Box<Value>;
 
 /// Sized container for all possible values.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    FromVariant,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 #[allow(clippy::enum_variant_names)]
 pub enum Value {
@@ -458,8 +426,7 @@ impl Value {
         match self {
             U32(_) | U128(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
             | String(_) | Name(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_)
-            | Hash(_) => 1_usize,
-            Block(v) => v.nested_len() + 1_usize,
+            | Hash(_) | Block(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
@@ -737,6 +704,77 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
+#[cfg(feature = "ffi_api")]
+mod ffi {
+    use iroha_ffi::{gen_ffi_impl, handles};
+
+    use super::*;
+
+    handles! {0,
+        account::Account,
+        asset::Asset,
+        domain::Domain,
+        metadata::Metadata,
+        permissions::PermissionToken,
+        role::Role,
+        Name,
+
+        iroha_crypto::PublicKey,
+        iroha_crypto::PrivateKey,
+        iroha_crypto::KeyPair
+    }
+
+    gen_ffi_impl! { Clone:
+        account::Account,
+        asset::Asset,
+        domain::Domain,
+        metadata::Metadata,
+        permissions::PermissionToken,
+        role::Role,
+        Name,
+
+        iroha_crypto::PublicKey,
+        iroha_crypto::PrivateKey,
+        iroha_crypto::KeyPair
+    }
+    gen_ffi_impl! { Eq:
+        account::Account,
+        asset::Asset,
+        domain::Domain,
+        metadata::Metadata,
+        permissions::PermissionToken,
+        role::Role,
+        Name,
+
+        iroha_crypto::PublicKey,
+        iroha_crypto::PrivateKey,
+        iroha_crypto::KeyPair
+    }
+    gen_ffi_impl! { Ord:
+        account::Account,
+        asset::Asset,
+        domain::Domain,
+        permissions::PermissionToken,
+        role::Role,
+        Name,
+
+        iroha_crypto::PublicKey
+    }
+    gen_ffi_impl! { Drop:
+        account::Account,
+        asset::Asset,
+        domain::Domain,
+        metadata::Metadata,
+        permissions::PermissionToken,
+        role::Role,
+        Name,
+
+        iroha_crypto::PublicKey,
+        iroha_crypto::PrivateKey,
+        iroha_crypto::KeyPair
+    }
+}
+
 pub mod prelude {
     //! Prelude: re-export of most commonly used traits, structs and macros in this crate.
     #[cfg(feature = "std")]
@@ -792,8 +830,11 @@ mod tests {
     }
 
     #[test]
-    #[cfg(features = "ffi")]
+    #[allow(unsafe_code)]
+    #[cfg(feature = "ffi_api")]
     fn ffi_name_from_str() -> Result<(), ParseError> {
+        use ffi::{Handle, __drop};
+
         let candidate = "Name";
         let candidate_bytes = candidate.as_bytes();
         let candidate_bytes_len = candidate_bytes.len();
@@ -814,7 +855,7 @@ mod tests {
             assert_ne!(core::ptr::null_mut(), name);
             assert_eq!(Name::from_str(candidate)?, *name);
 
-            Name__drop(name);
+            assert_eq!(iroha_ffi::FfiResult::Ok, __drop(Name::ID, name.cast()));
         }
 
         Ok(())

@@ -7,7 +7,7 @@ use core::{fmt, str::FromStr};
 use std::collections::btree_set;
 
 use getset::Getters;
-#[cfg(feature = "ffi")]
+#[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -67,21 +67,10 @@ impl FromStr for Id {
 
 /// Role is a tag for a set of permission tokens.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[getset(get = "pub")]
-#[cfg_attr(feature = "ffi", ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 pub struct Role {
     /// Unique name of the role.
     id: <Self as Identifiable>::Id,
@@ -90,7 +79,21 @@ pub struct Role {
     permissions: Permissions,
 }
 
-#[cfg_attr(feature = "ffi", ffi_bindgen)]
+impl PartialOrd for Role {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Role {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.id().cmp(other.id())
+    }
+}
+
+#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 impl Role {
     /// Constructor.
     #[inline]
@@ -118,21 +121,24 @@ impl Identifiable for Role {
 
 /// Builder for [`Role`]
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 pub struct NewRole {
     inner: Role,
+}
+
+impl PartialOrd for NewRole {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NewRole {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.inner.cmp(&other.inner)
+    }
 }
 
 /// Builder for [`Role`]

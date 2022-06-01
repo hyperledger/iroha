@@ -57,16 +57,6 @@ pub struct BlockValue {
     pub event_recommendations: Vec<Event>,
 }
 
-impl BlockValue {
-    /// ...
-    pub fn nested_len(&self) -> usize {
-        self.event_recommendations.len()
-            + self.transactions.len()
-            + self.rejected_transactions.len()
-            + self.header.invalidated_blocks_hashes.len()
-    }
-}
-
 impl PartialOrd for BlockValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.header.cmp(&other.header))

@@ -48,7 +48,7 @@ pub type AssetDefinitionsMap =
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 pub struct AssetDefinitionEntry {
     /// Asset definition.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
@@ -60,18 +60,18 @@ pub struct AssetDefinitionEntry {
 impl PartialOrd for AssetDefinitionEntry {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.definition.cmp(&other.definition))
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for AssetDefinitionEntry {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        self.definition.cmp(&other.definition)
+        self.definition().cmp(other.definition())
     }
 }
 
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 impl AssetDefinitionEntry {
     /// Constructor.
     pub const fn new(
@@ -113,7 +113,7 @@ impl AssetDefinitionEntry {
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 pub struct AssetDefinition {
     /// An Identification of the [`AssetDefinition`].
     id: <Self as Identifiable>::Id,
@@ -129,14 +129,14 @@ pub struct AssetDefinition {
 impl PartialOrd for AssetDefinition {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.id.cmp(&other.id))
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for AssetDefinition {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        self.id.cmp(&other.id)
+        self.id().cmp(other.id())
     }
 }
 
@@ -173,7 +173,7 @@ pub enum Mintable {
     Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[getset(get = "pub")]
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 pub struct Asset {
     /// Component Identification.
     id: <Self as Identifiable>::Id,
@@ -247,14 +247,14 @@ impl AssetValue {
 impl PartialOrd for Asset {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.id.cmp(&other.id))
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Asset {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        self.id.cmp(&other.id)
+        self.id().cmp(other.id())
     }
 }
 
@@ -358,7 +358,7 @@ pub struct NewAssetDefinition {
 impl PartialOrd for NewAssetDefinition {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.id.cmp(&other.id))
+        Some(self.cmp(other))
     }
 }
 
@@ -394,7 +394,7 @@ impl NewAssetDefinition {
     }
 }
 
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 impl NewAssetDefinition {
     /// Set mintability to [`Mintable::Once`]
     #[inline]
@@ -413,7 +413,7 @@ impl NewAssetDefinition {
     }
 }
 
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 impl AssetDefinition {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
@@ -461,7 +461,7 @@ impl AssetDefinition {
     }
 }
 
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 impl Asset {
     /// Constructor
     pub fn new(

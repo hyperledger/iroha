@@ -1,11 +1,11 @@
 error: Mutable references not supported
-  --> tests/ui_fail/mutable_input_arg.rs:14:38
+  --> tests/ui_fail/mutable_input_arg.rs:15:38
    |
-14 |     pub fn from_mutable_input_arg(a: &mut u32) -> Self {
+15 |     pub fn from_mutable_input_arg(a: &mut u32) -> Self {
    |                                      ^^^^^^^^
 
 error[E0425]: cannot find function, tuple struct or tuple variant `FfiStruct__from_mutable_input_arg` in this scope
-  --> tests/ui_fail/mutable_input_arg.rs:24:25
+  --> tests/ui_fail/mutable_input_arg.rs:25:25
    |
-24 |     if FfiResult::Ok != FfiStruct__from_mutable_input_arg(s.as_mut_ptr()) {
+25 |     if FfiResult::Ok != FfiStruct__from_mutable_input_arg(s.as_mut_ptr()) {
    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope

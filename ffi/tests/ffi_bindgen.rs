@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
-use iroha_ffi::{ffi_bindgen, FfiResult, Pair};
+use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, FfiResult, Pair};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Name(String);
@@ -24,8 +24,12 @@ pub struct FfiStruct {
     params: BTreeMap<Name, Value>,
 }
 
+handles! {0, FfiStruct}
+gen_ffi_impl! {Drop: FfiStruct}
+
 #[ffi_bindgen]
 impl FfiStruct {
+    /// New
     pub fn new(name: impl Into<Name>) -> Self {
         Self {
             name: Some(name.into()),
@@ -33,22 +37,32 @@ impl FfiStruct {
             params: BTreeMap::default(),
         }
     }
+
+    /// With tokens
     #[must_use]
     pub fn with_tokens(mut self, tokens: impl IntoIterator<Item = impl Into<Value>>) -> Self {
         self.tokens = tokens.into_iter().map(Into::into).collect();
         self
     }
+
+    /// With params
     #[must_use]
     pub fn with_params(mut self, params: impl IntoIterator<Item = (Name, Value)>) -> Self {
         self.params = params.into_iter().collect();
         self
     }
+
+    /// Get param
     pub fn get_param(&self, name: &Name) -> Option<&Value> {
         self.params.get(name)
     }
+
+    /// Params
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.params.iter()
     }
+
+    /// Fallible int output
     pub fn fallible_int_output(flag: bool) -> Result<u32, &'static str> {
         if flag {
             Ok(42)
@@ -59,14 +73,16 @@ impl FfiStruct {
 }
 
 fn get_new_struct() -> *mut FfiStruct {
-    let mut ffi_struct = MaybeUninit::new(core::ptr::null_mut());
     let name = Name(String::from("X"));
 
-    assert_eq!(FfiResult::Ok, unsafe {
-        FfiStruct__new(&name, ffi_struct.as_mut_ptr())
-    },);
-
     unsafe {
+        let mut ffi_struct = MaybeUninit::new(core::ptr::null_mut());
+
+        assert_eq!(
+            FfiResult::Ok,
+            FfiStruct__new(&name, ffi_struct.as_mut_ptr())
+        );
+
         let ffi_struct = ffi_struct.assume_init();
         assert!(!ffi_struct.is_null());
         ffi_struct
@@ -97,7 +113,7 @@ fn constructor() {
         assert_eq!(Some(Name(String::from('X'))), (*ffi_struct).name);
         assert!((*ffi_struct).params.is_empty());
 
-        FfiStruct__drop(ffi_struct);
+        assert_eq!(FfiResult::Ok, __drop(FfiStruct::ID, ffi_struct.cast()));
     }
 }
 
@@ -121,7 +137,7 @@ fn into_iter_item_impl_into() {
         assert_eq!(2, (*ffi_struct).tokens.len());
         assert_eq!((*ffi_struct).tokens, tokens);
 
-        FfiStruct__drop(ffi_struct);
+        assert_eq!(FfiResult::Ok, __drop(FfiStruct::ID, ffi_struct.cast()));
     }
 }
 
@@ -136,7 +152,7 @@ fn builder_method() {
             get_default_params().into_iter().collect()
         );
 
-        FfiStruct__drop(ffi_struct);
+        assert_eq!(FfiResult::Ok, __drop(FfiStruct::ID, ffi_struct.cast()));
     }
 }
 
@@ -161,8 +177,7 @@ fn return_option() {
     unsafe {
         assert!(!param2.assume_init().is_null());
         assert_eq!(&Value(String::from("Omen")), &*param2.assume_init());
-
-        FfiStruct__drop(ffi_struct);
+        assert_eq!(FfiResult::Ok, __drop(FfiStruct::ID, ffi_struct.cast()));
     }
 }
 
@@ -181,9 +196,8 @@ fn empty_return_iterator() {
                 params_len.as_mut_ptr(),
             )
         );
-
         assert!(params_len.assume_init() == 2);
-        FfiStruct__drop(ffi_struct);
+        assert_eq!(FfiResult::Ok, __drop(FfiStruct::ID, ffi_struct.cast()));
     }
 }
 
@@ -215,7 +229,7 @@ fn return_iterator() {
                 .take(1)
                 .map(|pair| (&pair.0, &pair.1))));
 
-        FfiStruct__drop(ffi_struct);
+        assert_eq!(FfiResult::Ok, __drop(FfiStruct::ID, ffi_struct.cast()));
     }
 }
 

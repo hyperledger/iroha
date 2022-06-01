@@ -11,6 +11,7 @@ struct FfiStruct {
 
 #[ffi_bindgen]
 impl FfiStruct {
+    /// From mutable input arg
     pub fn from_mutable_input_arg(a: &mut u32) -> Self {
         let output = Self { a: a.clone() };
         *a = 42;

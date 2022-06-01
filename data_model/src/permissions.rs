@@ -22,21 +22,10 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 
 /// Stored proof of the account having a permission for a certain action.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Getters,
-    Decode,
-    Encode,
-    Deserialize,
-    Serialize,
-    IntoSchema,
+    Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[getset(get = "pub")]
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 pub struct PermissionToken {
     /// Name of the permission rule given to account.
     name: Name,
@@ -45,7 +34,21 @@ pub struct PermissionToken {
     params: btree_map::BTreeMap<Name, Value>,
 }
 
-#[cfg_attr(feature = "ffi", iroha_ffi::ffi_bindgen)]
+impl PartialOrd for PermissionToken {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PermissionToken {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.name().cmp(other.name())
+    }
+}
+
+#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 impl PermissionToken {
     /// Constructor.
     #[inline]
