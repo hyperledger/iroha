@@ -603,7 +603,7 @@ impl VisitMut for SelfResolver<'_> {
     }
 }
 
-fn generic_arg_types(seg: &syn::PathSegment) -> Vec<&Type> {
+pub fn generic_arg_types(seg: &syn::PathSegment) -> Vec<&Type> {
     if let AngleBracketed(arguments) = &seg.arguments {
         let mut args = vec![];
 
