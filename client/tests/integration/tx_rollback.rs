@@ -4,13 +4,13 @@ use std::{str::FromStr as _, thread};
 
 use iroha_client::client;
 use iroha_data_model::prelude::*;
-use test_network::{Peer as TestPeer, *};
+use test_network::*;
 
 use super::Configuration;
 
 #[test]
 fn client_sends_transaction_with_invalid_instruction_should_not_see_any_changes() {
-    let (_rt, _peer, iroha_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, iroha_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
     let pipeline_time = Configuration::pipeline_time();

@@ -3,8 +3,8 @@
 use std::{str::FromStr, sync::Arc, thread, time::Duration};
 
 use eyre::Result;
-use iroha_client::client::{self, Client};
-use iroha_core::{genesis::GenesisNetwork, prelude::*};
+use iroha_client::client;
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
 use test_network::{Peer as TestPeer, *};
@@ -24,14 +24,16 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
 
     // Given
     let rt = Runtime::test();
-    rt.block_on(peer.start_with_config_permissions_dir(
-        configuration.clone(),
-        GenesisNetwork::test(true),
-        AllowAll,
-        AllowAll,
-        Arc::clone(&temp_dir),
-    ));
-    let mut iroha_client = Client::test(&peer.api_address, &peer.telemetry_address);
+    rt.block_on(
+        PeerBuilder::new()
+            .with_configuration(configuration.clone())
+            .with_instruction_validator(AllowAll)
+            .with_query_validator(AllowAll)
+            .with_dir(Arc::clone(&temp_dir))
+            .start_with_peer(&mut peer),
+    );
+    let mut iroha_client = client::Client::test(&peer.api_address, &peer.telemetry_address);
+
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
     let account_id = AccountId::from_str("alice@wonderland").unwrap();
@@ -65,13 +67,14 @@ fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     thread::sleep(Duration::from_millis(2000));
 
     let rt = Runtime::test();
-    rt.block_on(peer.start_with_config_permissions_dir(
-        configuration,
-        GenesisNetwork::test(true),
-        AllowAll,
-        AllowAll,
-        temp_dir,
-    ));
+
+    let builder = PeerBuilder::new()
+        .with_configuration(configuration)
+        .with_instruction_validator(AllowAll)
+        .with_query_validator(AllowAll)
+        .with_dir(temp_dir);
+
+    rt.block_on(builder.start_with_peer(&mut peer));
 
     let account_asset = iroha_client
         .poll_request(client::asset::by_account_id(account_id), |assets| {

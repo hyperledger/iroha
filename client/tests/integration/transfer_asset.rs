@@ -5,7 +5,7 @@ use std::thread;
 use iroha_client::client;
 use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
-use test_network::{Peer as TestPeer, *};
+use test_network::*;
 
 use super::Configuration;
 
@@ -51,7 +51,7 @@ fn simulate_transfer<
 ) where
     Value: From<T>,
 {
-    let (_rt, _peer, mut iroha_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 
