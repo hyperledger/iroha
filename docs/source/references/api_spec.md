@@ -12,7 +12,7 @@
 
 **Method**: `POST`
 
-**Expects**: Body: `VersionedTransaction` [*](#iroha-structures)
+**Expects**: Body: [`VersionedTransaction`](#iroha-structures)
 
 **Responses**:
 - 200 OK - Transaction Accepted (But not guaranteed to have passed consensus yet)
@@ -30,17 +30,16 @@
 **Method**: `POST`
 
 **Expects**:
-- Body: `VersionedSignedQueryRequest` [*](#iroha-structures)
+- Body: [`VersionedSignedQueryRequest`](#iroha-structures)
 - Query parameters:
   + `start` - Optional parameter in queries where results can be indexed. Use to return results from specified point. Results are ordered where can be by id which uses rust's [PartialOrd](https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html#derivable) and [Ord](https://doc.rust-lang.org/std/cmp/trait.Ord.html) traits.
   + `limit` - Optional parameter in queries where results can be indexed. Use to return specific number of results.
 
 **Responses**:
 
-| Response        | Status | Body [*](#iroha-structures) |
+| Response        | Status | [Body](#iroha-structures) |
 | --------------- | ------ | ---- |
 | Decode err.     |    400 | `QueryError::Decode(Box<iroha_version::error::Error>)` |
-| Version err.    |    400 | `QueryError::Version(UnsupportedVersionError)` |
 | Signature err.  |    401 | `QueryError::Signature(String)` |
 | Permission err. |    403 | `QueryError::Permission(String)` |
 | Evaluate err.   |    400 | `QueryError::Evaluate(String)` |
@@ -76,19 +75,19 @@ Whether each prerequisite object was found and `FindError`:
 
 **Expects**:
 
-First message after handshake from client: `EventStreamSubscriptionRequest` [*](#iroha-structures)
+First message after handshake from client: [`EventStreamSubscriptionRequest`](#iroha-structures)
 
-When server is ready to transmit events it sends: `EventStreamSubscriptionAccepted` [*](#iroha-structures)
+When server is ready to transmit events it sends: [`EventStreamSubscriptionAccepted`](#iroha-structures)
 
-Server sends `Event` and expects `EventReceived`  [*](#iroha-structures) after each, before sending the next event.
+The server sends `Event` and expects to receive [`EventReceived`](#iroha-structures) before sending the next event.
 
 **Notes**:
 
-Usually, the client  waits for Transaction events.
+Usually, the client waits for Transaction events.
 
 Transaction event statuses can be either `Validating`, `Committed` or `Rejected`.
 
-Transaction statuses proceed from `Validating` to either  `Committed` or `Rejected`.
+Transaction statuses proceed from `Validating` to either `Committed` or `Rejected`.
 However, due to the distributed nature of the network, some peers might receive events out of order (e.g. `Committed` before `Validating`).
 
 It's possible that some peers in the network are offline for the validation round. If the client connects to them while they are offline, the peers might not respond with the `Validating` status.
@@ -122,11 +121,11 @@ _Internal use only_. Returns the transactions pending at the moment.
 
 **Expects**:
 
-First message after handshake to initiate communication from client: `BlockStreamSubscriptionRequest` [*](#iroha-structures)
+First message after handshake to initiate communication from client: [`BlockStreamSubscriptionRequest`](#iroha-structures)
 
-When server is ready to transmit blocks it sends: `BlockStreamSubscriptionAccepted` [*](#iroha-structures)
+When server is ready to transmit blocks it sends: [`BlockStreamSubscriptionAccepted`](#iroha-structures)
 
-Server sends `Block` and expects `BlockReceived`  [*](#iroha-structures) after each, before sending the next block.
+The server sends `Block` and expects to receive [`BlockReceived`](#iroha-structures) before sending the next block.
 
 **Notes**:
 
@@ -228,9 +227,10 @@ Also returns current status of peer in json string:
 - 200 OK - reports status:
   + Number of connected peers, except for the reporting peer itself
   + Number of committed blocks (block height)
-  + Total number of transactions
-  + `uptime` since creation of the genesis block in milliseconds.
-  + Number of view_changes in the current round
+  + Total number of accepted transactions
+  + Total number of rejected transactions
+  + Uptime with nanosecond precision since creation of the genesis block
+  + Number of view changes in the current round
 
 ```json
 {
@@ -245,6 +245,7 @@ Also returns current status of peer in json string:
     "view_changes": 0
 }
 ```
+__CAUTION__: Almost all fields are 64-bit integers and should be handled with care in JavaScript. Only the `nanos` field is 32-bit integer. See `iroha_telemetry::metrics::Status`.
 
 ### Metrics
 
@@ -340,9 +341,8 @@ For more information on codec check [Substrate Dev Hub](https://substrate.dev/do
 - `VersionedTransaction` - `iroha_data_model::transaction::VersionedTransaction`
 - `VersionedSignedQueryRequest` - `iroha_data_model::query::VersionedSignedQueryRequest`
 
-- `VersionedQueryResult` - `iroha_data_model::query::VersionedQueryResult`
+- `VersionedPaginatedQueryResult` - `iroha_data_model::query::VersionedPaginatedQueryResult`
 - `QueryError` - `iroha_core::smartcontracts::isi::query::Error`
-- `UnsupportedVersionError` - `iroha_core::smartcontracts::isi::query::UnsupportedVersionError`
 - `FindError` - `iroha_core::smartcontracts::isi::error::FindError`
 
 - `EventStreamSubscriptionRequest` - `iroha_data_model::events::EventSubscriberMessage::SubscriptionRequest`

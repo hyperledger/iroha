@@ -1185,7 +1185,6 @@ mod tests {
     #[cfg(test)]
     mod query_errors_handling {
         use http::Response;
-        use iroha_core::smartcontracts::isi::query::UnsupportedVersionError;
 
         use super::*;
 
@@ -1193,10 +1192,6 @@ mod tests {
         fn certain_errors() -> Result<()> {
             let sut = QueryResponseHandler::<FindAllAssets>::default();
             let responses = vec![
-                (
-                    StatusCode::BAD_REQUEST,
-                    QueryError::Version(UnsupportedVersionError { version: 19 }),
-                ),
                 (
                     StatusCode::UNAUTHORIZED,
                     QueryError::Signature("whatever".to_owned()),
@@ -1213,9 +1208,7 @@ mod tests {
             ];
 
             for (status_code, err) in responses {
-                let resp = Response::builder()
-                    .status(status_code)
-                    .body(err.clone().encode())?;
+                let resp = Response::builder().status(status_code).body(err.encode())?;
 
                 match sut.handle(resp) {
                     Err(ClientQueryError::QueryError(actual)) => {

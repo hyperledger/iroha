@@ -115,16 +115,13 @@ pub(crate) async fn handle_queries<W: WorldTrait>(
     query_validator: Arc<IsQueryAllowedBoxed<W>>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
-) -> Result<Scale<VersionedPaginatedQueryResult>, warp::http::Response<warp::hyper::Body>> {
-    let valid_request = request
-        .validate(&wsv, &query_validator)
-        .map_err(into_reply)?;
-    let original_result = valid_request.execute(&wsv).map_err(into_reply)?;
+) -> Result<Scale<VersionedPaginatedQueryResult>> {
+    let valid_request = request.validate(&wsv, &query_validator)?;
+    let original_result = valid_request.execute(&wsv)?;
     let total: u64 = original_result
         .len()
         .try_into()
-        .map_err(|e: TryFromIntError| QueryError::Conversion(e.to_string()))
-        .map_err(into_reply)?;
+        .map_err(|e: TryFromIntError| QueryError::Conversion(e.to_string()))?;
     let result = QueryResult(if let Value::Vec(value) = original_result {
         Value::Vec(value.into_iter().paginate(pagination).collect())
     } else {
@@ -136,11 +133,6 @@ pub(crate) async fn handle_queries<W: WorldTrait>(
         total,
     };
     Ok(Scale(paginated_result.into()))
-}
-
-#[allow(clippy::needless_pass_by_value)] // Required for `map_err`.
-fn into_reply(error: QueryError) -> warp::http::Response<warp::hyper::Body> {
-    reply::with_status(Scale(&error), super::query_status_code(&error)).into_response()
 }
 
 #[derive(serde::Serialize)]
@@ -412,54 +404,6 @@ async fn update_metrics<W: WorldTrait>(
     Ok(())
 }
 
-/// Convert accumulated `Rejection` into appropriate `Reply`.
-#[allow(clippy::unused_async)]
-// TODO: -> Result<impl Reply, Infallible>
-pub(crate) async fn handle_rejection(rejection: Rejection) -> Result<Response, Rejection> {
-    use super::Error::*;
-
-    let err = if let Some(err) = rejection.find::<Error>() {
-        err
-    } else {
-        iroha_logger::warn!(?rejection, "unhandled rejection");
-        return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
-    };
-
-    #[allow(clippy::match_same_arms)]
-    let response = match err {
-        Query(err) => {
-            reply::with_status(utils::Scale(err), super::query_status_code(err)).into_response()
-        }
-        VersionedTransaction(err) => {
-            reply::with_status(err.to_string(), err.status_code()).into_response()
-        }
-        AcceptTransaction(_err) => return unhandled(rejection),
-        RequestPendingTransactions(_err) => return unhandled(rejection),
-        DecodeRequestPendingTransactions(err) => {
-            reply::with_status(err.to_string(), err.status_code()).into_response()
-        }
-        EncodePendingTransactions(err) => {
-            reply::with_status(err.to_string(), err.status_code()).into_response()
-        }
-        TxTooBig => return unhandled(rejection),
-        Config(_err) => return unhandled(rejection),
-        PushIntoQueue(_err) => return unhandled(rejection),
-        ConfigurationReload(_err) => return unhandled(rejection),
-        #[cfg(feature = "telemetry")]
-        Status(_err) => return unhandled(rejection),
-        #[cfg(feature = "telemetry")]
-        Prometheus(_err) => return unhandled(rejection),
-    };
-
-    Ok(response)
-}
-
-// TODO: Remove this. Handle all the `Error` cases in `handle_rejection`
-fn unhandled(rejection: Rejection) -> Result<Response, Rejection> {
-    iroha_logger::warn!(?rejection, "unhandled rejection");
-    Err(rejection)
-}
-
 impl<W: WorldTrait> Torii<W> {
     /// Construct `Torii` from `ToriiConfiguration`.
     pub fn from_configuration(
@@ -589,7 +533,6 @@ impl<W: WorldTrait> Torii<W> {
             .or(warp::post().and(post_router))
             .or(warp::get().and(get_router))
             .with(warp::trace::request())
-            .recover(handle_rejection)
     }
 
     /// Start status and metrics endpoints.

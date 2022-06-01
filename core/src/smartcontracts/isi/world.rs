@@ -186,7 +186,7 @@ pub mod isi {
                     return Ok(RoleEvent::Deleted(role_id).into());
                 }
 
-                Err(Error::Find(Box::new(FindError::Role(role_id))))
+                Err(FindError::Role(role_id).into())
             })
         }
     }

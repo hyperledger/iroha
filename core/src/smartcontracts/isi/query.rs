@@ -33,33 +33,12 @@ impl ValidQueryRequest {
     }
 }
 
-/// Unsupported version error
-#[derive(Clone, Copy, Eq, PartialEq, Debug, Decode, Encode, IntoSchema, Error)]
-#[error(
-    "Unsupported version. Expected: {}, got: {version}",
-    Self::expected_version()
-)]
-pub struct UnsupportedVersionError {
-    /// Version that we got
-    pub version: u8,
-}
-
-impl UnsupportedVersionError {
-    /// Expected version
-    pub const fn expected_version() -> u8 {
-        1
-    }
-}
-
 /// Query errors.
-#[derive(Error, Debug, Clone, Decode, Encode, IntoSchema)]
+#[derive(Error, Debug, Decode, Encode, IntoSchema)]
 pub enum Error {
     /// Query can not be decoded.
     #[error("Query can not be decoded")]
     Decode(#[from] Box<iroha_version::error::Error>),
-    /// Query has unsupported version.
-    #[error("Query has unsupported version")]
-    Version(#[from] UnsupportedVersionError),
     /// Query has wrong signature.
     #[error("Query has the wrong signature: {0}")]
     Signature(String),
@@ -79,7 +58,7 @@ pub enum Error {
 
 impl From<FindError> for Error {
     fn from(err: FindError) -> Self {
-        Error::Find(Box::new(err))
+        Box::new(err).into()
     }
 }
 

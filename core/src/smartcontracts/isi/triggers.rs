@@ -30,7 +30,7 @@ pub mod isi {
                 match &new_trigger.action.repeats {
                     Repeats::Exactly(action) if action.get() == 1 => (),
                     _ => {
-                        return Err(Error::Math(MathError::Overflow));
+                        return Err(MathError::Overflow.into());
                     }
                 }
             }
