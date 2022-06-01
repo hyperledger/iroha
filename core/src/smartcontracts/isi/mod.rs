@@ -46,7 +46,7 @@ pub mod error {
     pub enum Error {
         /// Failed to find some entity
         #[error("Failed to find")]
-        Find(#[source] Box<FindError>),
+        Find(#[from] Box<FindError>),
         /// Failed to assert type
         #[error("Type assertion failed. {0}")]
         Type(#[from] TypeError),
@@ -89,11 +89,9 @@ pub mod error {
         fn from(err: trigger::set::ModRepeatsError) -> Self {
             match err {
                 trigger::set::ModRepeatsError::NotFound(not_found_id) => {
-                    Error::Find(Box::new(FindError::Trigger(not_found_id)))
+                    FindError::Trigger(not_found_id).into()
                 }
-                trigger::set::ModRepeatsError::RepeatsOverflow(_) => {
-                    Error::Math(MathError::Overflow)
-                }
+                trigger::set::ModRepeatsError::RepeatsOverflow(_) => MathError::Overflow.into(),
             }
         }
     }
@@ -128,7 +126,7 @@ pub mod error {
     }
 
     /// Type assertion error
-    #[derive(Debug, Clone, Error, Decode, Encode, IntoSchema)]
+    #[derive(Debug, Error, Decode, Encode, IntoSchema)]
     pub enum FindError {
         /// Failed to find asset
         #[error("Failed to find asset: `{0}`")]
@@ -217,10 +215,10 @@ pub mod error {
                 FixedPointOperationError::Conversion(e) => {
                     Self::Conversion(format!("Mathematical conversion failed. {}", e))
                 }
-                FixedPointOperationError::Overflow => Self::Math(MathError::Overflow),
-                FixedPointOperationError::DivideByZero => Self::Math(MathError::DivideByZero),
-                FixedPointOperationError::DomainViolation => Self::Math(MathError::DomainViolation),
-                FixedPointOperationError::Arithmetic => Self::Math(MathError::Unknown),
+                FixedPointOperationError::Overflow => MathError::Overflow.into(),
+                FixedPointOperationError::DivideByZero => MathError::DivideByZero.into(),
+                FixedPointOperationError::DomainViolation => MathError::DomainViolation.into(),
+                FixedPointOperationError::Arithmetic => MathError::Unknown.into(),
             }
         }
     }

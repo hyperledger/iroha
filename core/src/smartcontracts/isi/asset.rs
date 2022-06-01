@@ -74,7 +74,7 @@ pub mod isi {
                     .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
                     .checked_add(self.object)
-                    .ok_or(Error::Math(MathError::Overflow))?;
+                    .ok_or(MathError::Overflow)?;
                 wsv.metrics.tx_amounts.observe(f64::from(*quantity));
 
                 Ok(AssetEvent::Added(asset_id.clone()))
@@ -102,7 +102,7 @@ pub mod isi {
                     .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
                     .checked_add(self.object)
-                    .ok_or(Error::Math(MathError::Overflow))?;
+                    .ok_or(MathError::Overflow)?;
                 #[allow(clippy::cast_precision_loss)]
                 wsv.metrics.tx_amounts.observe(*quantity as f64);
 
@@ -320,7 +320,7 @@ pub mod isi {
                     .map_err(|e| Error::Conversion(e.to_string()))?;
                 *quantity = quantity
                     .checked_sub(self.object)
-                    .ok_or(Error::Math(MathError::NotEnoughQuantity))?;
+                    .ok_or(MathError::NotEnoughQuantity)?;
 
                 Ok(AssetEvent::Removed(self.source_id.clone()))
             })?;
