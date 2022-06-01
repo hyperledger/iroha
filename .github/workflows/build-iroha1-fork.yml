@@ -1244,6 +1244,7 @@ jobs:
       - prepare-windows-env
       - generate_matrixes
     runs-on: windows-latest
+    permissions: read-all
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON( needs.generate_matrixes.outputs.matrix_windows ) }}
