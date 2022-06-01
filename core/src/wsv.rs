@@ -307,13 +307,14 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Send [`Event`]s to known subscribers.
     fn produce_event(&self, event: impl Into<Event>) {
-        let events_sender = if let Some(sender) = &self.events_sender {
-            sender
-        } else {
-            return warn!("wsv does not equip an events sender");
-        };
-
-        drop(events_sender.send(event.into()))
+        self.events_sender.as_ref().map_or_else(
+            || {
+                warn!("wsv does not equip an events sender");
+            },
+            |events_sender| {
+                drop(events_sender.send(event.into()));
+            },
+        )
     }
 
     /// Tries to get asset or inserts new with `default_asset_value`.
