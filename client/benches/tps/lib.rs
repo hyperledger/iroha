@@ -77,7 +77,7 @@ impl Config {
         }
         // END
         let elapsed_secs = timer.elapsed().as_secs_f64();
-        thread::sleep(core::time::Duration::from_secs(2));
+        thread::sleep(core::time::Duration::from_secs(4));
         let blocks_out_of_measure = 1 + 2 * self.peers;
         let mut blocks = network
             .genesis
