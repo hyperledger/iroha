@@ -236,20 +236,47 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
   OnDemandOrderingServiceImpl::PackedProposalData result;
   do {
     std::lock_guard<std::mutex> lock(proposals_mutex_);
-    auto it = proposal_map_.find(round);
+    bool const is_current_round_or_next2 =
+        (round.block_round == current_round_.block_round
+         ? (round.reject_round - current_round_.reject_round)
+         : (round.block_round - current_round_.block_round))
+        <= 2ull;
+
+    if (!is_current_round_or_next2)
+      break;
+
+      auto const from = round.block_round;
+    auto const to = from + max_proposal_pack_;
+
+    auto remains = max_proposal_pack_;
+    auto it = proposal_map_.upper_bound(from - 1ull);
+
+    auto prev = from;
+    std::vector<consensus::BlockRoundType> rounds;
+    rounds.reserve(max_proposal_pack_);
+
+    while (it != proposal_map_.end() && it->first >= from && it->first < to) {
+      for (consensus::BlockRoundType dif = 0ull; dif < it->first - prev; ++dif)
+        rounds.emplace_back(prev + dif);
+
+      remains -= (it->first - prev + 1ull);
+      prev = it->first + 1ull;
+      ++it;
+    }
+
+    for (consensus::BlockRoundType ix = max_proposal_pack_ - remains; ix < max_proposal_pack_; ++ix)
+      rounds.emplace_back(from + ix);
+
+
+    auto it = proposal_map_.find(round.block_round);
     if (it != proposal_map_.end()) {
       result = it->second;
       break;
     }
 
-    bool const is_current_round_or_next2 =
-        (round.block_round == current_round_.block_round
-             ? (round.reject_round - current_round_.reject_round)
-             : (round.block_round - current_round_.block_round))
-        <= 2ull;
-
     if (is_current_round_or_next2) {
       result = packNextProposals(round);
+      //1 put in cache
       proposal_map_.emplace(round, result);
       getSubscription()->notify(EventTypes::kOnPackProposal, round);
     }
@@ -306,7 +333,7 @@ OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
     log_->debug(
         "Packed proposal {} contains: {} transactions.", ix, txs.size());
     if (auto result =
-            tryCreateProposal(consensus::Round(round.block_round + ix, 0),
+            tryCreateProposal(consensus::Round(round.block_round + ix, ix == 0 ? round.reject_round : 0),
                               txs,
                               iroha::time::now()))
       outcome.emplace_back(std::make_pair(std::move(result).value(), bf));
@@ -321,7 +348,7 @@ OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
 void OnDemandOrderingServiceImpl::tryErase(
     const consensus::Round &current_round) {
   // find first round that is not less than current_round
-  auto current_proposal_it = proposal_map_.lower_bound(current_round);
+  auto current_proposal_it = proposal_map_.lower_bound(current_round.block_round);
   // save at most number_of_proposals_ rounds that are less than current_round
   for (size_t i = 0; i < number_of_proposals_
        and current_proposal_it != proposal_map_.begin();
@@ -370,7 +397,7 @@ bool OnDemandOrderingServiceImpl::batchAlreadyProcessed(
 
 bool OnDemandOrderingServiceImpl::hasProposal(consensus::Round round) const {
   std::lock_guard<std::mutex> lock(proposals_mutex_);
-  return proposal_map_.find(round) != proposal_map_.end();
+  return proposal_map_.find(round.block_round) != proposal_map_.end();
 }
 
 void OnDemandOrderingServiceImpl::processReceivedProposal(
