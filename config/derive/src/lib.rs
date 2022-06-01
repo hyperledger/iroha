@@ -183,7 +183,7 @@ fn impl_get_doc_recursive(
         return quote! {
             fn get_doc_recursive<'a>(
                 inner_field: impl AsRef<[&'a str]>,
-            ) -> std::result::Result<std::option::Option<&'static str>, iroha_config::derive::Error>
+            ) -> std::result::Result<std::option::Option<String>, iroha_config::derive::Error>
             {
                 Err(iroha_config::derive::Error::UnknownField(
                     inner_field.as_ref().iter().map(ToString::to_string).collect()
@@ -199,11 +199,16 @@ fn impl_get_doc_recursive(
         .map(|(((ident, inner_thing), documentation), ty)| {
             if inner_thing {
                 quote! {
-                    [stringify!(#ident)] => Some(#documentation),
+                    [stringify!(#ident)] => {
+                        let curr_doc = #documentation;
+                        let inner_docs = <#ty as iroha_config::Configurable>::get_inner_docs();
+                        let total_docs = format!("{}\n\nHas following fields:\n\n{}\n", curr_doc, inner_docs);
+                        Some(total_docs)
+                    },
                     [stringify!(#ident), rest @ ..] => <#ty as iroha_config::Configurable>::get_doc_recursive(rest)?,
                 }
             } else {
-                quote! { [stringify!(#ident)] => Some(#documentation), }
+                quote! { [stringify!(#ident)] => Some(#documentation.to_owned()), }
             }
         })
         // XXX: Workaround
@@ -213,7 +218,7 @@ fn impl_get_doc_recursive(
     quote! {
         fn get_doc_recursive<'a>(
             inner_field: impl AsRef<[&'a str]>,
-        ) -> std::result::Result<std::option::Option<&'static str>, iroha_config::derive::Error>
+        ) -> std::result::Result<std::option::Option<String>, iroha_config::derive::Error>
         {
             let inner_field = inner_field.as_ref();
             let doc = match inner_field {
@@ -223,6 +228,44 @@ fn impl_get_doc_recursive(
                 )),
             };
             Ok(doc)
+        }
+    }
+}
+
+fn impl_get_inner_docs(
+    field_ty: &[Type],
+    field_idents: &[&Ident],
+    inner: Vec<bool>,
+    docs: Vec<LitStr>,
+) -> proc_macro2::TokenStream {
+    let inserts = field_idents
+        .iter()
+        .zip(inner)
+        .zip(docs)
+        .zip(field_ty)
+        .map(|(((ident, inner_thing), documentation), ty)| {
+            let doc = if inner_thing {
+                quote!{ <#ty as iroha_config::Configurable>::get_inner_docs().as_str() }
+            } else {
+                quote!{ #documentation.into() }
+            };
+
+            quote! {
+                inner_docs.push_str(stringify!(#ident));
+                inner_docs.push_str(": ");
+                inner_docs.push_str(#doc);
+                inner_docs.push_str("\n\n");
+            }
+        })
+        // XXX: Workaround
+        //Description of issue is here https://stackoverflow.com/a/65353489
+        .fold(quote! {}, |acc, new| quote! { #acc #new });
+
+    quote! {
+        fn get_inner_docs() -> String {
+            let mut inner_docs = String::new();
+            #inserts
+            inner_docs
         }
     }
 }
@@ -441,6 +484,7 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
     let get_recursive = impl_get_recursive(&field_idents, inner.clone(), &lvalue_read);
     let get_doc_recursive =
         impl_get_doc_recursive(&field_ty, &field_idents, inner.clone(), docs.clone());
+    let get_inner_docs = impl_get_inner_docs(&field_ty, &field_idents, inner.clone(), docs.clone());
     let get_docs = impl_get_docs(&field_ty, &field_idents, inner, docs);
 
     let out = quote! {
@@ -450,6 +494,7 @@ fn impl_configurable(ast: &DeriveInput) -> TokenStream {
             #get_recursive
             #get_doc_recursive
             #get_docs
+            #get_inner_docs
             #load_environment
         }
     };

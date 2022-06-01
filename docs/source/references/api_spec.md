@@ -144,9 +144,12 @@ continues to stream blocks as they are added to the blockchain.
 **Method**: `GET`
 
 **Expects**:
-There are 2 variants:
-- It either expects json body `"Value"` and returns configuration value as json
-- Or it expects json body like below and returns documentation for specific field (as json string) or null (here for field `a.b.c`):
+There are 2 options:
+- Expects: a JSON body `"Value"`. Returns: configuration value as JSON.
+- Expects: a JSON body that specifies the field (see example below). Returns: documentation for a specific field (as JSON string) or `null`.
+
+Note that if the requested field has more fields inside of it, then all the documentation for its inner members is returned as well.
+Here is an example for getting a field `a.b.c`:
 ```json
 {
     "Docs": ["a", "b", "c"]
@@ -154,7 +157,7 @@ There are 2 variants:
 ```
 
 **Examples**:
-To get the top-level configuration docs for [`Torii`]
+To get the top-level configuration docs for [`Torii`] and all the fields within it:
 ```bash
 curl -X GET -H 'content-type: application/json' http://127.0.0.1:8080/configuration -d '{"Docs" : ["torii"]} ' -i
 ```

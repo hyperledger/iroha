@@ -24,14 +24,17 @@ struct InnerConfiguration {
 fn test_docs() {
     assert_eq!(
         Configuration::get_doc_recursive(["inner", "b"]).unwrap(),
-        Some(" Docs from b\n\nHas type `i32`. Can be configured via environment variable `CONF_INNER_B`")
+        Some(" Docs from b\n\nHas type `i32`. Can be configured via environment variable `CONF_INNER_B`".to_owned())
     );
     assert_eq!(
         Configuration::get_doc_recursive(["inner", "a"]).unwrap(),
-        Some("Has type `String`. Can be configured via environment variable `CONF_INNER_A`")
+        Some(
+            "Has type `String`. Can be configured via environment variable `CONF_INNER_A`"
+                .to_owned()
+        )
     );
     assert_eq!(
         Configuration::get_doc_recursive(["inner"]).unwrap(),
-        Some(" Inner structure\n\nHas type `InnerConfiguration`. Can be configured via environment variable `CONF_INNER`")
+        Some(" Inner structure\n\nHas type `InnerConfiguration`. Can be configured via environment variable `CONF_INNER`\n\nHas following fields:\n\na: Has type `String`. Can be configured via environment variable `CONF_INNER_A`\n\nb:  Docs from b\n\nHas type `i32`. Can be configured via environment variable `CONF_INNER_B`\n\n\n".to_owned())
     );
 }

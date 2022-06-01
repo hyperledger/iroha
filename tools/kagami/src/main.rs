@@ -267,11 +267,13 @@ mod docs {
                     Value::Object(_) => {
                         let doc = Self::get_doc_recursive(&get_field)
                             .expect("Should be there, as already in docs");
-                        (doc.unwrap_or_default().to_owned(), true)
+                        (doc.unwrap_or_default(), true)
                     }
                     Value::String(s) => (s.clone(), false),
                     _ => unreachable!("Only strings and objects in docs"),
                 };
+                // Hacky workaround to avoid duplicating inner fields docs in the reference
+                let doc = doc.lines().take(3).collect::<Vec<&str>>().join("\n");
                 let doc = doc.strip_prefix(' ').unwrap_or(&doc);
                 let defaults = Self::default()
                     .get_recursive(get_field)
