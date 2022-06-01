@@ -17,13 +17,10 @@ fn get_default_params() -> [(Name, Value); 2] {
 }
 
 #[ffi_bindgen]
-#[derive(Debug, Clone, getset::Getters)]
-#[getset(get = "pub")]
+#[derive(Clone)]
 pub struct FfiStruct {
-    name: Name,
-    #[getset(skip)]
+    name: Option<Name>,
     tokens: Vec<Value>,
-    #[getset(skip)]
     params: BTreeMap<Name, Value>,
 }
 
@@ -31,7 +28,7 @@ pub struct FfiStruct {
 impl FfiStruct {
     pub fn new(name: impl Into<Name>) -> Self {
         Self {
-            name: name.into(),
+            name: Some(name.into()),
             tokens: Vec::new(),
             params: BTreeMap::default(),
         }
@@ -97,7 +94,7 @@ fn constructor() {
     let ffi_struct = get_new_struct();
 
     unsafe {
-        assert_eq!(Name(String::from('X')), (*ffi_struct).name);
+        assert_eq!(Some(Name(String::from('X'))), (*ffi_struct).name);
         assert!((*ffi_struct).params.is_empty());
 
         FfiStruct__drop(ffi_struct);
@@ -237,15 +234,5 @@ fn return_result() {
             FfiStruct__fallible_int_output(u8::from(true), output.as_mut_ptr())
         );
         assert_eq!(42, output.assume_init());
-    }
-}
-
-#[test]
-fn getset_getter() {
-    let ffi_struct = get_new_struct_with_params();
-
-    unsafe {
-        assert_eq!(Name(String::from('X')), *(*ffi_struct).name());
-        FfiStruct__drop(ffi_struct);
     }
 }
