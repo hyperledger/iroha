@@ -156,8 +156,8 @@ impl Set {
     /// Returns `false` if [`Set`] doesn't contain the trigger with the given `id`.
     pub fn remove(&self, id: &Id) -> bool {
         self.ids
-            .get(id)
-            .map(|entry| match entry.value() {
+            .remove(id)
+            .map(|(_, event_type)| match event_type {
                 EventType::Data => self
                     .data_triggers
                     .remove(id)
