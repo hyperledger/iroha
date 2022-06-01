@@ -120,7 +120,7 @@ pub(crate) async fn handle_queries<W: WorldTrait>(
     query_validator: Arc<IsQueryAllowedBoxed>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
-) -> Result<Scale<VersionedPaginatedQueryResult>, warp::http::Response<warp::hyper::Body>> {
+) -> Result<Scale<VersionedPaginatedQueryResult>> {
     // TODO #2292: Very dirty, need to do something with it
     let world_wsv = if std::any::TypeId::of::<W>() == std::any::TypeId::of::<World>() {
         // SAFETY: Always safe
@@ -132,10 +132,8 @@ pub(crate) async fn handle_queries<W: WorldTrait>(
         unimplemented!()
     };
 
-    let valid_request = request
-        .validate(world_wsv, &query_validator)
-        .map_err(into_reply)?;
-    let original_result = valid_request.execute(&wsv).map_err(into_reply)?;
+    let valid_request = request.validate(world_wsv, &query_validator)?;
+    let original_result = valid_request.execute(&wsv)?;
     let total: u64 = original_result
         .len()
         .try_into()

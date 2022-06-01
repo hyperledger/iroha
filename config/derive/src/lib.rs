@@ -183,7 +183,7 @@ fn impl_get_doc_recursive(
         return quote! {
             fn get_doc_recursive<'a>(
                 inner_field: impl AsRef<[&'a str]>,
-            ) -> core::result::Result<std::option::Option<&'static str>, iroha_config::derive::Error>
+            ) -> core::result::Result<std::option::Option<String>, iroha_config::derive::Error>
             {
                 Err(iroha_config::derive::Error::UnknownField(
                     inner_field.as_ref().iter().map(ToString::to_string).collect()
@@ -218,7 +218,7 @@ fn impl_get_doc_recursive(
     quote! {
         fn get_doc_recursive<'a>(
             inner_field: impl AsRef<[&'a str]>,
-        ) -> core::result::Result<std::option::Option<&'static str>, iroha_config::derive::Error>
+        ) -> core::result::Result<std::option::Option<String>, iroha_config::derive::Error>
         {
             let inner_field = inner_field.as_ref();
             let doc = match inner_field {
