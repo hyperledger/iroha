@@ -6,7 +6,7 @@ use eyre::{Context, Result};
 use iroha_client::client::{self, Client};
 use iroha_core::block::DEFAULT_CONSENSUS_ESTIMATION_MS;
 use iroha_data_model::{prelude::*, transaction::WasmSmartContract};
-use test_network::{Peer as TestPeer, *};
+use test_network::*;
 
 /// Macro to abort compilation, if `e` isn't `true`
 macro_rules! const_assert {
@@ -28,7 +28,7 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
     const_assert!(PERIOD_MS < DEFAULT_CONSENSUS_ESTIMATION_MS);
     const_assert!(ACCEPTABLE_ERROR_PERCENT <= 100);
 
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     let start_time = current_time();
 
@@ -82,7 +82,7 @@ fn time_trigger_execution_count_error_should_be_less_than_10_percent() -> Result
 fn change_asset_metadata_after_1_sec() -> Result<()> {
     const PERIOD_MS: u64 = 1000;
 
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
     let start_time = current_time();
 
@@ -123,7 +123,7 @@ fn change_asset_metadata_after_1_sec() -> Result<()> {
 fn pre_commit_trigger_should_be_executed() -> Result<()> {
     const CHECKS_COUNT: usize = 5;
 
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let asset_definition_id = "rose#wonderland".parse().expect("Valid");
@@ -175,7 +175,7 @@ fn mint_nft_for_every_user_every_1_sec() -> Result<()> {
     const TRIGGER_PERIOD_MS: u64 = 1000;
     const EXPECTED_COUNT: u64 = 4;
 
-    let (_rt, _peer, mut test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let alice_id = "alice@wonderland"

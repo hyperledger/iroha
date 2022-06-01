@@ -6,13 +6,13 @@ use eyre::Result;
 use iroha_client::client::{self, Client};
 use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
-use test_network::{Peer as TestPeer, *};
+use test_network::*;
 
 use super::Configuration;
 
 #[test]
 fn transaction_signed_by_new_signatory_of_account_should_pass() -> Result<()> {
-    let (_rt, peer, iroha_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, peer, iroha_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
     let pipeline_time = Configuration::pipeline_time();
 

@@ -5,12 +5,12 @@ use std::thread;
 use eyre::Result;
 use iroha_client::client;
 use iroha_data_model::prelude::*;
-use test_network::{Peer as TestPeer, *};
+use test_network::*;
 
 #[test]
 fn client_add_account_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()>
 {
-    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let pipeline_time = super::Configuration::pipeline_time();
