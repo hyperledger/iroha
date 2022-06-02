@@ -1122,6 +1122,31 @@ pub mod transaction {
     }
 }
 
+pub mod role {
+    //! Module with queries for roles
+    use super::*;
+
+    /// Get query to retrieve all roles
+    pub const fn all() -> FindAllRoles {
+        FindAllRoles::new()
+    }
+
+    /// Get query to retrieve all role ids
+    pub const fn all_ids() -> FindAllRoleIds {
+        FindAllRoleIds::new()
+    }
+
+    /// Get query to retrieve role by id
+    pub fn by_id(role_id: impl Into<EvaluatesTo<RoleId>>) -> FindRoleByRoleId {
+        FindRoleByRoleId::new(role_id)
+    }
+
+    /// Get query to retrieve all roles for account
+    pub fn by_account_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindRolesByAccountId {
+        FindRolesByAccountId::new(account_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::restriction)]
