@@ -237,69 +237,33 @@ OnDemandOrderingServiceImpl::waitForLocalProposal(
 OnDemandOrderingServiceImpl::PackedProposalData
 OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
   log_->debug("Requesting a proposal for round {}", round);
-  //OnDemandOrderingServiceImpl::PackedProposalData result;
+  OnDemandOrderingServiceImpl::PackedProposalData result;
   do {
     std::lock_guard<std::mutex> lock(proposals_mutex_);
-    bool const is_current_round_or_next2 =
+    auto it = proposal_map_.find(round.block_round);
+    if (it != proposal_map_.end()) {
+      result = it->second;
+      break;
+    }
+
+    bool const is_current_round_or_next_pack =
         (round.block_round == current_round_.block_round
-             ? (round.reject_round - current_round_.reject_round)
-             : (round.block_round - current_round_.block_round))
+         ? (round.reject_round - current_round_.reject_round)
+         : (round.block_round - current_round_.block_round))
         <= max_proposal_pack_ + 2ull;
 
-    if (!is_current_round_or_next2)
-      break;
-
-    auto const from = round.block_round;
-    auto const to = from + max_proposal_pack_;
-
-    auto remains = max_proposal_pack_;
-    auto it = proposal_map_.upper_bound(from - 1ull);
-
-    auto prev = from;
-    std::vector<consensus::BlockRoundType> rounds;
-    rounds.reserve(max_proposal_pack_);
-
-    OnDemandOrderingServiceImpl::PackedProposalContainer result;
-    result.reserve(max_proposal_pack_);
-
-    while (it != proposal_map_.end() && it->first >= from && it->first < to) {
-      for (consensus::BlockRoundType dif = 0ull; dif < it->first - prev; ++dif)
-        rounds.emplace_back(prev + dif);
-
-      assert(it->second);
-      result.emplace_back(*it->second);
-      remains -= (it->first - prev + 1ull);
-      prev = it->first + 1ull;
-      ++it;
+    if (is_current_round_or_next_pack) {
+      result = packNextProposals(round);
+      if (result)
+        proposal_map_.emplace(round.block_round, result);
+      getSubscription()->notify(EventTypes::kOnPackProposal, round);
     }
-
-    for (consensus::BlockRoundType ix = max_proposal_pack_ - remains;
-         ix < max_proposal_pack_;
-         ++ix)
-      rounds.emplace_back(from + ix);
-
-    if (!rounds.empty()) {
-      auto r = packNextProposals(rounds);
-      for (auto const &item : r) {
-        assert(proposal_map_.count(item.first->height()) == 0ull);
-        proposal_map_[item.first->height()] = item;
-      }
-      result.insert(result.end(),
-                    std::make_move_iterator(r.begin()),
-                    std::make_move_iterator(r.end()));
-    }
-
-    std::sort(result.begin(), result.end(), [](auto const &l, auto const &r){
-      return l.first->round < r.first->round;
-    });
-    getSubscription()->notify(EventTypes::kOnPackProposal, std::make_pair(round, result.size()));
-
-    log_->debug("uploadProposal, {}, returning a {} proposal(s).",round,result.size());
-    return result;
   } while (false);
 
-  log_->debug("uploadProposal, {}, NOT returning a proposal.", round);
-  return PackedProposalContainer{};
+  log_->debug("uploadProposal, {}, {} returning a proposal.",
+              round,
+              result ? "" : "NOT ");
+  return result;
 }
 
 std::optional<std::shared_ptr<shared_model::interface::Proposal>>
@@ -323,15 +287,14 @@ OnDemandOrderingServiceImpl::tryCreateProposal(
   return proposal;
 }
 
-OnDemandOrderingServiceImpl::PackedProposalContainer
-OnDemandOrderingServiceImpl::packNextProposals(const std::vector<consensus::BlockRoundType> &block_height) {
+OnDemandOrderingServiceImpl::PackedProposalData
+OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   auto const available_txs_count = availableTxsCountBatchesCache();
   auto const full_proposals_count = available_txs_count / transaction_limit_;
   auto const number_of_packs =
-      std::min(block_height.size(),
-               (available_txs_count
-                + (full_proposals_count > 0 ? 0 : transaction_limit_ - 1))
-                   / transaction_limit_);
+      (available_txs_count
+       + (full_proposals_count > 0 ? 0 : transaction_limit_ - 1))
+      / transaction_limit_;
 
   OnDemandOrderingServiceImpl::PackedProposalContainer outcome;
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
@@ -357,7 +320,7 @@ OnDemandOrderingServiceImpl::packNextProposals(const std::vector<consensus::Bloc
       break;
   }
 
-  return outcome;
+  return outcome.empty() ? PackedProposalData{} : std::move(outcome);
 }
 
 void OnDemandOrderingServiceImpl::tryErase(
