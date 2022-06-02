@@ -270,6 +270,36 @@ pub mod role {
         type Output = Vec<<Role as Identifiable>::Id>;
     }
 
+    impl FindAllRoles {
+        /// Construct [`FindAllRoles`].
+        pub const fn new() -> Self {
+            FindAllRoles
+        }
+    }
+
+    impl FindAllRoleIds {
+        /// Construct [`FindAllRoleIds`].
+        pub const fn new() -> Self {
+            FindAllRoleIds
+        }
+    }
+
+    impl FindRoleByRoleId {
+        /// Construct [`FindRoleByRoleId`].
+        pub fn new(id: impl Into<EvaluatesTo<<Role as Identifiable>::Id>>) -> Self {
+            let id = id.into();
+            FindRoleByRoleId { id }
+        }
+    }
+
+    impl FindRolesByAccountId {
+        /// Construct [`FindRolesByAccountId`].
+        pub fn new(account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>) -> Self {
+            let account_id = account_id.into();
+            FindRolesByAccountId { id: account_id }
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
     pub mod prelude {
         pub use super::{FindAllRoleIds, FindAllRoles, FindRoleByRoleId, FindRolesByAccountId};
