@@ -57,7 +57,7 @@ namespace iroha {
 
       void onBatches(CollectionType batches) override;
 
-      PackedProposalContainer onRequestProposal(consensus::Round round) override;
+      PackedProposalData onRequestProposal(consensus::Round round) override;
 
       void onCollaborationOutcome(consensus::Round round) override;
 
@@ -71,7 +71,7 @@ namespace iroha {
 
       void processReceivedProposal(CollectionType batches) override;
 
-      PackedProposalContainer waitForLocalProposal(
+      PackedProposalData waitForLocalProposal(
           consensus::Round const &round,
           std::chrono::milliseconds const &delay) override;
 
@@ -80,7 +80,7 @@ namespace iroha {
        * Packs new proposals and creates new rounds
        * Note: method is not thread-safe
        */
-      PackedProposalContainer packNextProposals(const std::vector<consensus::BlockRoundType> &block_height);
+      PackedProposalData packNextProposals(const consensus::Round &round);
 
       using TransactionsCollectionType =
           std::vector<std::shared_ptr<shared_model::interface::Transaction>>;

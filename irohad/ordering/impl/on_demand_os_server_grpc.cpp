@@ -71,50 +71,55 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   log_->info("Received RequestProposal for {} from {}", round, context->peer());
   auto maybe_proposal = ordering_service_->waitForLocalProposal(round, delay_);
   if (maybe_proposal.has_value()) {
-    auto const &[sptr_proposal, bf_local] = maybe_proposal.value();
+    for (auto const &src_proposal : maybe_proposal.value()) {
+      auto const &[sptr_proposal, bf_local] = src_proposal;
 #if USE_BLOOM_FILTER
-    response->set_bloom_filter(bf_local.load().data(), bf_local.load().size());
+      response->set_bloom_filter(bf_local.load().data(),
+                                 bf_local.load().size());
 #endif  // USE_BLOOM_FILTER
-    auto proposal = response->add_proposal();
-    proposal->set_proposal_hash(sptr_proposal->hash().blob().data(),
-                                sptr_proposal->hash().blob().size());
+      auto proposal = response->add_proposal();
+      proposal->set_proposal_hash(sptr_proposal->hash().blob().data(),
+                                  sptr_proposal->hash().blob().size());
 
-    log_->debug(
-        "OS proposal: {}\nproposal: {}", sptr_proposal->hash(), *sptr_proposal);
+      log_->debug("OS proposal: {}\nproposal: {}",
+                  sptr_proposal->hash(),
+                  *sptr_proposal);
 
-    auto const &proto_proposal =
-        static_cast<const shared_model::proto::Proposal *>(sptr_proposal.get())
-            ->getTransport();
+      auto const &proto_proposal =
+          static_cast<const shared_model::proto::Proposal *>(
+              sptr_proposal.get())
+              ->getTransport();
 #if USE_BLOOM_FILTER
-    if (!request->has_bloom_filter()
-        || request->bloom_filter().size() != BloomFilter256::kBytesCount) {
+      if (!request->has_bloom_filter()
+          || request->bloom_filter().size() != BloomFilter256::kBytesCount) {
 #endif  // USE_BLOOM_FILTER
-      log_->info("Response with full {} txs proposal.",
-                 sptr_proposal->transactions().size());
-      *proposal = proto_proposal;
+        log_->info("Response with full {} txs proposal.",
+                   sptr_proposal->transactions().size());
+        *proposal = proto_proposal;
 #if USE_BLOOM_FILTER
-    } else {
-      response->mutable_proposal()->set_created_time(
-          proto_proposal.created_time());
-      response->mutable_proposal()->set_height(proto_proposal.height());
+      } else {
+        response->mutable_proposal()->set_created_time(
+            proto_proposal.created_time());
+        response->mutable_proposal()->set_height(proto_proposal.height());
 
-      BloomFilter256 bf_remote;
-      bf_remote.store(std::string_view(request->bloom_filter()));
+        BloomFilter256 bf_remote;
+        bf_remote.store(std::string_view(request->bloom_filter()));
 
-      assert((size_t)proto_proposal.transactions().size()
-             == sptr_proposal->transactions().size());
-      for (size_t ix = 0; ix < sptr_proposal->transactions().size(); ++ix) {
-        assert(sptr_proposal->transactions()[ix].getBatchHash());
-        if (!bf_remote.test(sptr_proposal->transactions()[(int)ix]
-                                .getBatchHash()
-                                .value())) {
-          auto *tx_dst =
-              response->mutable_proposal()->mutable_transactions()->Add();
-          *tx_dst = proto_proposal.transactions()[(int)ix];
+        assert((size_t)proto_proposal.transactions().size()
+               == sptr_proposal->transactions().size());
+        for (size_t ix = 0; ix < sptr_proposal->transactions().size(); ++ix) {
+          assert(sptr_proposal->transactions()[ix].getBatchHash());
+          if (!bf_remote.test(sptr_proposal->transactions()[(int)ix]
+                                  .getBatchHash()
+                                  .value())) {
+            auto *tx_dst =
+                response->mutable_proposal()->mutable_transactions()->Add();
+            *tx_dst = proto_proposal.transactions()[(int)ix];
+          }
         }
       }
-    }
 #endif  // USE_BLOOM_FILTER
+    }
   }
   return ::grpc::Status::OK;
 }
