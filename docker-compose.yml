@@ -16,6 +16,7 @@ services:
       - "8180:8180"
     volumes:
       - './configs/peer:/config'
+    init: true
     command: ./iroha --submit-genesis
 
   iroha1:
@@ -34,6 +35,7 @@ services:
       - "8181:8181"
     volumes:
       - './configs/peer:/config'
+    init: true
 
   iroha2:
     image: hyperledger/iroha2:dev
@@ -51,6 +53,7 @@ services:
       - "8182:8182"
     volumes:
       - './configs/peer:/config'
+    init: true
 
   iroha3:
     image: hyperledger/iroha2:dev
@@ -68,3 +71,4 @@ services:
       - "8183:8183"
     volumes:
       - './configs/peer:/config'
+    init: true
