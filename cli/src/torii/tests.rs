@@ -25,16 +25,30 @@ use warp::test::WsClient;
 
 use super::{routing::*, *};
 use crate::{
+    config::Configuration,
     samples::{get_config, get_trusted_peers},
     stream::{Sink, Stream},
 };
 
+async fn try_init_network(
+    config: &mut Configuration,
+) -> Result<IrohaNetwork, Box<dyn std::error::Error>> {
+    config.torii.p2p_addr = format!("127.0.0.1:{}", unique_port::get_unique_free_port()?);
+    config.torii.api_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port()?);
+    config.torii.telemetry_url =
+        format!("127.0.0.1:{}", unique_port::get_unique_free_port()?);
+
+    Ok(IrohaNetwork::new(
+        Broker::new(),
+        config.torii.p2p_addr.clone(),
+        config.public_key.clone(),
+        config.network.mailbox,
+    )
+    .await?)
+}
+
 async fn create_torii() -> (Torii<World>, KeyPair) {
     let mut config = crate::samples::get_config(crate::samples::get_trusted_peers(None), None);
-    config.torii.p2p_addr = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
-    config.torii.api_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
-    config.torii.telemetry_url =
-        format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     let (events, _) = tokio::sync::broadcast::channel(100);
     let wsv = Arc::new(WorldStateView::new(World::with(
         ('a'..'z')
@@ -56,16 +70,16 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
         .is_none());
     wsv.world.domains.insert(domain_id, domain);
     let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
-    let network = IrohaNetwork::new(
-        Broker::new(),
-        config.torii.p2p_addr.clone(),
-        config.public_key.clone(),
-        config.network.actor_channel_capacity,
-    )
-    .await
-    .expect("Failed to create network")
-    .start()
-    .await;
+    todo!("add try count");
+    let network = {
+        let mut result = try_init_network(&mut config).await;
+
+        while result.is_err() {
+            result = try_init_network(&mut config).await;
+        }
+
+        result.expect("Failed to create network").start().await
+    };
 
     (
         Torii::from_configuration(
