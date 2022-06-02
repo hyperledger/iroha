@@ -49,8 +49,9 @@ namespace iroha {
           std::set<std::shared_ptr<shared_model::interface::TransactionBatch>,
                    shared_model::interface::BatchHashLess>;
 
-      using PackedProposalContainer = std::vector<
-          std::pair<std::shared_ptr<ProposalType const>, BloomFilter256>>;
+      using PackedProposalType =
+          std::pair<std::shared_ptr<ProposalType const>, BloomFilter256>;
+      using PackedProposalContainer = std::vector<PackedProposalType>;
       using PackedProposalData = std::optional<PackedProposalContainer>;
 
       /**
