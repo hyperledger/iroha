@@ -74,7 +74,7 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     // Waiting for a new period
     std::thread::sleep(Duration::from_millis(PERIOD_MS));
 
-    // Transfering one more rose from Alice to Bob
+    // Transferring one more rose from Alice to Bob
     test_client.submit_blocking(transfer_rose)?;
     let new_alice_rose_value = get_asset_value(&mut test_client, alice_rose_id)?;
     let new_bob_rose_value = get_asset_value(&mut test_client, bob_rose_id)?;
@@ -122,8 +122,10 @@ fn register_role_with_empty_token_params() -> Result<()> {
 /// granted, merely that the role can be constructed and
 /// registered. Once @appetrosyan (me) is onboarded into the Kotlin
 /// SDK, I'll update both tests to actually verify functionality.
+///
+/// @s8sato added: This test represents #2081 case.
 #[test]
-fn register_metadata_role() -> Result<()> {
+fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -131,19 +133,28 @@ fn register_metadata_role() -> Result<()> {
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
     test_client.submit_blocking(register_bob)?;
 
-    let role_id = "USER_METADATA_ACCESS".parse().expect("Valid");
+    let role_id = <Role as Identifiable>::Id::from_str("USER_METADATA_ACCESS")?;
 
-    let role = iroha_data_model::role::NewRole::new(role_id)
+    let role = iroha_data_model::role::NewRole::new(role_id.clone())
         .add_permission(CanSetKeyValueInUserMetadata::new(bob_id.clone()))
         .add_permission(CanRemoveKeyValueInUserMetadata::new(bob_id))
         .build();
     let register_role = RegisterBox::new(role);
-    test_client.submit(register_role)?;
+    test_client.submit_blocking(register_role)?;
+
+    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+    let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
+    test_client.submit_blocking(grant_role)?;
+
+    let found_role_ids = test_client.request(client::role::by_account_id(alice_id))?;
+
+    assert!(found_role_ids.contains(&role_id));
+
     Ok(())
 }
 
 #[test]
-fn unregistred_role_removed_from_account() -> Result<()> {
+fn unregistered_role_removed_from_account() -> Result<()> {
     let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
