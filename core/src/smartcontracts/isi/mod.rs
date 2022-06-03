@@ -260,11 +260,11 @@ impl Execute for RegisterBox {
             RegistrableBox::AssetDefinition(asset_definition) => {
                 Register::<AssetDefinition>::new(*asset_definition).execute(authority, wsv)
             }
+            RegistrableBox::Asset(asset) => Register::<Asset>::new(*asset).execute(authority, wsv),
             RegistrableBox::Trigger(trigger) => {
                 Register::<Trigger<FilterBox>>::new(*trigger).execute(authority, wsv)
             }
             RegistrableBox::Role(role) => Register::<Role>::new(*role).execute(authority, wsv),
-            _ => Err(Error::Unsupported(InstructionType::Register)),
         }
     }
 }
@@ -280,6 +280,7 @@ impl Execute for UnregisterBox {
             IdBox::AccountId(account_id) => {
                 Unregister::<Account>::new(account_id).execute(authority, wsv)
             }
+            IdBox::AssetId(asset_id) => Unregister::<Asset>::new(asset_id).execute(authority, wsv),
             IdBox::AssetDefinitionId(asset_definition_id) => {
                 Unregister::<AssetDefinition>::new(asset_definition_id).execute(authority, wsv)
             }
@@ -291,7 +292,6 @@ impl Execute for UnregisterBox {
             IdBox::TriggerId(trigger_id) => {
                 Unregister::<Trigger<FilterBox>>::new(trigger_id).execute(authority, wsv)
             }
-            _ => Err(Error::Unsupported(InstructionType::Unregister)),
         }
     }
 }

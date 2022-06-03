@@ -16,6 +16,53 @@ use super::prelude::*;
 pub mod isi {
     use super::*;
 
+    #[allow(clippy::panic_in_result_fn)]
+    impl Execute for Register<Asset> {
+        type Error = Error;
+
+        #[metrics(+"register_asset")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView,
+        ) -> Result<(), Self::Error> {
+            let asset_id = self.object.id();
+
+            match wsv.asset(asset_id) {
+                Err(e) if matches!(e, FindError::Asset(_)) => {
+                    if wsv
+                        .asset_or_insert(asset_id, self.object.value().clone())
+                        .is_err()
+                    {
+                        unreachable!("Account is checked to exist")
+                    }
+                    Ok(())
+                }
+                Err(e) => Err(Error::Find(Box::new(e))),
+                Ok(_) => Err(Error::Repetition(
+                    InstructionType::Register,
+                    IdBox::AssetId(asset_id.clone()),
+                )),
+            }
+        }
+    }
+
+    impl Execute for Unregister<Asset> {
+        type Error = Error;
+
+        #[metrics(+"unregister_asset")]
+        fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+            let asset_id = self.object_id;
+            let account_id = asset_id.account_id.clone();
+
+            wsv.modify_account(&account_id, |acct| {
+                acct.remove_asset(&asset_id)
+                    .map(|asset| AccountEvent::Asset(AssetEvent::Removed(asset.id().clone())))
+                    .ok_or_else(|| Error::Find(Box::new(FindError::Asset(asset_id))))
+            })
+        }
+    }
+
     impl Execute for SetKeyValue<Asset, Name, Value> {
         type Error = Error;
 
