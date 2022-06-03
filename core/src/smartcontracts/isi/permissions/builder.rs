@@ -86,8 +86,8 @@ where
     /// # Errors
     /// If provided validators have different types.
     /// Type of the first validators is considered exemplary
-    pub fn any_should_succeed(self, check_name: impl Into<String>) -> V {
-        AnyShouldSucceed::new(check_name.into(), self.validators)
+    pub fn any_should_succeed(self, check_name: String) -> V {
+        AnyShouldSucceed::new(check_name, self.validators)
             .expect(
                 "`ValidatorBuilder` guarantees that all validators have the same specified type",
             )

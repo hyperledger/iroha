@@ -132,7 +132,7 @@ pub struct GrantMyAssetAccessSet;
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccessSet);
 
 impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccessSet {
-    fn check_grant(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
@@ -225,7 +225,7 @@ pub struct GrantMyMetadataAccessSet;
 impl_from_item_for_grant_instruction_validator_box!(GrantMyMetadataAccessSet);
 
 impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyMetadataAccessSet {
-    fn check_grant(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
@@ -315,7 +315,7 @@ pub struct GrantMyAssetAccessRemove;
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccessRemove);
 
 impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccessRemove {
-    fn check_grant(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
@@ -407,7 +407,7 @@ pub struct GrantMyMetadataAccessRemove;
 impl_from_item_for_grant_instruction_validator_box!(GrantMyMetadataAccessRemove);
 
 impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyMetadataAccessRemove {
-    fn check_grant(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
@@ -434,7 +434,7 @@ pub struct GrantMyAssetDefinitionSet;
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetDefinitionSet);
 
 impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetDefinitionSet {
-    fn check_grant(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
@@ -454,7 +454,7 @@ pub struct GrantMyAssetDefinitionRemove;
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetDefinitionRemove);
 
 impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetDefinitionRemove {
-    fn check_grant(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,

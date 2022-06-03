@@ -70,7 +70,7 @@ impl VerifiedQueryRequest {
         }
         query_validator
             .check(&self.payload.account_id, &self.payload.query, wsv)
-            .map_err(|e| QueryError::Permission(e.to_string()))?;
+            .map_err(QueryError::Permission)?;
         Ok(ValidQueryRequest::new(self.payload.query))
     }
 }

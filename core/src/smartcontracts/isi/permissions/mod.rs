@@ -10,7 +10,9 @@ use error::*;
 pub use has_token::*;
 use iroha_data_model::prelude::*;
 use iroha_macro::FromVariant;
+use iroha_schema::IntoSchema;
 pub use is_allowed::*;
+use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
@@ -38,7 +40,7 @@ impl NeedsPermission for QueryBox {}
 impl NeedsPermission for Expression {}
 
 /// Type of object validator can check
-#[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
 pub enum ValidatorType {
     /// [`Instruction`] variant
     Instruction,
@@ -47,31 +49,10 @@ pub enum ValidatorType {
     /// [`Expression`] variant
     Expression,
 }
-
-impl ValidatorType {
-    /// Checks if `self` equals to `another`
-    ///
-    /// # Errors
-    /// If `self` doesn't equal to `another`
-    pub fn check_equal(
-        self,
-        another: ValidatorType,
-    ) -> std::result::Result<(), ValidatorTypeMismatch> {
-        if self != another {
-            return Err(ValidatorTypeMismatch {
-                expected: another,
-                actual: self,
-            });
-        }
-
-        Ok(())
-    }
-}
-
 pub mod error {
     //! Contains errors structures
 
-    use super::ValidatorType;
+    use super::{Decode, Encode, IntoSchema, ValidatorType};
     use crate::smartcontracts::Mismatch;
 
     /// Wrong validator expectation error
@@ -82,7 +63,7 @@ pub mod error {
     pub type ValidatorTypeMismatch = Mismatch<ValidatorType>;
 
     /// Reason for prohibiting the execution of the particular instruction.
-    #[derive(Debug, Clone, thiserror::Error)]
+    #[derive(Debug, Clone, thiserror::Error, Decode, Encode, IntoSchema)]
     #[allow(variant_size_differences)]
     pub enum DenialReason {
         /// [`ValidatorTypeMismatch`] variant

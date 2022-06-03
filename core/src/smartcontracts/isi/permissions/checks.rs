@@ -17,8 +17,38 @@ pub fn check_instruction_permissions(
 ) -> std::result::Result<(), TransactionRejectionReason> {
     let granted_instructions = &super::roles::unpack_if_role_grant(instruction.clone(), wsv)
         .expect("Infallible. Evaluations have been checked by instruction execution.");
+    check_permissions_directly(
+        account_id,
+        granted_instructions,
+        is_instruction_allowed,
+        wsv,
+    )?;
 
-    for isi in granted_instructions {
+    let revoked_instructions = &super::roles::unpack_if_role_revoke(instruction.clone(), wsv)
+        .expect("Infallible. Evaluations have been checked by instruction execution.");
+    check_permissions_directly(
+        account_id,
+        revoked_instructions,
+        is_instruction_allowed,
+        wsv,
+    )?;
+
+    check_query_in_instruction(account_id, instruction, wsv, is_query_allowed)
+        .map_err(|reason| NotPermittedFail {
+            reason: reason.to_string(),
+        })
+        .map_err(TransactionRejectionReason::NotPermitted)?;
+
+    Ok(())
+}
+
+fn check_permissions_directly(
+    account_id: &AccountId,
+    instructions: &[Instruction],
+    is_instruction_allowed: &IsInstructionAllowedBoxed,
+    wsv: &WorldStateView<World>,
+) -> std::result::Result<(), TransactionRejectionReason> {
+    for isi in instructions {
         is_instruction_allowed
             .check(account_id, isi, wsv)
             .map_err(|reason| NotPermittedFail {
@@ -26,12 +56,6 @@ pub fn check_instruction_permissions(
             })
             .map_err(TransactionRejectionReason::NotPermitted)?;
     }
-    check_query_in_instruction(account_id, instruction, wsv, is_query_allowed)
-        .map_err(|reason| NotPermittedFail {
-            reason: reason.to_string(),
-        })
-        .map_err(TransactionRejectionReason::NotPermitted)?;
-
     Ok(())
 }
 

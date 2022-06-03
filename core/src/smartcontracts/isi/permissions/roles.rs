@@ -25,7 +25,7 @@ pub trait IsGrantAllowed<W: WorldTrait>:
     ///
     /// # Errors
     /// If this validator doesn't approve this Grant instruction.
-    fn check_grant(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
@@ -38,14 +38,14 @@ erased_serde::serialize_trait_object!(<W> IsGrantAllowed<W> where W: WorldTrait)
 
 #[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
 impl IsGrantAllowed<World> for IsGrantAllowedBoxed {
-    fn check_grant(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
         wsv: &WorldStateView<World>,
     ) -> Result<()> {
         match self {
-            IsGrantAllowedBoxed::World(world) => world.check_grant(authority, instruction, wsv),
+            IsGrantAllowedBoxed::World(world) => world.check(authority, instruction, wsv),
             #[cfg(test)]
             IsGrantAllowedBoxed::Mock(_) => unimplemented!(),
         }
@@ -70,7 +70,7 @@ pub trait IsRevokeAllowed<W: WorldTrait>:
     ///
     /// # Errors
     /// If this validator doesn't approve this Revoke instruction.
-    fn check_revoke(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &RevokeBox,
@@ -83,14 +83,14 @@ erased_serde::serialize_trait_object!(<W> IsRevokeAllowed<W> where W: WorldTrait
 
 #[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
 impl IsRevokeAllowed<World> for IsRevokeAllowedBoxed {
-    fn check_revoke(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &RevokeBox,
         wsv: &WorldStateView<World>,
     ) -> Result<()> {
         match self {
-            IsRevokeAllowedBoxed::World(world) => world.check_revoke(authority, instruction, wsv),
+            IsRevokeAllowedBoxed::World(world) => world.check(authority, instruction, wsv),
             #[cfg(test)]
             IsRevokeAllowedBoxed::Mock(_) => unimplemented!(),
         }
@@ -105,7 +105,7 @@ impl IsAllowed<World, Instruction> for IsGrantAllowedBoxed {
         wsv: &WorldStateView<World>,
     ) -> Result<()> {
         if let Instruction::Grant(isi) = instruction {
-            self.check_grant(authority, isi, wsv)
+            <Self as IsGrantAllowed<World>>::check(self, authority, isi, wsv)
         } else {
             Ok(())
         }
@@ -120,11 +120,39 @@ impl IsAllowed<World, Instruction> for IsRevokeAllowedBoxed {
         wsv: &WorldStateView<World>,
     ) -> Result<()> {
         if let Instruction::Revoke(isi) = instruction {
-            self.check_revoke(authority, isi, wsv)
+            <Self as IsRevokeAllowed<World>>::check(self, authority, isi, wsv)
         } else {
             Ok(())
         }
     }
+}
+
+/// Used in `unpack_` function below
+macro_rules! unpack {
+    ($i:ident, $w:ident, Instruction::$v:ident => $t:ty) => {{
+        let operation = if let Instruction::$v(operation) = &$i {
+            operation
+        } else {
+            return Ok(vec![$i]);
+        };
+        let id =
+            if let Value::Id(IdBox::RoleId(id)) = operation.object.evaluate($w, &Context::new())? {
+                id
+            } else {
+                return Ok(vec![$i]);
+            };
+
+        let instructions = if let Some(role) = $w.world.roles.get(&id) {
+            let destination_id = operation.destination_id.evaluate($w, &Context::new())?;
+            role.permissions()
+                .cloned()
+                .map(|permission_token| <$t>::new(permission_token, destination_id.clone()).into())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(instructions)
+    }};
 }
 
 /// Unpacks instruction if it is Grant of a Role into several Grants
@@ -141,27 +169,7 @@ pub fn unpack_if_role_grant<W: WorldTrait>(
     instruction: Instruction,
     wsv: &WorldStateView<W>,
 ) -> eyre::Result<Vec<Instruction>> {
-    let grant = if let Instruction::Grant(grant) = &instruction {
-        grant
-    } else {
-        return Ok(vec![instruction]);
-    };
-    let id = if let Value::Id(IdBox::RoleId(id)) = grant.object.evaluate(wsv, &Context::new())? {
-        id
-    } else {
-        return Ok(vec![instruction]);
-    };
-
-    let instructions = if let Some(role) = wsv.world.roles.get(&id) {
-        let destination_id = grant.destination_id.evaluate(wsv, &Context::new())?;
-        role.permissions()
-            .cloned()
-            .map(|permission_token| GrantBox::new(permission_token, destination_id.clone()).into())
-            .collect()
-    } else {
-        Vec::new()
-    };
-    Ok(instructions)
+    unpack!(instruction, wsv, Instruction::Grant => GrantBox)
 }
 
 /// Unpack instruction if it is a Revoke of a Role, into several
@@ -181,25 +189,5 @@ pub fn unpack_if_role_revoke<W: WorldTrait>(
     instruction: Instruction,
     wsv: &WorldStateView<W>,
 ) -> eyre::Result<Vec<Instruction>> {
-    let revoke = if let Instruction::Revoke(revoke) = &instruction {
-        revoke
-    } else {
-        return Ok(vec![instruction]);
-    };
-    let id = if let Value::Id(IdBox::RoleId(id)) = revoke.object.evaluate(wsv, &Context::new())? {
-        id
-    } else {
-        return Ok(vec![instruction]);
-    };
-
-    let instructions = if let Some(role) = wsv.world.roles.get(&id) {
-        let destination_id = revoke.destination_id.evaluate(wsv, &Context::new())?;
-        role.permissions()
-            .cloned()
-            .map(|permission_token| RevokeBox::new(permission_token, destination_id.clone()).into())
-            .collect()
-    } else {
-        Vec::new()
-    };
-    Ok(instructions)
+    unpack!(instruction, wsv, Instruction::Revoke => RevokeBox)
 }

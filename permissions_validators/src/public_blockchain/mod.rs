@@ -79,7 +79,7 @@ pub fn default_permissions() -> IsInstructionAllowedBoxed {
             .with_validator(key_value::GrantMyMetadataAccessRemove)
             .with_validator(key_value::GrantMyAssetDefinitionSet)
             .with_validator(key_value::GrantMyAssetDefinitionRemove)
-            .any_should_succeed("Grant instruction validator.");
+            .any_should_succeed("Grant instruction validator.".to_owned());
     ValidatorBuilder::with_recursive_validator(grant_instruction_validator)
         .with_recursive_validator(transfer::OnlyOwnedAssets.or(transfer::GrantedByAssetOwner))
         .with_recursive_validator(

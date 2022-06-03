@@ -98,7 +98,7 @@ pub struct GrantMyAssetAccess;
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
 
 impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
-    fn check_grant(
+    fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,

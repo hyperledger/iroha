@@ -28,7 +28,7 @@ pub struct ProhibitGrant;
 impl_from_item_for_grant_instruction_validator_box!(ProhibitGrant);
 
 impl<W: WorldTrait> IsGrantAllowed<W> for ProhibitGrant {
-    fn check_grant(
+    fn check(
         &self,
         _authority: &AccountId,
         _instruction: &GrantBox,

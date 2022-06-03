@@ -7,7 +7,7 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
-use super::FindError;
+use super::{permissions::prelude::DenialReason, FindError};
 use crate::{prelude::ValidQuery, WorldStateView, WorldTrait};
 
 /// Query Request statefully validated on the Iroha node side.
@@ -44,7 +44,7 @@ pub enum Error {
     Signature(String),
     /// Query is not allowed.
     #[error("Query is not allowed: {0}")]
-    Permission(String),
+    Permission(DenialReason),
     /// Query has wrong expression.
     #[error("Query has a malformed expression: {0}")]
     Evaluate(String),

@@ -2,6 +2,24 @@
 
 use super::*;
 
+/// Checks if `validator` equals to `expected`
+///
+/// # Errors
+/// If `validator` doesn't equal to `expected`
+pub fn check_equal(
+    validator: ValidatorType,
+    expected: ValidatorType,
+) -> std::result::Result<(), ValidatorTypeMismatch> {
+    if validator != expected {
+        return Err(ValidatorTypeMismatch {
+            expected,
+            actual: validator,
+        });
+    }
+
+    Ok(())
+}
+
 /// Trait for joining validators with `or` method, auto-implemented
 /// for all types which are convertible to a concrete type implementing [`IsAllowed`]
 pub trait ValidatorApplyOr<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>>: Into<V> {
@@ -315,7 +333,7 @@ impl TryFrom<AllShouldSucceed> for IsInstructionAllowedBoxed {
 
     fn try_from(value: AllShouldSucceed) -> std::result::Result<Self, Self::Error> {
         let validator_type = value.validator_type()?;
-        validator_type.check_equal(ValidatorType::Instruction)?;
+        check_equal(validator_type, ValidatorType::Instruction)?;
 
         Ok(IsInstructionAllowedBoxed::World(Box::new(value)))
     }
@@ -326,7 +344,7 @@ impl TryFrom<AllShouldSucceed> for IsQueryAllowedBoxed {
 
     fn try_from(value: AllShouldSucceed) -> std::result::Result<Self, Self::Error> {
         let validator_type = value.validator_type()?;
-        validator_type.check_equal(ValidatorType::Query)?;
+        check_equal(validator_type, ValidatorType::Query)?;
 
         Ok(IsQueryAllowedBoxed::World(Box::new(value)))
     }
@@ -337,7 +355,7 @@ impl TryFrom<AllShouldSucceed> for IsExpressionAllowedBoxed {
 
     fn try_from(value: AllShouldSucceed) -> std::result::Result<Self, Self::Error> {
         let validator_type = value.validator_type()?;
-        validator_type.check_equal(ValidatorType::Expression)?;
+        check_equal(validator_type, ValidatorType::Expression)?;
 
         Ok(IsExpressionAllowedBoxed::World(Box::new(value)))
     }
@@ -472,7 +490,7 @@ impl TryFrom<AnyShouldSucceed> for IsInstructionAllowedBoxed {
 
     fn try_from(value: AnyShouldSucceed) -> std::result::Result<Self, Self::Error> {
         let validator_type = value.validator_type()?;
-        validator_type.check_equal(ValidatorType::Instruction)?;
+        check_equal(validator_type, ValidatorType::Instruction)?;
 
         Ok(IsInstructionAllowedBoxed::World(Box::new(value)))
     }
@@ -483,7 +501,7 @@ impl TryFrom<AnyShouldSucceed> for IsQueryAllowedBoxed {
 
     fn try_from(value: AnyShouldSucceed) -> std::result::Result<Self, Self::Error> {
         let validator_type = value.validator_type()?;
-        validator_type.check_equal(ValidatorType::Query)?;
+        check_equal(validator_type, ValidatorType::Query)?;
 
         Ok(IsQueryAllowedBoxed::World(Box::new(value)))
     }
@@ -494,7 +512,7 @@ impl TryFrom<AnyShouldSucceed> for IsExpressionAllowedBoxed {
 
     fn try_from(value: AnyShouldSucceed) -> std::result::Result<Self, Self::Error> {
         let validator_type = value.validator_type()?;
-        validator_type.check_equal(ValidatorType::Expression)?;
+        check_equal(validator_type, ValidatorType::Expression)?;
 
         Ok(IsExpressionAllowedBoxed::World(Box::new(value)))
     }
