@@ -81,7 +81,7 @@ fn find_role_by_id() -> Result<()> {
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
     let role = NewRole::new(role_id.clone()).build();
 
-    // Registring role
+    // Registering role
     let register_role = RegisterBox::new(role.clone());
     test_client.submit_blocking(register_role)?;
 
@@ -93,7 +93,7 @@ fn find_role_by_id() -> Result<()> {
 }
 
 #[test]
-fn find_unregistred_role_by_id() {
+fn find_unregistered_role_by_id() {
     let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
