@@ -171,22 +171,16 @@ pub mod isi {
                         error!(%role_id, "role not found - this is a bug");
                     }
 
-                    Ok(AccountEvent::PermissionRemoved(account_id))
+                    Ok(AccountEvent::RoleRevoked(account_id))
                 })?;
             }
 
             wsv.modify_world(|world| {
-                for mut domain in world.domains.iter_mut() {
-                    for account in domain.accounts_mut() {
-                        account.remove_role(&role_id);
-                    }
-                }
-
                 if world.roles.remove(&role_id).is_none() {
-                    return Ok(RoleEvent::Deleted(role_id).into());
+                    return Err(FindError::Role(role_id).into());
                 }
 
-                Err(FindError::Role(role_id).into())
+                Ok(RoleEvent::Deleted(role_id).into())
             })
         }
     }

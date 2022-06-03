@@ -141,3 +141,34 @@ fn register_metadata_role() -> Result<()> {
     test_client.submit(register_role)?;
     Ok(())
 }
+
+#[test]
+fn unregistred_role_removed_from_account() -> Result<()> {
+    let (_rt, _peer, test_client) = <TestPeer>::start_test_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
+    let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+
+    // Register root role
+    let register_role = RegisterBox::new(NewRole::new(role_id.clone()).build());
+    test_client.submit_blocking(register_role)?;
+
+    // Grant root role to Alice
+    let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
+    test_client.submit_blocking(grant_role)?;
+
+    // Check that Alice has root role
+    let found_alice_roles = test_client.request(client::role::by_account_id(alice_id.clone()))?;
+    assert!(found_alice_roles.contains(&role_id));
+
+    // Unregister root role
+    let unregister_role = UnregisterBox::new(role_id.clone());
+    test_client.submit_blocking(unregister_role)?;
+
+    // Check that Alice doesn't have the root role
+    let found_alice_roles = test_client.request(client::role::by_account_id(alice_id))?;
+    assert!(!found_alice_roles.contains(&role_id));
+
+    Ok(())
+}
