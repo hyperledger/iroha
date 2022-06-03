@@ -297,6 +297,7 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
                 Unregister::<Domain>::new(domain_id).execute(authority, wsv)
             }
             IdBox::PeerId(peer_id) => Unregister::<Peer>::new(peer_id).execute(authority, wsv),
+            IdBox::RoleId(role_id) => Unregister::<Role>::new(role_id).execute(authority, wsv),
             IdBox::TriggerId(trigger_id) => {
                 Unregister::<Trigger<FilterBox>>::new(trigger_id).execute(authority, wsv)
             }
