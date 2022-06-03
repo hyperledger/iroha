@@ -1136,12 +1136,12 @@ pub mod role {
         FindAllRoleIds::new()
     }
 
-    /// Get query to retrieve role by id
+    /// Get query to retrieve a role by its id
     pub fn by_id(role_id: impl Into<EvaluatesTo<RoleId>>) -> FindRoleByRoleId {
         FindRoleByRoleId::new(role_id)
     }
 
-    /// Get query to retrieve all roles for account
+    /// Get query to retrieve all roles for an account
     pub fn by_account_id(account_id: impl Into<EvaluatesTo<AccountId>>) -> FindRolesByAccountId {
         FindRolesByAccountId::new(account_id)
     }
