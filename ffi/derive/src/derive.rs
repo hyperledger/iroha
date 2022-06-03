@@ -3,16 +3,16 @@ use std::collections::HashSet;
 use proc_macro2::TokenStream;
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
-use syn::{parse_quote, visit_mut::VisitMut, Ident, ItemStruct, Type};
+use syn::{parse_quote, Ident, ItemStruct};
 
-use crate::{get_ident, impl_visitor::SelfResolver};
+use crate::arg::Arg;
 
 /// Type of accessor method derived for a structure
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Derive {
-    Set,
-    Get,
-    GetMut,
+    Setter,
+    Getter,
+    MutGetter,
 }
 
 /// Generate FFI function equivalents of derived methods
@@ -56,11 +56,11 @@ fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
                     syn::Meta::NameValue(item) => {
                         if item.lit == parse_quote! {"pub"} {
                             if item.path.is_ident("set") {
-                                acc.insert(Derive::Set);
+                                acc.insert(Derive::Setter);
                             } else if item.path.is_ident("get") {
-                                acc.insert(Derive::Get);
+                                acc.insert(Derive::Getter);
                             } else if item.path.is_ident("get_mut") {
-                                acc.insert(Derive::GetMut);
+                                acc.insert(Derive::MutGetter);
                             }
                         }
                     }
@@ -80,9 +80,9 @@ fn parse_derives(attrs: &[syn::Attribute]) -> Option<HashSet<Derive>> {
 fn gen_derive_method_name(field_name: &Ident, derive: Derive) -> syn::Ident {
     Ident::new(
         &match derive {
-            Derive::Set => format!("set_{}", field_name),
-            Derive::Get => format!("{}", field_name),
-            Derive::GetMut => format!("{}_mut", field_name),
+            Derive::Setter => format!("set_{}", field_name),
+            Derive::Getter => format!("{}", field_name),
+            Derive::MutGetter => format!("{}_mut", field_name),
         },
         proc_macro2::Span::call_site(),
     )
@@ -106,94 +106,66 @@ fn gen_ffi_fn_name(struct_name: &Ident, derive_method_name: &syn::Ident) -> syn:
 fn gen_null_ptr_check(arg: &Ident) -> TokenStream {
     quote! {
         if #arg.is_null() {
+            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
             return iroha_ffi::FfiResult::ArgIsNull;
         }
     }
 }
 
-fn gen_ffi_fn_args(struct_name: &Ident, mut field_ty: &Type, derive: Derive) -> TokenStream {
-    if let Type::Path(ty) = field_ty {
-        let last_seg = &ty.path.segments.last().expect_or_abort("Defined");
-
-        if last_seg.ident == "Option" {
-            field_ty = crate::impl_visitor::generic_arg_types(last_seg)[0];
-        }
-    }
+fn gen_ffi_fn_args(handle: &Arg, field: &Arg, derive: Derive) -> TokenStream {
+    let (handle_name, handle_ffi_type) = (&handle.name, &handle.ffi_type);
+    let (field_name, field_ffi_type) = (&field.name, &field.ffi_type);
 
     match derive {
-        Derive::Set => {
-            quote! {handle: *mut #struct_name, field: *const #field_ty}
-        }
-        Derive::Get => {
-            quote! {handle: *const #struct_name, output: *mut *const #field_ty}
-        }
-        Derive::GetMut => {
-            quote! {handle: *mut #struct_name, output: *mut *mut #field_ty}
-        }
+        Derive::Setter => quote! {
+            #handle_name: #handle_ffi_type, #field_name: #field_ffi_type
+        },
+        Derive::Getter | Derive::MutGetter => quote! {
+            #handle_name: #handle_ffi_type, #field_name: *mut #field_ffi_type
+        },
     }
 }
 
-fn gen_option_ptr_conversion(field_ty: &Type, derive: Derive) -> Option<TokenStream> {
-    if let Type::Path(ty) = field_ty {
-        if get_ident(&ty.path) == "Option" {
-            return match derive {
-                Derive::Set => None,
-                Derive::Get => Some(quote! {
-                    let method_res = match method_res {
-                        Some(method_res) => method_res,
-                        None => core::ptr::null(),
-                    };
-                }),
-                Derive::GetMut => Some(quote! {
-                    let method_res = match method_res {
-                        Some(method_res) => method_res,
-                        None => core::ptr::null_mut(),
-                    };
-                }),
-            };
-        }
-    }
-
-    None
-}
-
-fn gen_ffi_fn_body(method_name: &Ident, field_ty: &Type, derive: Derive) -> TokenStream {
-    let mut null_ptr_checks = vec![gen_null_ptr_check(&parse_quote! {handle})];
-    let option_ptr_conversion = gen_option_ptr_conversion(field_ty, derive);
+fn gen_ffi_fn_body(method_name: &Ident, handle: &Arg, field: &Arg, derive: Derive) -> TokenStream {
+    let handle_name = &handle.name;
+    let field_name = &field.name;
 
     match derive {
-        Derive::Set => {
-            null_ptr_checks.push(gen_null_ptr_check(&parse_quote! {field}));
+        Derive::Setter => {
+            let null_ptr_checks = vec![gen_null_ptr_check(handle_name)];
+
+            let handle_ffi_to_src = &handle.ffi_to_src;
+            let field_ffi_to_src = &field.ffi_to_src;
 
             quote! {
                 #( #null_ptr_checks )*
-                let handle = &mut *handle;
-                let field = (&*field).clone();
-                handle.#method_name(field);
+
+                #handle_ffi_to_src
+                #field_ffi_to_src
+
+                #handle_name.#method_name(#field_name);
+
                 iroha_ffi::FfiResult::Ok
             }
         }
-        Derive::Get => {
-            null_ptr_checks.push(gen_null_ptr_check(&parse_quote! {output}));
+        Derive::Getter | Derive::MutGetter => {
+            let null_ptr_checks = vec![
+                gen_null_ptr_check(handle_name),
+                gen_null_ptr_check(field_name),
+            ];
+
+            let handle_ffi_to_src = &handle.ffi_to_src;
+            let output_src_to_ffi = &field.src_to_ffi;
 
             quote! {
                 #( #null_ptr_checks )*
-                let handle = &*handle;
-                let method_res = handle.#method_name();
-                #option_ptr_conversion
-                output.write(method_res);
-                iroha_ffi::FfiResult::Ok
-            }
-        }
-        Derive::GetMut => {
-            null_ptr_checks.push(gen_null_ptr_check(&parse_quote! {output}));
 
-            quote! {
-                #( #null_ptr_checks )*
-                let handle = &mut *handle;
-                let method_res = handle.#method_name();
-                #option_ptr_conversion
-                output.write(method_res);
+                #handle_ffi_to_src
+                let __output_ptr = #field_name;
+                let #field_name = #handle_name.#method_name();
+                #output_src_to_ffi
+
+                __output_ptr.write(#field_name);
                 iroha_ffi::FfiResult::Ok
             }
         }
@@ -203,22 +175,48 @@ fn gen_ffi_fn_body(method_name: &Ident, field_ty: &Type, derive: Derive) -> Toke
 fn gen_ffi_derive(struct_name: &Ident, field: &syn::Field, derive: Derive) -> syn::ItemFn {
     let field_name = field.ident.as_ref().expect_or_abort("Defined");
 
-    let mut field_ty = field.ty.clone();
-    if let Type::Path(field_ty) = &mut field_ty {
-        SelfResolver::new(&parse_quote! { #struct_name }).visit_type_path_mut(field_ty);
-    }
+    let self_ty = parse_quote! {#struct_name};
+    let field_ty = field.ty.clone();
+    let (handle, arg) = match derive {
+        Derive::Setter => (
+            Arg::handle(&self_ty, parse_quote! {&mut #struct_name}),
+            Arg::input(&self_ty, parse_quote! {field}, field_ty),
+        ),
+        Derive::Getter => (
+            Arg::handle(&self_ty, parse_quote! {&#struct_name}),
+            Arg::output(&self_ty, parse_quote! {output}, parse_quote! {&#field_ty}),
+        ),
+        Derive::MutGetter => (
+            Arg::handle(&self_ty, parse_quote! {&mut #struct_name}),
+            Arg::output(
+                &self_ty,
+                parse_quote! {output},
+                parse_quote! {&mut #field_ty},
+            ),
+        ),
+    };
 
     let derive_method_name = gen_derive_method_name(field_name, derive);
     let ffi_fn_name = gen_ffi_fn_name(struct_name, &derive_method_name);
     let ffi_fn_doc = gen_ffi_docs(struct_name, &derive_method_name);
-    let ffi_fn_args = gen_ffi_fn_args(struct_name, &field_ty, derive);
-    let ffi_fn_body = gen_ffi_fn_body(&derive_method_name, &field_ty, derive);
+    let ffi_fn_args = gen_ffi_fn_args(&handle, &arg, derive);
+    let ffi_fn_body = gen_ffi_fn_body(&derive_method_name, &handle, &arg, derive);
 
     parse_quote! {
         #[doc = #ffi_fn_doc]
         #[no_mangle]
         pub unsafe extern "C" fn #ffi_fn_name(#ffi_fn_args) -> iroha_ffi::FfiResult {
-            #ffi_fn_body
+            let res = std::panic::catch_unwind(|| {
+                #ffi_fn_body
+            });
+
+            match res {
+                Ok(res) => res,
+                Err(_) => {
+                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    iroha_ffi::FfiResult::UnrecoverableError
+                },
+            }
         }
     }
 }

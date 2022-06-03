@@ -1,8 +1,10 @@
 error: Methods which consume self not supported
-  --> tests/ui_fail/self_consuming_method.rs:11:6
+  --> tests/ui_fail/self_consuming_method.rs:10:1
    |
-11 | impl FfiStructBuilder {
-   |      ^^^^^^^^^^^^^^^^
+10 | #[ffi_bindgen]
+   | ^^^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `ffi_bindgen` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0425]: cannot find function, tuple struct or tuple variant `FfiStructBuilder__new` in this scope
   --> tests/ui_fail/self_consuming_method.rs:25:25

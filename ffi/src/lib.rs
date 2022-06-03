@@ -1,4 +1,18 @@
 //! Structures, macros related to FFI and generation of FFI bindings.
+//! [Non-robust types](https://anssi-fr.github.io/rust-guide/07_ffi.html#non-robust-types-references-function-pointers-enums)
+//! are strictly avoided in the FFI API
+//!
+//! # Conversions:
+//! owned type -> opaque pointer
+//! reference -> raw pointer
+//!
+//! # Conversions (WebAssembly):
+//! u8, u16 -> u32
+//! i8, i16 -> i32
+//!
+//! # Conversions (input only):
+//! enum -> int
+//! bool -> u8
 
 pub use iroha_ffi_derive::*;
 
@@ -9,7 +23,7 @@ pub type HandleId = u32;
 
 /// FFI compatible tuple with 2 elements
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pair<K, V>(pub K, pub V);
 
 /// Result of execution of an FFI function
@@ -18,6 +32,8 @@ pub struct Pair<K, V>(pub K, pub V);
 // u32/i32, u64/i64 natively. Otherwise, `repr(i8)` would suffice
 #[repr(i32)]
 pub enum FfiResult {
+    /// Indicates that the FFI function execution panicked
+    UnrecoverableError = -5_i32,
     /// Handle id doesn't identify any known handles
     UnknownHandle = -4_i32,
     /// Executing the wrapped method on handle returned error
@@ -55,6 +71,7 @@ macro_rules! handles {
 macro_rules! gen_ffi_impl {
     (@null_check_stmts $( $ptr:ident ),+ ) => {
     $(  if $ptr.is_null() {
+            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
             return $crate::FfiResult::ArgIsNull;
         } )+
     };
@@ -82,6 +99,7 @@ macro_rules! gen_ffi_impl {
 
                     output_ptr.write(new_handle.cast());
                 } )+
+                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                 _ => return $crate::FfiResult::UnknownHandle,
             }
 
@@ -111,6 +129,7 @@ macro_rules! gen_ffi_impl {
 
                     output_ptr.write(left_handle == right_handle);
                 } )+
+                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                 _ => return $crate::FfiResult::UnknownHandle,
             }
 
@@ -140,6 +159,7 @@ macro_rules! gen_ffi_impl {
 
                     output_ptr.write(left_handle.cmp(right_handle));
                 } )+
+                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                 _ => return $crate::FfiResult::UnknownHandle,
             }
 
@@ -164,6 +184,7 @@ macro_rules! gen_ffi_impl {
                 $( <$other as Handle>::ID => {
                     Box::from_raw(handle_ptr.cast::<$other>());
                 } )+
+                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                 _ => return $crate::FfiResult::UnknownHandle,
             }
 

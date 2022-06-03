@@ -13,5 +13,5 @@ error[E0425]: cannot find function, tuple struct or tuple variant `FfiStruct__se
 5  | #[ffi_bindgen]
    | -------------- similarly named function `FfiStruct__set_a` defined here
 ...
-27 |         FfiStruct__set_b(s, b);
+27 |         FfiStruct__set_b(s, *b);
    |         ^^^^^^^^^^^^^^^^ help: a function with a similar name exists: `FfiStruct__set_a`

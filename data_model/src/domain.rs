@@ -183,9 +183,12 @@ pub struct Domain {
     /// [`Asset`](AssetDefinition)s defined of the `Domain`.
     asset_definitions: AssetDefinitionsMap,
     /// IPFS link to the `Domain` logo
-    #[getset(get = "pub")]
+    // FIXME: Getter implemented manually because `getset`
+    // returns &Option<T> when it should return Option<&T>
+    #[getset(skip)]
     logo: Option<IpfsPath>,
     /// [`Metadata`] of this `Domain` as a key-value store.
+    #[getset(get = "pub")]
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
     metadata: Metadata,
 }
@@ -228,6 +231,11 @@ impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id)
+    }
+
+    /// IPFS link to the `Domain` logo
+    pub fn logo(&self) -> Option<&IpfsPath> {
+        self.logo.as_ref()
     }
 
     /// Return a reference to the [`Account`] corresponding to the account id.

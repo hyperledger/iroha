@@ -14,16 +14,16 @@ pub struct FfiStruct {
 fn main() {
     let s: *mut _ = &mut FfiStruct { a: 42, b: 32 };
 
-    let a = MaybeUninit::<*mut u32>::uninit();
-    let b = MaybeUninit::<*const i32>::uninit();
+    let mut a = MaybeUninit::<*mut u32>::uninit();
+    let mut b = MaybeUninit::<*const i32>::uninit();
 
     unsafe {
         FfiStruct__a_mut(s, a.as_mut_ptr());
         let a = &mut *a.assume_init();
-        FfiStruct__set_a(s, a);
+        FfiStruct__set_a(s, *a);
 
         FfiStruct__b_mut(s, b.as_mut_ptr());
         let b = &*b.assume_init();
-        FfiStruct__set_b(s, b);
+        FfiStruct__set_b(s, *b);
     }
 }

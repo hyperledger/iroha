@@ -8,6 +8,7 @@ use proc_macro_error::{abort, OptionExt};
 use quote::quote;
 use syn::{parse_macro_input, Item};
 
+mod arg;
 mod bindgen;
 mod derive;
 mod impl_visitor;

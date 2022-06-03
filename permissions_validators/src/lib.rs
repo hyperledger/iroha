@@ -90,7 +90,7 @@ macro_rules! declare_token {
         impl $ident {
             /// Get associated [`PermissionToken`](iroha_data_model::permissions::PermissionToken) name.
             pub fn name() -> &'static Name {
-                static  NAME: once_cell::sync::Lazy<Name> =
+                static NAME: once_cell::sync::Lazy<Name> =
                     once_cell::sync::Lazy::new(|| $string.parse().expect("Tested. Works."));
                 &NAME
             }

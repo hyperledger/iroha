@@ -96,6 +96,7 @@ pub unsafe extern "C" fn Name__from_str(
     let candidate = core::slice::from_raw_parts(candidate, candidate_len);
 
     let method_res = match core::str::from_utf8(candidate) {
+        // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
         Err(_error) => return iroha_ffi::FfiResult::Utf8Error,
         Ok(candidate) => Name::from_str(candidate),
     };
