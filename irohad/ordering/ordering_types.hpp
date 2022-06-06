@@ -14,7 +14,7 @@ namespace iroha::ordering {
 
 #define USE_BLOOM_FILTER 0
 
-  static constexpr uint64_t kBloomFilterOrder = 32ull * 1024ull;
+  static constexpr uint64_t kBloomFilterOrder = 256ull;
   static constexpr uint64_t kBloomFilterSize = kBloomFilterOrder / 8ull;
 
   using BloomFilter256 = shared_model::crypto::BloomFilter<
@@ -36,6 +36,16 @@ namespace iroha::ordering {
     consensus::Round round;
     shared_model::interface::types::TimestampType created_time;
   };
+
+  /**
+   * Type of stored proposals
+   */
+  using ProposalType = shared_model::interface::Proposal;
+  using PackedProposalType =
+      std::pair<std::shared_ptr<ProposalType const>, BloomFilter256>;
+
+  using PackedProposalContainer = std::vector<PackedProposalType>;
+  using PackedProposalData = std::optional<PackedProposalContainer>;
 
 }  // namespace iroha::ordering
 
