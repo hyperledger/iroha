@@ -56,6 +56,17 @@ pub fn init(configuration: &Configuration) -> Result<Option<Telemetries>> {
     Ok(Some(setup_logger(configuration)?))
 }
 
+/// Disables the logger by setting `LOGGER_SET` to true. Will fail
+/// if the logger has already been initialized. This function is
+/// required in order to generate flamegraphs and flamecharts.
+///
+/// Returns true on success.
+pub fn disable_logger() -> bool {
+    LOGGER_SET
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+        .is_ok()
+}
+
 fn setup_logger(configuration: &Configuration) -> Result<Telemetries> {
     if configuration.compact_mode {
         let layer = tracing_subscriber::fmt::layer()
