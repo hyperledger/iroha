@@ -191,7 +191,7 @@ void OnDemandOrderingServiceImpl::forCachedBatches(
   batches_cache_.forCachedBatches(f);
 }
 
-OnDemandOrderingServiceImpl::PackedProposalData
+iroha::ordering::PackedProposalData
 OnDemandOrderingServiceImpl::waitForLocalProposal(
     consensus::Round const &round, std::chrono::milliseconds const &delay) {
   if (!hasProposal(round) && !hasEnoughBatchesInCache()) {
@@ -234,10 +234,10 @@ OnDemandOrderingServiceImpl::waitForLocalProposal(
   return onRequestProposal(round);
 }
 
-OnDemandOrderingServiceImpl::PackedProposalData
+iroha::ordering::PackedProposalData
 OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
   log_->debug("Requesting a proposal for round {}", round);
-  OnDemandOrderingServiceImpl::PackedProposalData result;
+  PackedProposalData result;
   do {
     std::lock_guard<std::mutex> lock(proposals_mutex_);
     auto it = proposal_map_.find(round.block_round);
@@ -287,7 +287,7 @@ OnDemandOrderingServiceImpl::tryCreateProposal(
   return proposal;
 }
 
-OnDemandOrderingServiceImpl::PackedProposalData
+iroha::ordering::PackedProposalData
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
   auto const available_txs_count = availableTxsCountBatchesCache();
   auto const full_proposals_count = available_txs_count / transaction_limit_;
@@ -296,7 +296,7 @@ OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
        + (full_proposals_count > 0 ? 0 : transaction_limit_ - 1))
       / transaction_limit_;
 
-  OnDemandOrderingServiceImpl::PackedProposalContainer outcome;
+  PackedProposalContainer outcome;
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
   BloomFilter256 bf;
 

@@ -31,11 +31,6 @@ namespace iroha {
      public:
       virtual ~OnDemandOrderingService() = default;
 
-      /**
-       * Type of stored proposals
-       */
-      using ProposalType = shared_model::interface::Proposal;
-
       struct BatchPointerHasher {
         shared_model::crypto::Hash::Hasher hasher_;
         size_t operator()(
@@ -48,11 +43,6 @@ namespace iroha {
       using BatchesSetType =
           std::set<std::shared_ptr<shared_model::interface::TransactionBatch>,
                    shared_model::interface::BatchHashLess>;
-
-      using PackedProposalType =
-          std::pair<std::shared_ptr<ProposalType const>, BloomFilter256>;
-      using PackedProposalContainer = std::vector<PackedProposalType>;
-      using PackedProposalData = std::optional<PackedProposalContainer>;
 
       /**
        * Type of stored transaction batches

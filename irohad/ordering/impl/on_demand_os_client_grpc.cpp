@@ -153,9 +153,7 @@ std::chrono::milliseconds OnDemandOsClientGrpc::getRequestDelay() const {
 
 void OnDemandOsClientGrpc::onRequestProposal(
     consensus::Round round,
-    std::optional<
-        std::pair<std::shared_ptr<shared_model::interface::Proposal const>,
-                  BloomFilter256>> ref_proposal) {
+    PackedProposalData ref_proposal) {
   // Cancel an unfinished request
   if (auto maybe_context = context_.lock()) {
     maybe_context->TryCancel();
@@ -210,7 +208,16 @@ void OnDemandOsClientGrpc::onRequestProposal(
                           context->peer());
         }
 
+        if (response.proposal().empty()) {
+          maybe_log->info("No proposals in response for round {}.", round);
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kOnProposalResponse,
+              ProposalEvent{std::nullopt, round});
+          return;
+        }
+
         for (auto const &proposal : response.proposal()) {
+#if USE_BLOOM_FILTER
           if (proposal.proposal_hash().empty()) {
             assert(!"Should have proposal hash!");
             maybe_log->info("Remote node {} has no proposal.", context->peer());
@@ -219,12 +226,12 @@ void OnDemandOsClientGrpc::onRequestProposal(
                 ProposalEvent{std::nullopt, round});
             return;
           }
+#endif  // USE_BLOOM_FILTER
 
           /// parse request
           std::shared_ptr<shared_model::interface::Proposal const>
               remote_proposal;
-          if (auto proposal_result =
-                  maybe_proposal_factory->build(proposal);
+          if (auto proposal_result = maybe_proposal_factory->build(proposal);
               expected::hasError(proposal_result)) {
             maybe_log->warn("{}", proposal_result.assumeError().error);
             iroha::getSubscription()->notify(

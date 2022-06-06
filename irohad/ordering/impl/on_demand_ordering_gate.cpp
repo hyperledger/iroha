@@ -107,8 +107,13 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
 
     network_client_->onRequestProposal(
         event.next_round,
+#if USE_BLOOM_FILTER
         ordering_service_->waitForLocalProposal(
-            event.next_round, network_client_->getRequestDelay()));
+            event.next_round, network_client_->getRequestDelay())
+#else   // USE_BLOOM_FILTER
+        std::nullopt
+#endif  // USE_BLOOM_FILTER
+    );
   }
 }
 

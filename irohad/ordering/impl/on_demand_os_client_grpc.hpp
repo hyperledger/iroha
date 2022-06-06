@@ -59,9 +59,7 @@ namespace iroha {
 
         void onRequestProposal(
             consensus::Round round,
-            std::optional<std::pair<
-                std::shared_ptr<shared_model::interface::Proposal const>,
-                BloomFilter256>> proposal) override;
+            PackedProposalData ref_proposal) override;
 
         std::chrono::milliseconds getRequestDelay() const override;
 

@@ -65,9 +65,7 @@ namespace iroha {
          */
         virtual void onRequestProposal(
             consensus::Round round,
-            std::optional<std::pair<
-                std::shared_ptr<shared_model::interface::Proposal const>,
-                BloomFilter256>> proposal) = 0;
+            PackedProposalData ref_proposal) = 0;
 
         /**
          * @return delay proposal to wait for.

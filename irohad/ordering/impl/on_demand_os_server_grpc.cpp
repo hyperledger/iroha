@@ -73,13 +73,14 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
   if (maybe_proposal.has_value()) {
     for (auto const &src_proposal : maybe_proposal.value()) {
       auto const &[sptr_proposal, bf_local] = src_proposal;
+      auto proposal = response->add_proposal();
+
 #if USE_BLOOM_FILTER
       response->set_bloom_filter(bf_local.load().data(),
                                  bf_local.load().size());
-#endif  // USE_BLOOM_FILTER
-      auto proposal = response->add_proposal();
       proposal->set_proposal_hash(sptr_proposal->hash().blob().data(),
                                   sptr_proposal->hash().blob().size());
+#endif  // USE_BLOOM_FILTER
 
       log_->debug("OS proposal: {}\nproposal: {}",
                   sptr_proposal->hash(),
