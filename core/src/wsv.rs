@@ -654,7 +654,7 @@ impl WorldStateView {
     }
 
     /// Get all transactions
-    pub fn transaction_values(&self) -> Vec<TransactionValue> {
+    pub fn transaction_values(&self) -> Vec<TransactionQueryResult> {
         let mut txs = self
             .blocks()
             .flat_map(|block| {
@@ -664,7 +664,10 @@ impl WorldStateView {
                     .iter()
                     .cloned()
                     .map(Box::new)
-                    .map(TransactionValue::RejectedTransaction)
+                    .map(|versioned_rejected_tx| TransactionQueryResult {
+                        tx_value: TransactionValue::RejectedTransaction(versioned_rejected_tx),
+                        block_hash: Hash::from(block.hash()),
+                    })
                     .chain(
                         block
                             .transactions
@@ -672,7 +675,10 @@ impl WorldStateView {
                             .cloned()
                             .map(VersionedTransaction::from)
                             .map(Box::new)
-                            .map(TransactionValue::Transaction),
+                            .map(|versioned_tx| TransactionQueryResult {
+                                tx_value: TransactionValue::Transaction(versioned_tx),
+                                block_hash: Hash::from(block.hash()),
+                            }),
                     )
                     .collect::<Vec<_>>()
             })

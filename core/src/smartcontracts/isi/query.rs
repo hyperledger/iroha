@@ -340,13 +340,13 @@ mod tests {
         assert_eq!(txs.len() as u64, num_blocks * 2);
         assert_eq!(
             txs.iter()
-                .filter(|txn| matches!(txn, TransactionValue::RejectedTransaction(_)))
+                .filter(|txn| matches!(txn.tx_value, TransactionValue::RejectedTransaction(_)))
                 .count() as u64,
             num_blocks
         );
         assert_eq!(
             txs.iter()
-                .filter(|txn| matches!(txn, TransactionValue::Transaction(_)))
+                .filter(|txn| matches!(txn.tx_value, TransactionValue::Transaction(_)))
                 .count() as u64,
             num_blocks
         );

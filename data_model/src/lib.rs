@@ -26,6 +26,7 @@ pub use iroha_data_primitives::{self as primitives, fixed, small};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
+use prelude::TransactionQueryResult;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -333,6 +334,8 @@ pub enum Value {
     SignatureCheckCondition(SignatureCheckCondition),
     /// Committed or rejected transactions
     TransactionValue(TransactionValue),
+    /// Transaction Query
+    TransactionQueryResult(TransactionQueryResult),
     /// [`PermissionToken`].
     PermissionToken(PermissionToken),
     /// [`struct@Hash`]
@@ -367,6 +370,7 @@ impl fmt::Display for Value {
             Value::Parameter(v) => fmt::Display::fmt(&v, f),
             Value::SignatureCheckCondition(v) => fmt::Display::fmt(&v, f),
             Value::TransactionValue(_) => write!(f, "TransactionValue"),
+            Value::TransactionQueryResult(_) => write!(f, "TransactionQueryResult"),
             Value::PermissionToken(v) => fmt::Display::fmt(&v, f),
             Value::Hash(v) => fmt::Display::fmt(&v, f),
             Value::Block(v) => fmt::Display::fmt(&v, f),
@@ -381,9 +385,21 @@ impl Value {
         use Value::*;
 
         match self {
-            U32(_) | U128(_) | Id(_) | PublicKey(_) | Bool(_) | Parameter(_) | Identifiable(_)
-            | String(_) | Name(_) | Fixed(_) | TransactionValue(_) | PermissionToken(_)
-            | Hash(_) | Block(_) => 1_usize,
+            U32(_)
+            | U128(_)
+            | Id(_)
+            | PublicKey(_)
+            | Bool(_)
+            | Parameter(_)
+            | Identifiable(_)
+            | String(_)
+            | Name(_)
+            | Fixed(_)
+            | TransactionValue(_)
+            | TransactionQueryResult(_)
+            | PermissionToken(_)
+            | Hash(_)
+            | Block(_) => 1_usize,
             Vec(v) => v.iter().map(Self::len).sum::<usize>() + 1_usize,
             LimitedMetadata(data) => data.nested_len() + 1_usize,
             SignatureCheckCondition(s) => s.0.len(),
