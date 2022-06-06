@@ -1376,7 +1376,9 @@ pub mod transaction {
 
     use super::Query;
     use crate::{
-        account::prelude::AccountId, expression::EvaluatesTo, transaction::TransactionValue,
+        account::prelude::AccountId,
+        expression::EvaluatesTo,
+        transaction::{TransactionQueryResult, TransactionValue},
     };
 
     #[derive(
@@ -1398,7 +1400,7 @@ pub mod transaction {
     pub struct FindAllTransactions;
 
     impl Query for FindAllTransactions {
-        type Output = Vec<TransactionValue>;
+        type Output = Vec<TransactionQueryResult>;
     }
 
     impl FindAllTransactions {
