@@ -5,13 +5,11 @@
 
 #include "network/ordering_gate_common.hpp"
 
-namespace iroha {
-  namespace network {
+namespace iroha::network {
 
-    std::shared_ptr<const shared_model::interface::Proposal> getProposalUnsafe(
-        const OrderingEvent &event) {
-      return *event.proposal;
-    }
+  OrderingEvent::ProposalPack const &getProposalUnsafe(
+      const OrderingEvent &event) {
+    return event.proposal_pack;
+  }
 
-  }  // namespace network
-}  // namespace iroha
+}  // namespace iroha::network

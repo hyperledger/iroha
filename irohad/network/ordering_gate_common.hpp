@@ -12,29 +12,27 @@
 #include "ametsuchi/ledger_state.hpp"
 #include "consensus/round.hpp"
 
-namespace shared_model {
-  namespace interface {
-    class Proposal;
-  }  // namespace interface
-}  // namespace shared_model
+namespace shared_model::interface {
+  class Proposal;
+}  // namespace shared_model::interface
 
-namespace iroha {
-  namespace network {
+namespace iroha::network {
 
-    /**
+  /**
      * Event, which is emitted by ordering gate, when it requests a proposal
-     */
-    struct OrderingEvent {
-      std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-          proposal;
-      consensus::Round round;
-      std::shared_ptr<const LedgerState> ledger_state;
-    };
+   */
+  struct OrderingEvent {
+    using ProposalPack =
+        std::vector<std::shared_ptr<shared_model::interface::Proposal const>>;
 
-    std::shared_ptr<const shared_model::interface::Proposal> getProposalUnsafe(
-        const OrderingEvent &event);
+    ProposalPack proposal_pack;
+    consensus::Round round;
+    std::shared_ptr<const LedgerState> ledger_state;
+  };
 
-  }  // namespace network
-}  // namespace iroha
+  OrderingEvent::ProposalPack const &getProposalUnsafe(
+      const OrderingEvent &event);
+
+}  // namespace iroha::network
 
 #endif  // IROHA_ORDERING_GATE_COMMON_HPP

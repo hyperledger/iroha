@@ -31,9 +31,9 @@ namespace iroha {
 
     VerifiedProposalCreatorEvent Simulator::processProposal(
         network::OrderingEvent const &event) {
-      if (event.proposal) {
-        auto const &proposal = *getProposalUnsafe(event);
-        log_->info("process proposal: {}", proposal);
+      if (!event.proposal_pack.empty()) {
+        auto const &proposal_pack = getProposalUnsafe(event);
+        log_->info("process proposal: {}", proposal_pack);
 
         auto storage =
             ametsuchi_factory_->createTemporaryWsv(command_executor_);

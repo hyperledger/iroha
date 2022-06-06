@@ -133,27 +133,31 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) const {
   }
   if (event.proposal_pack.empty())
     return network::OrderingEvent{
-        std::nullopt, event.round, current_ledger_state_};
+        network::OrderingEvent::ProposalPack {}, event.round, current_ledger_state_};
 
   auto result = removeReplaysAndDuplicates(std::move(event.proposal_pack));
   // no need to check empty proposal
-  if (boost::empty(result->transactions())) {
-    return network::OrderingEvent{
-        std::nullopt, event.round, current_ledger_state_};
+  if (result.empty()) {
+    return network::OrderingEvent{network::OrderingEvent::ProposalPack{},
+                                  event.round,
+                                  current_ledger_state_};
   }
-  shared_model::interface::types::SharedTxsCollectionType transactions;
-  for (auto &transaction : result->transactions()) {
-    transactions.push_back(clone(transaction));
-  }
-  auto batch_txs =
-      shared_model::interface::TransactionBatchParserImpl().parseBatches(
-          transactions);
+
   shared_model::interface::types::BatchesCollectionType batches;
-  for (auto &txs : batch_txs) {
-    batches.push_back(
-        std::make_shared<shared_model::interface::TransactionBatchImpl>(
-            std::move(txs)));
+  for (auto const &proposal : result) {
+    shared_model::interface::types::SharedTxsCollectionType transactions;
+    for (auto &transaction : proposal->transactions())
+      transactions.push_back(clone(transaction));
+
+    auto batch_txs =
+        shared_model::interface::TransactionBatchParserImpl().parseBatches(
+            transactions);
+    for (auto &txs : batch_txs)
+      batches.push_back(
+          std::make_shared<shared_model::interface::TransactionBatchImpl>(
+              std::move(txs)));
   }
+
   forLocalOS(&OnDemandOrderingService::processReceivedProposal,
              std::move(batches));
   return network::OrderingEvent{
@@ -202,8 +206,8 @@ iroha::ordering::ProposalEvent::ProposalPack
 OnDemandOrderingGate::removeReplaysAndDuplicates(
     ProposalEvent::ProposalPack &&proposal_pack) const {
   std::vector<bool> proposal_txs_validation_results;
-  auto dup_hashes = std::make_shared<OnDemandOrderingService::HashesSetType>();
 
+  auto dup_hashes = std::make_shared<OnDemandOrderingService::HashesSetType>();
   auto tx_is_not_processed = [this, &dup_hashes](const auto &tx) {
     auto tx_result = tx_cache_->check(tx.hash());
     if (not tx_result) {
@@ -231,37 +235,49 @@ OnDemandOrderingGate::removeReplaysAndDuplicates(
     }
   };
 
-  shared_model::interface::TransactionBatchParserImpl batch_parser;
+  ProposalEvent::ProposalPack outcome;
+  for (auto &proposal : proposal_pack) {
+    if (proposal->transactions().empty())
+      break;
 
-  bool has_invalid_txs = false;
-  auto batches = batch_parser.parseBatches(proposal->transactions());
-  for (auto &batch : batches) {
-    bool txs_are_valid =
-        std::all_of(batch.begin(), batch.end(), [&](const auto &tx) {
-          return tx_is_not_processed(tx) and tx_is_unique(tx);
-        });
-    proposal_txs_validation_results.insert(
-        proposal_txs_validation_results.end(), batch.size(), txs_are_valid);
-    has_invalid_txs |= not txs_are_valid;
-  }
+    shared_model::interface::TransactionBatchParserImpl batch_parser;
+    bool has_invalid_txs = false;
+    auto batches = batch_parser.parseBatches(proposal->transactions());
+    for (auto &batch : batches) {
+      bool txs_are_valid =
+          std::all_of(batch.begin(), batch.end(), [&](const auto &tx) {
+            return tx_is_not_processed(tx) and tx_is_unique(tx);
+          });
+      proposal_txs_validation_results.insert(
+          proposal_txs_validation_results.end(), batch.size(), txs_are_valid);
+      has_invalid_txs |= not txs_are_valid;
+    }
 
-  if (not has_invalid_txs) {
-    return proposal;
+    if (not has_invalid_txs) {
+      outcome.emplace_back(proposal);
+      continue;
+    }
+
+    auto unprocessed_txs =
+        proposal->transactions() | boost::adaptors::indexed()
+        | boost::adaptors::filtered(
+            [proposal_txs_validation_results =
+                 std::move(proposal_txs_validation_results)](const auto &el) {
+              return proposal_txs_validation_results.at(el.index());
+            })
+        | boost::adaptors::transformed(
+            [](const auto &el) -> decltype(auto) { return el.value(); });
+
+    if (auto tmp = proposal_factory_->unsafeCreateProposal(
+            proposal->height(), proposal->createdTime(), unprocessed_txs);
+        tmp->transactions().empty())
+      break;
+    else
+      outcome.emplace_back(std::move(tmp));
   }
 
   if (!dup_hashes->empty())
     forLocalOS(&OnDemandOrderingService::onDuplicates, *dup_hashes);
 
-  auto unprocessed_txs =
-      proposal->transactions() | boost::adaptors::indexed()
-      | boost::adaptors::filtered(
-            [proposal_txs_validation_results =
-                 std::move(proposal_txs_validation_results)](const auto &el) {
-              return proposal_txs_validation_results.at(el.index());
-            })
-      | boost::adaptors::transformed(
-            [](const auto &el) -> decltype(auto) { return el.value(); });
-
-  return proposal_factory_->unsafeCreateProposal(
-      proposal->height(), proposal->createdTime(), unprocessed_txs);
+  return outcome;
 }
