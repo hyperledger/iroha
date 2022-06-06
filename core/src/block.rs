@@ -33,11 +33,12 @@ use crate::{
 };
 
 const PIPELINE_TIME_MS: u64 =
-    DEFAULT_BLOCK_TIME_MS + DEFAULT_COMMIT_TIME_MS + DEFAULT_TX_RECEIPT_TIME_MS;
+    DEFAULT_BLOCK_TIME_MS + DEFAULT_COMMIT_TIME_LIMIT_MS + DEFAULT_TX_RECEIPT_TIME_LIMIT_MS;
 
 /// Default estimation of consensus duration
 #[allow(clippy::integer_division)]
-pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 = (DEFAULT_COMMIT_TIME_MS + PIPELINE_TIME_MS) / 2;
+pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 =
+    (DEFAULT_COMMIT_TIME_LIMIT_MS + PIPELINE_TIME_MS) / 2;
 
 /// The chain of the previous block hash. If there is no previous
 /// block - the blockchain is empty.

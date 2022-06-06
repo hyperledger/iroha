@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 /// after getting a `TransactionReceipt`.
 pub const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
 /// Default amount of time Peer waits for `CommitMessage` from the proxy tail.
-pub const DEFAULT_COMMIT_TIME_MS: u64 = 2000;
+pub const DEFAULT_COMMIT_TIME_LIMIT_MS: u64 = 2000;
 /// Default amount of time Peer waits for `TxReceipt` from the leader.
-pub const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 500;
-const DEFAULT_MAILBOX_SIZE: u32 = 100;
+pub const DEFAULT_TX_RECEIPT_TIME_LIMIT_MS: u64 = 500;
+const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 const DEFAULT_GOSSIP_PERIOD_MS: u64 = 1000;
 const DEFAULT_GOSSIP_BATCH_SIZE: u32 = 500;
 
@@ -35,13 +35,13 @@ pub struct SumeragiConfiguration {
     /// Optional list of predefined trusted peers.
     pub trusted_peers: TrustedPeers,
     /// Amount of time Peer waits for CommitMessage from the proxy tail.
-    pub commit_time_ms: u64,
+    pub commit_time_limit_ms: u64,
     /// Amount of time Peer waits for TxReceipt from the leader.
-    pub tx_receipt_time_ms: u64,
+    pub tx_receipt_time_limit_ms: u64,
     /// Limits to which transactions must adhere
     pub transaction_limits: TransactionLimits,
-    /// Mailbox size
-    pub mailbox: u32,
+    /// Buffer capacity of actor's MPSC channel
+    pub actor_channel_capacity: u32,
     /// Maximum number of transactions in tx gossip batch message. While configuring this, attention should be payed to `p2p` max message size.
     pub gossip_batch_size: u32,
     /// Period in milliseconds for pending transaction gossiping between peers.
@@ -55,13 +55,13 @@ impl Default for SumeragiConfiguration {
             peer_id: Self::placeholder_peer_id(),
             trusted_peers: Self::placeholder_trusted_peers(),
             block_time_ms: DEFAULT_BLOCK_TIME_MS,
-            commit_time_ms: DEFAULT_COMMIT_TIME_MS,
-            tx_receipt_time_ms: DEFAULT_TX_RECEIPT_TIME_MS,
+            commit_time_limit_ms: DEFAULT_COMMIT_TIME_LIMIT_MS,
+            tx_receipt_time_limit_ms: DEFAULT_TX_RECEIPT_TIME_LIMIT_MS,
             transaction_limits: TransactionLimits {
                 max_instruction_number: transaction::DEFAULT_MAX_INSTRUCTION_NUMBER,
                 max_wasm_size_bytes: transaction::DEFAULT_MAX_WASM_SIZE_BYTES,
             },
-            mailbox: DEFAULT_MAILBOX_SIZE,
+            actor_channel_capacity: DEFAULT_ACTOR_CHANNEL_CAPACITY,
             gossip_batch_size: DEFAULT_GOSSIP_BATCH_SIZE,
             gossip_period_ms: DEFAULT_GOSSIP_PERIOD_MS,
         }
@@ -110,7 +110,7 @@ impl SumeragiConfiguration {
     #[inline]
     #[must_use]
     pub const fn pipeline_time_ms(&self) -> u64 {
-        self.tx_receipt_time_ms + self.block_time_ms + self.commit_time_ms
+        self.tx_receipt_time_limit_ms + self.block_time_ms + self.commit_time_limit_ms
     }
 }
 
