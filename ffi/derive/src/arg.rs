@@ -1,7 +1,10 @@
+//! Logic related to FFI function argument. Visitor implementation visits the given type
+//! and collects the FFI conversion information into the [`Arg`] struct
 #![allow(clippy::unimplemented)]
 
 use proc_macro2::Span;
 use proc_macro_error::{abort, OptionExt};
+use quote::quote;
 use syn::{
     parse_quote, visit::Visit, visit_mut::VisitMut, Ident, Path, PathArguments::AngleBracketed,
     Type,
@@ -20,9 +23,9 @@ pub struct Arg {
     /// FFI compliant type
     pub ffi_type: Type,
 
-    /// Conversion statement from rust to FFI compliant type
+    /// Conversion statement from Rust to FFI compliant type
     pub src_to_ffi: syn::Stmt,
-    /// Conversion statement from FFI compliant to rust type
+    /// Conversion statement from FFI compliant to Rust type
     pub ffi_to_src: syn::Stmt,
 }
 
@@ -58,38 +61,25 @@ impl Arg {
         }
     }
 
-    /// Returns true if this argument is a shared slice reference
-    pub fn is_slice_ref(&self) -> bool {
+    /// Returns true if this argument is an iterator or a slice reference
+    pub fn is_iter_or_slice_ref(&self, mutability: bool) -> bool {
         match &self.src_type {
             Type::Reference(type_) => {
-                return type_.mutability.is_none() && matches!(*type_.elem, Type::Slice(_));
-            }
-            Type::ImplTrait(type_) => {
-                assert_eq!(type_.bounds.len(), 1);
-
-                if let syn::TypeParamBound::Trait(trait_) = &type_.bounds[0] {
-                    let trait_name = get_ident(&trait_.path);
-                    return trait_name == "IntoIterator";
+                if !(mutability ^ type_.mutability.is_some()) {
+                    return matches!(*type_.elem, Type::Slice(_));
                 }
             }
-            _ => return false,
-        }
-
-        false
-    }
-
-    /// Returns true if this argument is a mutable slice reference
-    pub fn is_slice_ref_mut(&self) -> bool {
-        match &self.src_type {
-            Type::Reference(type_) => {
-                return type_.mutability.is_some() && matches!(*type_.elem, Type::Slice(_));
-            }
             Type::ImplTrait(type_) => {
                 assert_eq!(type_.bounds.len(), 1);
 
                 if let syn::TypeParamBound::Trait(trait_) = &type_.bounds[0] {
                     let trait_name = get_ident(&trait_.path);
-                    return trait_name == "ExactSizeIterator";
+
+                    if !mutability && trait_name == "IntoIterator" {
+                        return true;
+                    }
+
+                    return mutability && trait_name == "ExactSizeIterator";
                 }
             }
             _ => return false,
@@ -99,7 +89,6 @@ impl Arg {
     }
 }
 
-/// Struct representing a method/function argument
 struct TypeVisitor<'ast> {
     self_ty: &'ast Path,
     name: &'ast Ident,
@@ -120,6 +109,7 @@ impl<'ast> TypeVisitor<'ast> {
             ffi_to_src: None,
         }
     }
+
     fn visit_item_binding(&mut self, seg: &'ast syn::PathSegment) {
         let bindings = generic_arg_bindings(seg);
 
@@ -144,37 +134,26 @@ impl<'ast> TypeVisitor<'ast> {
             Type::Reference(ref_ty) => {
                 let elem = &ref_ty.elem;
 
-                if ref_ty.mutability.is_some() {
-                    self.ffi_type = Some(parse_quote! {*mut #elem});
-                    self.src_to_ffi = Some(parse_quote! {
-                        let #arg_name = match #arg_name {
-                            Some(item) => item as *mut _,
-                            None => core::ptr::null_mut(),
-                        };
-                    });
-                    self.ffi_to_src = Some(parse_quote! {
-                        let #arg_name = if !#arg_name.is_null() {
-                            Some(&mut *#arg_name)
-                        } else {
-                            None
-                        };
-                    });
+                let (ptr_mutability, ref_mutability, null_ptr) = if ref_ty.mutability.is_some() {
+                    (quote! {*mut}, quote! {&mut}, quote! {null_mut})
                 } else {
-                    self.ffi_type = Some(parse_quote! {*const #elem});
-                    self.src_to_ffi = Some(parse_quote! {
-                        let #arg_name = match #arg_name {
-                            Some(item) => item as *const _,
-                            None => core::ptr::null(),
-                        };
-                    });
-                    self.ffi_to_src = Some(parse_quote! {
-                        let #arg_name = if !#arg_name.is_null() {
-                            Some(&*#arg_name)
-                        } else {
-                            None
-                        };
-                    });
-                }
+                    (quote! {*const}, quote! {&}, quote! {null})
+                };
+
+                self.ffi_type = Some(parse_quote! {#ptr_mutability #elem});
+                self.src_to_ffi = Some(parse_quote! {
+                    let #arg_name = match #arg_name {
+                        Some(item) => item as #ptr_mutability _,
+                        None => core::ptr::#null_ptr(),
+                    };
+                });
+                self.ffi_to_src = Some(parse_quote! {
+                    let #arg_name = if !#arg_name.is_null() {
+                        Some(#ref_mutability *#arg_name)
+                    } else {
+                        None
+                    };
+                });
             }
             Type::Path(ty) => self.visit_type_path(ty),
             _ => abort!(item, "Unsupported Option type"),
@@ -193,6 +172,8 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
         unimplemented!("Not needed as of yet")
     }
     fn visit_type_impl_trait(&mut self, node: &'ast syn::TypeImplTrait) {
+        let arg_name = self.name;
+
         if node.bounds.len() > 1 {
             abort!(
                 node.bounds,
@@ -207,59 +188,50 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
                 abort!(last_seg, "Lifetime bound not supported in `impl Trait`");
             }
 
-            let arg_name = self.name;
+            let is_input = self.is_input;
+            let mut visit_iterator = || {
+                let (ptr_mutability, ref_mutability, from_raw_parts) = if is_input {
+                    (quote! {*const}, quote! {&}, quote! {from_raw_parts})
+                } else {
+                    (quote! {*mut}, quote! {&mut}, quote! {from_raw_parts_mut})
+                };
+
+                self.visit_item_binding(last_seg);
+                let binding_ffi_type = &self.ffi_type;
+                let binding_src_to_ffi = &self.src_to_ffi;
+                let binding_ffi_to_src = &self.ffi_to_src;
+
+                let slice_len_arg_name = crate::bindgen::gen_slice_len_arg_name(arg_name);
+                self.ffi_type = Some(parse_quote! {#ptr_mutability #binding_ffi_type});
+                self.src_to_ffi = Some(parse_quote! {
+                    let #arg_name = #arg_name.into_iter().map(|arg| {
+                        #binding_src_to_ffi
+                        arg
+                    });
+                });
+                self.ffi_to_src = Some(parse_quote! {
+                    let #arg_name = core::slice::#from_raw_parts(#arg_name, #slice_len_arg_name)
+                        .into_iter().map(|#ref_mutability arg| {
+                            #binding_ffi_to_src
+                            arg
+                        });
+                });
+            };
+
             match last_seg.ident.to_string().as_str() {
                 "IntoIterator" => {
-                    if !self.is_input {
+                    if !is_input {
                         abort!(node, "Type not supported as output type")
                     }
 
-                    self.visit_item_binding(last_seg);
-                    let binding_ffi_type = &self.ffi_type;
-                    let binding_src_to_ffi = &self.src_to_ffi;
-                    let binding_ffi_to_src = &self.ffi_to_src;
-
-                    let slice_len_arg_name = crate::bindgen::gen_slice_len_arg_name(arg_name);
-                    self.ffi_type = Some(parse_quote! {*const #binding_ffi_type});
-                    self.src_to_ffi = Some(parse_quote! {
-                        let #arg_name = #arg_name.into_iter().map(|arg| {
-                            #binding_src_to_ffi
-                            arg
-                        });
-                    });
-                    self.ffi_to_src = Some(parse_quote! {
-                        let #arg_name = core::slice::from_raw_parts(#arg_name, #slice_len_arg_name)
-                            .into_iter().map(|&arg| {
-                                #binding_ffi_to_src
-                                arg
-                            });
-                    });
+                    visit_iterator()
                 }
                 "ExactSizeIterator" => {
-                    if self.is_input {
+                    if is_input {
                         abort!(node, "Type not supported as input type")
                     }
 
-                    self.visit_item_binding(last_seg);
-                    let binding_ffi_type = &self.ffi_type;
-                    let binding_src_to_ffi = &self.src_to_ffi;
-                    let binding_ffi_to_src = &self.ffi_to_src;
-
-                    let slice_len_arg_name = crate::bindgen::gen_slice_len_arg_name(arg_name);
-                    self.ffi_type = Some(parse_quote! {*mut #binding_ffi_type});
-                    self.src_to_ffi = Some(parse_quote! {
-                        let #arg_name = #arg_name.into_iter().map(|arg| {
-                            #binding_src_to_ffi
-                            arg
-                        });
-                    });
-                    self.ffi_to_src = Some(parse_quote! {
-                        let #arg_name = core::slice::from_raw_parts_mut(#arg_name, #slice_len_arg_name)
-                            .into_iter().map(|&mut arg| {
-                                #binding_ffi_to_src
-                                arg
-                            });
-                    });
+                    visit_iterator()
                 }
                 "Into" => {
                     self.visit_type(generic_arg_types(last_seg)[0]);
@@ -290,6 +262,17 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
         let last_seg = node.path.segments.last().expect_or_abort("Defined");
 
         let arg_name = self.name;
+        let mut to_int = |int| {
+            self.src_to_ffi = Some(parse_quote! {let #arg_name = #arg_name as #int;});
+            self.ffi_to_src = Some(parse_quote! {
+                let #arg_name = match #arg_name.try_into() {
+                    Err(err) => return iroha_ffi::FfiResult::ConversionError,
+                    Ok(item) => item,
+                };
+            });
+            self.ffi_type = Some(int);
+        };
+
         match last_seg.ident.to_string().as_str() {
             "bool" => {
                 if self.is_input {
@@ -302,26 +285,8 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
                     self.ffi_to_src = Some(parse_quote! {();});
                 }
             }
-            "u8" | "u16" => {
-                self.ffi_type = Some(parse_quote! {u32});
-                self.src_to_ffi = Some(parse_quote! {let #arg_name = #arg_name as u32;});
-                self.ffi_to_src = Some(parse_quote! {
-                    let #arg_name = match #arg_name.try_into() {
-                        Err(err) => return iroha_ffi::FfiResult::ConversionError,
-                        Ok(item) => item,
-                    };
-                });
-            }
-            "i8" | "i16" => {
-                self.ffi_type = Some(parse_quote! {i32});
-                self.src_to_ffi = Some(parse_quote! {let #arg_name = #arg_name as i32;});
-                self.ffi_to_src = Some(parse_quote! {
-                    let #arg_name = match #arg_name.try_into() {
-                        Err(err) => return iroha_ffi::FfiResult::ConversionError,
-                        Ok(item) => item,
-                    };
-                });
-            }
+            "u8" | "u16" => to_int(parse_quote! {u32}),
+            "i8" | "i16" => to_int(parse_quote! {i32}),
             "u32" | "i32" | "f32" | "f64" => {
                 self.ffi_type = Some(node.clone().into());
                 self.src_to_ffi = Some(parse_quote! {();});
@@ -352,13 +317,18 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
                         }
                     };
                 });
-                self.ffi_to_src = Some(parse_quote! { #ok_ffi_to_src });
+                self.ffi_to_src = Some(parse_quote! {
+                    let #arg_name = {
+                        #ok_ffi_to_src
+                        Ok(#arg_name)
+                    };
+                });
             }
             _ => {
                 if self.is_input {
                     self.ffi_type = Some(parse_quote! { *const #node });
                     self.src_to_ffi = Some(parse_quote! {
-                        let #arg_name: *const _ = #arg_name;
+                        let #arg_name: *const _ = &#arg_name;
                     });
                     self.ffi_to_src = Some(parse_quote! {
                         let #arg_name = Clone::clone(&*#arg_name);
@@ -389,15 +359,15 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
         }
 
         let arg_name = self.name;
-        if node.mutability.is_some() {
-            self.ffi_type = Some(parse_quote! {*mut #elem});
-            self.src_to_ffi = Some(parse_quote! {let #arg_name: *mut _ = #arg_name;});
-            self.ffi_to_src = Some(parse_quote! {let #arg_name = &mut *#arg_name;});
+        let (ptr_mutability, ref_mutability) = if node.mutability.is_some() {
+            (quote! {*mut}, quote! {&mut})
         } else {
-            self.ffi_type = Some(parse_quote! {*const #elem});
-            self.src_to_ffi = Some(parse_quote! {let #arg_name: *const _ = #arg_name;});
-            self.ffi_to_src = Some(parse_quote! {let #arg_name = &*#arg_name;});
-        }
+            (quote! {*const}, quote! {&})
+        };
+
+        self.ffi_type = Some(parse_quote! {#ptr_mutability #elem});
+        self.src_to_ffi = Some(parse_quote! {let #arg_name: #ptr_mutability _ = #arg_name;});
+        self.ffi_to_src = Some(parse_quote! {let #arg_name = #ref_mutability *#arg_name;});
     }
 
     fn visit_type_slice(&mut self, _: &'ast syn::TypeSlice) {
@@ -459,16 +429,18 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
 
 pub fn generic_arg_types(seg: &syn::PathSegment) -> Vec<&Type> {
     if let AngleBracketed(arguments) = &seg.arguments {
-        let mut args = vec![];
-
-        for arg in &arguments.args {
-            if let syn::GenericArgument::Type(ty) = &arg {
-                args.push(ty);
-            }
-        }
-
-        return args;
-    };
+        return arguments
+            .args
+            .iter()
+            .filter_map(|arg| {
+                if let syn::GenericArgument::Type(ty) = &arg {
+                    Some(ty)
+                } else {
+                    None
+                }
+            })
+            .collect();
+    }
 
     abort!(seg, "Type not found in the given path segment")
 }

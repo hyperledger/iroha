@@ -747,14 +747,6 @@ async fn blocks_stream() {
     assert_eq!(block.header().height, BLOCK_COUNT as u64 + 1);
 }
 
-/// Returns the a map of a form `domain_name -> domain`, for initial domains.
-fn domains(
-    configuration: &crate::config::Configuration,
-) -> eyre::Result<impl Iterator<Item = Domain>> {
-    let key = configuration.genesis.account_public_key.clone();
-    Ok([Domain::from(GenesisDomain::new(key))].into_iter())
-}
-
 #[test]
 fn hash_should_be_the_same() {
     prepare_test_for_nextest!();
@@ -786,7 +778,7 @@ fn hash_should_be_the_same() {
         AcceptedTransaction::from_transaction(signed_tx, &tx_limits).expect("Failed to accept.");
     let accepted_tx_hash = accepted_tx.hash();
     let wsv = Arc::new(WorldStateView::new(World::with(
-        domains(&config).unwrap(),
+        crate::domains(&config),
         BTreeSet::new(),
     )));
     let valid_tx_hash = TransactionValidator::new(

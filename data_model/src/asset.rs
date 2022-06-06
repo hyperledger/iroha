@@ -3,7 +3,8 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{collections::btree_map, format, string::String, vec::Vec};
-use core::{cmp::Ordering, g(feature = "std")]
+use core::{cmp::Ordering, str::FromStr};
+#[cfg(feature = "std")]
 use std::collections::btree_map;
 
 use derive_more::Display;

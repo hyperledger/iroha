@@ -75,6 +75,15 @@ macro_rules! gen_ffi_impl {
             return $crate::FfiResult::ArgIsNull;
         } )+
     };
+    (@catch_unwind $block:block ) => {
+        match std::panic::catch_unwind(|| $block) {
+            Ok(res) => res,
+            Err(_) => {
+                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                $crate::FfiResult::UnrecoverableError
+            },
+        }
+    };
     ( Clone: $( $other:ty ),+ $(,)? ) => {
         /// FFI function equivalent of [`Clone::clone`]
         ///
@@ -88,22 +97,24 @@ macro_rules! gen_ffi_impl {
             handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut *mut core::ffi::c_void
         ) -> $crate::FfiResult {
-            gen_ffi_impl!{@null_check_stmts handle_ptr, output_ptr}
+            gen_ffi_impl!(@catch_unwind {
+                gen_ffi_impl!{@null_check_stmts handle_ptr, output_ptr}
 
-            match handle_id {
-                $( <$other as Handle>::ID => {
-                    let handle = &*handle_ptr.cast::<$other>();
+                match handle_id {
+                    $( <$other as Handle>::ID => {
+                        let handle = &*handle_ptr.cast::<$other>();
 
-                    let new_handle = Box::new(Clone::clone(handle));
-                    let new_handle = Box::into_raw(new_handle);
+                        let new_handle = Box::new(Clone::clone(handle));
+                        let new_handle = Box::into_raw(new_handle);
 
-                    output_ptr.write(new_handle.cast());
-                } )+
-                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                _ => return $crate::FfiResult::UnknownHandle,
-            }
+                        output_ptr.write(new_handle.cast());
+                    } )+
+                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    _ => return $crate::FfiResult::UnknownHandle,
+                }
 
-            $crate::FfiResult::Ok
+                $crate::FfiResult::Ok
+            })
         }
     };
     ( Eq: $( $other:ty ),+ $(,)? ) => {
@@ -120,20 +131,22 @@ macro_rules! gen_ffi_impl {
             right_handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut bool,
         ) -> $crate::FfiResult {
-            gen_ffi_impl!{@null_check_stmts left_handle_ptr, right_handle_ptr, output_ptr}
+            gen_ffi_impl!(@catch_unwind {
+                gen_ffi_impl!{@null_check_stmts left_handle_ptr, right_handle_ptr, output_ptr}
 
-            match handle_id {
-                $( <$other as Handle>::ID => {
-                    let left_handle = &*left_handle_ptr.cast::<$other>();
-                    let right_handle = &*right_handle_ptr.cast::<$other>();
+                match handle_id {
+                    $( <$other as Handle>::ID => {
+                        let left_handle = &*left_handle_ptr.cast::<$other>();
+                        let right_handle = &*right_handle_ptr.cast::<$other>();
 
-                    output_ptr.write(left_handle == right_handle);
-                } )+
-                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                _ => return $crate::FfiResult::UnknownHandle,
-            }
+                        output_ptr.write(left_handle == right_handle);
+                    } )+
+                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    _ => return $crate::FfiResult::UnknownHandle,
+                }
 
-            $crate::FfiResult::Ok
+                $crate::FfiResult::Ok
+            })
         }
     };
     ( Ord: $( $other:ty ),+ $(,)? ) => {
@@ -150,20 +163,22 @@ macro_rules! gen_ffi_impl {
             right_handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut core::cmp::Ordering,
         ) -> $crate::FfiResult {
-            gen_ffi_impl!{@null_check_stmts left_handle_ptr, right_handle_ptr, output_ptr}
+            gen_ffi_impl!(@catch_unwind {
+                gen_ffi_impl!{@null_check_stmts left_handle_ptr, right_handle_ptr, output_ptr}
 
-            match handle_id {
-                $( <$other as Handle>::ID => {
-                    let left_handle = &*left_handle_ptr.cast::<$other>();
-                    let right_handle = &*right_handle_ptr.cast::<$other>();
+                match handle_id {
+                    $( <$other as Handle>::ID => {
+                        let left_handle = &*left_handle_ptr.cast::<$other>();
+                        let right_handle = &*right_handle_ptr.cast::<$other>();
 
-                    output_ptr.write(left_handle.cmp(right_handle));
-                } )+
-                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                _ => return $crate::FfiResult::UnknownHandle,
-            }
+                        output_ptr.write(left_handle.cmp(right_handle));
+                    } )+
+                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    _ => return $crate::FfiResult::UnknownHandle,
+                }
 
-            $crate::FfiResult::Ok
+                $crate::FfiResult::Ok
+            })
         }
     };
     ( Drop: $( $other:ty ),+ $(,)? ) => {
@@ -178,17 +193,19 @@ macro_rules! gen_ffi_impl {
             handle_id: $crate::HandleId,
             handle_ptr: *mut core::ffi::c_void,
         ) -> $crate::FfiResult {
-            gen_ffi_impl!{@null_check_stmts handle_ptr}
+            gen_ffi_impl!(@catch_unwind {
+                gen_ffi_impl!{@null_check_stmts handle_ptr}
 
-            match handle_id {
-                $( <$other as Handle>::ID => {
-                    Box::from_raw(handle_ptr.cast::<$other>());
-                } )+
-                // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                _ => return $crate::FfiResult::UnknownHandle,
-            }
+                match handle_id {
+                    $( <$other as Handle>::ID => {
+                        Box::from_raw(handle_ptr.cast::<$other>());
+                    } )+
+                    // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+                    _ => return $crate::FfiResult::UnknownHandle,
+                }
 
-            $crate::FfiResult::Ok
+                $crate::FfiResult::Ok
+            })
         }
     };
 }

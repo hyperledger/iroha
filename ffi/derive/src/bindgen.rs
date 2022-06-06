@@ -21,7 +21,7 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
     let output_arg = ffi_output_arg(fn_descriptor).map(|arg| {
         let mut arg = arg.clone();
 
-        if !arg.is_slice_ref_mut() {
+        if !arg.is_iter_or_slice_ref(true) {
             let ffi_type = &arg.ffi_type;
             arg.ffi_type = parse_quote! {*mut #ffi_type};
         }
@@ -112,7 +112,7 @@ fn gen_type_check_stmts(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
             }
         });
 
-        if output_arg.is_slice_ref_mut() {
+        if output_arg.is_iter_or_slice_ref(true) {
             let slice_elems_arg_name = gen_slice_elems_arg_name(output_arg);
 
             stmts.push(parse_quote! {
@@ -169,8 +169,7 @@ fn gen_method_call_stmt(fn_descriptor: &FnDescriptor) -> TokenStream {
     });
 
     let fn_arg_names = fn_descriptor.input_args.iter().map(|arg| &arg.name);
-    let method_call = quote! {
-    #self_type::#method_name(#(#self_arg_name,)* #(#fn_arg_names),*)};
+    let method_call = quote! {#self_type::#method_name(#(#self_arg_name,)* #(#fn_arg_names),*)};
 
     fn_descriptor.output_arg.as_ref().map_or_else(
         || method_call.clone(),
@@ -211,7 +210,7 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
     if let Some(output_arg) = &fn_descriptor.output_arg {
         let output_arg_name = &output_arg.name;
 
-        if output_arg.is_slice_ref_mut() {
+        if output_arg.is_iter_or_slice_ref(true) {
             let (slice_len_arg_name, slice_elems_arg_name) = (
                 gen_slice_len_arg_name(&output_arg.name),
                 gen_slice_elems_arg_name(output_arg),
@@ -219,6 +218,7 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
 
             stmts.push(parse_quote! {{
                 #slice_elems_arg_name.write(#output_arg_name.len());
+                // NOTE: https://doc.rust-lang.org/std/primitive.pointer.html#method.offset)
                 for (i, elem) in #output_arg_name.take(#slice_len_arg_name).enumerate() {
                     let offset = i.try_into().expect("allocation too large");
                     __output_ptr.offset(offset).write(elem);
@@ -236,7 +236,7 @@ fn gen_ffi_fn_arg(arg: &Arg) -> TokenStream {
     let ffi_name = &arg.name;
     let ffi_type = &arg.ffi_type;
 
-    if arg.is_slice_ref() || arg.is_slice_ref_mut() {
+    if arg.is_iter_or_slice_ref(false) || arg.is_iter_or_slice_ref(true) {
         let mut tokens = quote! { #ffi_name: #ffi_type, };
         slice_len_arg_to_tokens(arg, &mut tokens);
         tokens
@@ -302,12 +302,12 @@ fn gen_dangling_ptr_assignments(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> 
     let mut stmts = vec![];
 
     for arg in &fn_descriptor.input_args {
-        if arg.is_slice_ref() {
+        if arg.is_iter_or_slice_ref(false) {
             stmts.push(gen_dangling_ptr_assignment(arg));
         }
     }
     if let Some(output_arg) = ffi_output_arg(fn_descriptor) {
-        if output_arg.is_slice_ref_mut() {
+        if output_arg.is_iter_or_slice_ref(true) {
             stmts.push(gen_dangling_ptr_assignment(output_arg));
         }
     }
