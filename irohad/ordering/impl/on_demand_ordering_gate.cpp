@@ -127,15 +127,15 @@ void OnDemandOrderingGate::stop() {
 }
 
 std::optional<iroha::network::OrderingEvent>
-OnDemandOrderingGate::processProposalRequest(ProposalEvent const &event) const {
+OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) const {
   if (not current_ledger_state_ || event.round != current_round_) {
     return std::nullopt;
   }
-  if (not event.proposal) {
+  if (event.proposal_pack.empty())
     return network::OrderingEvent{
         std::nullopt, event.round, current_ledger_state_};
-  }
-  auto result = removeReplaysAndDuplicates(*event.proposal);
+
+  auto result = removeReplaysAndDuplicates(std::move(event.proposal_pack));
   // no need to check empty proposal
   if (boost::empty(result->transactions())) {
     return network::OrderingEvent{
@@ -198,9 +198,9 @@ void OnDemandOrderingGate::sendCachedTransactions() {
   });
 }
 
-std::shared_ptr<const shared_model::interface::Proposal>
+iroha::ordering::ProposalEvent::ProposalPack
 OnDemandOrderingGate::removeReplaysAndDuplicates(
-    std::shared_ptr<const shared_model::interface::Proposal> proposal) const {
+    ProposalEvent::ProposalPack &&proposal_pack) const {
   std::vector<bool> proposal_txs_validation_results;
   auto dup_hashes = std::make_shared<OnDemandOrderingService::HashesSetType>();
 

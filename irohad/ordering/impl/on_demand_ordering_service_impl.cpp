@@ -77,6 +77,7 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
       proposal_factory_(std::move(proposal_factory)),
       tx_cache_(std::move(tx_cache)),
       log_(std::move(log)) {
+#if USE_BLOOM_FILTER
   remote_proposal_observer_ =
       SubscriberCreator<bool, RemoteProposalDownloadedEvent>::template create<
           iroha::EventTypes::kRemoteProposalDiff>(
@@ -131,6 +132,7 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
                   ProposalEvent{std::nullopt, ev.round});
             }
           });
+#endif  // USE_BLOOM_FILTER
 }
 
 OnDemandOrderingServiceImpl::~OnDemandOrderingServiceImpl() {
