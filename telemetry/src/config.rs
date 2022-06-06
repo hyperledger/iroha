@@ -20,11 +20,11 @@ pub struct Configuration {
     #[config(serde_as_str)]
     pub url: Option<Url>,
     /// The minimum period of time in seconds to wait before reconnecting
-    #[serde(default = "default_min_period")]
-    pub min_period: u64,
+    #[serde(default = "default_min_retry_period")]
+    pub min_retry_period: u64,
     /// The maximum exponent of 2 that is used for increasing delay between reconnections
-    #[serde(default = "default_max_exponent")]
-    pub max_exponent: u8,
+    #[serde(default = "default_max_retry_delay_exponent")]
+    pub max_retry_delay_exponent: u8,
     /// The filepath that to write dev-telemetry to
     #[cfg(feature = "dev-telemetry")]
     #[config(serde_as_str)]
@@ -36,18 +36,18 @@ impl Default for Configuration {
         Self {
             name: None,
             url: None,
-            min_period: RetryPeriod::DEFAULT_MIN_PERIOD,
-            max_exponent: RetryPeriod::DEFAULT_MAX_EXPONENT,
+            min_retry_period: RetryPeriod::DEFAULT_MIN_RETRY_PERIOD,
+            max_retry_delay_exponent: RetryPeriod::DEFAULT_MAX_RETRY_DELAY_EXPONENT,
             #[cfg(feature = "dev-telemetry")]
             file: None,
         }
     }
 }
 
-const fn default_min_period() -> u64 {
-    RetryPeriod::DEFAULT_MIN_PERIOD
+const fn default_min_retry_period() -> u64 {
+    RetryPeriod::DEFAULT_MIN_RETRY_PERIOD
 }
 
-const fn default_max_exponent() -> u8 {
-    RetryPeriod::DEFAULT_MAX_EXPONENT
+const fn default_max_retry_delay_exponent() -> u8 {
+    RetryPeriod::DEFAULT_MAX_RETRY_DELAY_EXPONENT
 }

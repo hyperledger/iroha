@@ -93,8 +93,8 @@ where
     pub kura: AlwaysAddr<K>,
     /// [`iroha_p2p::Network`] actor address
     pub network: Addr<IrohaNetwork>,
-    /// Mailbox size
-    pub mailbox: u32,
+    /// Buffer capacity of actor's MPSC channel
+    pub actor_channel_capacity: u32,
     pub(crate) fault_injection: PhantomData<F>,
     pub(crate) gossip_batch_size: u32,
     pub(crate) gossip_period: Duration,
@@ -135,8 +135,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
             txs_awaiting_receipts: HashMap::new(),
             txs_awaiting_created_block: HashSet::new(),
             votes_for_view_change: HashMap::new(),
-            commit_time: Duration::from_millis(configuration.commit_time_ms),
-            tx_receipt_time: Duration::from_millis(configuration.tx_receipt_time_ms),
+            commit_time: Duration::from_millis(configuration.commit_time_limit_ms),
+            tx_receipt_time: Duration::from_millis(configuration.tx_receipt_time_limit_ms),
             block_time: Duration::from_millis(configuration.block_time_ms),
             block_height: 0,
             invalidated_blocks_hashes: Vec::new(),
@@ -148,7 +148,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
             broker,
             kura,
             network,
-            mailbox: configuration.mailbox,
+            actor_channel_capacity: configuration.actor_channel_capacity,
             fault_injection: PhantomData,
             gossip_batch_size: configuration.gossip_batch_size,
             gossip_period: Duration::from_millis(configuration.gossip_period_ms),
@@ -160,8 +160,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait<World = W>, W: WorldTrait, F: FaultInj
 impl<G: GenesisNetworkTrait, K: KuraTrait, W: WorldTrait, F: FaultInjection> Actor
     for SumeragiWithFault<G, K, W, F>
 {
-    fn mailbox_capacity(&self) -> u32 {
-        self.mailbox
+    fn actor_channel_capacity(&self) -> u32 {
+        self.actor_channel_capacity
     }
 
     async fn on_start(&mut self, ctx: &mut Context<Self>) {

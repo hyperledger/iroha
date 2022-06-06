@@ -91,7 +91,7 @@ pub fn get_config(trusted_peers: HashSet<PeerId>, key_pair: Option<KeyPair>) -> 
             ..ToriiConfiguration::default()
         },
         block_sync: BlockSyncConfiguration {
-            batch_size: 1,
+            block_batch_size: 1,
             gossip_period_ms: 5000,
             ..BlockSyncConfiguration::default()
         },

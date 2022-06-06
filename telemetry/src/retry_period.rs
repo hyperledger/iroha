@@ -9,8 +9,8 @@ pub struct RetryPeriod {
 }
 
 impl RetryPeriod {
-    pub const DEFAULT_MIN_PERIOD: u64 = 1;
-    pub const DEFAULT_MAX_EXPONENT: u8 = 4;
+    pub const DEFAULT_MIN_RETRY_PERIOD: u64 = 1;
+    pub const DEFAULT_MAX_RETRY_DELAY_EXPONENT: u8 = 4;
 
     /// Constructs a new object
     pub const fn new(min_period: u64, max_exponent: u8) -> Self {
@@ -37,6 +37,9 @@ impl RetryPeriod {
 
 impl Default for RetryPeriod {
     fn default() -> Self {
-        Self::new(Self::DEFAULT_MIN_PERIOD, Self::DEFAULT_MAX_EXPONENT)
+        Self::new(
+            Self::DEFAULT_MIN_RETRY_PERIOD,
+            Self::DEFAULT_MAX_RETRY_DELAY_EXPONENT,
+        )
     }
 }
