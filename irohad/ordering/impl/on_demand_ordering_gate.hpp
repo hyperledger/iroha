@@ -60,7 +60,7 @@ namespace iroha {
        * Handle an incoming proposal from ordering service
        */
       std::optional<network::OrderingEvent> processProposalRequest(
-          ProposalEvent const &event) const;
+          ProposalEvent &&event) const;
 
       void stop() override;
 
@@ -86,9 +86,9 @@ namespace iroha {
       /**
        * remove already processed transactions from proposal
        */
-      std::shared_ptr<const shared_model::interface::Proposal>
+      ProposalEvent::ProposalPack
       removeReplaysAndDuplicates(
-          std::shared_ptr<const shared_model::interface::Proposal> proposal)
+          ProposalEvent::ProposalPack &&proposal_pack)
           const;
 
       logger::LoggerPtr log_;
