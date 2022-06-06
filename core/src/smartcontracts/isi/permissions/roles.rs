@@ -8,19 +8,10 @@ use super::{super::Evaluate, *};
 // when we have
 // impl <T: HasToken> PermissionsValidator for T {}
 /// Boxed validator implementing [`IsGrantAllowed`] trait.
-#[derive(Debug, Clone, FromVariant, Serialize)]
-pub enum IsGrantAllowedBoxed {
-    /// Validator for [`World`]
-    World(#[skip_container] Box<dyn IsGrantAllowed<World> + Send + Sync>),
-    /// Validator for [`MockWorld`]
-    #[cfg(test)]
-    Mock(#[skip_container] Box<dyn IsGrantAllowed<MockWorld> + Send + Sync>),
-}
+pub type IsGrantAllowedBoxed = Box<dyn IsGrantAllowed + Send + Sync>;
 
 /// Checks the [`GrantBox`] instruction.
-pub trait IsGrantAllowed<W: WorldTrait>:
-    Debug + dyn_clone::DynClone + erased_serde::Serialize
-{
+pub trait IsGrantAllowed: Debug + dyn_clone::DynClone + erased_serde::Serialize {
     /// Checks the [`GrantBox`] instruction.
     ///
     /// # Errors
@@ -29,43 +20,29 @@ pub trait IsGrantAllowed<W: WorldTrait>:
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()>;
 }
 
-dyn_clone::clone_trait_object!(<W> IsGrantAllowed<W> where W: WorldTrait);
-erased_serde::serialize_trait_object!(<W> IsGrantAllowed<W> where W: WorldTrait);
+dyn_clone::clone_trait_object!(IsGrantAllowed);
+erased_serde::serialize_trait_object!(IsGrantAllowed);
 
-#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
-impl IsGrantAllowed<World> for IsGrantAllowedBoxed {
+impl IsGrantAllowed for IsGrantAllowedBoxed {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
-        match self {
-            IsGrantAllowedBoxed::World(world) => world.check(authority, instruction, wsv),
-            #[cfg(test)]
-            IsGrantAllowedBoxed::Mock(_) => unimplemented!(),
-        }
+        IsGrantAllowed::check(self.as_ref(), authority, instruction, wsv)
     }
 }
 
 /// Boxed validator implementing the [`IsRevokeAllowed`] trait.
-#[derive(Debug, Clone, FromVariant, Serialize)]
-pub enum IsRevokeAllowedBoxed {
-    /// Validator for [`World`]
-    World(#[skip_container] Box<dyn IsRevokeAllowed<World> + Send + Sync>),
-    /// Validator for [`MockWorld`]
-    #[cfg(test)]
-    Mock(#[skip_container] Box<dyn IsRevokeAllowed<MockWorld> + Send + Sync>),
-}
+pub type IsRevokeAllowedBoxed = Box<dyn IsRevokeAllowed + Send + Sync>;
 
 /// Checks the [`RevokeBox`] instruction.
-pub trait IsRevokeAllowed<W: WorldTrait>:
-    Debug + dyn_clone::DynClone + erased_serde::Serialize
-{
+pub trait IsRevokeAllowed: Debug + dyn_clone::DynClone + erased_serde::Serialize {
     /// Checks the [`RevokeBox`] instruction.
     ///
     /// # Errors
@@ -74,53 +51,48 @@ pub trait IsRevokeAllowed<W: WorldTrait>:
         &self,
         authority: &AccountId,
         instruction: &RevokeBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()>;
 }
 
-dyn_clone::clone_trait_object!(<W> IsRevokeAllowed<W> where W: WorldTrait);
-erased_serde::serialize_trait_object!(<W> IsRevokeAllowed<W> where W: WorldTrait);
+dyn_clone::clone_trait_object!(IsRevokeAllowed);
+erased_serde::serialize_trait_object!(IsRevokeAllowed);
 
-#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
-impl IsRevokeAllowed<World> for IsRevokeAllowedBoxed {
+impl IsRevokeAllowed for IsRevokeAllowedBoxed {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &RevokeBox,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
-        match self {
-            IsRevokeAllowedBoxed::World(world) => world.check(authority, instruction, wsv),
-            #[cfg(test)]
-            IsRevokeAllowedBoxed::Mock(_) => unimplemented!(),
-        }
+        IsRevokeAllowed::check(self.as_ref(), authority, instruction, wsv)
     }
 }
 
-impl IsAllowed<World, Instruction> for IsGrantAllowedBoxed {
+impl IsAllowed<Instruction> for IsGrantAllowedBoxed {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         if let Instruction::Grant(isi) = instruction {
-            <Self as IsGrantAllowed<World>>::check(self, authority, isi, wsv)
+            <Self as IsGrantAllowed>::check(self, authority, isi, wsv)
         } else {
             Ok(())
         }
     }
 }
 
-impl IsAllowed<World, Instruction> for IsRevokeAllowedBoxed {
+impl IsAllowed<Instruction> for IsRevokeAllowedBoxed {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         if let Instruction::Revoke(isi) = instruction {
-            <Self as IsRevokeAllowed<World>>::check(self, authority, isi, wsv)
+            <Self as IsRevokeAllowed>::check(self, authority, isi, wsv)
         } else {
             Ok(())
         }
@@ -165,9 +137,9 @@ macro_rules! unpack {
 ///
 /// # Errors
 /// Evaluation failure of instruction fields.
-pub fn unpack_if_role_grant<W: WorldTrait>(
+pub fn unpack_if_role_grant(
     instruction: Instruction,
-    wsv: &WorldStateView<W>,
+    wsv: &WorldStateView,
 ) -> eyre::Result<Vec<Instruction>> {
     unpack!(instruction, wsv, Instruction::Grant => GrantBox)
 }
@@ -185,9 +157,9 @@ pub fn unpack_if_role_grant<W: WorldTrait>(
 ///
 /// # Errors
 /// Evaluation failure of each of the instruction fields.
-pub fn unpack_if_role_revoke<W: WorldTrait>(
+pub fn unpack_if_role_revoke(
     instruction: Instruction,
-    wsv: &WorldStateView<W>,
+    wsv: &WorldStateView,
 ) -> eyre::Result<Vec<Instruction>> {
     unpack!(instruction, wsv, Instruction::Revoke => RevokeBox)
 }

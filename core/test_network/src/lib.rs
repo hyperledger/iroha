@@ -17,7 +17,6 @@ use iroha_core::{
     prelude::*,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{config::SumeragiConfiguration, Sumeragi, SumeragiTrait},
-    wsv::{World, WorldTrait},
 };
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
@@ -33,24 +32,58 @@ use tokio::{
 struct ShutdownRuntime;
 
 /// Network of peers
-pub struct Network<
-    W = World,
-    G = GenesisNetwork,
-    K = Kura<W>,
-    S = Sumeragi<G, K, W>,
-    B = BlockSynchronizer<S, W>,
-> where
-    W: WorldTrait,
+pub struct Network<G = GenesisNetwork, K = Kura, S = Sumeragi<G, K>, B = BlockSynchronizer<S>>
+where
     G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     /// Genesis peer which sends genesis block to everyone
-    pub genesis: Peer<W, G, K, S, B>,
+    pub genesis: Peer<G, K, S, B>,
     /// Peers excluding the `genesis` peer. Use [`Network::peers`] function to get all instead.
-    pub peers: HashMap<PeerId, Peer<W, G, K, S, B>>,
+    pub peers: HashMap<PeerId, Peer<G, K, S, B>>,
 }
+
+impl From<Peer> for Box<iroha_core::tx::Peer> {
+    fn from(val: Peer) -> Self {
+        Box::new(iroha_core::tx::Peer { id: val.id.clone() })
+    }
+}
+
+/// Peer structure
+pub struct Peer<G = GenesisNetwork, K = Kura, S = Sumeragi<G, K>, B = BlockSynchronizer<S>>
+where
+    G: GenesisNetworkTrait,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
+{
+    /// id of peer
+    pub id: PeerId,
+    /// api address
+    pub api_address: String,
+    /// p2p address
+    pub p2p_address: String,
+    /// telemetry address
+    pub telemetry_address: String,
+    /// Key pair of peer
+    pub key_pair: KeyPair,
+    /// Broker
+    pub broker: Broker,
+    /// Shutdown handle
+    shutdown: Option<JoinHandle<()>>,
+    /// Iroha itself
+    pub iroha: Option<Iroha<G, K, S, B>>,
+}
+
+impl std::cmp::PartialEq for Peer {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl std::cmp::Eq for Peer {}
 
 /// Get a standardised key-pair from the hard-coded literals.
 ///
@@ -116,13 +149,12 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
     }
 }
 
-impl<W, G, K, S, B> Network<W, G, K, S, B>
+impl<G, K, S, B> Network<G, K, S, B>
 where
-    W: WorldTrait,
     G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     /// Send message to an actor instance on peers.
     ///
@@ -130,7 +162,7 @@ where
     /// Programmer error. `self.peers()` should already have `iroha`.
     pub async fn send_to_actor_on_peers<M, A>(
         &self,
-        select_actor: impl Fn(&Iroha<W, G, K, S, B>) -> &Addr<A>,
+        select_actor: impl Fn(&Iroha<G, K, S, B>) -> &Addr<A>,
         msg: M,
     ) -> Vec<(M::Result, PeerId)>
     where
@@ -290,7 +322,7 @@ where
     }
 
     /// Returns all peers.
-    pub fn peers(&self) -> impl Iterator<Item = &Peer<W, G, K, S, B>> + '_ {
+    pub fn peers(&self) -> impl Iterator<Item = &Peer<G, K, S, B>> + '_ {
         std::iter::once(&self.genesis).chain(self.peers.values())
     }
 
@@ -302,7 +334,7 @@ where
     }
 
     /// Get peer by its Id.
-    pub fn peer_by_id(&self, id: &PeerId) -> Option<&Peer<W, G, K, S, B>> {
+    pub fn peer_by_id(&self, id: &PeerId) -> Option<&Peer<G, K, S, B>> {
         self.peers.get(id).or(if self.genesis.id == *id {
             Some(&self.genesis)
         } else {
@@ -342,59 +374,12 @@ pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
     );
 }
 
-/// Peer structure
-pub struct Peer<
-    W = World,
-    G = GenesisNetwork,
-    K = Kura<W>,
-    S = Sumeragi<G, K, W>,
-    B = BlockSynchronizer<S, W>,
-> where
-    W: WorldTrait,
-    G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
-{
-    /// The id of the peer
-    pub id: PeerId,
-    /// API address
-    pub api_address: String,
-    /// P2P address
-    pub p2p_address: String,
-    /// Telemetry address
-    pub telemetry_address: String,
-    /// The key-pair for the peer
-    pub key_pair: KeyPair,
-    /// Broker
-    pub broker: Broker,
-    /// Shutdown handle
-    shutdown: Option<JoinHandle<()>>,
-    /// Iroha itself
-    pub iroha: Option<Iroha<W, G, K, S, B>>,
-}
-
-impl From<Peer> for Box<iroha_core::tx::Peer> {
-    fn from(val: Peer) -> Self {
-        Box::new(iroha_core::tx::Peer { id: val.id.clone() })
-    }
-}
-
-impl std::cmp::PartialEq for Peer {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl std::cmp::Eq for Peer {}
-
-impl<W, G, K, S, B> Drop for Peer<W, G, K, S, B>
+impl<G, K, S, B> Drop for Peer<G, K, S, B>
 where
-    W: WorldTrait,
     G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     fn drop(&mut self) {
         iroha_logger::info!(
@@ -409,13 +394,12 @@ where
     }
 }
 
-impl<W, G, K, S, B> Peer<W, G, K, S, B>
+impl<G, K, S, B> Peer<G, K, S, B>
 where
-    W: WorldTrait,
     G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     /// Returns per peer config with all addresses, keys, and id set up.
     fn get_config(&self, configuration: Configuration) -> Configuration {
@@ -470,7 +454,7 @@ where
             async move {
                 // Prevent temporary directory deleting
                 let _temp_dir = Arc::clone(&temp_dir);
-                let mut iroha = <Iroha<W, G, K, S, B>>::with_genesis(
+                let mut iroha = <Iroha<G, K, S, B>>::with_genesis(
                     genesis,
                     configuration,
                     instruction_validator,
@@ -735,7 +719,7 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
@@ -750,7 +734,7 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
@@ -764,7 +748,7 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 
@@ -780,7 +764,7 @@ pub trait TestClient: Sized {
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug;
 }
@@ -909,7 +893,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
@@ -925,7 +909,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
@@ -942,7 +926,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {
@@ -963,7 +947,7 @@ impl TestClient for Client {
         f: impl Fn(&R::Output) -> bool,
     ) -> eyre::Result<R::Output>
     where
-        R: ValidQuery<World> + Into<QueryBox> + Debug + Clone,
+        R: ValidQuery + Into<QueryBox> + Debug + Clone,
         <R::Output as TryFrom<Value>>::Error: Into<Error>,
         R::Output: Clone + Debug,
     {

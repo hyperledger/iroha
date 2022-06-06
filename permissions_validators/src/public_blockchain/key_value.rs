@@ -64,12 +64,12 @@ pub struct AssetSetOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AssetSetOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetSetOnlyForSignerAccount {
+impl IsAllowed<Instruction> for AssetSetOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
@@ -99,12 +99,12 @@ pub struct SetGrantedByAssetOwner;
 
 impl_from_item_for_granted_token_validator_box!(SetGrantedByAssetOwner);
 
-impl<W: WorldTrait> HasToken<W> for SetGrantedByAssetOwner {
+impl HasToken for SetGrantedByAssetOwner {
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
@@ -131,12 +131,12 @@ pub struct GrantMyAssetAccessSet;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccessSet);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccessSet {
+impl IsGrantAllowed for GrantMyAssetAccessSet {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let token: CanSetKeyValueInUserAssets = extract_specialized_token(instruction, wsv)?;
 
@@ -158,12 +158,12 @@ pub struct AccountSetOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AccountSetOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AccountSetOnlyForSignerAccount {
+impl IsAllowed<Instruction> for AccountSetOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
@@ -192,12 +192,12 @@ pub struct SetGrantedByAccountOwner;
 
 impl_from_item_for_granted_token_validator_box!(SetGrantedByAccountOwner);
 
-impl<W: WorldTrait> HasToken<W> for SetGrantedByAccountOwner {
+impl HasToken for SetGrantedByAccountOwner {
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
@@ -224,12 +224,12 @@ pub struct GrantMyMetadataAccessSet;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantMyMetadataAccessSet);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyMetadataAccessSet {
+impl IsGrantAllowed for GrantMyMetadataAccessSet {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let token: CanSetKeyValueInUserMetadata = extract_specialized_token(instruction, wsv)?;
         if &token.account_id != authority {
@@ -249,12 +249,12 @@ pub struct AssetRemoveOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AssetRemoveOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetRemoveOnlyForSignerAccount {
+impl IsAllowed<Instruction> for AssetRemoveOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
@@ -282,12 +282,12 @@ pub struct RemoveGrantedByAssetOwner;
 
 impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAssetOwner);
 
-impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAssetOwner {
+impl HasToken for RemoveGrantedByAssetOwner {
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
@@ -314,12 +314,12 @@ pub struct GrantMyAssetAccessRemove;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccessRemove);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccessRemove {
+impl IsGrantAllowed for GrantMyAssetAccessRemove {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let token: CanRemoveKeyValueInUserAssets = extract_specialized_token(instruction, wsv)?;
 
@@ -340,12 +340,12 @@ pub struct AccountRemoveOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AccountRemoveOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AccountRemoveOnlyForSignerAccount {
+impl IsAllowed<Instruction> for AccountRemoveOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
@@ -374,12 +374,12 @@ pub struct RemoveGrantedByAccountOwner;
 
 impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAccountOwner);
 
-impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAccountOwner {
+impl HasToken for RemoveGrantedByAccountOwner {
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
@@ -406,12 +406,12 @@ pub struct GrantMyMetadataAccessRemove;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantMyMetadataAccessRemove);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyMetadataAccessRemove {
+impl IsGrantAllowed for GrantMyMetadataAccessRemove {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let token: CanRemoveKeyValueInUserMetadata = extract_specialized_token(instruction, wsv)?;
 
@@ -433,12 +433,12 @@ pub struct GrantMyAssetDefinitionSet;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetDefinitionSet);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetDefinitionSet {
+impl IsGrantAllowed for GrantMyAssetDefinitionSet {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let token: CanSetKeyValueInAssetDefinition = extract_specialized_token(instruction, wsv)?;
 
@@ -453,12 +453,12 @@ pub struct GrantMyAssetDefinitionRemove;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetDefinitionRemove);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetDefinitionRemove {
+impl IsGrantAllowed for GrantMyAssetDefinitionRemove {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let token: CanRemoveKeyValueInAssetDefinition =
             extract_specialized_token(instruction, wsv)?;
@@ -473,12 +473,12 @@ pub struct AssetDefinitionSetOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AssetDefinitionSetOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetDefinitionSetOnlyForSignerAccount {
+impl IsAllowed<Instruction> for AssetDefinitionSetOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
@@ -512,12 +512,12 @@ pub struct AssetDefinitionRemoveOnlyForSignerAccount;
 
 impl_from_item_for_instruction_validator_box!(AssetDefinitionRemoveOnlyForSignerAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for AssetDefinitionRemoveOnlyForSignerAccount {
+impl IsAllowed<Instruction> for AssetDefinitionRemoveOnlyForSignerAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let rem_kv_box = if let Instruction::RemoveKeyValue(rem_kv) = instruction {
             rem_kv
@@ -551,12 +551,12 @@ pub struct SetGrantedByAssetDefinitionOwner;
 
 impl_from_item_for_granted_token_validator_box!(SetGrantedByAssetDefinitionOwner);
 
-impl<W: WorldTrait> HasToken<W> for SetGrantedByAssetDefinitionOwner {
+impl HasToken for SetGrantedByAssetDefinitionOwner {
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
         let set_kv_box = if let Instruction::SetKeyValue(set_kv) = instruction {
             set_kv
@@ -582,12 +582,12 @@ pub struct RemoveGrantedByAssetDefinitionOwner;
 
 impl_from_item_for_granted_token_validator_box!(RemoveGrantedByAssetDefinitionOwner);
 
-impl<W: WorldTrait> HasToken<W> for RemoveGrantedByAssetDefinitionOwner {
+impl HasToken for RemoveGrantedByAssetDefinitionOwner {
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
         let set_kv_box = if let Instruction::RemoveKeyValue(set_kv) = instruction {
             set_kv

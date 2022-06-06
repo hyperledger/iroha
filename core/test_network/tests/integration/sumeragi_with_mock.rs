@@ -20,7 +20,6 @@ use iroha_core::{
         network_topology::Topology,
         Sumeragi, SumeragiTrait,
     },
-    wsv::WorldTrait,
 };
 use iroha_data_model::prelude::*;
 use test_network::*;
@@ -85,7 +84,6 @@ pub mod utils {
                 message::Message as SumeragiMessage,
                 network_topology::Role,
             },
-            wsv::WorldTrait,
         };
 
         pub trait ConstRoleTrait: Debug + Send + 'static {
@@ -129,14 +127,13 @@ pub mod utils {
         pub struct EmptyBlockCreated;
 
         impl FaultInjection for EmptyBlockCreated {
-            fn faulty_message<G, K, W>(
-                _: &SumeragiWithFault<G, K, W, Self>,
+            fn faulty_message<G, K>(
+                _: &SumeragiWithFault<G, K, Self>,
                 msg: SumeragiMessage,
             ) -> Option<SumeragiMessage>
             where
                 G: GenesisNetworkTrait,
                 K: KuraTrait,
-                W: WorldTrait,
             {
                 let msg = if let SumeragiMessage::BlockCreated(mut block) = msg {
                     block.block.as_mut_v1().transactions = Vec::new();
@@ -157,14 +154,13 @@ pub mod utils {
                 pub struct $name;
 
                 impl<R: ConstRoleTrait + Send + Sync> FaultInjection for Skip<$name, R> {
-                    fn faulty_message<G, K, W>(
-                        sumeragi: &SumeragiWithFault<G, K, W, Self>,
+                    fn faulty_message<G, K>(
+                        sumeragi: &SumeragiWithFault<G, K, Self>,
                         msg: SumeragiMessage,
                     ) -> Option<SumeragiMessage>
                     where
                         G: GenesisNetworkTrait,
                         K: KuraTrait,
-                        W: WorldTrait,
                     {
                         if let SumeragiMessage::$name(..) = msg {
                             if R::role(sumeragi.role()) {
@@ -194,14 +190,13 @@ pub mod utils {
         pub struct SkipTxForwardedAndGossipOnLeader;
 
         impl FaultInjection for SkipTxForwardedAndGossipOnLeader {
-            fn faulty_message<G, K, W>(
-                sumeragi: &SumeragiWithFault<G, K, W, Self>,
+            fn faulty_message<G, K>(
+                sumeragi: &SumeragiWithFault<G, K, Self>,
                 msg: SumeragiMessage,
             ) -> Option<SumeragiMessage>
             where
                 G: GenesisNetworkTrait,
                 K: KuraTrait,
-                W: WorldTrait,
             {
                 match (sumeragi.role(), msg) {
                     (Role::Leader, SumeragiMessage::TransactionForwarded(_))
@@ -223,7 +218,7 @@ pub mod utils {
             str::FromStr as _,
         };
 
-        use iroha_core::{prelude::*, tx::Domain, wsv::WorldTrait};
+        use iroha_core::{prelude::*, tx::Domain};
         use iroha_data_model::prelude::*;
         use once_cell::sync::Lazy;
 
@@ -258,19 +253,6 @@ pub mod utils {
             domain
         });
 
-        impl WorldTrait for WithAlice {
-            /// Creates `World` with these `domains` and `trusted_peers_ids`
-            fn with(
-                domains: impl IntoIterator<Item = Domain>,
-                trusted_peers_ids: impl IntoIterator<Item = PeerId>,
-            ) -> Self {
-                Self(World::with(
-                    domains.into_iter().chain([WONDERLAND.clone()]),
-                    trusted_peers_ids,
-                ))
-            }
-        }
-
         pub fn sign_tx(isi: impl IntoIterator<Item = Instruction>) -> VersionedAcceptedTransaction {
             let instructions: Vec<_> = isi.into_iter().collect();
             let tx = Transaction::new(ALICE.id().clone(), instructions.into(), 100_000)
@@ -286,13 +268,12 @@ pub mod utils {
 }
 
 /// Checks if blocks applied on all peers
-async fn blocks_applied<W, G, S, K, B>(network: &Network<W, G, K, S, B>, n_blocks: usize)
+async fn blocks_applied<G, S, K, B>(network: &Network<G, K, S, B>, n_blocks: usize)
 where
-    W: WorldTrait,
     G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     for peer in network.peers() {
         assert_eq!(
@@ -302,13 +283,12 @@ where
     }
 }
 
-async fn put_tx_in_queue_to_peer<W, G, S, K, B>(network: &Network<W, G, K, S, B>, to_leader: bool)
+async fn put_tx_in_queue_to_peer<G, S, K, B>(network: &Network<G, K, S, B>, to_leader: bool)
 where
-    W: WorldTrait,
     G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     let tx = world::sign_tx(vec![]);
     let leader = network
@@ -327,13 +307,12 @@ where
         .expect("queue is not full, and tx is correctly formed");
 }
 
-async fn put_tx_in_queue_to_all<W, G, S, K, B>(network: &Network<W, G, K, S, B>)
+async fn put_tx_in_queue_to_all<G, S, K, B>(network: &Network<G, K, S, B>)
 where
-    W: WorldTrait,
     G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     let tx = world::sign_tx(vec![]);
     for peer in network.peers() {
@@ -346,13 +325,12 @@ where
     }
 }
 
-async fn round<W, G, S, K, B>(network: &Network<W, G, K, S, B>)
+async fn round<G, S, K, B>(network: &Network<G, K, S, B>)
 where
-    W: WorldTrait,
     G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     for peer in network.peers() {
         peer.iroha

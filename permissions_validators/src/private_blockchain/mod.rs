@@ -27,12 +27,12 @@ pub struct ProhibitGrant;
 
 impl_from_item_for_grant_instruction_validator_box!(ProhibitGrant);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for ProhibitGrant {
+impl IsGrantAllowed for ProhibitGrant {
     fn check(
         &self,
         _authority: &AccountId,
         _instruction: &GrantBox,
-        _wsv: &WorldStateView<W>,
+        _wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         Err("Granting at runtime is prohibited.".to_owned().into())
     }

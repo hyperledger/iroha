@@ -29,7 +29,7 @@ use crate::{
     stream::{Sink, Stream},
 };
 
-async fn create_torii() -> (Torii<World>, KeyPair) {
+async fn create_torii() -> (Torii, KeyPair) {
     let mut config = crate::samples::get_config(crate::samples::get_trusted_peers(None), None);
     config.torii.p2p_addr = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     config.torii.api_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());

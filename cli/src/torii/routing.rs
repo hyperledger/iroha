@@ -19,7 +19,6 @@ use iroha_core::{
         },
         permissions::IsAllowed as _,
     },
-    wsv::WorldTrait,
 };
 use iroha_crypto::SignatureOf;
 use iroha_data_model::{
@@ -57,7 +56,7 @@ impl VerifiedQueryRequest {
     /// - Account has incorrect permissions.
     pub fn validate(
         self,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
         query_validator: &IsQueryAllowedBoxed,
     ) -> Result<ValidQueryRequest, QueryError> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
@@ -91,9 +90,9 @@ impl TryFrom<SignedQueryRequest> for VerifiedQueryRequest {
 }
 
 #[iroha_futures::telemetry_future]
-pub(crate) async fn handle_instructions<W: WorldTrait>(
+pub(crate) async fn handle_instructions(
     iroha_cfg: Configuration,
-    queue: Arc<Queue<W>>,
+    queue: Arc<Queue>,
     transaction: VersionedTransaction,
 ) -> Result<Empty> {
     let transaction: Transaction = transaction.into_v1();
@@ -115,24 +114,13 @@ pub(crate) async fn handle_instructions<W: WorldTrait>(
 
 #[iroha_futures::telemetry_future]
 #[allow(unsafe_code, clippy::unimplemented)]
-pub(crate) async fn handle_queries<W: WorldTrait>(
-    wsv: Arc<WorldStateView<W>>,
+pub(crate) async fn handle_queries(
+    wsv: Arc<WorldStateView>,
     query_validator: Arc<IsQueryAllowedBoxed>,
     pagination: Pagination,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    // TODO #2292: Very dirty, need to do something with it
-    let world_wsv = if std::any::TypeId::of::<W>() == std::any::TypeId::of::<World>() {
-        // SAFETY: Always safe
-        unsafe {
-            let wsv_ptr: *const Arc<WorldStateView<W>> = &wsv;
-            &*wsv_ptr.cast::<Arc<WorldStateView<World>>>()
-        }
-    } else {
-        unimplemented!()
-    };
-
-    let valid_request = request.validate(world_wsv, &query_validator)?;
+    let valid_request = request.validate(&wsv, &query_validator)?;
     let original_result = valid_request.execute(&wsv)?;
     let total: u64 = original_result
         .len()
@@ -179,8 +167,8 @@ async fn handle_schema() -> Json {
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_pending_transactions<W: WorldTrait>(
-    queue: Arc<Queue<W>>,
+async fn handle_pending_transactions(
+    queue: Arc<Queue>,
     pagination: Pagination,
 ) -> Result<Scale<VersionedPendingTransactions>> {
     Ok(Scale(
@@ -232,10 +220,7 @@ async fn handle_post_configuration(
 }
 
 #[iroha_futures::telemetry_future]
-async fn handle_blocks_stream<W: WorldTrait>(
-    wsv: &WorldStateView<W>,
-    mut stream: WebSocket,
-) -> eyre::Result<()> {
+async fn handle_blocks_stream(wsv: &WorldStateView, mut stream: WebSocket) -> eyre::Result<()> {
     let subscription_request: VersionedBlockSubscriberMessage = stream.recv().await?;
     let mut from_height = subscription_request.into_v1().try_into()?;
 
@@ -254,9 +239,9 @@ async fn handle_blocks_stream<W: WorldTrait>(
     }
 }
 
-async fn stream_blocks<W: WorldTrait>(
+async fn stream_blocks(
     from_height: &mut u64,
-    wsv: &WorldStateView<W>,
+    wsv: &WorldStateView,
     stream: &mut WebSocket,
 ) -> eyre::Result<()> {
     #[allow(clippy::expect_used)]
@@ -365,7 +350,7 @@ mod subscription {
 
 #[iroha_futures::telemetry_future]
 #[cfg(feature = "telemetry")]
-async fn handle_version<W: WorldTrait>(wsv: Arc<WorldStateView<W>>) -> Json {
+async fn handle_version(wsv: Arc<WorldStateView>) -> Json {
     use iroha_version::Version;
 
     #[allow(clippy::expect_used)]
@@ -380,29 +365,20 @@ async fn handle_version<W: WorldTrait>(wsv: Arc<WorldStateView<W>>) -> Json {
 }
 
 #[cfg(feature = "telemetry")]
-async fn handle_metrics<W: WorldTrait>(
-    wsv: Arc<WorldStateView<W>>,
-    network: Addr<IrohaNetwork>,
-) -> Result<String> {
+async fn handle_metrics(wsv: Arc<WorldStateView>, network: Addr<IrohaNetwork>) -> Result<String> {
     update_metrics(&wsv, network).await?;
     wsv.metrics.try_to_string().map_err(Error::Prometheus)
 }
 
 #[cfg(feature = "telemetry")]
-async fn handle_status<W: WorldTrait>(
-    wsv: Arc<WorldStateView<W>>,
-    network: Addr<IrohaNetwork>,
-) -> Result<Json> {
+async fn handle_status(wsv: Arc<WorldStateView>, network: Addr<IrohaNetwork>) -> Result<Json> {
     update_metrics(&wsv, network).await?;
     let status = Status::from(&wsv.metrics);
     Ok(reply::json(&status))
 }
 
 #[cfg(feature = "telemetry")]
-async fn update_metrics<W: WorldTrait>(
-    wsv: &WorldStateView<W>,
-    network: Addr<IrohaNetwork>,
-) -> Result<()> {
+async fn update_metrics(wsv: &WorldStateView, network: Addr<IrohaNetwork>) -> Result<()> {
     let peers = network
         .send(iroha_p2p::network::GetConnectedPeers)
         .await
@@ -430,12 +406,12 @@ async fn update_metrics<W: WorldTrait>(
     Ok(())
 }
 
-impl<W: WorldTrait> Torii<W> {
+impl Torii {
     /// Construct `Torii` from `ToriiConfiguration`.
     pub fn from_configuration(
         iroha_cfg: Configuration,
-        wsv: Arc<WorldStateView<W>>,
-        queue: Arc<Queue<W>>,
+        wsv: Arc<WorldStateView>,
+        queue: Arc<Queue>,
         query_validator: Arc<IsQueryAllowedBoxed>,
         events: EventsSender,
         network: Addr<IrohaNetwork>,

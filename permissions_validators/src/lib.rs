@@ -11,7 +11,6 @@ use iroha_core::{
         },
         Evaluate,
     },
-    wsv::WorldTrait,
 };
 use iroha_data_model::{isi::*, prelude::*};
 use iroha_macro::error::ErrorTryFromEnum;
@@ -22,7 +21,7 @@ macro_rules! impl_from_item_for_instruction_validator_box {
     ( $ty:ty ) => {
         impl From<$ty> for IsInstructionAllowedBoxed {
             fn from(validator: $ty) -> Self {
-                IsInstructionAllowedBoxed::World(Box::new(validator))
+                Box::new(validator)
             }
         }
     };
@@ -32,7 +31,7 @@ macro_rules! impl_from_item_for_query_validator_box {
     ( $ty:ty ) => {
         impl From<$ty> for IsQueryAllowedBoxed {
             fn from(validator: $ty) -> Self {
-                IsQueryAllowedBoxed::World(Box::new(validator))
+                Box::new(validator)
             }
         }
     };
@@ -42,14 +41,14 @@ macro_rules! impl_from_item_for_granted_token_validator_box {
     ( $ty:ty ) => {
         impl From<$ty> for HasTokenBoxed {
             fn from(validator: $ty) -> Self {
-                HasTokenBoxed::World(Box::new(validator))
+                Box::new(validator)
             }
         }
 
         impl From<$ty> for IsInstructionAllowedBoxed {
             fn from(validator: $ty) -> Self {
                 let validator: HasTokenBoxed = validator.into();
-                IsInstructionAllowedBoxed::World(Box::new(validator))
+                Box::new(validator)
             }
         }
     };
@@ -59,14 +58,14 @@ macro_rules! impl_from_item_for_grant_instruction_validator_box {
     ( $ty:ty ) => {
         impl From<$ty> for IsGrantAllowedBoxed {
             fn from(validator: $ty) -> Self {
-                IsGrantAllowedBoxed::World(Box::new(validator))
+                Box::new(validator)
             }
         }
 
         impl From<$ty> for IsInstructionAllowedBoxed {
             fn from(validator: $ty) -> Self {
                 let validator: IsGrantAllowedBoxed = validator.into();
-                IsInstructionAllowedBoxed::World(Box::new(validator))
+                Box::new(validator)
             }
         }
     };
@@ -76,14 +75,14 @@ macro_rules! impl_from_item_for_revoke_instruction_validator_box {
     ( $ty:ty ) => {
         impl From<$ty> for IsRevokeAllowedBoxed {
             fn from(validator: $ty) -> Self {
-                IsRevokeAllowedBoxed::World(Box::new(validator))
+                Box::new(validator)
             }
         }
 
         impl From<$ty> for IsInstructionAllowedBoxed {
             fn from(validator: $ty) -> Self {
                 let validator: IsRevokeAllowedBoxed = validator.into();
-                IsInstructionAllowedBoxed::World(Box::new(validator))
+                Box::new(validator)
             }
         }
     };

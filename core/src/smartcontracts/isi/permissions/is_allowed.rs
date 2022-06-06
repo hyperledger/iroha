@@ -3,7 +3,7 @@
 use super::*;
 
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
-pub trait IsAllowed<W: WorldTrait, O: NeedsPermission>:
+pub trait IsAllowed<O: NeedsPermission>:
     Debug + dyn_clone::DynClone + erased_serde::Serialize
 {
     /// Checks if the `authority` is allowed to perform `instruction`
@@ -12,11 +12,11 @@ pub trait IsAllowed<W: WorldTrait, O: NeedsPermission>:
     /// # Errors
     /// If the execution of `instruction` under given `authority` with
     /// the current state of `wsv` is disallowed.
-    fn check(&self, authority: &AccountId, operation: &O, wsv: &WorldStateView<W>) -> Result<()>;
+    fn check(&self, authority: &AccountId, operation: &O, wsv: &WorldStateView) -> Result<()>;
 }
 
-dyn_clone::clone_trait_object!(<W, O> IsAllowed<W, O> where W: WorldTrait, O: NeedsPermission);
-erased_serde::serialize_trait_object!(<W, O> IsAllowed<W, O> where W: WorldTrait, O: NeedsPermission);
+dyn_clone::clone_trait_object!(<O> IsAllowed<O> where O: NeedsPermission);
+erased_serde::serialize_trait_object!(<O> IsAllowed<O> where O: NeedsPermission);
 
 /// Box with permissions validator.
 #[derive(Debug, Clone, FromVariant, Serialize)]
@@ -40,12 +40,12 @@ impl IsAllowedBoxed {
     }
 }
 
-impl IsAllowed<World, Instruction> for IsAllowedBoxed {
+impl IsAllowed<Instruction> for IsAllowedBoxed {
     fn check(
         &self,
         authority: &AccountId,
         operation: &Instruction,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         if let IsAllowedBoxed::Instruction(instruction) = self {
             instruction.check(authority, operation, wsv)
@@ -59,12 +59,12 @@ impl IsAllowed<World, Instruction> for IsAllowedBoxed {
     }
 }
 
-impl IsAllowed<World, QueryBox> for IsAllowedBoxed {
+impl IsAllowed<QueryBox> for IsAllowedBoxed {
     fn check(
         &self,
         authority: &AccountId,
         operation: &QueryBox,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         if let IsAllowedBoxed::Query(query) = self {
             query.check(authority, operation, wsv)
@@ -78,12 +78,12 @@ impl IsAllowed<World, QueryBox> for IsAllowedBoxed {
     }
 }
 
-impl IsAllowed<World, Expression> for IsAllowedBoxed {
+impl IsAllowed<Expression> for IsAllowedBoxed {
     fn check(
         &self,
         authority: &AccountId,
         operation: &Expression,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         if let IsAllowedBoxed::Expression(expression) = self {
             expression.check(authority, operation, wsv)
@@ -97,84 +97,17 @@ impl IsAllowed<World, Expression> for IsAllowedBoxed {
     }
 }
 
-/// Box with permissions validator for [`Instruction`].
-#[derive(Debug, Clone, FromVariant, Serialize)]
-pub enum IsInstructionAllowedBoxed {
-    /// Validator for [`World`]
-    World(#[skip_container] Box<dyn IsAllowed<World, Instruction> + Send + Sync>),
-    /// Validator for [`MockWorld`]
-    #[cfg(test)]
-    Mock(#[skip_container] Box<dyn IsAllowed<MockWorld, Instruction> + Send + Sync>),
-}
-
-#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
-impl IsAllowed<World, Instruction> for IsInstructionAllowedBoxed {
-    fn check(
-        &self,
-        authority: &AccountId,
-        operation: &Instruction,
-        wsv: &WorldStateView<World>,
-    ) -> Result<()> {
-        match self {
-            IsInstructionAllowedBoxed::World(instruction) => {
-                instruction.check(authority, operation, wsv)
-            }
-            #[cfg(test)]
-            IsInstructionAllowedBoxed::Mock(_) => unimplemented!(),
-        }
+impl<O: NeedsPermission> IsAllowed<O> for Box<dyn IsAllowed<O> + Send + Sync> {
+    fn check(&self, authority: &AccountId, operation: &O, wsv: &WorldStateView) -> Result<()> {
+        IsAllowed::check(self.as_ref(), authority, operation, wsv)
     }
 }
+
+/// Box with permissions validator for [`Instruction`].
+pub type IsInstructionAllowedBoxed = Box<dyn IsAllowed<Instruction> + Send + Sync>;
 
 /// Box with permissions validator for [`QueryBox`].
-#[derive(Debug, Clone, FromVariant, Serialize)]
-pub enum IsQueryAllowedBoxed {
-    /// Validator for [`World`]
-    World(#[skip_container] Box<dyn IsAllowed<World, QueryBox> + Send + Sync>),
-    /// Validator for [`MockWorld`]
-    #[cfg(test)]
-    Mock(#[skip_container] Box<dyn IsAllowed<MockWorld, QueryBox> + Send + Sync>),
-}
-
-#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
-impl IsAllowed<World, QueryBox> for IsQueryAllowedBoxed {
-    fn check(
-        &self,
-        authority: &AccountId,
-        operation: &QueryBox,
-        wsv: &WorldStateView<World>,
-    ) -> Result<()> {
-        match self {
-            IsQueryAllowedBoxed::World(query) => query.check(authority, operation, wsv),
-            #[cfg(test)]
-            IsQueryAllowedBoxed::Mock(_) => unimplemented!(),
-        }
-    }
-}
+pub type IsQueryAllowedBoxed = Box<dyn IsAllowed<QueryBox> + Send + Sync>;
 
 /// Box with permissions validator for [`Expression`].
-#[derive(Debug, Clone, FromVariant, Serialize)]
-pub enum IsExpressionAllowedBoxed {
-    /// Validator for [`World`]
-    World(#[skip_container] Box<dyn IsAllowed<World, Expression> + Send + Sync>),
-    /// Validator for [`MockWorld`]
-    #[cfg(test)]
-    Mock(#[skip_container] Box<dyn IsAllowed<MockWorld, Expression> + Send + Sync>),
-}
-
-#[allow(clippy::panic_in_result_fn, clippy::unimplemented)]
-impl IsAllowed<World, Expression> for IsExpressionAllowedBoxed {
-    fn check(
-        &self,
-        authority: &AccountId,
-        operation: &Expression,
-        wsv: &WorldStateView<World>,
-    ) -> Result<()> {
-        match self {
-            IsExpressionAllowedBoxed::World(expression) => {
-                expression.check(authority, operation, wsv)
-            }
-            #[cfg(test)]
-            IsExpressionAllowedBoxed::Mock(_) => unimplemented!(),
-        }
-    }
-}
+pub type IsExpressionAllowedBoxed = Box<dyn IsAllowed<Expression> + Send + Sync>;

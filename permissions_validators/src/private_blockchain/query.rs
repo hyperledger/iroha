@@ -6,13 +6,13 @@ use super::*;
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyAccountsDomain;
 
-impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
+impl IsAllowed<QueryBox> for OnlyAccountsDomain {
     #[allow(clippy::too_many_lines, clippy::match_same_arms)]
     fn check(
         &self,
         authority: &AccountId,
         query: &QueryBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         use QueryBox::*;
         let context = Context::new();
@@ -345,13 +345,13 @@ impl_from_item_for_query_validator_box!(OnlyAccountsDomain);
 #[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnlyAccountsData;
 
-impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
+impl IsAllowed<QueryBox> for OnlyAccountsData {
     #[allow(clippy::too_many_lines, clippy::match_same_arms)]
     fn check(
         &self,
         authority: &AccountId,
         query: &QueryBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
         use QueryBox::*;
 

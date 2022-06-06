@@ -13,7 +13,7 @@ pub fn check_instruction_permissions(
     instruction: &Instruction,
     is_instruction_allowed: &IsInstructionAllowedBoxed,
     is_query_allowed: &IsQueryAllowedBoxed,
-    wsv: &WorldStateView<World>,
+    wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     let granted_instructions = &super::roles::unpack_if_role_grant(instruction.clone(), wsv)
         .expect("Infallible. Evaluations have been checked by instruction execution.");
@@ -46,7 +46,7 @@ fn check_permissions_directly(
     account_id: &AccountId,
     instructions: &[Instruction],
     is_instruction_allowed: &IsInstructionAllowedBoxed,
-    wsv: &WorldStateView<World>,
+    wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     for isi in instructions {
         is_instruction_allowed
@@ -73,7 +73,7 @@ fn check_permissions_directly(
 pub fn check_query_in_expression(
     authority: &AccountId,
     expression: &Expression,
-    wsv: &WorldStateView<World>,
+    wsv: &WorldStateView,
     validator: &IsQueryAllowedBoxed,
 ) -> Result<()> {
     macro_rules! check_binary_expression {
@@ -164,7 +164,7 @@ pub fn check_query_in_expression(
 pub fn check_query_in_instruction(
     authority: &AccountId,
     instruction: &Instruction,
-    wsv: &WorldStateView<World>,
+    wsv: &WorldStateView,
     validator: &IsQueryAllowedBoxed,
 ) -> Result<()> {
     match instruction {

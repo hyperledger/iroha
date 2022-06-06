@@ -22,34 +22,30 @@ pub fn check_equal(
 
 /// Trait for joining validators with `or` method, auto-implemented
 /// for all types which are convertible to a concrete type implementing [`IsAllowed`]
-pub trait ValidatorApplyOr<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>>: Into<V> {
+pub trait ValidatorApplyOr<O: NeedsPermission, V: IsAllowed<O>>: Into<V> {
     /// Combines two validators into [`Or`].
     ///
     /// # Errors
     /// If validators have different types
-    fn or(self, another: impl Into<V>) -> Or<W, O, V>;
+    fn or(self, another: impl Into<V>) -> Or<O, V>;
 }
 
-impl<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>, I: Into<V>> ValidatorApplyOr<W, O, V>
-    for I
-{
-    fn or(self, another: impl Into<V>) -> Or<W, O, V> {
+impl<O: NeedsPermission, V: IsAllowed<O>, I: Into<V>> ValidatorApplyOr<O, V> for I {
+    fn or(self, another: impl Into<V>) -> Or<O, V> {
         Or::new(self, another)
     }
 }
 
 /// `check` succeeds if either `first` or `second` validator succeeds.
 #[derive(Debug, Clone, Serialize)]
-pub struct Or<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>> {
+pub struct Or<O: NeedsPermission, V: IsAllowed<O>> {
     first: V,
     second: V,
-    #[serde(skip_serializing, default)]
-    _phantom_world: PhantomData<W>,
     #[serde(skip_serializing, default)]
     _phantom_operation: PhantomData<O>,
 }
 
-impl<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>> Or<W, O, V> {
+impl<O: NeedsPermission, V: IsAllowed<O>> Or<O, V> {
     /// Constructs new [`Or`]
     ///
     /// # Errors
@@ -58,18 +54,17 @@ impl<W: WorldTrait, O: NeedsPermission, V: IsAllowed<W, O>> Or<W, O, V> {
         Or {
             first: first.into(),
             second: second.into(),
-            _phantom_world: PhantomData,
             _phantom_operation: PhantomData,
         }
     }
 }
 
-impl IsAllowed<World, Instruction> for Or<World, Instruction, IsInstructionAllowedBoxed> {
+impl IsAllowed<Instruction> for Or<Instruction, IsInstructionAllowedBoxed> {
     fn check(
         &self,
         authority: &AccountId,
         operation: &Instruction,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         self.first
             .check(authority, operation, wsv)
@@ -87,18 +82,18 @@ impl IsAllowed<World, Instruction> for Or<World, Instruction, IsInstructionAllow
     }
 }
 
-impl From<Or<World, Instruction, IsInstructionAllowedBoxed>> for IsInstructionAllowedBoxed {
-    fn from(value: Or<World, Instruction, IsInstructionAllowedBoxed>) -> Self {
-        IsInstructionAllowedBoxed::World(Box::new(value))
+impl From<Or<Instruction, IsInstructionAllowedBoxed>> for IsInstructionAllowedBoxed {
+    fn from(value: Or<Instruction, IsInstructionAllowedBoxed>) -> Self {
+        Box::new(value)
     }
 }
 
-impl IsAllowed<World, QueryBox> for Or<World, QueryBox, IsQueryAllowedBoxed> {
+impl IsAllowed<QueryBox> for Or<QueryBox, IsQueryAllowedBoxed> {
     fn check(
         &self,
         authority: &AccountId,
         operation: &QueryBox,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         self.first
             .check(authority, operation, wsv)
@@ -116,18 +111,18 @@ impl IsAllowed<World, QueryBox> for Or<World, QueryBox, IsQueryAllowedBoxed> {
     }
 }
 
-impl From<Or<World, QueryBox, IsQueryAllowedBoxed>> for IsQueryAllowedBoxed {
-    fn from(value: Or<World, QueryBox, IsQueryAllowedBoxed>) -> Self {
-        IsQueryAllowedBoxed::World(Box::new(value))
+impl From<Or<QueryBox, IsQueryAllowedBoxed>> for IsQueryAllowedBoxed {
+    fn from(value: Or<QueryBox, IsQueryAllowedBoxed>) -> Self {
+        Box::new(value)
     }
 }
 
-impl IsAllowed<World, Expression> for Or<World, Expression, IsExpressionAllowedBoxed> {
+impl IsAllowed<Expression> for Or<Expression, IsExpressionAllowedBoxed> {
     fn check(
         &self,
         authority: &AccountId,
         operation: &Expression,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         self.first
             .check(authority, operation, wsv)
@@ -145,9 +140,9 @@ impl IsAllowed<World, Expression> for Or<World, Expression, IsExpressionAllowedB
     }
 }
 
-impl From<Or<World, Expression, IsExpressionAllowedBoxed>> for IsExpressionAllowedBoxed {
-    fn from(value: Or<World, Expression, IsExpressionAllowedBoxed>) -> Self {
-        IsExpressionAllowedBoxed::World(Box::new(value))
+impl From<Or<Expression, IsExpressionAllowedBoxed>> for IsExpressionAllowedBoxed {
+    fn from(value: Or<Expression, IsExpressionAllowedBoxed>) -> Self {
+        Box::new(value)
     }
 }
 
@@ -166,12 +161,12 @@ impl CheckNested {
     }
 }
 
-impl IsAllowed<World, Instruction> for CheckNested {
+impl IsAllowed<Instruction> for CheckNested {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         match instruction {
             Instruction::Register(_)
@@ -264,12 +259,12 @@ impl AllShouldSucceed {
     }
 }
 
-impl IsAllowed<World, Instruction> for AllShouldSucceed {
+impl IsAllowed<Instruction> for AllShouldSucceed {
     fn check(
         &self,
         authority: &AccountId,
         operation: &Instruction,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         self.check_type(ValidatorType::Instruction)?;
 
@@ -280,12 +275,12 @@ impl IsAllowed<World, Instruction> for AllShouldSucceed {
     }
 }
 
-impl IsAllowed<World, QueryBox> for AllShouldSucceed {
+impl IsAllowed<QueryBox> for AllShouldSucceed {
     fn check(
         &self,
         authority: &AccountId,
         operation: &QueryBox,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         self.check_type(ValidatorType::Query)?;
 
@@ -296,12 +291,12 @@ impl IsAllowed<World, QueryBox> for AllShouldSucceed {
     }
 }
 
-impl IsAllowed<World, Expression> for AllShouldSucceed {
+impl IsAllowed<Expression> for AllShouldSucceed {
     fn check(
         &self,
         authority: &AccountId,
         operation: &Expression,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         self.check_type(ValidatorType::Expression)?;
 
@@ -317,13 +312,9 @@ impl TryFrom<AllShouldSucceed> for IsAllowedBoxed {
 
     fn try_from(value: AllShouldSucceed) -> std::result::Result<Self, Self::Error> {
         match value.validator_type()? {
-            ValidatorType::Instruction => {
-                Ok(IsInstructionAllowedBoxed::World(Box::new(value)).into())
-            }
-            ValidatorType::Query => Ok(IsQueryAllowedBoxed::World(Box::new(value)).into()),
-            ValidatorType::Expression => {
-                Ok(IsExpressionAllowedBoxed::World(Box::new(value)).into())
-            }
+            ValidatorType::Instruction => Ok(IsAllowedBoxed::Instruction(Box::new(value))),
+            ValidatorType::Query => Ok(IsAllowedBoxed::Query(Box::new(value))),
+            ValidatorType::Expression => Ok(IsAllowedBoxed::Expression(Box::new(value))),
         }
     }
 }
@@ -335,7 +326,7 @@ impl TryFrom<AllShouldSucceed> for IsInstructionAllowedBoxed {
         let validator_type = value.validator_type()?;
         check_equal(validator_type, ValidatorType::Instruction)?;
 
-        Ok(IsInstructionAllowedBoxed::World(Box::new(value)))
+        Ok(Box::new(value))
     }
 }
 
@@ -346,7 +337,7 @@ impl TryFrom<AllShouldSucceed> for IsQueryAllowedBoxed {
         let validator_type = value.validator_type()?;
         check_equal(validator_type, ValidatorType::Query)?;
 
-        Ok(IsQueryAllowedBoxed::World(Box::new(value)))
+        Ok(Box::new(value))
     }
 }
 
@@ -357,7 +348,7 @@ impl TryFrom<AllShouldSucceed> for IsExpressionAllowedBoxed {
         let validator_type = value.validator_type()?;
         check_equal(validator_type, ValidatorType::Expression)?;
 
-        Ok(IsExpressionAllowedBoxed::World(Box::new(value)))
+        Ok(Box::new(value))
     }
 }
 
@@ -403,12 +394,12 @@ impl AnyShouldSucceed {
     }
 }
 
-impl IsAllowed<World, Instruction> for AnyShouldSucceed {
+impl IsAllowed<Instruction> for AnyShouldSucceed {
     fn check(
         &self,
         authority: &AccountId,
         operation: &Instruction,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         self.check_type(ValidatorType::Instruction)?;
 
@@ -425,12 +416,12 @@ impl IsAllowed<World, Instruction> for AnyShouldSucceed {
     }
 }
 
-impl IsAllowed<World, QueryBox> for AnyShouldSucceed {
+impl IsAllowed<QueryBox> for AnyShouldSucceed {
     fn check(
         &self,
         authority: &AccountId,
         operation: &QueryBox,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         self.check_type(ValidatorType::Query)?;
 
@@ -447,12 +438,12 @@ impl IsAllowed<World, QueryBox> for AnyShouldSucceed {
     }
 }
 
-impl IsAllowed<World, Expression> for AnyShouldSucceed {
+impl IsAllowed<Expression> for AnyShouldSucceed {
     fn check(
         &self,
         authority: &AccountId,
         operation: &Expression,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         self.check_type(ValidatorType::Expression)?;
 
@@ -474,13 +465,9 @@ impl TryFrom<AnyShouldSucceed> for IsAllowedBoxed {
 
     fn try_from(value: AnyShouldSucceed) -> std::result::Result<Self, Self::Error> {
         match value.validator_type()? {
-            ValidatorType::Instruction => {
-                Ok(IsInstructionAllowedBoxed::World(Box::new(value)).into())
-            }
-            ValidatorType::Query => Ok(IsQueryAllowedBoxed::World(Box::new(value)).into()),
-            ValidatorType::Expression => {
-                Ok(IsExpressionAllowedBoxed::World(Box::new(value)).into())
-            }
+            ValidatorType::Instruction => Ok(IsAllowedBoxed::Instruction(Box::new(value))),
+            ValidatorType::Query => Ok(IsAllowedBoxed::Query(Box::new(value))),
+            ValidatorType::Expression => Ok(IsAllowedBoxed::Expression(Box::new(value))),
         }
     }
 }
@@ -492,7 +479,7 @@ impl TryFrom<AnyShouldSucceed> for IsInstructionAllowedBoxed {
         let validator_type = value.validator_type()?;
         check_equal(validator_type, ValidatorType::Instruction)?;
 
-        Ok(IsInstructionAllowedBoxed::World(Box::new(value)))
+        Ok(Box::new(value))
     }
 }
 
@@ -503,7 +490,7 @@ impl TryFrom<AnyShouldSucceed> for IsQueryAllowedBoxed {
         let validator_type = value.validator_type()?;
         check_equal(validator_type, ValidatorType::Query)?;
 
-        Ok(IsQueryAllowedBoxed::World(Box::new(value)))
+        Ok(Box::new(value))
     }
 }
 
@@ -514,7 +501,7 @@ impl TryFrom<AnyShouldSucceed> for IsExpressionAllowedBoxed {
         let validator_type = value.validator_type()?;
         check_equal(validator_type, ValidatorType::Expression)?;
 
-        Ok(IsExpressionAllowedBoxed::World(Box::new(value)))
+        Ok(Box::new(value))
     }
 }
 
@@ -558,20 +545,15 @@ macro_rules! impl_from_for_allowed_boxed {
         $(
             impl From<$t> for $b {
                 fn from(value: $t) -> Self {
-                    <$b>::World(Box::new(value))
+                    Box::new(value)
                 }
             }
         )+
     };
 }
 
-impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for AllowAll {
-    fn check(
-        &self,
-        _authority: &AccountId,
-        _instruction: &O,
-        _wsv: &WorldStateView<W>,
-    ) -> Result<()> {
+impl<O: NeedsPermission> IsAllowed<O> for AllowAll {
+    fn check(&self, _authority: &AccountId, _instruction: &O, _wsv: &WorldStateView) -> Result<()> {
         Ok(())
     }
 }
@@ -582,13 +564,8 @@ impl_from_for_allowed_boxed! {
     AllowAll => IsExpressionAllowedBoxed,
 }
 
-impl<W: WorldTrait, O: NeedsPermission> IsAllowed<W, O> for DenyAll {
-    fn check(
-        &self,
-        _authority: &AccountId,
-        _instruction: &O,
-        _wsv: &WorldStateView<W>,
-    ) -> Result<()> {
+impl<O: NeedsPermission> IsAllowed<O> for DenyAll {
+    fn check(&self, _authority: &AccountId, _instruction: &O, _wsv: &WorldStateView) -> Result<()> {
         Err("All operations are denied.".to_owned().into())
     }
 }

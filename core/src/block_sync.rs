@@ -19,7 +19,6 @@ use crate::{
         network_topology::Role,
         SumeragiTrait,
     },
-    wsv::WorldTrait,
     VersionedCommittedBlock,
 };
 
@@ -35,8 +34,8 @@ enum State {
 
 /// Structure responsible for block synchronization between peers.
 #[derive(Debug)]
-pub struct BlockSynchronizer<S: SumeragiTrait, W: WorldTrait> {
-    wsv: Arc<WorldStateView<W>>,
+pub struct BlockSynchronizer<S: SumeragiTrait> {
+    wsv: Arc<WorldStateView>,
     sumeragi: AlwaysAddr<S>,
     peer_id: PeerId,
     state: State,
@@ -50,26 +49,23 @@ pub struct BlockSynchronizer<S: SumeragiTrait, W: WorldTrait> {
 pub trait BlockSynchronizerTrait: Actor + Handler<ContinueSync> + Handler<Message> {
     /// Requires sumeragi for sending direct messages to it
     type Sumeragi: SumeragiTrait;
-    /// Requires world to read latest blocks commited
-    type World: WorldTrait;
 
     /// Constructs `BlockSync`
     fn from_configuration(
         config: &BlockSyncConfiguration,
-        wsv: Arc<WorldStateView<Self::World>>,
+        wsv: Arc<WorldStateView>,
         sumeragi: AlwaysAddr<Self::Sumeragi>,
         peer_id: PeerId,
         broker: Broker,
     ) -> Self;
 }
 
-impl<S: SumeragiTrait, W: WorldTrait> BlockSynchronizerTrait for BlockSynchronizer<S, W> {
+impl<S: SumeragiTrait> BlockSynchronizerTrait for BlockSynchronizer<S> {
     type Sumeragi = S;
-    type World = W;
 
     fn from_configuration(
         config: &BlockSyncConfiguration,
-        wsv: Arc<WorldStateView<W>>,
+        wsv: Arc<WorldStateView>,
         sumeragi: AlwaysAddr<S>,
         peer_id: PeerId,
         broker: Broker,
@@ -98,9 +94,9 @@ pub struct ContinueSync;
 pub struct ReceiveUpdates;
 
 #[async_trait::async_trait]
-impl<S: SumeragiTrait, W: WorldTrait> Actor for BlockSynchronizer<S, W> {
-    fn actor_channel_capacity(&self) -> u32 {
-        self.actor_channel_capacity
+impl<S: SumeragiTrait> Actor for BlockSynchronizer<S> {
+    fn mailbox_capacity(&self) -> u32 {
+        self.mailbox
     }
 
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
@@ -111,7 +107,7 @@ impl<S: SumeragiTrait, W: WorldTrait> Actor for BlockSynchronizer<S, W> {
 }
 
 #[async_trait::async_trait]
-impl<S: SumeragiTrait, W: WorldTrait> Handler<ReceiveUpdates> for BlockSynchronizer<S, W> {
+impl<S: SumeragiTrait> Handler<ReceiveUpdates> for BlockSynchronizer<S> {
     type Result = ();
     async fn handle(&mut self, ReceiveUpdates: ReceiveUpdates) {
         let rng = &mut rand::rngs::StdRng::from_entropy();
@@ -124,7 +120,7 @@ impl<S: SumeragiTrait, W: WorldTrait> Handler<ReceiveUpdates> for BlockSynchroni
 }
 
 #[async_trait::async_trait]
-impl<S: SumeragiTrait, W: WorldTrait> Handler<ContinueSync> for BlockSynchronizer<S, W> {
+impl<S: SumeragiTrait> Handler<ContinueSync> for BlockSynchronizer<S> {
     type Result = ();
     async fn handle(&mut self, ContinueSync: ContinueSync) {
         self.continue_sync().await;
@@ -132,14 +128,14 @@ impl<S: SumeragiTrait, W: WorldTrait> Handler<ContinueSync> for BlockSynchronize
 }
 
 #[async_trait::async_trait]
-impl<S: SumeragiTrait, W: WorldTrait> Handler<Message> for BlockSynchronizer<S, W> {
+impl<S: SumeragiTrait> Handler<Message> for BlockSynchronizer<S> {
     type Result = ();
     async fn handle(&mut self, message: Message) {
         message.handle(self).await;
     }
 }
 
-impl<S: SumeragiTrait + Debug, W: WorldTrait> BlockSynchronizer<S, W> {
+impl<S: SumeragiTrait + Debug> BlockSynchronizer<S> {
     /// Sends request for latest blocks to a chosen peer
     async fn request_latest_blocks_from_peer(&mut self, peer_id: PeerId) {
         Message::GetBlocksAfter(GetBlocksAfter::new(
@@ -218,9 +214,7 @@ pub mod message {
     use parity_scale_codec::{Decode, Encode};
 
     use super::{BlockSynchronizer, State};
-    use crate::{
-        block::VersionedCommittedBlock, sumeragi::SumeragiTrait, wsv::WorldTrait, NetworkMessage,
-    };
+    use crate::{block::VersionedCommittedBlock, sumeragi::SumeragiTrait, NetworkMessage};
 
     declare_versioned_with_scale!(VersionedMessage 1..2, Debug, Clone, iroha_macro::FromVariant, iroha_actor::Message);
 
@@ -292,10 +286,7 @@ pub mod message {
     impl Message {
         /// Handles the incoming message.
         #[iroha_futures::telemetry_future]
-        pub async fn handle<S: SumeragiTrait, W: WorldTrait>(
-            &self,
-            block_sync: &mut BlockSynchronizer<S, W>,
-        ) {
+        pub async fn handle<S: SumeragiTrait>(&self, block_sync: &mut BlockSynchronizer<S>) {
             match self {
                 Message::GetBlocksAfter(GetBlocksAfter { hash, peer_id }) => {
                     if block_sync.block_batch_size == 0 {

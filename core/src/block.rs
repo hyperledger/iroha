@@ -29,7 +29,6 @@ use crate::{
         view_change::{Proof, ProofChain as ViewChangeProofs},
     },
     tx::{TransactionValidator, VersionedAcceptedTransaction},
-    wsv::WorldTrait,
 };
 
 const PIPELINE_TIME_MS: u64 =
@@ -432,7 +431,7 @@ impl VersionedValidBlock {
     }
 
     /// Checks if block has transactions that are already in blockchain.
-    pub fn has_committed_transactions<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
+    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
         self.as_v1().has_committed_transactions(wsv)
     }
 
@@ -446,9 +445,9 @@ impl VersionedValidBlock {
     ///
     /// # Errors
     /// Returns the error description if validation doesn't work.
-    pub fn validation_check<W: WorldTrait>(
+    pub fn validation_check(
         &self,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
         latest_block: &HashOf<VersionedCommittedBlock>,
         latest_view_change: &HashOf<Proof>,
         block_height: u64,
@@ -594,7 +593,7 @@ impl ValidBlock {
     }
 
     /// Checks if block has transactions that are already in blockchain.
-    pub fn has_committed_transactions<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
+    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
         self.transactions
             .iter()
             .any(|transaction| transaction.is_in_blockchain(wsv))

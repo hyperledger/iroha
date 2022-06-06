@@ -1,13 +1,7 @@
 //! This module provides the [`WorldStateView`] - in-memory representations of the current blockchain
 //! state.
 
-use std::{
-    convert::Infallible,
-    fmt::Debug,
-    ops::{Deref, DerefMut},
-    sync::Arc,
-    time::Duration,
-};
+use std::{convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
 
 use config::Configuration;
 use dashmap::{
@@ -33,17 +27,6 @@ pub type NewBlockNotificationSender = tokio::sync::watch::Sender<()>;
 /// Receiver type of the new block notification channel
 pub type NewBlockNotificationReceiver = tokio::sync::watch::Receiver<()>;
 
-/// World trait for mocking
-pub trait WorldTrait:
-    Deref<Target = World> + DerefMut + Send + Sync + 'static + Debug + Default + Sized + Clone
-{
-    /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
-    fn with(
-        domains: impl IntoIterator<Item = Domain>,
-        trusted_peers_ids: impl IntoIterator<Item = PeerId>,
-    ) -> Self;
-}
-
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
 #[derive(Debug, Default, Clone)]
@@ -60,64 +43,36 @@ pub struct World {
     pub triggers: TriggerSet,
 }
 
-impl Deref for World {
-    type Target = Self;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self
-    }
-}
-
-impl DerefMut for World {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self
-    }
-}
-
-// TODO: Normal mock?
-#[cfg(test)]
-mod mock {
-    use std::ops::{Deref, DerefMut};
-
-    use super::{World, WorldTrait};
-
-    #[derive(Debug, Default, Clone)]
-    pub struct MockWorld(World);
-
-    impl WorldTrait for MockWorld {
-        fn with(
-            domains: impl IntoIterator<Item = iroha_data_model::prelude::Domain>,
-            trusted_peers_ids: impl IntoIterator<Item = iroha_data_model::prelude::PeerId>,
-        ) -> Self {
-            Self(World::with(domains, trusted_peers_ids))
-        }
+impl World {
+    /// Creates an empty `World`.
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    impl Deref for MockWorld {
-        type Target = World;
-        #[inline]
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
-    impl DerefMut for MockWorld {
-        #[inline]
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.0
+    /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
+    pub fn with<D, P>(domains: D, trusted_peers_ids: P) -> Self
+    where
+        D: IntoIterator<Item = Domain> + 'static,
+        P: IntoIterator<Item = PeerId> + 'static,
+    {
+        let domains = domains
+            .into_iter()
+            .map(|domain| (domain.id().clone(), domain))
+            .collect();
+        let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
+        World {
+            domains,
+            trusted_peers_ids,
+            ..World::new()
         }
     }
 }
-
-#[cfg(test)]
-pub use mock::MockWorld;
 
 /// Current state of the blockchain aligned with `Iroha` module.
 #[derive(Debug)]
-pub struct WorldStateView<W: WorldTrait> {
+pub struct WorldStateView {
     /// The world - contains `domains`, `triggers`, etc..
-    pub world: W,
+    pub world: World,
     /// Configuration of World State View.
     pub config: Configuration,
     /// Blockchain.
@@ -132,14 +87,14 @@ pub struct WorldStateView<W: WorldTrait> {
     events_sender: Option<EventsSender>,
 }
 
-impl<W: WorldTrait + Default> Default for WorldStateView<W> {
+impl Default for WorldStateView {
     #[inline]
     fn default() -> Self {
-        Self::new(W::default())
+        Self::new(World::default())
     }
 }
 
-impl<W: WorldTrait + Clone> Clone for WorldStateView<W> {
+impl Clone for WorldStateView {
     #[allow(clippy::expect_used)]
     fn clone(&self) -> Self {
         Self {
@@ -154,38 +109,12 @@ impl<W: WorldTrait + Clone> Clone for WorldStateView<W> {
     }
 }
 
-impl World {
-    /// Creates an empty `World`.
-    #[inline]
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl WorldTrait for World {
-    fn with(
-        domains: impl IntoIterator<Item = Domain>,
-        trusted_peers_ids: impl IntoIterator<Item = PeerId>,
-    ) -> Self {
-        let domains = domains
-            .into_iter()
-            .map(|domain| (domain.id().clone(), domain))
-            .collect();
-        let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
-        World {
-            domains,
-            trusted_peers_ids,
-            ..World::new()
-        }
-    }
-}
-
 /// WARNING!!! INTERNAL USE ONLY!!!
-impl<W: WorldTrait> WorldStateView<W> {
+impl WorldStateView {
     /// Construct [`WorldStateView`] with given [`World`].
     #[must_use]
     #[inline]
-    pub fn new(world: W) -> Self {
+    pub fn new(world: World) -> Self {
         Self::from_configuration(Configuration::default(), world)
     }
 
@@ -230,17 +159,7 @@ impl<W: WorldTrait> WorldStateView<W> {
             Executable::Wasm(bytes) => {
                 let mut wasm_runtime =
                     wasm::Runtime::from_configuration(self.config.wasm_runtime_config)?;
-                // TODO #2292: Very dirty, need to do something with it
-                if std::any::TypeId::of::<W>() == std::any::TypeId::of::<World>() {
-                    // SAFETY: Always safe
-                    let self_with_world = unsafe {
-                        let self_ptr: *const WorldStateView<W> = self;
-                        &*self_ptr.cast::<WorldStateView<World>>()
-                    };
-                    wasm_runtime.execute(self_with_world, authority, bytes)?;
-                } else {
-                    unimplemented!()
-                }
+                wasm_runtime.execute(self, authority, bytes)?;
             }
         }
         Ok(())
@@ -570,7 +489,7 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].
     #[inline]
-    pub fn from_configuration(config: Configuration, world: W) -> Self {
+    pub fn from_configuration(config: Configuration, world: World) -> Self {
         let (new_block_notifier, _) = tokio::sync::watch::channel(());
 
         Self {
@@ -832,7 +751,7 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Get an immutable view of the `World`.
     #[must_use]
     #[inline]
-    pub fn world(&self) -> &W {
+    pub fn world(&self) -> &World {
         &self.world
     }
 
@@ -925,7 +844,7 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let mut block = ValidBlock::new_dummy().commit();
-        let wsv = WorldStateView::<World>::default();
+        let wsv = WorldStateView::default();
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
@@ -949,7 +868,7 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let mut block = ValidBlock::new_dummy().commit();
-        let wsv = WorldStateView::<World>::default();
+        let wsv = WorldStateView::default();
 
         for i in 1..=BLOCK_CNT {
             block.header.height = i as u64;

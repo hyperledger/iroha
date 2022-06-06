@@ -10,7 +10,6 @@ use iroha_core::{
     prelude::*,
     queue::{self, Queue},
     smartcontracts::{isi::query, permissions::IsQueryAllowedBoxed},
-    wsv::WorldTrait,
     EventsSender, IrohaNetwork,
 };
 use thiserror::Error;
@@ -29,10 +28,10 @@ pub mod config;
 pub mod routing;
 
 /// Main network handler and the only entrypoint of the Iroha.
-pub struct Torii<W: WorldTrait> {
+pub struct Torii {
     iroha_cfg: super::Configuration,
-    wsv: Arc<WorldStateView<W>>,
-    queue: Arc<Queue<W>>,
+    wsv: Arc<WorldStateView>,
+    queue: Arc<Queue>,
     events: EventsSender,
     query_validator: Arc<IsQueryAllowedBoxed>,
     network: iroha_actor::Addr<IrohaNetwork>,

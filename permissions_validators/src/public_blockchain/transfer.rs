@@ -31,12 +31,12 @@ pub struct OnlyOwnedAssets;
 
 impl_from_item_for_instruction_validator_box!(OnlyOwnedAssets);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyOwnedAssets {
+impl IsAllowed<Instruction> for OnlyOwnedAssets {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let transfer_box = if let Instruction::Transfer(transfer) = instruction {
             transfer
@@ -65,12 +65,12 @@ pub struct GrantedByAssetOwner;
 
 impl_from_item_for_granted_token_validator_box!(GrantedByAssetOwner);
 
-impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
+impl HasToken for GrantedByAssetOwner {
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
         let transfer_box = if let Instruction::Transfer(transfer_box) = instruction {
             transfer_box
@@ -97,12 +97,12 @@ pub struct GrantMyAssetAccess;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
+impl IsGrantAllowed for GrantMyAssetAccess {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let token: CanTransferUserAssets = extract_specialized_token(instruction, wsv)?;
 
@@ -125,13 +125,13 @@ pub struct ExecutionCountFitsInLimit;
 
 impl_from_item_for_instruction_validator_box!(ExecutionCountFitsInLimit);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
+impl IsAllowed<Instruction> for ExecutionCountFitsInLimit {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         if !matches!(instruction, Instruction::Transfer(_)) {
             return Ok(());
@@ -161,8 +161,8 @@ impl<W: WorldTrait> IsAllowed<W, Instruction> for ExecutionCountFitsInLimit {
 ///
 /// # Errors
 /// - Account doesn't exist
-fn retrieve_permission_params<W: WorldTrait>(
-    wsv: &WorldStateView<W>,
+fn retrieve_permission_params(
+    wsv: &WorldStateView,
     authority: &AccountId,
 ) -> Result<BTreeMap<Name, Value>> {
     wsv.map_account(authority, |account| {
@@ -217,11 +217,7 @@ fn retrieve_count(params: &BTreeMap<Name, Value>) -> Result<u32> {
 }
 
 /// Counts the number of `Transfer`s  which happened in the last `period`
-fn count_executions<W: WorldTrait>(
-    wsv: &WorldStateView<W>,
-    authority: &AccountId,
-    period: Duration,
-) -> usize {
+fn count_executions(wsv: &WorldStateView, authority: &AccountId, period: Duration) -> usize {
     let period_start_ms = current_time().saturating_sub(period).as_millis();
 
     wsv.blocks()

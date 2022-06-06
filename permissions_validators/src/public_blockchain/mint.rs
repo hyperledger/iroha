@@ -18,12 +18,12 @@ pub struct OnlyAssetsCreatedByThisAccount;
 
 impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyAssetsCreatedByThisAccount {
+impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let mint_box = if let Instruction::Mint(mint) = instruction {
             mint
@@ -55,12 +55,12 @@ pub struct GrantedByAssetCreator;
 
 impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
 
-impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
+impl HasToken for GrantedByAssetCreator {
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
         let mint_box = if let Instruction::Mint(mint) = instruction {
             mint
@@ -87,12 +87,12 @@ pub struct GrantRegisteredByMeAccess;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
+impl IsGrantAllowed for GrantRegisteredByMeAccess {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let token: CanMintUserAssetDefinitions = extract_specialized_token(instruction, wsv)?;
         check_asset_creator_for_asset_definition(&token.asset_definition_id, authority, wsv)

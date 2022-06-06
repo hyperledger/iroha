@@ -121,10 +121,9 @@ pub fn default_permissions() -> IsInstructionAllowedBoxed {
 /// - Cannot evaluate `instruction`
 /// - `instruction` doesn't evaluate to `PermissionToken`
 /// - Generic `PermissionToken` can't be converted to requested specialized token.
-pub fn extract_specialized_token<T, W>(instruction: &GrantBox, wsv: &WorldStateView<W>) -> Result<T>
+pub fn extract_specialized_token<T>(instruction: &GrantBox, wsv: &WorldStateView) -> Result<T>
 where
     T: TryFrom<PermissionToken, Error = PredefinedTokenConversionError>,
-    W: iroha_core::wsv::WorldTrait,
 {
     let permission_token: PermissionToken = instruction
         .object
@@ -144,10 +143,10 @@ where
 ///
 /// # Errors
 /// - Asset creator is not `authority`
-pub fn check_asset_creator_for_asset_definition<W: WorldTrait>(
+pub fn check_asset_creator_for_asset_definition(
     definition_id: &AssetDefinitionId,
     authority: &AccountId,
-    wsv: &WorldStateView<W>,
+    wsv: &WorldStateView,
 ) -> Result<()> {
     let registered_by_signer_account = wsv
         .asset_definition_entry(definition_id)
@@ -189,7 +188,7 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("bob@test").expect("Valid"),
         );
-        let wsv = WorldStateView::<World>::new(World::new());
+        let wsv = WorldStateView::new(World::new());
         let transfer = Instruction::Transfer(TransferBox {
             source_id: IdBox::AssetId(alice_xor_id).into(),
             object: Value::U32(10).into(),
@@ -220,7 +219,7 @@ mod tests {
         assert!(bob_account
             .add_permission(transfer::CanTransferUserAssets::new(alice_xor_id.clone()).into()));
         assert!(domain.add_account(bob_account).is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], BTreeSet::new()));
+        let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
         let transfer = Instruction::Transfer(TransferBox {
             source_id: IdBox::AssetId(alice_xor_id).into(),
             object: Value::U32(10).into(),
@@ -243,7 +242,7 @@ mod tests {
         );
         let permission_token_to_alice: PermissionToken =
             transfer::CanTransferUserAssets::new(alice_xor_id).into();
-        let wsv = WorldStateView::<World>::new(World::new());
+        let wsv = WorldStateView::new(World::new());
         let grant = Instruction::Grant(GrantBox::new(
             permission_token_to_alice,
             IdBox::AccountId(bob_id.clone()),
@@ -264,7 +263,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], []));
+        let wsv = WorldStateView::new(World::with([domain], []));
         let unregister =
             Instruction::Unregister(UnregisterBox::new(IdBox::AssetDefinitionId(xor_id)));
         assert!(unregister::OnlyAssetsCreatedByThisAccount
@@ -290,7 +289,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], []));
+        let wsv = WorldStateView::new(World::with([domain], []));
         let instruction = Instruction::Unregister(UnregisterBox::new(xor_id));
         let validator: IsInstructionAllowedBoxed = unregister::OnlyAssetsCreatedByThisAccount
             .or(unregister::GrantedByAssetCreator)
@@ -312,7 +311,7 @@ mod tests {
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
 
-        let wsv = WorldStateView::<World>::new(World::with([domain], []));
+        let wsv = WorldStateView::new(World::with([domain], []));
         let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
@@ -337,7 +336,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], []));
+        let wsv = WorldStateView::new(World::with([domain], []));
         let mint = Instruction::Mint(MintBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -367,7 +366,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], []));
+        let wsv = WorldStateView::new(World::with([domain], []));
         let instruction = Instruction::Mint(MintBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -391,7 +390,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], vec![]));
+        let wsv = WorldStateView::new(World::with([domain], vec![]));
         let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
@@ -416,7 +415,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], []));
+        let wsv = WorldStateView::new(World::with([domain], []));
         let burn = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -446,7 +445,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], vec![]));
+        let wsv = WorldStateView::new(World::with([domain], vec![]));
         let instruction = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -470,7 +469,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], vec![]));
+        let wsv = WorldStateView::new(World::with([domain], vec![]));
         let grant = Instruction::Grant(GrantBox {
             object: permission_token_to_alice.into(),
             destination_id: IdBox::AccountId(bob_id.clone()).into(),
@@ -488,7 +487,7 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let wsv = WorldStateView::<World>::new(World::new());
+        let wsv = WorldStateView::new(World::new());
         let burn = Instruction::Burn(BurnBox {
             object: Value::U32(100).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -511,7 +510,7 @@ mod tests {
             bob_account.add_permission(burn::CanBurnUserAssets::new(alice_xor_id.clone()).into())
         );
         assert!(domain.add_account(bob_account).is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], vec![]));
+        let wsv = WorldStateView::new(World::with([domain], vec![]));
         let transfer = Instruction::Burn(BurnBox {
             object: Value::U32(10).into(),
             destination_id: IdBox::AssetId(alice_xor_id).into(),
@@ -533,7 +532,7 @@ mod tests {
         );
         let permission_token_to_alice: PermissionToken =
             burn::CanBurnUserAssets::new(alice_xor_id).into();
-        let wsv = WorldStateView::<World>::new(World::new());
+        let wsv = WorldStateView::new(World::new());
         let grant = Instruction::Grant(GrantBox::new(
             permission_token_to_alice,
             IdBox::AccountId(bob_id.clone()),
@@ -551,7 +550,7 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let wsv = WorldStateView::<World>::new(World::new());
+        let wsv = WorldStateView::new(World::new());
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AssetId(alice_xor_id),
             Value::from("key".to_owned()),
@@ -573,7 +572,7 @@ mod tests {
             AssetDefinitionId::from_str("xor#test").expect("Valid"),
             AccountId::from_str("alice@test").expect("Valid"),
         );
-        let wsv = WorldStateView::<World>::new(World::new());
+        let wsv = WorldStateView::new(World::new());
         let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AssetId(alice_xor_id),
             Value::from("key".to_owned()),
@@ -590,7 +589,7 @@ mod tests {
     fn set_to_only_owned_account() {
         let alice_id = AccountId::from_str("alice@test").expect("Valid");
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
-        let wsv = WorldStateView::<World>::new(World::new());
+        let wsv = WorldStateView::new(World::new());
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AccountId(alice_id.clone()),
             Value::from("key".to_owned()),
@@ -608,7 +607,7 @@ mod tests {
     fn remove_to_only_owned_account() {
         let alice_id = AccountId::from_str("alice@test").expect("Valid");
         let bob_id = AccountId::from_str("bob@test").expect("Valid");
-        let wsv = WorldStateView::<World>::new(World::new());
+        let wsv = WorldStateView::new(World::new());
         let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AccountId(alice_id.clone()),
             Value::from("key".to_owned()),
@@ -632,7 +631,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], []));
+        let wsv = WorldStateView::new(World::with([domain], []));
         let set = Instruction::SetKeyValue(SetKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),
             Value::from("key".to_owned()),
@@ -657,7 +656,7 @@ mod tests {
         assert!(domain
             .add_asset_definition(xor_definition, alice_id.clone())
             .is_none());
-        let wsv = WorldStateView::<World>::new(World::with([domain], []));
+        let wsv = WorldStateView::new(World::with([domain], []));
         let set = Instruction::RemoveKeyValue(RemoveKeyValueBox::new(
             IdBox::AssetDefinitionId(xor_id),
             Value::from("key".to_owned()),

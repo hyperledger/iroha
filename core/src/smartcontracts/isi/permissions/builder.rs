@@ -15,7 +15,7 @@ pub struct ValidatorBuilder;
 #[must_use]
 pub struct ValidatorBuilderWithValidators<
     O: NeedsPermission,
-    V: IsAllowed<World, O> + Into<IsAllowedBoxed>,
+    V: IsAllowed<O> + Into<IsAllowedBoxed>,
 > {
     validators: Vec<IsAllowedBoxed>,
     _phantom_operation: PhantomData<O>,
@@ -27,7 +27,7 @@ impl ValidatorBuilder {
     pub fn with_validator<O, V, E>(validator: impl Into<V>) -> ValidatorBuilderWithValidators<O, V>
     where
         O: NeedsPermission,
-        V: IsAllowed<World, O>
+        V: IsAllowed<O>
             + Into<IsAllowedBoxed>
             + TryFrom<AllShouldSucceed, Error = E>
             + TryFrom<AnyShouldSucceed, Error = E>,
@@ -41,8 +41,8 @@ impl ValidatorBuilder {
     pub fn with_recursive_validator(
         validator: impl Into<IsInstructionAllowedBoxed>,
     ) -> ValidatorBuilderWithValidators<Instruction, IsInstructionAllowedBoxed> {
-        let instruction_validator =
-            IsInstructionAllowedBoxed::World(Box::new(CheckNested::new(validator.into())));
+        let instruction_validator: IsInstructionAllowedBoxed =
+            Box::new(CheckNested::new(validator.into()));
         ValidatorBuilderWithValidators::new(instruction_validator)
     }
 }
@@ -51,7 +51,7 @@ impl ValidatorBuilder {
 impl<O, V, E> ValidatorBuilderWithValidators<O, V>
 where
     O: NeedsPermission,
-    V: IsAllowed<World, O>
+    V: IsAllowed<O>
         + Into<IsAllowedBoxed>
         + TryFrom<AllShouldSucceed, Error = E>
         + TryFrom<AnyShouldSucceed, Error = E>,
@@ -99,8 +99,8 @@ where
 impl ValidatorBuilderWithValidators<Instruction, IsInstructionAllowedBoxed> {
     /// Adds a validator to the list and wraps it with `CheckNested` to check nested permissions.
     pub fn with_recursive_validator(self, validator: impl Into<IsInstructionAllowedBoxed>) -> Self {
-        let instruction_validator =
-            IsInstructionAllowedBoxed::World(Box::new(CheckNested::new(validator.into())));
+        let instruction_validator: IsInstructionAllowedBoxed =
+            Box::new(CheckNested::new(validator.into()));
         self.with_validator(instruction_validator)
     }
 }

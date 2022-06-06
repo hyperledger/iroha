@@ -18,7 +18,6 @@ use iroha_core::{
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
     sumeragi::{Sumeragi, SumeragiTrait},
     tx::{PeerId, TransactionValidator},
-    wsv::WorldTrait,
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
@@ -62,23 +61,17 @@ impl Default for Arguments {
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
-pub struct Iroha<
-    W = World,
-    G = GenesisNetwork,
-    K = Kura<W>,
-    S = Sumeragi<G, K, W>,
-    B = BlockSynchronizer<S, W>,
-> where
-    W: WorldTrait,
+pub struct Iroha<G = GenesisNetwork, K = Kura, S = Sumeragi<G, K>, B = BlockSynchronizer<S>>
+where
     G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     /// World state view
-    pub wsv: Arc<WorldStateView<W>>,
+    pub wsv: Arc<WorldStateView>,
     /// Queue of transactions
-    pub queue: Arc<Queue<W>>,
+    pub queue: Arc<Queue>,
     /// Sumeragi consensus
     pub sumeragi: AlwaysAddr<S>,
     /// Kura - block storage
@@ -86,16 +79,15 @@ pub struct Iroha<
     /// Block synchronization actor
     pub block_sync: AlwaysAddr<B>,
     /// Torii web server
-    pub torii: Option<Torii<W>>,
+    pub torii: Option<Torii>,
 }
 
-impl<W, G, S, K, B> Iroha<W, G, K, S, B>
+impl<G, S, K, B> Iroha<G, K, S, B>
 where
-    W: WorldTrait,
     G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    K: KuraTrait,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     /// To make `Iroha` peer work all actors should be started first.
     /// After that moment it you can start it with listening to torii events.
@@ -178,7 +170,7 @@ where
         let network_addr = network.start().await;
 
         let (events_sender, _) = broadcast::channel(100);
-        let world = W::with(
+        let world = World::with(
             domains(&config),
             config.sumeragi.trusted_peers.peers.clone(),
         );
@@ -189,22 +181,11 @@ where
 
         let query_validator = Arc::new(query_validator);
 
-        // TODO #2292: Very dirty, need to do something with it
-        let world_wsv = if std::any::TypeId::of::<W>() == std::any::TypeId::of::<World>() {
-            // SAFETY: Always safe
-            unsafe {
-                let wsv_ptr: *const Arc<WorldStateView<W>> = &wsv;
-                &*wsv_ptr.cast::<Arc<WorldStateView<World>>>()
-            }
-        } else {
-            unimplemented!()
-        };
-
         let transaction_validator = TransactionValidator::new(
             config.sumeragi.transaction_limits,
             Arc::new(instruction_validator),
             Arc::clone(&query_validator),
-            Arc::clone(world_wsv),
+            Arc::clone(&wsv),
         );
 
         let notify_shutdown = Arc::new(Notify::new());

@@ -28,12 +28,12 @@ pub struct OnlyAssetsCreatedByThisAccount;
 
 impl_from_item_for_instruction_validator_box!(OnlyAssetsCreatedByThisAccount);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyAssetsCreatedByThisAccount {
+impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let burn_box = if let Instruction::Burn(burn) = instruction {
             burn
@@ -65,12 +65,12 @@ pub struct GrantedByAssetCreator;
 
 impl_from_item_for_granted_token_validator_box!(GrantedByAssetCreator);
 
-impl<W: WorldTrait> HasToken<W> for GrantedByAssetCreator {
+impl HasToken for GrantedByAssetCreator {
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
         let burn_box = if let Instruction::Burn(burn) = instruction {
             burn
@@ -98,12 +98,12 @@ pub struct GrantRegisteredByMeAccess;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantRegisteredByMeAccess);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for GrantRegisteredByMeAccess {
+impl IsGrantAllowed for GrantRegisteredByMeAccess {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let token: CanBurnAssetWithDefinition = extract_specialized_token(instruction, wsv)?;
 
@@ -117,12 +117,12 @@ pub struct OnlyOwnedAssets;
 
 impl_from_item_for_instruction_validator_box!(OnlyOwnedAssets);
 
-impl<W: WorldTrait> IsAllowed<W, Instruction> for OnlyOwnedAssets {
+impl IsAllowed<Instruction> for OnlyOwnedAssets {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let burn_box = if let Instruction::Burn(burn) = instruction {
             burn
@@ -147,12 +147,12 @@ pub struct GrantedByAssetOwner;
 
 impl_from_item_for_granted_token_validator_box!(GrantedByAssetOwner);
 
-impl<W: WorldTrait> HasToken<W> for GrantedByAssetOwner {
+impl HasToken for GrantedByAssetOwner {
     fn token(
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
         let burn_box = if let Instruction::Burn(burn_box) = instruction {
             burn_box
@@ -179,12 +179,12 @@ pub struct GrantMyAssetAccess;
 
 impl_from_item_for_grant_instruction_validator_box!(GrantMyAssetAccess);
 
-impl<W: WorldTrait> IsGrantAllowed<W> for GrantMyAssetAccess {
+impl IsGrantAllowed for GrantMyAssetAccess {
     fn check(
         &self,
         authority: &AccountId,
         instruction: &GrantBox,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<()> {
         let token: CanBurnUserAssets = extract_specialized_token(instruction, wsv)?;
 

@@ -20,7 +20,7 @@ use crate::{
         permissions::{check_instruction_permissions, IsQueryAllowedBoxed},
         Execute, ValidQuery,
     },
-    wsv::{World, WorldStateView},
+    wsv::WorldStateView,
 };
 
 type WasmUsize = u32;
@@ -80,7 +80,7 @@ struct Validator<'wrld> {
     /// If this particular query is allowed
     is_query_allowed: Arc<IsQueryAllowedBoxed>,
     /// Current [`WorldStateview`]
-    wsv: &'wrld WorldStateView<World>,
+    wsv: &'wrld WorldStateView,
 }
 
 impl Validator<'_> {
@@ -132,15 +132,11 @@ struct State<'wrld> {
     /// Ensures smartcontract adheres to limits
     validator: Option<Validator<'wrld>>,
     store_limits: StoreLimits,
-    wsv: &'wrld WorldStateView<World>,
+    wsv: &'wrld WorldStateView,
 }
 
 impl<'wrld> State<'wrld> {
-    fn new(
-        wsv: &'wrld WorldStateView<World>,
-        account_id: AccountId,
-        config: Configuration,
-    ) -> Self {
+    fn new(wsv: &'wrld WorldStateView, account_id: AccountId, config: Configuration) -> Self {
         Self {
             wsv,
             account_id,
@@ -432,7 +428,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if execution of the smartcontract fails (check ['execute'])
     pub fn validate(
         &mut self,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
@@ -458,7 +454,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if the execution of the smartcontract fails
     pub fn execute(
         &mut self,
-        wsv: &WorldStateView<World>,
+        wsv: &WorldStateView,
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
@@ -566,7 +562,6 @@ mod tests {
     use super::*;
     use crate::{
         smartcontracts::permissions::combinators::{AllowAll, DenyAll},
-        wsv::WorldTrait as _,
         PeersIds, World,
     };
 

@@ -15,9 +15,7 @@ pub use is_allowed::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[cfg(test)]
-use crate::wsv::MockWorld;
-use crate::wsv::{World, WorldStateView, WorldTrait};
+use crate::wsv::WorldStateView;
 
 pub mod builder;
 mod checks;
@@ -112,16 +110,16 @@ mod tests {
 
     impl From<DenyBurn> for IsInstructionAllowedBoxed {
         fn from(permissions: DenyBurn) -> Self {
-            IsInstructionAllowedBoxed::World(Box::new(permissions))
+            Box::new(permissions)
         }
     }
 
-    impl<W: WorldTrait> IsAllowed<W, Instruction> for DenyBurn {
+    impl IsAllowed<Instruction> for DenyBurn {
         fn check(
             &self,
             _authority: &AccountId,
             instruction: &Instruction,
-            _wsv: &WorldStateView<W>,
+            _wsv: &WorldStateView,
         ) -> Result<()> {
             match instruction {
                 Instruction::Burn(_) => Err("Denying sequence isi.".to_owned().into()),
@@ -133,12 +131,12 @@ mod tests {
     #[derive(Debug, Clone, Serialize)]
     struct DenyAlice;
 
-    impl<W: WorldTrait> IsAllowed<W, Instruction> for DenyAlice {
+    impl IsAllowed<Instruction> for DenyAlice {
         fn check(
             &self,
             authority: &AccountId,
             _instruction: &Instruction,
-            _wsv: &WorldStateView<W>,
+            _wsv: &WorldStateView,
         ) -> Result<()> {
             if authority.name.as_ref() == "alice" {
                 Err("Alice account is denied.".to_owned().into())
@@ -150,7 +148,7 @@ mod tests {
 
     impl From<DenyAlice> for IsInstructionAllowedBoxed {
         fn from(value: DenyAlice) -> Self {
-            IsInstructionAllowedBoxed::World(Box::new(value))
+            Box::new(value)
         }
     }
 
@@ -159,12 +157,12 @@ mod tests {
 
     // TODO: ADD some Revoke tests.
 
-    impl<W: WorldTrait> HasToken<W> for GrantedToken {
+    impl HasToken for GrantedToken {
         fn token(
             &self,
             _authority: &AccountId,
             _instruction: &Instruction,
-            _wsv: &WorldStateView<W>,
+            _wsv: &WorldStateView,
         ) -> std::result::Result<PermissionToken, String> {
             Ok(PermissionToken::new(
                 Name::from_str("token").expect("Valid"),
@@ -258,7 +256,7 @@ mod tests {
         )));
         assert!(domain.add_account(bob_account).is_none());
         let wsv = WorldStateView::new(World::with([domain], BTreeSet::new()));
-        let validator = HasTokenBoxed::World(Box::new(GrantedToken));
+        let validator: HasTokenBoxed = Box::new(GrantedToken);
         assert!(validator.check(&alice_id, &instruction_burn, &wsv).is_err());
         assert!(validator.check(&bob_id, &instruction_burn, &wsv).is_ok());
         Ok(())
