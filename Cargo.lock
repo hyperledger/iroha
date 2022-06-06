@@ -1773,6 +1773,8 @@ dependencies = [
  "test_network",
  "thiserror",
  "tokio",
+ "tracing-flame",
+ "tracing-subscriber 0.3.11",
  "tungstenite 0.16.0",
 ]
 
@@ -3846,6 +3848,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-flame"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bae117ee14789185e129aaee5d93750abe67fdc5a9a62650452bfe4e122a3a9"
+dependencies = [
+ "lazy_static",
+ "tracing",
+ "tracing-subscriber 0.3.11",
+]
+
+[[package]]
 name = "tracing-futures"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3885,6 +3898,7 @@ checksum = "4bc28f93baff38037f64e6f43d34cfa1605f27a49c34e8a04c5e78b0babf2596"
 dependencies = [
  "ansi_term",
  "sharded-slab",
+ "smallvec",
  "thread_local",
  "tracing-core",
 ]
