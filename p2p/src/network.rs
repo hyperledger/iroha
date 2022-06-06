@@ -69,8 +69,8 @@ where
     pub broker: Broker,
     /// Flag that stops listening stream
     finish_sender: Option<Sender<()>>,
-    /// Mailbox capacity
-    mailbox: u32,
+    /// Buffer capacity of actor's MPSC channel
+    actor_channel_capacity: u32,
 }
 
 impl<T, K, E> NetworkBase<T, K, E>
@@ -88,7 +88,7 @@ where
         broker: Broker,
         listen_addr: String,
         public_key: PublicKey,
-        mailbox: u32,
+        channel_size: u32,
     ) -> Result<Self, Error> {
         info!(%listen_addr, "Binding listener");
         let listener = TcpListener::bind(&listen_addr).await?;
@@ -101,7 +101,7 @@ where
             public_key,
             broker,
             finish_sender: None,
-            mailbox,
+            actor_channel_capacity: channel_size,
         })
     }
 
@@ -159,8 +159,8 @@ where
     K: KeyExchangeScheme + Send + 'static,
     E: Encryptor + Send + 'static,
 {
-    fn mailbox_capacity(&self) -> u32 {
-        self.mailbox
+    fn actor_channel_capacity(&self) -> u32 {
+        self.actor_channel_capacity
     }
 
     async fn on_start(&mut self, ctx: &mut Context<Self>) {

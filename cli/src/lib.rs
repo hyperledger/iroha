@@ -170,7 +170,7 @@ where
             broker.clone(),
             listen_addr,
             config.public_key.clone(),
-            config.network.mailbox,
+            config.network.actor_channel_capacity,
         )
         .await
         .wrap_err("Unable to start P2P-network")?;
