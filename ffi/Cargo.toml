@@ -1,11 +1,11 @@
 [package]
 name = "iroha_ffi"
-version = "2.0.0-pre-rc.4"
+version = "2.0.0-pre-rc.5"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
 [dependencies]
-iroha_ffi_derive = { version = "=2.0.0-pre-rc.4", path = "derive" }
+iroha_ffi_derive = { version = "=2.0.0-pre-rc.5", path = "derive" }
 
 [dev-dependencies]
 getset = "0.1.2"
