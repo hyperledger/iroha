@@ -139,6 +139,9 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
             )
             .into(),
         );
+
+        configure_world();
+
         G::from_configuration(
             submit_genesis,
             genesis,
@@ -148,6 +151,8 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
         .expect("Failed to init genesis")
     }
 }
+
+fn configure_world() {}
 
 impl<G, K, S, B> Network<G, K, S, B>
 where

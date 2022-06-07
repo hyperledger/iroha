@@ -187,7 +187,7 @@ pub mod isi {
             let role_id = self.object;
 
             wsv.world()
-                .roles
+                .roles()
                 .get(&role_id)
                 .ok_or_else(|| FindError::Role(role_id.clone()))?;
 
@@ -213,7 +213,7 @@ pub mod isi {
             let role_id = self.object;
 
             wsv.world()
-                .roles
+                .roles()
                 .get(&role_id)
                 .ok_or_else(|| FindError::Role(role_id.clone()))?;
 
@@ -244,7 +244,7 @@ pub mod query {
                 .evaluate(wsv, &Context::new())
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            iroha_logger::trace!(%account_id, roles=?wsv.world.roles);
+            iroha_logger::trace!(%account_id, roles=?wsv.world.roles());
             let roles = wsv.map_account(&account_id, |account| {
                 account.roles().cloned().collect::<Vec<_>>()
             })?;
@@ -260,7 +260,7 @@ pub mod query {
                 .evaluate(wsv, &Context::new())
                 .wrap_err("Failed to evaluate account id")
                 .map_err(|e| Error::Evaluate(e.to_string()))?;
-            iroha_logger::trace!(%account_id, accounts=?wsv.world.domains);
+            iroha_logger::trace!(%account_id, accounts=?wsv.world.domains());
             let tokens = wsv.map_account(&account_id, |account| {
                 wsv.account_permission_tokens(account)
             })?;
