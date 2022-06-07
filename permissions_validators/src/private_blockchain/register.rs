@@ -19,14 +19,15 @@ impl IsAllowed<Instruction> for ProhibitRegisterDomains {
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        _wsv: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
-        let _register_box = if let Instruction::Register(register) = instruction {
-            register
-        } else {
-            return Ok(());
-        };
-        Err("Domain registration is prohibited.".to_owned().into())
+        if let Instruction::Register(register) = instruction {
+            if let Ok(RegistrableBox::Domain(_)) = register.object.evaluate(wsv, &Context::new()) {
+                return Err("Domain registration is prohibited.".to_owned().into());
+            }
+        }
+
+        Ok(())
     }
 }
 
