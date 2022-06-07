@@ -1,11 +1,11 @@
 [package]
 name = "iroha_schema"
-version = "2.0.0-pre-rc.4"
+version = "2.0.0-pre-rc.5"
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 edition = "2021"
 
 [dependencies]
-iroha_schema_derive = { version = "=2.0.0-pre-rc.4", path = "derive" }
+iroha_schema_derive = { version = "=2.0.0-pre-rc.5", path = "derive" }
 
 serde = { version = "1.0.132", default-features = false, features = ["derive", "alloc"] }
 fixnum = { version = "0.6.1", default-features = false, features = ["i64"] }
@@ -13,5 +13,3 @@ fixnum = { version = "0.6.1", default-features = false, features = ["i64"] }
 [dev-dependencies]
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive", "full"] }
 impls = { version = "=1.0.0" }
-
-iroha_schema_gen = { version = "=2.0.0-pre-rc.4", path = "gen" }
