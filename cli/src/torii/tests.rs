@@ -1,6 +1,6 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
-use std::{collections::BTreeSet, str::FromStr, time::Duration};
+use std::{collections::BTreeSet, str::FromStr};
 
 use futures::future::FutureExt;
 use iroha_actor::{broker::Broker, Actor};
@@ -20,7 +20,7 @@ use iroha_core::{
 };
 use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, prelude::*};
 use iroha_version::prelude::*;
-use tokio::time;
+use tokio::{time, time::Duration};
 use warp::test::WsClient;
 
 use super::{routing::*, *};
@@ -30,21 +30,21 @@ use crate::{
     stream::{Sink, Stream},
 };
 
-async fn try_init_network(
-    config: &mut Configuration,
-) -> Result<IrohaNetwork, Box<dyn std::error::Error>> {
-    config.torii.p2p_addr = format!("127.0.0.1:{}", unique_port::get_unique_free_port()?);
-    config.torii.api_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port()?);
+async fn try_init_network(config: &mut Configuration) -> Result<IrohaNetwork, iroha_p2p::Error> {
+    config.torii.p2p_addr = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
+    config.torii.api_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     config.torii.telemetry_url =
-        format!("127.0.0.1:{}", unique_port::get_unique_free_port()?);
+        format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
 
-    Ok(IrohaNetwork::new(
+    time::sleep(Duration::from_millis(20)).await;
+
+    IrohaNetwork::new(
         Broker::new(),
         config.torii.p2p_addr.clone(),
         config.public_key.clone(),
         config.network.mailbox,
     )
-    .await?)
+    .await
 }
 
 async fn create_torii() -> (Torii<World>, KeyPair) {
@@ -70,15 +70,16 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
         .is_none());
     wsv.world.domains.insert(domain_id, domain);
     let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
-    todo!("add try count");
-    let network = {
-        let mut result = try_init_network(&mut config).await;
 
-        while result.is_err() {
-            result = try_init_network(&mut config).await;
+    let network = loop {
+        // this loop is not infinite, because we call unwrap on unique_port::get_unique_free_port(),
+        // which leads to panic if all available ports are already in use
+        match try_init_network(&mut config).await {
+            Ok(result) => {
+                break result.start().await;
+            }
+            _ => (),
         }
-
-        result.expect("Failed to create network").start().await
     };
 
     (
