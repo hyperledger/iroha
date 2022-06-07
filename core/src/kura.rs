@@ -178,7 +178,7 @@ impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
                     .await;
             }
             Err(error) => {
-                error!(%error, "Initialization of kura failed");
+                error!(%error, "Kura initialization failed. Try removing the peer's `blocks` directory and restarting the peer. You can also try rebuilding the peer altogether.");
                 panic!("Kura initialization failed");
             }
         }
