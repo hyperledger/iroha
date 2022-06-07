@@ -38,12 +38,19 @@ fn permissions_disallow_asset_transfer() {
     let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let bob_id = AccountId::from_str("bob@wonderland").expect("Valid");
     let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset_definition =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
+    let asset_id = <Asset as Identifiable>::Id::new(asset_definition_id.clone(), bob_id.clone());
+    let create_asset = RegisterBox::new(Asset::new(asset_id, 0_u32));
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
     iroha_client
-        .submit_all(vec![create_asset.into(), register_bob.into()])
+        .submit_all(vec![
+            register_bob.into(),
+            create_asset_definition.into(),
+            create_asset.into(),
+        ])
         .expect("Failed to prepare state.");
     thread::sleep(pipeline_time * 2);
 
@@ -95,14 +102,20 @@ fn permissions_disallow_asset_burn() {
     let alice_id = "alice@wonderland".parse().expect("Valid");
     let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset =
+    let create_asset_definition =
         RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).build());
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
+    let asset_id = <Asset as Identifiable>::Id::new(asset_definition_id.clone(), bob_id.clone());
+    let create_asset = RegisterBox::new(Asset::new(asset_id, 0_u32));
 
     let alice_start_assets = get_assets(&mut iroha_client, &alice_id);
 
     iroha_client
-        .submit_all(vec![create_asset.into(), register_bob.into()])
+        .submit_all(vec![
+            register_bob.into(),
+            create_asset_definition.into(),
+            create_asset.into(),
+        ])
         .expect("Failed to prepare state.");
 
     thread::sleep(pipeline_time * 2);

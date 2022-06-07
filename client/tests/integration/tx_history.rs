@@ -18,9 +18,13 @@ fn client_has_rejected_and_acepted_txs_should_return_tx_history() {
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset_definition =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let asset_id =
+        <Asset as Identifiable>::Id::new(asset_definition_id.clone(), account_id.clone());
+    let create_asset = RegisterBox::new(Asset::new(asset_id, 0_u32));
     iroha_client
-        .submit(create_asset)
+        .submit_all([create_asset_definition.into(), create_asset.into()])
         .expect("Failed to prepare state.");
 
     thread::sleep(pipeline_time * 2);

@@ -399,18 +399,24 @@ pub struct RawGenesisBlockBuilder {
     transaction: GenesisTransaction,
 }
 
-/// `Domain` subsection of the `RawGenesisBlockBuilder`. Makes
-/// it easier to create accounts and assets without needing to
-/// provide a `DomainId`.
+/// `Domain` subsection of the `RawGenesisBlockBuilder`. Makes it easier
+/// to create accounts and assets without needing to provide a [`DomainId`]
 pub struct RawGenesisDomainBuilder {
     transaction: GenesisTransaction,
     domain_id: DomainId,
 }
 
+/// `Account` subsection of the `RawGenesisBlockBuilder`. Makes it easier
+/// to create assets without needing to provide a [`AccountId`]
+pub struct RawGenesisAccountBuilder {
+    transaction: GenesisTransaction,
+    account_id: AccountId,
+}
+
 impl RawGenesisBlockBuilder {
     /// Create a `RawGenesisBlockBuilder`.
     pub fn new() -> Self {
-        RawGenesisBlockBuilder {
+        Self {
             transaction: GenesisTransaction {
                 isi: iroha_data_model::small::SmallVec::new(),
             },
@@ -429,7 +435,7 @@ impl RawGenesisBlockBuilder {
             domain_id,
         }
     }
-    /// Finish building and produce a `RawGenesisBlock`.
+    /// Finish building and produce a [`RawGenesisBlock`]
     pub fn build(self) -> RawGenesisBlock {
         RawGenesisBlock {
             transactions: SmallVec(smallvec![self.transaction]),
@@ -438,36 +444,38 @@ impl RawGenesisBlockBuilder {
 }
 
 impl RawGenesisDomainBuilder {
-    /// Finish this domain and return to
-    /// genesis block building.
+    /// Finish this domain and return to genesis block building.
     pub fn finish_domain(self) -> RawGenesisBlockBuilder {
         RawGenesisBlockBuilder {
             transaction: self.transaction,
         }
     }
 
-    /// Add an account to this domain without a public key.
-    /// Should only be used for testing.
-    #[must_use]
-    pub fn with_account_without_public_key(mut self, account_name: Name) -> Self {
-        self.transaction
-            .isi
-            .push(RegisterBox::new(AccountId::new(account_name, self.domain_id.clone())).into());
-        self
-    }
-
     /// Add an account to this domain
     #[must_use]
-    pub fn with_account(mut self, account_name: Name, public_key: PublicKey) -> Self {
+    pub fn with_account(
+        mut self,
+        account_name: Name,
+        public_key: Option<PublicKey>,
+    ) -> RawGenesisAccountBuilder {
         let account_id = AccountId::new(account_name, self.domain_id.clone());
-        let register = RegisterBox::new(Account::new(account_id, [public_key]));
+        let public_key = public_key.map_or_else(Vec::new, |key| vec![key]);
+        let register = RegisterBox::new(Account::new(account_id.clone(), public_key));
         self.transaction.isi.push(register.into());
-        self
+
+        RawGenesisAccountBuilder {
+            transaction: self.transaction,
+            account_id,
+        }
     }
 
     /// Add [`AssetDefinition`] to current domain.
     #[must_use]
-    pub fn with_asset(mut self, asset_name: Name, asset_value_type: AssetValueType) -> Self {
+    pub fn with_asset_definition(
+        mut self,
+        asset_name: Name,
+        asset_value_type: AssetValueType,
+    ) -> Self {
         let asset_definition_id = AssetDefinitionId::new(asset_name, self.domain_id.clone());
         let asset_definition = match asset_value_type {
             AssetValueType::Quantity => AssetDefinition::quantity(asset_definition_id),
@@ -478,6 +486,28 @@ impl RawGenesisDomainBuilder {
         self.transaction
             .isi
             .push(RegisterBox::new(asset_definition).into());
+        self
+    }
+}
+
+impl RawGenesisAccountBuilder {
+    /// Finish this account and return to genesis domain building.
+    #[must_use]
+    pub fn finish_account(self) -> RawGenesisDomainBuilder {
+        RawGenesisDomainBuilder {
+            transaction: self.transaction,
+            domain_id: self.account_id.domain_id,
+        }
+    }
+
+    /// Add [`Asset`] to current account initialized with the given value
+    #[must_use]
+    pub fn with_asset(mut self, asset_name: Name, initial_value: impl Into<AssetValue>) -> Self {
+        let domain_id = self.account_id.domain_id.clone();
+        let asset_definition_id = AssetDefinitionId::new(asset_name, domain_id);
+        let asset_id = AssetId::new(asset_definition_id, self.account_id.clone());
+        let register = Asset::new(asset_id, initial_value);
+        self.transaction.isi.push(RegisterBox::new(register).into());
         self
     }
 }
@@ -506,23 +536,28 @@ mod tests {
         Ok(())
     }
 
-    #[allow(clippy::unwrap_used)]
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn genesis_block_builder_example() {
         let public_key = "ed0120204e9593c3ffaf4464a6189233811c297dd4ce73aba167867e4fbd4f8c450acb";
         let mut genesis_builder = RawGenesisBlockBuilder::new();
 
         genesis_builder = genesis_builder
             .domain("wonderland".parse().unwrap())
-            .with_account_without_public_key("alice".parse().unwrap())
-            .with_account_without_public_key("bob".parse().unwrap())
+            .with_account("alice".parse().unwrap(), None)
+            .finish_account()
+            .with_account("bob".parse().unwrap(), None)
+            .finish_account()
             .finish_domain()
             .domain("tulgey_wood".parse().unwrap())
-            .with_account_without_public_key("Cheshire_Cat".parse().unwrap())
+            .with_account("Cheshire_Cat".parse().unwrap(), None)
+            .finish_account()
             .finish_domain()
             .domain("meadow".parse().unwrap())
-            .with_account("Mad_Hatter".parse().unwrap(), public_key.parse().unwrap())
-            .with_asset("hats".parse().unwrap(), AssetValueType::BigQuantity)
+            .with_asset_definition("hats".parse().unwrap(), AssetValueType::BigQuantity)
+            .with_account("Mad_Hatter".parse().unwrap(), public_key.parse().ok())
+            .with_asset("hats".parse().unwrap(), 42_u128)
+            .finish_account()
             .finish_domain();
 
         let finished_genesis_block = genesis_builder.build();
@@ -530,47 +565,57 @@ mod tests {
             let domain_id: DomainId = "wonderland".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[0],
-                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
+                Instruction::from(RegisterBox::new(Domain::new(domain_id)))
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[1],
-                RegisterBox::new(AccountId::new("alice".parse().unwrap(), domain_id.clone()))
-                    .into()
+                RegisterBox::new(Account::new("alice@wonderland".parse().unwrap(), [])).into()
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[2],
-                RegisterBox::new(AccountId::new("bob".parse().unwrap(), domain_id)).into()
+                RegisterBox::new(Account::new("bob@wonderland".parse().unwrap(), [])).into()
             );
         }
         {
             let domain_id: DomainId = "tulgey_wood".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[3],
-                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
+                Instruction::from(RegisterBox::new(Domain::new(domain_id)))
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[4],
-                RegisterBox::new(AccountId::new("Cheshire_Cat".parse().unwrap(), domain_id)).into()
+                RegisterBox::new(Account::new(
+                    "Cheshire_Cat@tulgey_wood".parse().unwrap(),
+                    []
+                ))
+                .into()
             );
         }
         {
             let domain_id: DomainId = "meadow".parse().unwrap();
+            let account_id: AccountId = "Mad_Hatter@meadow".parse().unwrap();
+            let asset_definition_id: AssetDefinitionId = "hats#meadow".parse().unwrap();
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[5],
-                Instruction::from(RegisterBox::new(Domain::new(domain_id.clone())))
+                Instruction::from(RegisterBox::new(Domain::new(domain_id)))
             );
             assert_eq!(
                 finished_genesis_block.transactions[0].isi[6],
+                RegisterBox::new(AssetDefinition::big_quantity(asset_definition_id.clone())).into()
+            );
+            assert_eq!(
+                finished_genesis_block.transactions[0].isi[7],
                 RegisterBox::new(Account::new(
-                    AccountId::new("Mad_Hatter".parse().unwrap(), domain_id),
+                    account_id.clone(),
                     [public_key.parse().unwrap()],
                 ))
                 .into()
             );
             assert_eq!(
-                finished_genesis_block.transactions[0].isi[7],
-                RegisterBox::new(AssetDefinition::big_quantity(
-                    "hats#meadow".parse().unwrap()
+                finished_genesis_block.transactions[0].isi[8],
+                RegisterBox::new(Asset::new(
+                    AssetId::new(asset_definition_id, account_id),
+                    42_u128
                 ))
                 .into()
             );

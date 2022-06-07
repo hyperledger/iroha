@@ -67,7 +67,13 @@ fn simulate_transfer<
     let create_account1 = RegisterBox::new(Account::new(account1_id.clone(), [public_key1]));
     let create_account2 = RegisterBox::new(Account::new(account2_id.clone(), [public_key2]));
     let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
-    let create_asset = RegisterBox::new(value_type(asset_definition_id.clone()));
+    let create_asset_definition = RegisterBox::new(value_type(asset_definition_id.clone()));
+    let asset_id1 =
+        <Asset as Identifiable>::Id::new(asset_definition_id.clone(), account1_id.clone());
+    let asset_id2 =
+        <Asset as Identifiable>::Id::new(asset_definition_id.clone(), account2_id.clone());
+    let create_asset1 = RegisterBox::new(Asset::new(asset_id1, starting_amount.clone()));
+    let create_asset2 = RegisterBox::new(Asset::new(asset_id2.clone(), starting_amount.clone()));
     let mint_asset = MintBox::new(
         Value::from(starting_amount),
         IdBox::AssetId(AssetId::new(
@@ -81,7 +87,9 @@ fn simulate_transfer<
             create_domain.into(),
             create_account1.into(),
             create_account2.into(),
-            create_asset.into(),
+            create_asset_definition.into(),
+            create_asset1.into(),
+            create_asset2.into(),
             mint_asset.into(),
         ])
         .expect("Failed to prepare state.");
@@ -92,10 +100,7 @@ fn simulate_transfer<
     let transfer_asset = TransferBox::new(
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), account1_id)),
         Value::from(amount_to_transfer.clone()),
-        IdBox::AssetId(AssetId::new(
-            asset_definition_id.clone(),
-            account2_id.clone(),
-        )),
+        IdBox::AssetId(AssetId::new(asset_definition_id, account2_id.clone())),
     );
     iroha_client
         .submit_till(
@@ -103,7 +108,7 @@ fn simulate_transfer<
             client::asset::by_account_id(account2_id.clone()),
             |result| {
                 result.iter().any(|asset| {
-                    asset.id().definition_id == asset_definition_id
+                    *asset.id() == asset_id2
                         && *asset.value() == amount_to_transfer.clone().into()
                         && asset.id().account_id == account2_id
                 })

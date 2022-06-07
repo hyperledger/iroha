@@ -278,6 +278,10 @@ fn register_asset_definition(name: &str) -> Instruction {
     RegisterBox::new(AssetDefinition::quantity(asset_definition_id(name))).into()
 }
 
+fn register_asset(name: &str, account: &str) -> Instruction {
+    RegisterBox::new(Asset::new(asset_id(name, account), 0_u32)).into()
+}
+
 fn mint_asset(quantity: u32, asset: &str, account: &str) -> Instruction {
     MintBox::new(Value::U32(quantity), asset_id(asset, account)).into()
 }
@@ -304,6 +308,7 @@ async fn find_asset() {
         .given(register_domain())
         .given(register_account("alice"))
         .given(register_asset_definition("rose"))
+        .given(register_asset("rose", "alice"))
         .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(asset_id(
             "rose", "alice",
@@ -330,6 +335,7 @@ async fn find_asset_with_no_mint() {
         .given(register_domain())
         .given(register_account("alice"))
         .given(register_asset_definition("rose"))
+    // .given(register_asset("rose", "alice"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
             asset_id("rose", "alice"),
@@ -352,6 +358,7 @@ async fn find_asset_with_no_asset_definition() {
         .given(register_domain())
         .given(register_account("alice"))
     // .given(register_asset_definition("rose"))
+    // .given(register_asset("rose", "alice"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
             asset_id("rose", "alice"),
@@ -374,6 +381,7 @@ async fn find_asset_with_no_account() {
         .given(register_domain())
     // .given(register_account("alice"))
         .given(register_asset_definition("rose"))
+    // .given(register_asset("rose", "alice"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
             asset_id("rose", "alice"),
@@ -396,6 +404,7 @@ async fn find_asset_with_no_domain() {
     // .given(register_domain())
     // .given(register_account("alice"))
     // .given(register_asset_definition("rose"))
+    // .given(register_asset("rose", "alice"))
     // .given(mint_asset(99, "rose", "alice"))
         .query(QueryBox::FindAssetById(FindAssetById::new(
             asset_id("rose", "alice"),
@@ -450,6 +459,7 @@ async fn find_asset_definition_with_no_domain() {
     QuerySet::new()
     // .given(register_domain())
     // .given(register_asset_definition("rose"))
+    // .given(register_asset("rose"))
         .query(QueryBox::FindAssetDefinitionById(
             FindAssetDefinitionById::new(asset_definition_id("rose")),
         ))

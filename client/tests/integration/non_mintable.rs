@@ -15,29 +15,32 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset =
+    let create_asset_definition =
         RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()).mintable_once());
+    let asset_id =
+        <Asset as Identifiable>::Id::new(asset_definition_id.clone(), account_id.clone());
+    let create_asset = RegisterBox::new(Asset::new(asset_id.clone(), 0_u32));
 
     let metadata = UnlimitedMetadata::default();
 
     let mint = MintBox::new(
         Value::U32(200_u32),
-        IdBox::AssetId(AssetId::new(
-            asset_definition_id.clone(),
-            account_id.clone(),
-        )),
+        IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
 
-    let instructions: [Instruction; 2] = [create_asset.into(), mint.clone().into()];
+    let instructions: [Instruction; 3] = [
+        create_asset_definition.into(),
+        create_asset.into(),
+        mint.clone().into(),
+    ];
     let tx = test_client.build_transaction(instructions.into(), metadata)?;
 
     // We can register and mint the non-mintable token
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
-        result.iter().any(|asset| {
-            asset.id().definition_id == asset_definition_id
-                && *asset.value() == AssetValue::Quantity(200_u32)
-        })
+        result
+            .iter()
+            .any(|asset| *asset.id() == asset_id && *asset.value() == AssetValue::Quantity(200_u32))
     })?;
 
     // We can submit the request to mint again.
@@ -47,8 +50,7 @@ fn non_mintable_asset_can_be_minted_once_but_not_twice() -> Result<()> {
     assert!(test_client
         .poll_request(client::asset::by_account_id(account_id), |result| {
             result.iter().any(|asset| {
-                asset.id().definition_id == asset_definition_id
-                    && *asset.value() == AssetValue::Quantity(400_u32)
+                *asset.id() == asset_id && *asset.value() == AssetValue::Quantity(400_u32)
             })
         })
         .is_err());

@@ -15,6 +15,33 @@ use crate::{ValidQuery, WorldStateView};
 pub mod isi {
     use super::{super::prelude::*, *};
 
+    impl<W: WorldTrait> Execute<W> for Register<Asset> {
+        type Error = Error;
+
+        #[metrics(+"register_asset")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView<W>,
+        ) -> Result<(), Self::Error> {
+            let asset: Asset = self.object;
+            let asset_id = asset.id().clone();
+
+            wsv.asset_definition_entry(&asset_id.definition_id)?;
+            wsv.modify_account(&asset_id.account_id.clone(), |account| {
+                if account.asset(&asset_id).is_some() {
+                    return Err(Error::Repetition(
+                        InstructionType::Register,
+                        IdBox::AssetId(asset_id),
+                    ));
+                }
+
+                account.add_asset(asset);
+                Ok(AccountEvent::Asset(AssetEvent::Created(asset_id)))
+            })
+        }
+    }
+
     impl<W: WorldTrait> Execute<W> for Mint<Account, PublicKey> {
         type Error = Error;
 

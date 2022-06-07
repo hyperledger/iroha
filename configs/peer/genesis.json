@@ -24,6 +24,27 @@
             "object": {
               "Raw": {
                 "Identifiable": {
+                  "NewAssetDefinition": {
+                    "id": {
+                      "name": "rose",
+                      "domain_id": {
+                        "name": "wonderland"
+                      }
+                    },
+                    "value_type": "Quantity",
+                    "mintable": "Infinitely",
+                    "metadata": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "Register": {
+            "object": {
+              "Raw": {
+                "Identifiable": {
                   "NewAccount": {
                     "id": {
                       "name": "alice",
@@ -46,44 +67,23 @@
             "object": {
               "Raw": {
                 "Identifiable": {
-                  "NewAssetDefinition": {
+                  "Asset": {
                     "id": {
-                      "name": "rose",
-                      "domain_id": {
-                        "name": "wonderland"
+                      "definition_id": {
+                        "name": "rose",
+                        "domain_id": {
+                          "name": "wonderland"
+                        }
+                      },
+                      "account_id": {
+                        "name": "alice",
+                        "domain_id": {
+                          "name": "wonderland"
+                        }
                       }
                     },
-                    "value_type": "Quantity",
-                    "mintable": "Infinitely",
-                    "metadata": {}
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          "Mint": {
-            "object": {
-              "Raw": {
-                "U32": 13
-              }
-            },
-            "destination_id": {
-              "Raw": {
-                "Id": {
-                  "AssetId": {
-                    "definition_id": {
-                      "name": "rose",
-                      "domain_id": {
-                        "name": "wonderland"
-                      }
-                    },
-                    "account_id": {
-                      "name": "alice",
-                      "domain_id": {
-                        "name": "wonderland"
-                      }
+                    "value": {
+                      "Quantity": 13
                     }
                   }
                 }

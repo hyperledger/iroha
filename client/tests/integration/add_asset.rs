@@ -17,24 +17,28 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset_definition =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let asset_id =
+        <Asset as Identifiable>::Id::new(asset_definition_id.clone(), account_id.clone());
+    let create_asset = RegisterBox::new(Asset::new(asset_id.clone(), 0_u32));
     let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity: u32 = 200;
     let mint = MintBox::new(
         Value::U32(quantity),
-        IdBox::AssetId(AssetId::new(
-            asset_definition_id.clone(),
-            account_id.clone(),
-        )),
+        IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
-    let instructions: Vec<Instruction> = vec![create_asset.into(), mint.into()];
+    let instructions: Vec<Instruction> = vec![
+        create_asset_definition.into(),
+        create_asset.into(),
+        mint.into(),
+    ];
     let tx = test_client.build_transaction(instructions.into(), metadata)?;
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
-            asset.id().definition_id == asset_definition_id
-                && *asset.value() == AssetValue::Quantity(quantity)
+            *asset.id() == asset_id && *asset.value() == AssetValue::Quantity(quantity)
         })
     })?;
     Ok(())
@@ -48,24 +52,28 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
     // Given
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::big_quantity(asset_definition_id.clone()));
+    let create_asset_definition =
+        RegisterBox::new(AssetDefinition::big_quantity(asset_definition_id.clone()));
+    let asset_id =
+        <Asset as Identifiable>::Id::new(asset_definition_id.clone(), account_id.clone());
+    let create_asset = RegisterBox::new(Asset::new(asset_id.clone(), 0_u32));
     let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
     //When
     let quantity: u128 = 2_u128.pow(65);
     let mint = MintBox::new(
         Value::U128(quantity),
-        IdBox::AssetId(AssetId::new(
-            asset_definition_id.clone(),
-            account_id.clone(),
-        )),
+        IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
-    let instructions: Vec<Instruction> = vec![create_asset.into(), mint.into()];
+    let instructions: Vec<Instruction> = vec![
+        create_asset_definition.into(),
+        create_asset.into(),
+        mint.into(),
+    ];
     let tx = test_client.build_transaction(instructions.into(), metadata)?;
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id), |result| {
         result.iter().any(|asset| {
-            asset.id().definition_id == asset_definition_id
-                && *asset.value() == AssetValue::BigQuantity(quantity)
+            *asset.id() == asset_id && *asset.value() == AssetValue::BigQuantity(quantity)
         })
     })?;
     Ok(())
@@ -79,7 +87,10 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
     let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
     let identifiable_box = AssetDefinition::fixed(asset_definition_id.clone());
-    let create_asset = RegisterBox::new(identifiable_box);
+    let create_asset_definition = RegisterBox::new(identifiable_box);
+    let asset_id =
+        <Asset as Identifiable>::Id::new(asset_definition_id.clone(), account_id.clone());
+    let create_asset = RegisterBox::new(Asset::new(asset_id.clone(), 0_u32));
     let metadata = iroha_data_model::metadata::UnlimitedMetadata::default();
 
     //When
@@ -91,34 +102,33 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
             account_id.clone(),
         )),
     );
-    let instructions: Vec<Instruction> = vec![create_asset.into(), mint.into()];
+    let instructions: Vec<Instruction> = vec![
+        create_asset_definition.into(),
+        create_asset.into(),
+        mint.into(),
+    ];
     let tx = test_client.build_transaction(instructions.into(), metadata)?;
     test_client.submit_transaction(tx)?;
     test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
-        result.iter().any(|asset| {
-            asset.id().definition_id == asset_definition_id
-                && *asset.value() == AssetValue::Fixed(quantity)
-        })
+        result
+            .iter()
+            .any(|asset| *asset.id() == asset_id && *asset.value() == AssetValue::Fixed(quantity))
     })?;
 
     // Add some fractional part
     let quantity2: Fixed = Fixed::try_from(0.55_f64).unwrap();
     let mint = MintBox::new(
         Value::Fixed(quantity2),
-        IdBox::AssetId(AssetId::new(
-            asset_definition_id.clone(),
-            account_id.clone(),
-        )),
+        IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     );
     // and check that it is added without errors
     let sum = quantity
         .checked_add(quantity2)
         .map_err(|e| eyre::eyre!("{}", e))?;
     test_client.submit_till(mint, client::asset::by_account_id(account_id), |result| {
-        result.iter().any(|asset| {
-            asset.id().definition_id == asset_definition_id
-                && *asset.value() == AssetValue::Fixed(sum)
-        })
+        result
+            .iter()
+            .any(|asset| *asset.id() == asset_id && *asset.value() == AssetValue::Fixed(sum))
     })?;
     Ok(())
 }
@@ -130,20 +140,20 @@ fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transacti
 
     // Given
     let normal_asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(
+    let create_asset_definition = RegisterBox::new(AssetDefinition::quantity(
         normal_asset_definition_id.clone(),
     ));
-    test_client.submit(create_asset)?;
+    test_client.submit(create_asset_definition)?;
     iroha_logger::info!("Creating asset");
 
     let too_long_asset_name = "0".repeat(2_usize.pow(14));
     let incorrect_asset_definition_id =
         AssetDefinitionId::from_str(&(too_long_asset_name + "#wonderland")).expect("Valid");
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(
+    let create_asset_definition = RegisterBox::new(AssetDefinition::quantity(
         incorrect_asset_definition_id.clone(),
     ));
 
-    test_client.submit(create_asset)?;
+    test_client.submit(create_asset_definition)?;
     iroha_logger::info!("Creating another asset");
     thread::sleep(pipeline_time * 4);
 

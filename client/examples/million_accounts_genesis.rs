@@ -16,14 +16,15 @@ fn main() {
         for i in 0_u32..num_domains {
             builder = builder
                 .domain(format!("wonderland-{}", i).parse().expect("Valid"))
-                .with_account(
-                    format!("Alice-{}", i).parse().expect("Valid"),
-                    key_pair.public_key().clone(),
-                )
-                .with_asset(
+                .with_asset_definition(
                     format!("xor-{}", i).parse().expect("Valid"),
                     AssetValueType::Quantity,
                 )
+                .with_account(
+                    format!("Alice-{}", i).parse().expect("Valid"),
+                    Some(key_pair.public_key().clone()),
+                )
+                .finish_account()
                 .finish_domain();
         }
 

@@ -463,7 +463,7 @@ impl AssetDefinition {
 
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 impl Asset {
-    /// Constructor
+    /// Constructor with initial value
     pub fn new(
         id: <Asset as Identifiable>::Id,
         value: impl Into<AssetValue>,

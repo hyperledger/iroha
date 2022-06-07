@@ -23,10 +23,15 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     let (public_key, _) = KeyPair::generate()?.into();
     let create_account = RegisterBox::new(Account::new(account_id.clone(), [public_key]));
     let asset_definition_id = AssetDefinitionId::from_str("xor#domain")?;
-    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let create_asset_definition =
+        RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let asset_id =
+        <Asset as Identifiable>::Id::new(asset_definition_id.clone(), account_id.clone());
+    let create_asset = RegisterBox::new(Asset::new(asset_id.clone(), 0_u32));
     iroha_client.submit_all(vec![
         create_domain.into(),
         create_account.into(),
+        create_asset_definition.into(),
         create_asset.into(),
     ])?;
     thread::sleep(pipeline_time * 3);
@@ -34,10 +39,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
     let quantity: u32 = 200;
     iroha_client.submit(MintBox::new(
         Value::U32(quantity),
-        IdBox::AssetId(AssetId::new(
-            asset_definition_id.clone(),
-            account_id.clone(),
-        )),
+        IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
     ))?;
     thread::sleep(pipeline_time);
 
@@ -47,8 +49,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_a
         client::asset::by_account_id(account_id),
         |result| {
             result.iter().any(|asset| {
-                asset.id().definition_id == asset_definition_id
-                    && *asset.value() == AssetValue::Quantity(quantity)
+                *asset.id() == asset_id && *asset.value() == AssetValue::Quantity(quantity)
             })
         },
     )?;

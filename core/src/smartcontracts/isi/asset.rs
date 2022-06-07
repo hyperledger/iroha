@@ -66,7 +66,6 @@ pub mod isi {
             let asset_id = self.destination_id;
 
             assert_can_mint(&asset_id.definition_id, wsv, AssetValueType::Quantity)?;
-            wsv.asset_or_insert(&asset_id, 0_u32)?;
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut u32 = asset
                     .try_as_mut()
@@ -94,7 +93,6 @@ pub mod isi {
             let asset_id = self.destination_id;
 
             assert_can_mint(&asset_id.definition_id, wsv, AssetValueType::BigQuantity)?;
-            wsv.asset_or_insert(&asset_id, 0_u128)?;
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut u128 = asset
                     .try_as_mut()
@@ -123,7 +121,6 @@ pub mod isi {
             let asset_id = self.destination_id;
 
             assert_can_mint(&asset_id.definition_id, wsv, AssetValueType::Fixed)?;
-            wsv.asset_or_insert(&asset_id, Fixed::ZERO)?;
             wsv.modify_asset(&asset_id, |asset| {
                 let quantity: &mut Fixed = asset
                     .try_as_mut()
@@ -149,7 +146,6 @@ pub mod isi {
             let asset_id = self.object_id;
 
             assert_asset_type(&asset_id.definition_id, wsv, AssetValueType::Store)?;
-            wsv.asset_or_insert(&asset_id, Metadata::new())?;
             wsv.modify_asset(&asset_id, |asset| {
                 let asset_metadata_limits = wsv.config.asset_metadata_limits;
 
@@ -312,7 +308,6 @@ pub mod isi {
                 AssetValueType::Quantity,
             )?;
 
-            wsv.asset_or_insert(&self.destination_id, 0_u32)?;
             wsv.modify_asset(&self.source_id, |asset| {
                 let quantity: &mut u32 = asset
                     .try_as_mut()
@@ -355,7 +350,6 @@ pub mod isi {
                 AssetValueType::BigQuantity,
             )?;
 
-            wsv.asset_or_insert(&self.destination_id, 0_u128)?;
             wsv.modify_asset(&self.source_id, |asset| {
                 let quantity: &mut u128 = asset
                     .try_as_mut()
@@ -398,7 +392,6 @@ pub mod isi {
                 AssetValueType::Fixed,
             )?;
 
-            wsv.asset_or_insert(&self.destination_id, Fixed::ZERO)?;
             wsv.modify_asset(&self.source_id, |asset| {
                 let quantity: &mut Fixed = asset
                     .try_as_mut()

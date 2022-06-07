@@ -317,36 +317,6 @@ impl<W: WorldTrait> WorldStateView<W> {
         )
     }
 
-    /// Tries to get asset or inserts new with `default_asset_value`.
-    ///
-    /// # Errors
-    /// Fails if there is no account with such name.
-    #[allow(clippy::missing_panics_doc)]
-    pub fn asset_or_insert(
-        &self,
-        id: &<Asset as Identifiable>::Id,
-        default_asset_value: impl Into<AssetValue>,
-    ) -> Result<Asset, Error> {
-        if let Ok(asset) = self.asset(id) {
-            return Ok(asset);
-        }
-
-        // This function is strictly infallible.
-        self.modify_account(&id.account_id, |account| {
-            assert!(account
-                .add_asset(Asset::new(id.clone(), default_asset_value.into()))
-                .is_none());
-
-            Ok(AccountEvent::Asset(AssetEvent::Created(id.clone())))
-        })
-        .map_err(|err| {
-            iroha_logger::warn!(?err);
-            err
-        })?;
-
-        self.asset(id).map_err(Into::into)
-    }
-
     /// Update metrics; run when block commits.
     fn block_commit_metrics_update_callback(&self) {
         let last_block_txs_accepted = self
