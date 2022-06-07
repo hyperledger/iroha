@@ -70,7 +70,6 @@ dyn-clone = "1.0.5"
 erased-serde = "0.3.20"
 derive_more = "0.99.17"
 mockall = "0.11.1"
-mockall_double = "0.3.0"
 cfg-if = "1.0.0"
 getset = "0.1.2"
 

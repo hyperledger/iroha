@@ -341,7 +341,7 @@ where
 ///
 /// # Errors
 /// - Genesis account public key not specified.
-fn domains(configuration: &config::Configuration) -> impl Iterator<Item = Domain> {
+fn domains(configuration: &config::Configuration) -> [Domain; 1] {
     let key = configuration.genesis.account_public_key.clone();
-    [Domain::from(GenesisDomain::new(key))].into_iter()
+    [Domain::from(GenesisDomain::new(key))]
 }
