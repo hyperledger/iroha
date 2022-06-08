@@ -342,15 +342,19 @@ mod tests {
         let hash1 = Hash::prehashed([1; Hash::LENGTH]).typed();
         let hash2 = Hash::prehashed([2; Hash::LENGTH]).typed();
         let hash3 = Hash::prehashed([3; Hash::LENGTH]).typed();
+        let hash4 = Hash::prehashed([4; Hash::LENGTH]).typed();
+        let hash5 = Hash::prehashed([5; Hash::LENGTH]).typed();
         assert!(hash1 < hash2 && hash2 < hash3);
 
-        let tree = [hash1, hash2, hash3]
+        let tree = [hash1, hash2, hash3, hash4, hash5]
             .into_iter()
             .collect::<MerkleTree<()>>();
         assert_eq!(tree.get_leaf(0), Some(hash1));
         assert_eq!(tree.get_leaf(1), Some(hash2));
         assert_eq!(tree.get_leaf(2), Some(hash3));
-        assert_eq!(tree.get_leaf(3), None);
+        assert_eq!(tree.get_leaf(3), Some(hash4));
+        assert_eq!(tree.get_leaf(4), Some(hash5));
+        assert_eq!(tree.get_leaf(5), None);
     }
 
     #[test]
@@ -359,9 +363,10 @@ mod tests {
         let hash2 = Hash::prehashed([2; Hash::LENGTH]).typed();
         let hash3 = Hash::prehashed([3; Hash::LENGTH]).typed();
         let hash4 = Hash::prehashed([4; Hash::LENGTH]).typed();
+        let hash5 = Hash::prehashed([5; Hash::LENGTH]).typed();
         assert!(hash1 < hash2 && hash2 < hash3 && hash3 < hash4);
 
-        let tree = [hash1, hash2, hash4]
+        let tree = [hash1, hash2, hash4, hash5]
             .into_iter()
             .collect::<MerkleTree<()>>();
         let tree = tree.add(hash3);
@@ -369,7 +374,8 @@ mod tests {
         assert_eq!(tree.get_leaf(1), Some(hash2));
         assert_eq!(tree.get_leaf(2), Some(hash3));
         assert_eq!(tree.get_leaf(3), Some(hash4));
-        assert_eq!(tree.get_leaf(4), None);
+        assert_eq!(tree.get_leaf(4), Some(hash5));
+        assert_eq!(tree.get_leaf(5), None);
     }
 
     #[test]
@@ -398,7 +404,6 @@ mod tests {
         let tree_reconstructed = tree.leaves().collect::<MerkleTree<()>>();
         for (testee_hash, tester_hash) in tree_reconstructed.leaves().zip(hashes) {
             assert_eq!(testee_hash, tester_hash);
-
         }
     }
 
