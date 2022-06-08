@@ -16,11 +16,6 @@ is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledg
 is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
 maintenance = { status = "actively-developed" }
 
-[features]
-# Enable Mock World and disable integration tests
-# Workaround for running `cargo test --all-features`
-mock_world = ["iroha_core/mock_world"]
-
 [dependencies]
 iroha_config = { version = "=2.0.0-pre-rc.5", path = "../config" }
 iroha_crypto = { version = "=2.0.0-pre-rc.5", path = "../crypto"}
