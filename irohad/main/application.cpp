@@ -1097,14 +1097,28 @@ Irohad::RunResult Irohad::run() {
     auto maybe_subscription = subscription.lock();
     if (maybe_simulator and maybe_consensus_gate and maybe_tx_processor
         and maybe_subscription) {
-      maybe_subscription->notify(EventTypes::kOnProposal, event);
-      auto verified_proposal = maybe_simulator->processProposal(event);
-      maybe_subscription->notify(EventTypes::kOnVerifiedProposal,
-                                 verified_proposal);
-      maybe_tx_processor->processVerifiedProposalCreatorEvent(
-          verified_proposal);
-      auto block = maybe_simulator->processVerifiedProposal(
-          std::move(verified_proposal));
+
+      std::vector<BlockCreatorEvent> block_events;
+      block_events.reserve(event.proposal_pack.size());
+
+      auto round = event.round;
+      for (auto const &proposal : event.proposal_pack) {
+        maybe_subscription->notify(EventTypes::kOnProposal, event);
+        auto verified_proposal = maybe_simulator->processProposal(proposal, round, event.ledger_state);
+        maybe_subscription->notify(EventTypes::kOnVerifiedProposal,
+                                   verified_proposal);
+        maybe_tx_processor->processVerifiedProposalCreatorEvent(
+            verified_proposal);
+        auto block = maybe_simulator->processVerifiedProposal(
+            std::move(verified_proposal));
+        if (block_events.empty() || block.round_data)
+          block_events.emplace_back(std::move(block));
+        else
+          break;
+
+        ++round.block_round;
+        round.reject_round = 0ull;
+      }
 
       maybe_consensus_gate->vote(std::move(block));
     }

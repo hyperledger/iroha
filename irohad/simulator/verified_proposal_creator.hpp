@@ -23,7 +23,8 @@ namespace iroha {
        * Execute stateful validation for given proposal
        */
       virtual VerifiedProposalCreatorEvent processProposal(
-          network::OrderingEvent const &event) = 0;
+          std::shared_ptr<shared_model::interface::Proposal const> const &proposal, consensus::Round const &round,
+          std::shared_ptr<LedgerState const> const &ledger_state) = 0;
 
       virtual ~VerifiedProposalCreator() = default;
     };

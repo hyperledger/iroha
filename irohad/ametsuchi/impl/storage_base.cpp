@@ -20,6 +20,8 @@
 #include "logger/logger_manager.hpp"
 #include "main/subscription.hpp"
 
+#define ENABLE_PREPARED_BLOCKS 0
+
 namespace iroha::ametsuchi {
 
   boost::optional<std::shared_ptr<PeerQuery>> StorageBase::createPeerQuery()
@@ -121,9 +123,12 @@ namespace iroha::ametsuchi {
 
   void StorageBase::prepareBlockImpl(std::unique_ptr<TemporaryWsv> wsv,
                                      DatabaseTransaction &db_context) {
+#if ENABLE_PREPARED_BLOCKS
     if (not prepared_blocks_enabled_) {
+#endif//ENABLE_PREPARED_BLOCKS
       log()->warn("prepared blocks are not enabled");
       return;
+#if ENABLE_PREPARED_BLOCKS
     }
     if (block_is_prepared_) {
       log()->warn(
@@ -139,6 +144,7 @@ namespace iroha::ametsuchi {
 
       log()->info("state prepared successfully");
     }
+#endif//ENABLE_PREPARED_BLOCKS
   }
 
   CommitResult StorageBase::commitPreparedImpl(

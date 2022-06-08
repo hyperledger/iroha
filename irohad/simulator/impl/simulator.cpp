@@ -30,24 +30,24 @@ namespace iroha {
           log_(std::move(log)) {}
 
     VerifiedProposalCreatorEvent Simulator::processProposal(
-        network::OrderingEvent const &event) {
-      if (!event.proposal_pack.empty()) {
-        auto const &proposal_pack = getProposalUnsafe(event);
-        log_->info("process proposal: {}", proposal_pack);
+        std::shared_ptr<shared_model::interface::Proposal const> const &proposal, consensus::Round const &round,
+    std::shared_ptr<LedgerState const> const &ledger_state) {
+      if (proposal && !proposal->transactions().empty()) {
+        log_->info("process proposal: {}", *proposal);
 
         auto storage =
             ametsuchi_factory_->createTemporaryWsv(command_executor_);
 
         std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
             validated_proposal_and_errors =
-                validator_->validate(proposal, *storage);
+                validator_->validate(*proposal, *storage);
         ametsuchi_factory_->prepareBlock(std::move(storage));
 
         return VerifiedProposalCreatorEvent{
-            validated_proposal_and_errors, event.round, event.ledger_state};
+            validated_proposal_and_errors, round, ledger_state};
       } else {
         return VerifiedProposalCreatorEvent{
-            boost::none, event.round, event.ledger_state};
+            boost::none, round, ledger_state};
       }
     }
 

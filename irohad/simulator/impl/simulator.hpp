@@ -40,7 +40,8 @@ namespace iroha {
           logger::LoggerPtr log);
 
       VerifiedProposalCreatorEvent processProposal(
-          network::OrderingEvent const &event) override;
+          std::shared_ptr<shared_model::interface::Proposal const> const &proposal, consensus::Round const &round,
+          std::shared_ptr<LedgerState const> const &ledger_state) override;
 
       BlockCreatorEvent processVerifiedProposal(
           VerifiedProposalCreatorEvent const &event) override;
