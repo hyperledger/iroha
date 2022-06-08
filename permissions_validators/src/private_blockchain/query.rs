@@ -86,6 +86,21 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsDomain {
                         )
                     })?
             }
+            FindTriggersByDomainId(query) => {
+                let domain_id = query
+                    .domain_id
+                    .evaluate(wsv, &context)
+                    .map_err(|e| e.to_string())?;
+
+                if domain_id == authority.domain_id {
+                    return Ok(());
+                }
+
+                Err(format!(
+                    "Cannot access triggers with given domain {}, {} is permitted..",
+                    domain_id, authority.domain_id
+                ))
+            }
             FindAccountById(query) => {
                 let account_id = query
                     .id
@@ -345,7 +360,7 @@ impl<W: WorldTrait> IsAllowed<W, QueryBox> for OnlyAccountsData {
             FindAllRoles(_) | FindAllRoleIds(_) | FindRoleByRoleId(_) => {
                 Err("Only access to roles of the same account is permitted.".to_owned())
             },
-            | FindAllActiveTriggerIds(_) => {
+            FindAllActiveTriggerIds(_) | FindTriggersByDomainId(_) => {
                 Err("Only access to the triggers of the same account is permitted.".to_owned())
             }
             FindAllPeers(_) => {
