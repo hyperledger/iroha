@@ -149,7 +149,7 @@ impl From<Or<Expression, IsExpressionAllowedBoxed>> for IsExpressionAllowedBoxed
 /// Wraps validator to check nested permissions.  Pay attention to
 /// wrap only validators that do not check nested instructions by
 /// themselves.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug)]
 pub struct CheckNested {
     validator: IsInstructionAllowedBoxed,
 }
@@ -220,7 +220,7 @@ fn check_all_validators_have_the_same_type(validators: &[IsAllowedBoxed]) -> Res
 }
 
 /// A container for multiple permissions validators. It will succeed if all validators succeed.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug)]
 pub struct AllShouldSucceed {
     validators: Vec<IsAllowedBoxed>,
 }
@@ -353,7 +353,7 @@ impl TryFrom<AllShouldSucceed> for IsExpressionAllowedBoxed {
 }
 
 /// A container for multiple permissions validators. It will succeed if any validator succeeds.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug)]
 pub struct AnyShouldSucceed {
     name: String,
     validators: Vec<IsAllowedBoxed>,

@@ -3,9 +3,7 @@
 use super::*;
 
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
-pub trait IsAllowed<O: NeedsPermission>:
-    Debug + dyn_clone::DynClone + erased_serde::Serialize
-{
+pub trait IsAllowed<O: NeedsPermission>: Debug {
     /// Checks if the `authority` is allowed to perform `instruction`
     /// given the current state of `wsv`.
     ///
@@ -15,11 +13,8 @@ pub trait IsAllowed<O: NeedsPermission>:
     fn check(&self, authority: &AccountId, operation: &O, wsv: &WorldStateView) -> Result<()>;
 }
 
-dyn_clone::clone_trait_object!(<O> IsAllowed<O> where O: NeedsPermission);
-erased_serde::serialize_trait_object!(<O> IsAllowed<O> where O: NeedsPermission);
-
 /// Box with permissions validator.
-#[derive(Debug, Clone, FromVariant, Serialize)]
+#[derive(Debug, FromVariant)]
 pub enum IsAllowedBoxed {
     /// [`Instruction`] validator
     Instruction(IsInstructionAllowedBoxed),

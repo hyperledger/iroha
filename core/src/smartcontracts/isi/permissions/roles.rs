@@ -11,7 +11,7 @@ use super::{super::Evaluate, *};
 pub type IsGrantAllowedBoxed = Box<dyn IsGrantAllowed + Send + Sync>;
 
 /// Checks the [`GrantBox`] instruction.
-pub trait IsGrantAllowed: Debug + dyn_clone::DynClone + erased_serde::Serialize {
+pub trait IsGrantAllowed: Debug {
     /// Checks the [`GrantBox`] instruction.
     ///
     /// # Errors
@@ -23,9 +23,6 @@ pub trait IsGrantAllowed: Debug + dyn_clone::DynClone + erased_serde::Serialize 
         wsv: &WorldStateView,
     ) -> Result<()>;
 }
-
-dyn_clone::clone_trait_object!(IsGrantAllowed);
-erased_serde::serialize_trait_object!(IsGrantAllowed);
 
 impl IsGrantAllowed for IsGrantAllowedBoxed {
     fn check(
@@ -42,7 +39,7 @@ impl IsGrantAllowed for IsGrantAllowedBoxed {
 pub type IsRevokeAllowedBoxed = Box<dyn IsRevokeAllowed + Send + Sync>;
 
 /// Checks the [`RevokeBox`] instruction.
-pub trait IsRevokeAllowed: Debug + dyn_clone::DynClone + erased_serde::Serialize {
+pub trait IsRevokeAllowed: Debug {
     /// Checks the [`RevokeBox`] instruction.
     ///
     /// # Errors
@@ -54,9 +51,6 @@ pub trait IsRevokeAllowed: Debug + dyn_clone::DynClone + erased_serde::Serialize
         wsv: &WorldStateView,
     ) -> Result<()>;
 }
-
-dyn_clone::clone_trait_object!(IsRevokeAllowed);
-erased_serde::serialize_trait_object!(IsRevokeAllowed);
 
 impl IsRevokeAllowed for IsRevokeAllowedBoxed {
     fn check(

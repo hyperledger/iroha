@@ -11,7 +11,7 @@ pub struct Validator;
 
 /// Helper struct for [`Validator`].
 /// Makes sure there is at least one validator and all validators have the same type
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[must_use]
 pub struct WithValidators<O: NeedsPermission, V: IsAllowed<O> + Into<IsAllowedBoxed>> {
     validators: Vec<IsAllowedBoxed>,

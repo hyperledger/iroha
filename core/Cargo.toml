@@ -66,8 +66,6 @@ wasmtime = "0.36.0"
 
 # transitive dependencies
 anyhow = ">= 1.0"
-dyn-clone = "1.0.5"
-erased-serde = "0.3.20"
 derive_more = "0.99.17"
 mockall = { version = "0.11.1", optional = true }
 cfg-if = "1.0.0"

@@ -6,7 +6,7 @@ use super::*;
 pub type HasTokenBoxed = Box<dyn HasToken + Send + Sync>;
 
 /// Trait that should be implemented by validator that checks the need to have permission token for a certain action.
-pub trait HasToken: Debug + dyn_clone::DynClone + erased_serde::Serialize {
+pub trait HasToken: Debug {
     /// This function should return the token that `authority` should
     /// possess, given the `instruction` they are planning to execute
     /// on the current state of `wsv`
@@ -23,9 +23,6 @@ pub trait HasToken: Debug + dyn_clone::DynClone + erased_serde::Serialize {
         wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String>;
 }
-
-dyn_clone::clone_trait_object!(HasToken);
-erased_serde::serialize_trait_object!(HasToken);
 
 impl IsAllowed<Instruction> for HasTokenBoxed {
     fn check(
