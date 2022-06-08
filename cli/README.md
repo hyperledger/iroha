@@ -95,7 +95,7 @@ The [configuration options reference](../docs/source/references/config.md) provi
 
 One of the peers on your network must be provided with the genesis block, which is either `IROHA2_GENESIS_PATH` or `genesis.json` in the working directory.
 Check [configuration options](https://github.com/hyperledger/iroha/blob/iroha2-dev/docs/source/references/config.md#genesis) for details.
-Learn more about the genesis block in [our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/appendix/genesis.html).
+Learn more about the genesis block in [our tutorial](https://hyperledger.github.io/iroha-2-docs/guide/configure/genesis.html).
 
 ## Deployment
 
