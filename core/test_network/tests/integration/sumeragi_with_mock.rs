@@ -228,18 +228,18 @@ pub mod utils {
         use once_cell::sync::Lazy;
 
         #[derive(Debug, Clone, Default)]
-        pub struct WithAlice(World);
+        pub struct WithAlice;
 
         impl Deref for WithAlice {
             type Target = World;
             fn deref(&self) -> &Self::Target {
-                &self.0
+                unreachable!()
             }
         }
 
         impl DerefMut for WithAlice {
             fn deref_mut(&mut self) -> &mut Self::Target {
-                &mut self.0
+                unreachable!()
             }
         }
 
@@ -251,23 +251,13 @@ pub mod utils {
             assert!(account.add_signatory(ALICE_KEYS.public_key().clone()));
             account
         });
-        pub static WONDERLAND: Lazy<Domain> = Lazy::new(|| {
-            let mut domain =
-                Domain::new(DomainId::from_str("wonderland").expect("valid domain name")).build();
-            assert!(domain.add_account(ALICE.clone()).is_none());
-            domain
-        });
-
         impl WorldTrait for WithAlice {
             /// Creates `World` with these `domains` and `trusted_peers_ids`
             fn with(
-                domains: impl IntoIterator<Item = Domain>,
-                trusted_peers_ids: impl IntoIterator<Item = PeerId>,
+                _domains: impl IntoIterator<Item = Domain>,
+                _trusted_peers_ids: impl IntoIterator<Item = PeerId>,
             ) -> Self {
-                Self(World::with(
-                    domains.into_iter().chain([WONDERLAND.clone()]),
-                    trusted_peers_ids,
-                ))
+                unreachable!()
             }
         }
 
