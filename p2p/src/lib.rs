@@ -18,23 +18,26 @@ pub mod peer;
 pub type Network<T> = NetworkBase<T, X25519Sha256, ChaCha20Poly1305>;
 
 /// Errors used in [`crate`].
-#[derive(Clone, Debug, iroha_macro::FromVariant, Error, iroha_actor::Message)]
+#[derive(Clone, Debug, Error, iroha_actor::Message)]
 pub enum Error {
     /// Failed to read or write
     #[error("Failed IO operation.")]
-    Io(#[source] std::sync::Arc<io::Error>),
+    Io(#[from] std::sync::Arc<io::Error>),
     /// Failed to read or write
-    #[error("{0}: Failed handshake")]
-    Handshake(u32),
+    #[error("Failed handshake")]
+    Handshake(#[from] HandshakeError),
     /// Failed to read or write
     #[error("Message improperly formatted")]
     Format,
-    /// Failed to create keys
-    #[error("Failed to create session key")]
+    /// Failed to create keys.
+    #[error("Failed to create session key, or generate new key-pair.")]
     Keys,
+    /// Failed to decode
+    #[error("Failed to decode object using parity scale codec")]
+    Decode(#[from] parity_scale_codec::Error),
     /// Failed to parse address
     #[error("Failed to parse socket address.")]
-    Addr(#[source] AddrParseError),
+    Addr(#[from] AddrParseError),
 }
 
 /// Error which occurs in the handshake process specifically.
@@ -63,24 +66,6 @@ pub enum HandshakeError {
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Self::Io(std::sync::Arc::new(e))
-    }
-}
-
-impl From<parity_scale_codec::Error> for Error {
-    fn from(_: parity_scale_codec::Error) -> Self {
-        Self::Keys
-    }
-}
-
-impl From<CryptoError> for Error {
-    fn from(_: CryptoError) -> Self {
-        Self::Keys
-    }
-}
-
-impl From<aead::Error> for Error {
-    fn from(_: aead::Error) -> Self {
-        Self::Keys
     }
 }
 

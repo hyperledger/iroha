@@ -1,3 +1,4 @@
+#![allow(clippy::map_err_ignore)]
 use std::{
     fmt::{Debug, Formatter},
     marker::PhantomData,
@@ -29,7 +30,7 @@ use tokio::{
 
 use crate::{
     network::{ConnectionId, PeerMessage, Post, Start, StopSelf},
-    Error, Message, MessageResult,
+    Error, HandshakeError, Message, MessageResult,
 };
 
 /// Max message length in bytes.
@@ -119,7 +120,7 @@ where
     /// If key exchange fails to produce keypair (extremely rare)
     fn default_or_err() -> Result<Self, Error> {
         let key_exchange = K::new();
-        let (public_key, secret_key) = key_exchange.keypair(None)?;
+        let (public_key, secret_key) = key_exchange.keypair(None).map_err(|_| Error::Keys)?;
         Ok(Self {
             secret_key,
             public_key,
@@ -133,7 +134,9 @@ where
     fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
-            Some(cipher) => Ok(cipher.decrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())?),
+            Some(cipher) => cipher
+                .decrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())
+                .map_err(|_| Error::Keys),
         }
     }
 
@@ -141,7 +144,9 @@ where
     fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         match &self.cipher {
             None => Ok(data),
-            Some(cipher) => Ok(cipher.encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())?),
+            Some(cipher) => cipher
+                .encrypt_easy(DEFAULT_AAD.as_ref(), data.as_slice())
+                .map_err(|_| Error::Keys),
         }
     }
 
@@ -149,12 +154,15 @@ where
     /// then instantiates an encryptor from that key.
     fn derive_shared_key(&mut self, public_key: &PublicKey) -> Result<&Self, Error> {
         let dh = K::new();
-        let shared = dh.compute_shared_secret(&self.secret_key, public_key)?;
+        let shared = dh
+            .compute_shared_secret(&self.secret_key, public_key)
+            .map_err(|_| Error::Keys)?;
         debug!(key = ?shared.0, "Derived shared key");
         let encryptor = {
             let key: &[u8] = shared.0.as_slice();
             SymmetricEncryptor::<E>::new_with_key(key)
-        }?;
+        }
+        .map_err(|_| Error::Keys)?;
         self.cipher = Some(encryptor);
         Ok(self)
     }
@@ -212,14 +220,14 @@ where
     /// If peer is either `Connecting`, `Disconnected`, or `Error`-ed
     pub fn connection_id(&self) -> Result<ConnectionId, Error> {
         match self {
-            Peer::Connecting(_, _) => Err(Error::Handshake(std::line!())),
+            Peer::Connecting(_, _) => Err(HandshakeError::WrongState.into()),
             Peer::ConnectedTo(_, _, connection)
             | Peer::ConnectedFrom(_, _, connection)
             | Peer::SendKey(_, _, connection, _)
             | Peer::GetKey(_, _, connection, _)
             | Peer::Ready(_, _, connection, _) => Ok(connection.id),
-            Peer::Disconnected(_) => Err(Error::Handshake(std::line!())),
-            Peer::Error(_, _) => Err(Error::Handshake(std::line!())),
+            Peer::Disconnected(_) => Err(HandshakeError::Disconnected.into()),
+            Peer::Error(_, _) => Err(HandshakeError::BrokenPeer.into()),
         }
     }
 
@@ -312,7 +320,7 @@ where
             Ok(Self::SendKey(id, broker, connection, crypto))
         } else {
             error!(peer = ?self, "Incorrect state.");
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::ReadHello.into())
         }
     }
 
@@ -339,7 +347,7 @@ where
             Ok(Self::SendKey(id, broker, connection, crypto))
         } else {
             error!(peer = ?self, "Incorrect state.");
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::SendHello.into())
         }
     }
 
@@ -369,7 +377,7 @@ where
             Ok(Self::GetKey(id, broker, connection, crypto))
         } else {
             error!(peer = ?self, "Incorrect state.");
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::WrongState.into())
         }
     }
 
@@ -381,7 +389,7 @@ where
             let read_half = connection.read.as_mut().unwrap();
             let size = read_half.read_u8().await? as usize;
             if size >= MAX_HANDSHAKE_LENGTH {
-                return Err(Error::Handshake(std::line!()));
+                return Err(HandshakeError::TooLong(size, MAX_HANDSHAKE_LENGTH).into());
             }
             // Reading public key
             read_half.as_ref().readable().await?;
@@ -396,7 +404,7 @@ where
             Ok(Self::Ready(id, broker, connection, crypto))
         } else {
             error!(peer = ?self, "Incorrect state.");
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::WrongState.into())
         }
     }
 
@@ -416,7 +424,7 @@ where
             let connection = Connection::new(rand::random(), stream);
             Ok(Self::ConnectedTo(id, broker, connection))
         } else {
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::WrongState.into())
         }
     }
 }
@@ -539,7 +547,7 @@ where
                         Ok(data) => data,
                         Err(error) => {
                             warn!(%error, "Error decrypting message!");
-                            let mut new_self = Self::Error(id.clone(), Error::from(error));
+                            let mut new_self = Self::Error(id.clone(), Error::Keys);
                             std::mem::swap(&mut new_self, self);
                             return;
                         }
@@ -584,7 +592,7 @@ where
                     Ok(data) => data,
                     Err(error) => {
                         warn!(%error, "Error encrypting message!");
-                        let mut new_self = Self::Error(id.clone(), Error::from(error));
+                        let mut new_self = Self::Error(id.clone(), Error::Keys);
                         std::mem::swap(&mut new_self, self);
                         return;
                     }
@@ -794,7 +802,7 @@ impl Garbage {
     pub async fn read(stream: &mut OwnedReadHalf) -> Result<Self, Error> {
         let size = stream.read_u8().await? as usize;
         if size >= MAX_HANDSHAKE_LENGTH {
-            Err(Error::Handshake(std::line!()))
+            Err(HandshakeError::TooLong(size, MAX_HANDSHAKE_LENGTH).into())
         } else {
             // Reading garbage
             debug!(%size, "Reading garbage");
