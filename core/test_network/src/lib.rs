@@ -52,52 +52,6 @@ pub struct Network<
     pub peers: HashMap<PeerId, Peer<W, G, K, S, B>>,
 }
 
-impl From<Peer> for Box<iroha_core::tx::Peer> {
-    fn from(val: Peer) -> Self {
-        Box::new(iroha_core::tx::Peer { id: val.id.clone() })
-    }
-}
-
-/// Peer structure
-pub struct Peer<
-    W = World,
-    G = GenesisNetwork,
-    K = Kura<W>,
-    S = Sumeragi<G, K, W>,
-    B = BlockSynchronizer<S, W>,
-> where
-    W: WorldTrait,
-    G: GenesisNetworkTrait,
-    K: KuraTrait<World = W>,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
-    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
-{
-    /// id of peer
-    pub id: PeerId,
-    /// api address
-    pub api_address: String,
-    /// p2p address
-    pub p2p_address: String,
-    /// telemetry address
-    pub telemetry_address: String,
-    /// Key pair of peer
-    pub key_pair: KeyPair,
-    /// Broker
-    pub broker: Broker,
-    /// Shutdown handle
-    shutdown: Option<JoinHandle<()>>,
-    /// Iroha itself
-    pub iroha: Option<Iroha<W, G, K, S, B>>,
-}
-
-impl std::cmp::PartialEq for Peer {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl std::cmp::Eq for Peer {}
-
 /// Get a standardised key-pair from the hard-coded literals.
 ///
 /// # Panics
@@ -258,16 +212,27 @@ where
     /// Adds peer to network and waits for it to start block
     /// synchronization.
     pub async fn add_peer(&self) -> (Peer, Client) {
-        let client = Client::test(&self.genesis.api_address, &self.genesis.telemetry_address);
-        let mut peer = Peer::new().expect("Failed to create new peer");
+        let genesis_client =
+            Client::test(&self.genesis.api_address, &self.genesis.telemetry_address);
+
         let mut config = Configuration::test();
         config.sumeragi.trusted_peers.peers = self.peers().map(|peer| &peer.id).cloned().collect();
-        peer.start_with_config(GenesisNetwork::test(false), config)
+
+        let peer = PeerBuilder::new()
+            .with_configuration(config)
+            .with_into_genesis(GenesisNetwork::test(false))
+            .start()
             .await;
+
         time::sleep(Configuration::pipeline_time() + Configuration::block_sync_gossip_time()).await;
+
         let add_peer = RegisterBox::new(DataModelPeer::new(peer.id.clone()));
-        client.submit(add_peer).expect("Failed to add new peer.");
+        genesis_client
+            .submit(add_peer)
+            .expect("Failed to add new peer.");
+
         let client = Client::test(&peer.api_address, &peer.telemetry_address);
+
         (peer, client)
     }
 
@@ -285,7 +250,7 @@ where
         offline_peers: u32,
     ) -> Result<Self> {
         let n_peers = n_peers - 1;
-        let mut genesis = Peer::new()?;
+        let mut genesis = Peer::<W, G, K, S, B>::new()?;
         let mut peers = (0..n_peers)
             .map(|_| Peer::new())
             .map(|result| result.map(|peer| (peer.id.clone(), peer)))
@@ -302,12 +267,20 @@ where
         let online_peers = n_peers - offline_peers;
         let futures = FuturesUnordered::new();
 
-        futures.push(genesis.start_with_config(G::test(true), configuration.clone()));
+        let builder = PeerBuilder::<W, G>::new()
+            .with_into_genesis(G::test(true))
+            .with_configuration(configuration.clone());
+
+        futures.push(builder.start_with_peer(&mut genesis));
         for peer in peers
             .values_mut()
             .choose_multiple(rng, online_peers as usize)
         {
-            futures.push(peer.start_with_config(G::test(false), configuration.clone()));
+            let builder = PeerBuilder::<W, G>::new()
+                .with_into_genesis(G::test(false))
+                .with_configuration(configuration.clone());
+
+            futures.push(builder.start_with_peer(peer));
         }
         futures.collect::<()>().await;
 
@@ -369,6 +342,52 @@ pub fn wait_for_genesis_committed(clients: &[Client], offline_peers: u32) {
     );
 }
 
+/// Peer structure
+pub struct Peer<
+    W = World,
+    G = GenesisNetwork,
+    K = Kura<W>,
+    S = Sumeragi<G, K, W>,
+    B = BlockSynchronizer<S, W>,
+> where
+    W: WorldTrait,
+    G: GenesisNetworkTrait,
+    K: KuraTrait<World = W>,
+    S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
+    B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+{
+    /// The id of the peer
+    pub id: PeerId,
+    /// API address
+    pub api_address: String,
+    /// P2P address
+    pub p2p_address: String,
+    /// Telemetry address
+    pub telemetry_address: String,
+    /// The key-pair for the peer
+    pub key_pair: KeyPair,
+    /// Broker
+    pub broker: Broker,
+    /// Shutdown handle
+    shutdown: Option<JoinHandle<()>>,
+    /// Iroha itself
+    pub iroha: Option<Iroha<W, G, K, S, B>>,
+}
+
+impl From<Peer> for Box<iroha_core::tx::Peer> {
+    fn from(val: Peer) -> Self {
+        Box::new(iroha_core::tx::Peer { id: val.id.clone() })
+    }
+}
+
+impl std::cmp::PartialEq for Peer {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl std::cmp::Eq for Peer {}
+
 impl<W, G, K, S, B> Drop for Peer<W, G, K, S, B>
 where
     W: WorldTrait,
@@ -422,22 +441,13 @@ where
         }
     }
 
-    /// Starts peer with config, permissions and temporary directory
-    ///
-    /// # Panics
-    /// - Starting [`Iroha`] instance fails.
-    /// - Block store path not readable
-    /// - [`Iroha::start_as_task`] failed or produced empty job handle.
-    /// - `receiver` fails to produce a message.
-    ///
-    /// # TODO
-    /// Use *Builder* pattern (#2238)
-    pub async fn start_with_config_permissions_dir(
+    /// Starts a peer with arguments.
+    async fn start(
         &mut self,
         configuration: Configuration,
         genesis: Option<G>,
-        instruction_validator: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
-        query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
+        instruction_validator: IsInstructionAllowedBoxed<W>,
+        query_validator: IsQueryAllowedBoxed<W>,
         temp_dir: Arc<TempDir>,
     ) {
         let mut configuration = self.get_config(configuration);
@@ -455,6 +465,7 @@ where
         let telemetry =
             iroha_logger::init(&configuration.logger).expect("Failed to initialize telemetry");
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+
         let handle = task::spawn(
             async move {
                 // Prevent temporary directory deleting
@@ -462,8 +473,8 @@ where
                 let mut iroha = <Iroha<W, G, K, S, B>>::with_genesis(
                     genesis,
                     configuration,
-                    instruction_validator.into(),
-                    query_validator.into(),
+                    instruction_validator,
+                    query_validator,
                     broker,
                     telemetry,
                 )
@@ -479,50 +490,6 @@ where
         self.iroha = Some(receiver.recv().unwrap());
         time::sleep(Duration::from_millis(300)).await;
         self.shutdown = Some(handle);
-    }
-
-    /// Starts peer with config and permissions
-    ///
-    /// # Panics
-    /// - [`TempDir::new`] failed.
-    /// - Initializing [telemetry](iroha_logger::init()) failed
-    /// - [`Iroha::with_genesis`] failed.
-    /// - Failed to send [`Iroha`] via sender.
-    /// - [`Iroha::start_as_task`] failed or produced empty job handle.
-    pub async fn start_with_config_permissions(
-        &mut self,
-        configuration: Configuration,
-        genesis: Option<G>,
-        instruction_validator: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
-        query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
-    ) {
-        let temp_dir = Arc::new(TempDir::new().expect("Failed to create temp dir."));
-        self.start_with_config_permissions_dir(
-            configuration,
-            genesis,
-            instruction_validator,
-            query_validator,
-            temp_dir,
-        )
-        .await;
-    }
-
-    /// Start peer with config
-    #[inline]
-    pub async fn start_with_config(&mut self, genesis: Option<G>, configuration: Configuration) {
-        self.start_with_config_permissions(configuration, genesis, AllowAll, AllowAll)
-            .await;
-    }
-
-    /// Start peer with config
-    pub async fn start_with_genesis(&mut self, genesis: Option<G>) {
-        self.start_with_config_permissions(Configuration::test(), genesis, AllowAll, AllowAll)
-            .await;
-    }
-
-    /// Start peer
-    pub async fn start(&mut self, submit_genesis: bool) {
-        self.start_with_genesis(G::test(submit_genesis)).await;
     }
 
     /// Creates peer
@@ -553,42 +520,209 @@ where
             broker: Broker::new(),
         })
     }
+}
 
-    /// Starts peer with default configuration.  **IMPORTANT**: Retain
-    /// all three parameters for the scope of the test. Do not ignore
-    /// the first two elements of the tuple.
-    /// Returns its info and client for connecting to it.
-    pub fn start_test_with_runtime() -> (Runtime, Self, Client) {
-        let rt = Runtime::test();
-        let (peer, client) = rt.block_on(Self::start_test_with_permissions(
-            AllowAll.into(),
-            AllowAll.into(),
-        ));
-        (rt, peer, client)
+/// `WithGenesis` structure.
+///
+/// Options for setting up the genesis network for `PeerBuilder`.
+pub enum WithGenesis<G> {
+    /// Use the default genesis network.
+    Default,
+    /// Do not use any genesis networks.
+    None,
+    /// Use the given genesis network.
+    Has(G),
+}
+
+impl<G> Default for WithGenesis<G> {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+impl<G> From<Option<G>> for WithGenesis<G> {
+    fn from(x: Option<G>) -> Self {
+        match x {
+            None => Self::None,
+            Some(genesis) => Self::Has(genesis),
+        }
+    }
+}
+
+/// `PeerBuilder` structure that helps to create a peer.
+pub struct PeerBuilder<W = World, G = GenesisNetwork>
+where
+    W: WorldTrait,
+    G: GenesisNetworkTrait,
+{
+    configuration: Option<Configuration>,
+    genesis: WithGenesis<G>,
+    instruction_validator: Option<IsInstructionAllowedBoxed<W>>,
+    query_validator: Option<IsQueryAllowedBoxed<W>>,
+    temp_dir: Option<Arc<TempDir>>,
+}
+
+impl<W, G> PeerBuilder<W, G>
+where
+    W: WorldTrait,
+    G: GenesisNetworkTrait,
+{
+    /// Creates [`PeerBuilder`].
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// Starts peer with default configuration and specified permissions.
-    /// Returns its info and client for connecting to it.
-    pub async fn start_test_with_permissions(
-        instruction_validator: IsInstructionAllowedBoxed<W>,
-        query_validator: IsQueryAllowedBoxed<W>,
-    ) -> (Self, Client) {
-        let mut configuration = Configuration::test();
-        let mut peer = Self::new().expect("Failed to create peer.");
-        configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
-        peer.start_with_config_permissions(
-            configuration.clone(),
-            G::test(true),
+    /// Sets the optional genesis network.
+    #[must_use]
+    pub fn with_into_genesis(mut self, genesis: impl Into<WithGenesis<G>>) -> Self {
+        self.genesis = genesis.into();
+        self
+    }
+
+    /// Sets the genesis network.
+    #[must_use]
+    pub fn with_genesis(mut self, genesis: G) -> Self {
+        self.genesis = WithGenesis::<G>::Has(genesis);
+        self
+    }
+
+    /// Sets the test genesis network.
+    #[must_use]
+    pub fn with_test_genesis(self, submit_genesis: bool) -> Self {
+        self.with_into_genesis(G::test(submit_genesis))
+    }
+
+    /// Sets Iroha configuration
+    #[must_use]
+    pub fn with_configuration(mut self, configuration: Configuration) -> Self {
+        self.configuration.replace(configuration);
+        self
+    }
+
+    /// Sets permissions for instructions.
+    #[must_use]
+    pub fn with_instruction_validator(
+        mut self,
+        instruction_validator: impl Into<IsInstructionAllowedBoxed<W>> + Send + 'static,
+    ) -> Self {
+        self.instruction_validator
+            .replace(instruction_validator.into());
+        self
+    }
+
+    /// Sets permissions for queries.
+    #[must_use]
+    pub fn with_query_validator(
+        mut self,
+        query_validator: impl Into<IsQueryAllowedBoxed<W>> + Send + 'static,
+    ) -> Self {
+        self.query_validator.replace(query_validator.into());
+        self
+    }
+
+    /// Sets the directory to be used as a stub.
+    #[must_use]
+    pub fn with_dir(mut self, temp_dir: Arc<TempDir>) -> Self {
+        self.temp_dir.replace(temp_dir);
+        self
+    }
+
+    /// Accepts a peer and starts it.
+    pub async fn start_with_peer<K, S, B>(self, peer: &mut Peer<W, G, K, S, B>)
+    where
+        K: KuraTrait<World = W>,
+        S: SumeragiTrait<GenesisNetwork = G, Kura = K, World = W>,
+        B: BlockSynchronizerTrait<Sumeragi = S, World = W>,
+    {
+        let configuration = self.configuration.unwrap_or_else(|| {
+            let mut config = Configuration::test();
+            config.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
+            config
+        });
+        let genesis = match self.genesis {
+            WithGenesis::<G>::Default => G::test(true),
+            WithGenesis::<G>::None => None,
+            WithGenesis::<G>::Has(genesis) => Some(genesis),
+        };
+        let instruction_validator = self
+            .instruction_validator
+            .unwrap_or_else(|| AllowAll.into());
+        let query_validator = self.query_validator.unwrap_or_else(|| AllowAll.into());
+        let temp_dir = self
+            .temp_dir
+            .unwrap_or_else(|| Arc::new(TempDir::new().expect("Failed to create temp dir.")));
+
+        peer.start(
+            configuration,
+            genesis,
             instruction_validator,
             query_validator,
+            temp_dir,
         )
         .await;
+    }
+
+    /// Creates and starts a peer with preapplied arguments.
+    pub async fn start(
+        self,
+    ) -> Peer<W, G, Kura<W>, Sumeragi<G, Kura<W>, W>, BlockSynchronizer<Sumeragi<G, Kura<W>, W>, W>>
+    {
+        let mut peer = Peer::new().expect("Failed to create a peer.");
+        self.start_with_peer(&mut peer).await;
+        peer
+    }
+
+    /// Creates and starts a peer, creates a client and connects it to the peer and returns both.
+    pub async fn start_with_client(
+        self,
+    ) -> (
+        Peer<W, G, Kura<W>, Sumeragi<G, Kura<W>, W>, BlockSynchronizer<Sumeragi<G, Kura<W>, W>, W>>,
+        Client,
+    ) {
+        let configuration = self
+            .configuration
+            .clone()
+            .unwrap_or_else(Configuration::test);
+
+        let peer = self.start().await;
+
         let client = Client::test(&peer.api_address, &peer.telemetry_address);
+
         time::sleep(Duration::from_millis(
             configuration.sumeragi.pipeline_time_ms(),
         ))
         .await;
+
         (peer, client)
+    }
+
+    /// Creates a peer with a client, creates a runtime, and synchronously starts the peer on the runtime.
+    pub fn start_with_runtime(self) -> PeerWithRuntimeAndClient<W, G> {
+        let rt = Runtime::test();
+        let (peer, client) = rt.block_on(self.start_with_client());
+        (rt, peer, client)
+    }
+}
+
+type PeerWithRuntimeAndClient<W, G> = (
+    Runtime,
+    Peer<W, G, Kura<W>, Sumeragi<G, Kura<W>, W>, BlockSynchronizer<Sumeragi<G, Kura<W>, W>, W>>,
+    Client,
+);
+
+impl<W, G> Default for PeerBuilder<W, G>
+where
+    W: WorldTrait,
+    G: GenesisNetworkTrait,
+{
+    fn default() -> Self {
+        Self {
+            genesis: WithGenesis::<G>::default(),
+            configuration: None,
+            instruction_validator: None,
+            query_validator: None,
+            temp_dir: None,
+        }
     }
 }
 

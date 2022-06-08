@@ -54,7 +54,7 @@ pub struct KuraWithIO<W: WorldTrait, IO> {
     merkle_tree: MerkleTree<VersionedCommittedBlock>,
     wsv: Arc<WorldStateView<W>>,
     broker: Broker,
-    mailbox: u32,
+    actor_channel_capacity: u32,
 }
 
 /// Production qualification of `KuraWithIO`
@@ -71,7 +71,7 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
         blocks_per_file: NonZeroU64,
         wsv: Arc<WorldStateView<W>>,
         broker: Broker,
-        mailbox: u32,
+        actor_channel_capacity: u32,
         io: IO,
     ) -> Result<Self> {
         Ok(Self {
@@ -80,7 +80,7 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
             merkle_tree: MerkleTree::new(),
             wsv,
             broker,
-            mailbox,
+            actor_channel_capacity,
         })
     }
 }
@@ -106,7 +106,7 @@ pub trait KuraTrait:
         blocks_per_file: NonZeroU64,
         wsv: Arc<WorldStateView<Self::World>>,
         broker: Broker,
-        mailbox: u32,
+        actor_channel_capacity: u32,
     ) -> Result<Self>;
 
     /// Loads kura from configuration
@@ -123,7 +123,7 @@ pub trait KuraTrait:
             configuration.blocks_per_storage_file,
             wsv,
             broker,
-            configuration.mailbox,
+            configuration.actor_channel_capacity,
         )
         .await
     }
@@ -156,8 +156,8 @@ impl<W: WorldTrait> KuraTrait for Kura<W> {
 
 #[async_trait::async_trait]
 impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
-    fn mailbox_capacity(&self) -> u32 {
-        self.mailbox
+    fn actor_channel_capacity(&self) -> u32 {
+        self.actor_channel_capacity
     }
 
     async fn on_start(&mut self, ctx: &mut Context<Self>) {
@@ -178,7 +178,7 @@ impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
                     .await;
             }
             Err(error) => {
-                error!(%error, "Initialization of kura failed");
+                error!(%error, "Kura initialization failed. Try removing the peer's `blocks` directory and restarting the peer. You can also try rebuilding the peer altogether.");
                 panic!("Kura initialization failed");
             }
         }
@@ -539,7 +539,7 @@ pub mod config {
 
     const DEFAULT_BLOCKS_PER_STORAGE_FILE: u64 = 1000_u64;
     const DEFAULT_BLOCK_STORE_PATH: &str = "./blocks";
-    const DEFAULT_MAILBOX_SIZE: u32 = 100;
+    const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
     /// Configuration of kura
     #[derive(Clone, Deserialize, Serialize, Debug, Configurable, PartialEq, Eq)]
@@ -555,9 +555,9 @@ pub mod config {
         /// Maximum number of blocks to write into single storage file
         #[serde(default = "default_blocks_per_storage_file")]
         pub blocks_per_storage_file: NonZeroU64,
-        /// Default mailbox size
-        #[serde(default = "default_mailbox_size")]
-        pub mailbox: u32,
+        /// Default buffer capacity of actor's MPSC channel
+        #[serde(default = "default_actor_channel_capacity")]
+        pub actor_channel_capacity: u32,
     }
 
     impl Default for KuraConfiguration {
@@ -566,7 +566,7 @@ pub mod config {
                 init_mode: Mode::default(),
                 block_store_path: default_block_store_path(),
                 blocks_per_storage_file: default_blocks_per_storage_file(),
-                mailbox: default_mailbox_size(),
+                actor_channel_capacity: default_actor_channel_capacity(),
             }
         }
     }
@@ -596,8 +596,8 @@ pub mod config {
         )
     }
 
-    const fn default_mailbox_size() -> u32 {
-        DEFAULT_MAILBOX_SIZE
+    const fn default_actor_channel_capacity() -> u32 {
+        DEFAULT_ACTOR_CHANNEL_CAPACITY
     }
 }
 

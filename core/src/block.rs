@@ -33,11 +33,12 @@ use crate::{
 };
 
 const PIPELINE_TIME_MS: u64 =
-    DEFAULT_BLOCK_TIME_MS + DEFAULT_COMMIT_TIME_MS + DEFAULT_TX_RECEIPT_TIME_MS;
+    DEFAULT_BLOCK_TIME_MS + DEFAULT_COMMIT_TIME_LIMIT_MS + DEFAULT_TX_RECEIPT_TIME_LIMIT_MS;
 
 /// Default estimation of consensus duration
 #[allow(clippy::integer_division)]
-pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 = (DEFAULT_COMMIT_TIME_MS + PIPELINE_TIME_MS) / 2;
+pub const DEFAULT_CONSENSUS_ESTIMATION_MS: u64 =
+    (DEFAULT_COMMIT_TIME_LIMIT_MS + PIPELINE_TIME_MS) / 2;
 
 /// The chain of the previous block hash. If there is no previous
 /// block - the blockchain is empty.
@@ -724,6 +725,8 @@ impl VersionedCommittedBlock {
 
     /// Converts block to [`iroha_data_model`] representation for use in e.g. queries.
     pub fn into_value(self) -> BlockValue {
+        let current_block_hash = self.hash();
+
         let CommittedBlock {
             header,
             rejected_transactions,
@@ -731,7 +734,6 @@ impl VersionedCommittedBlock {
             event_recommendations,
             ..
         } = self.into_v1();
-
         let BlockHeader {
             timestamp,
             height,
@@ -749,6 +751,7 @@ impl VersionedCommittedBlock {
             transactions_hash,
             rejected_transactions_hash,
             invalidated_blocks_hashes: invalidated_blocks_hashes.into_iter().map(|h| *h).collect(),
+            current_block_hash: Hash::from(current_block_hash),
         };
 
         BlockValue {

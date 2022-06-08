@@ -289,7 +289,7 @@ where
 #[async_trait::async_trait]
 pub trait Actor: Send + Sized + 'static {
     /// Capacity of actor queue
-    fn mailbox_capacity(&self) -> u32 {
+    fn actor_channel_capacity(&self) -> u32 {
         100
     }
 
@@ -305,7 +305,7 @@ pub trait Actor: Send + Sized + 'static {
 
     /// Initialize actor with its address.
     fn preinit(self) -> InitializedActor<Self> {
-        let mailbox_capacity = self.mailbox_capacity();
+        let mailbox_capacity = self.actor_channel_capacity();
         InitializedActor::new(
             self,
             mailbox_capacity

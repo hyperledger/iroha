@@ -60,7 +60,7 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
         Broker::new(),
         config.torii.p2p_addr.clone(),
         config.public_key.clone(),
-        config.network.mailbox,
+        config.network.actor_channel_capacity,
     )
     .await
     .expect("Failed to create network")

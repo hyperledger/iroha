@@ -92,16 +92,16 @@ impl Default for Configuration {
 #[serde(rename_all = "UPPERCASE")]
 #[config(env_prefix = "IROHA_NETWORK_")]
 pub struct NetworkConfiguration {
-    /// Actor mailbox size
-    pub mailbox: u32,
+    /// Buffer capacity of actor's MPSC channel
+    pub actor_channel_capacity: u32,
 }
 
-const DEFAULT_MAILBOX_SIZE: u32 = 100;
+const DEFAULT_ACTOR_CHANNEL_CAPACITY: u32 = 100;
 
 impl Default for NetworkConfiguration {
     fn default() -> Self {
         Self {
-            mailbox: DEFAULT_MAILBOX_SIZE,
+            actor_channel_capacity: DEFAULT_ACTOR_CHANNEL_CAPACITY,
         }
     }
 }

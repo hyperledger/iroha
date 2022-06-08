@@ -219,6 +219,9 @@ The provided `docker-compose` file showcases a minimum viable network and the ge
 
 # Further Reading
 
+We encourage you to check out our [Iroha 2 Tutorial](https://hyperledger.github.io/iroha-2-docs/) first. It is suitable for both experienced developers and prospective users of Iroha 2, and it provides language-specific guides for Bash, Python, Rust, Kotlin/Java, and Javascript/TypeScript.
+
+* [Iroha 2 Tutorial](https://hyperledger.github.io/iroha-2-docs/)
 * [Iroha 2 Whitepaper](./docs/source/iroha_2_whitepaper.md)
 * [Minting your first asset (tutorial)](./docs/source/tutorials/mint-your-first-asset.md)
 * [Glossary](./docs/source/references/glossary.md)

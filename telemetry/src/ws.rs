@@ -35,7 +35,7 @@ pub async fn start(config: &crate::Configuration, telemetry: Receiver<Telemetry>
             name.clone(),
             write,
             WebsocketSinkFactory::new(url.clone()),
-            RetryPeriod::new(config.min_period, config.max_exponent),
+            RetryPeriod::new(config.min_retry_period, config.max_retry_delay_exponent),
             internal_sender,
         );
         tokio::task::spawn(async move {
