@@ -4,9 +4,7 @@
 
 use std::{io, net::AddrParseError};
 
-use iroha_crypto::ursa::{
-    encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256, CryptoError,
-};
+use iroha_crypto::ursa::{encryption::symm::prelude::ChaCha20Poly1305, kex::x25519::X25519Sha256};
 pub use network::{ConnectPeer, DisconnectPeer, NetworkBase, Post};
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
@@ -37,6 +35,29 @@ pub enum Error {
     /// Failed to parse address
     #[error("Failed to parse socket address.")]
     Addr(#[source] AddrParseError),
+}
+
+/// Error which occurs in the handshake process specifically.
+#[derive(Clone, Copy, Debug, Error, iroha_actor::Message)]
+pub enum HandshakeError {
+    /// Failure when sending client `hello`.
+    #[error("Failure when sending client `hello` message")]
+    SendHello,
+    /// Failure when reading client `hello`.
+    #[error("Failure when sending client `hello` message")]
+    ReadHello,
+    /// Peer has been disconnected
+    #[error("Peer disconnected.")]
+    Disconnected,
+    /// Peer in broken state with Error.
+    #[error("Peer is in a broken state.")]
+    BrokenPeer,
+    /// Peer is not in the correct state, but it should be.
+    #[error("Peer is not in the correct state. This should never happen. ")]
+    WrongState,
+    /// Too much data in read half
+    #[error("The read half of the connection has too much data. Expected")]
+    TooLong(usize, usize),
 }
 
 impl From<io::Error> for Error {

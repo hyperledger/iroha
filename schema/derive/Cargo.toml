@@ -9,11 +9,11 @@ publish = false
 proc-macro = true
 
 [dependencies]
-syn = { version = "1.0.72", default-features = false, features = ["full"] }
-proc-macro2 = "1.0.33"
-quote = "1.0"
+syn = { version = "1.0.96", default-features = false, features = ["full"] }
+proc-macro2 = "1.0.39"
+quote = "1.0.18"
 
 [dev-dependencies]
 iroha_schema = { path = "../"}
 
-trybuild = "1.0.53"
+trybuild = "1.0.63"

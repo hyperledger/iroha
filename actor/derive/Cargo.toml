@@ -8,12 +8,12 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-syn = { version = "1.0", default-features = false }
-quote = "1.0"
-proc-macro2 = "1.0"
-proc-macro-error = "1.0"
+syn = { version = "1.0.96", default-features = false }
+quote = "1.0.18"
+proc-macro2 = "1.0.39"
+proc-macro-error = "1.0.4"
 
 [dev-dependencies]
 iroha_actor = { version = "=2.0.0-pre-rc.5", path = "../" }
 
-trybuild = "1.0.53"
+trybuild = "1.0.63"

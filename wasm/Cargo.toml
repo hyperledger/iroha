@@ -25,7 +25,7 @@ debug = []
 iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../data_model", default-features = false }
 iroha_wasm_derive = { path = "derive" }
 
-parity-scale-codec = { version = "2.3.1", default-features = false }
+parity-scale-codec = { version = "3.1.2", default-features = false, features = ["derive", "full"] } # https://github.com/paritytech/parity-scale-codec/issues/307
 wee_alloc = "0.4.5"
 
 [dev-dependencies]

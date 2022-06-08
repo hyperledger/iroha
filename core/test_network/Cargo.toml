@@ -19,14 +19,14 @@ iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../../logger" }
 iroha_actor = { version = "=2.0.0-pre-rc.5", path = "../../actor" }
 iroha = { path = "../../cli", features = ["test-network"] }
 
-eyre = "0.6.5"
-tempfile = "3"
-unique_port = "0.1.0"
-tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
-rand = "0.8"
-futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
+eyre = "0.6.8"
+tempfile = "3.3.0"
+unique_port = "0.1.1"
+tokio = { version = "1.19.2", features = ["rt", "rt-multi-thread", "macros"] }
+rand = "0.8.5"
+futures = { version = "0.3.21", default-features = false, features = ["std", "async-await"] }
 
 [dev-dependencies]
 
-async-trait = "0.1"
-once_cell = "1.8.0"
+async-trait = "0.1.56"
+once_cell = "1.12.0"
