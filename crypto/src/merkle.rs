@@ -200,21 +200,21 @@ impl<T> Node<T> {
     }
 
     fn bfs(&self) -> Vec<&Node<T>> {
-        Self::_bfs_traverse(vec![self])
+        let mut nodes = vec![self];
+        Self::_bfs_traverse(&mut nodes);
+        nodes
     }
 
-    fn _bfs_traverse(node_list: Vec<&Node<T>>) -> Vec<&Node<T>> {
+    fn _bfs_traverse(node_list: &mut Vec<&Node<T>>) {
         if node_list.is_empty() {
-            return vec![];
+            return;
         }
-        let next_list = node_list
+        let mut next_list = node_list
             .iter()
             .flat_map(|x| x.children())
             .collect::<Vec<_>>();
-        let mut nodes = node_list;
-        let mut descendant_nodes = Self::_bfs_traverse(next_list);
-        nodes.append(&mut descendant_nodes);
-        nodes
+        Self::_bfs_traverse(&mut next_list);
+        node_list.append(&mut next_list);
     }
 
     fn children(&self) -> Vec<&Node<T>> {
