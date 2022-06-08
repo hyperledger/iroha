@@ -57,7 +57,7 @@ jobs:
       - name: Run tests and generate lcov report
         if: always()
         # Use `cargo whatfeatures .` to get all features
-        # Explicit features used because we don't want `iroha_core/mock_world` feature to be enabled with `--all-features`
+        # Explicit features used because we don't want `iroha_core/mock` feature to be enabled with `--all-features`
         run: |
           mold --run cargo llvm-cov --features " \
           iroha/default iroha/bridge iroha/dev-telemetry iroha/dex iroha/iroha_schema_gen iroha/iroha_telemetry iroha/test-network \
@@ -92,7 +92,7 @@ jobs:
       - name: Run tests
         if: always()
         # Use `cargo whatfeatures .` to get all features
-        # Explicit features used because we don't want `iroha_core/mock_world` feature to be enabled with `--all-features`
+        # Explicit features used because we don't want `iroha_core/mock` feature to be enabled with `--all-features`
         run: |
           mold --run cargo test --test '*' --features " \
           iroha/default iroha/bridge iroha/dev-telemetry iroha/dex iroha/iroha_schema_gen iroha/iroha_telemetry iroha/test-network \

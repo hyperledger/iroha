@@ -28,7 +28,7 @@ dev-telemetry = ["telemetry", "iroha_telemetry/dev-telemetry"]
 # Support Prometheus metrics. See https://prometheus.io/.
 expensive-telemetry = ["iroha_telemetry/metric-instrumentation"]
 # Support for mocking World object
-mock_world = ["mockall"]
+mock = ["mockall"]
 
 [badges]
 is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }

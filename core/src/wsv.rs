@@ -40,7 +40,7 @@ mod __world {
     /// The global entity consisting of `domains`, `triggers` and etc.
     /// For example registration of domain, will have this as an ISI target.
     #[derive(Debug, Default, Clone, Getters)]
-    #[cfg_attr(feature = "mock_world", allow(dead_code))]
+    #[cfg_attr(feature = "mock", allow(dead_code))]
     #[getset(get = "pub")]
     pub struct World {
         /// Iroha parameters.
@@ -80,7 +80,7 @@ mod __world {
         }
     }
 
-    #[cfg(feature = "mock_world")]
+    #[cfg(feature = "mock")]
     mockall::mock! {
         pub World {
             /// Creates an empty `World`.
@@ -120,7 +120,7 @@ mod __world {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(feature = "mock_world")] {
+    if #[cfg(feature = "mock")] {
         pub use __world::MockWorld as World;
         pub use __world::World as OriginalWorld;
     } else {

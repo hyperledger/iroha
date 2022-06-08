@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 # Enable mock tests
-mock = ["iroha_core/mock_world"]
+mock = ["iroha_core/mock"]
 # Create a mock query for testing
 query = []
 
