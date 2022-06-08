@@ -86,6 +86,8 @@ pub enum QueryBox {
     FindTriggerById(FindTriggerById),
     /// [`FindTriggerKeyValueByIdAndKey`] variant.
     FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
+    /// [`FindTriggersByDomainId`] variant.
+    FindTriggersByDomainId(FindTriggersByDomainId),
     /// [`FindAllRoles`] variant.
     FindAllRoles(FindAllRoles),
     /// [`FindAllRoleIds`] variant.
@@ -964,7 +966,8 @@ pub mod trigger {
 
     use super::Query;
     use crate::{
-        events::FilterBox, expression::EvaluatesTo, trigger::Trigger, Identifiable, Name, Value,
+        domain::prelude::*, events::FilterBox, expression::EvaluatesTo, trigger::Trigger,
+        Identifiable, Name, Value,
     };
 
     /// Find all currently active (as in not disabled and/or expired)
@@ -1012,9 +1015,32 @@ pub mod trigger {
         type Output = Value;
     }
 
+    /// Find Triggers given domain ID.
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct FindTriggersByDomainId {
+        /// `DomainId` under which triggers should be found.
+        pub domain_id: EvaluatesTo<DomainId>,
+    }
+
+    impl FindTriggersByDomainId {
+        /// Construct [`FindTriggersByDomainId`].
+        pub fn new(domain_id: impl Into<EvaluatesTo<DomainId>>) -> Self {
+            Self {
+                domain_id: domain_id.into(),
+            }
+        }
+    }
+
+    impl Query for FindTriggersByDomainId {
+        type Output = Vec<Trigger<FilterBox>>;
+    }
+
     pub mod prelude {
         //! Prelude Re-exports most commonly used traits, structs and macros from this crate.
-        pub use super::{FindAllActiveTriggerIds, FindTriggerById, FindTriggerKeyValueByIdAndKey};
+        pub use super::{
+            FindAllActiveTriggerIds, FindTriggerById, FindTriggerKeyValueByIdAndKey,
+            FindTriggersByDomainId,
+        };
     }
 }
 

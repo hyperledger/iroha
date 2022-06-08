@@ -1137,6 +1137,16 @@ pub mod transaction {
     }
 }
 
+pub mod trigger {
+    //! Module with queries for triggers
+    use super::*;
+
+    /// Get query to get triggers by domain id
+    pub fn by_domain_id(domain_id: impl Into<EvaluatesTo<DomainId>>) -> FindTriggersByDomainId {
+        FindTriggersByDomainId::new(domain_id)
+    }
+}
+
 pub mod role {
     //! Module with queries for roles
     use super::*;
