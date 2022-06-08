@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use iroha_core::wsv::{World, WorldStateView};
 use iroha_telemetry_derive::metrics;
 
