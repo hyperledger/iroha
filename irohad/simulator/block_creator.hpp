@@ -21,7 +21,7 @@ namespace iroha {
        * Creates a block from given proposal and top block info
        */
       virtual BlockCreatorEvent processVerifiedProposal(
-          VerifiedProposalCreatorEvent const &event) = 0;
+          VerifiedProposalCreatorEvent const &event, TopBlockInfo const &prev_block_info) = 0;
 
       virtual ~BlockCreator() = default;
     };

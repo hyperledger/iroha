@@ -44,7 +44,7 @@ namespace iroha {
           std::shared_ptr<LedgerState const> const &ledger_state) override;
 
       BlockCreatorEvent processVerifiedProposal(
-          VerifiedProposalCreatorEvent const &event) override;
+          VerifiedProposalCreatorEvent const &event, TopBlockInfo const &prev_block_info) override;
 
      private:
       // internal

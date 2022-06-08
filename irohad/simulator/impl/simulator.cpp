@@ -52,10 +52,9 @@ namespace iroha {
     }
 
     BlockCreatorEvent Simulator::processVerifiedProposal(
-        VerifiedProposalCreatorEvent const &event) {
+        VerifiedProposalCreatorEvent const &event, TopBlockInfo const &prev_block_info) {
       if (event.verified_proposal_result) {
         auto verified_proposal_and_errors = getVerifiedProposalUnsafe(event);
-        auto const &top_block_info = event.ledger_state->top_block_info;
         auto const &proposal = verified_proposal_and_errors->verified_proposal;
         if (proposal) {
           log_->info("process verified proposal: {}", *proposal);
@@ -70,8 +69,8 @@ namespace iroha {
           rejected_hashes.push_back(rejected_tx.tx_hash);
         }
         std::shared_ptr<shared_model::interface::Block> block =
-            block_factory_->unsafeCreateBlock(top_block_info.height + 1,
-                                              top_block_info.top_hash,
+            block_factory_->unsafeCreateBlock(prev_block_info.height + 1,
+                                              prev_block_info.top_hash,
                                               proposal->createdTime(),
                                               proposal->transactions(),
                                               std::move(rejected_hashes));
