@@ -58,7 +58,7 @@ impl VerifiedQueryRequest {
         self,
         wsv: &WorldStateView,
         query_validator: &IsQueryAllowedBoxed,
-    ) -> Result<ValidQueryRequest, QueryError> {
+    ) -> Result<(ValidQueryRequest, PredicateBox), QueryError> {
         let account_has_public_key = wsv.map_account(&self.payload.account_id, |account| {
             account.contains_signatory(self.signature.public_key())
         })?;
@@ -70,7 +70,10 @@ impl VerifiedQueryRequest {
         query_validator
             .check(&self.payload.account_id, &self.payload.query, wsv)
             .map_err(QueryError::Permission)?;
-        Ok(ValidQueryRequest::new(self.payload.query))
+        Ok((
+            ValidQueryRequest::new(self.payload.query),
+            self.payload.filter,
+        ))
     }
 }
 
@@ -120,7 +123,7 @@ pub(crate) async fn handle_queries(
     pagination: Pagination,
     request: VerifiedQueryRequest,
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
-    let valid_request = request.validate(&wsv, &query_validator)?;
+    let (valid_request, filter) = request.validate(&wsv, &query_validator)?;
     let original_result = valid_request.execute(&wsv)?;
     let total: u64 = original_result
         .len()
