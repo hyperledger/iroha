@@ -27,6 +27,8 @@ ffi_api = ["iroha_ffi", "iroha_crypto/ffi_api"]
 
 # Expose API for mutating structures (Internal use only)
 mutable_api = []
+# Workaround for running `cargo test --all-features`
+mock_world = ["iroha_core/mock_world"]
 
 [dependencies]
 iroha_data_primitives = { path = "primitives", version = "=2.0.0-pre-rc.5", default-features = false }

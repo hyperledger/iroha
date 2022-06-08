@@ -1,17 +1,8 @@
 #![allow(clippy::too_many_lines, clippy::restriction)]
 
-use std::{str::FromStr as _, thread, time::Duration};
+use std::str::FromStr as _;
 
-use iroha::samples::*;
-use iroha_client::{client::Client, samples::get_client_config};
-use iroha_core::{
-    genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
-    prelude::*,
-};
 use iroha_data_model::{prelude::*, ParseError};
-use small::SmallStr;
-use test_network::{Peer as TestPeer, PeerBuilder, TestRuntime};
-use tokio::runtime::Runtime;
 
 fn asset_id_new(
     definition_name: &str,
@@ -115,6 +106,7 @@ fn find_rate_and_check_it_greater_than_value_predefined_isi_should_be_valid() {
     let _instruction = FindRateAndCheckItGreaterThanValue::new("btc", "eth", 10).into_isi();
 }
 
+#[cfg_attr(feature = "mock_world", allow(dead_code))]
 mod register {
     use super::*;
 
@@ -140,9 +132,22 @@ mod register {
     }
 }
 
+#[cfg(not(feature = "mock_world"))]
 #[allow(unused_must_use)]
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
+    use std::{thread, time::Duration};
+
+    use iroha::samples::*;
+    use iroha_client::{client::Client, samples::get_client_config};
+    use iroha_core::{
+        genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
+        prelude::*,
+    };
+    use small::SmallStr;
+    use test_network::{Peer as TestPeer, PeerBuilder, TestRuntime};
+    use tokio::runtime::Runtime;
+
     let kp = KeyPair::new(
         PublicKey::from_str(
             r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,

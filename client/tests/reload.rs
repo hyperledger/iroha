@@ -1,4 +1,6 @@
+#![cfg(not(feature = "mock_world"))]
 #![allow(clippy::restriction)]
+
 use iroha_config::{logger::Level::*, PostConfiguration};
 use test_network::PeerBuilder;
 

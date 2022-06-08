@@ -6,6 +6,7 @@ use iroha_core::smartcontracts::wasm;
 /// Memory is initialized with the given hex encoded string value
 // It's expected that hex value is of even length
 #[allow(clippy::integer_division)]
+#[cfg_attr(feature = "mock_world", allow(dead_code))]
 pub fn wasm_template(hex_val: &str) -> String {
     format!(
         r#"
