@@ -3,7 +3,7 @@
 use std::{str::FromStr as _, thread};
 
 use iroha_client::client::{self, Client};
-use iroha_core::{prelude::AllowAll, smartcontracts::isi::permissions::combinators::DenyAll};
+use iroha_core::smartcontracts::isi::permissions::combinators::DenyAll;
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::{private_blockchain, public_blockchain};
 use test_network::{PeerBuilder, *};

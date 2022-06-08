@@ -312,7 +312,7 @@ pub mod config {
     use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
     use serde::{Deserialize, Serialize};
 
-    const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT: u64 = 100;
+    const DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT: u64 = 100;
     const DEFAULT_WAIT_FOR_PEERS_RETRY_PERIOD_MS: u64 = 500;
     const DEFAULT_GENESIS_SUBMISSION_DELAY_MS: u64 = 1000;
 
@@ -371,8 +371,8 @@ pub mod config {
         }
     }
 
-    const fn default_wait_for_peers_retry_count() -> u64 {
-        DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT
+    const fn default_wait_for_peers_retry_count_limit() -> u64 {
+        DEFAULT_WAIT_FOR_PEERS_RETRY_COUNT_LIMIT
     }
 
     const fn default_wait_for_peers_retry_period_ms() -> u64 {

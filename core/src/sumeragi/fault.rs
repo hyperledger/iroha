@@ -151,8 +151,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> SumeragiTrait
 
 #[async_trait::async_trait]
 impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Actor for SumeragiWithFault<G, K, F> {
-    fn mailbox_capacity(&self) -> u32 {
-        self.mailbox
+    fn actor_channel_capacity(&self) -> u32 {
+        self.actor_channel_capacity
     }
 
     async fn on_start(&mut self, ctx: &mut Context<Self>) {

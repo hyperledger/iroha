@@ -95,8 +95,8 @@ pub struct ReceiveUpdates;
 
 #[async_trait::async_trait]
 impl<S: SumeragiTrait> Actor for BlockSynchronizer<S> {
-    fn mailbox_capacity(&self) -> u32 {
-        self.mailbox
+    fn actor_channel_capacity(&self) -> u32 {
+        self.actor_channel_capacity
     }
 
     async fn on_start(&mut self, ctx: &mut Context<Self>) {

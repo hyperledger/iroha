@@ -12,13 +12,11 @@ mock = ["iroha_core/mock_world"]
 query = []
 
 [dependencies]
-iroha_core = { version = "=2.0.0-pre-rc.4", path = "../../core"}
-iroha_client = { version = "=2.0.0-pre-rc.4", path = "../../client" }
-iroha_data_model = { version = "=2.0.0-pre-rc.4", path = "../../data_model" }
-iroha_logger = { version = "=2.0.0-pre-rc.4", path = "../../logger" }
-iroha_config = { version = "=2.0.0-pre-rc.4", path = "../../config" }
-iroha_p2p = { version = "=2.0.0-pre-rc.4", path = "../../p2p" }
-iroha_actor = { version = "=2.0.0-pre-rc.4", path = "../../actor" }
+iroha_core = { version = "=2.0.0-pre-rc.5", path = "../../core" }
+iroha_client = { version = "=2.0.0-pre-rc.5", path = "../../client" }
+iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../../data_model" }
+iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../../logger" }
+iroha_actor = { version = "=2.0.0-pre-rc.5", path = "../../actor" }
 iroha = { path = "../../cli", features = ["test-network"] }
 
 eyre = "0.6.5"
@@ -29,7 +27,6 @@ rand = "0.8"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
 
 [dev-dependencies]
-iroha_crypto = { version = "=2.0.0-pre-rc.4", path = "../../crypto" }
 
 async-trait = "0.1"
 once_cell = "1.8.0"

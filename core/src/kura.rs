@@ -149,8 +149,8 @@ impl KuraTrait for Kura {
 
 #[async_trait::async_trait]
 impl<IO: DiskIO> Actor for KuraWithIO<IO> {
-    fn mailbox_capacity(&self) -> u32 {
-        self.mailbox
+    fn actor_channel_capacity(&self) -> u32 {
+        self.actor_channel_capacity
     }
 
     async fn on_start(&mut self, ctx: &mut Context<Self>) {

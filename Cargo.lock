@@ -1864,7 +1864,6 @@ dependencies = [
  "async-trait",
  "byte-unit",
  "cfg-if",
- "color-eyre",
  "criterion",
  "crossbeam-queue",
  "dashmap",
