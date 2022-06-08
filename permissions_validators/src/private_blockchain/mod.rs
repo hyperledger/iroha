@@ -11,11 +11,14 @@ pub fn default_instructions_permissions() -> IsInstructionAllowedBoxed {
         register::ProhibitRegisterDomains.or(register::GrantedAllowedRegisterDomains),
     )
     .all_should_succeed()
+    .build()
 }
 
 /// A preconfigured set of permissions for simple use cases.
 pub fn default_query_permissions() -> IsQueryAllowedBoxed {
-    ValidatorBuilder::with_validator(AllowAll).all_should_succeed()
+    ValidatorBuilder::with_validator(AllowAll)
+        .all_should_succeed()
+        .build()
 }
 
 /// Prohibits using the [`Grant`] instruction at runtime.  This means

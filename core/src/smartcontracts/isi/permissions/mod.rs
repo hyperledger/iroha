@@ -50,6 +50,8 @@ pub enum ValidatorType {
 pub mod error {
     //! Contains errors structures
 
+    use std::{convert::Infallible, str::FromStr};
+
     use super::{Decode, Encode, IntoSchema, ValidatorType};
     use crate::smartcontracts::Mismatch;
 
@@ -80,13 +82,21 @@ pub mod error {
             Self::Custom(s)
         }
     }
+
+    impl FromStr for DenialReason {
+        type Err = Infallible;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            Ok(Self::Custom(s.to_owned()))
+        }
+    }
 }
 
 pub mod prelude {
     //! Exports common types for permissions.
 
     pub use super::{
-        builder::ValidatorBuilder,
+        builder::Validator as ValidatorBuilder,
         combinators::{AllowAll, ValidatorApplyOr as _},
         error::DenialReason,
         roles::{IsGrantAllowed, IsGrantAllowedBoxed, IsRevokeAllowed, IsRevokeAllowedBoxed},
@@ -102,7 +112,7 @@ mod tests {
 
     use iroha_data_model::{expression::prelude::*, isi::*};
 
-    use super::{builder::ValidatorBuilder, combinators::DenyAll, *};
+    use super::{builder::Validator as ValidatorBuilder, combinators::DenyAll, *};
     use crate::wsv::World;
 
     #[derive(Debug, Clone, Serialize)]
@@ -193,7 +203,8 @@ mod tests {
         let permissions_validator: IsInstructionAllowedBoxed =
             ValidatorBuilder::with_validator(DenyBurn)
                 .with_validator(DenyAlice)
-                .all_should_succeed();
+                .all_should_succeed()
+                .build();
         let instruction_burn: Instruction =
             BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
         let instruction_fail = Instruction::Fail(FailBox {
@@ -218,8 +229,9 @@ mod tests {
 
     #[test]
     pub fn recursive_validator() {
-        let permissions_validator =
-            ValidatorBuilder::with_recursive_validator(DenyBurn).all_should_succeed();
+        let permissions_validator = ValidatorBuilder::with_recursive_validator(DenyBurn)
+            .all_should_succeed()
+            .build();
         let instruction_burn: Instruction =
             BurnBox::new(Value::U32(10), asset_id("xor", "test", "alice", "test")).into();
         let instruction_fail = Instruction::Fail(FailBox {

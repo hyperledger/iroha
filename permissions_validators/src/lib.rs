@@ -6,8 +6,7 @@ use iroha_core::{
     prelude::*,
     smartcontracts::{
         permissions::{
-            builder::ValidatorBuilder, prelude::*, HasToken, IsAllowed, IsInstructionAllowedBoxed,
-            IsQueryAllowedBoxed,
+            prelude::*, HasToken, IsAllowed, IsInstructionAllowedBoxed, IsQueryAllowedBoxed,
         },
         Evaluate,
     },

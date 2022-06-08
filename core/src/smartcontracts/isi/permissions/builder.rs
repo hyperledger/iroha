@@ -7,24 +7,35 @@ use super::{
 
 /// Builder to combine multiple validation checks into one.
 #[derive(Debug, Copy, Clone)]
-pub struct ValidatorBuilder;
+pub struct Validator;
 
-/// Helper struct for [`ValidatorBuilder`].
+/// Helper struct for [`Validator`].
 /// Makes sure there is at least one validator and all validators have the same type
 #[derive(Debug, Clone)]
 #[must_use]
-pub struct ValidatorBuilderWithValidators<
-    O: NeedsPermission,
-    V: IsAllowed<O> + Into<IsAllowedBoxed>,
-> {
+pub struct WithValidators<O: NeedsPermission, V: IsAllowed<O> + Into<IsAllowedBoxed>> {
     validators: Vec<IsAllowedBoxed>,
     _phantom_operation: PhantomData<O>,
     _phantom_validator: PhantomData<V>,
 }
 
-impl ValidatorBuilder {
+/// Helper struct for [`Validator`].
+/// Contains final [`build()`] step
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct ShouldSucceedValidator<
+    O: NeedsPermission,
+    V: IsAllowed<O> + Into<IsAllowedBoxed>,
+    S: TryInto<V>,
+> {
+    should_succeed: S,
+    _phantom_operation: PhantomData<O>,
+    _phantom_validator: PhantomData<V>,
+}
+
+impl Validator {
     /// Returns new [`ValidatorBuilderWithValidators`] with provided `validator`
-    pub fn with_validator<O, V, E>(validator: impl Into<V>) -> ValidatorBuilderWithValidators<O, V>
+    pub fn with_validator<O, V, E>(validator: impl Into<V>) -> WithValidators<O, V>
     where
         O: NeedsPermission,
         V: IsAllowed<O>
@@ -33,22 +44,22 @@ impl ValidatorBuilder {
             + TryFrom<AnyShouldSucceed, Error = E>,
         E: Debug,
     {
-        ValidatorBuilderWithValidators::new(validator)
+        WithValidators::new(validator)
     }
 
     /// Returns new [`ValidatorBuilderWithValidators`]
     /// with provided recursive instruction `validator`
     pub fn with_recursive_validator(
         validator: impl Into<IsInstructionAllowedBoxed>,
-    ) -> ValidatorBuilderWithValidators<Instruction, IsInstructionAllowedBoxed> {
+    ) -> WithValidators<Instruction, IsInstructionAllowedBoxed> {
         let instruction_validator: IsInstructionAllowedBoxed =
             Box::new(CheckNested::new(validator.into()));
-        ValidatorBuilderWithValidators::new(instruction_validator)
+        WithValidators::new(instruction_validator)
     }
 }
 
 #[allow(clippy::expect_used)]
-impl<O, V, E> ValidatorBuilderWithValidators<O, V>
+impl<O, V, E> WithValidators<O, V>
 where
     O: NeedsPermission,
     V: IsAllowed<O>
@@ -71,36 +82,55 @@ where
         self
     }
 
-    /// Returns *validator* that will check all the checks of previously supplied validators.
-    pub fn all_should_succeed(self) -> V {
-        AllShouldSucceed::new(self.validators)
-            .expect(
-                "`ValidatorBuilder` guarantees that all validators have the same specified type",
-            )
-            .try_into()
-            .expect("`ValidatorBuilder` guarantees that there is at least one validator")
+    /// Returns [`AllShouldSucceed`] *validator* builder
+    pub fn all_should_succeed(self) -> ShouldSucceedValidator<O, V, AllShouldSucceed> {
+        let all_should_succeed = AllShouldSucceed::new(self.validators).expect(
+            "`ValidatorBuilder` guarantees that all validators have the same specified type",
+        );
+        ShouldSucceedValidator::new(all_should_succeed)
     }
 
-    /// Returns *validator* that will succeed if any of the checks of previously supplied validators succeeds.
-    ///
-    /// # Errors
-    /// If provided validators have different types.
-    /// Type of the first validators is considered exemplary
-    pub fn any_should_succeed(self, check_name: String) -> V {
-        AnyShouldSucceed::new(check_name, self.validators)
-            .expect(
-                "`ValidatorBuilder` guarantees that all validators have the same specified type",
-            )
-            .try_into()
-            .expect("`ValidatorBuilder` guarantees that there is at least one validator")
+    /// Returns [`AnyShouldSucceed`] *validator* builder
+    pub fn any_should_succeed(
+        self,
+        check_name: String,
+    ) -> ShouldSucceedValidator<O, V, AnyShouldSucceed> {
+        let any_should_succeed = AnyShouldSucceed::new(check_name, self.validators).expect(
+            "`ValidatorBuilder` guarantees that all validators have the same specified type",
+        );
+
+        ShouldSucceedValidator::new(any_should_succeed)
     }
 }
 
-impl ValidatorBuilderWithValidators<Instruction, IsInstructionAllowedBoxed> {
+impl WithValidators<Instruction, IsInstructionAllowedBoxed> {
     /// Adds a validator to the list and wraps it with `CheckNested` to check nested permissions.
     pub fn with_recursive_validator(self, validator: impl Into<IsInstructionAllowedBoxed>) -> Self {
         let instruction_validator: IsInstructionAllowedBoxed =
             Box::new(CheckNested::new(validator.into()));
         self.with_validator(instruction_validator)
+    }
+}
+
+#[allow(clippy::expect_used)]
+impl<O, V, S, E> ShouldSucceedValidator<O, V, S>
+where
+    O: NeedsPermission,
+    V: IsAllowed<O> + Into<IsAllowedBoxed> + TryFrom<S, Error = E>,
+    E: Debug,
+{
+    fn new(should_succeed: S) -> Self {
+        Self {
+            should_succeed,
+            _phantom_operation: PhantomData,
+            _phantom_validator: PhantomData,
+        }
+    }
+
+    /// Builds *validator*
+    pub fn build(self) -> V {
+        self.should_succeed
+            .try_into()
+            .expect("`ValidatorBuilder` guarantees that there is at least one validator")
     }
 }

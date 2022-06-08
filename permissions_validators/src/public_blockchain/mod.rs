@@ -79,7 +79,8 @@ pub fn default_permissions() -> IsInstructionAllowedBoxed {
             .with_validator(key_value::GrantMyMetadataAccessRemove)
             .with_validator(key_value::GrantMyAssetDefinitionSet)
             .with_validator(key_value::GrantMyAssetDefinitionRemove)
-            .any_should_succeed("Grant instruction validator.".to_owned());
+            .any_should_succeed("Grant instruction validator.".to_owned())
+            .build();
     ValidatorBuilder::with_recursive_validator(grant_instruction_validator)
         .with_recursive_validator(transfer::OnlyOwnedAssets.or(transfer::GrantedByAssetOwner))
         .with_recursive_validator(
@@ -113,6 +114,7 @@ pub fn default_permissions() -> IsInstructionAllowedBoxed {
                 .or(key_value::RemoveGrantedByAssetDefinitionOwner),
         )
         .all_should_succeed()
+        .build()
 }
 
 /// Extracts specialized token from `GrantBox`
