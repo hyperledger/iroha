@@ -3670,7 +3670,6 @@ checksum = "507e9898683b6c43a9aa55b64259b721b52ba226e0f3779137e50ad114a4c90b"
 name = "test_network"
 version = "2.0.0-pre-rc.5"
 dependencies = [
- "async-trait",
  "eyre",
  "futures",
  "iroha",
@@ -3679,7 +3678,6 @@ dependencies = [
  "iroha_core",
  "iroha_data_model",
  "iroha_logger",
- "once_cell",
  "rand 0.8.5",
  "tempfile",
  "tokio",
