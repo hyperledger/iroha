@@ -1,6 +1,79 @@
 Changelog
 =========
 
+2.0.0-pre-rc.5-lts
+------------------
+
+Features
+~~~~~~~~
+- 1998 Add filters to queries.
+- 2276 Include current Block hash into `BlockHeaderValue`.
+- 2161 Add handle id and implement FFI equivalents of shared traits (`Clone`, `Eq`, `Ord`).
+- 1638 Update `configuration` to return doc subtree.
+- 2132 Add `endpointN` proc macro.
+- 2257 Make `Revoke<Role>` emit the `RoleRevoked` event.
+- 2125 Add `FindAssetDefinitionById` query.
+- 1926 Add signal handling and graceful shutdown.
+- 2161 Generate FFI functions for `data_model`
+- 1149 Block file count does not exceed 1000000 per directory.
+- 1413 Add API version endpoint.
+- 2103 Support querying for blocks and transactions, add `FindAllTransactions` query.
+- 2186 Add transfer ISI for `BigQuantity` and `Fixed`.
+- 2056 Add a derive proc macro crate for AssetValueType enum.
+
+Fixes
+~~~~~
+- 2081 Fix the test case to grant the role.
+- 2017 Fix role unregistration.
+- 2303 Fix docker-compose' peers doesn't get gracefully shut down.
+- 2295 Fix unregister trigger bug.
+- 2282 improve FFI derives from getset implementation.
+- 1149 Remove nocheckin code.
+- 2232 Make Iroha print meaningful message when genesis has too many
+  isi.
+- 2170 Fixes build in docker container on M1 machines.
+- 2215 Make nightly-2022-04-20 optional for `cargo build`.
+
+Refactor
+~~~~~~~~
+- 2233 Replace `impl` with `derive` for `Display` and `Debug`.
+- Identifiable structure improvement.
+- 2323 Enhance kura init error message.
+- 2238 Add peer builder for tests.
+- 2011 Make config params more descriptive.
+- 1896 Simplify `produce_event` implementation.
+- Refactor around `QueryError`.
+- Move `TriggerSet` to `data_model`.
+- 2145 Refactor client's `WebSocket` side, extract pure data logic, implement ws transport-agnostic design.
+- Remove `ValueMarker` trait.
+- Replace `#[log]` with explicit `trace` directives.
+- 2149 Expose `Mintable` and `MintabilityError` in `prelude`.
+
+Documentation
+~~~~~~~~~~~~~
+- Add links to the tutorial.
+- Update information on git hooks.
+- Flakyness test writeup.
+- 2193 Update Iroha client documentation.
+- 2193 Update Iroha CLI documentation.
+- 2193 Update README for macro crate.
+- 2193 Update README for wasm crate.
+- 2193 Update Parity Scale Decoder Tool documentation.
+- 2193 Update Kagami documentation.
+- 2193 Update benchmarks documentation.
+- 2192 Review contributing guidelines.
+- Fix broken in-code references.
+- 1280 Document Iroha metrics.
+
+CI/CD changes
+~~~~~~~~~~~~~
+- Version bump of crates and remove unused dependencies.
+- Remove unnecessary coverage reporting.
+- 2222 Split tests by whether it involves coverage or not.
+
+Tests
+~~~~~
+- 2272 Add tests for `FindAssetDefinitionById` query.
 
 (current)
 ---------
