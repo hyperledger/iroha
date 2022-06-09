@@ -218,30 +218,11 @@ pub mod utils {
     }
 
     pub mod world {
-        use std::{
-            ops::{Deref, DerefMut},
-            str::FromStr as _,
-        };
+        use std::str::FromStr as _;
 
-        use iroha_core::{prelude::*, tx::Domain, wsv::WorldTrait};
+        use iroha_core::prelude::*;
         use iroha_data_model::prelude::*;
         use once_cell::sync::Lazy;
-
-        #[derive(Debug, Clone, Default)]
-        pub struct WithAlice;
-
-        impl Deref for WithAlice {
-            type Target = World;
-            fn deref(&self) -> &Self::Target {
-                unreachable!()
-            }
-        }
-
-        impl DerefMut for WithAlice {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                unreachable!()
-            }
-        }
 
         pub static ALICE_KEYS: Lazy<KeyPair> =
             Lazy::new(|| KeyPair::generate().expect("doesn't fail"));
@@ -251,15 +232,6 @@ pub mod utils {
             assert!(account.add_signatory(ALICE_KEYS.public_key().clone()));
             account
         });
-        impl WorldTrait for WithAlice {
-            /// Creates `World` with these `domains` and `trusted_peers_ids`
-            fn with(
-                _domains: impl IntoIterator<Item = Domain>,
-                _trusted_peers_ids: impl IntoIterator<Item = PeerId>,
-            ) -> Self {
-                unreachable!()
-            }
-        }
 
         pub fn sign_tx(isi: impl IntoIterator<Item = Instruction>) -> VersionedAcceptedTransaction {
             let instructions: Vec<_> = isi.into_iter().collect();
@@ -355,11 +327,10 @@ where
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "mock"]
 async fn all_peers_commit_block() {
     iroha_logger::install_panic_hook().expect("first installation");
     let (network, _) = <Network<
-        world::WithAlice,
+        World,
         genesis::NoGenesis,
         iroha_core::kura::Kura<_>,
         Sumeragi<_, _, _>,
@@ -376,11 +347,10 @@ async fn all_peers_commit_block() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "mock"]
 async fn change_view_on_commit_timeout() {
     iroha_logger::install_panic_hook().expect("first installation");
     let (network, _) = <Network<
-        world::WithAlice,
+        World,
         genesis::NoGenesis,
         iroha_core::kura::Kura<_>,
         SumeragiWithFault<_, _, _, sumeragi::Skip<sumeragi::BlockSigned, sumeragi::ProxyTail>>,
@@ -417,11 +387,10 @@ async fn change_view_on_commit_timeout() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "mock"]
 async fn change_view_on_tx_receipt_timeout() {
     iroha_logger::install_panic_hook().expect("first installation");
     let (network, _) = <Network<
-        world::WithAlice,
+        World,
         genesis::NoGenesis,
         iroha_core::kura::Kura<_>,
         SumeragiWithFault<_, _, _, sumeragi::SkipTxForwardedAndGossipOnLeader>,
@@ -471,11 +440,10 @@ async fn change_view_on_tx_receipt_timeout() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "mock"]
 async fn change_view_on_block_creation_timeout() {
     iroha_logger::install_panic_hook().expect("first installation");
     let (network, _) = <Network<
-        world::WithAlice,
+        World,
         genesis::NoGenesis,
         iroha_core::kura::Kura<_>,
         SumeragiWithFault<_, _, _, sumeragi::Skip<sumeragi::BlockCreated, sumeragi::Any>>,
@@ -503,11 +471,10 @@ async fn change_view_on_block_creation_timeout() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "mock"]
 async fn not_enough_votes() {
     iroha_logger::install_panic_hook().expect("first installation");
     let (network, _) = <Network<
-        world::WithAlice,
+        World,
         genesis::NoGenesis,
         iroha_core::kura::Kura<_>,
         SumeragiWithFault<_, _, _, sumeragi::EmptyBlockCreated>,
