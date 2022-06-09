@@ -14,7 +14,7 @@ namespace iroha::consensus::yac {
     YacHash makeHash(const simulator::BlockCreatorEvent &event) const override;
 
     shared_model::interface::types::HashType toModelHash(
-        const YacHash &hash) const override;
+        const YacHash &hash, size_t index) const override;
   };
 }  // namespace iroha::consensus::yac
 

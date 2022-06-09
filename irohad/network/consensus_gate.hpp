@@ -22,7 +22,7 @@ namespace iroha {
       /**
        * Vote for given block creator event in consensus
        */
-      virtual void vote(const simulator::BlockCreatorEvent &event) = 0;
+      virtual void vote(simulator::BlockCreatorEvent &&event) = 0;
 
       /// Prevent any new outgoing network activity. Be passive.
       virtual void stop() = 0;

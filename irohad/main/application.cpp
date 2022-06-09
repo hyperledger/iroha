@@ -1098,29 +1098,39 @@ Irohad::RunResult Irohad::run() {
     if (maybe_simulator and maybe_consensus_gate and maybe_tx_processor
         and maybe_subscription) {
 
-      std::vector<BlockCreatorEvent> block_events;
-      block_events.reserve(event.proposal_pack.size());
+      BlockCreatorEvent block_event;
+      block_event.round = event.round;
+      block_event.ledger_state = event.ledger_state;
 
       auto round = event.round;
+      TopBlockInfo prev_block = event.ledger_state->top_block_info;
       for (auto const &proposal : event.proposal_pack) {
         maybe_subscription->notify(EventTypes::kOnProposal, event);
-        auto verified_proposal = maybe_simulator->processProposal(proposal, round, event.ledger_state);
+        auto verified_proposal = maybe_simulator->processProposal(
+            proposal, round, event.ledger_state);
         maybe_subscription->notify(EventTypes::kOnVerifiedProposal,
                                    verified_proposal);
         maybe_tx_processor->processVerifiedProposalCreatorEvent(
             verified_proposal);
         auto block = maybe_simulator->processVerifiedProposal(
-            std::move(verified_proposal));
-        if (block_events.empty() || block.round_data)
-          block_events.emplace_back(std::move(block));
-        else
-          break;
+            std::move(verified_proposal), prev_block);
 
-        ++round.block_round;
-        round.reject_round = 0ull;
+        if (block_event.round_data.empty() || block) {
+          assert(block->block);
+          assert(block->proposal);
+
+          ++prev_block.height;
+          prev_block.top_hash = block->block->hash();
+
+          ++round.block_round;
+          round.reject_round = 0ull;
+
+          block_event.round_data.emplace_back(std::move(*block));
+        } else
+          break;
       }
 
-      maybe_consensus_gate->vote(std::move(block));
+      maybe_consensus_gate->vote(std::move(block_event));
     }
   });
 

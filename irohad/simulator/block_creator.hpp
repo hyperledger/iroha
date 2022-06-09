@@ -20,7 +20,7 @@ namespace iroha {
       /**
        * Creates a block from given proposal and top block info
        */
-      virtual BlockCreatorEvent processVerifiedProposal(
+      virtual std::optional<RoundData> processVerifiedProposal(
           VerifiedProposalCreatorEvent const &event, TopBlockInfo const &prev_block_info) = 0;
 
       virtual ~BlockCreator() = default;

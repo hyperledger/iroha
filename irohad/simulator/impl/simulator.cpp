@@ -51,7 +51,7 @@ namespace iroha {
       }
     }
 
-    BlockCreatorEvent Simulator::processVerifiedProposal(
+    std::optional<RoundData> Simulator::processVerifiedProposal(
         VerifiedProposalCreatorEvent const &event, TopBlockInfo const &prev_block_info) {
       if (event.verified_proposal_result) {
         auto verified_proposal_and_errors = getVerifiedProposalUnsafe(event);
@@ -76,12 +76,9 @@ namespace iroha {
                                               std::move(rejected_hashes));
         crypto_signer_->sign(*block);
         log_->info("Created block: {}", *block);
-        return BlockCreatorEvent{
-            RoundData{verified_proposal_and_errors->verified_proposal, block},
-            event.round,
-            event.ledger_state};
+        return RoundData{verified_proposal_and_errors->verified_proposal, block};
       } else {
-        return BlockCreatorEvent{boost::none, event.round, event.ledger_state};
+        return std::nullopt;
       }
     }
 

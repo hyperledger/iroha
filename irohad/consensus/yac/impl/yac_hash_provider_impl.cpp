@@ -11,22 +11,21 @@ using iroha::consensus::yac::YacHashProviderImpl;
 
 iroha::consensus::yac::YacHash YacHashProviderImpl::makeHash(
     const simulator::BlockCreatorEvent &event) const {
-  YacHash result;
-  if (event.round_data) {
-    result.vote_hashes.proposal_hash = event.round_data->proposal->hash().hex();
-    result.vote_hashes.block_hash = event.round_data->block->hash().hex();
-    result.block_signature =
-        clone(event.round_data->block->signatures().front());
-  }
-  result.vote_round = event.round;
+  YacHash result(event.round);
 
+  for (auto const &round_data : event.round_data) {
+    auto &hash_data = result.appendHashes(round_data.proposal->hash().hex(),
+                        round_data.block->hash().hex());
+    hash_data.block_signature = clone(round_data.block->signatures().front());
+  }
   return result;
 }
 
 shared_model::interface::types::HashType YacHashProviderImpl::toModelHash(
-    const YacHash &hash) const {
+    const YacHash &hash, size_t index) const {
+  assert(index < hash.vote_hashes.size());
   auto blob =
-      shared_model::crypto::Blob::fromHexString(hash.vote_hashes.block_hash);
+      shared_model::crypto::Blob::fromHexString(hash.vote_hashes[index].block_hash);
   auto string_blob = shared_model::crypto::toBinaryString(blob);
   return shared_model::interface::types::HashType(string_blob);
 }

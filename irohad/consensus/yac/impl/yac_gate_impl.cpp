@@ -39,7 +39,7 @@ YacGateImpl::YacGateImpl(
     std::shared_ptr<consensus::ConsensusResultCache> consensus_result_cache,
     logger::LoggerPtr log)
     : log_(std::move(log)),
-      current_hash_(),
+      current_hash_{},
       alternative_order_(std::move(alternative_order)),
       current_ledger_state_(std::move(ledger_state)),
       orderer_(std::move(orderer)),
@@ -47,7 +47,7 @@ YacGateImpl::YacGateImpl(
       consensus_result_cache_(std::move(consensus_result_cache)),
       hash_gate_(std::move(hash_gate)) {}
 
-void YacGateImpl::vote(const simulator::BlockCreatorEvent &event) {
+void YacGateImpl::vote(simulator::BlockCreatorEvent &&event) {
   if (current_hash_.vote_round != event.round) {
     log_->info("Current round {} not equal to vote round {}, skipped",
                current_hash_.vote_round,
@@ -60,8 +60,8 @@ void YacGateImpl::vote(const simulator::BlockCreatorEvent &event) {
   assert(current_hash_.vote_round.block_round
          == current_ledger_state_->top_block_info.height + 1);
 
-  if (not event.round_data) {
-    current_block_ = std::nullopt;
+  if (event.round_data.empty()) {
+    current_block_.clear();
     // previous block is committed to block storage, it is safe to clear
     // the cache
     // TODO 2019-03-15 andrei: IR-405 Subscribe BlockLoaderService to
@@ -69,12 +69,15 @@ void YacGateImpl::vote(const simulator::BlockCreatorEvent &event) {
     consensus_result_cache_->release();
     log_->debug("Agreed on nothing to commit");
   } else {
-    current_block_ = event.round_data->block;
+    current_block_ = std::move(event.round_data);
     // insert the block we voted for to the consensus cache
-    consensus_result_cache_->insert(event.round_data->block);
-    log_->info("vote for (proposal: {}, block: {})",
-               current_hash_.vote_hashes.proposal_hash,
-               current_hash_.vote_hashes.block_hash);
+    for (auto const &round_data : current_block_)
+      consensus_result_cache_->insert(round_data.block);
+
+    for (auto const &vote_hash : current_hash_.vote_hashes)
+      log_->info("vote for (proposal: {}, block: {})",
+                 vote_hash.proposal_hash,
+                 vote_hash.block_hash);
   }
 
   auto order =

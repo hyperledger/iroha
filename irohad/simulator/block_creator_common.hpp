@@ -32,7 +32,7 @@ namespace iroha {
      * a verified proposal
      */
     struct BlockCreatorEvent {
-      boost::optional<RoundData> round_data;
+      std::vector<RoundData> round_data;
       consensus::Round round;
       std::shared_ptr<const LedgerState> ledger_state;
     };
