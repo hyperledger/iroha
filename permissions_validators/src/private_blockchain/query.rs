@@ -106,7 +106,8 @@ impl IsAllowed<QueryBox> for OnlyAccountsDomain {
                 Err(format!(
                     "Cannot access triggers with given domain {}, {} is permitted..",
                     domain_id, authority.domain_id
-                ))
+                )
+                .into())
             }
             FindAccountById(query) => {
                 let account_id = query
@@ -381,7 +382,7 @@ impl IsAllowed<QueryBox> for OnlyAccountsData {
             FindAllRoles(_) | FindAllRoleIds(_) | FindRoleByRoleId(_) => {
                 Err("Only access to roles of the same account is permitted.".to_owned().into())
             },
-            | FindAllActiveTriggerIds(_) => {
+            FindAllActiveTriggerIds(_) | FindTriggersByDomainId(_) => {
                 Err("Only access to the triggers of the same account is permitted.".to_owned().into())
             }
             FindAllPeers(_) => {

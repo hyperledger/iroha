@@ -125,11 +125,6 @@ pub(crate) async fn handle_queries(
 ) -> Result<Scale<VersionedPaginatedQueryResult>> {
     let (valid_request, filter) = request.validate(&wsv, &query_validator)?;
     let original_result = valid_request.execute(&wsv)?;
-    let total: u64 = original_result
-        .len()
-        .try_into()
-        .map_err(|e: TryFromIntError| QueryError::Conversion(e.to_string()))?;
-
     let result = filter.filter(original_result);
     let (total, result) = if let Value::Vec(value) = result {
         (

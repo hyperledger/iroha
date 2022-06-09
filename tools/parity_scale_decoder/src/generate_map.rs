@@ -173,6 +173,7 @@ pub fn generate_map() -> DumpDecodedMap {
         FindTransactionsByAccountId,
         FindTriggerById,
         FindTriggerKeyValueByIdAndKey,
+        FindTriggersByDomainId,
         GenesisDomain,
         GrantBox,
         Greater,

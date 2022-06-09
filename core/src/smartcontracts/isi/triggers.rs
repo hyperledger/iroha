@@ -224,9 +224,9 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> ValidQuery<W> for FindTriggersByDomainId {
+    impl ValidQuery for FindTriggersByDomainId {
         #[metrics(+"find_triggers_by_domain_id")]
-        fn execute(&self, _wsv: &WorldStateView<W>) -> eyre::Result<Self::Output, Error> {
+        fn execute(&self, _wsv: &WorldStateView) -> eyre::Result<Self::Output, Error> {
             iroha_logger::warn!("'find triggers by domain id' is implemented as a stub.");
             Ok(vec![])
         }
