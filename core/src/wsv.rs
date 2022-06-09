@@ -9,6 +9,7 @@ use dashmap::{
     DashSet,
 };
 use eyre::Result;
+use getset::Getters;
 use iroha_crypto::HashOf;
 use iroha_data_model::{prelude::*, small::SmallVec};
 use iroha_logger::prelude::*;
@@ -27,104 +28,46 @@ pub type NewBlockNotificationSender = tokio::sync::watch::Sender<()>;
 /// Receiver type of the new block notification channel
 pub type NewBlockNotificationReceiver = tokio::sync::watch::Receiver<()>;
 
-mod __world {
-    //! Module with [`World`] and its Mock
-    //!
-    //! Should not be used directly!
-
-    use getset::Getters;
-    use iroha_data_model::prelude::*;
-
-    use crate::{DomainsMap, PeersIds};
-
-    /// The global entity consisting of `domains`, `triggers` and etc.
-    /// For example registration of domain, will have this as an ISI target.
-    #[derive(Debug, Default, Clone, Getters)]
-    #[cfg_attr(feature = "mock", allow(dead_code))]
-    #[getset(get = "pub")]
-    pub struct World {
-        /// Iroha parameters.
-        parameters: Vec<Parameter>,
-        /// Identifications of discovered trusted peers.
-        trusted_peers_ids: PeersIds,
-        /// Registered domains.
-        domains: DomainsMap,
-        /// Roles. [`Role`] pairs.
-        roles: crate::RolesMap,
-        /// Triggers
-        triggers: TriggerSet,
-    }
-
-    impl World {
-        /// Creates an empty `World`.
-        pub fn new() -> Self {
-            Self::default()
-        }
-
-        /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
-        pub fn with<D, P>(domains: D, trusted_peers_ids: P) -> Self
-        where
-            D: IntoIterator<Item = Domain> + 'static,
-            P: IntoIterator<Item = PeerId> + 'static,
-        {
-            let domains = domains
-                .into_iter()
-                .map(|domain| (domain.id().clone(), domain))
-                .collect();
-            let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
-            World {
-                domains,
-                trusted_peers_ids,
-                ..World::new()
-            }
-        }
-    }
-
-    #[cfg(feature = "mock")]
-    mockall::mock! {
-        pub World {
-            /// Creates an empty `World`.
-            pub fn new() -> Self;
-
-            /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
-            pub fn with<D, P>(domains: D, trusted_peers_ids: P) -> Self
-            where
-                D: IntoIterator<Item = Domain> + 'static,
-                P: IntoIterator<Item = PeerId> + 'static;
-
-
-            /// Returns [`World`] parameters
-            pub fn parameters(&self) -> &Vec<Parameter>;
-
-            /// Returns [`World`] trusted peers ids
-            pub fn trusted_peers_ids(&self) -> &PeersIds;
-
-            /// Returns [`World`] domains
-            pub fn domains(&self) -> &DomainsMap;
-
-            /// Returns [`World`] roles
-            pub fn roles(&self) -> &crate::RolesMap;
-
-            /// Returns [`World`] triggers
-            pub fn triggers(&self) -> &TriggerSet;
-        }
-
-        impl std::fmt::Debug for World {
-            fn fmt<'fm>(&self, f: &mut std::fmt::Formatter<'fm>) -> std::fmt::Result;
-        }
-
-        impl Clone for World {
-            fn clone(&self) -> Self;
-        }
-    }
+/// The global entity consisting of `domains`, `triggers` and etc.
+/// For example registration of domain, will have this as an ISI target.
+#[derive(Debug, Default, Clone, Getters)]
+#[cfg_attr(feature = "mock", allow(dead_code))]
+#[getset(get = "pub")]
+pub struct World {
+    /// Iroha parameters.
+    parameters: Vec<Parameter>,
+    /// Identifications of discovered trusted peers.
+    trusted_peers_ids: PeersIds,
+    /// Registered domains.
+    domains: DomainsMap,
+    /// Roles. [`Role`] pairs.
+    roles: crate::RolesMap,
+    /// Triggers
+    triggers: TriggerSet,
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "mock")] {
-        pub use __world::MockWorld as World;
-        pub use __world::World as OriginalWorld;
-    } else {
-        pub use __world::World;
+impl World {
+    /// Creates an empty `World`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
+    pub fn with<D, P>(domains: D, trusted_peers_ids: P) -> Self
+    where
+        D: IntoIterator<Item = Domain> + 'static,
+        P: IntoIterator<Item = PeerId> + 'static,
+    {
+        let domains = domains
+            .into_iter()
+            .map(|domain| (domain.id().clone(), domain))
+            .collect();
+        let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
+        World {
+            domains,
+            trusted_peers_ids,
+            ..World::new()
+        }
     }
 }
 
