@@ -56,25 +56,7 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Run tests and generate lcov report
         if: always()
-        # Use `cargo whatfeatures .` to get all features
-        # Explicit features used because we don't want `iroha_core/mock` feature to be enabled with `--all-features`
-        run: |
-          mold --run cargo llvm-cov --features " \
-          iroha/default iroha/bridge iroha/dev-telemetry iroha/dex iroha/iroha_schema_gen iroha/iroha_telemetry iroha/test-network \
-          iroha_actor/deadlock_detection iroha_actor/petgraph \
-          iroha_core/default iroha_core/bridge iroha_core/cli iroha_core/dev-telemetry iroha_core/dex iroha_core/expensive-telemetry iroha_core/telemetry \
-          iroha_crypto/default iroha_crypto/ffi_api iroha_crypto/iroha_ffi iroha_crypto/openssl-sys iroha_crypto/std iroha_crypto/ursa iroha_crypto/vendored \
-          iroha_data_model/default iroha_data_model/dashmap iroha_data_model/ffi_api iroha_data_model/iroha_ffi iroha_data_model/mutable_api iroha_data_model/std iroha_data_model/thiserror iroha_data_model/tokio iroha_data_model/warp \
-          iroha_data_primitives/default iroha_data_primitives/std iroha_data_primitives/thiserror \
-          iroha_futures/default iroha_futures/telemetry \
-          iroha_futures_derive/default iroha_futures_derive/telemetry \
-          iroha_macro/default iroha_macro/std \
-          iroha_telemetry/dev-telemetry iroha_telemetry/metric-instrumentation \
-          iroha_version/default iroha_version/derive iroha_version/iroha_version_derive iroha_version/json iroha_version/parity-scale-codec iroha_version/scale iroha_version/serde iroha_version/serde_json iroha_version/std iroha_version/thiserror iroha_version/warp \
-          kagami/default kagami/dev-telemetry kagami/dex kagami/telemetry \
-          parity_scale_decoder/no-color \
-          test_network/query \
-          " --workspace --lcov --output-path lcov.info
+        run: mold --run cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v2
         with:
@@ -91,24 +73,7 @@ jobs:
       - uses: Swatinem/rust-cache@v1
       - name: Run tests
         if: always()
-        # Use `cargo whatfeatures .` to get all features
-        # Explicit features used because we don't want `iroha_core/mock` feature to be enabled with `--all-features`
         run: |
-          mold --run cargo test --test '*' --features " \
-          iroha/default iroha/bridge iroha/dev-telemetry iroha/dex iroha/iroha_schema_gen iroha/iroha_telemetry iroha/test-network \
-          iroha_actor/deadlock_detection iroha_actor/petgraph \
-          iroha_core/default iroha_core/bridge iroha_core/cli iroha_core/dev-telemetry iroha_core/dex iroha_core/expensive-telemetry iroha_core/telemetry \
-          iroha_crypto/default iroha_crypto/ffi_api iroha_crypto/iroha_ffi iroha_crypto/openssl-sys iroha_crypto/std iroha_crypto/ursa iroha_crypto/vendored \
-          iroha_data_model/default iroha_data_model/dashmap iroha_data_model/ffi_api iroha_data_model/iroha_ffi iroha_data_model/mutable_api iroha_data_model/std iroha_data_model/thiserror iroha_data_model/tokio iroha_data_model/warp \
-          iroha_data_primitives/default iroha_data_primitives/std iroha_data_primitives/thiserror \
-          iroha_futures/default iroha_futures/telemetry \
-          iroha_futures_derive/default iroha_futures_derive/telemetry \
-          iroha_macro/default iroha_macro/std \
-          iroha_telemetry/dev-telemetry iroha_telemetry/metric-instrumentation \
-          iroha_version/default iroha_version/derive iroha_version/iroha_version_derive iroha_version/json iroha_version/parity-scale-codec iroha_version/scale iroha_version/serde iroha_version/serde_json iroha_version/std iroha_version/thiserror iroha_version/warp \
-          kagami/default kagami/dev-telemetry kagami/dex kagami/telemetry \
-          parity_scale_decoder/no-color \
-          test_network/query \
-          " -- \
+          mold --run cargo test --test '*' --all-features -- \
           integration:: \
           --skip unstable_network
