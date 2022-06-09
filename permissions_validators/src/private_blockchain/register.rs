@@ -1,13 +1,12 @@
 //! Module with permissions for registering.
 
-use std::str::FromStr as _;
-
 use super::*;
 
-/// Can register domains permission token name.
-#[allow(clippy::expect_used)]
-pub static CAN_REGISTER_DOMAINS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_register_domains").expect("this mustn't panic"));
+declare_token!(
+    /// Can register domains.
+    CanRegisterDomains {},
+    "can_register_domains"
+);
 
 /// Prohibits registering domains.
 #[derive(Debug, Copy, Clone, Serialize)]
@@ -44,6 +43,6 @@ impl HasToken for GrantedAllowedRegisterDomains {
         _instruction: &Instruction,
         _wsv: &WorldStateView,
     ) -> Result<PermissionToken, String> {
-        Ok(PermissionToken::new(CAN_REGISTER_DOMAINS_TOKEN.clone()))
+        Ok(CanRegisterDomains::new().into())
     }
 }

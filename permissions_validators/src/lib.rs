@@ -13,7 +13,6 @@ use iroha_core::{
 };
 use iroha_data_model::{isi::*, prelude::*};
 use iroha_macro::error::ErrorTryFromEnum;
-use once_cell::sync::Lazy;
 use serde::Serialize;
 
 macro_rules! impl_from_item_for_instruction_validator_box {
@@ -109,6 +108,8 @@ macro_rules! declare_token {
         $string:tt // Token name
     ) => {
 
+        // For tokens with no parameters
+        #[allow(missing_copy_implementations)]
         $(#[$outer_meta])*
         ///
         /// A wrapper around [PermissionToken](iroha_data_model::permissions::PermissionToken).
@@ -153,6 +154,7 @@ macro_rules! declare_token {
 
             /// Constructor
             #[inline]
+            #[allow(clippy::new_without_default)] // For tokens with no parameters
             pub fn new($($param_name: $param_typ),*) -> Self {
                 Self {
                     $($param_name,)*
@@ -161,6 +163,7 @@ macro_rules! declare_token {
         }
 
         impl From<$ident> for iroha_data_model::permissions::PermissionToken {
+            #[allow(unused)] // `value` can be unused if token has no params
             fn from(value: $ident) -> Self {
                 iroha_data_model::permissions::PermissionToken::new($ident::name().clone())
                     .with_params([
@@ -172,6 +175,7 @@ macro_rules! declare_token {
         impl TryFrom<iroha_data_model::permissions::PermissionToken> for $ident {
             type Error = PredefinedTokenConversionError;
 
+            #[allow(unused)] // `params` can be unused if token has none
             fn try_from(
                 token: iroha_data_model::permissions::PermissionToken
             ) -> std::result::Result<Self, Self::Error> {
