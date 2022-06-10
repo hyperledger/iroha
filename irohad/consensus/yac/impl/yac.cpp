@@ -82,7 +82,7 @@ std::optional<iroha::consensus::yac::Answer> Yac::processRoundSwitch(
 
 // ------|Hash gate|------
 
-void Yac::vote(YacHash hash,
+void Yac::vote(YacHash const &hash,
                ClusterOrdering order,
                std::optional<ClusterOrdering> alternative_order) {
   log_->info(

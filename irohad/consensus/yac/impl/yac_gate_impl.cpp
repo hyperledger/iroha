@@ -110,7 +110,7 @@ std::optional<iroha::consensus::GateObject> YacGateImpl::processRoundSwitch(
   current_hash_ = YacHash();
   current_hash_.vote_round = round;
   current_ledger_state_ = std::move(ledger_state);
-  current_block_ = std::nullopt;
+  current_block_.clear();
   consensus_result_cache_->release();
   if (auto answer = hash_gate_->processRoundSwitch(
           current_hash_.vote_round,
@@ -122,13 +122,28 @@ std::optional<iroha::consensus::GateObject> YacGateImpl::processRoundSwitch(
 }
 
 void YacGateImpl::copySignatures(const CommitMessage &commit) {
-  for (const auto &vote : commit.votes) {
-    auto sig = vote.hash.block_signature;
-    current_block_.value()->addSignature(
-        shared_model::interface::types::SignedHexStringView{sig->signedData()},
-        shared_model::interface::types::PublicKeyHexStringView{
-            sig->publicKey()});
-  }
+  for (auto const &vote : commit.votes)
+    for (auto const &vote_hash : vote.hash.vote_hashes) {
+      auto it = std::lower_bound(current_block_.begin(),
+                                 current_block_.end(),
+                                 [](auto const &l, auto const &r) {
+                                   return l.block->height() < r.block->height();
+                                 });
+
+      if (it != current_block_.end()
+          && it->block->hash().hex() == vote_hash.block_hash) {
+        auto &sig = vote_hash.block_signature;
+        it->block->addSignature(
+            shared_model::interface::types::SignedHexStringView{
+                sig->signedData()},
+            shared_model::interface::types::PublicKeyHexStringView{
+                sig->publicKey()});
+      } else
+        log_->error(
+            "Current block data does not match commit message data. Vote hash is {} and current block hash {}",
+            vote_hash.block_hash,
+            it != current_block_.end() ? it->block->hash().hex() : "<EMPTY>");
+    }
 }
 
 std::optional<iroha::consensus::GateObject> YacGateImpl::handleCommit(
@@ -145,7 +160,7 @@ std::optional<iroha::consensus::GateObject> YacGateImpl::handleCommit(
   assert(hash.vote_round.block_round
          == current_ledger_state_->top_block_info.height + 1);
 
-  if (hash == current_hash_ and current_block_) {
+  if (hash == current_hash_ and !current_block_.empty()) {
     // if node has voted for the committed block
     // append signatures of other nodes
     this->copySignatures(msg);

@@ -47,7 +47,7 @@ namespace iroha::consensus::yac {
 
     // ------|Hash gate|------
 
-    void vote(YacHash hash,
+    void vote(YacHash const &hash,
               ClusterOrdering order,
               std::optional<ClusterOrdering> alternative_order =
                   std::nullopt) override;

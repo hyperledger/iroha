@@ -34,7 +34,7 @@ namespace iroha::consensus::yac {
      * @param alternative_order - peer order
      */
     virtual void vote(
-        YacHash hash,
+        YacHash const &hash,
         ClusterOrdering order,
         std::optional<ClusterOrdering> alternative_order = std::nullopt) = 0;
 
