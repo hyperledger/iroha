@@ -47,10 +47,8 @@ namespace std {
       std::size_t seed = 0;
       boost::hash_combine(seed, m.signature->publicKey());
       boost::hash_combine(seed, m.hash.vote_round);
-      for (auto const &vote_hash : m.hash.vote_hashes) {
-        boost::hash_combine(seed, vote_hash.proposal_hash);
-        boost::hash_combine(seed, vote_hash.block_hash);
-      }
+      boost::hash_combine(seed, m.hash.vote_hashes.proposal_hash);
+      boost::hash_combine(seed, m.hash.vote_hashes.block_hash);
       return seed;
     }
   };

@@ -6,7 +6,6 @@
 #include "main/application.hpp"
 
 #include <civetweb.h>
-#include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <boost/filesystem.hpp>
@@ -15,12 +14,9 @@
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/rocksdb_common.hpp"
 #include "ametsuchi/impl/rocksdb_storage_impl.hpp"
-#include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
 #include "ametsuchi/vm_caller.hpp"
-#include "backend/protobuf/proto_block_json_converter.hpp"
-#include "backend/protobuf/proto_permission_to_string.hpp"
 #include "backend/protobuf/proto_proposal_factory.hpp"
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
@@ -28,12 +24,9 @@
 #include "common/bind.hpp"
 #include "common/files.hpp"
 #include "common/result_try.hpp"
-#include "consensus/yac/consensus_outcome_type.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
 #include "cryptography/crypto_provider/crypto_model_signer.hpp"
-#include "cryptography/default_hash_provider.hpp"
-#include "generator/generator.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -51,7 +44,6 @@
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/channel_factory.hpp"
 #include "network/impl/channel_pool.hpp"
-#include "network/impl/client_factory_impl.hpp"
 #include "network/impl/generic_client_factory.hpp"
 #include "network/impl/peer_communication_service_impl.hpp"
 #include "network/impl/peer_tls_certificates_provider_root.hpp"
@@ -72,7 +64,6 @@
 #include "validation/impl/stateful_validator_impl.hpp"
 #include "validators/always_valid_validator.hpp"
 #include "validators/default_validator.hpp"
-#include "validators/field_validator.hpp"
 #include "validators/protobuf/proto_block_validator.hpp"
 #include "validators/protobuf/proto_proposal_validator.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
@@ -1086,7 +1077,7 @@ namespace {
  * Run iroha daemon
  */
 Irohad::RunResult Irohad::run() {
-  ordering_init->subscribe([simulator(utils::make_weak(simulator)),
+  ordering_init->subscribe([proposal_pack{config_.getMaxpProposalPack()}, simulator(utils::make_weak(simulator)),
                             consensus_gate(utils::make_weak(consensus_gate)),
                             tx_processor(utils::make_weak(tx_processor)),
                             subscription(utils::make_weak(getSubscription()))](
@@ -1097,14 +1088,17 @@ Irohad::RunResult Irohad::run() {
     auto maybe_subscription = subscription.lock();
     if (maybe_simulator and maybe_consensus_gate and maybe_tx_processor
         and maybe_subscription) {
-
-      BlockCreatorEvent block_event;
-      block_event.round = event.round;
-      block_event.ledger_state = event.ledger_state;
-
+      std::vector<BlockCreatorEvent> block_events;
       auto round = event.round;
       TopBlockInfo prev_block = event.ledger_state->top_block_info;
-      for (auto const &proposal : event.proposal_pack) {
+
+      auto const blocks_count = std::min((size_t)proposal_pack, event.proposal_pack.size());
+      for (size_t ix = 0; ix < blocks_count; ++ix) {
+        auto const &proposal = event.proposal_pack[ix];
+        BlockCreatorEvent block_event;
+        block_event.round = round;
+        block_event.ledger_state = event.ledger_state;
+
         maybe_subscription->notify(EventTypes::kOnProposal, event);
         auto verified_proposal = maybe_simulator->processProposal(
             proposal, round, event.ledger_state);
@@ -1115,7 +1109,7 @@ Irohad::RunResult Irohad::run() {
         auto block = maybe_simulator->processVerifiedProposal(
             std::move(verified_proposal), prev_block);
 
-        if (block_event.round_data.empty() || block) {
+        if (block_events.empty() || block) {
           assert(block->block);
           assert(block->proposal);
 
@@ -1125,12 +1119,13 @@ Irohad::RunResult Irohad::run() {
           ++round.block_round;
           round.reject_round = 0ull;
 
-          block_event.round_data.emplace_back(std::move(*block));
+          block_event.round_data = std::move(block);
+          block_events.emplace_back(std::move(block_event));
         } else
           break;
       }
 
-      maybe_consensus_gate->vote(std::move(block_event));
+      maybe_consensus_gate->vote(std::move(block_events));
     }
   });
 

@@ -41,7 +41,7 @@ namespace iroha::consensus::yac {
         std::shared_ptr<YacHashProvider> hash_provider,
         std::shared_ptr<consensus::ConsensusResultCache> consensus_result_cache,
         logger::LoggerPtr log);
-    void vote(simulator::BlockCreatorEvent &&event) override;
+    void vote(std::vector<simulator::BlockCreatorEvent> &&event) override;
 
     std::optional<GateObject> processOutcome(Answer const &outcome);
 

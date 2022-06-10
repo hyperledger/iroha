@@ -47,7 +47,7 @@ YacGateImpl::YacGateImpl(
       consensus_result_cache_(std::move(consensus_result_cache)),
       hash_gate_(std::move(hash_gate)) {}
 
-void YacGateImpl::vote(simulator::BlockCreatorEvent &&event) {
+void YacGateImpl::vote(std::vector<simulator::BlockCreatorEvent> &&event) {
   if (current_hash_.vote_round != event.round) {
     log_->info("Current round {} not equal to vote round {}, skipped",
                current_hash_.vote_round,
@@ -110,7 +110,7 @@ std::optional<iroha::consensus::GateObject> YacGateImpl::processRoundSwitch(
   current_hash_ = YacHash();
   current_hash_.vote_round = round;
   current_ledger_state_ = std::move(ledger_state);
-  current_block_.clear();
+  current_block_.pop_front();
   consensus_result_cache_->release();
   if (auto answer = hash_gate_->processRoundSwitch(
           current_hash_.vote_round,
