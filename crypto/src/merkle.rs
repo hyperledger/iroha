@@ -52,7 +52,7 @@ pub struct Leaf<T> {
     hash: HashOf<T>,
 }
 
-/// Binary tree's node with possible variants: [`Subtree`], [`Leaf`] (with data or links to data) and `Empty`.
+/// Binary tree node: [`Subtree`], [`Leaf`] (with data or links to data), or `Empty`.
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub enum Node<T> {
@@ -115,7 +115,7 @@ impl<T> MerkleTree<T> {
         }
     }
 
-    /// Get the hash of the `idx`th leaf node.
+    /// Get the hash of the `idx`-th leaf node.
     pub fn get_leaf(&self, idx: usize) -> Option<HashOf<T>> {
         self.leaves().nth(idx)
     }
@@ -201,11 +201,11 @@ impl<T> Node<T> {
 
     fn bfs(&self) -> Vec<&Node<T>> {
         let mut nodes = vec![self];
-        Self::_bfs_traverse(&mut nodes);
+        Self::bfs_traverse(&mut nodes);
         nodes
     }
 
-    fn _bfs_traverse(node_list: &mut Vec<&Node<T>>) {
+    fn bfs_traverse(node_list: &mut Vec<&Node<T>>) {
         if node_list.is_empty() {
             return;
         }
@@ -213,7 +213,7 @@ impl<T> Node<T> {
             .iter()
             .flat_map(|x| x.children())
             .collect::<Vec<_>>();
-        Self::_bfs_traverse(&mut next_list);
+        Self::bfs_traverse(&mut next_list);
         node_list.append(&mut next_list);
     }
 
@@ -385,7 +385,7 @@ mod tests {
         }
 
         fn depth(&self) -> u32 {
-            self.size().trailing_ones()
+            usize::BITS - self.size().leading_zeros()
         }
 
         fn leaves_start_at(&self) -> Option<usize> {
