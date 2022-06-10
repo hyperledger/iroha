@@ -114,22 +114,30 @@ async fn torii_pagination() {
         )
         .map(|result| {
             let Scale(query_result) = result.unwrap();
-            let VersionedPaginatedQueryResult::V1(PaginatedQueryResult { result, .. }) =
+            let VersionedPaginatedQueryResult::V1(PaginatedQueryResult { result, total, .. }) =
                 query_result;
 
             if let QueryResult(Value::Vec(domains)) = result {
-                domains
+                (domains, total)
             } else {
                 unreachable!()
             }
         })
     };
 
-    assert_eq!(get_domains(None, None).await.len(), 26);
-    assert_eq!(get_domains(Some(0), None).await.len(), 26);
-    assert_eq!(get_domains(Some(15), Some(5)).await.len(), 5);
-    assert_eq!(get_domains(None, Some(10)).await.len(), 10);
-    assert_eq!(get_domains(Some(1), Some(15)).await.len(), 15);
+    for (start, limit, len) in [
+        (None, None, 26),
+        (Some(0), None, 26),
+        (Some(15), Some(5), 5),
+        (None, Some(10), 10),
+        (Some(1), Some(15), 15),
+        (Some(15), Some(15), 11),
+    ] {
+        let (domains, total) = get_domains(start, limit).await;
+        assert_eq!(domains.len(), len);
+        // `total` counts all values that match the filtering conditions
+        assert_eq!(total, 26);
+    }
 }
 
 #[derive(Default)]
