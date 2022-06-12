@@ -127,13 +127,15 @@ void OnDemandOrderingGate::stop() {
 }
 
 std::optional<iroha::network::OrderingEvent>
-OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) const {
+OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) {
   if (not current_ledger_state_ || event.round != current_round_) {
     return std::nullopt;
   }
   if (event.proposal_pack.empty())
     return network::OrderingEvent{
         std::nullopt, event.round, current_ledger_state_};
+
+  proposal_cache_.push(std::move(event.proposal_pack));
 
   auto result = removeReplaysAndDuplicates(std::move(event.proposal_pack));
   // no need to check empty proposal

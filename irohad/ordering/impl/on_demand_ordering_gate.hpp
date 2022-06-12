@@ -20,6 +20,7 @@
 #include "ordering/impl/round_switch.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
 #include "ordering/on_demand_os_transport.hpp"
+#include "ordering/impl/proposal_cache.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -60,7 +61,7 @@ namespace iroha {
        * Handle an incoming proposal from ordering service
        */
       std::optional<network::OrderingEvent> processProposalRequest(
-          ProposalEvent &&event) const;
+          ProposalEvent &&event);
 
       void stop() override;
 
@@ -108,6 +109,7 @@ namespace iroha {
       std::shared_timed_mutex stop_mutex_;
       bool stop_requested_{false};
       bool syncing_mode_;
+      ProposalCache proposal_cache_;
     };
 
   }  // namespace ordering
