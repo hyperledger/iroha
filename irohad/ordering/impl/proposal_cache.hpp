@@ -30,34 +30,33 @@ namespace iroha::ordering {
     ProposalCache() = default;
 
    public:
-    void push(
+    void insert(
         std::vector<std::shared_ptr<shared_model::interface::Proposal const>>
             &&proposal_pack) {
       cached_data_.exclusiveAccess([proposal_pack{std::move(proposal_pack)}](
                                        auto &cache) mutable {
         assert(cache.empty());
         cache = std::move(proposal_pack);
-        std::sort(cache.begin(), cache.end(), [](auto const &l, auto const &r) {
-          return l->height() >= r->height();
+        std::sort(cache.rbegin(), cache.rend(), [](auto const &l, auto const &r) {
+          return l->height() < r->height();
         });
       });
     }
 
-    std::shared_ptr<shared_model::interface::Proposal const> pop(consensus::Round const &round) {
+    std::shared_ptr<shared_model::interface::Proposal const> get(consensus::Round const &round) {
       return cached_data_.exclusiveAccess(
           [&](auto &cache)
               -> std::shared_ptr<shared_model::interface::Proposal const> {
-            if (cache.empty())
-              return nullptr;
+            while (!cache.empty() && cache.back()->height() < round.block_round)
+              cache.pop_back();
 
-            auto it = std::lower_bound(cache.begin(), cache.end(), [](auto const &l, auto const &r) {
-              return l->height() >= r->height();
-            });
-            1
+            if (!cache.empty() && cache.back()->height() == round.block_round) {
+              auto tmp = cache.back();
+              cache.pop_back();
+              return tmp;
+            }
 
-            auto back = cache.back();
-            cache.pop_back();
-            return back;
+            return nullptr;
           });
     }
   };

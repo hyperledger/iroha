@@ -87,10 +87,10 @@ namespace iroha {
       /**
        * remove already processed transactions from proposal
        */
-      ProposalEvent::ProposalPack
+      std::shared_ptr<const shared_model::interface::Proposal>
       removeReplaysAndDuplicates(
-          ProposalEvent::ProposalPack &&proposal_pack)
-          const;
+          std::shared_ptr<const shared_model::interface::Proposal> proposal)
+      const;
 
       logger::LoggerPtr log_;
 
