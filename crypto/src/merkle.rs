@@ -3,7 +3,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 #[cfg(feature = "std")]
-use std::collections::VecDeque;
+use std::{cmp::Ordering, collections::VecDeque};
 
 use iroha_schema::prelude::*;
 
@@ -73,12 +73,11 @@ pub struct BreadthFirstIter<'itm, T> {
 #[cfg(feature = "std")]
 impl<U> FromIterator<HashOf<U>> for MerkleTree<U> {
     fn from_iter<T: IntoIterator<Item = HashOf<U>>>(iter: T) -> Self {
-        let mut hashes = iter.into_iter().collect::<Vec<_>>();
-        hashes.sort_unstable();
-        let mut nodes = hashes
+        let mut nodes = iter
             .into_iter()
             .map(|hash| Node::Leaf(Leaf { hash }))
             .collect::<VecDeque<_>>();
+        nodes.make_contiguous().sort_unstable();
 
         let n_leaves = nodes.len();
         let mut base_len = 0;
@@ -222,6 +221,30 @@ impl<T> Node<T> {
             Node::Subtree(subtree) => vec![&*subtree.left, &*subtree.right],
             _ => vec![],
         }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> Ord for Node<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.hash().cmp(&other.hash())
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> PartialOrd for Node<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> Eq for Node<T> {}
+
+#[cfg(feature = "std")]
+impl<T> PartialEq for Node<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash() == other.hash()
     }
 }
 
