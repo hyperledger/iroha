@@ -209,6 +209,88 @@ async fn two_networks() {
     assert_eq!(connected_peers.peers.len(), 1);
 }
 
+async fn init_peers() -> Vec<(Addr<Network<TestMessage>>, String, Broker, KeyPair)> {
+    (0..10)
+        .map(|_| {
+            let broker = Broker::new();
+            let keypair = KeyPair::generate().unwrap();
+            let fut = {
+                let broker = broker.clone();
+                let keypair = keypair.clone();
+                async { (broker, keypair) }
+            };
+            futures::future::join(init_network(broker, keypair.public_key().to_owned()), fut)
+        })
+        .collect::<FuturesUnordered<_>>()
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .map(|((network, addr), (broker, keypair))| (network, addr, broker, keypair))
+        .collect()
+}
+
+async fn init_test_actor(broker: &Broker, messages: Arc<AtomicU32>) {
+    // This actor will get the messages from other peers and increment the counter
+    let actor = TestActor {
+        broker: broker.to_owned(),
+        messages,
+    };
+    actor.start().await;
+}
+
+async fn send_message_to_peers(
+    sender: &str,
+    receivers: &[String],
+    broker: &Broker,
+    public_key: &iroha_crypto::PublicKey,
+) -> usize {
+    let delay: u64 = rand::random();
+    time::sleep(Duration::from_millis(250 + (delay % 500))).await;
+
+    let mut conn_count = 0;
+    for p in receivers {
+        if p != sender {
+            let peer = PeerId {
+                address: p.to_owned(),
+                public_key: public_key.to_owned(),
+            };
+
+            broker
+                .issue_send(ConnectPeer {
+                    address: peer.address,
+                })
+                .await;
+            conn_count += 1;
+            time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+    conn_count
+}
+
+async fn start_network(
+    sender: String,
+    network: Addr<Network<TestMessage>>,
+    broker: Broker,
+    public_key: iroha_crypto::PublicKey,
+    receivers: &[String],
+) {
+    info!(peer_addr = %sender, "Starting network");
+
+    let conn_count = send_message_to_peers(&sender, receivers, &broker, &public_key).await;
+
+    let mut test_count = 0_usize;
+    while let Ok(result) = network.send(iroha_p2p::network::GetConnectedPeers).await {
+        let connections = result.peers.len();
+        info!(peer_addr = %sender, %connections);
+        if connections == conn_count || test_count >= 10 {
+            break;
+        }
+        test_count += 1;
+        time::sleep(Duration::from_millis(1000)).await;
+    }
+    info!(peer_addr = %sender, %conn_count, "Got all connections!");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn multiple_networks() {
     let log_config = Configuration {
@@ -272,88 +354,6 @@ async fn multiple_networks() {
     info!("Posts sent");
     time::sleep(delay * 5).await;
     assert_eq!(msgs.load(Ordering::SeqCst), 90);
-}
-
-async fn init_peers() -> Vec<(Addr<Network<TestMessage>>, String, Broker, KeyPair)> {
-    (0..10)
-        .map(|_| {
-            let broker = Broker::new();
-            let keypair = KeyPair::generate().unwrap();
-            let fut = {
-                let broker = broker.clone();
-                let keypair = keypair.clone();
-                async { (broker, keypair) }
-            };
-            futures::future::join(init_network(broker, keypair.public_key().to_owned()), fut)
-        })
-        .collect::<FuturesUnordered<_>>()
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .map(|((network, addr), (broker, keypair))| (network, addr, broker, keypair))
-        .collect()
-}
-
-async fn init_test_actor(broker: &Broker, messages: Arc<AtomicU32>) {
-    // This actor will get the messages from other peers and increment the counter
-    let actor = TestActor {
-        broker: broker.to_owned(),
-        messages,
-    };
-    actor.start().await;
-}
-
-async fn start_network(
-    sender: String,
-    network: Addr<Network<TestMessage>>,
-    broker: Broker,
-    public_key: iroha_crypto::PublicKey,
-    receivers: &[String],
-) {
-    info!(peer_addr = %sender, "Starting network");
-
-    let conn_count = send_message_to_peers(&sender, receivers, &broker, &public_key).await;
-
-    let mut test_count = 0_usize;
-    while let Ok(result) = network.send(iroha_p2p::network::GetConnectedPeers).await {
-        let connections = result.peers.len();
-        info!(peer_addr = %sender, %connections);
-        if connections == conn_count || test_count >= 10 {
-            break;
-        }
-        test_count += 1;
-        time::sleep(Duration::from_millis(1000)).await;
-    }
-    info!(peer_addr = %sender, %conn_count, "Got all connections!");
-}
-
-async fn send_message_to_peers(
-    sender: &str,
-    receivers: &[String],
-    broker: &Broker,
-    public_key: &iroha_crypto::PublicKey,
-) -> usize {
-    let delay: u64 = rand::random();
-    time::sleep(Duration::from_millis(250 + (delay % 500))).await;
-
-    let mut conn_count = 0;
-    for p in receivers {
-        if p != sender {
-            let peer = PeerId {
-                address: p.to_owned(),
-                public_key: public_key.to_owned(),
-            };
-
-            broker
-                .issue_send(ConnectPeer {
-                    address: peer.address,
-                })
-                .await;
-            conn_count += 1;
-            time::sleep(Duration::from_millis(100)).await;
-        }
-    }
-    conn_count
 }
 
 #[test]

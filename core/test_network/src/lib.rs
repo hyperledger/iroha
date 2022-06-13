@@ -3,9 +3,21 @@
 #![allow(clippy::restriction, clippy::future_not_send)]
 
 use core::{fmt::Debug, str::FromStr as _, time::Duration};
-use std::{collections::HashMap, sync::Arc, thread};
+use std::{
+    collections::HashMap,
+    collections::HashSet,
+    env,
+    fs::{self, File},
+    io::Write,
+    net::{Ipv4Addr, SocketAddrV4, TcpListener},
+    path::PathBuf,
+    process,
+    sync::Arc,
+    thread,
+    time::SystemTime,
+};
 
-use eyre::{Error, Result};
+use eyre::{Error, Report, Result};
 use futures::{prelude::*, stream::FuturesUnordered};
 use iroha::{config::Configuration, torii::config::ToriiConfiguration, Iroha};
 use iroha_actor::{broker::*, prelude::*};
@@ -22,6 +34,7 @@ use iroha_core::{
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
 use iroha_logger::{Configuration as LoggerConfiguration, InstrumentFutures};
 use rand::seq::IteratorRandom;
+use sysinfo::{Pid, PidExt, System, SystemExt};
 use tempfile::TempDir;
 use tokio::{
     runtime::{self, Runtime},
@@ -250,9 +263,13 @@ where
         offline_peers: u32,
     ) -> Result<Self> {
         let n_peers = n_peers - 1;
-        let mut genesis = Peer::<W, G, K, S, B>::new()?;
+        let mut genesis = Peer::<W, G, K, S, B>::new().await?;
         let mut peers = (0..n_peers)
             .map(|_| Peer::new())
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
             .map(|result| result.map(|peer| (peer.id.clone(), peer)))
             .collect::<Result<HashMap<_, _>>>()?;
 
@@ -499,11 +516,12 @@ where
     /// - `p2p_address`
     /// - `api_address`
     /// - `telemetry_address`
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let key_pair = KeyPair::generate()?;
-        let p2p_address = local_unique_port()?;
-        let api_address = local_unique_port()?;
-        let telemetry_address = local_unique_port()?;
+        let port_provider = UniquePortProvider::new()?;
+        let p2p_address = port_provider.new_unique_local_address().await?.to_string();
+        let api_address = port_provider.new_unique_local_address().await?.to_string();
+        let telemetry_address = port_provider.new_unique_local_address().await?.to_string();
         let id = PeerId {
             address: p2p_address.clone(),
             public_key: key_pair.public_key().clone(),
@@ -667,7 +685,7 @@ where
         self,
     ) -> Peer<W, G, Kura<W>, Sumeragi<G, Kura<W>, W>, BlockSynchronizer<Sumeragi<G, Kura<W>, W>, W>>
     {
-        let mut peer = Peer::new().expect("Failed to create a peer.");
+        let mut peer = Peer::new().await.expect("Failed to create a peer.");
         self.start_with_peer(&mut peer).await;
         peer
     }
@@ -724,6 +742,182 @@ where
             temp_dir: None,
         }
     }
+}
+
+struct UniquePortProvider {
+    id: u128,
+}
+
+impl UniquePortProvider {
+    const STORAGE_PATH_PREFIX: &'static str = "iroha_port_provider_storage_";
+    const LOCKFILE_NAME: &'static str = "iroha_port_provider_lockfile";
+    const LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
+    const NEW_PORT_TIMEOUT: Duration = Duration::from_secs(5);
+
+    fn new() -> Result<Self> {
+        let now = SystemTime::now();
+        let id = now.duration_since(std::time::UNIX_EPOCH)?.as_nanos();
+        Ok(Self { id })
+    }
+
+    async fn new_unique_local_address(&self) -> Result<SocketAddrV4> {
+        let port = self.new_free_port().await?;
+        Ok(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))
+    }
+
+    async fn new_free_port(&self) -> Result<u16> {
+        self.lock().await?;
+        let result = self.find_free_port().and_then(|port| self.store_port(port));
+        self.unlock()?;
+        result
+    }
+
+    async fn lock(&self) -> Result<()> {
+        let path = Self::lockfile_path();
+
+        if self.check_lockfile(&path).await? {
+            return Ok(());
+        }
+
+        fs::write(&path, self.id.to_string())?;
+
+        Ok(())
+    }
+
+    fn find_free_port(&self) -> Result<u16> {
+        let taken_ports = self.taken_ports()?;
+        let from = SystemTime::now();
+        loop {
+            let now = SystemTime::now();
+            if now.duration_since(from)? > Self::NEW_PORT_TIMEOUT {
+                return Err(Report::new(UniquePortProviderError::Timeout));
+            }
+
+            let new_port = rand::random::<u16>();
+            let tcp_listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, new_port));
+
+            if taken_ports.contains(&new_port) || tcp_listener.is_err() {
+                continue;
+            }
+
+            return Ok(new_port);
+        }
+    }
+
+    fn store_port(&self, port: u16) -> Result<u16> {
+        let path = Self::storage_path();
+        let mut file = File::options().append(true).create(true).open(path)?;
+        writeln!(&mut file, "{}", port)?;
+
+        Ok(port)
+    }
+
+    fn unlock(&self) -> Result<()> {
+        let path = Self::lockfile_path();
+        if path.exists() {
+            fs::remove_file(&path)?;
+        }
+        Ok(())
+    }
+
+    fn lockfile_path() -> PathBuf {
+        let mut result = env::temp_dir();
+        result.push(Self::LOCKFILE_NAME);
+        result
+    }
+
+    fn taken_ports(&self) -> Result<HashSet<u16>> {
+        self.remove_orphan_storages()?;
+        self.storages()?
+            .into_iter()
+            .map(|(_, path)| fs::read_to_string(path).map_err(Report::new))
+            .collect::<Result<Vec<String>>>()?
+            .iter()
+            .map(|value| value.lines())
+            .flatten()
+            .map(|line| line.parse::<u16>().map_err(Report::new))
+            .collect()
+    }
+
+    fn remove_orphan_storages(&self) -> Result<()> {
+        let sysinfo = System::new();
+        let processes = sysinfo.processes();
+
+        self.storages()?
+            .into_iter()
+            .filter(|(pid, _)| {
+                let pid = Pid::from_u32(*pid);
+                !processes.contains_key(&pid)
+            })
+            .map(|(_, path)| fs::remove_file(path).map_err(Report::new))
+            .collect()
+    }
+
+    fn storages(&self) -> Result<HashMap<u32, PathBuf>> {
+        let target_dir = env::temp_dir();
+        let mut result = HashMap::new();
+        for entry in fs::read_dir(target_dir)? {
+            let entry = entry?;
+            let is_file = entry.path().is_file();
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            if is_file && file_name.starts_with(Self::STORAGE_PATH_PREFIX) {
+                let id: u32 = file_name
+                    .strip_prefix(Self::STORAGE_PATH_PREFIX)
+                    .expect("Can't parse storage id")
+                    .parse()?;
+                result.insert(id, entry.path());
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn storage_path() -> PathBuf {
+        let id = process::id();
+        Self::storage_path_from_id(id)
+    }
+
+    fn storage_path_from_id(id: u32) -> PathBuf {
+        let mut result = env::temp_dir();
+        let file_path = PathBuf::from(format!("{}{}", Self::STORAGE_PATH_PREFIX, id));
+        result.push(file_path);
+        result
+    }
+
+    async fn check_lockfile(&self, path: &PathBuf) -> Result<bool> {
+        if !path.exists() {
+            return Ok(true);
+        }
+
+        if !self.check_lockfile_id(path)? {
+            self.wait_for_unlock(path).await?;
+        }
+
+        Ok(false)
+    }
+
+    fn check_lockfile_id(&self, path: &PathBuf) -> Result<bool> {
+        let id: u128 = fs::read_to_string(path)?.parse()?;
+        Ok(self.id == id)
+    }
+
+    async fn wait_for_unlock(&self, path: &PathBuf) -> Result<()> {
+        let from = SystemTime::now();
+        loop {
+            let now = SystemTime::now();
+            if !path.exists() || now.duration_since(from)? > Self::LOCK_WAIT_TIMEOUT {
+                return Ok(());
+            }
+            time::sleep(Duration::from_millis(2)).await;
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum UniquePortProviderError {
+    #[error("Can't find a free port")]
+    Timeout,
 }
 
 fn local_unique_port() -> Result<String> {
@@ -874,8 +1068,6 @@ impl TestRuntime for Runtime {
             .unwrap()
     }
 }
-
-use std::collections::HashSet;
 
 impl TestConfiguration for Configuration {
     fn test() -> Self {

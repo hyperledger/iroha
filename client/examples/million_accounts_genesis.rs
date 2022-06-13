@@ -8,7 +8,8 @@ use iroha_data_model::prelude::*;
 use test_network::{get_key_pair, Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     fn generate_genesis(num_domains: u32) -> RawGenesisBlock {
         let mut builder = RawGenesisBlockBuilder::new();
 
@@ -29,7 +30,7 @@ fn main() {
 
         builder.build()
     }
-    let mut peer = <TestPeer>::new().expect("Failed to create peer");
+    let mut peer = <TestPeer>::new().await.expect("Failed to create peer");
     let configuration = get_config(
         std::iter::once(peer.id.clone()).collect(),
         Some(get_key_pair()),

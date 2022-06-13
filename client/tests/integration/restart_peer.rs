@@ -12,12 +12,13 @@ use tokio::runtime::Runtime;
 
 use super::Configuration;
 
-#[test]
-fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
+// #[test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
     let temp_dir = Arc::new(TempDir::new()?);
 
     let mut configuration = Configuration::test();
-    let mut peer = <TestPeer>::new()?;
+    let mut peer = <TestPeer>::new().await?;
     configuration.sumeragi.trusted_peers.peers = std::iter::once(peer.id.clone()).collect();
 
     let pipeline_time = Duration::from_millis(configuration.sumeragi.pipeline_time_ms());

@@ -20,11 +20,13 @@ iroha_actor = { version = "=2.0.0-pre-rc.5", path = "../../actor" }
 iroha = { path = "../../cli", features = ["test-network"] }
 
 eyre = "0.6.5"
-tempfile = "3"
-unique_port = "0.1.0"
-tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
-rand = "0.8"
 futures = { version = "0.3.17", default-features = false, features = ["std", "async-await"] }
+rand = "0.8"
+sysinfo = "0.24.3"
+tempfile = "3"
+thiserror = "1.0.28"
+tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread", "macros"]}
+unique_port = "0.1.0"
 
 [dev-dependencies]
 

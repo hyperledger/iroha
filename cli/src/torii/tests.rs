@@ -42,7 +42,7 @@ async fn try_init_network(config: &mut Configuration) -> Result<IrohaNetwork, ir
         Broker::new(),
         config.torii.p2p_addr.clone(),
         config.public_key.clone(),
-        config.network.mailbox,
+        config.network.actor_channel_capacity,
     )
     .await
 }
