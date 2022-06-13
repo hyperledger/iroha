@@ -64,15 +64,16 @@ pub enum Node<T> {
     Empty,
 }
 
+#[cfg(feature = "std")]
 #[derive(Debug)]
 /// BFS iterator over [`MerkleTree`].
 pub struct BreadthFirstIter<'itm, T> {
-    stack: Vec<&'itm Node<T>>,
+    queue: VecDeque<&'itm Node<T>>,
 }
 
 #[cfg(feature = "std")]
-impl<U> FromIterator<HashOf<U>> for MerkleTree<U> {
-    fn from_iter<T: IntoIterator<Item = HashOf<U>>>(iter: T) -> Self {
+impl<T> FromIterator<HashOf<T>> for MerkleTree<T> {
+    fn from_iter<I: IntoIterator<Item = HashOf<T>>>(iter: I) -> Self {
         let mut nodes = iter
             .into_iter()
             .map(|hash| Node::Leaf(Leaf { hash }))
@@ -130,6 +131,7 @@ impl<T> MerkleTree<T> {
     }
 
     /// Get a BFS iterator over the tree.
+    #[cfg(feature = "std")]
     pub fn iter(&self) -> BreadthFirstIter<T> {
         BreadthFirstIter::new(&self.root_node)
     }
@@ -198,25 +200,8 @@ impl<T> Node<T> {
         crate::Hash::new(sum).typed()
     }
 
-    fn bfs(&self) -> Vec<&Node<T>> {
-        let mut nodes = vec![self];
-        Self::bfs_traverse(&mut nodes);
-        nodes
-    }
-
-    fn bfs_traverse(node_list: &mut Vec<&Node<T>>) {
-        if node_list.is_empty() {
-            return;
-        }
-        let mut next_list = node_list
-            .iter()
-            .flat_map(|x| x.children())
-            .collect::<Vec<_>>();
-        Self::bfs_traverse(&mut next_list);
-        node_list.append(&mut next_list);
-    }
-
-    fn children(&self) -> Vec<&Node<T>> {
+    #[cfg(feature = "std")]
+    fn children(&self) -> impl IntoIterator<Item = &Self> {
         match self {
             Node::Subtree(subtree) => vec![&*subtree.left, &*subtree.right],
             _ => vec![],
@@ -248,11 +233,13 @@ impl<T> PartialEq for Node<T> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'itm, T> BreadthFirstIter<'itm, T> {
-    fn new(root_node: &'itm Node<T>) -> Self {
-        let mut nodes = root_node.bfs();
-        nodes.reverse();
-        BreadthFirstIter { stack: nodes }
+    #[inline]
+    pub fn new(root: &'itm Node<T>) -> Self {
+        Self {
+            queue: VecDeque::from(vec![root]),
+        }
     }
 }
 
@@ -260,14 +247,22 @@ impl<'itm, T> BreadthFirstIter<'itm, T> {
 /// `'itm` lifetime specified for `Node`. Because `Node` is recursive data structure with self
 /// composition in case of `Node::Subtree` we use `Box` to know size of each `Node` object in
 /// memory.
+#[cfg(feature = "std")]
 impl<'itm, T> Iterator for BreadthFirstIter<'itm, T> {
     type Item = &'itm Node<T>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.stack.pop()
+        if let Some(node) = self.queue.pop_front() {
+            self.queue.extend(node.children());
+            Some(node)
+        } else {
+            None
+        }
     }
 }
 
+#[cfg(feature = "std")]
 impl<'itm, T> IntoIterator for &'itm MerkleTree<T> {
     type Item = &'itm Node<T>;
     type IntoIter = BreadthFirstIter<'itm, T>;
