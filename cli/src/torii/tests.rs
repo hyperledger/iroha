@@ -18,7 +18,7 @@ use iroha_core::{
     tx::TransactionValidator,
     wsv::World,
 };
-use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, prelude::*};
+use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, predicate::PredicateBox, prelude::*};
 use iroha_version::prelude::*;
 use tokio::time;
 use warp::test::WsClient;
@@ -98,6 +98,7 @@ async fn torii_pagination() {
         let query: VerifiedQueryRequest = QueryRequest::new(
             QueryBox::FindAllDomains(Default::default()),
             AccountId::from_str("alice@wonderland").expect("Valid"),
+            PredicateBox::default(),
         )
         .sign(keys.clone())
         .expect("Failed to sign query with keys")
@@ -113,22 +114,30 @@ async fn torii_pagination() {
         )
         .map(|result| {
             let Scale(query_result) = result.unwrap();
-            let VersionedPaginatedQueryResult::V1(PaginatedQueryResult { result, .. }) =
+            let VersionedPaginatedQueryResult::V1(PaginatedQueryResult { result, total, .. }) =
                 query_result;
 
             if let QueryResult(Value::Vec(domains)) = result {
-                domains
+                (domains, total)
             } else {
                 unreachable!()
             }
         })
     };
 
-    assert_eq!(get_domains(None, None).await.len(), 26);
-    assert_eq!(get_domains(Some(0), None).await.len(), 26);
-    assert_eq!(get_domains(Some(15), Some(5)).await.len(), 5);
-    assert_eq!(get_domains(None, Some(10)).await.len(), 10);
-    assert_eq!(get_domains(Some(1), Some(15)).await.len(), 15);
+    for (start, limit, len) in [
+        (None, None, 26),
+        (Some(0), None, 26),
+        (Some(15), Some(5), 5),
+        (None, Some(10), 10),
+        (Some(1), Some(15), 15),
+        (Some(15), Some(15), 11),
+    ] {
+        let (domains, total) = get_domains(start, limit).await;
+        assert_eq!(domains.len(), len);
+        // `total` counts all values that match the filtering conditions
+        assert_eq!(total, 26);
+    }
 }
 
 #[derive(Default)]
@@ -176,11 +185,14 @@ impl QuerySet {
 
         let router = torii.create_api_router();
 
-        let request: VersionedSignedQueryRequest =
-            QueryRequest::new(query, self.account.unwrap_or(authority))
-                .sign(self.keys.unwrap_or(keys))
-                .expect("Failed to sign query with keys")
-                .into();
+        let request: VersionedSignedQueryRequest = QueryRequest::new(
+            query,
+            self.account.unwrap_or(authority),
+            PredicateBox::default(),
+        )
+        .sign(self.keys.unwrap_or(keys))
+        .expect("Failed to sign query with keys")
+        .into();
 
         let response = warp::test::request()
             .method("POST")

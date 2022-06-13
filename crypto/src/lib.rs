@@ -17,7 +17,7 @@ use core::{fmt, str::FromStr};
 
 #[cfg(feature = "base64")]
 pub use base64;
-use derive_more::Display;
+use derive_more::{DebugCustom, Display};
 use getset::Getters;
 pub use hash::*;
 use iroha_schema::IntoSchema;
@@ -61,7 +61,7 @@ pub struct NoSuchAlgorithm;
 impl std::error::Error for NoSuchAlgorithm {}
 
 /// Algorithm for hashing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
 pub enum Algorithm {
     /// Ed25519
     #[display(fmt = "{}", "ED_25519")]
@@ -358,8 +358,12 @@ impl From<multihash::ConvertError> for KeyParseError {
 impl std::error::Error for KeyParseError {}
 
 /// Public Key used in signatures.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Encode, IntoSchema)]
+#[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Encode, IntoSchema)]
 #[getset(get = "pub")]
+#[debug(
+    fmt = "{{ digest: {digest_function}, payload: {} }}",
+    "hex::encode_upper(payload.as_slice())"
+)]
 pub struct PublicKey {
     /// Digest function
     #[getset(skip)]
@@ -387,15 +391,6 @@ impl FromStr for PublicKey {
     }
 }
 
-impl fmt::Debug for PublicKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PublicKey")
-            .field("digest_function", &self.digest_function())
-            .field("payload", &hex::encode_upper(self.payload().as_slice()))
-            .finish()
-    }
-}
-
 impl fmt::Display for PublicKey {
     #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -411,6 +406,7 @@ impl fmt::Display for PublicKey {
 }
 
 impl From<Multihash> for PublicKey {
+    #[inline]
     fn from(multihash: Multihash) -> Self {
         #[cfg(not(feature = "std"))]
         use alloc::string::ToString as _;
@@ -430,6 +426,7 @@ impl From<Multihash> for PublicKey {
 }
 
 impl From<PublicKey> for Multihash {
+    #[inline]
     fn from(public_key: PublicKey) -> Self {
         let digest_function = match public_key.digest_function() {
             Algorithm::Ed25519 => MultihashDigestFunction::Ed25519Pub,
@@ -487,8 +484,10 @@ impl Decode for PublicKey {
 }
 
 /// Private Key used in signatures.
-#[derive(Clone, PartialEq, Eq, Getters, Serialize)]
+#[derive(DebugCustom, Display, Clone, PartialEq, Eq, Getters, Serialize)]
 #[getset(get = "pub")]
+#[debug(fmt = "{{ digest: {digest_function}, payload: {:X?}}}", payload)]
+#[display(fmt = "{}", "hex::encode(payload)")]
 pub struct PrivateKey {
     /// Digest function
     #[getset(skip)]
@@ -553,21 +552,6 @@ impl<'de> Deserialize<'de> for PrivateKey {
             }),
             Err(err) => Err(D::Error::custom(err)),
         }
-    }
-}
-
-impl fmt::Debug for PrivateKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PrivateKey")
-            .field("digest_function", &self.digest_function())
-            .field("payload", &format!("{:X?}", self.payload()))
-            .finish()
-    }
-}
-
-impl fmt::Display for PrivateKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(self.payload()))
     }
 }
 

@@ -4,7 +4,6 @@
 use alloc::{format, string::String, vec::Vec};
 
 pub use events::Event;
-use events::IdTrait;
 pub use filters::EventFilter;
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
@@ -12,6 +11,7 @@ use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::*;
+pub use crate::Registered;
 
 mod events;
 mod filters;

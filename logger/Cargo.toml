@@ -17,6 +17,7 @@ tracing-subscriber = { version = "0.3.0", default-features = false, features = [
 tracing-bunyan-formatter = { version = "0.3.0", default-features = false }
 tokio = { version = "1.6.0", features = ["sync"] }
 once_cell = "1.8.0"
+derive_more = "0.99.17"
 
 [dev-dependencies]
 tokio = { version = "1.6.0", features = ["macros", "time", "rt"] }

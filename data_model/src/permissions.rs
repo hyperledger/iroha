@@ -10,6 +10,7 @@ use alloc::{
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
 
+use derive_more::Display;
 use getset::Getters;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -22,10 +23,21 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
 
 /// Stored proof of the account having a permission for a certain action.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
 #[getset(get = "pub")]
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
+#[display(fmt = "{name}")]
 pub struct PermissionToken {
     /// Name of the permission rule given to account.
     name: Name,

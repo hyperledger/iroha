@@ -2,12 +2,9 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
-use std::{
-    future::Future,
-    ops::{Deref, DerefMut},
-    time::Duration,
-};
+use std::{future::Future, time::Duration};
 
+use derive_more::{Deref, DerefMut};
 use once_cell::sync::Lazy;
 use petgraph::{
     algo,
@@ -38,21 +35,8 @@ pub fn task_local_actor_id() -> Option<ActorId> {
     ACTOR_ID.try_with(|id| *id).ok()
 }
 
-#[derive(Default)]
+#[derive(Default, Deref, DerefMut)]
 struct DeadlockActor(Graph<ActorId, ()>);
-
-impl Deref for DeadlockActor {
-    type Target = Graph<ActorId, ()>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for DeadlockActor {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
 
 struct Reminder;
 struct AddEdge {

@@ -49,6 +49,7 @@ allow = [
     'clippy::wildcard_imports',
     'elided_lifetimes_in_paths',
     # Our preferred style.
+    'clippy::non-ascii-literal',
     'clippy::mod-module-files',
     'clippy::separated-literal-suffix',
     # Most trybuild code triggers a false-positive.

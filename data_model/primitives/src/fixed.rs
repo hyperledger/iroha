@@ -5,18 +5,20 @@ use alloc::{format, string::String, vec::Vec};
 
 use derive_more::Display;
 use fixnum::{
-    ops::{CheckedAdd, CheckedSub, Zero},
+    ops::{Bounded, CheckedAdd, CheckedSub, Zero},
     ArithmeticError,
 };
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-/// Base type for fixed implementation. May be changed in forks.
-/// To change implementation to i128 or other type you will need to change it in Cargo.toml.
+/// Base type for fixed implementation. May be changed in forks.  To
+/// change implementation to i128 or other type you will need to
+/// change it in Cargo.toml.
 type Base = i64;
 
-/// Signed fixed point amount over 64 bits, 9 decimal places.
+/// Signed fixed-point 64 bit rational fraction, having approximately
+/// 9 decimal places and not Binary-coded decimal.
 ///
 /// MAX = (2 ^ (`BITS_COUNT` - 1) - 1) / 10 ^ PRECISION =
 ///     = (2 ^ (64 - 1) - 1) / 1e9 =
@@ -31,6 +33,7 @@ pub type FixNum = fixnum::FixedPoint<Base, fixnum::typenum::U9>;
 #[derive(
     Debug,
     Clone,
+    Display,
     Copy,
     PartialEq,
     Eq,
@@ -47,6 +50,14 @@ pub struct Fixed(FixNum);
 impl Fixed {
     /// Constant, representing zero value
     pub const ZERO: Fixed = Fixed(FixNum::ZERO);
+
+    // TODO FixNum::Bounded is private.
+
+    /// The minimum value that can be stored in this type.
+    pub const MIN: Self = Fixed(<FixNum as Bounded>::MIN);
+
+    /// The maximum value that can be stored in this type.
+    pub const MAX: Self = Fixed(<FixNum as Bounded>::MAX);
 
     /// Return the only possible negative [`Fixed`] value. Only used for tests.
     ///

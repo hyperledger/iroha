@@ -2,10 +2,10 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{collections::btree_set, format, string::String, vec::Vec};
-use core::{fmt, str::FromStr};
 #[cfg(feature = "std")]
 use std::collections::btree_set;
 
+use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
 #[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     permissions::{PermissionToken, Permissions},
-    Identifiable, Name, ParseError,
+    Identifiable, Name, Registered,
 };
 
 /// Collection of [`RoleId`](Id)s
@@ -24,6 +24,9 @@ pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
 /// Identification of a role.
 #[derive(
     Debug,
+    Display,
+    Constructor,
+    FromStr,
     Clone,
     PartialEq,
     Eq,
@@ -41,38 +44,26 @@ pub struct Id {
     pub name: Name,
 }
 
-impl Id {
-    /// Construct role id
-    #[inline]
-    pub fn new(name: Name) -> Self {
-        Self { name }
-    }
-}
-
-impl fmt::Display for Id {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-impl FromStr for Id {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self {
-            name: Name::from_str(s)?,
-        })
-    }
-}
-
 /// Role is a tag for a set of permission tokens.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
-#[getset(get = "pub")]
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[display(fmt = "{id}")]
+#[getset(get = "pub")]
 pub struct Role {
     /// Unique name of the role.
+    #[getset(skip)]
     id: <Self as Identifiable>::Id,
     /// Permission tokens.
     #[getset(skip)]
@@ -100,7 +91,7 @@ impl Role {
     pub fn new(
         id: <Self as Identifiable>::Id,
         permissions: impl IntoIterator<Item = impl Into<PermissionToken>>,
-    ) -> <Self as Identifiable>::RegisteredWith {
+    ) -> <Self as Registered>::With {
         Self {
             id,
             permissions: permissions.into_iter().map(Into::into).collect(),
@@ -116,7 +107,14 @@ impl Role {
 
 impl Identifiable for Role {
     type Id = Id;
-    type RegisteredWith = Self;
+
+    fn id(&self) -> &Self::Id {
+        &self.id
+    }
+}
+
+impl Registered for Role {
+    type With = Self;
 }
 
 /// Builder for [`Role`]

@@ -6,16 +6,28 @@
 use alloc::{boxed::Box, format, string::String, vec::Vec};
 use core::fmt::Debug;
 
+use derive_more::Display;
 use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use super::{expression::EvaluatesTo, prelude::*, IdBox, RegistrableBox, Value};
+use crate::Registered;
 
 /// Sized structure for all possible Instructions.
 #[derive(
-    Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    FromVariant,
+    IntoSchema,
 )]
 pub enum Instruction {
     /// `Register` variant.
@@ -73,7 +85,10 @@ impl Instruction {
 }
 
 /// Sized structure for all possible key value set instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "SET {key:?} = {value:?} IN {object_id:?}")]
 pub struct SetKeyValueBox {
     /// Where to set this key value.
     pub object_id: EvaluatesTo<IdBox>,
@@ -84,7 +99,10 @@ pub struct SetKeyValueBox {
 }
 
 /// Sized structure for all possible key value pair remove instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "REMOVE {key:?} from {object_id:?}")]
 pub struct RemoveKeyValueBox {
     /// From where to remove this key value.
     pub object_id: EvaluatesTo<IdBox>,
@@ -93,21 +111,30 @@ pub struct RemoveKeyValueBox {
 }
 
 /// Sized structure for all possible Registers.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "REGISTER {object:?}")] // TODO: Display
 pub struct RegisterBox {
     /// The object that should be registered, should be uniquely identifiable by its id.
     pub object: EvaluatesTo<RegistrableBox>,
 }
 
 /// Sized structure for all possible Unregisters.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "UNREGISTER {object_id:?}")] // TODO: Display
 pub struct UnregisterBox {
     /// The id of the object that should be unregistered.
     pub object_id: EvaluatesTo<IdBox>,
 }
 
 /// Sized structure for all possible Mints.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "MINT {object:?} TO {destination_id:?}")] // TODO: Display
 pub struct MintBox {
     /// Object to mint.
     pub object: EvaluatesTo<Value>,
@@ -116,7 +143,10 @@ pub struct MintBox {
 }
 
 /// Sized structure for all possible Burns.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "Burn {object:?} from {destination_id:?}")]
 pub struct BurnBox {
     /// Object to burn.
     pub object: EvaluatesTo<Value>,
@@ -125,7 +155,10 @@ pub struct BurnBox {
 }
 
 /// Sized structure for all possible Transfers.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "TRANSFER {object:?} FROM {source_id:?} TO {destination_id:?}")]
 pub struct TransferBox {
     /// Entity to transfer from.
     pub source_id: EvaluatesTo<IdBox>,
@@ -136,7 +169,10 @@ pub struct TransferBox {
 }
 
 /// Composite instruction for a pair of instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "({left_instruction}, {right_instruction})")]
 pub struct Pair {
     /// Left instruction
     pub left_instruction: Instruction,
@@ -145,14 +181,22 @@ pub struct Pair {
 }
 
 /// Composite instruction for a sequence of instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "{instructions:?}")] // TODO: map to Display.
 pub struct SequenceBox {
     /// Sequence of Iroha Special Instructions to execute.
     pub instructions: Vec<Instruction>,
 }
 
 /// Composite instruction for a conditional execution of other instructions.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(
+    fmt = "IF {condition:?} THEN {then} ELSE {otherwise:?}", // TODO: Display
+)]
 pub struct If {
     /// Condition to be checked.
     pub condition: EvaluatesTo<bool>,
@@ -163,14 +207,20 @@ pub struct If {
 }
 
 /// Utilitary instruction to fail execution and submit an error `message`.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "FAIL {message}")]
 pub struct FailBox {
     /// Message to submit.
     pub message: String,
 }
 
 /// Sized structure for all possible Grants.
-#[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+)]
+#[display(fmt = "GRANT {object:?} TO {destination_id:?}")]
 pub struct GrantBox {
     /// Object to grant.
     pub object: EvaluatesTo<Value>,
@@ -179,7 +229,10 @@ pub struct GrantBox {
 }
 
 /// Sized structure for all possible Grants.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema,
+)]
+#[display(fmt = "REVOKE {object:?} FROM {destination_id:?}")]
 pub struct RevokeBox {
     /// Object to grant.
     pub object: EvaluatesTo<Value>,
@@ -188,7 +241,7 @@ pub struct RevokeBox {
 }
 
 /// Generic instruction to set value to the object.
-#[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
+#[derive(Debug, Display, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Set<O>
 where
     O: Into<Value>,
@@ -230,17 +283,17 @@ where
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Register<O>
 where
-    O: Identifiable,
+    O: Registered,
 {
     /// The object that should be registered, should be uniquely identifiable by its id.
-    pub object: O::RegisteredWith,
+    pub object: O::With,
 }
 
 /// Generic instruction for an unregistration of an object from the identifiable destination.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Unregister<O>
 where
-    O: Identifiable,
+    O: Registered,
 {
     /// [`Identifiable::Id`] of the object which should be unregistered.
     pub object_id: O::Id,
@@ -290,7 +343,7 @@ where
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 pub struct Grant<D, O>
 where
-    D: Identifiable,
+    D: Registered,
     O: Into<Value>,
 {
     /// Object to grant.
@@ -303,7 +356,7 @@ where
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct Revoke<D, O>
 where
-    D: Identifiable,
+    D: Registered,
     O: Into<Value>,
 {
     /// Object to revoke.
@@ -313,7 +366,10 @@ where
 }
 
 /// Instruction to execute specified trigger
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema)]
+#[derive(
+    Debug, Display, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, IntoSchema,
+)]
+#[display(fmt = "Execute {trigger_id}")]
 pub struct ExecuteTriggerBox {
     /// Id of a trigger to execute
     pub trigger_id: TriggerId,
@@ -372,17 +428,17 @@ where
 
 impl<O> Register<O>
 where
-    O: Identifiable,
+    O: Registered,
 {
     /// Construct [`Register`].
-    pub fn new(object: O::RegisteredWith) -> Self {
+    pub fn new(object: O::With) -> Self {
         Register { object }
     }
 }
 
 impl<O> Unregister<O>
 where
-    O: Identifiable,
+    O: Registered,
 {
     /// Construct [`Register`].
     pub fn new(object_id: O::Id) -> Self {
@@ -392,7 +448,7 @@ where
 
 impl<D, O> Mint<D, O>
 where
-    D: Identifiable,
+    D: Registered,
     O: Into<Value>,
 {
     /// Construct [`Mint`].
@@ -406,7 +462,7 @@ where
 
 impl<D, O> Burn<D, O>
 where
-    D: Identifiable,
+    D: Registered,
     O: Into<Value>,
 {
     /// Construct [`Burn`].
@@ -420,8 +476,8 @@ where
 
 impl<S, O, D> Transfer<S, O, D>
 where
-    S: Identifiable,
-    D: Identifiable,
+    S: Registered,
+    D: Registered,
     O: Into<Value>,
 {
     /// Construct [`Transfer`].
@@ -436,7 +492,7 @@ where
 
 impl<D, O> Grant<D, O>
 where
-    D: Identifiable,
+    D: Registered,
     O: Into<Value>,
 {
     /// Constructor.
@@ -451,7 +507,7 @@ where
 
 impl<D, O> Revoke<D, O>
 where
-    D: Identifiable,
+    D: Registered,
     O: Into<Value>,
 {
     /// Constructor

@@ -1,5 +1,6 @@
 use std::{fmt, fs::File, io::BufReader, path::Path, str::FromStr};
 
+use derive_more::Display;
 use eyre::{eyre, Result, WrapErr};
 use iroha_config::derive::Configurable;
 use iroha_crypto::prelude::*;
@@ -14,7 +15,7 @@ const DEFAULT_TRANSACTION_STATUS_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_ADD_TRANSACTION_NONCE: bool = false;
 
 /// Wrapper over `SmallStr` to provide basic auth login checking
-#[derive(Clone, Serialize, Debug)]
+#[derive(Debug, Display, Clone, Serialize)]
 pub struct WebLogin(SmallStr);
 
 impl WebLogin {
@@ -31,16 +32,10 @@ impl FromStr for WebLogin {
     type Err = eyre::ErrReport;
     fn from_str(login: &str) -> Result<Self> {
         if login.contains(':') {
-            return Err(eyre!("WebLogin cannot contain `:` character"));
+            return Err(eyre!("WebLogin cannot contain the `:` character"));
         }
 
         Ok(Self(SmallStr::from_str(login)))
-    }
-}
-
-impl fmt::Display for WebLogin {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
     }
 }
 
