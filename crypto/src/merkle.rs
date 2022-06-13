@@ -116,11 +116,13 @@ impl<T> MerkleTree<T> {
     }
 
     /// Get the hash of the `idx`-th leaf node.
+    #[cfg(feature = "std")]
     pub fn get_leaf(&self, idx: usize) -> Option<HashOf<T>> {
         self.leaves().nth(idx)
     }
 
     /// Get the hashes of the leaf nodes.
+    #[cfg(feature = "std")]
     pub fn leaves(&self) -> impl Iterator<Item = HashOf<T>> + '_ {
         self.iter().filter_map(Node::leaf_hash)
     }
