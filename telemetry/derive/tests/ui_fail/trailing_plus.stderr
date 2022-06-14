@@ -1,5 +1,5 @@
 error: expected `,`
- --> tests/ui_fail/trailing_plus.rs:5:61
+ --> tests/ui_fail/trailing_plus.rs:4:61
   |
-5 | #[metrics(+"test_query", "another_test_query_without_timing"+)]
+4 | #[metrics(+"test_query", "another_test_query_without_timing"+)]
   |                                                             ^

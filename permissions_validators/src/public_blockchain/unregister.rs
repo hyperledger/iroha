@@ -104,7 +104,7 @@ impl IsGrantAllowed for GrantRegisteredByMeAccess {
 /// Validator that checks Revoke instructions, such that the access is
 /// revoked and the assets of the signer's account are no longer
 /// accessible.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct RevokeRegisteredByMeAccess;
 
 impl_from_item_for_revoke_instruction_validator_box!(RevokeRegisteredByMeAccess);

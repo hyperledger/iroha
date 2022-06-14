@@ -4,7 +4,7 @@ use std::{str::FromStr as _, time::Duration};
 
 use eyre::{eyre, Result};
 use iroha_client::client::{self, Client};
-use iroha_core::{prelude::AllowAll, smartcontracts::permissions::prelude::ValidatorBuilder};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain::{
     key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
