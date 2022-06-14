@@ -2,7 +2,6 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, collections::vec_deque::VecDeque, format, string::String, vec};
-use core::cmp::Ordering;
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
 
@@ -78,7 +77,7 @@ impl<T> FromIterator<HashOf<T>> for MerkleTree<T> {
             .into_iter()
             .map(|hash| Node::Leaf(Leaf { hash }))
             .collect::<VecDeque<_>>();
-        nodes.make_contiguous().sort_unstable();
+        nodes.make_contiguous().sort_unstable_by_key(Node::hash);
 
         let n_leaves = nodes.len();
         let mut base_len = 0;
@@ -204,26 +203,6 @@ impl<T> Node<T> {
             return Some([&*subtree.left, &*subtree.right]);
         }
         None
-    }
-}
-
-impl<T> Ord for Node<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.hash().cmp(&other.hash())
-    }
-}
-
-impl<T> PartialOrd for Node<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<T> Eq for Node<T> {}
-
-impl<T> PartialEq for Node<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.hash() == other.hash()
     }
 }
 
