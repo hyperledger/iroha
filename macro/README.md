@@ -17,6 +17,8 @@ iroha_derive = { git = "https://github.com/hyperledger/iroha/", branch="iroha2-d
 ```rust
 use iroha_derive::FromVariant;
 
+trait MyTrait {}
+
 // Use derive to derive the implementation of `FromVariant`:
 #[derive(FromVariant)]
 enum Obj {
@@ -25,6 +27,8 @@ enum Obj {
     String(String),
     // You can also skip implementing `From`
     Vec(#[skip_from] Vec<Obj>),
+    // You can also skip implementing `From` for item inside containers such as `Box`
+    Box(#[skip_container] Box<dyn MyTrait>)
 }
 
 // That would help you avoid doing this:

@@ -8,6 +8,8 @@ use quote::quote;
 /// Attribute for skipping from attribute
 const SKIP_FROM_ATTR: &str = "skip_from";
 const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
+/// Attribute to skip inner container optimization. Useful for trait objects
+const SKIP_CONTAINER: &str = "skip_container";
 
 /// [`FromVariant`] is used for implementing `From<Variant> for Enum`
 /// and `TryFrom<Enum> for Variant`.
@@ -15,13 +17,17 @@ const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
 /// ```rust
 /// use iroha_derive::FromVariant;
 ///
+/// trait MyTrait {}
+///
 /// #[derive(FromVariant)]
 /// enum Obj {
 ///     Uint(u32),
 ///     Int(i32),
 ///     String(String),
-///     // You can also skip implementing `From`
+///     // You can skip implementing `From`
 ///     Vec(#[skip_from] Vec<Obj>),
+///     // You can also skip implementing `From` for item inside containers such as `Box`
+///     Box(#[skip_container] Box<dyn MyTrait>)
 /// }
 ///
 /// // For example, to avoid:
@@ -34,7 +40,7 @@ const SKIP_TRY_FROM_ATTR: &str = "skip_try_from";
 ///     }
 /// }
 /// ```
-#[proc_macro_derive(FromVariant, attributes(skip_from, skip_try_from))]
+#[proc_macro_derive(FromVariant, attributes(skip_from, skip_try_from, skip_container))]
 pub fn from_variant_derive(input: TokenStream) -> TokenStream {
     let ast = syn::parse(input).expect("Failed to parse input Token Stream.");
     impl_from_variant(&ast)
@@ -96,11 +102,16 @@ fn from_variant(
     into_ty: &syn::Ident,
     into_variant: &syn::Ident,
     from_ty: &syn::Type,
+    skip_container: bool,
 ) -> proc_macro2::TokenStream {
     let from_orig = from_variant_internal(into_ty, into_variant, from_ty);
 
     if let syn::Type::Path(path) = from_ty {
         let mut code = from_orig;
+
+        if skip_container {
+            return code;
+        }
 
         for container in CONTAINERS {
             if let Some(inner) = get_type_argument(container, path) {
@@ -180,8 +191,10 @@ fn impl_from_variant(ast: &syn::DeriveInput) -> TokenStream {
                 };
                 let from = if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_FROM_ATTR) {
                     quote!()
+                } else if attrs_have_ident(&unnamed.unnamed[0].attrs, SKIP_CONTAINER) {
+                    from_variant(name, &variant.ident, variant_type, true)
                 } else {
-                    from_variant(name, &variant.ident, variant_type)
+                    from_variant(name, &variant.ident, variant_type, false)
                 };
 
                 return Some(quote!(

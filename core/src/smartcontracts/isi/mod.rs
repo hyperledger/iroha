@@ -18,10 +18,7 @@ use iroha_data_model::{expression::prelude::*, isi::*, prelude::*};
 use iroha_logger::prelude::*;
 
 use super::{Evaluate, Execute};
-use crate::{
-    prelude::*,
-    wsv::{WorldStateView, WorldTrait},
-};
+use crate::{prelude::*, wsv::WorldStateView};
 
 pub mod error {
     //! Errors used in Iroha special instructions and
@@ -157,8 +154,8 @@ pub mod error {
     }
 
     /// Generic structure used to represent a mismatch
-    #[derive(Debug, Clone, PartialEq, Eq, Error)]
-    #[error("Expected {expected:?},  actual {actual:?}")]
+    #[derive(Debug, Clone, PartialEq, Eq, Error, Decode, Encode, IntoSchema)]
+    #[error("Expected {expected:?}, actual {actual:?}")]
     pub struct Mismatch<T> {
         /// The value that is needed for normal execution
         pub expected: T,
@@ -217,13 +214,13 @@ pub mod error {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for Instruction {
+impl Execute for Instruction {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         use Instruction::*;
         match self {
@@ -245,10 +242,10 @@ impl<W: WorldTrait> Execute<W> for Instruction {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for RegisterBox {
+impl Execute for RegisterBox {
     type Error = Error;
 
-    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new();
         let object_id = self.object.evaluate(wsv, &context)?;
         iroha_logger::trace!(?object_id);
@@ -272,10 +269,10 @@ impl<W: WorldTrait> Execute<W> for RegisterBox {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for UnregisterBox {
+impl Execute for UnregisterBox {
     type Error = Error;
 
-    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error> {
+    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
         let context = Context::new();
         let object_id = self.object_id.evaluate(wsv, &context)?;
         iroha_logger::trace!(?object_id, %authority);
@@ -299,13 +296,13 @@ impl<W: WorldTrait> Execute<W> for UnregisterBox {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for MintBox {
+impl Execute for MintBox {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let destination_id = self.destination_id.evaluate(wsv, &context)?;
@@ -336,13 +333,13 @@ impl<W: WorldTrait> Execute<W> for MintBox {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for BurnBox {
+impl Execute for BurnBox {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let destination_id = self.destination_id.evaluate(wsv, &context)?;
@@ -373,13 +370,13 @@ impl<W: WorldTrait> Execute<W> for BurnBox {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for TransferBox {
+impl Execute for TransferBox {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let (source_asset_id, destination_asset_id) = match (
@@ -407,13 +404,13 @@ impl<W: WorldTrait> Execute<W> for TransferBox {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
+impl Execute for SetKeyValueBox {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let key = self.key.evaluate(wsv, &context)?;
@@ -439,13 +436,13 @@ impl<W: WorldTrait> Execute<W> for SetKeyValueBox {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
+impl Execute for RemoveKeyValueBox {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let key = self.key.evaluate(wsv, &context)?;
@@ -466,13 +463,13 @@ impl<W: WorldTrait> Execute<W> for RemoveKeyValueBox {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for If {
+impl Execute for If {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         iroha_logger::trace!(?self);
@@ -485,13 +482,13 @@ impl<W: WorldTrait> Execute<W> for If {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for Pair {
+impl Execute for Pair {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         iroha_logger::trace!(?self);
 
@@ -501,13 +498,13 @@ impl<W: WorldTrait> Execute<W> for Pair {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for SequenceBox {
+impl Execute for SequenceBox {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         iroha_logger::trace!(?self);
 
@@ -518,13 +515,13 @@ impl<W: WorldTrait> Execute<W> for SequenceBox {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for FailBox {
+impl Execute for FailBox {
     type Error = Error;
 
     fn execute(
         self,
         _authority: <Account as Identifiable>::Id,
-        _wsv: &WorldStateView<W>,
+        _wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         iroha_logger::trace!(?self);
 
@@ -532,13 +529,13 @@ impl<W: WorldTrait> Execute<W> for FailBox {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for GrantBox {
+impl Execute for GrantBox {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let destination_id = self.destination_id.evaluate(wsv, &context)?;
@@ -557,13 +554,13 @@ impl<W: WorldTrait> Execute<W> for GrantBox {
     }
 }
 
-impl<W: WorldTrait> Execute<W> for RevokeBox {
+impl Execute for RevokeBox {
     type Error = Error;
 
     fn execute(
         self,
         authority: <Account as Identifiable>::Id,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
     ) -> Result<(), Self::Error> {
         let context = Context::new();
         let destination_id = self.destination_id.evaluate(wsv, &context)?;
@@ -616,7 +613,7 @@ mod tests {
 
     #[test]
     fn asset_store() -> Result<()> {
-        let wsv = WorldStateView::<World>::new(world_with_test_domains()?);
+        let wsv = WorldStateView::new(world_with_test_domains()?);
         let account_id = AccountId::from_str("alice@wonderland")?;
         let asset_definition_id = AssetDefinitionId::from_str("rose#wonderland")?;
         let asset_id = AssetId::new(asset_definition_id, account_id.clone());

@@ -7,7 +7,7 @@ use iroha_core::{
     prelude::*,
     sumeragi::view_change,
     tx::{AcceptedTransaction, TransactionValidator},
-    wsv::{World, WorldTrait},
+    wsv::World,
 };
 use iroha_data_model::prelude::*;
 
@@ -58,7 +58,7 @@ fn build_test_transaction(keys: KeyPair) -> Transaction {
     .expect("Failed to sign.")
 }
 
-fn build_test_wsv(keys: KeyPair) -> WorldStateView<World> {
+fn build_test_wsv(keys: KeyPair) -> WorldStateView {
     let (public_key, _) = keys.into();
 
     WorldStateView::new({

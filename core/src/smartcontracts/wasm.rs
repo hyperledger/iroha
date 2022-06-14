@@ -14,13 +14,13 @@ use wasmtime::{
     Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
 };
 
-use super::permissions::IsInstructionAllowedBoxed;
+use super::permissions::{IsAllowed as _, IsInstructionAllowedBoxed};
 use crate::{
     smartcontracts::{
         permissions::{check_instruction_permissions, IsQueryAllowedBoxed},
         Execute, ValidQuery,
     },
-    wsv::{WorldStateView, WorldTrait},
+    wsv::WorldStateView,
 };
 
 type WasmUsize = u32;
@@ -70,20 +70,20 @@ impl From<ParseError> for Error {
     }
 }
 
-struct Validator<'wrld, W: WorldTrait> {
+struct Validator<'wrld> {
     /// Number of instructions in the smartcontract
     instruction_count: u64,
     /// Max allowed number of instructions in the smartcontract
     max_instruction_count: u64,
     /// If this particular instruction is allowed
-    is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
+    is_instruction_allowed: Arc<IsInstructionAllowedBoxed>,
     /// If this particular query is allowed
-    is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+    is_query_allowed: Arc<IsQueryAllowedBoxed>,
     /// Current [`WorldStateview`]
-    wsv: &'wrld WorldStateView<W>,
+    wsv: &'wrld WorldStateView,
 }
 
-impl<W: WorldTrait> Validator<'_, W> {
+impl Validator<'_> {
     /// Checks if number of instructions in wasm smartcontract exceeds maximum
     ///
     /// # Errors
@@ -123,20 +123,20 @@ impl<W: WorldTrait> Validator<'_, W> {
     fn validate_query(&self, account_id: &AccountId, query: &QueryBox) -> Result<(), Trap> {
         self.is_query_allowed
             .check(account_id, query, self.wsv)
-            .map_err(Trap::new)
+            .map_err(|err| Trap::new(err.to_string()))
     }
 }
 
-struct State<'wrld, W: WorldTrait> {
+struct State<'wrld> {
     account_id: AccountId,
     /// Ensures smartcontract adheres to limits
-    validator: Option<Validator<'wrld, W>>,
+    validator: Option<Validator<'wrld>>,
     store_limits: StoreLimits,
-    wsv: &'wrld WorldStateView<W>,
+    wsv: &'wrld WorldStateView,
 }
 
-impl<'wrld, W: WorldTrait> State<'wrld, W> {
-    fn new(wsv: &'wrld WorldStateView<W>, account_id: AccountId, config: Configuration) -> Self {
+impl<'wrld> State<'wrld> {
+    fn new(wsv: &'wrld WorldStateView, account_id: AccountId, config: Configuration) -> Self {
         Self {
             wsv,
             account_id,
@@ -156,8 +156,8 @@ impl<'wrld, W: WorldTrait> State<'wrld, W> {
     fn with_validator(
         mut self,
         max_instruction_count: u64,
-        is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
-        is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+        is_instruction_allowed: Arc<IsInstructionAllowedBoxed>,
+        is_query_allowed: Arc<IsQueryAllowedBoxed>,
     ) -> Self {
         let validator = Validator {
             instruction_count: 0,
@@ -173,13 +173,13 @@ impl<'wrld, W: WorldTrait> State<'wrld, W> {
 }
 
 /// `WebAssembly` virtual machine
-pub struct Runtime<'wrld, W: WorldTrait> {
+pub struct Runtime<'wrld> {
     engine: Engine,
-    linker: Linker<State<'wrld, W>>,
+    linker: Linker<State<'wrld>>,
     config: Configuration,
 }
 
-impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
+impl<'wrld> Runtime<'wrld> {
     /// `Runtime` constructor with default configuration.
     ///
     /// # Errors
@@ -221,10 +221,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         Engine::new(&Self::create_config()).map_err(Error::Initialization)
     }
 
-    fn create_store(
-        &self,
-        state: State<'wrld, W>,
-    ) -> Result<Store<State<'wrld, W>>, anyhow::Error> {
+    fn create_store(&self, state: State<'wrld>) -> Result<Store<State<'wrld>>, anyhow::Error> {
         let mut store = Store::new(&self.engine, state);
 
         store.limiter(|stat| &mut stat.store_limits);
@@ -235,7 +232,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
 
     fn create_smart_contract(
         &self,
-        store: &mut Store<State<'wrld, W>>,
+        store: &mut Store<State<'wrld>>,
         bytes: impl AsRef<[u8]>,
     ) -> Result<wasmtime::Instance, anyhow::Error> {
         let module = Module::new(&self.engine, bytes)?;
@@ -284,7 +281,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
     ///
     /// If decoding or execution of the query fails
     fn execute_query(
-        mut caller: Caller<State<W>>,
+        mut caller: Caller<State>,
         offset: WasmUsize,
         len: WasmUsize,
     ) -> Result<WasmUsize, Trap> {
@@ -341,7 +338,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
     ///
     /// If decoding or execution of the ISI fails
     fn execute_instruction(
-        mut caller: Caller<State<W>>,
+        mut caller: Caller<State>,
         offset: WasmUsize,
         len: WasmUsize,
     ) -> Result<(), Trap> {
@@ -380,7 +377,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
     ///
     /// If string decoding fails
     #[allow(clippy::print_stdout)]
-    fn dbg(mut caller: Caller<State<W>>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
+    fn dbg(mut caller: Caller<State>, offset: WasmUsize, len: WasmUsize) -> Result<(), Trap> {
         let memory = Self::get_memory(&mut caller)?;
         let string_mem_range = offset as usize..(offset + len) as usize;
         let mut string_bytes = &memory.data(&caller)[string_mem_range];
@@ -389,7 +386,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         Ok(())
     }
 
-    fn create_linker(engine: &Engine) -> Result<Linker<State<'wrld, W>>, Error> {
+    fn create_linker(engine: &Engine) -> Result<Linker<State<'wrld>>, Error> {
         let mut linker = Linker::new(engine);
 
         linker
@@ -404,9 +401,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         Ok(linker)
     }
 
-    fn get_alloc_fn(
-        caller: &mut Caller<State<W>>,
-    ) -> Result<TypedFunc<WasmUsize, WasmUsize>, Trap> {
+    fn get_alloc_fn(caller: &mut Caller<State>) -> Result<TypedFunc<WasmUsize, WasmUsize>, Trap> {
         caller
             .get_export(WASM_ALLOC_FN)
             .ok_or_else(|| Trap::new(format!("{}: export not found", WASM_ALLOC_FN)))?
@@ -416,7 +411,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
             .map_err(|_error| Trap::new(format!("{}: unexpected declaration", WASM_ALLOC_FN)))
     }
 
-    fn get_memory(caller: &mut Caller<State<W>>) -> Result<wasmtime::Memory, Trap> {
+    fn get_memory(caller: &mut Caller<State>) -> Result<wasmtime::Memory, Trap> {
         caller
             .get_export(WASM_MEMORY_NAME)
             .ok_or_else(|| Trap::new(format!("{}: export not found", WASM_MEMORY_NAME)))?
@@ -433,12 +428,12 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
     /// - if execution of the smartcontract fails (check ['execute'])
     pub fn validate(
         &mut self,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
-        is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
-        is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+        is_instruction_allowed: Arc<IsInstructionAllowedBoxed>,
+        is_query_allowed: Arc<IsQueryAllowedBoxed>,
     ) -> Result<(), Error> {
         let state = State::new(wsv, account_id.clone(), self.config).with_validator(
             max_instruction_count,
@@ -459,7 +454,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
     /// - if the execution of the smartcontract fails
     pub fn execute(
         &mut self,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
@@ -471,7 +466,7 @@ impl<'wrld, W: WorldTrait> Runtime<'wrld, W> {
         &mut self,
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
-        state: State<W>,
+        state: State,
     ) -> Result<(), Error> {
         let mut store = self.create_store(state).map_err(Error::Instantiation)?;
 
@@ -566,7 +561,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        smartcontracts::permissions::{AllowAll, DenyAll},
+        smartcontracts::permissions::combinators::{AllowAll, DenyAll},
         PeersIds, World,
     };
 

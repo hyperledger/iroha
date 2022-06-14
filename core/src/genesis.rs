@@ -23,7 +23,6 @@ use crate::{
         network_topology::{GenesisBuilder as GenesisTopologyBuilder, Topology},
     },
     tx::VersionedAcceptedTransaction,
-    wsv::WorldTrait,
     IrohaNetwork,
 };
 
@@ -70,11 +69,11 @@ pub trait GenesisNetworkTrait:
     ///
     /// # Errors
     /// Returns error if waiting for peers or genesis round itself fails
-    async fn submit_transactions<K: KuraTrait, W: WorldTrait, F: FaultInjection>(
+    async fn submit_transactions<K: KuraTrait, F: FaultInjection>(
         &self,
-        sumeragi: &mut SumeragiWithFault<Self, K, W, F>,
+        sumeragi: &mut SumeragiWithFault<Self, K, F>,
         network: Addr<IrohaNetwork>,
-        ctx: &mut iroha_actor::Context<SumeragiWithFault<Self, K, W, F>>,
+        ctx: &mut iroha_actor::Context<SumeragiWithFault<Self, K, F>>,
     ) -> Result<()> {
         iroha_logger::debug!("Starting submit genesis");
         let genesis_topology = self

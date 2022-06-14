@@ -1,5 +1,5 @@
 error: Should return `Result`. Found RESULT
- --> tests/ui_fail/not_return_result.rs:5:57
+ --> tests/ui_fail/not_return_result.rs:5:50
   |
-5 | fn execute(_wsv: &WorldStateView<World>) -> iroha_core::RESULT {
-  |                                                         ^^^^^^
+5 | fn execute(_wsv: &WorldStateView) -> iroha_core::RESULT {
+  |                                                  ^^^^^^
