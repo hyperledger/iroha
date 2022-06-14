@@ -116,7 +116,6 @@ pub(crate) async fn handle_instructions(
 }
 
 #[iroha_futures::telemetry_future]
-#[allow(unsafe_code, clippy::unimplemented)]
 pub(crate) async fn handle_queries(
     wsv: Arc<WorldStateView>,
     query_validator: Arc<IsQueryAllowedBoxed>,

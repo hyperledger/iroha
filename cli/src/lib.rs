@@ -142,7 +142,6 @@ where
     /// - Reading telemetry configs
     /// - telemetry setup
     /// - Initialization of [`Sumeragi`]
-    #[allow(unsafe_code, clippy::unimplemented)]
     pub async fn with_genesis(
         genesis: Option<G>,
         config: Configuration,

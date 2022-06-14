@@ -54,8 +54,8 @@ impl World {
     /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
     pub fn with<D, P>(domains: D, trusted_peers_ids: P) -> Self
     where
-        D: IntoIterator<Item = Domain> + 'static,
-        P: IntoIterator<Item = PeerId> + 'static,
+        D: IntoIterator<Item = Domain>,
+        P: IntoIterator<Item = PeerId>,
     {
         let domains = domains
             .into_iter()
@@ -149,7 +149,6 @@ impl WorldStateView {
         tokens
     }
 
-    #[allow(unsafe_code, clippy::panic_in_result_fn, clippy::unimplemented)]
     fn process_executable(&self, executable: &Executable, authority: &AccountId) -> Result<()> {
         match executable {
             Executable::Instructions(instructions) => {
