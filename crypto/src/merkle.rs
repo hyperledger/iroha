@@ -1,9 +1,10 @@
 //! Merkle tree implementation.
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
+use alloc::{boxed::Box, collections::vec_deque::VecDeque, format, string::String, vec};
+use core::cmp::Ordering;
 #[cfg(feature = "std")]
-use std::{cmp::Ordering, collections::VecDeque};
+use std::collections::VecDeque;
 
 use iroha_schema::prelude::*;
 
@@ -64,7 +65,6 @@ pub enum Node<T> {
     Empty,
 }
 
-#[cfg(feature = "std")]
 #[derive(Debug)]
 /// BFS iterator over [`MerkleTree`].
 pub struct BreadthFirstIter<'itm, T> {
@@ -116,13 +116,11 @@ impl<T> MerkleTree<T> {
     }
 
     /// Get the hash of the `idx`-th leaf node.
-    #[cfg(feature = "std")]
     pub fn get_leaf(&self, idx: usize) -> Option<HashOf<T>> {
         self.leaves().nth(idx)
     }
 
     /// Get the hashes of the leaf nodes.
-    #[cfg(feature = "std")]
     pub fn leaves(&self) -> impl Iterator<Item = HashOf<T>> + '_ {
         self.iter().filter_map(Node::leaf_hash)
     }
@@ -133,7 +131,6 @@ impl<T> MerkleTree<T> {
     }
 
     /// Get a BFS iterator over the tree.
-    #[cfg(feature = "std")]
     pub fn iter(&self) -> BreadthFirstIter<T> {
         BreadthFirstIter::new(&self.root_node)
     }
@@ -202,40 +199,34 @@ impl<T> Node<T> {
         crate::Hash::new(sum).typed()
     }
 
-    #[cfg(feature = "std")]
-    fn children(&self) -> impl IntoIterator<Item = &Self> {
-        match self {
-            Node::Subtree(subtree) => vec![&*subtree.left, &*subtree.right],
-            _ => vec![],
+    fn children(&self) -> Option<[&Self; 2]> {
+        if let Node::Subtree(subtree) = self {
+            return Some([&*subtree.left, &*subtree.right]);
         }
+        None
     }
 }
 
-#[cfg(feature = "std")]
 impl<T> Ord for Node<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.hash().cmp(&other.hash())
     }
 }
 
-#[cfg(feature = "std")]
 impl<T> PartialOrd for Node<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-#[cfg(feature = "std")]
 impl<T> Eq for Node<T> {}
 
-#[cfg(feature = "std")]
 impl<T> PartialEq for Node<T> {
     fn eq(&self, other: &Self) -> bool {
         self.hash() == other.hash()
     }
 }
 
-#[cfg(feature = "std")]
 impl<'itm, T> BreadthFirstIter<'itm, T> {
     #[inline]
     pub fn new(root: &'itm Node<T>) -> Self {
@@ -249,14 +240,15 @@ impl<'itm, T> BreadthFirstIter<'itm, T> {
 /// `'itm` lifetime specified for `Node`. Because `Node` is recursive data structure with self
 /// composition in case of `Node::Subtree` we use `Box` to know size of each `Node` object in
 /// memory.
-#[cfg(feature = "std")]
 impl<'itm, T> Iterator for BreadthFirstIter<'itm, T> {
     type Item = &'itm Node<T>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(node) = self.queue.pop_front() {
-            self.queue.extend(node.children());
+            if let Some(children) = node.children() {
+                self.queue.extend(children);
+            }
             Some(node)
         } else {
             None
@@ -264,7 +256,6 @@ impl<'itm, T> Iterator for BreadthFirstIter<'itm, T> {
     }
 }
 
-#[cfg(feature = "std")]
 impl<'itm, T> IntoIterator for &'itm MerkleTree<T> {
     type Item = &'itm Node<T>;
     type IntoIter = BreadthFirstIter<'itm, T>;
