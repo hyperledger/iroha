@@ -34,3 +34,7 @@ members = [
   "version",
   "version/derive",
 ]
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
