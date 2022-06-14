@@ -36,7 +36,7 @@ impl<T: IntoSchema> IntoSchema for MerkleTree<T> {
 
 /// Represents a subtree rooted by the current node.
 #[derive(Debug)]
-pub struct Subtree<T> {
+struct Subtree<T> {
     /// Left child node.
     left: Box<Node<T>>,
     /// Right child node.
@@ -47,7 +47,7 @@ pub struct Subtree<T> {
 
 /// Represents a leaf node.
 #[derive(Debug)]
-pub struct Leaf<T> {
+struct Leaf<T> {
     /// Hash of this node.
     hash: HashOf<T>,
 }
@@ -55,7 +55,7 @@ pub struct Leaf<T> {
 /// Binary tree node: [`Subtree`], [`Leaf`] (with data or links to data), or `Empty`.
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
-pub enum Node<T> {
+enum Node<T> {
     /// [`Subtree`] node.
     Subtree(Subtree<T>),
     /// [`Leaf`] node.
@@ -66,7 +66,7 @@ pub enum Node<T> {
 
 #[derive(Debug)]
 /// BFS iterator over [`MerkleTree`].
-pub struct BreadthFirstIter<'itm, T> {
+struct BreadthFirstIter<'itm, T> {
     queue: VecDeque<&'itm Node<T>>,
 }
 
@@ -130,7 +130,7 @@ impl<T> MerkleTree<T> {
     }
 
     /// Get a BFS iterator over the tree.
-    pub fn iter(&self) -> BreadthFirstIter<T> {
+    fn iter(&self) -> BreadthFirstIter<T> {
         BreadthFirstIter::new(&self.root_node)
     }
 
@@ -168,7 +168,7 @@ impl<T> Node<T> {
     }
 
     /// Get the hash of this node.
-    pub const fn hash(&self) -> HashOf<Self> {
+    const fn hash(&self) -> HashOf<Self> {
         match self {
             Node::Subtree(Subtree { hash, .. }) => *hash,
             Node::Leaf(Leaf { hash }) => (*hash).transmute(),
@@ -177,7 +177,7 @@ impl<T> Node<T> {
     }
 
     /// Get the hash of this node as a leaf.
-    pub const fn leaf_hash(&self) -> Option<HashOf<T>> {
+    const fn leaf_hash(&self) -> Option<HashOf<T>> {
         if let Self::Leaf(Leaf { hash }) = *self {
             Some(hash)
         } else {
@@ -208,7 +208,7 @@ impl<T> Node<T> {
 
 impl<'itm, T> BreadthFirstIter<'itm, T> {
     #[inline]
-    pub fn new(root: &'itm Node<T>) -> Self {
+    fn new(root: &'itm Node<T>) -> Self {
         Self {
             queue: VecDeque::from(vec![root]),
         }
@@ -235,15 +235,6 @@ impl<'itm, T> Iterator for BreadthFirstIter<'itm, T> {
     }
 }
 
-impl<'itm, T> IntoIterator for &'itm MerkleTree<T> {
-    type Item = &'itm Node<T>;
-    type IntoIter = BreadthFirstIter<'itm, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        BreadthFirstIter::new(&self.root_node)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,7 +253,7 @@ mod tests {
                 hash: Hash::prehashed([3; Hash::LENGTH]).typed(),
             }),
         };
-        assert_eq!(3, tree.into_iter().count());
+        assert_eq!(3, tree.iter().count());
     }
 
     fn get_hashes(hash: [u8; Hash::LENGTH]) -> impl Iterator<Item = HashOf<()>> {
@@ -275,7 +266,7 @@ mod tests {
         let merkle_tree = get_hashes([1_u8; Hash::LENGTH])
             .take(4)
             .collect::<MerkleTree<_>>();
-        assert_eq!(7, merkle_tree.into_iter().count());
+        assert_eq!(7, merkle_tree.iter().count());
     }
 
     #[test]
@@ -283,7 +274,7 @@ mod tests {
         let merkle_tree = get_hashes([1_u8; Hash::LENGTH])
             .take(3)
             .collect::<MerkleTree<_>>();
-        assert_eq!(7, merkle_tree.into_iter().count());
+        assert_eq!(7, merkle_tree.iter().count());
     }
 
     #[test]
