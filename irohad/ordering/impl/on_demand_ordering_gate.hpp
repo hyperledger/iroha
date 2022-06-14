@@ -60,8 +60,8 @@ namespace iroha {
       /**
        * Handle an incoming proposal from ordering service
        */
-      std::optional<network::OrderingEvent> processProposalRequest(
-          ProposalEvent &&event);
+      void processProposalRequest(ProposalEvent &&event);
+      std::optional<network::OrderingEvent> processProposalEvent(SingleProposalEvent &&event);
 
       void stop() override;
 

@@ -29,6 +29,8 @@ namespace iroha::ordering {
     consensus::Round round;
   };
 
+  using SingleProposalEvent = std::tuple<consensus::Round, std::shared_ptr<const shared_model::interface::Proposal>>;
+
 }  // namespace iroha::ordering
 
 #endif  // IROHA_ON_DEMAND_COMMON_HPP

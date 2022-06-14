@@ -105,6 +105,11 @@ void OnDemandOrderingGate::processRoundSwitch(RoundSwitch const &event) {
     assert(ordering_service_);
     assert(network_client_);
 
+    if (auto proposal = proposal_cache_.get(event.next_round))
+      return iroha::getSubscription()->notify(
+          iroha::EventTypes::kOnProposalSingleEvent,
+          std::make_tuple(event.next_round, std::move(proposal)));
+
     network_client_->onRequestProposal(
         event.next_round,
 #if USE_BLOOM_FILTER
@@ -126,44 +131,57 @@ void OnDemandOrderingGate::stop() {
   }
 }
 
-std::optional<iroha::network::OrderingEvent>
+void
 OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) {
-  if (not current_ledger_state_ || event.round != current_round_) {
-    return std::nullopt;
-  }
+  if (not current_ledger_state_ || event.round != current_round_)
+    return;
+
   if (event.proposal_pack.empty())
-    return network::OrderingEvent{
-        std::nullopt, event.round, current_ledger_state_};
+    return iroha::getSubscription()->notify(
+        iroha::EventTypes::kOnProposalSingleEvent,
+        std::make_tuple(
+            round, std::shared_ptr<const shared_model::interface::Proposal>{}));
 
   proposal_cache_.insert(std::move(event.proposal_pack));
-  auto current_proposal = proposal_cache_.get(event.round);
-  if (!current_proposal)
-    return network::OrderingEvent{
-        std::nullopt, event.round, current_ledger_state_};
+  iroha::getSubscription()->notify(
+      iroha::EventTypes::kOnProposalSingleEvent,
+      std::make_tuple(round, proposal_cache_.get(event.round)));
+}
 
-  auto result = removeReplaysAndDuplicates(std::move(current_proposal));
-  // no need to check empty proposal
-  if (boost::empty(result->transactions())) {
+std::optional<iroha::network::OrderingEvent>
+OnDemandOrderingGate::processProposalEvent(iroha::ordering::SingleProposalEvent &&event) {
+  auto const &round = std::get<0>(event);
+  auto const &proposal = std::get<1>(event);
+
+  if (!current_ledger_state_ || round != current_round_)
+    return std::nullopt;
+
+  if (!proposal)
     return network::OrderingEvent{
-        std::nullopt, event.round, current_ledger_state_};
-  }
+        std::nullopt, round, current_ledger_state_};
+
+  auto result = removeReplaysAndDuplicates(std::move(proposal));
+  if (boost::empty(result->transactions()))
+    return network::OrderingEvent{
+        std::nullopt, round, current_ledger_state_};
+
   shared_model::interface::types::SharedTxsCollectionType transactions;
-  for (auto &transaction : result->transactions()) {
+  for (auto &transaction : result->transactions())
     transactions.push_back(clone(transaction));
-  }
+
   auto batch_txs =
       shared_model::interface::TransactionBatchParserImpl().parseBatches(
           transactions);
   shared_model::interface::types::BatchesCollectionType batches;
-  for (auto &txs : batch_txs) {
+  for (auto &txs : batch_txs)
     batches.push_back(
         std::make_shared<shared_model::interface::TransactionBatchImpl>(
             std::move(txs)));
-  }
+
   forLocalOS(&OnDemandOrderingService::processReceivedProposal,
              std::move(batches));
   return network::OrderingEvent{
-      std::move(result), event.round, current_ledger_state_};
+      std::move(result), round, current_ledger_state_};
 }
 
 void OnDemandOrderingGate::sendCachedTransactions() {
