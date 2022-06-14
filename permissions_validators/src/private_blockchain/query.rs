@@ -51,8 +51,7 @@ impl IsAllowed<QueryBox> for OnlyAccountsDomain {
                     .id
                     .evaluate(wsv, &context)
                     .map_err(|e| e.to_string())?;
-                wsv.world
-                    .triggers()
+                wsv.triggers()
                     .inspect(&id, |action| {
                         if action.technical_account() == authority {
                             Ok(())
@@ -74,8 +73,7 @@ impl IsAllowed<QueryBox> for OnlyAccountsDomain {
                     .id
                     .evaluate(wsv, &context)
                     .map_err(|e| e.to_string())?;
-                wsv.world
-                    .triggers()
+                wsv.triggers()
                     .inspect(&id, |action| {
                         if action.technical_account() == authority {
                             Ok(())
@@ -394,7 +392,7 @@ impl IsAllowed<QueryBox> for OnlyAccountsData {
                     .id
                     .evaluate(wsv, &context)
                     .map_err(|e| e.to_string())?;
-                if wsv.world.triggers().inspect(&id, |action|
+                if wsv.triggers().inspect(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {
                     return Ok(())
@@ -410,7 +408,7 @@ impl IsAllowed<QueryBox> for OnlyAccountsData {
                     .id
                     .evaluate(wsv, &context)
                     .map_err(|err| err.to_string())?;
-                if wsv.world.triggers().inspect(&id, |action|
+                if wsv.triggers().inspect(&id, |action|
                     action.technical_account() == authority
                 ) == Some(true) {
                     return Ok(())

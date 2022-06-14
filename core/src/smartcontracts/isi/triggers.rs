@@ -174,7 +174,7 @@ pub mod query {
     impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
         fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
-            Ok(wsv.world.triggers().ids())
+            Ok(wsv.world.triggers.ids())
         }
     }
 
@@ -190,7 +190,7 @@ pub mod query {
             #[allow(clippy::redundant_closure_for_method_calls)]
             let action = wsv
                 .world
-                .triggers()
+                .triggers
                 .inspect(&id, |action| action.clone_and_box())
                 .ok_or_else(|| Error::Find(Box::new(FindError::Trigger(id.clone()))))?;
 
@@ -212,7 +212,7 @@ pub mod query {
                 .map_err(|e| Error::Evaluate(format!("Failed to evaluate key. {}", e)))?;
             iroha_logger::trace!(%id, %key);
             wsv.world
-                .triggers()
+                .triggers
                 .inspect(&id, |action| {
                     action
                         .metadata()

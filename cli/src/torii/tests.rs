@@ -54,7 +54,7 @@ async fn create_torii() -> (Torii, KeyPair) {
             .build()
         )
         .is_none());
-    wsv.world.domains().insert(domain_id, domain);
+    wsv.domains().insert(domain_id, domain);
     let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
     let network = IrohaNetwork::new(
         Broker::new(),

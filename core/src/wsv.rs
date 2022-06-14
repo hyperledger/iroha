@@ -31,19 +31,18 @@ pub type NewBlockNotificationReceiver = tokio::sync::watch::Receiver<()>;
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
 #[derive(Debug, Default, Clone, Getters)]
-#[cfg_attr(feature = "mock", allow(dead_code))]
-#[getset(get = "pub")]
 pub struct World {
     /// Iroha parameters.
-    parameters: Vec<Parameter>,
+    /// TODO: Use this field
+    _parameters: Vec<Parameter>,
     /// Identifications of discovered trusted peers.
-    trusted_peers_ids: PeersIds,
+    pub(crate) trusted_peers_ids: PeersIds,
     /// Registered domains.
-    domains: DomainsMap,
+    pub(crate) domains: DomainsMap,
     /// Roles. [`Role`] pairs.
-    roles: crate::RolesMap,
+    pub(crate) roles: crate::RolesMap,
     /// Triggers
-    triggers: TriggerSet,
+    pub(crate) triggers: TriggerSet,
 }
 
 impl World {
@@ -143,7 +142,7 @@ impl WorldStateView {
         let mut tokens: Vec<PermissionToken> = account.permissions().cloned().collect();
 
         for role_id in account.roles() {
-            if let Some(role) = self.world.roles().get(role_id) {
+            if let Some(role) = self.world.roles.get(role_id) {
                 tokens.append(&mut role.permissions().cloned().collect());
             }
         }
@@ -192,11 +191,11 @@ impl WorldStateView {
 
         self.execute_transactions(block.as_v1()).await?;
 
-        self.world.triggers().handle_time_event(&time_event);
+        self.world.triggers.handle_time_event(&time_event);
 
         let res = self
             .world
-            .triggers()
+            .triggers
             .inspect_matched(|action| -> Result<()> {
                 self.process_executable(action.executable(), action.technical_account())
             })
@@ -392,7 +391,7 @@ impl WorldStateView {
         let data_events: SmallVec<[DataEvent; 3]> = world_event.into();
 
         for event in data_events {
-            self.world.triggers().handle_data_event(&event);
+            self.world.triggers.handle_data_event(&event);
             self.produce_event(event);
         }
 
@@ -402,7 +401,7 @@ impl WorldStateView {
     /// Returns reference for trusted peer ids
     #[inline]
     pub fn trusted_peers_ids(&self) -> &PeersIds {
-        self.world.trusted_peers_ids()
+        &self.world.trusted_peers_ids
     }
 
     /// Returns iterator over blockchain blocks starting with the block of the given `height`
@@ -426,7 +425,7 @@ impl WorldStateView {
     ) -> Result<DashMapRef<DomainId, Domain>, FindError> {
         let domain = self
             .world
-            .domains()
+            .domains
             .get(id)
             .ok_or_else(|| FindError::Domain(id.clone()))?;
         Ok(domain)
@@ -442,7 +441,7 @@ impl WorldStateView {
     ) -> Result<DashMapRefMut<DomainId, Domain>, FindError> {
         let domain = self
             .world
-            .domains()
+            .domains
             .get_mut(id)
             .ok_or_else(|| FindError::Domain(id.clone()))?;
         Ok(domain)
@@ -451,7 +450,7 @@ impl WorldStateView {
     /// Returns reference for domains map
     #[inline]
     pub fn domains(&self) -> &DomainsMap {
-        self.world.domains()
+        &self.world.domains
     }
 
     /// Get `Domain` and pass it to closure.
@@ -483,7 +482,7 @@ impl WorldStateView {
     ) -> Result<(), Error> {
         self.modify_world(|world| {
             let mut domain = world
-                .domains()
+                .domains
                 .get_mut(id)
                 .ok_or_else(|| FindError::Domain(id.clone()))?;
             f(domain.value_mut()).map(Into::into)
@@ -625,7 +624,7 @@ impl WorldStateView {
     pub fn peers(&self) -> Vec<Peer> {
         let mut vec = self
             .world
-            .trusted_peers_ids()
+            .trusted_peers_ids
             .iter()
             .map(|peer| Peer::new((&*peer).clone()))
             .collect::<Vec<Peer>>();
@@ -758,6 +757,12 @@ impl WorldStateView {
         &self.world
     }
 
+    /// Returns reference for triggers
+    #[inline]
+    pub fn triggers(&self) -> &TriggerSet {
+        &self.world.triggers
+    }
+
     /// Get triggers set and modify it with `f`
     ///
     /// Produces trigger event from `f`
@@ -768,7 +773,7 @@ impl WorldStateView {
     where
         F: FnOnce(&TriggerSet) -> Result<TriggerEvent, Error>,
     {
-        self.modify_world(|world| f(world.triggers()).map(WorldEvent::Trigger))
+        self.modify_world(|world| f(&world.triggers).map(WorldEvent::Trigger))
     }
 
     /// Execute trigger with `trigger_id` as id and `authority` as owner
@@ -786,7 +791,7 @@ impl WorldStateView {
     #[allow(clippy::expect_used)]
     pub fn execute_trigger(&self, trigger_id: TriggerId, authority: AccountId) {
         let event = ExecuteTriggerEvent::new(trigger_id, authority);
-        self.world.triggers().handle_execute_trigger_event(&event);
+        self.world.triggers.handle_execute_trigger_event(&event);
         self.produce_event(event);
     }
 }

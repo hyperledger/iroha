@@ -108,7 +108,7 @@ macro_rules! unpack {
                 return Ok(vec![$i]);
             };
 
-        let instructions = if let Some(role) = $w.world.roles().get(&id) {
+        let instructions = if let Some(role) = $w.world.roles.get(&id) {
             let destination_id = operation.destination_id.evaluate($w, &Context::new())?;
             role.permissions()
                 .cloned()
