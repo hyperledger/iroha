@@ -24,31 +24,30 @@ use crate::{
         },
         wasm, Evaluate, Execute, FindError,
     },
-    wsv::WorldTrait,
 };
 
 /// Used to validate transaction and thus move transaction lifecycle forward
 ///
 /// Permission validation is skipped for genesis.
 #[derive(Clone)]
-pub struct TransactionValidator<W: WorldTrait> {
+pub struct TransactionValidator {
     transaction_limits: TransactionLimits,
 
-    is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
-    is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+    is_instruction_allowed: Arc<IsInstructionAllowedBoxed>,
+    is_query_allowed: Arc<IsQueryAllowedBoxed>,
 
-    wsv: Arc<WorldStateView<W>>,
+    wsv: Arc<WorldStateView>,
 }
 
-impl<W: WorldTrait> TransactionValidator<W> {
+impl TransactionValidator {
     /// Construct [`TransactionValidator`]
     pub fn new(
         transaction_limits: TransactionLimits,
 
-        is_instruction_allowed: Arc<IsInstructionAllowedBoxed<W>>,
-        is_query_allowed: Arc<IsQueryAllowedBoxed<W>>,
+        is_instruction_allowed: Arc<IsInstructionAllowedBoxed>,
+        is_query_allowed: Arc<IsQueryAllowedBoxed>,
 
-        wsv: Arc<WorldStateView<W>>,
+        wsv: Arc<WorldStateView>,
     ) -> Self {
         Self {
             transaction_limits,
@@ -226,10 +225,7 @@ impl VersionedAcceptedTransaction {
     ///
     /// # Errors
     /// Can fail if signature condition account fails or if account is not found
-    pub fn check_signature_condition<W: WorldTrait>(
-        &self,
-        wsv: &WorldStateView<W>,
-    ) -> Result<bool> {
+    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<bool> {
         self.as_v1().check_signature_condition(wsv)
     }
 }
@@ -282,10 +278,7 @@ impl AcceptedTransaction {
     /// # Errors
     /// - Account not found
     /// - Signature verification fails
-    pub fn check_signature_condition<W: WorldTrait>(
-        &self,
-        wsv: &WorldStateView<W>,
-    ) -> Result<bool> {
+    pub fn check_signature_condition(&self, wsv: &WorldStateView) -> Result<bool> {
         let account_id = &self.payload.account_id;
 
         let signatories = self
@@ -333,19 +326,19 @@ impl Txn for AcceptedTransaction {
 
 impl IsInBlockchain for VersionedAcceptedTransaction {
     #[inline]
-    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
+    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
         wsv.has_transaction(&self.hash())
     }
 }
 impl IsInBlockchain for VersionedValidTransaction {
     #[inline]
-    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
+    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
         wsv.has_transaction(&self.hash())
     }
 }
 impl IsInBlockchain for VersionedRejectedTransaction {
     #[inline]
-    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
+    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool {
         wsv.has_transaction(&self.hash())
     }
 }

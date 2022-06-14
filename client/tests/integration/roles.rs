@@ -4,7 +4,7 @@ use std::{str::FromStr as _, time::Duration};
 
 use eyre::{eyre, Result};
 use iroha_client::client::{self, Client};
-use iroha_core::{prelude::AllowAll, smartcontracts::permissions::ValidatorBuilder};
+use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain::{
     key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
@@ -21,9 +21,9 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     // Peer has a special permission validator we need for this test
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new()
         .with_instruction_validator(
-            ValidatorBuilder::new()
-                .with_recursive_validator(transfer::ExecutionCountFitsInLimit)
-                .all_should_succeed(),
+            ValidatorBuilder::with_recursive_validator(transfer::ExecutionCountFitsInLimit)
+                .all_should_succeed()
+                .build(),
         )
         .with_query_validator(AllowAll)
         .start_with_runtime();

@@ -19,7 +19,7 @@ use tokio::sync::broadcast;
 
 use crate::{
     block_sync::message::VersionedMessage as BlockSyncMessage, prelude::*,
-    sumeragi::message::VersionedMessage as SumeragiMessage, wsv::WorldTrait,
+    sumeragi::message::VersionedMessage as SumeragiMessage,
 };
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
@@ -56,7 +56,7 @@ pub enum NetworkMessage {
 /// Check to see if the given item was included in the blockchain.
 pub trait IsInBlockchain {
     /// Checks if this item has already been committed or rejected.
-    fn is_in_blockchain<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool;
+    fn is_in_blockchain(&self, wsv: &WorldStateView) -> bool;
 }
 
 pub mod prelude {
@@ -71,7 +71,9 @@ pub mod prelude {
             CommittedBlock, PendingBlock, ValidBlock, VersionedCommittedBlock, VersionedValidBlock,
             DEFAULT_CONSENSUS_ESTIMATION_MS,
         },
-        smartcontracts::permissions::AllowAll,
+        smartcontracts::permissions::{
+            builder::Validator as ValidatorBuilder, combinators::AllowAll,
+        },
         smartcontracts::ValidQuery,
         tx::{
             AcceptedTransaction, ValidTransaction, VersionedAcceptedTransaction,

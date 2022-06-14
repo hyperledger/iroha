@@ -12,13 +12,13 @@ use rand::seq::IteratorRandom;
 use thiserror::Error;
 
 pub use self::config::Configuration;
-use crate::{prelude::*, wsv::WorldTrait};
+use crate::prelude::*;
 
 /// Lockfree queue for transactions
 ///
 /// Multiple producers, single consumer
 #[derive(Debug)]
-pub struct Queue<W: WorldTrait> {
+pub struct Queue {
     queue: ArrayQueue<HashOf<VersionedTransaction>>,
     txs: DashMap<HashOf<VersionedTransaction>, VersionedAcceptedTransaction>,
     /// Length of dashmap.
@@ -30,7 +30,7 @@ pub struct Queue<W: WorldTrait> {
     ttl: Duration,
     future_threshold: Duration,
 
-    wsv: Arc<WorldStateView<W>>,
+    wsv: Arc<WorldStateView>,
 }
 
 /// Queue push error
@@ -53,9 +53,9 @@ pub enum Error {
     SignatureCondition(#[from] Report),
 }
 
-impl<W: WorldTrait> Queue<W> {
+impl Queue {
     /// Makes queue from configuration
-    pub fn from_configuration(cfg: &Configuration, wsv: Arc<WorldStateView<W>>) -> Self {
+    pub fn from_configuration(cfg: &Configuration, wsv: Arc<WorldStateView>) -> Self {
         Self {
             queue: ArrayQueue::new(cfg.maximum_transactions_in_queue as usize),
             txs: DashMap::new(),

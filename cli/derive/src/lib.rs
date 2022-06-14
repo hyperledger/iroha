@@ -35,7 +35,7 @@ use syn::{
 /// 3) When the colon-separated form has spaces in the provided name.
 ///
 /// # Examples:
-/// ```rust
+/// ```no_run
 /// use warp::{Rejection, Filter};
 /// use std::convert::Infallible;
 /// use iroha_cli::torii::utils::WarpResult;

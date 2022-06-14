@@ -7,8 +7,8 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use thiserror::Error;
 
-use super::FindError;
-use crate::{prelude::ValidQuery, WorldStateView, WorldTrait};
+use super::{permissions::prelude::DenialReason, FindError};
+use crate::{prelude::ValidQuery, WorldStateView};
 
 /// Query Request statefully validated on the Iroha node side.
 #[derive(Debug, Decode, Encode)]
@@ -22,7 +22,7 @@ impl ValidQueryRequest {
     /// # Errors
     /// Forwards `self.query.execute` error.
     #[inline]
-    pub fn execute<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> Result<Value, Error> {
+    pub fn execute(&self, wsv: &WorldStateView) -> Result<Value, Error> {
         self.query.execute(wsv)
     }
 
@@ -44,7 +44,7 @@ pub enum Error {
     Signature(String),
     /// Query is not allowed.
     #[error("Query is not allowed: {0}")]
-    Permission(String),
+    Permission(DenialReason),
     /// Query has wrong expression.
     #[error("Query has a malformed expression: {0}")]
     Evaluate(String),
@@ -62,8 +62,8 @@ impl From<FindError> for Error {
     }
 }
 
-impl<W: WorldTrait> ValidQuery<W> for QueryBox {
-    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+impl ValidQuery for QueryBox {
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
         use QueryBox::*;
 
         match self {

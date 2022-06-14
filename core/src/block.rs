@@ -29,7 +29,6 @@ use crate::{
         view_change::{Proof, ProofChain as ViewChangeProofs},
     },
     tx::{TransactionValidator, VersionedAcceptedTransaction},
-    wsv::WorldTrait,
 };
 
 const PIPELINE_TIME_MS: u64 =
@@ -317,10 +316,7 @@ impl BlockHeader {
 
 impl ChainedBlock {
     /// Validate block transactions against current state of the world.
-    pub fn validate<W: WorldTrait>(
-        self,
-        transaction_validator: &TransactionValidator<W>,
-    ) -> VersionedValidBlock {
+    pub fn validate(self, transaction_validator: &TransactionValidator) -> VersionedValidBlock {
         let mut txs = Vec::new();
         let mut rejected = Vec::new();
 
@@ -406,10 +402,7 @@ impl VersionedValidBlock {
 
     /// Validate block transactions against current state of the world.
     #[must_use]
-    pub fn revalidate<W: WorldTrait>(
-        self,
-        transaction_validator: &TransactionValidator<W>,
-    ) -> Self {
+    pub fn revalidate(self, transaction_validator: &TransactionValidator) -> Self {
         self.into_v1().revalidate(transaction_validator).into()
     }
 
@@ -438,7 +431,7 @@ impl VersionedValidBlock {
     }
 
     /// Checks if block has transactions that are already in blockchain.
-    pub fn has_committed_transactions<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
+    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
         self.as_v1().has_committed_transactions(wsv)
     }
 
@@ -452,9 +445,9 @@ impl VersionedValidBlock {
     ///
     /// # Errors
     /// Returns the error description if validation doesn't work.
-    pub fn validation_check<W: WorldTrait>(
+    pub fn validation_check(
         &self,
-        wsv: &WorldStateView<W>,
+        wsv: &WorldStateView,
         latest_block: &HashOf<VersionedCommittedBlock>,
         latest_view_change: &HashOf<Proof>,
         block_height: u64,
@@ -552,10 +545,7 @@ impl ValidBlock {
 
     /// Validate block transactions against current state of the world.
     #[must_use]
-    pub fn revalidate<W: WorldTrait>(
-        self,
-        transaction_validator: &TransactionValidator<W>,
-    ) -> Self {
+    pub fn revalidate(self, transaction_validator: &TransactionValidator) -> Self {
         Self {
             signatures: self.signatures,
             ..ChainedBlock {
@@ -603,7 +593,7 @@ impl ValidBlock {
     }
 
     /// Checks if block has transactions that are already in blockchain.
-    pub fn has_committed_transactions<W: WorldTrait>(&self, wsv: &WorldStateView<W>) -> bool {
+    pub fn has_committed_transactions(&self, wsv: &WorldStateView) -> bool {
         self.transactions
             .iter()
             .any(|transaction| transaction.is_in_blockchain(wsv))

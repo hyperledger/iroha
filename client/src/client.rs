@@ -1235,6 +1235,7 @@ mod tests {
     #[cfg(test)]
     mod query_errors_handling {
         use http::Response;
+        use iroha_core::smartcontracts::permissions::error::DenialReason;
 
         use super::*;
 
@@ -1248,7 +1249,7 @@ mod tests {
                 ),
                 (
                     StatusCode::FORBIDDEN,
-                    QueryError::Permission("whatever".to_owned()),
+                    QueryError::Permission(DenialReason::Custom("whatever".to_owned())),
                 ),
                 (
                     StatusCode::NOT_FOUND,

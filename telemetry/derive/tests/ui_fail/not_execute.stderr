@@ -1,5 +1,5 @@
 error: Function should be an `impl execute`
  --> tests/ui_fail/not_execute.rs:5:4
   |
-5 | fn exequte(wsv: &WorldStateView<World>) -> Result<(), ()> {
+5 | fn exequte(wsv: &WorldStateView) -> Result<(), ()> {
   |    ^^^^^^^

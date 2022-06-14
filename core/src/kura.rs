@@ -27,9 +27,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::ReadDirStream;
 
-use crate::{
-    block::VersionedCommittedBlock, block_sync::ContinueSync, prelude::*, sumeragi, wsv::WorldTrait,
-};
+use crate::{block::VersionedCommittedBlock, block_sync::ContinueSync, prelude::*, sumeragi};
 
 /// Message for storing committed block
 #[derive(Clone, Debug, Message)]
@@ -46,22 +44,22 @@ pub struct GetBlockHash {
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
 #[derive(Debug)]
-pub struct KuraWithIO<W: WorldTrait, IO> {
+pub struct KuraWithIO<IO> {
     // TODO: Kura doesn't have different initialisation modes!!!
     #[allow(dead_code)]
     mode: Mode,
     block_store: BlockStore<IO>,
     merkle_tree: MerkleTree<VersionedCommittedBlock>,
-    wsv: Arc<WorldStateView<W>>,
+    wsv: Arc<WorldStateView>,
     broker: Broker,
     actor_channel_capacity: u32,
 }
 
 /// Production qualification of `KuraWithIO`
-pub type Kura<W> = KuraWithIO<W, DefaultIO>;
+pub type Kura = KuraWithIO<DefaultIO>;
 
 /// Generic implementation for tests - accepting IO mocks
-impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
+impl<IO: DiskIO> KuraWithIO<IO> {
     /// ctor
     /// # Errors
     /// Will forward error from `BlockStore` construction
@@ -69,7 +67,7 @@ impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
         mode: Mode,
         block_store_path: &Path,
         blocks_per_file: NonZeroU64,
-        wsv: Arc<WorldStateView<W>>,
+        wsv: Arc<WorldStateView>,
         broker: Broker,
         actor_channel_capacity: u32,
         io: IO,
@@ -93,9 +91,6 @@ pub trait KuraTrait:
     + ContextHandler<GetBlockHash, Result = Option<HashOf<VersionedCommittedBlock>>>
     + Debug
 {
-    /// World for applying blocks which have been stored on disk
-    type World: WorldTrait;
-
     /// Construct [`Kura`].
     /// Kura will not be ready to work with before `init()` method invocation.
     /// # Errors
@@ -104,7 +99,7 @@ pub trait KuraTrait:
         mode: Mode,
         block_store_path: &Path,
         blocks_per_file: NonZeroU64,
-        wsv: Arc<WorldStateView<Self::World>>,
+        wsv: Arc<WorldStateView>,
         broker: Broker,
         actor_channel_capacity: u32,
     ) -> Result<Self>;
@@ -114,7 +109,7 @@ pub trait KuraTrait:
     /// Fails if call to new fails
     async fn from_configuration(
         configuration: &config::KuraConfiguration,
-        wsv: Arc<WorldStateView<Self::World>>,
+        wsv: Arc<WorldStateView>,
         broker: Broker,
     ) -> Result<Self> {
         Self::new(
@@ -130,14 +125,12 @@ pub trait KuraTrait:
 }
 
 #[async_trait]
-impl<W: WorldTrait> KuraTrait for Kura<W> {
-    type World = W;
-
+impl KuraTrait for Kura {
     async fn new(
         mode: Mode,
         block_store_path: &Path,
         blocks_per_file: NonZeroU64,
-        wsv: Arc<WorldStateView<W>>,
+        wsv: Arc<WorldStateView>,
         broker: Broker,
         mailbox: u32,
     ) -> Result<Self> {
@@ -155,7 +148,7 @@ impl<W: WorldTrait> KuraTrait for Kura<W> {
 }
 
 #[async_trait::async_trait]
-impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
+impl<IO: DiskIO> Actor for KuraWithIO<IO> {
     fn actor_channel_capacity(&self) -> u32 {
         self.actor_channel_capacity
     }
@@ -186,7 +179,7 @@ impl<W: WorldTrait, IO: DiskIO> Actor for KuraWithIO<W, IO> {
 }
 
 #[async_trait::async_trait]
-impl<W: WorldTrait, IO: DiskIO> Handler<GetBlockHash> for KuraWithIO<W, IO> {
+impl<IO: DiskIO> Handler<GetBlockHash> for KuraWithIO<IO> {
     type Result = Option<HashOf<VersionedCommittedBlock>>;
     async fn handle(&mut self, GetBlockHash { height }: GetBlockHash) -> Self::Result {
         if height == 0 {
@@ -198,7 +191,7 @@ impl<W: WorldTrait, IO: DiskIO> Handler<GetBlockHash> for KuraWithIO<W, IO> {
 }
 
 #[async_trait::async_trait]
-impl<W: WorldTrait, IO: DiskIO> Handler<StoreBlock> for KuraWithIO<W, IO> {
+impl<IO: DiskIO> Handler<StoreBlock> for KuraWithIO<IO> {
     type Result = ();
 
     async fn handle(&mut self, StoreBlock(block): StoreBlock) {
@@ -212,7 +205,7 @@ impl<W: WorldTrait, IO: DiskIO> Handler<StoreBlock> for KuraWithIO<W, IO> {
     }
 }
 
-impl<W: WorldTrait, IO: DiskIO> KuraWithIO<W, IO> {
+impl<IO: DiskIO> KuraWithIO<IO> {
     /// After constructing [`Kura`] it should be initialized to be ready to work with it.
     ///
     /// # Errors
@@ -668,7 +661,7 @@ mod tests {
     #[tokio::test]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
-        assert!(Kura::<World>::new(
+        assert!(Kura::new(
             Mode::Strict,
             temp_dir.path(),
             NonZeroU64::new(TEST_STORAGE_FILE_SIZE).unwrap(),
@@ -683,7 +676,7 @@ mod tests {
         .is_ok());
     }
 
-    fn get_transaction_validator() -> TransactionValidator<World> {
+    fn get_transaction_validator() -> TransactionValidator {
         let tx_limits = TransactionLimits {
             max_instruction_number: 4096,
             max_wasm_size_bytes: 0,
@@ -775,7 +768,7 @@ mod tests {
             .expect("Failed to sign blocks.")
             .commit();
         let dir = tempfile::tempdir().unwrap();
-        let mut kura = Kura::<World>::new(
+        let mut kura = Kura::new(
             Mode::Strict,
             dir.path(),
             NonZeroU64::new(tests::TEST_STORAGE_FILE_SIZE).unwrap(),

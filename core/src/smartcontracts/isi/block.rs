@@ -5,9 +5,9 @@ use iroha_telemetry::metrics;
 
 use super::*;
 
-impl<W: WorldTrait> ValidQuery<W> for FindAllBlocks {
+impl ValidQuery for FindAllBlocks {
     #[metrics(+"find_all_blocks")]
-    fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, query::Error> {
+    fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, query::Error> {
         let mut blocks: Vec<BlockValue> = wsv
             .blocks()
             .map(|blk| blk.clone())
