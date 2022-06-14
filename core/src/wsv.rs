@@ -1,13 +1,7 @@
 //! This module provides the [`WorldStateView`] - in-memory representations of the current blockchain
 //! state.
 
-use std::{
-    convert::Infallible,
-    fmt::Debug,
-    ops::{Deref, DerefMut},
-    sync::Arc,
-    time::Duration,
-};
+use std::{convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
 
 use config::Configuration;
 use dashmap::{
@@ -15,6 +9,7 @@ use dashmap::{
     DashSet,
 };
 use eyre::Result;
+use getset::Getters;
 use iroha_crypto::HashOf;
 use iroha_data_model::{prelude::*, small::SmallVec};
 use iroha_logger::prelude::*;
@@ -33,53 +28,53 @@ pub type NewBlockNotificationSender = tokio::sync::watch::Sender<()>;
 /// Receiver type of the new block notification channel
 pub type NewBlockNotificationReceiver = tokio::sync::watch::Receiver<()>;
 
-/// World trait for mocking
-pub trait WorldTrait:
-    Deref<Target = World> + DerefMut + Send + Sync + 'static + Debug + Default + Sized + Clone
-{
-    /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
-    fn with(
-        domains: impl IntoIterator<Item = Domain>,
-        trusted_peers_ids: impl IntoIterator<Item = PeerId>,
-    ) -> Self;
-}
-
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Getters)]
 pub struct World {
     /// Iroha parameters.
-    pub parameters: Vec<Parameter>,
+    /// TODO: Use this field
+    _parameters: Vec<Parameter>,
     /// Identifications of discovered trusted peers.
-    pub trusted_peers_ids: PeersIds,
+    pub(crate) trusted_peers_ids: PeersIds,
     /// Registered domains.
-    pub domains: DomainsMap,
+    pub(crate) domains: DomainsMap,
     /// Roles. [`Role`] pairs.
-    pub roles: crate::RolesMap,
+    pub(crate) roles: crate::RolesMap,
     /// Triggers
-    pub triggers: TriggerSet,
+    pub(crate) triggers: TriggerSet,
 }
 
-impl Deref for World {
-    type Target = Self;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self
+impl World {
+    /// Creates an empty `World`.
+    pub fn new() -> Self {
+        Self::default()
     }
-}
 
-impl DerefMut for World {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self
+    /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
+    pub fn with<D, P>(domains: D, trusted_peers_ids: P) -> Self
+    where
+        D: IntoIterator<Item = Domain>,
+        P: IntoIterator<Item = PeerId>,
+    {
+        let domains = domains
+            .into_iter()
+            .map(|domain| (domain.id().clone(), domain))
+            .collect();
+        let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
+        World {
+            domains,
+            trusted_peers_ids,
+            ..World::new()
+        }
     }
 }
 
 /// Current state of the blockchain aligned with `Iroha` module.
 #[derive(Debug)]
-pub struct WorldStateView<W: WorldTrait> {
+pub struct WorldStateView {
     /// The world - contains `domains`, `triggers`, etc..
-    pub world: W,
+    pub world: World,
     /// Configuration of World State View.
     pub config: Configuration,
     /// Blockchain.
@@ -94,14 +89,14 @@ pub struct WorldStateView<W: WorldTrait> {
     events_sender: Option<EventsSender>,
 }
 
-impl<W: WorldTrait + Default> Default for WorldStateView<W> {
+impl Default for WorldStateView {
     #[inline]
     fn default() -> Self {
-        Self::new(W::default())
+        Self::new(World::default())
     }
 }
 
-impl<W: WorldTrait + Clone> Clone for WorldStateView<W> {
+impl Clone for WorldStateView {
     #[allow(clippy::expect_used)]
     fn clone(&self) -> Self {
         Self {
@@ -116,38 +111,12 @@ impl<W: WorldTrait + Clone> Clone for WorldStateView<W> {
     }
 }
 
-impl World {
-    /// Creates an empty `World`.
-    #[inline]
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl WorldTrait for World {
-    fn with(
-        domains: impl IntoIterator<Item = Domain>,
-        trusted_peers_ids: impl IntoIterator<Item = PeerId>,
-    ) -> Self {
-        let domains = domains
-            .into_iter()
-            .map(|domain| (domain.id().clone(), domain))
-            .collect();
-        let trusted_peers_ids = trusted_peers_ids.into_iter().collect();
-        World {
-            domains,
-            trusted_peers_ids,
-            ..World::new()
-        }
-    }
-}
-
 /// WARNING!!! INTERNAL USE ONLY!!!
-impl<W: WorldTrait> WorldStateView<W> {
+impl WorldStateView {
     /// Construct [`WorldStateView`] with given [`World`].
     #[must_use]
     #[inline]
-    pub fn new(world: W) -> Self {
+    pub fn new(world: World) -> Self {
         Self::from_configuration(Configuration::default(), world)
     }
 
@@ -521,7 +490,7 @@ impl<W: WorldTrait> WorldStateView<W> {
 
     /// Construct [`WorldStateView`] with specific [`Configuration`].
     #[inline]
-    pub fn from_configuration(config: Configuration, world: W) -> Self {
+    pub fn from_configuration(config: Configuration, world: World) -> Self {
         let (new_block_notifier, _) = tokio::sync::watch::channel(());
 
         Self {
@@ -783,8 +752,14 @@ impl<W: WorldTrait> WorldStateView<W> {
     /// Get an immutable view of the `World`.
     #[must_use]
     #[inline]
-    pub fn world(&self) -> &W {
+    pub fn world(&self) -> &World {
         &self.world
+    }
+
+    /// Returns reference for triggers
+    #[inline]
+    pub fn triggers(&self) -> &TriggerSet {
+        &self.world.triggers
     }
 
     /// Get triggers set and modify it with `f`
@@ -876,7 +851,7 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let mut block = ValidBlock::new_dummy().commit();
-        let wsv = WorldStateView::<World>::default();
+        let wsv = WorldStateView::default();
 
         let mut block_hashes = vec![];
         for i in 1..=BLOCK_CNT {
@@ -900,7 +875,7 @@ mod tests {
         const BLOCK_CNT: usize = 10;
 
         let mut block = ValidBlock::new_dummy().commit();
-        let wsv = WorldStateView::<World>::default();
+        let wsv = WorldStateView::default();
 
         for i in 1..=BLOCK_CNT {
             block.header.height = i as u64;

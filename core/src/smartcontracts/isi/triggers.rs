@@ -14,7 +14,7 @@ pub mod isi {
 
     use super::{super::prelude::*, *};
 
-    impl<W: WorldTrait> Execute<W> for Register<Trigger<FilterBox>> {
+    impl Execute for Register<Trigger<FilterBox>> {
         type Error = Error;
 
         #[metrics(+"register_trigger")]
@@ -22,7 +22,7 @@ pub mod isi {
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView<W>,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let new_trigger = self.object;
 
@@ -71,14 +71,14 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Unregister<Trigger<FilterBox>> {
+    impl Execute for Unregister<Trigger<FilterBox>> {
         type Error = Error;
 
         #[metrics(+"unregister_trigger")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView<W>,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let trigger_id = self.object_id.clone();
             wsv.modify_triggers(|triggers| {
@@ -94,14 +94,14 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Mint<Trigger<FilterBox>, u32> {
+    impl Execute for Mint<Trigger<FilterBox>, u32> {
         type Error = Error;
 
         #[metrics(+"mint_trigger_repetitions")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView<W>,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let id = self.destination_id;
 
@@ -125,14 +125,14 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for Burn<Trigger<FilterBox>, u32> {
+    impl Execute for Burn<Trigger<FilterBox>, u32> {
         type Error = Error;
 
         #[metrics(+"burn_trigger_repetitions")]
         fn execute(
             self,
             _authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView<W>,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             let trigger = self.destination_id;
             wsv.modify_triggers(|triggers| {
@@ -147,14 +147,14 @@ pub mod isi {
         }
     }
 
-    impl<W: WorldTrait> Execute<W> for ExecuteTriggerBox {
+    impl Execute for ExecuteTriggerBox {
         type Error = Error;
 
         #[metrics(+"execute_trigger")]
         fn execute(
             self,
             authority: <Account as Identifiable>::Id,
-            wsv: &WorldStateView<W>,
+            wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
             wsv.execute_trigger(self.trigger_id, authority);
             Ok(())
@@ -168,19 +168,19 @@ pub mod query {
     use super::*;
     use crate::{
         prelude::*,
-        smartcontracts::{isi::prelude::WorldTrait, query::Error, Evaluate as _, FindError},
+        smartcontracts::{query::Error, Evaluate as _, FindError},
     };
 
-    impl<W: WorldTrait> ValidQuery<W> for FindAllActiveTriggerIds {
+    impl ValidQuery for FindAllActiveTriggerIds {
         #[metrics(+"find_all_active_triggers")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
-            Ok(wsv.world.triggers.clone().ids())
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
+            Ok(wsv.world.triggers.ids())
         }
     }
 
-    impl<W: WorldTrait> ValidQuery<W> for FindTriggerById {
+    impl ValidQuery for FindTriggerById {
         #[metrics(+"find_trigger_by_id")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::new())
@@ -199,9 +199,9 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> ValidQuery<W> for FindTriggerKeyValueByIdAndKey {
+    impl ValidQuery for FindTriggerKeyValueByIdAndKey {
         #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute(&self, wsv: &WorldStateView<W>) -> Result<Self::Output, Error> {
+        fn execute(&self, wsv: &WorldStateView) -> Result<Self::Output, Error> {
             let id = self
                 .id
                 .evaluate(wsv, &Context::new())
@@ -224,9 +224,9 @@ pub mod query {
         }
     }
 
-    impl<W: WorldTrait> ValidQuery<W> for FindTriggersByDomainId {
+    impl ValidQuery for FindTriggersByDomainId {
         #[metrics(+"find_triggers_by_domain_id")]
-        fn execute(&self, _wsv: &WorldStateView<W>) -> eyre::Result<Self::Output, Error> {
+        fn execute(&self, _wsv: &WorldStateView) -> eyre::Result<Self::Output, Error> {
             iroha_logger::warn!("'find triggers by domain id' is implemented as a stub.");
             Ok(vec![])
         }

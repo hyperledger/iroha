@@ -140,7 +140,7 @@ impl ToTokens for MetricSpec {
 /// use iroha_telemetry_derive::metrics;
 ///
 /// #[metrics(+"test_query", "another_test_query_without_timing")]
-/// fn execute(wsv: &WorldStateView<World>) -> Result<(), ()> {
+/// fn execute(wsv: &WorldStateView) -> Result<(), ()> {
 ///     Ok(())
 /// }
 /// ```

@@ -166,7 +166,7 @@ fn impl_load_env(
     quote! {
         fn load_environment(
             &'_ mut self
-        ) -> std::result::Result<(), iroha_config::derive::Error> {
+        ) -> core::result::Result<(), iroha_config::derive::Error> {
             #(#set_field)*
             Ok(())
         }
@@ -183,7 +183,7 @@ fn impl_get_doc_recursive(
         return quote! {
             fn get_doc_recursive<'a>(
                 inner_field: impl AsRef<[&'a str]>,
-            ) -> std::result::Result<std::option::Option<String>, iroha_config::derive::Error>
+            ) -> core::result::Result<std::option::Option<String>, iroha_config::derive::Error>
             {
                 Err(iroha_config::derive::Error::UnknownField(
                     inner_field.as_ref().iter().map(ToString::to_string).collect()
@@ -218,7 +218,7 @@ fn impl_get_doc_recursive(
     quote! {
         fn get_doc_recursive<'a>(
             inner_field: impl AsRef<[&'a str]>,
-        ) -> std::result::Result<std::option::Option<String>, iroha_config::derive::Error>
+        ) -> core::result::Result<std::option::Option<String>, iroha_config::derive::Error>
         {
             let inner_field = inner_field.as_ref();
             let doc = match inner_field {
@@ -313,7 +313,7 @@ fn impl_get_recursive(
             fn get_recursive<'a, T>(
                 &self,
                 inner_field: T,
-            ) -> iroha_config::BoxedFuture<'a, Result<serde_json::Value, Self::Error>>
+            ) -> iroha_config::BoxedFuture<'a, core::result::Result<serde_json::Value, Self::Error>>
             where
                 T: AsRef<[&'a str]> + Send + 'a,
             {
@@ -353,7 +353,7 @@ fn impl_get_recursive(
         fn get_recursive<'a, T>(
             &self,
             inner_field: T,
-        ) -> Result<serde_json::Value, Self::Error>
+        ) -> core::result::Result<serde_json::Value, Self::Error>
         where
             T: AsRef<[&'a str]> + Send + 'a,
         {

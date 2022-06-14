@@ -37,7 +37,6 @@ use crate::{
     prelude::*,
     queue::Queue,
     tx::TransactionValidator,
-    wsv::WorldTrait,
     EventsSender, IrohaNetwork, NetworkMessage, VersionedValidBlock,
 };
 
@@ -49,7 +48,7 @@ trait Consensus {
 }
 
 /// `Sumeragi` is the implementation of the consensus.
-pub type Sumeragi<G, K, W> = SumeragiWithFault<G, K, W, NoFault>;
+pub type Sumeragi<G, K> = SumeragiWithFault<G, K, NoFault>;
 
 /// Generic sumeragi trait
 pub trait SumeragiTrait:
@@ -68,9 +67,7 @@ pub trait SumeragiTrait:
     /// Genesis for sending genesis txs
     type GenesisNetwork: GenesisNetworkTrait;
     /// Data storage
-    type Kura: KuraTrait<World = Self::World>;
-    /// World for updating WSV after block commitment
-    type World: WorldTrait;
+    type Kura: KuraTrait;
 
     /// Construct [`Sumeragi`].
     ///
@@ -80,11 +77,11 @@ pub trait SumeragiTrait:
     fn from_configuration(
         configuration: &config::SumeragiConfiguration,
         events_sender: EventsSender,
-        wsv: Arc<WorldStateView<Self::World>>,
-        transaction_validator: TransactionValidator<Self::World>,
+        wsv: Arc<WorldStateView>,
+        transaction_validator: TransactionValidator,
         telemetry_started: bool,
         genesis_network: Option<Self::GenesisNetwork>,
-        queue: Arc<Queue<Self::World>>,
+        queue: Arc<Queue>,
         broker: Broker,
         kura: AlwaysAddr<Self::Kura>,
         network: Addr<IrohaNetwork>,

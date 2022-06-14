@@ -13,7 +13,7 @@ use iroha_core::{
         BlockHeader, EmptyChainHash,
     },
     queue::Queue,
-    smartcontracts::{isi::error::FindError, permissions::DenyAll},
+    smartcontracts::{isi::error::FindError, permissions::combinators::DenyAll},
     sumeragi::view_change::ProofChain,
     tx::TransactionValidator,
     wsv::World,
@@ -29,7 +29,7 @@ use crate::{
     stream::{Sink, Stream},
 };
 
-async fn create_torii() -> (Torii<World>, KeyPair) {
+async fn create_torii() -> (Torii, KeyPair) {
     let mut config = crate::samples::get_config(crate::samples::get_trusted_peers(None), None);
     config.torii.p2p_addr = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
     config.torii.api_url = format!("127.0.0.1:{}", unique_port::get_unique_free_port().unwrap());
@@ -54,7 +54,7 @@ async fn create_torii() -> (Torii<World>, KeyPair) {
             .build()
         )
         .is_none());
-    wsv.world.domains.insert(domain_id, domain);
+    wsv.domains().insert(domain_id, domain);
     let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
     let network = IrohaNetwork::new(
         Broker::new(),

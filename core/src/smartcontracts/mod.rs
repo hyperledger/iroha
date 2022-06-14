@@ -10,10 +10,10 @@ pub mod wasm;
 use iroha_data_model::prelude::*;
 pub use isi::*;
 
-use crate::wsv::{WorldStateView, WorldTrait};
+use crate::wsv::WorldStateView;
 
 /// Trait implementations should provide actions to apply changes on [`WorldStateView`].
-pub trait Execute<W: WorldTrait> {
+pub trait Execute {
     /// Error type returned by execute function
     type Error: std::error::Error;
 
@@ -21,11 +21,11 @@ pub trait Execute<W: WorldTrait> {
     ///
     /// # Errors
     /// Concrete to each implementer.
-    fn execute(self, authority: AccountId, wsv: &WorldStateView<W>) -> Result<(), Self::Error>;
+    fn execute(self, authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error>;
 }
 
 /// Calculate the result of the expression without mutating the state.
-pub trait Evaluate<W: WorldTrait> {
+pub trait Evaluate {
     /// The resulting type of the expression.
     type Value;
     /// Error type returned if the evaluation fails. Typically just [`isi::error::Error`].
@@ -35,15 +35,12 @@ pub trait Evaluate<W: WorldTrait> {
     ///
     /// # Errors
     /// Concrete to each implementer.
-    fn evaluate(
-        &self,
-        wsv: &WorldStateView<W>,
-        context: &Context,
-    ) -> Result<Self::Value, Self::Error>;
+    fn evaluate(&self, wsv: &WorldStateView, context: &Context)
+        -> Result<Self::Value, Self::Error>;
 }
 
 /// This trait should be implemented for all Iroha Queries.
-pub trait ValidQuery<W: WorldTrait>: Query {
+pub trait ValidQuery: Query {
     /// Execute query on the [`WorldStateView`].
     /// Should not mutate [`WorldStateView`]!
     ///
@@ -51,13 +48,13 @@ pub trait ValidQuery<W: WorldTrait>: Query {
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute(&self, wsv: &WorldStateView<W>) -> eyre::Result<Self::Output, query::Error>;
+    fn execute(&self, wsv: &WorldStateView) -> eyre::Result<Self::Output, query::Error>;
 
     /// Executes query and maps it into value
     ///
     /// # Errors
     /// Concrete to each implementer
-    fn execute_into_value(&self, wsv: &WorldStateView<W>) -> eyre::Result<Value, query::Error> {
+    fn execute_into_value(&self, wsv: &WorldStateView) -> eyre::Result<Value, query::Error> {
         self.execute(wsv).map(Into::into)
     }
 }
