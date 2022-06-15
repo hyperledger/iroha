@@ -43,7 +43,7 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
     quote! {
         #[doc = #ffi_fn_doc]
         #[no_mangle]
-        pub unsafe extern "C" fn #ffi_fn_name(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiResult {
+        unsafe extern "C" fn #ffi_fn_name(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiResult {
             let res = std::panic::catch_unwind(|| {
                 #ffi_fn_body
             });

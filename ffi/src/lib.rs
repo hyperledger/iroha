@@ -15,6 +15,7 @@
 //! bool -> u8
 
 pub use iroha_ffi_derive::*;
+pub use opaque_pointer;
 
 // NOTE: Using `u32` to be compatible with WebAssembly.
 // Otherwise `u8` should be sufficient
@@ -25,6 +26,16 @@ pub type HandleId = u32;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pair<K, V>(pub K, pub V);
+
+pub trait IntoFfi {
+    type FfiType;
+
+    fn into_ffi(self) -> Self::FfiType;
+}
+
+pub trait TryFromFfi: IntoFfi + Sized {
+    unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, FfiResult>;
+}
 
 /// Result of execution of an FFI function
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +57,20 @@ pub enum FfiResult {
     Ok = 0_i32,
 }
 
-/// Implement `Handle` for given types with first argument as the initial handle id.
+impl From<opaque_pointer::error::PointerError> for FfiResult {
+    fn from(source: opaque_pointer::error::PointerError) -> Self {
+        use opaque_pointer::error::PointerError::*;
+
+        match source {
+            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+            Utf8Error(_) => Self::Utf8Error,
+            Null => Self::ArgIsNull,
+            Invalid => Self::UnknownHandle,
+        }
+    }
+}
+
+/// Implement [`Handle`] for given types with first argument as the initial handle id.
 #[macro_export]
 macro_rules! handles {
     ( $id:expr, $ty:ty $(, $other:ty)* $(,)? ) => {
@@ -69,15 +93,12 @@ macro_rules! handles {
 /// Generate FFI equivalent implementation of the requested trait method (e.g. Clone, Eq, Ord)
 #[macro_export]
 macro_rules! gen_ffi_impl {
-    (@null_check_stmts $( $ptr:ident ),+ ) => {
-    $(  if $ptr.is_null() {
-            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-            return $crate::FfiResult::ArgIsNull;
-        } )+
-    };
     (@catch_unwind $block:block ) => {
         match std::panic::catch_unwind(|| $block) {
-            Ok(res) => res,
+            Ok(res) => match res {
+                Ok(()) => $crate::FfiResult::Ok,
+                Err(err) => err.into(),
+            },
             Err(_) => {
                 // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
                 $crate::FfiResult::UnrecoverableError
@@ -92,28 +113,27 @@ macro_rules! gen_ffi_impl {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        pub unsafe extern "C" fn __clone(
+        unsafe extern "C" fn __clone(
             handle_id: $crate::HandleId,
             handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut *mut core::ffi::c_void
         ) -> $crate::FfiResult {
-            gen_ffi_impl!(@catch_unwind {
-                gen_ffi_impl!{@null_check_stmts handle_ptr, output_ptr}
+            use iroha_ffi::opaque_pointer;
 
+            gen_ffi_impl!(@catch_unwind {
                 match handle_id {
                     $( <$other as Handle>::ID => {
-                        let handle = &*handle_ptr.cast::<$other>();
-
-                        let new_handle = Box::new(Clone::clone(handle));
-                        let new_handle = Box::into_raw(new_handle);
+                        let handle_ptr = handle_ptr.cast::<$other>();
+                        let handle = opaque_pointer::object(handle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
+                        let new_handle = opaque_pointer::raw(Clone::clone(handle));
 
                         output_ptr.write(new_handle.cast());
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    _ => return $crate::FfiResult::UnknownHandle,
+                    _ => return Err($crate::FfiResult::UnknownHandle),
                 }
 
-                $crate::FfiResult::Ok
+                Ok(())
             })
         }
     };
@@ -125,27 +145,28 @@ macro_rules! gen_ffi_impl {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        pub unsafe extern "C" fn __eq(
+        unsafe extern "C" fn __eq(
             handle_id: $crate::HandleId,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut bool,
         ) -> $crate::FfiResult {
-            gen_ffi_impl!(@catch_unwind {
-                gen_ffi_impl!{@null_check_stmts left_handle_ptr, right_handle_ptr, output_ptr}
+            use iroha_ffi::opaque_pointer;
 
+            gen_ffi_impl!(@catch_unwind {
                 match handle_id {
                     $( <$other as Handle>::ID => {
-                        let left_handle = &*left_handle_ptr.cast::<$other>();
-                        let right_handle = &*right_handle_ptr.cast::<$other>();
+                        let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
+                        let left_handle = opaque_pointer::object(lhandle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
+                        let right_handle = opaque_pointer::object(rhandle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
 
                         output_ptr.write(left_handle == right_handle);
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    _ => return $crate::FfiResult::UnknownHandle,
+                    _ => return Err($crate::FfiResult::UnknownHandle),
                 }
 
-                $crate::FfiResult::Ok
+                Ok(())
             })
         }
     };
@@ -157,27 +178,28 @@ macro_rules! gen_ffi_impl {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        pub unsafe extern "C" fn __ord(
+        unsafe extern "C" fn __ord(
             handle_id: $crate::HandleId,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut core::cmp::Ordering,
         ) -> $crate::FfiResult {
             gen_ffi_impl!(@catch_unwind {
-                gen_ffi_impl!{@null_check_stmts left_handle_ptr, right_handle_ptr, output_ptr}
+                use iroha_ffi::opaque_pointer;
 
                 match handle_id {
                     $( <$other as Handle>::ID => {
-                        let left_handle = &*left_handle_ptr.cast::<$other>();
-                        let right_handle = &*right_handle_ptr.cast::<$other>();
+                        let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
+                        let left_handle = opaque_pointer::object(lhandle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
+                        let right_handle = opaque_pointer::object(rhandle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
 
                         output_ptr.write(left_handle.cmp(right_handle));
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    _ => return $crate::FfiResult::UnknownHandle,
+                    _ => return Err($crate::FfiResult::UnknownHandle),
                 }
 
-                $crate::FfiResult::Ok
+                Ok(())
             })
         }
     };
@@ -189,22 +211,23 @@ macro_rules! gen_ffi_impl {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        pub unsafe extern "C" fn __drop(
+        unsafe extern "C" fn __drop(
             handle_id: $crate::HandleId,
             handle_ptr: *mut core::ffi::c_void,
         ) -> $crate::FfiResult {
-            gen_ffi_impl!(@catch_unwind {
-                gen_ffi_impl!{@null_check_stmts handle_ptr}
+            use iroha_ffi::opaque_pointer;
 
+            gen_ffi_impl!(@catch_unwind {
                 match handle_id {
                     $( <$other as Handle>::ID => {
-                        Box::from_raw(handle_ptr.cast::<$other>());
+                        let handle_ptr = handle_ptr.cast::<$other>();
+                        opaque_pointer::own_back(handle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
                     } )+
                     // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-                    _ => return $crate::FfiResult::UnknownHandle,
+                    _ => return Err($crate::FfiResult::UnknownHandle),
                 }
 
-                $crate::FfiResult::Ok
+                Ok(())
             })
         }
     };

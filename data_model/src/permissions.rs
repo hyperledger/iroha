@@ -12,7 +12,6 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::Getters;
-#[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -30,17 +29,17 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
     Clone,
     PartialEq,
     Eq,
+    PartialOrd,
+    Ord,
     Getters,
     Decode,
     Encode,
     Deserialize,
     Serialize,
     IntoSchema,
-    PartialOrd,
-    Ord,
 )]
+#[ffi_bindgen]
 #[getset(get = "pub")]
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 #[display(fmt = "{name}")]
 pub struct PermissionToken {
     /// Name of the permission rule given to account.
@@ -50,7 +49,7 @@ pub struct PermissionToken {
     params: btree_map::BTreeMap<Name, Value>,
 }
 
-#[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
+#[ffi_bindgen]
 impl PermissionToken {
     /// Constructor.
     #[inline]

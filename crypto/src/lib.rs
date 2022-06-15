@@ -20,6 +20,7 @@ pub use base64;
 use derive_more::{DebugCustom, Display};
 use getset::Getters;
 pub use hash::*;
+use iroha_ffi::IntoFfi;
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
@@ -62,7 +63,8 @@ pub struct NoSuchAlgorithm;
 impl std::error::Error for NoSuchAlgorithm {}
 
 /// Algorithm for hashing
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, IntoFfi)]
+#[repr(u8)]
 pub enum Algorithm {
     /// Ed25519
     #[display(fmt = "{}", "ED_25519")]

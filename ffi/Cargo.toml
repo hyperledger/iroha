@@ -6,6 +6,7 @@ edition = "2021"
 
 [dependencies]
 iroha_ffi_derive = { version = "=2.0.0-pre-rc.5", path = "derive" }
+opaque-pointer = { version = "0.8.6" }
 
 [dev-dependencies]
 getset = "0.1.2"

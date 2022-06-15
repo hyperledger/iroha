@@ -1942,6 +1942,7 @@ version = "2.0.0-pre-rc.5"
 dependencies = [
  "getset",
  "iroha_ffi_derive",
+ "opaque-pointer",
 ]
 
 [[package]]
@@ -2523,6 +2524,15 @@ name = "opaque-debug"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
+
+[[package]]
+name = "opaque-pointer"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7713378ab74e91f2fc110704ebf42dee8d45f09770eabc806e79fee08b4831d5"
+dependencies = [
+ "log",
+]
 
 [[package]]
 name = "openssl"

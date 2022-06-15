@@ -2,7 +2,6 @@
 //! instructions implementations.
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
-use core::cmp::Ordering;
 
 use derive_more::Display;
 use iroha_crypto::{Hash, HashOf, MerkleTree};
@@ -38,18 +37,6 @@ pub struct BlockHeaderValue {
     pub current_block_hash: Hash,
 }
 
-impl PartialOrd for BlockHeaderValue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.timestamp.cmp(&other.timestamp))
-    }
-}
-
-impl Ord for BlockHeaderValue {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.timestamp.cmp(&other.timestamp)
-    }
-}
-
 /// Representation of block on blockchain
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize, IntoSchema,
@@ -64,18 +51,6 @@ pub struct BlockValue {
     pub rejected_transactions: Vec<VersionedRejectedTransaction>,
     /// Event recommendations
     pub event_recommendations: Vec<Event>,
-}
-
-impl PartialOrd for BlockValue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.header.cmp(&other.header))
-    }
-}
-
-impl Ord for BlockValue {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.header.cmp(&other.header)
-    }
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.

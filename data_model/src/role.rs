@@ -7,7 +7,6 @@ use std::collections::btree_set;
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
-#[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -58,7 +57,7 @@ pub struct Id {
     Serialize,
     IntoSchema,
 )]
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[ffi_bindgen]
 #[display(fmt = "{id}")]
 #[getset(get = "pub")]
 pub struct Role {
@@ -84,7 +83,7 @@ impl Ord for Role {
     }
 }
 
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[ffi_bindgen]
 impl Role {
     /// Constructor.
     #[inline]

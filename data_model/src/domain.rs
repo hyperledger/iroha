@@ -12,8 +12,6 @@ use core::{cmp::Ordering, str::FromStr};
 use derive_more::{Display, FromStr};
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
-#[cfg(feature = "ffi_api")]
-use iroha_ffi::ffi_bindgen;
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -140,7 +138,7 @@ impl NewDomain {
     }
 }
 
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[ffi_bindgen]
 impl NewDomain {
     /// Add [`logo`](IpfsPath) to the domain replacing previously defined value
     #[must_use]
@@ -171,9 +169,10 @@ impl NewDomain {
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 #[allow(clippy::multiple_inherent_impl)]
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[ffi_bindgen]
 #[display(fmt = "[{id}]")]
 pub struct Domain {
     /// Identification of this [`Domain`].
@@ -226,7 +225,7 @@ impl Ord for Domain {
     }
 }
 
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[ffi_bindgen]
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {

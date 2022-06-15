@@ -13,7 +13,6 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
-#[cfg(feature = "ffi_api")]
 use iroha_ffi::ffi_bindgen;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
@@ -195,7 +194,7 @@ impl NewAccount {
     }
 }
 
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[ffi_bindgen]
 impl NewAccount {
     /// Add [`Metadata`] to the account replacing previously defined
     #[must_use]
@@ -222,7 +221,7 @@ impl NewAccount {
     IntoSchema,
 )]
 #[allow(clippy::multiple_inherent_impl)]
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[ffi_bindgen]
 #[display(fmt = "({id})")] // TODO: Add more?
 pub struct Account {
     /// An Identification of the [`Account`].
@@ -275,7 +274,7 @@ impl Ord for Account {
     }
 }
 
-#[cfg_attr(feature = "ffi_api", ffi_bindgen)]
+#[ffi_bindgen]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]

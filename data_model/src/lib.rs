@@ -23,6 +23,7 @@ use derive_more::Into;
 use derive_more::{AsRef, Deref, Display, From};
 use events::FilterBox;
 use iroha_crypto::{Hash, PublicKey};
+use iroha_ffi::{IntoFfi, TryFromFfi};
 use iroha_macro::{error::ErrorTryFromEnum, FromVariant};
 use iroha_primitives::{fixed, small, small::SmallVec};
 use iroha_schema::{IntoSchema, MetaMap};
@@ -284,16 +285,19 @@ pub type ValueBox = Box<Value>;
     Clone,
     PartialEq,
     Eq,
+    PartialOrd,
+    Ord,
     Decode,
     Encode,
     Deserialize,
     Serialize,
     FromVariant,
     IntoSchema,
-    PartialOrd,
-    Ord,
+    IntoFfi,
+    TryFromFfi,
 )]
 #[allow(clippy::enum_variant_names)]
+#[repr(u8)]
 pub enum Value {
     /// [`u32`] integer.
     U32(u32),
@@ -790,7 +794,6 @@ pub fn current_time() -> core::time::Duration {
         .expect("Failed to get the current system time")
 }
 
-#[cfg(feature = "ffi_api")]
 mod ffi {
     use iroha_ffi::{gen_ffi_impl, handles};
 
@@ -804,10 +807,6 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
     }
 
     gen_ffi_impl! { Clone:
@@ -818,10 +817,6 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
     }
     gen_ffi_impl! { Eq:
         account::Account,
@@ -831,10 +826,6 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
     }
     gen_ffi_impl! { Ord:
         account::Account,
@@ -843,8 +834,6 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey
     }
     gen_ffi_impl! { Drop:
         account::Account,
@@ -854,10 +843,6 @@ mod ffi {
         permissions::PermissionToken,
         role::Role,
         Name,
-
-        iroha_crypto::PublicKey,
-        iroha_crypto::PrivateKey,
-        iroha_crypto::KeyPair
     }
 }
 
