@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 use getset::Getters;
-use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, Pair};
+use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, Handle, Pair};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Name(&'static str);

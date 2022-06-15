@@ -809,7 +809,7 @@ mod ffi {
         Name,
     }
 
-    gen_ffi_impl! { Clone:
+    gen_ffi_impl! { pub Clone:
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -818,7 +818,7 @@ mod ffi {
         role::Role,
         Name,
     }
-    gen_ffi_impl! { Eq:
+    gen_ffi_impl! { pub Eq:
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -827,7 +827,7 @@ mod ffi {
         role::Role,
         Name,
     }
-    gen_ffi_impl! { Ord:
+    gen_ffi_impl! { pub Ord:
         account::Account,
         asset::Asset,
         domain::Domain,
@@ -835,7 +835,7 @@ mod ffi {
         role::Role,
         Name,
     }
-    gen_ffi_impl! { Drop:
+    gen_ffi_impl! { pub Drop:
         account::Account,
         asset::Asset,
         domain::Domain,

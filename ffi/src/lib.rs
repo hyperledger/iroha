@@ -22,20 +22,43 @@ pub use opaque_pointer;
 /// Type of the handle id
 pub type HandleId = u32;
 
+/// Represents handle in an FFI context
+pub trait Handle {
+    /// Unique identifier of the handle. Most commonly, it is
+    /// used to facilitate generic monomorphization over FFI
+    const ID: HandleId;
+}
+
+/// Conversion into an FFI compatible representation that consumes the input value
+pub trait IntoFfi {
+    /// FFI compatible representation of `Self`
+    type FfiType;
+
+    /// Performs the conversion
+    fn into_ffi(self) -> Self::FfiType;
+}
+
+/// Conversion from an FFI compatible representation that consumes the input value
+pub trait TryFromFfi: IntoFfi + Sized {
+    /// Performs the fallible conversion
+    ///
+    /// # Errors
+    ///
+    /// * given pointer is null
+    /// * given id doesn't identify any known handle
+    /// * given id is not a valid enum discriminant
+    ///
+    /// # Safety
+    ///
+    /// All conversions from a pointer must ensure pointer validity beforehand
+    #[allow(unsafe_code)]
+    unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, FfiResult>;
+}
+
 /// FFI compatible tuple with 2 elements
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pair<K, V>(pub K, pub V);
-
-pub trait IntoFfi {
-    type FfiType;
-
-    fn into_ffi(self) -> Self::FfiType;
-}
-
-pub trait TryFromFfi: IntoFfi + Sized {
-    unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, FfiResult>;
-}
 
 /// Result of execution of an FFI function
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,20 +97,13 @@ impl From<opaque_pointer::error::PointerError> for FfiResult {
 #[macro_export]
 macro_rules! handles {
     ( $id:expr, $ty:ty $(, $other:ty)* $(,)? ) => {
-        impl Handle for $ty {
+        impl $crate::Handle for $ty {
             const ID: $crate::HandleId = $id;
         }
 
         $crate::handles! {$id + 1, $( $other, )*}
     };
-    ( $id:expr, $(,)? ) => {
-        /// Represents handle in an FFI context
-        pub trait Handle {
-            /// Unique identifier of the handle. Most commonly, it is
-            /// used to facilitate generic monomorphization over FFI
-            const ID: $crate::HandleId;
-        }
-    };
+    ( $id:expr, $(,)? ) => {};
 }
 
 /// Generate FFI equivalent implementation of the requested trait method (e.g. Clone, Eq, Ord)
@@ -105,7 +121,7 @@ macro_rules! gen_ffi_impl {
             },
         }
     };
-    ( Clone: $( $other:ty ),+ $(,)? ) => {
+    ( $vis:vis Clone: $( $other:ty ),+ $(,)? ) => {
         /// FFI function equivalent of [`Clone::clone`]
         ///
         /// # Safety
@@ -113,7 +129,7 @@ macro_rules! gen_ffi_impl {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        unsafe extern "C" fn __clone(
+        $vis unsafe extern "C" fn __clone(
             handle_id: $crate::HandleId,
             handle_ptr: *const core::ffi::c_void,
             output_ptr: *mut *mut core::ffi::c_void
@@ -122,7 +138,7 @@ macro_rules! gen_ffi_impl {
 
             gen_ffi_impl!(@catch_unwind {
                 match handle_id {
-                    $( <$other as Handle>::ID => {
+                    $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr.cast::<$other>();
                         let handle = opaque_pointer::object(handle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
                         let new_handle = opaque_pointer::raw(Clone::clone(handle));
@@ -137,7 +153,7 @@ macro_rules! gen_ffi_impl {
             })
         }
     };
-    ( Eq: $( $other:ty ),+ $(,)? ) => {
+    ( $vis:vis Eq: $( $other:ty ),+ $(,)? ) => {
         /// FFI function equivalent of [`Eq::eq`]
         ///
         /// # Safety
@@ -145,7 +161,7 @@ macro_rules! gen_ffi_impl {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        unsafe extern "C" fn __eq(
+        $vis unsafe extern "C" fn __eq(
             handle_id: $crate::HandleId,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
@@ -155,7 +171,7 @@ macro_rules! gen_ffi_impl {
 
             gen_ffi_impl!(@catch_unwind {
                 match handle_id {
-                    $( <$other as Handle>::ID => {
+                    $( <$other as $crate::Handle>::ID => {
                         let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
                         let left_handle = opaque_pointer::object(lhandle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
                         let right_handle = opaque_pointer::object(rhandle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
@@ -170,7 +186,7 @@ macro_rules! gen_ffi_impl {
             })
         }
     };
-    ( Ord: $( $other:ty ),+ $(,)? ) => {
+    ( $vis:vis Ord: $( $other:ty ),+ $(,)? ) => {
         /// FFI function equivalent of [`Ord::ord`]
         ///
         /// # Safety
@@ -178,7 +194,7 @@ macro_rules! gen_ffi_impl {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        unsafe extern "C" fn __ord(
+        $vis unsafe extern "C" fn __ord(
             handle_id: $crate::HandleId,
             left_handle_ptr: *const core::ffi::c_void,
             right_handle_ptr: *const core::ffi::c_void,
@@ -188,7 +204,7 @@ macro_rules! gen_ffi_impl {
                 use iroha_ffi::opaque_pointer;
 
                 match handle_id {
-                    $( <$other as Handle>::ID => {
+                    $( <$other as $crate::Handle>::ID => {
                         let (lhandle_ptr, rhandle_ptr) = (left_handle_ptr.cast::<$other>(), right_handle_ptr.cast::<$other>());
                         let left_handle = opaque_pointer::object(lhandle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
                         let right_handle = opaque_pointer::object(rhandle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
@@ -203,7 +219,7 @@ macro_rules! gen_ffi_impl {
             })
         }
     };
-    ( Drop: $( $other:ty ),+ $(,)? ) => {
+    ( $vis:vis Drop: $( $other:ty ),+ $(,)? ) => {
         /// FFI function equivalent of [`Drop::drop`]
         ///
         /// # Safety
@@ -211,7 +227,7 @@ macro_rules! gen_ffi_impl {
         /// All of the given pointers must be valid and the given handle id must match the expected
         /// pointer type
         #[no_mangle]
-        unsafe extern "C" fn __drop(
+        $vis unsafe extern "C" fn __drop(
             handle_id: $crate::HandleId,
             handle_ptr: *mut core::ffi::c_void,
         ) -> $crate::FfiResult {
@@ -219,7 +235,7 @@ macro_rules! gen_ffi_impl {
 
             gen_ffi_impl!(@catch_unwind {
                 match handle_id {
-                    $( <$other as Handle>::ID => {
+                    $( <$other as $crate::Handle>::ID => {
                         let handle_ptr = handle_ptr.cast::<$other>();
                         opaque_pointer::own_back(handle_ptr).map_err::<$crate::FfiResult, _>(From::from)?;
                     } )+

@@ -11,22 +11,27 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
     let self_arg = fn_descriptor
         .receiver
         .as_ref()
-        .map(gen_ffi_fn_arg)
+        .map(|arg| gen_ffi_fn_arg(arg, true))
         .map_or_else(Vec::new, |self_arg| vec![self_arg]);
     let fn_args: Vec<_> = fn_descriptor
         .input_args
         .iter()
-        .map(gen_ffi_fn_arg)
+        .map(|arg| gen_ffi_fn_arg(arg, true))
         .collect();
     let output_arg = ffi_output_arg(fn_descriptor).map(|arg| {
         let mut arg = arg.clone();
 
-        if !arg.is_iter_or_slice_ref(true) {
+        if !arg.is_iter_or_slice_ref() {
             let ffi_type = &arg.ffi_type;
             arg.ffi_type = parse_quote! {*mut #ffi_type};
+        } else if let Type::Ptr(type_) = &mut arg.ffi_type {
+            let elem = &*type_.elem;
+            *type_ = parse_quote! {*mut #elem};
+        } else {
+            unreachable!();
         }
 
-        gen_ffi_fn_arg(&arg)
+        gen_ffi_fn_arg(&arg, false)
     });
     let ffi_fn_body = gen_fn_body(fn_descriptor);
 
@@ -112,7 +117,7 @@ fn gen_type_check_stmts(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
             }
         });
 
-        if output_arg.is_iter_or_slice_ref(true) {
+        if output_arg.is_iter_or_slice_ref() {
             let slice_elems_arg_name = gen_slice_elems_arg_name(output_arg);
 
             stmts.push(parse_quote! {
@@ -210,7 +215,7 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
     if let Some(output_arg) = &fn_descriptor.output_arg {
         let output_arg_name = &output_arg.name;
 
-        if output_arg.is_iter_or_slice_ref(true) {
+        if output_arg.is_iter_or_slice_ref() {
             let (slice_len_arg_name, slice_elems_arg_name) = (
                 gen_slice_len_arg_name(&output_arg.name),
                 gen_slice_elems_arg_name(output_arg),
@@ -232,13 +237,13 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
     stmts
 }
 
-fn gen_ffi_fn_arg(arg: &Arg) -> TokenStream {
+fn gen_ffi_fn_arg(arg: &Arg, is_input: bool) -> TokenStream {
     let ffi_name = &arg.name;
     let ffi_type = &arg.ffi_type;
 
-    if arg.is_iter_or_slice_ref(false) || arg.is_iter_or_slice_ref(true) {
+    if arg.is_iter_or_slice_ref() {
         let mut tokens = quote! { #ffi_name: #ffi_type, };
-        slice_len_arg_to_tokens(arg, &mut tokens);
+        slice_len_arg_to_tokens(arg, &mut tokens, is_input);
         tokens
     } else {
         quote! { #ffi_name: #ffi_type }
@@ -249,7 +254,7 @@ fn gen_slice_elems_arg_name(arg: &Arg) -> Ident {
     Ident::new(&format!("{}_elems", arg.name), Span::call_site())
 }
 
-fn slice_len_arg_to_tokens(arg: &Arg, tokens: &mut TokenStream) {
+fn slice_len_arg_to_tokens(arg: &Arg, tokens: &mut TokenStream, is_input: bool) {
     let mut slice_len_to_tokens = || {
         let slice_len_arg_name = gen_slice_len_arg_name(&arg.name);
         tokens.extend(quote! { #slice_len_arg_name: usize });
@@ -259,6 +264,11 @@ fn slice_len_arg_to_tokens(arg: &Arg, tokens: &mut TokenStream) {
         Type::Reference(type_) => {
             if matches!(*type_.elem, Type::Slice(_)) {
                 slice_len_to_tokens();
+
+                if !is_input {
+                    let slice_elems_arg_name = gen_slice_elems_arg_name(arg);
+                    tokens.extend(quote! {, #slice_elems_arg_name: *mut usize });
+                }
             }
         }
         Type::ImplTrait(type_) => {
@@ -268,8 +278,10 @@ fn slice_len_arg_to_tokens(arg: &Arg, tokens: &mut TokenStream) {
                 let last_seg = &trait_.path.segments.last().expect_or_abort("Defined");
 
                 if last_seg.ident == "IntoIterator" {
+                    assert!(is_input);
                     slice_len_to_tokens();
                 } else if last_seg.ident == "ExactSizeIterator" {
+                    assert!(!is_input);
                     slice_len_to_tokens();
                     let slice_elems_arg_name = gen_slice_elems_arg_name(arg);
                     tokens.extend(quote! {, #slice_elems_arg_name: *mut usize });
@@ -302,12 +314,12 @@ fn gen_dangling_ptr_assignments(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> 
     let mut stmts = vec![];
 
     for arg in &fn_descriptor.input_args {
-        if arg.is_iter_or_slice_ref(false) {
+        if arg.is_iter_or_slice_ref() {
             stmts.push(gen_dangling_ptr_assignment(arg));
         }
     }
     if let Some(output_arg) = ffi_output_arg(fn_descriptor) {
-        if output_arg.is_iter_or_slice_ref(true) {
+        if output_arg.is_iter_or_slice_ref() {
             stmts.push(gen_dangling_ptr_assignment(output_arg));
         }
     }

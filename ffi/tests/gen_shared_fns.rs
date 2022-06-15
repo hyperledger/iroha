@@ -2,7 +2,7 @@
 
 use std::{cmp::Ordering, mem::MaybeUninit};
 
-use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, FfiResult};
+use iroha_ffi::{ffi_export, gen_ffi_impl, handles, FfiResult, Handle};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FfiStruct1 {
@@ -20,7 +20,7 @@ gen_ffi_impl! {Clone: FfiStruct1, FfiStruct2}
 gen_ffi_impl! {Eq: FfiStruct1, FfiStruct2}
 gen_ffi_impl! {Ord: FfiStruct1, FfiStruct2}
 
-#[ffi_bindgen]
+#[ffi_export]
 impl FfiStruct1 {
     /// New
     pub fn new(name: String) -> Self {

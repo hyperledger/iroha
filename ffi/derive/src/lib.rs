@@ -1,7 +1,7 @@
 #![allow(clippy::str_to_string, missing_docs)]
 
-use bindgen::gen_ffi_fn;
 use derive::gen_fns_from_derives;
+use export::gen_ffi_fn;
 use impl_visitor::ImplDescriptor;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -10,13 +10,13 @@ use quote::quote;
 use syn::{parse_macro_input, parse_quote, Attribute, Ident, Item};
 
 mod arg;
-mod bindgen;
 mod derive;
+mod export;
 mod impl_visitor;
 
 #[proc_macro_attribute]
 #[proc_macro_error::proc_macro_error]
-pub fn ffi_bindgen(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn ffi_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
     match parse_macro_input!(item) {
         Item::Impl(item) => {
             let impl_descriptor = ImplDescriptor::from_impl(&item);
@@ -64,7 +64,7 @@ pub fn into_ffi_derive(input: TokenStream) -> TokenStream {
 
     match input.data {
         syn::Data::Struct(_) => derive_into_ffi_for_struct(&input.ident, &input.attrs),
-        syn::Data::Enum(item) => derive_into_ffi_for_enum(&input.ident, item, &input.attrs),
+        syn::Data::Enum(item) => derive_into_ffi_for_enum(&input.ident, &item, &input.attrs),
         syn::Data::Union(item) => abort!(item.union_token, "Unions not supported"),
     }
     .into()
@@ -85,7 +85,7 @@ pub fn try_from_ffi_derive(input: TokenStream) -> TokenStream {
 
     match input.data {
         syn::Data::Struct(_) => derive_try_from_ffi_for_struct(&input.ident, &input.attrs),
-        syn::Data::Enum(item) => derive_try_from_ffi_for_enum(&input.ident, item, &input.attrs),
+        syn::Data::Enum(item) => derive_try_from_ffi_for_enum(&input.ident, &item, &input.attrs),
         syn::Data::Union(item) => abort!(item.union_token, "Unions not supported"),
     }
     .into()
@@ -113,17 +113,18 @@ fn derive_into_ffi_for_struct(name: &Ident, attrs: &[Attribute]) -> TokenStream2
 
 fn derive_into_ffi_for_enum(
     name: &Ident,
-    item: syn::DataEnum,
+    item: &syn::DataEnum,
     attrs: &[Attribute],
 ) -> TokenStream2 {
-    let repr: Vec<_> = find_repr(&attrs).collect();
+    let repr: Vec<_> = find_repr(attrs).collect();
 
-    let is_fieldless = !item.variants.iter().any(|variant| {
-        return !matches!(variant.fields, syn::Fields::Unit);
-    });
+    let is_fieldless = !item
+        .variants
+        .iter()
+        .any(|variant| !matches!(variant.fields, syn::Fields::Unit));
 
     // NOTE: Verifies that repr(Int) is defined
-    _ = enum_size(name, &repr);
+    enum_size(name, &repr);
 
     if is_fieldless {
         return gen_fieldless_enum_into_ffi(name, &repr);
@@ -137,20 +138,21 @@ fn derive_into_ffi_for_enum(
 
 fn derive_try_from_ffi_for_enum(
     name: &Ident,
-    item: syn::DataEnum,
+    item: &syn::DataEnum,
     attrs: &[Attribute],
 ) -> TokenStream2 {
-    let repr: Vec<_> = find_repr(&attrs).collect();
+    let repr: Vec<_> = find_repr(attrs).collect();
 
-    let is_fieldless = !item.variants.iter().any(|variant| {
-        return !matches!(variant.fields, syn::Fields::Unit);
-    });
+    let is_fieldless = !item
+        .variants
+        .iter()
+        .any(|variant| !matches!(variant.fields, syn::Fields::Unit));
 
     // NOTE: Verifies that repr(Int) is defined
-    _ = enum_size(name, &repr);
+    enum_size(name, &repr);
 
     if is_fieldless {
-        return gen_fieldless_enum_try_from_ffi(name, &item);
+        return gen_fieldless_enum_try_from_ffi(name, item);
     }
     if !is_repr(&repr, "C") {
         return derive_try_from_ffi_for_opaque_item(name);
@@ -160,8 +162,8 @@ fn derive_try_from_ffi_for_enum(
 }
 
 fn is_repr(repr: &[syn::NestedMeta], name: &str) -> bool {
-    repr.into_iter().any(|repr| {
-        if let syn::NestedMeta::Meta(item) = repr {
+    repr.iter().any(|meta| {
+        if let syn::NestedMeta::Meta(item) = meta {
             match item {
                 syn::Meta::Path(ref path) => {
                     if path.is_ident(name) {
@@ -317,7 +319,7 @@ fn gen_fieldless_enum_into_ffi(enum_name: &Ident, repr: &[syn::NestedMeta]) -> T
 
 fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> TokenStream2 {
     let variant_names: Vec<_> = enum_.variants.iter().map(|v| &v.ident).collect();
-    let discriminant_values = variant_discriminants(&enum_);
+    let discriminant_values = variant_discriminants(enum_);
 
     let (discriminants, discriminant_names) =
         variant_names.iter().zip(discriminant_values.iter()).fold(
@@ -381,11 +383,10 @@ fn variant_discriminants(enum_: &syn::DataEnum) -> Vec<syn::Expr> {
     let mut curr_discriminant: syn::Expr = parse_quote! {0};
 
     enum_.variants.iter().fold(Vec::new(), |mut acc, variant| {
-        let discriminant = variant
-            .discriminant
-            .as_ref()
-            .map(|discriminant| discriminant.1.clone())
-            .unwrap_or_else(|| curr_discriminant.clone());
+        let discriminant = variant.discriminant.as_ref().map_or_else(
+            || curr_discriminant.clone(),
+            |discriminant| discriminant.1.clone(),
+        );
 
         acc.push(discriminant.clone());
         curr_discriminant = parse_quote! {
@@ -403,7 +404,7 @@ fn enum_size(enum_name: &Ident, repr: &[syn::NestedMeta]) -> TokenStream2 {
         quote! {u16}
     } else if is_repr(repr, "u32") {
         quote! {u32}
-    } else if is_repr(repr, "u32") {
+    } else if is_repr(repr, "u64") {
         quote! {u64}
     } else {
         abort!(enum_name, "Enum doesn't have a valid representation")

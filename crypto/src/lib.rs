@@ -20,7 +20,7 @@ pub use base64;
 use derive_more::{DebugCustom, Display};
 use getset::Getters;
 pub use hash::*;
-use iroha_ffi::IntoFfi;
+use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 pub use merkle::MerkleTree;
@@ -163,7 +163,7 @@ impl KeyGenConfiguration {
 }
 
 /// Pair of Public and Private keys.
-#[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize, IntoFfi, TryFromFfi)]
 #[getset(get = "pub")]
 pub struct KeyPair {
     /// Public Key.
@@ -361,21 +361,40 @@ impl From<multihash::ConvertError> for KeyParseError {
 impl std::error::Error for KeyParseError {}
 
 /// Public Key used in signatures.
-#[derive(DebugCustom, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Getters, Encode, IntoSchema)]
-#[getset(get = "pub")]
+// TODO: Find a way to remove `PartialOrd` since it
+// is just a requirement of `SignaturesOf` internals
+#[derive(
+    DebugCustom,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Encode,
+    IntoSchema,
+    IntoFfi,
+    TryFromFfi,
+)]
 #[debug(
     fmt = "{{ digest: {digest_function}, payload: {} }}",
     "hex::encode_upper(payload.as_slice())"
 )]
 pub struct PublicKey {
     /// Digest function
-    #[getset(skip)]
     digest_function: ConstString,
     /// payload of key
+    // FIXME: Getter implemented manually because `getset`
+    // returns &Vec<T> when it should return &[T]
     payload: Vec<u8>,
 }
 
 impl PublicKey {
+    /// Key payload
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+
     /// Digest function
     #[allow(clippy::expect_used)]
     pub fn digest_function(&self) -> Algorithm {
@@ -487,17 +506,32 @@ impl Decode for PublicKey {
 }
 
 /// Private Key used in signatures.
-#[derive(DebugCustom, Display, Clone, PartialEq, Eq, Getters, Serialize)]
-#[getset(get = "pub")]
+#[derive(DebugCustom, Display, Clone, PartialEq, Eq, Serialize, IntoFfi, TryFromFfi)]
 #[debug(fmt = "{{ digest: {digest_function}, payload: {:X?}}}", payload)]
 #[display(fmt = "{}", "hex::encode(payload)")]
 pub struct PrivateKey {
     /// Digest function
-    #[getset(skip)]
     digest_function: ConstString,
     /// key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
+    // FIXME: Getter implemented manually because `getset`
+    // returns &Vec<T> when it should return &[T]
     #[serde(with = "hex::serde")]
     payload: Vec<u8>,
+}
+
+#[ffi_export]
+#[allow(clippy::multiple_inherent_impl)]
+impl PrivateKey {
+    /// Key payload
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+
+    /// Digest function
+    #[allow(clippy::expect_used)]
+    pub fn digest_function(&self) -> Algorithm {
+        self.digest_function.parse().expect("Valid")
+    }
 }
 
 impl PrivateKey {
@@ -525,12 +559,6 @@ impl PrivateKey {
             payload: hex::decode(payload)?,
         })
     }
-
-    /// Digest function
-    #[allow(clippy::expect_used)]
-    pub fn digest_function(&self) -> Algorithm {
-        self.digest_function.parse().expect("Valid")
-    }
 }
 
 impl<'de> Deserialize<'de> for PrivateKey {
@@ -556,6 +584,19 @@ impl<'de> Deserialize<'de> for PrivateKey {
             Err(err) => Err(D::Error::custom(err)),
         }
     }
+}
+
+mod ffi {
+    use iroha_ffi::{gen_ffi_impl, handles};
+
+    use super::{KeyPair, PrivateKey, PublicKey};
+
+    handles! {0, KeyPair, PublicKey, PrivateKey}
+
+    gen_ffi_impl! { pub Clone: KeyPair, PublicKey, PrivateKey}
+    gen_ffi_impl! { pub Eq: KeyPair, PublicKey, PrivateKey}
+    gen_ffi_impl! { pub Ord: PublicKey }
+    gen_ffi_impl! { pub Drop: KeyPair, PublicKey, PrivateKey}
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.

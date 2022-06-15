@@ -3,12 +3,12 @@
 use std::mem::MaybeUninit;
 
 use getset::{Getters, MutGetters, Setters};
-use iroha_ffi::{ffi_bindgen, FfiResult};
+use iroha_ffi::{ffi_export, FfiResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Name(String);
 
-#[ffi_bindgen]
+#[ffi_export]
 #[derive(Setters, Getters, MutGetters)]
 #[getset(get = "pub")]
 pub struct FfiStruct {

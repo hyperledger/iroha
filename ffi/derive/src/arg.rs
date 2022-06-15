@@ -62,30 +62,23 @@ impl Arg {
     }
 
     /// Returns true if this argument is an iterator or a slice reference
-    pub fn is_iter_or_slice_ref(&self, mutability: bool) -> bool {
+    pub fn is_iter_or_slice_ref(&self) -> bool {
         match &self.src_type {
             Type::Reference(type_) => {
-                if !(mutability ^ type_.mutability.is_some()) {
-                    return matches!(*type_.elem, Type::Slice(_));
-                }
+                matches!(*type_.elem, Type::Slice(_))
             }
             Type::ImplTrait(type_) => {
                 assert_eq!(type_.bounds.len(), 1);
 
                 if let syn::TypeParamBound::Trait(trait_) = &type_.bounds[0] {
                     let trait_name = get_ident(&trait_.path);
-
-                    if !mutability && trait_name == "IntoIterator" {
-                        return true;
-                    }
-
-                    return mutability && trait_name == "ExactSizeIterator";
+                    return trait_name == "IntoIterator" || trait_name == "ExactSizeIterator";
                 }
-            }
-            _ => return false,
-        }
 
-        false
+                false
+            }
+            _ => false,
+        }
     }
 }
 
@@ -110,7 +103,7 @@ impl<'ast> TypeVisitor<'ast> {
         }
     }
 
-    fn visit_item_binding(&mut self, seg: &'ast syn::PathSegment) {
+    fn visit_item_binding(&mut self, seg: &'ast syn::PathSegment, is_input: bool) {
         let bindings = generic_arg_bindings(seg);
 
         if bindings.is_empty() {
@@ -120,11 +113,50 @@ impl<'ast> TypeVisitor<'ast> {
             abort!(seg, "Unknown binding");
         }
 
-        let binding = Arg::input(self.self_ty, parse_quote! {arg}, bindings[0].ty.clone());
+        let binding = Arg::new(
+            self.self_ty,
+            parse_quote! {arg},
+            bindings[0].ty.clone(),
+            is_input,
+        );
 
         self.ffi_type = Some(binding.ffi_type);
         self.src_to_ffi = Some(binding.src_to_ffi);
         self.ffi_to_src = Some(binding.ffi_to_src);
+    }
+
+    fn visit_type_slice_ref(&mut self, node: &'ast syn::TypeSlice, mutability: bool) {
+        let arg_name = self.name;
+
+        let (ref_mutability, ptr_mutability, from_raw_parts) = if mutability {
+            (quote! {&mut}, quote! {*mut}, quote! {from_raw_parts_mut})
+        } else {
+            (quote! {&}, quote! {*const}, quote! {from_raw_parts})
+        };
+        let elem = (*node.elem).clone();
+        let elem = parse_quote! {#ref_mutability #elem};
+
+        let binding = Arg::new(self.self_ty, parse_quote! {arg}, elem, self.is_input);
+
+        let elem_ffi_type = &binding.ffi_type;
+        let elem_src_to_ffi = &binding.src_to_ffi;
+        let elem_ffi_to_src = &binding.ffi_to_src;
+
+        let slice_len_arg_name = crate::export::gen_slice_len_arg_name(arg_name);
+        self.ffi_type = Some(parse_quote! {#ptr_mutability #elem_ffi_type});
+        self.src_to_ffi = Some(parse_quote! {
+            let #arg_name = #arg_name.into_iter().map(|arg| {
+                #elem_src_to_ffi
+                arg
+            });
+        });
+        self.ffi_to_src = Some(parse_quote! {
+            let #arg_name = core::slice::#from_raw_parts(#arg_name, #slice_len_arg_name)
+                .into_iter().map(|#ref_mutability arg| {
+                    #elem_ffi_to_src
+                    arg
+                });
+        });
     }
 
     fn visit_type_option(&mut self, item: &'ast Type) {
@@ -196,12 +228,12 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
                     (quote! {*mut}, quote! {&mut}, quote! {from_raw_parts_mut})
                 };
 
-                self.visit_item_binding(last_seg);
+                self.visit_item_binding(last_seg, is_input);
                 let binding_ffi_type = &self.ffi_type;
                 let binding_src_to_ffi = &self.src_to_ffi;
                 let binding_ffi_to_src = &self.ffi_to_src;
 
-                let slice_len_arg_name = crate::bindgen::gen_slice_len_arg_name(arg_name);
+                let slice_len_arg_name = crate::export::gen_slice_len_arg_name(arg_name);
                 self.ffi_type = Some(parse_quote! {#ptr_mutability #binding_ffi_type});
                 self.src_to_ffi = Some(parse_quote! {
                     let #arg_name = #arg_name.into_iter().map(|arg| {
@@ -211,6 +243,7 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
                 });
                 self.ffi_to_src = Some(parse_quote! {
                     let #arg_name = core::slice::#from_raw_parts(#arg_name, #slice_len_arg_name)
+                        // TODO: ref_mutability is suspicious
                         .into_iter().map(|#ref_mutability arg| {
                             #binding_ffi_to_src
                             arg
@@ -353,26 +386,30 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
             abort!(li, "Explicit lifetime not supported in reference types");
         }
 
-        let elem = &*node.elem;
-        if !matches!(*elem, Type::Path(_)) {
-            abort!(elem, "Unsupported reference type");
+        match &*node.elem {
+            Type::Slice(type_) => self.visit_type_slice_ref(type_, node.mutability.is_some()),
+            Type::Path(elem) => {
+                let arg_name = self.name;
+
+                let (ptr_mutability, ref_mutability) = if node.mutability.is_some() {
+                    (quote! {*mut}, quote! {&mut})
+                } else {
+                    (quote! {*const}, quote! {&})
+                };
+
+                self.ffi_type = Some(parse_quote! {#ptr_mutability #elem});
+                self.src_to_ffi =
+                    Some(parse_quote! {let #arg_name: #ptr_mutability _ = #arg_name;});
+                self.ffi_to_src = Some(parse_quote! {let #arg_name = #ref_mutability *#arg_name;});
+            }
+            _ => abort!(node, "Unsupported reference type"),
         }
-
-        let arg_name = self.name;
-        let (ptr_mutability, ref_mutability) = if node.mutability.is_some() {
-            (quote! {*mut}, quote! {&mut})
-        } else {
-            (quote! {*const}, quote! {&})
-        };
-
-        self.ffi_type = Some(parse_quote! {#ptr_mutability #elem});
-        self.src_to_ffi = Some(parse_quote! {let #arg_name: #ptr_mutability _ = #arg_name;});
-        self.ffi_to_src = Some(parse_quote! {let #arg_name = #ref_mutability *#arg_name;});
     }
 
     fn visit_type_slice(&mut self, _: &'ast syn::TypeSlice) {
         unimplemented!("Not needed as of yet")
     }
+
     fn visit_type_trait_object(&mut self, _: &'ast syn::TypeTraitObject) {
         unimplemented!("Not needed as of yet")
     }

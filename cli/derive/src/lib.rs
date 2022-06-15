@@ -92,8 +92,7 @@ pub fn generate_endpoints(input: TokenStream) -> TokenStream {
 
         let expanded = quote! {
             #[inline]
-            #[allow(clippy::redundant_pub_crate)]
-            pub(crate) fn #fun_name < O, E, F, Fut, Fil, #( #arg_types ),* > (
+            pub fn #fun_name < O, E, F, Fut, Fil, #( #arg_types ),* > (
                 f: F,
                 router: Fil,
             ) -> impl Filter<Extract = (WarpResult<O, E>,), Error = Rejection> + Clone

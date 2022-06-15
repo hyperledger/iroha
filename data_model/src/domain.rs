@@ -12,6 +12,7 @@ use core::{cmp::Ordering, str::FromStr};
 use derive_more::{Display, FromStr};
 use getset::{Getters, MutGetters};
 use iroha_crypto::PublicKey;
+use iroha_ffi::{ffi_export, IntoFfi};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -138,7 +139,7 @@ impl NewDomain {
     }
 }
 
-#[ffi_bindgen]
+#[ffi_export]
 impl NewDomain {
     /// Add [`logo`](IpfsPath) to the domain replacing previously defined value
     #[must_use]
@@ -172,7 +173,7 @@ impl NewDomain {
     IntoFfi,
 )]
 #[allow(clippy::multiple_inherent_impl)]
-#[ffi_bindgen]
+#[ffi_export]
 #[display(fmt = "[{id}]")]
 pub struct Domain {
     /// Identification of this [`Domain`].
@@ -225,7 +226,7 @@ impl Ord for Domain {
     }
 }
 
-#[ffi_bindgen]
+#[ffi_export]
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {

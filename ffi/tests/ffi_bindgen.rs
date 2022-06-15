@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
-use iroha_ffi::{ffi_bindgen, gen_ffi_impl, handles, FfiResult, Pair};
+use iroha_ffi::{ffi_export, gen_ffi_impl, handles, FfiResult, Handle, Pair};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Name(String);
@@ -16,7 +16,7 @@ fn get_default_params() -> [(Name, Value); 2] {
     ]
 }
 
-#[ffi_bindgen]
+#[ffi_export]
 #[derive(Clone)]
 pub struct FfiStruct {
     name: Option<Name>,
@@ -27,7 +27,7 @@ pub struct FfiStruct {
 handles! {0, FfiStruct}
 gen_ffi_impl! {Drop: FfiStruct}
 
-#[ffi_bindgen]
+#[ffi_export]
 impl FfiStruct {
     /// New
     pub fn new(name: impl Into<Name>) -> Self {
@@ -60,6 +60,16 @@ impl FfiStruct {
     /// Params
     pub fn params(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
         self.params.iter()
+    }
+
+    /// Tokens
+    pub fn tokens(&self) -> &[Value] {
+        &self.tokens
+    }
+
+    /// Tokens mut
+    pub fn tokens_mut(&mut self) -> &mut [Value] {
+        &mut self.tokens
     }
 
     /// Fallible int output

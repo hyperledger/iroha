@@ -1,0 +1,17 @@
+
+# Opaque pointers
+// Ownership transfer
+*mut T <-> T,
+
+// mutable reference
+*mut T <-> &mut T,
+
+// shared reference
+*const T <-> &T,
+
+# Copy - repr(C) types
+// enum/primitives conversion
+T <-> U, where U is primitive (e.g. u8)
+
+# Other repr(C) types
+- unsupported for now

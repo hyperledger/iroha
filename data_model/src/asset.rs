@@ -9,7 +9,7 @@ use std::collections::btree_map;
 
 use derive_more::Display;
 use getset::{Getters, MutGetters};
-use iroha_ffi::ffi_bindgen;
+use iroha_ffi::ffi_export;
 use iroha_macro::FromVariant;
 use iroha_primitives::{fixed, fixed::Fixed};
 use iroha_schema::IntoSchema;
@@ -61,7 +61,7 @@ impl std::error::Error for MintabilityError {}
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
-#[ffi_bindgen]
+#[ffi_export]
 pub struct AssetDefinitionEntry {
     /// Asset definition.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
@@ -84,7 +84,7 @@ impl Ord for AssetDefinitionEntry {
     }
 }
 
-#[ffi_bindgen]
+#[ffi_export]
 impl AssetDefinitionEntry {
     /// Constructor.
     pub const fn new(
@@ -125,7 +125,7 @@ impl AssetDefinitionEntry {
     IntoSchema,
 )]
 #[allow(clippy::multiple_inherent_impl)]
-#[ffi_bindgen]
+#[ffi_export]
 #[display(fmt = "{id} {value_type}{mintable}")]
 pub struct AssetDefinition {
     /// An Identification of the [`AssetDefinition`].
@@ -208,7 +208,7 @@ pub enum Mintable {
     IntoSchema,
 )]
 #[getset(get = "pub")]
-#[ffi_bindgen]
+#[ffi_export]
 #[display(fmt = "{id}: {value}")]
 pub struct Asset {
     /// Component Identification.
@@ -471,7 +471,7 @@ impl NewAssetDefinition {
     }
 }
 
-#[ffi_bindgen]
+#[ffi_export]
 impl NewAssetDefinition {
     /// Set mintability to [`Mintable::Once`]
     #[inline]
@@ -490,7 +490,7 @@ impl NewAssetDefinition {
     }
 }
 
-#[ffi_bindgen]
+#[ffi_export]
 impl AssetDefinition {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
@@ -538,7 +538,7 @@ impl AssetDefinition {
     }
 }
 
-#[ffi_bindgen]
+#[ffi_export]
 impl Asset {
     /// Constructor
     pub fn new(
