@@ -42,7 +42,7 @@ struct Subtree<T> {
     /// Right child node.
     right: Box<Node<T>>,
     /// Hash of this node.
-    hash: HashOf<Node<T>>,
+    hash: Option<HashOf<Node<T>>>,
 }
 
 /// Represents a leaf node.
@@ -125,8 +125,11 @@ impl<T> MerkleTree<T> {
     }
 
     /// Get the hash of the root node.
-    pub const fn root_hash(&self) -> HashOf<Self> {
-        self.root_node.hash().transmute()
+    pub const fn root_hash(&self) -> Option<HashOf<Self>> {
+        if let Some(hash) = self.root_node.hash() {
+            return Some(hash.transmute());
+        }
+        None
     }
 
     /// Get a BFS iterator over the tree.
@@ -168,11 +171,11 @@ impl<T> Node<T> {
     }
 
     /// Get the hash of this node.
-    const fn hash(&self) -> HashOf<Self> {
+    const fn hash(&self) -> Option<HashOf<Self>> {
         match self {
             Node::Subtree(Subtree { hash, .. }) => *hash,
-            Node::Leaf(Leaf { hash }) => (*hash).transmute(),
-            Node::Empty => crate::Hash::zeroed().typed(),
+            Node::Leaf(Leaf { hash }) => Some((*hash).transmute()),
+            Node::Empty => None,
         }
     }
 
@@ -186,16 +189,20 @@ impl<T> Node<T> {
     }
 
     #[cfg(feature = "std")]
-    fn nodes_pair_hash(left: &Self, right: &Self) -> HashOf<Self> {
-        let left_hash = left.hash();
-        let right_hash = right.hash();
+    fn nodes_pair_hash(left: &Self, right: &Self) -> Option<HashOf<Self>> {
+        let (left_hash, right_hash) = match (left.hash(), right.hash()) {
+            (None, None) => return None,
+            (None, Some(r_hash)) => return Some(r_hash),
+            (Some(l_hash), None) => return Some(l_hash),
+            (Some(l_hash), Some(r_hash)) => (l_hash, r_hash),
+        };
         let sum: Vec<_> = left_hash
             .as_ref()
             .iter()
             .zip(right_hash.as_ref().iter())
             .map(|(l, r)| l.saturating_add(*r))
             .collect();
-        crate::Hash::new(sum).typed()
+        Some(crate::Hash::new(sum).typed())
     }
 
     fn children(&self) -> Option<[&Self; 2]> {
@@ -250,7 +257,7 @@ mod tests {
                 right: Box::new(Node::Leaf(Leaf {
                     hash: Hash::prehashed([2; Hash::LENGTH]).typed(),
                 })),
-                hash: Hash::prehashed([3; Hash::LENGTH]).typed(),
+                hash: Some(Hash::prehashed([3; Hash::LENGTH]).typed()),
             }),
         };
         assert_eq!(3, tree.iter().count());
@@ -384,16 +391,16 @@ mod tests {
     fn geometry() {
         let tree = test_hashes(5).into_iter().collect::<MerkleTree<_>>();
         //               #0: iteration order
-        //               e4: first 2 hex of hash
+        //               83: first 2 hex of hash
         //         ______/\______
         //       #1              #2
-        //       c0              c1
+        //       c0              05
         //     __/\__          __/\__
         //   #3      #4      #5      #6
-        //   fc      17      f6      89
+        //   fc      17      05      **
         //   /\      /\      /\      /\
         // #7  #8  #9  #a  #b  #c  #d  #e
-        // 01  02  03  04  05  00  00  00
+        // 01  02  03  04  05  **  **  **
         assert_eq!(tree.size(), 15);
         assert_eq!(tree.depth(), 4);
         assert_eq!(tree.leaves_start_at(), Some(7));
