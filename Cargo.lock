@@ -3572,6 +3572,7 @@ dependencies = [
 name = "test_network"
 version = "2.0.0-pre-rc.5"
 dependencies = [
+ "async-trait",
  "eyre",
  "futures",
  "iroha",
@@ -3581,10 +3582,10 @@ dependencies = [
  "iroha_data_model",
  "iroha_logger",
  "iroha_permissions_validators",
+ "once_cell",
  "rand 0.8.5",
  "tempfile",
  "tokio",
- "unique_port",
 ]
 
 [[package]]

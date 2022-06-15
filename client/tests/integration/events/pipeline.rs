@@ -4,7 +4,7 @@ use std::thread::{self, JoinHandle};
 
 use eyre::Result;
 use iroha_data_model::prelude::*;
-use test_network::*;
+use test_network::{generate_offset, *};
 
 use super::Configuration;
 
@@ -12,11 +12,13 @@ const PEER_COUNT: usize = 7;
 
 #[test]
 fn transaction_with_no_instructions_should_be_committed() -> Result<()> {
+    unique_port::set_offset(generate_offset!()).unwrap();
     test_with_instruction_and_status(None, PipelineStatusKind::Committed)
 }
 
 #[test]
 fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
+    unique_port::set_offset(generate_offset!()).unwrap();
     let fail = FailBox::new("Should be rejected");
     test_with_instruction_and_status(Some(fail.into()), PipelineStatusKind::Rejected)
 }

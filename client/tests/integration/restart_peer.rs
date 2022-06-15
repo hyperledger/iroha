@@ -7,13 +7,14 @@ use iroha_client::client;
 use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use tempfile::TempDir;
-use test_network::{Peer as TestPeer, *};
+use test_network::{generate_offset, Peer as TestPeer, *};
 use tokio::runtime::Runtime;
 
 use super::Configuration;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
+    unique_port::set_offset(generate_offset!()).unwrap();
     let temp_dir = Arc::new(TempDir::new()?);
 
     let mut configuration = Configuration::test();

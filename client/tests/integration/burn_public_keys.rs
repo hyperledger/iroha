@@ -5,7 +5,7 @@ use std::thread;
 use iroha_client::client::{account, transaction, Client};
 use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
-use test_network::*;
+use test_network::{generate_offset, *};
 
 use super::Configuration;
 
@@ -27,6 +27,7 @@ fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {
 
 #[test]
 fn public_keys_cannot_be_burned_to_nothing() {
+    unique_port::set_offset(generate_offset!()).unwrap();
     const KEYS_COUNT: usize = 3;
     let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
     let bob_keys_count = |client: &mut Client| account_keys_count(client, bob_id.clone());

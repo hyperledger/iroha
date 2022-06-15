@@ -4,17 +4,19 @@ use std::thread;
 
 use iroha_client::client::Client;
 use iroha_data_model::{peer::Peer as DataModelPeer, prelude::*};
-use test_network::*;
+use test_network::{generate_offset, *};
 
 use super::Configuration;
 
 #[test]
 fn connected_peers_with_f_2_1_2() {
+    unique_port::set_offset(generate_offset!()).unwrap();
     connected_peers_with_f(2)
 }
 
 #[test]
 fn connected_peers_with_f_1_0_1() {
+    unique_port::set_offset(generate_offset!()).unwrap();
     connected_peers_with_f(1)
 }
 
