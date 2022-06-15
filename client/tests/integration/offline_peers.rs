@@ -2,11 +2,12 @@
 
 use iroha_client::client;
 use iroha_data_model::prelude::*;
-use test_network::*;
+use test_network::{generate_offset, *};
 use tokio::runtime::Runtime;
 
 #[test]
 fn genesis_block_is_commited_with_some_offline_peers() {
+    unique_port::set_offset(generate_offset!()).unwrap();
     // Given
     let rt = Runtime::test();
 

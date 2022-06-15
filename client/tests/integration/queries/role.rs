@@ -21,6 +21,7 @@ fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
 
 #[test]
 fn find_roles() -> Result<()> {
+    unique_port::set_offset(generate_offset!()).unwrap();
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -50,6 +51,7 @@ fn find_roles() -> Result<()> {
 
 #[test]
 fn find_role_ids() -> Result<()> {
+    unique_port::set_offset(generate_offset!()).unwrap();
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -76,6 +78,7 @@ fn find_role_ids() -> Result<()> {
 
 #[test]
 fn find_role_by_id() -> Result<()> {
+    unique_port::set_offset(generate_offset!()).unwrap();
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -96,6 +99,7 @@ fn find_role_by_id() -> Result<()> {
 
 #[test]
 fn find_unregistered_role_by_id() {
+    unique_port::set_offset(generate_offset!()).unwrap();
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -113,6 +117,7 @@ fn find_unregistered_role_by_id() {
 
 #[test]
 fn find_roles_by_account_id() -> Result<()> {
+    unique_port::set_offset(generate_offset!()).unwrap();
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
