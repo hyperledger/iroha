@@ -20,10 +20,7 @@ namespace iroha {
         MOCK_METHOD1(onBatchesToWholeNetwork, void(CollectionType));
         MOCK_METHOD2(
             onRequestProposal,
-            void(consensus::Round,
-                 std::optional<std::pair<
-                     std::shared_ptr<shared_model::interface::Proposal const>,
-                     BloomFilter256>>));
+            void(consensus::Round, PackedProposalData));
         MOCK_CONST_METHOD0(getRequestDelay, std::chrono::milliseconds());
       };
 
