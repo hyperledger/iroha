@@ -377,7 +377,7 @@ mod tests {
         }
 
         fn leaves_start_at(&self) -> Option<usize> {
-            self.depth().checked_sub(1).map(|x| 2_usize.pow(x) - 1)
+            self.iter().position(|node| matches!(node, Node::Leaf(_)))
         }
     }
 
