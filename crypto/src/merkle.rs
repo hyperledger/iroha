@@ -66,7 +66,7 @@ enum Node<T> {
 
 #[derive(Debug)]
 /// BFS iterator over [`MerkleTree`].
-struct BreadthFirstIter<'itm, T> {
+struct BreadthFirstNodeIterator<'itm, T> {
     queue: VecDeque<&'itm Node<T>>,
 }
 
@@ -116,12 +116,12 @@ impl<T> MerkleTree<T> {
 
     /// Get the hash of the `idx`-th leaf node.
     pub fn get_leaf(&self, idx: usize) -> Option<HashOf<T>> {
-        self.leaves().nth(idx)
+        self.iter().nth(idx)
     }
 
     /// Get the hashes of the leaf nodes.
-    pub fn leaves(&self) -> impl Iterator<Item = HashOf<T>> + '_ {
-        self.iter().filter_map(Node::leaf_hash)
+    pub fn iter(&self) -> impl Iterator<Item = HashOf<T>> + '_ {
+        self.nodes().filter_map(Node::leaf_hash)
     }
 
     /// Get the hash of the root node.
@@ -133,15 +133,15 @@ impl<T> MerkleTree<T> {
     }
 
     /// Get a BFS iterator over the tree.
-    fn iter(&self) -> BreadthFirstIter<T> {
-        BreadthFirstIter::new(&self.root_node)
+    fn nodes(&self) -> BreadthFirstNodeIterator<T> {
+        BreadthFirstNodeIterator::new(&self.root_node)
     }
 
     /// Insert `hash` into the tree.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn add(&self, hash: HashOf<T>) -> Self {
-        self.leaves().chain(core::iter::once(hash)).collect()
+        self.iter().chain(core::iter::once(hash)).collect()
     }
 }
 
@@ -213,7 +213,7 @@ impl<T> Node<T> {
     }
 }
 
-impl<'itm, T> BreadthFirstIter<'itm, T> {
+impl<'itm, T> BreadthFirstNodeIterator<'itm, T> {
     #[inline]
     fn new(root: &'itm Node<T>) -> Self {
         Self {
@@ -222,11 +222,11 @@ impl<'itm, T> BreadthFirstIter<'itm, T> {
     }
 }
 
-/// `Iterator` impl for `BreadthFirstIter` case of iteration over `MerkleTree`.
+/// `Iterator` impl for `BreadthFirstNodeIterator` case of iteration over `MerkleTree`.
 /// `'itm` lifetime specified for `Node`. Because `Node` is recursive data structure with self
 /// composition in case of `Node::Subtree` we use `Box` to know size of each `Node` object in
 /// memory.
-impl<'itm, T> Iterator for BreadthFirstIter<'itm, T> {
+impl<'itm, T> Iterator for BreadthFirstNodeIterator<'itm, T> {
     type Item = &'itm Node<T>;
 
     #[inline]
@@ -260,7 +260,7 @@ mod tests {
                 hash: Some(Hash::prehashed([3; Hash::LENGTH]).typed()),
             }),
         };
-        assert_eq!(3, tree.iter().count());
+        assert_eq!(3, tree.nodes().count());
     }
 
     fn get_hashes(hash: [u8; Hash::LENGTH]) -> impl Iterator<Item = HashOf<()>> {
@@ -273,7 +273,7 @@ mod tests {
         let merkle_tree = get_hashes([1_u8; Hash::LENGTH])
             .take(4)
             .collect::<MerkleTree<_>>();
-        assert_eq!(7, merkle_tree.iter().count());
+        assert_eq!(7, merkle_tree.nodes().count());
     }
 
     #[test]
@@ -281,7 +281,7 @@ mod tests {
         let merkle_tree = get_hashes([1_u8; Hash::LENGTH])
             .take(3)
             .collect::<MerkleTree<_>>();
-        assert_eq!(7, merkle_tree.iter().count());
+        assert_eq!(7, merkle_tree.nodes().count());
     }
 
     #[test]
@@ -369,7 +369,7 @@ mod tests {
 
     impl<T> MerkleTree<T> {
         fn size(&self) -> usize {
-            self.iter().count()
+            self.nodes().count()
         }
 
         fn depth(&self) -> u32 {
@@ -377,7 +377,7 @@ mod tests {
         }
 
         fn leaves_start_at(&self) -> Option<usize> {
-            self.iter().position(|node| matches!(node, Node::Leaf(_)))
+            self.nodes().position(|node| matches!(node, Node::Leaf(_)))
         }
     }
 
@@ -413,7 +413,7 @@ mod tests {
         let hashes = test_hashes(N_LEAVES);
         let tree = hashes.clone().into_iter().collect::<MerkleTree<_>>();
 
-        for (testee_hash, tester_hash) in tree.leaves().zip(hashes) {
+        for (testee_hash, tester_hash) in tree.iter().zip(hashes) {
             assert_eq!(testee_hash, tester_hash);
         }
     }
@@ -423,9 +423,9 @@ mod tests {
         const N_LEAVES: u8 = 5;
 
         let tree = test_hashes(N_LEAVES).into_iter().collect::<MerkleTree<_>>();
-        let tree_reconstructed = tree.leaves().collect::<MerkleTree<_>>();
+        let tree_reconstructed = tree.iter().collect::<MerkleTree<_>>();
 
-        for (testee_node, tester_node) in tree_reconstructed.iter().zip(tree.iter()) {
+        for (testee_node, tester_node) in tree_reconstructed.nodes().zip(tree.nodes()) {
             assert_eq!(testee_node.hash(), tester_node.hash());
         }
     }
