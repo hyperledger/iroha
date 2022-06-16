@@ -572,6 +572,387 @@ mod tests {
                     .is_err());
             }
         }
+
+        #[test]
+        fn find_assets_by_account_id() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let op = QueryBox::FindAssetsByAccountId(FindAssetsByAccountId::new(alice_id.clone()));
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain.check(&alice_id, &op, &wsv).is_ok());
+                assert!(only_accounts_domain.check(&bob_id, &op, &wsv).is_ok());
+                assert!(only_accounts_domain.check(&carol_id, &op, &wsv).is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data.check(&alice_id, &op, &wsv).is_ok());
+                assert!(only_accounts_data.check(&bob_id, &op, &wsv).is_err());
+                assert!(only_accounts_data.check(&carol_id, &op, &wsv).is_err());
+            }
+        }
+
+        #[test]
+        fn find_assets_by_asset_definition_id() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                gold_asset_definition_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_gold = QueryBox::FindAssetsByAssetDefinitionId(
+                FindAssetsByAssetDefinitionId::new(gold_asset_definition_id),
+            );
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_gold, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_gold, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_gold, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_gold, &wsv)
+                    .is_err());
+                assert!(only_accounts_data.check(&bob_id, &find_gold, &wsv).is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_gold, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_assets_by_domain_id() {
+            let TestEnv {
+                alice_id,
+                wonderland: (wonderland_id, _),
+                denoland: (denoland_id, _),
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_by_wonderland =
+                QueryBox::FindAssetsByDomainId(FindAssetsByDomainId::new(wonderland_id));
+            let find_by_denoland =
+                QueryBox::FindAssetsByDomainId(FindAssetsByDomainId::new(denoland_id));
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_by_wonderland, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_by_denoland, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_by_wonderland, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_by_denoland, &wsv)
+                    .is_err())
+            }
+        }
+
+        #[test]
+        fn find_assets_by_domain_id_and_asset_definition_id() {
+            let TestEnv {
+                alice_id,
+                gold_asset_definition_id,
+                bronze_asset_definition_id,
+                wonderland: (wonderland_id, _),
+                denoland: (denoland_id, _),
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_gold_by_wonderland = QueryBox::FindAssetsByDomainIdAndAssetDefinitionId(
+                FindAssetsByDomainIdAndAssetDefinitionId::new(
+                    wonderland_id.clone(),
+                    gold_asset_definition_id.clone(),
+                ),
+            );
+            let find_gold_by_denoland = QueryBox::FindAssetsByDomainIdAndAssetDefinitionId(
+                FindAssetsByDomainIdAndAssetDefinitionId::new(
+                    denoland_id.clone(),
+                    gold_asset_definition_id,
+                ),
+            );
+
+            let find_bronze_by_wonderland = QueryBox::FindAssetsByDomainIdAndAssetDefinitionId(
+                FindAssetsByDomainIdAndAssetDefinitionId::new(
+                    wonderland_id,
+                    bronze_asset_definition_id.clone(),
+                ),
+            );
+            let find_bronze_by_denoland = QueryBox::FindAssetsByDomainIdAndAssetDefinitionId(
+                FindAssetsByDomainIdAndAssetDefinitionId::new(
+                    denoland_id,
+                    bronze_asset_definition_id,
+                ),
+            );
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_gold_by_wonderland, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_gold_by_denoland, &wsv)
+                    .is_err());
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_bronze_by_wonderland, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_bronze_by_denoland, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_gold_by_wonderland, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_gold_by_denoland, &wsv)
+                    .is_err());
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_bronze_by_wonderland, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_bronze_by_denoland, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_asset_quantity_by_id() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                gold_asset_id,
+                silver_asset_id,
+                bronze_asset_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_gold_quantity =
+                QueryBox::FindAssetQuantityById(FindAssetQuantityById::new(gold_asset_id));
+            let find_silver_quantity =
+                QueryBox::FindAssetQuantityById(FindAssetQuantityById::new(silver_asset_id));
+            let find_bronze_quantity =
+                QueryBox::FindAssetQuantityById(FindAssetQuantityById::new(bronze_asset_id));
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_gold_quantity, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_gold_quantity, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_bronze_quantity, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_gold_quantity, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_bronze_quantity, &wsv)
+                    .is_ok());
+            }
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_gold_quantity, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_silver_quantity, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_bronze_quantity, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_silver_quantity, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_bronze_quantity, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_gold_quantity, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_asset_key_value_by_id_and_key() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                gold_asset_id,
+                silver_asset_id,
+                bronze_asset_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+            let find_gold_key_value = QueryBox::FindAssetKeyValueByIdAndKey(
+                FindAssetKeyValueByIdAndKey::new(gold_asset_id, "foo".to_string()),
+            );
+            let find_silver_key_value = QueryBox::FindAssetKeyValueByIdAndKey(
+                FindAssetKeyValueByIdAndKey::new(silver_asset_id, "foo".to_string()),
+            );
+            let find_bronze_key_value = QueryBox::FindAssetKeyValueByIdAndKey(
+                FindAssetKeyValueByIdAndKey::new(bronze_asset_id, "foo".to_string()),
+            );
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_gold_key_value, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_gold_key_value, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_bronze_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_gold_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_bronze_key_value, &wsv)
+                    .is_ok());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_gold_key_value, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_silver_key_value, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_bronze_key_value, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_silver_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_gold_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_bronze_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_gold_key_value, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_asset_definition_key_value_by_id_and_key() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                gold_asset_definition_id,
+                silver_asset_definition_id,
+                bronze_asset_definition_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+            let find_gold_key_value = QueryBox::FindAssetDefinitionKeyValueByIdAndKey(
+                FindAssetDefinitionKeyValueByIdAndKey::new(
+                    gold_asset_definition_id,
+                    "foo".to_string(),
+                ),
+            );
+            let find_silver_key_value = QueryBox::FindAssetDefinitionKeyValueByIdAndKey(
+                FindAssetDefinitionKeyValueByIdAndKey::new(
+                    silver_asset_definition_id,
+                    "foo".to_string(),
+                ),
+            );
+            let find_bronze_key_value = QueryBox::FindAssetDefinitionKeyValueByIdAndKey(
+                FindAssetDefinitionKeyValueByIdAndKey::new(
+                    bronze_asset_definition_id,
+                    "foo".to_string(),
+                ),
+            );
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_gold_key_value, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_gold_key_value, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_bronze_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_gold_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_bronze_key_value, &wsv)
+                    .is_ok());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_gold_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_silver_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_bronze_key_value, &wsv)
+                    .is_err());
+            }
+        }
     }
 
     mod revoke_and_grant {
