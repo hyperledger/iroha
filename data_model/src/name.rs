@@ -178,7 +178,6 @@ mod tests {
 
     #[test]
     #[allow(unsafe_code)]
-    #[cfg(feature = "ffi_api")]
     fn ffi_name_from_str() -> Result<(), ParseError> {
         use crate::ffi::{Handle, __drop};
 

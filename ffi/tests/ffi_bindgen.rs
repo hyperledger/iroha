@@ -2,11 +2,11 @@
 
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
-use iroha_ffi::{ffi_export, gen_ffi_impl, handles, FfiResult, Handle, Pair};
+use iroha_ffi::{ffi_export, gen_ffi_impl, handles, FfiResult, Handle, IntoFfi, Pair};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi)]
 pub struct Name(String);
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoFfi)]
 pub struct Value(String);
 
 fn get_default_params() -> [(Name, Value); 2] {
@@ -17,7 +17,7 @@ fn get_default_params() -> [(Name, Value); 2] {
 }
 
 #[ffi_export]
-#[derive(Clone)]
+#[derive(Clone, IntoFfi)]
 pub struct FfiStruct {
     name: Option<Name>,
     tokens: Vec<Value>,

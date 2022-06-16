@@ -12,7 +12,7 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::Getters;
-use iroha_ffi::{ffi_export, IntoFfi};
+use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -38,6 +38,7 @@ pub type Permissions = btree_set::BTreeSet<PermissionToken>;
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[ffi_export]
 #[getset(get = "pub")]
@@ -49,7 +50,6 @@ pub struct PermissionToken {
     #[getset(skip)]
     params: btree_map::BTreeMap<Name, Value>,
 }
-
 
 impl PermissionToken {
     /// Constructor.

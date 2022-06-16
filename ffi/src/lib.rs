@@ -35,28 +35,38 @@ pub trait Opaque {}
 
 impl<T: Opaque> IntoFfi for &T {
     type FfiType = *const T;
+    type OutFfiType = *mut Self::FfiType;
 
     fn into_ffi(self) -> Self::FfiType {
         self as Self::FfiType
+    }
+
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        out.write(self.into_ffi())
     }
 }
 
 impl<T: Opaque> IntoFfi for &mut T {
     type FfiType = *mut T;
+    type OutFfiType = *mut Self::FfiType;
 
     fn into_ffi(self) -> Self::FfiType {
         self as Self::FfiType
     }
+
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        out.write(self.into_ffi())
+    }
 }
 
 impl<'a, T: Opaque> TryFromFfi for &'a T {
-    unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, FfiResult> {
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
         source.as_ref().ok_or(FfiResult::ArgIsNull)
     }
 }
 
 impl<'a, T: Opaque> TryFromFfi for &'a mut T {
-    unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, FfiResult> {
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
         source.as_mut().ok_or(FfiResult::ArgIsNull)
     }
 }
@@ -66,8 +76,14 @@ pub trait IntoFfi {
     /// FFI compatible representation of `Self`
     type FfiType;
 
+    /// FFI compatible representation of `Self` when it's an out-pointer
+    type OutFfiType;
+
     /// Performs the conversion
     fn into_ffi(self) -> Self::FfiType;
+
+    /// Performs the conversion and writes the result into out-pointer
+    unsafe fn write_out(self, out: Self::OutFfiType);
 }
 
 /// Conversion from an FFI compatible representation that consumes the input value
@@ -84,7 +100,7 @@ pub trait TryFromFfi: IntoFfi + Sized {
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
     #[allow(unsafe_code)]
-    unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, FfiResult>;
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult>;
 }
 
 /// FFI compatible tuple with 2 elements
@@ -125,6 +141,57 @@ impl From<opaque_pointer::error::PointerError> for FfiResult {
     }
 }
 
+impl IntoFfi for &u8 {
+    type FfiType = *const u8;
+    type OutFfiType = *mut Self::FfiType;
+
+    fn into_ffi(self) -> Self::FfiType {
+        self as *const _
+    }
+
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        out.write(self.into_ffi())
+    }
+}
+
+impl IntoFfi for u8 {
+    type FfiType = Self;
+    type OutFfiType = *mut Self::FfiType;
+
+    fn into_ffi(self) -> Self::FfiType {
+        self
+    }
+
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        out.write(self.into_ffi())
+    }
+}
+
+impl TryFromFfi for u8 {
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
+        Ok(source)
+    }
+}
+
+impl IntoFfi for bool {
+    type FfiType = u8;
+    type OutFfiType = *mut Self::FfiType;
+
+    fn into_ffi(self) -> Self::FfiType {
+        IntoFfi::into_ffi(self as u8)
+    }
+
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        out.write(self.into_ffi())
+    }
+}
+
+impl TryFromFfi for bool {
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
+        Ok(source != 0)
+    }
+}
+
 pub trait OptionWrapped: Sized {
     type FfiType;
 
@@ -149,9 +216,14 @@ impl<'a, T: Opaque> OptionWrapped for &'a mut T {
 
 impl<T: OptionWrapped> IntoFfi for Option<T> {
     type FfiType = T::FfiType;
+    type OutFfiType = *mut Self::FfiType;
 
     fn into_ffi(self) -> Self::FfiType {
         OptionWrapped::into_ffi(self)
+    }
+
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        out.write(self.into_ffi())
     }
 }
 
@@ -161,10 +233,56 @@ pub struct FfiSlice<T>(*const T, usize);
 #[repr(C)]
 pub struct FfiSliceMut<T>(*mut T, usize);
 
+#[repr(C)]
+// TODO: Out slices shouldn't implement drop?
+pub struct OutFfiSlice<T>(*mut T, usize, *mut usize);
+
+#[repr(C)]
+pub struct OutFfiSliceMut<T>(*mut T, usize, *mut usize);
+
+impl<T> FfiSlice<T> {
+    fn len(&self) -> usize {
+        self.1
+    }
+}
+
+impl<T> FfiSliceMut<T> {
+    fn len(&self) -> usize {
+        self.1
+    }
+}
+
+impl<T> IntoIterator for FfiSlice<T> {
+    type Item = T;
+    type IntoIter = <Vec<T> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let slice: Vec<_> = unsafe {
+            Box::<[T]>::from_raw(core::slice::from_raw_parts_mut(self.0 as *mut _, self.1))
+                .into_vec()
+        };
+        slice.into_iter()
+    }
+}
+
+impl<T> IntoIterator for FfiSliceMut<T> {
+    type Item = T;
+    type IntoIter = <Vec<T> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let slice: Vec<_> = unsafe {
+            Box::<[T]>::from_raw(core::slice::from_raw_parts_mut(self.0, self.1)).into_vec()
+        };
+        slice.into_iter()
+    }
+}
+
 impl<T> Drop for FfiSliceMut<T> {
     fn drop(&mut self) {
         if !self.0.is_null() {
-            unsafe { core::slice::from_raw_parts_mut(self.0, self.1) };
+            unsafe {
+                Box::<[T]>::from_raw(core::slice::from_raw_parts_mut(self.0, self.1));
+            };
         }
     }
 }
@@ -172,7 +290,11 @@ impl<T> Drop for FfiSliceMut<T> {
 impl<T> Drop for FfiSlice<T> {
     fn drop(&mut self) {
         if !self.0.is_null() {
-            unsafe { core::slice::from_raw_parts(self.0, self.1) };
+            unsafe {
+                // TODO: This conversion should be valid? It's here to take ownership and drop the
+                // contents, pointer will not be modified
+                Box::<[T]>::from_raw(core::slice::from_raw_parts_mut(self.0 as *mut _, self.1));
+            }
         }
     }
 }
@@ -190,12 +312,23 @@ where
     &'a T: IntoFfi,
 {
     type FfiType = FfiSlice<<&'a T as IntoFfi>::FfiType>;
+    type OutFfiType = OutFfiSlice<<&'a T as IntoFfi>::FfiType>;
 
     fn into_ffi(self) -> Self::FfiType {
         let source: Vec<_> = self.iter().map(IntoFfi::into_ffi).collect();
 
         let source = core::mem::ManuallyDrop::new(source);
         FfiSlice(source.as_ptr() as *const _, source.len())
+    }
+
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        let slice = self.into_ffi();
+
+        out.2.write(slice.len());
+        for (i, elem) in slice.into_iter().take(out.1).enumerate() {
+            let offset = i.try_into().expect("allocation too large");
+            out.0.offset(offset).write(elem);
+        }
     }
 }
 
@@ -204,6 +337,7 @@ where
     &'a mut T: IntoFfi,
 {
     type FfiType = FfiSliceMut<<&'a mut T as IntoFfi>::FfiType>;
+    type OutFfiType = OutFfiSliceMut<<&'a mut T as IntoFfi>::FfiType>;
 
     fn into_ffi(self) -> Self::FfiType {
         let source: Vec<_> = self.iter_mut().map(IntoFfi::into_ffi).collect();
@@ -211,33 +345,53 @@ where
         let mut source = core::mem::ManuallyDrop::new(source);
         FfiSliceMut(source.as_mut_ptr() as *mut _, source.len())
     }
+
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        let slice = self.into_ffi();
+
+        out.2.write(slice.len());
+        for (i, elem) in slice.into_iter().take(out.1).enumerate() {
+            let offset = i.try_into().expect("allocation too large");
+            out.0.offset(offset).write(elem);
+        }
+    }
 }
 
 impl<'a, T> IntoFfi for Option<&'a [T]>
 where
-    // TODO: These bounds should be redundant
+    // TODO: These bounds should be redundant but compiler complains
     &'a [T]: IntoFfi<FfiType = FfiSlice<<&'a T as IntoFfi>::FfiType>>,
     &'a T: IntoFfi,
 {
     type FfiType = <&'a [T] as IntoFfi>::FfiType;
+    type OutFfiType = <&'a [T] as IntoFfi>::OutFfiType;
 
     fn into_ffi(self) -> Self::FfiType {
-        // TODO: size should be uninitialized and not 0 as if it were and empty slice
+        // TODO: size should be uninitialized and not 0 as if it were an empty slice
         self.map_or_else(|| FfiSlice(core::ptr::null(), 0), IntoFfi::into_ffi)
+    }
+
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        unimplemented!()
     }
 }
 
 impl<'a, T> IntoFfi for Option<&'a mut [T]>
 where
-    // TODO: These bounds should be redundant
+    // TODO: These bounds should be redundant but compiler complains
     &'a mut [T]: IntoFfi<FfiType = FfiSlice<<&'a mut T as IntoFfi>::FfiType>>,
     &'a mut T: IntoFfi,
 {
     type FfiType = <&'a mut [T] as IntoFfi>::FfiType;
+    type OutFfiType = <&'a mut [T] as IntoFfi>::OutFfiType;
 
     fn into_ffi(self) -> Self::FfiType {
-        // TODO: size should be uninitialized and not 0 as if it were and empty slice
+        // TODO: size should be uninitialized and not 0 as if it were an empty slice
         self.map_or_else(|| FfiSlice(core::ptr::null_mut(), 0), IntoFfi::into_ffi)
+    }
+
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        unimplemented!()
     }
 }
 

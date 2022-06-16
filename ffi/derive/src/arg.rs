@@ -10,8 +10,6 @@ use syn::{
     Type,
 };
 
-use crate::get_ident;
-
 /// Struct representing a method/function argument
 #[derive(Clone)]
 pub struct Arg {
@@ -58,26 +56,6 @@ impl Arg {
             ffi_type,
             src_to_ffi,
             ffi_to_src,
-        }
-    }
-
-    /// Returns true if this argument is an iterator or a slice reference
-    pub fn is_iter_or_slice_ref(&self) -> bool {
-        match &self.src_type {
-            Type::Reference(type_) => {
-                matches!(*type_.elem, Type::Slice(_))
-            }
-            Type::ImplTrait(type_) => {
-                assert_eq!(type_.bounds.len(), 1);
-
-                if let syn::TypeParamBound::Trait(trait_) = &type_.bounds[0] {
-                    let trait_name = get_ident(&trait_.path);
-                    return trait_name == "IntoIterator" || trait_name == "ExactSizeIterator";
-                }
-
-                false
-            }
-            _ => false,
         }
     }
 }
@@ -142,7 +120,7 @@ impl<'ast> TypeVisitor<'ast> {
         let elem_src_to_ffi = &binding.src_to_ffi;
         let elem_ffi_to_src = &binding.ffi_to_src;
 
-        let slice_len_arg_name = crate::export::gen_slice_len_arg_name(arg_name);
+        let slice_len_arg_name = gen_slice_len_arg_name(arg_name);
         self.ffi_type = Some(parse_quote! {#ptr_mutability #elem_ffi_type});
         self.src_to_ffi = Some(parse_quote! {
             let #arg_name = #arg_name.into_iter().map(|arg| {
@@ -233,7 +211,7 @@ impl<'ast> Visit<'ast> for TypeVisitor<'ast> {
                 let binding_src_to_ffi = &self.src_to_ffi;
                 let binding_ffi_to_src = &self.ffi_to_src;
 
-                let slice_len_arg_name = crate::export::gen_slice_len_arg_name(arg_name);
+                let slice_len_arg_name = gen_slice_len_arg_name(arg_name);
                 self.ffi_type = Some(parse_quote! {#ptr_mutability #binding_ffi_type});
                 self.src_to_ffi = Some(parse_quote! {
                     let #arg_name = #arg_name.into_iter().map(|arg| {
@@ -528,4 +506,8 @@ impl VisitMut for SelfResolver<'_> {
             node.segments = node_segments;
         }
     }
+}
+
+pub fn gen_slice_len_arg_name(arg_name: &Ident) -> Ident {
+    Ident::new(&format!("{}_len", arg_name), Span::call_site())
 }

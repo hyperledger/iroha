@@ -13,7 +13,7 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
-use iroha_ffi::{ffi_export, IntoFfi};
+use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -89,6 +89,7 @@ impl From<GenesisAccount> for Account {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
@@ -137,6 +138,7 @@ impl Default for SignatureCheckCondition {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[display(fmt = "[{id}]")]
 pub struct NewAccount {
@@ -231,6 +233,7 @@ impl NewAccount {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[allow(clippy::multiple_inherent_impl)]
 #[ffi_export]
@@ -444,6 +447,7 @@ impl FromIterator<Account> for crate::Value {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[display(fmt = "{name}@{domain_id}")]
 pub struct Id {

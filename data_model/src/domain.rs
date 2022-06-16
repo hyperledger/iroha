@@ -82,6 +82,7 @@ impl From<GenesisDomain> for Domain {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "[{id}]")]
@@ -181,6 +182,7 @@ impl NewDomain {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[allow(clippy::multiple_inherent_impl)]
 #[ffi_export]
@@ -236,7 +238,6 @@ impl Ord for Domain {
     }
 }
 
-#[ffi_export]
 impl Domain {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
@@ -358,7 +359,20 @@ impl FromIterator<Domain> for crate::Value {
 
 /// Represents path in IPFS. Performs checks to ensure path validity.
 /// Construct using [`FromStr::from_str`] method.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema, IntoFfi)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Encode,
+    Serialize,
+    IntoSchema,
+    IntoFfi,
+    TryFromFfi,
+)]
 pub struct IpfsPath(ConstString);
 
 impl FromStr for IpfsPath {
@@ -462,6 +476,7 @@ impl Decode for IpfsPath {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[display(fmt = "{name}")]
 pub struct Id {

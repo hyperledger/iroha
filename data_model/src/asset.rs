@@ -9,7 +9,7 @@ use std::collections::btree_map;
 
 use derive_more::Display;
 use getset::{Getters, MutGetters};
-use iroha_ffi::{ffi_export, IntoFfi};
+use iroha_ffi::{ffi_export, IntoFfi, TryFromFfi};
 use iroha_macro::FromVariant;
 use iroha_primitives::{fixed, fixed::Fixed};
 use iroha_schema::IntoSchema;
@@ -59,6 +59,7 @@ impl std::error::Error for MintabilityError {}
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
@@ -125,6 +126,7 @@ impl AssetDefinitionEntry {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[allow(clippy::multiple_inherent_impl)]
 #[ffi_export]
@@ -209,6 +211,7 @@ pub enum Mintable {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[getset(get = "pub")]
 #[ffi_export]
@@ -375,6 +378,7 @@ impl_try_as_for_asset_value! {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[display(fmt = "{name}#{domain_id}")]
 pub struct DefinitionId {
@@ -400,6 +404,7 @@ pub struct DefinitionId {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[display(fmt = "{definition_id}@{account_id}")] // TODO: change this?
 pub struct Id {
@@ -423,6 +428,7 @@ pub struct Id {
     Serialize,
     IntoSchema,
     IntoFfi,
+    TryFromFfi,
 )]
 #[display(fmt = "{id} {mintable}{value_type}")]
 pub struct NewAssetDefinition {

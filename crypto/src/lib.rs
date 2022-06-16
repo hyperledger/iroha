@@ -384,11 +384,10 @@ pub struct PublicKey {
     /// Digest function
     digest_function: ConstString,
     /// payload of key
-    // FIXME: Getter implemented manually because `getset`
-    // returns &Vec<T> when it should return &[T]
     payload: Vec<u8>,
 }
 
+#[ffi_export]
 impl PublicKey {
     /// Key payload
     pub fn payload(&self) -> &[u8] {
@@ -513,12 +512,11 @@ pub struct PrivateKey {
     /// Digest function
     digest_function: ConstString,
     /// key payload. WARNING! Do not use `"string".as_bytes()` to obtain the key.
-    // FIXME: Getter implemented manually because `getset`
-    // returns &Vec<T> when it should return &[T]
     #[serde(with = "hex::serde")]
     payload: Vec<u8>,
 }
 
+#[ffi_export]
 #[allow(clippy::multiple_inherent_impl)]
 impl PrivateKey {
     /// Key payload

@@ -195,17 +195,27 @@ fn derive_into_ffi_for_reference(name: &Ident) -> TokenStream2 {
     quote! {
         impl iroha_ffi::IntoFfi for &#name {
             type FfiType = *const #name;
+            type OutFfiType = *mut Self::FfiType;
 
             fn into_ffi(self) -> Self::FfiType {
                 self as Self::FfiType
+            }
+
+            unsafe fn write_out(self, out: Self::OutFfiType) {
+                out.write(self.into_ffi())
             }
         }
 
         impl iroha_ffi::IntoFfi for &mut #name {
             type FfiType = *mut #name;
+            type OutFfiType = *mut Self::FfiType;
 
             fn into_ffi(self) -> Self::FfiType {
                 self as Self::FfiType
+            }
+
+            unsafe fn write_out(self, out: Self::OutFfiType) {
+                out.write(self.into_ffi())
             }
         }
     }
@@ -225,9 +235,14 @@ fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
 
         impl iroha_ffi::IntoFfi for #name {
             type FfiType = *mut Self;
+            type OutFfiType = *mut Self::FfiType;
 
             fn into_ffi(self) -> Self::FfiType {
                 iroha_ffi::opaque_pointer::raw(self)
+            }
+
+            unsafe fn write_out(self, out: Self::OutFfiType) {
+                out.write(self.into_ffi())
             }
         }
     }
@@ -249,9 +264,14 @@ fn derive_into_ffi_for_item(name: &Ident) -> TokenStream2 {
     quote! {
         impl iroha_ffi::IntoFfi for #name {
             type FfiType = #name;
+            type OutFfiType = *mut Self::FfiType;
 
             fn into_ffi(self) -> Self::FfiType {
                 self
+            }
+
+            unsafe fn write_out(self, out: Self::OutFfiType) {
+                out.write(self.into_ffi())
             }
         }
 
@@ -287,25 +307,40 @@ fn gen_fieldless_enum_into_ffi(enum_name: &Ident, repr: &[syn::NestedMeta]) -> T
     quote! {
         impl iroha_ffi::IntoFfi for #enum_name {
             type FfiType = #ffi_type;
+            type OutFfiType = *mut Self::FfiType;
 
             fn into_ffi(self) -> Self::FfiType {
                 self as Self::FfiType
+            }
+
+            unsafe fn write_out(self, out: Self::OutFfiType) {
+                out.write(self.into_ffi())
             }
         }
 
         impl iroha_ffi::IntoFfi for &#enum_name {
             type FfiType = *const #ffi_type;
+            type OutFfiType = *mut Self::FfiType;
 
             fn into_ffi(self) -> Self::FfiType {
                 self as *const #enum_name as Self::FfiType
+            }
+
+            unsafe fn write_out(self, out: Self::OutFfiType) {
+                out.write(self.into_ffi())
             }
         }
 
         impl iroha_ffi::IntoFfi for &mut #enum_name {
             type FfiType = *mut #ffi_type;
+            type OutFfiType = *mut Self::FfiType;
 
             fn into_ffi(self) -> Self::FfiType {
                 self as *mut #enum_name as Self::FfiType
+            }
+
+            unsafe fn write_out(self, out: Self::OutFfiType) {
+                out.write(self.into_ffi())
             }
         }
     }
