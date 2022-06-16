@@ -9,16 +9,14 @@
 #include <memory>
 #include <mutex>
 
-namespace iroha {
-  namespace cache {
+namespace iroha::cache {
 
     /**
      * Thread-safely stores and returns shared pointer to an element of template
      * type
      */
     template <typename DataType>
-    class SinglePointerCache {
-     public:
+    struct SinglePointerCache final {
       /**
        * Pointer to data type
        */
@@ -28,49 +26,29 @@ namespace iroha {
        * Insert data to the cache
        * @param pointer to the data to be inserted
        */
-      void insert(DataPointer data);
+      void insert(DataPointer data) {
+        stored_data_ = std::move(data);
+      }
 
       /**
        * Get data from the cache
        * @return pointer to the stored data
        */
-      DataPointer get() const;
+      DataPointer get() const {
+        return stored_data_;
+      }
 
       /**
        * Delete data inside the cache
        */
-      void release();
+      void release() {
+        stored_data_.reset();
+      }
 
      private:
       DataPointer stored_data_;
-
-      mutable std::mutex mutex_;
     };
 
-    template <typename DataType>
-    void SinglePointerCache<DataType>::insert(
-        SinglePointerCache::DataPointer data) {
-      std::lock_guard<std::mutex> lock(mutex_);
-
-      stored_data_ = std::move(data);
-    }
-
-    template <typename DataType>
-    typename SinglePointerCache<DataType>::DataPointer
-    SinglePointerCache<DataType>::get() const {
-      std::lock_guard<std::mutex> lock(mutex_);
-
-      return stored_data_;
-    }
-
-    template <typename DataType>
-    void SinglePointerCache<DataType>::release() {
-      std::lock_guard<std::mutex> lock(mutex_);
-
-      stored_data_.reset();
-    }
-
-  }  // namespace cache
-}  // namespace iroha
+}  // namespace iroha::cache
 
 #endif  // IROHA_SINGLE_POINTER_CACHE_HPP
