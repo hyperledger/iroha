@@ -31,7 +31,9 @@ namespace iroha::consensus::yac {
                 logger::LoggerPtr log);
 
     void sendState(const shared_model::interface::Peer &to,
-                   const std::vector<VoteMessage> &state) override;
+                   std::shared_ptr<proto::State> const &state) override;
+
+    std::shared_ptr<proto::State> prepareYacState(const std::vector<VoteMessage> &state) override;
 
     void stop() override;
 

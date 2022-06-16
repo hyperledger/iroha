@@ -195,7 +195,7 @@ void Yac::votingStep(VoteMessage vote,
   const auto &current_leader = order.currentLeader();
   log_->info("Vote {} to peer {}", vote, current_leader);
 
-  propagateStateDirectly(current_leader, {vote});
+  propagateStateDirectly(current_leader, network_->prepareYacState({vote}));
   order.switchToNext();
 
   timer_->invokeAfterDelay([this, vote, order(std::move(order)), attempt] {
@@ -289,7 +289,7 @@ void Yac::tryPropagateBack(const std::vector<VoteMessage> &state) {
               "Propagate state {} directly to {}", last_round, from->address());
           auto votes = [](const auto &state) { return state.votes; };
           this->propagateStateDirectly(*from,
-                                       visit_in_place(last_state, votes));
+                                       network_->prepareYacState(visit_in_place(last_state, votes)));
         };
       };
     }
@@ -299,12 +299,16 @@ void Yac::tryPropagateBack(const std::vector<VoteMessage> &state) {
 // ------|Propagation|------
 
 void Yac::propagateState(const std::vector<VoteMessage> &msg) {
-  for (const auto &peer : cluster_order_) propagateStateDirectly(*peer, msg);
+  log_->debug("Propagating votes for {}, size={}",
+              msg.front().hash.vote_round,
+              msg.size());
 
-  for (const auto &peer : syncing_peers_) propagateStateDirectly(*peer, msg);
+  auto state = network_->prepareYacState(msg);
+  for (const auto &peer : cluster_order_) propagateStateDirectly(*peer, state);
+  for (const auto &peer : syncing_peers_) propagateStateDirectly(*peer, state);
 }
 
 void Yac::propagateStateDirectly(const shared_model::interface::Peer &to,
-                                 const std::vector<VoteMessage> &msg) {
-  network_->sendState(to, msg);
+                                 std::shared_ptr<proto::State> const &state) {
+  network_->sendState(to, state);
 }

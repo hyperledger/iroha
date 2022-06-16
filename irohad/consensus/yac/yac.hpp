@@ -96,7 +96,7 @@ namespace iroha::consensus::yac {
     // ------|Propagation|------
     void propagateState(const std::vector<VoteMessage> &msg);
     void propagateStateDirectly(const shared_model::interface::Peer &to,
-                                const std::vector<VoteMessage> &msg);
+                                std::shared_ptr<proto::State> const &state);
     void tryPropagateBack(const std::vector<VoteMessage> &state);
 
     // ------|Logger|------
