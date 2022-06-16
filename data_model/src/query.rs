@@ -780,6 +780,18 @@ pub mod asset {
         }
     }
 
+    impl FindAssetDefinitionKeyValueByIdAndKey {
+        /// Construct [`FindAssetDefinitionKeyValueByIdAndKey`].
+        pub fn new(
+            id: impl Into<EvaluatesTo<AssetDefinitionId>>,
+            key: impl Into<EvaluatesTo<Name>>,
+        ) -> Self {
+            let id = id.into();
+            let key = key.into();
+            Self { id, key }
+        }
+    }
+
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
         pub use super::{
