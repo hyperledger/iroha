@@ -136,7 +136,9 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
 }
 
 OnDemandOrderingServiceImpl::~OnDemandOrderingServiceImpl() {
+#if USE_BLOOM_FILTER
   remote_proposal_observer_->unsubscribe();
+#endif//USE_BLOOM_FILTER
 }
 
 // -------------------------| OnDemandOrderingService |-------------------------
