@@ -244,128 +244,10 @@ impl<'itm, T> Iterator for BreadthFirstNodeIterator<'itm, T> {
 
 #[cfg(test)]
 mod tests {
+    use rand::prelude::SliceRandom;
+
     use super::*;
     use crate::Hash;
-
-    #[test]
-    fn tree_with_two_layers_should_reach_all_nodes() {
-        let tree = MerkleTree::<()> {
-            root_node: Node::Subtree(Subtree {
-                left: Box::new(Node::Leaf(Leaf {
-                    hash: Hash::prehashed([1; Hash::LENGTH]).typed(),
-                })),
-                right: Box::new(Node::Leaf(Leaf {
-                    hash: Hash::prehashed([2; Hash::LENGTH]).typed(),
-                })),
-                hash: Some(Hash::prehashed([3; Hash::LENGTH]).typed()),
-            }),
-        };
-        assert_eq!(3, tree.nodes().count());
-    }
-
-    fn get_hashes(hash: [u8; Hash::LENGTH]) -> impl Iterator<Item = HashOf<()>> {
-        let hash = Hash::prehashed(hash).typed();
-        std::iter::repeat_with(move || hash)
-    }
-
-    #[test]
-    fn four_hashes_should_built_seven_nodes() {
-        let merkle_tree = get_hashes([1_u8; Hash::LENGTH])
-            .take(4)
-            .collect::<MerkleTree<_>>();
-        assert_eq!(7, merkle_tree.nodes().count());
-    }
-
-    #[test]
-    fn three_hashes_should_built_seven_nodes() {
-        let merkle_tree = get_hashes([1_u8; Hash::LENGTH])
-            .take(3)
-            .collect::<MerkleTree<_>>();
-        assert_eq!(7, merkle_tree.nodes().count());
-    }
-
-    #[test]
-    fn same_root_hash_for_same_hashes() {
-        let merkle_tree_1 = [
-            Hash::prehashed([1_u8; Hash::LENGTH]),
-            Hash::prehashed([2_u8; Hash::LENGTH]),
-            Hash::prehashed([3_u8; Hash::LENGTH]),
-        ]
-        .into_iter()
-        .map(Hash::typed)
-        .collect::<MerkleTree<()>>();
-        let merkle_tree_2 = [
-            Hash::prehashed([2_u8; Hash::LENGTH]),
-            Hash::prehashed([1_u8; Hash::LENGTH]),
-            Hash::prehashed([3_u8; Hash::LENGTH]),
-        ]
-        .into_iter()
-        .map(Hash::typed)
-        .collect::<MerkleTree<()>>();
-        assert_eq!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
-    }
-
-    #[test]
-    fn different_root_hash_for_different_hashes() {
-        let merkle_tree_1 = [
-            Hash::prehashed([1_u8; Hash::LENGTH]),
-            Hash::prehashed([2_u8; Hash::LENGTH]),
-            Hash::prehashed([3_u8; Hash::LENGTH]),
-        ]
-        .into_iter()
-        .map(Hash::typed)
-        .collect::<MerkleTree<()>>();
-        let merkle_tree_2 = [
-            Hash::prehashed([1_u8; Hash::LENGTH]),
-            Hash::prehashed([4_u8; Hash::LENGTH]),
-            Hash::prehashed([5_u8; Hash::LENGTH]),
-        ]
-        .into_iter()
-        .map(Hash::typed)
-        .collect::<MerkleTree<()>>();
-        assert_ne!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
-    }
-
-    #[test]
-    fn get_leaf() {
-        let hash1 = Hash::prehashed([1; Hash::LENGTH]).typed();
-        let hash2 = Hash::prehashed([2; Hash::LENGTH]).typed();
-        let hash3 = Hash::prehashed([3; Hash::LENGTH]).typed();
-        let hash4 = Hash::prehashed([4; Hash::LENGTH]).typed();
-        let hash5 = Hash::prehashed([5; Hash::LENGTH]).typed();
-        assert!(hash1 < hash2 && hash2 < hash3);
-
-        let tree = [hash1, hash2, hash3, hash4, hash5]
-            .into_iter()
-            .collect::<MerkleTree<()>>();
-        assert_eq!(tree.get_leaf(0), Some(hash1));
-        assert_eq!(tree.get_leaf(1), Some(hash2));
-        assert_eq!(tree.get_leaf(2), Some(hash3));
-        assert_eq!(tree.get_leaf(3), Some(hash4));
-        assert_eq!(tree.get_leaf(4), Some(hash5));
-        assert_eq!(tree.get_leaf(5), None);
-    }
-
-    #[test]
-    fn add() {
-        let hash1 = Hash::prehashed([1; Hash::LENGTH]).typed();
-        let hash2 = Hash::prehashed([2; Hash::LENGTH]).typed();
-        let hash3 = Hash::prehashed([3; Hash::LENGTH]).typed();
-        let hash4 = Hash::prehashed([4; Hash::LENGTH]).typed();
-        let hash5 = Hash::prehashed([5; Hash::LENGTH]).typed();
-        assert!(hash1 < hash2 && hash2 < hash3 && hash3 < hash4);
-
-        let tree = [hash1, hash2, hash4, hash5]
-            .into_iter()
-            .collect::<MerkleTree<()>>();
-        let tree = tree.add(hash3);
-        assert_eq!(tree.get_leaf(0), Some(hash1));
-        assert_eq!(tree.get_leaf(1), Some(hash2));
-        assert_eq!(tree.get_leaf(2), Some(hash3));
-        assert_eq!(tree.get_leaf(3), Some(hash4));
-        assert_eq!(tree.get_leaf(4), Some(hash5));
-        assert_eq!(tree.get_leaf(5), None);
-    }
 
     impl<T> MerkleTree<T> {
         fn size(&self) -> usize {
@@ -376,8 +258,11 @@ mod tests {
             usize::BITS - self.size().leading_zeros()
         }
 
-        fn leaves_start_at(&self) -> Option<usize> {
-            self.nodes().position(|node| matches!(node, Node::Leaf(_)))
+        fn leaves_at(&self) -> Vec<usize> {
+            self.nodes()
+                .enumerate()
+                .filter_map(|(i, node)| matches!(node, Node::Leaf(_)).then(|| i))
+                .collect()
         }
     }
 
@@ -388,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn geometry() {
+    fn construction() {
         let tree = test_hashes(5).into_iter().collect::<MerkleTree<_>>();
         //               #0: iteration order
         //               83: first 2 hex of hash
@@ -401,31 +286,44 @@ mod tests {
         //   /\      /\      /\      /\
         // #7  #8  #9  #a  #b  #c  #d  #e
         // 01  02  03  04  05  **  **  **
-        assert_eq!(tree.size(), 15);
+        assert_eq!(tree.size(), 0b1111);
         assert_eq!(tree.depth(), 4);
-        assert_eq!(tree.leaves_start_at(), Some(7));
+        assert_eq!(tree.leaves_at(), (0x7..=0xb).collect::<Vec<_>>());
     }
 
     #[test]
-    fn leaves() {
+    fn iteration() {
         const N_LEAVES: u8 = 5;
 
-        let hashes = test_hashes(N_LEAVES);
-        let tree = hashes.clone().into_iter().collect::<MerkleTree<_>>();
+        let hashes_sorted = test_hashes(N_LEAVES);
+        let mut hashes_randomized = hashes_sorted.clone();
+        hashes_randomized.shuffle(&mut rand::thread_rng());
+        let tree = hashes_randomized.into_iter().collect::<MerkleTree<_>>();
 
-        for (testee_hash, tester_hash) in tree.iter().zip(hashes) {
+        for i in 0..N_LEAVES as usize {
+            assert_eq!(tree.get_leaf(i).as_ref(), hashes_sorted.get(i))
+        }
+        for (testee_hash, tester_hash) in tree.iter().zip(hashes_sorted) {
             assert_eq!(testee_hash, tester_hash);
         }
     }
 
     #[test]
-    fn reconstruction() {
+    fn reproduction() {
         const N_LEAVES: u8 = 5;
 
-        let tree = test_hashes(N_LEAVES).into_iter().collect::<MerkleTree<_>>();
-        let tree_reconstructed = tree.iter().collect::<MerkleTree<_>>();
+        let hashes_sorted = test_hashes(N_LEAVES);
+        let tree = hashes_sorted.clone().into_iter().collect::<MerkleTree<_>>();
 
-        for (testee_node, tester_node) in tree_reconstructed.nodes().zip(tree.nodes()) {
+        let mut hashes_randomized = hashes_sorted;
+        hashes_randomized.shuffle(&mut rand::thread_rng());
+        let mut tree_reproduced = MerkleTree::new();
+        for leaf_hash in hashes_randomized {
+            tree_reproduced = tree_reproduced.add(leaf_hash)
+        }
+
+        assert_eq!(tree_reproduced.root_hash(), tree.root_hash());
+        for (testee_node, tester_node) in tree_reproduced.nodes().zip(tree.nodes()) {
             assert_eq!(testee_node.hash(), tester_node.hash());
         }
     }
