@@ -9,7 +9,7 @@ use std::collections::btree_map;
 
 use derive_more::Display;
 use getset::{Getters, MutGetters};
-use iroha_ffi::ffi_export;
+use iroha_ffi::{ffi_export, IntoFfi};
 use iroha_macro::FromVariant;
 use iroha_primitives::{fixed, fixed::Fixed};
 use iroha_schema::IntoSchema;
@@ -58,6 +58,7 @@ impl std::error::Error for MintabilityError {}
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
@@ -123,6 +124,7 @@ impl AssetDefinitionEntry {
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 #[allow(clippy::multiple_inherent_impl)]
 #[ffi_export]
@@ -206,6 +208,7 @@ pub enum Mintable {
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 #[getset(get = "pub")]
 #[ffi_export]
@@ -371,6 +374,7 @@ impl_try_as_for_asset_value! {
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 #[display(fmt = "{name}#{domain_id}")]
 pub struct DefinitionId {
@@ -395,6 +399,7 @@ pub struct DefinitionId {
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 #[display(fmt = "{definition_id}@{account_id}")] // TODO: change this?
 pub struct Id {
@@ -407,7 +412,17 @@ pub struct Id {
 /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
 #[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    IntoFfi,
 )]
 #[display(fmt = "{id} {mintable}{value_type}")]
 pub struct NewAssetDefinition {
@@ -538,7 +553,6 @@ impl AssetDefinition {
     }
 }
 
-#[ffi_export]
 impl Asset {
     /// Constructor
     pub fn new(

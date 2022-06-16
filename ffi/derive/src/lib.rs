@@ -211,49 +211,35 @@ fn derive_into_ffi_for_reference(name: &Ident) -> TokenStream2 {
     }
 }
 
-fn derive_try_from_ffi_for_reference(name: &Ident) -> TokenStream2 {
-    quote! {
-        impl<'a> iroha_ffi::TryFromFfi for &'a #name {
-            unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, iroha_ffi::FfiResult> {
-                source.as_ref().ok_or(iroha_ffi::FfiResult::ArgIsNull)
-            }
-        }
-
-        impl<'a> iroha_ffi::TryFromFfi for &'a mut #name {
-            unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, iroha_ffi::FfiResult> {
-                source.as_mut().ok_or(iroha_ffi::FfiResult::ArgIsNull)
-            }
-        }
-    }
-}
-
 fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
-    let reference_impls = derive_into_ffi_for_reference(name);
-
     quote! {
+        impl iroha_ffi::Opaque for #name { }
+
+        impl iroha_ffi::OptionWrapped for #name {
+            type FfiType = *mut Self;
+
+            fn into_ffi(source: Option<Self>) -> Self::FfiType {
+                source.map_or_else(core::ptr::null_mut, iroha_ffi::IntoFfi::into_ffi)
+            }
+        }
+
         impl iroha_ffi::IntoFfi for #name {
-            type FfiType = *mut #name;
+            type FfiType = *mut Self;
 
             fn into_ffi(self) -> Self::FfiType {
                 iroha_ffi::opaque_pointer::raw(self)
             }
         }
-
-        #reference_impls
     }
 }
 
 fn derive_try_from_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
-    let reference_impls = derive_try_from_ffi_for_reference(name);
-
     quote! {
         impl iroha_ffi::TryFromFfi for #name {
             unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, iroha_ffi::FfiResult> {
                 Ok(iroha_ffi::opaque_pointer::own_back(source)?)
             }
         }
-
-        #reference_impls
     }
 }
 
@@ -274,8 +260,6 @@ fn derive_into_ffi_for_item(name: &Ident) -> TokenStream2 {
 }
 
 fn derive_try_from_ffi_for_item(name: &Ident) -> TokenStream2 {
-    let reference_impls = derive_try_from_ffi_for_reference(name);
-
     quote! {
         impl iroha_ffi::TryFromFfi for #name {
             unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, iroha_ffi::FfiResult> {
@@ -283,7 +267,17 @@ fn derive_try_from_ffi_for_item(name: &Ident) -> TokenStream2 {
             }
         }
 
-        #reference_impls
+        impl<'a> iroha_ffi::TryFromFfi for &'a #name {
+            unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, iroha_ffi::FfiResult> {
+                source.as_ref().ok_or(iroha_ffi::FfiResult::ArgIsNull)
+            }
+        }
+
+        impl<'a> iroha_ffi::TryFromFfi for &'a mut #name {
+            unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, iroha_ffi::FfiResult> {
+                source.as_mut().ok_or(iroha_ffi::FfiResult::ArgIsNull)
+            }
+        }
     }
 }
 
@@ -357,7 +351,8 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
                 #( #discriminants )*
 
                 match *source.as_ref().ok_or(iroha_ffi::FfiResult::ArgIsNull)? {
-                    #( #discriminant_names => Ok(&#enum_name::#variant_names), )*
+                    // NOTE: This transmute is valid as long as enum has a correct repr(int)
+                    #( | #discriminant_names )* => Ok(core::mem::transmute::<*const _, &#enum_name>(source)),
                     // TODO: More appropriate error?
                     _ => Err(iroha_ffi::FfiResult::UnknownHandle),
                 }
@@ -369,8 +364,8 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
                 #( #discriminants )*
 
                 match *source.as_ref().ok_or(iroha_ffi::FfiResult::ArgIsNull)? {
-                    // TODO: This transmute should be fine?
-                    #( #discriminant_names => Ok(core::mem::transmute::<*mut _, &mut #enum_name>(source)), )*
+                    // NOTE: This transmute is valid as long as enum has a correct repr(int)
+                    #( | #discriminant_names )* => Ok(core::mem::transmute::<*mut _, &mut #enum_name>(source)),
                     // TODO: More appropriate error?
                     _ => Err(iroha_ffi::FfiResult::UnknownHandle),
                 }

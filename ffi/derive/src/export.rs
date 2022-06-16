@@ -1,9 +1,9 @@
 use proc_macro2::{Span, TokenStream};
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
-use syn::{parse_quote, Ident, Type};
+use syn::{parse_quote, Ident, Type, visit_mut::VisitMut};
 
-use crate::{arg::Arg, impl_visitor::FnDescriptor};
+use crate::{arg::{Arg, SelfResolver}, impl_visitor::FnDescriptor};
 
 pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
     let ffi_fn_name = gen_ffi_fn_name(fn_descriptor);
@@ -11,12 +11,12 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
     let self_arg = fn_descriptor
         .receiver
         .as_ref()
-        .map(|arg| gen_ffi_fn_arg(arg, true))
+        .map(|arg| gen_ffi_fn_arg(fn_descriptor.self_ty, arg))
         .map_or_else(Vec::new, |self_arg| vec![self_arg]);
     let fn_args: Vec<_> = fn_descriptor
         .input_args
         .iter()
-        .map(|arg| gen_ffi_fn_arg(arg, true))
+        .map(|arg| gen_ffi_fn_arg(fn_descriptor.self_ty, arg))
         .collect();
     let output_arg = ffi_output_arg(fn_descriptor).map(|arg| {
         let mut arg = arg.clone();
@@ -31,7 +31,17 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
             unreachable!();
         }
 
-        gen_ffi_fn_arg(&arg, false)
+        // TODO: This branch is temporary hack
+        let ffi_name = &arg.name;
+        let ffi_type = &arg.ffi_type;
+
+        if arg.is_iter_or_slice_ref() {
+            let mut tokens = quote! { #ffi_name: #ffi_type, };
+            slice_len_arg_to_tokens(&arg, &mut tokens, false);
+            tokens
+        } else {
+            quote! { #ffi_name: #ffi_type }
+        }
     });
     let ffi_fn_body = gen_fn_body(fn_descriptor);
 
@@ -237,17 +247,11 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> Vec<syn::Stmt> {
     stmts
 }
 
-fn gen_ffi_fn_arg(arg: &Arg, is_input: bool) -> TokenStream {
-    let ffi_name = &arg.name;
-    let ffi_type = &arg.ffi_type;
+fn gen_ffi_fn_arg(self_ty: &syn::Path, arg: &Arg) -> TokenStream {
+    let (ffi_name, mut src_type) = (&arg.name, arg.src_type.clone());
+    SelfResolver::new(self_ty).visit_type_mut(&mut src_type);
 
-    if arg.is_iter_or_slice_ref() {
-        let mut tokens = quote! { #ffi_name: #ffi_type, };
-        slice_len_arg_to_tokens(arg, &mut tokens, is_input);
-        tokens
-    } else {
-        quote! { #ffi_name: #ffi_type }
-    }
+    quote! { #ffi_name: <#src_type as iroha_ffi::IntoFfi>::FfiType }
 }
 
 fn gen_slice_elems_arg_name(arg: &Arg) -> Ident {

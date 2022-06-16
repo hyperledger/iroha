@@ -7,7 +7,7 @@ use std::collections::btree_set;
 
 use derive_more::{Constructor, Display, FromStr};
 use getset::Getters;
-use iroha_ffi::ffi_export;
+use iroha_ffi::{ffi_export, IntoFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -37,6 +37,7 @@ pub type RoleIds = btree_set::BTreeSet<<Role as Identifiable>::Id>;
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 pub struct Id {
     /// Role name, should be unique .
@@ -56,6 +57,7 @@ pub struct Id {
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 #[ffi_export]
 #[display(fmt = "{id}")]
@@ -83,7 +85,6 @@ impl Ord for Role {
     }
 }
 
-#[ffi_export]
 impl Role {
     /// Constructor.
     #[inline]

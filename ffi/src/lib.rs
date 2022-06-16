@@ -29,6 +29,38 @@ pub trait Handle {
     const ID: HandleId;
 }
 
+/// Indicates that type is converted into an opaque pointer when crossing the FFI boundary
+// TODO: Make it unsafe?
+pub trait Opaque {}
+
+impl<T: Opaque> IntoFfi for &T {
+    type FfiType = *const T;
+
+    fn into_ffi(self) -> Self::FfiType {
+        self as Self::FfiType
+    }
+}
+
+impl<T: Opaque> IntoFfi for &mut T {
+    type FfiType = *mut T;
+
+    fn into_ffi(self) -> Self::FfiType {
+        self as Self::FfiType
+    }
+}
+
+impl<'a, T: Opaque> TryFromFfi for &'a T {
+    unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, FfiResult> {
+        source.as_ref().ok_or(FfiResult::ArgIsNull)
+    }
+}
+
+impl<'a, T: Opaque> TryFromFfi for &'a mut T {
+    unsafe fn try_from_ffi(source: <Self as IntoFfi>::FfiType) -> Result<Self, FfiResult> {
+        source.as_mut().ok_or(FfiResult::ArgIsNull)
+    }
+}
+
 /// Conversion into an FFI compatible representation that consumes the input value
 pub trait IntoFfi {
     /// FFI compatible representation of `Self`
@@ -90,6 +122,122 @@ impl From<opaque_pointer::error::PointerError> for FfiResult {
             Null => Self::ArgIsNull,
             Invalid => Self::UnknownHandle,
         }
+    }
+}
+
+pub trait OptionWrapped: Sized {
+    type FfiType;
+
+    fn into_ffi(source: Option<Self>) -> Self::FfiType;
+}
+
+impl<'a, T: Opaque> OptionWrapped for &'a T {
+    type FfiType = *const T;
+
+    fn into_ffi(source: Option<Self>) -> Self::FfiType {
+        source.map_or_else(core::ptr::null, IntoFfi::into_ffi)
+    }
+}
+
+impl<'a, T: Opaque> OptionWrapped for &'a mut T {
+    type FfiType = *mut T;
+
+    fn into_ffi(source: Option<Self>) -> Self::FfiType {
+        source.map_or_else(core::ptr::null_mut, IntoFfi::into_ffi)
+    }
+}
+
+impl<T: OptionWrapped> IntoFfi for Option<T> {
+    type FfiType = T::FfiType;
+
+    fn into_ffi(self) -> Self::FfiType {
+        OptionWrapped::into_ffi(self)
+    }
+}
+
+#[repr(C)]
+pub struct FfiSlice<T>(*const T, usize);
+
+#[repr(C)]
+pub struct FfiSliceMut<T>(*mut T, usize);
+
+impl<T> Drop for FfiSliceMut<T> {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { core::slice::from_raw_parts_mut(self.0, self.1) };
+        }
+    }
+}
+
+impl<T> Drop for FfiSlice<T> {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { core::slice::from_raw_parts(self.0, self.1) };
+        }
+    }
+}
+
+// TODO:
+//impl<'a, T> From<&'a [T]> for FfiSlice<T> where &'a T: IntoFfi {
+//    fn from(source: &'a [T]) -> Self {
+//        let source: Vec<_> = source.iter().map(IntoFfi::into_ffi).collect();
+//        FfiSlice(source.as_ptr() as *const _, source.len())
+//    }
+//}
+
+impl<'a, T> IntoFfi for &'a [T]
+where
+    &'a T: IntoFfi,
+{
+    type FfiType = FfiSlice<<&'a T as IntoFfi>::FfiType>;
+
+    fn into_ffi(self) -> Self::FfiType {
+        let source: Vec<_> = self.iter().map(IntoFfi::into_ffi).collect();
+
+        let source = core::mem::ManuallyDrop::new(source);
+        FfiSlice(source.as_ptr() as *const _, source.len())
+    }
+}
+
+impl<'a, T> IntoFfi for &'a mut [T]
+where
+    &'a mut T: IntoFfi,
+{
+    type FfiType = FfiSliceMut<<&'a mut T as IntoFfi>::FfiType>;
+
+    fn into_ffi(self) -> Self::FfiType {
+        let source: Vec<_> = self.iter_mut().map(IntoFfi::into_ffi).collect();
+
+        let mut source = core::mem::ManuallyDrop::new(source);
+        FfiSliceMut(source.as_mut_ptr() as *mut _, source.len())
+    }
+}
+
+impl<'a, T> IntoFfi for Option<&'a [T]>
+where
+    // TODO: These bounds should be redundant
+    &'a [T]: IntoFfi<FfiType = FfiSlice<<&'a T as IntoFfi>::FfiType>>,
+    &'a T: IntoFfi,
+{
+    type FfiType = <&'a [T] as IntoFfi>::FfiType;
+
+    fn into_ffi(self) -> Self::FfiType {
+        // TODO: size should be uninitialized and not 0 as if it were and empty slice
+        self.map_or_else(|| FfiSlice(core::ptr::null(), 0), IntoFfi::into_ffi)
+    }
+}
+
+impl<'a, T> IntoFfi for Option<&'a mut [T]>
+where
+    // TODO: These bounds should be redundant
+    &'a mut [T]: IntoFfi<FfiType = FfiSlice<<&'a mut T as IntoFfi>::FfiType>>,
+    &'a mut T: IntoFfi,
+{
+    type FfiType = <&'a mut [T] as IntoFfi>::FfiType;
+
+    fn into_ffi(self) -> Self::FfiType {
+        // TODO: size should be uninitialized and not 0 as if it were and empty slice
+        self.map_or_else(|| FfiSlice(core::ptr::null_mut(), 0), IntoFfi::into_ffi)
     }
 }
 

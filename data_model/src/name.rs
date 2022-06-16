@@ -86,28 +86,37 @@ impl FromStr for Name {
 /// # Safety
 ///
 /// All of the given pointers must be valid
-#[cfg(feature = "ffi_api")]
+#[no_mangle]
 #[allow(non_snake_case, unsafe_code)]
 pub unsafe extern "C" fn Name__from_str(
     candidate: *const u8,
     candidate_len: usize,
     output: *mut *mut Name,
 ) -> iroha_ffi::FfiResult {
-    let candidate = core::slice::from_raw_parts(candidate, candidate_len);
+    let res = std::panic::catch_unwind(|| {
+        let candidate = core::slice::from_raw_parts(candidate, candidate_len);
 
-    let method_res = match core::str::from_utf8(candidate) {
-        // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-        Err(_error) => return iroha_ffi::FfiResult::Utf8Error,
-        Ok(candidate) => Name::from_str(candidate),
-    };
-    let method_res = match method_res {
-        Err(_error) => return iroha_ffi::FfiResult::ExecutionFail,
-        Ok(method_res) => method_res,
-    };
-    let method_res = Box::into_raw(Box::new(method_res));
+        let method_res = match core::str::from_utf8(candidate) {
+            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+            Err(_error) => return iroha_ffi::FfiResult::Utf8Error,
+            Ok(candidate) => Name::from_str(candidate),
+        };
+        let method_res = Box::into_raw(Box::new(match method_res {
+            Err(_error) => return iroha_ffi::FfiResult::ExecutionFail,
+            Ok(method_res) => method_res,
+        }));
 
-    output.write(method_res);
-    iroha_ffi::FfiResult::Ok
+        output.write(method_res);
+        iroha_ffi::FfiResult::Ok
+    });
+
+    match res {
+        Ok(res) => res,
+        Err(_) => {
+            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+            iroha_ffi::FfiResult::UnrecoverableError
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for Name {

@@ -13,7 +13,7 @@ use std::collections::{btree_map, btree_set};
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
-use iroha_ffi::ffi_export;
+use iroha_ffi::{ffi_export, IntoFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -81,13 +81,14 @@ impl From<GenesisAccount> for Account {
     Clone,
     PartialEq,
     Eq,
+    PartialOrd,
+    Ord,
     Decode,
     Encode,
     Deserialize,
     Serialize,
     IntoSchema,
-    PartialOrd,
-    Ord,
+    IntoFfi,
 )]
 pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
 
@@ -125,7 +126,17 @@ impl Default for SignatureCheckCondition {
 /// Builder which should be submitted in a transaction to create a new [`Account`]
 #[allow(clippy::multiple_inherent_impl)]
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    IntoFfi,
 )]
 #[display(fmt = "[{id}]")]
 pub struct NewAccount {
@@ -219,6 +230,7 @@ impl NewAccount {
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 #[allow(clippy::multiple_inherent_impl)]
 #[ffi_export]
@@ -274,7 +286,6 @@ impl Ord for Account {
     }
 }
 
-#[ffi_export]
 impl Account {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]
@@ -432,6 +443,7 @@ impl FromIterator<Account> for crate::Value {
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 #[display(fmt = "{name}@{domain_id}")]
 pub struct Id {

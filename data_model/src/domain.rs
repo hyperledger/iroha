@@ -71,7 +71,17 @@ impl From<GenesisDomain> for Domain {
 
 /// Builder which can be submitted in a transaction to create a new [`Domain`]
 #[derive(
-    Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
+    IntoFfi,
 )]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "[{id}]")]
@@ -348,7 +358,7 @@ impl FromIterator<Domain> for crate::Value {
 
 /// Represents path in IPFS. Performs checks to ensure path validity.
 /// Construct using [`FromStr::from_str`] method.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema, IntoFfi)]
 pub struct IpfsPath(ConstString);
 
 impl FromStr for IpfsPath {
@@ -451,6 +461,7 @@ impl Decode for IpfsPath {
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
 )]
 #[display(fmt = "{name}")]
 pub struct Id {

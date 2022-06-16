@@ -8,7 +8,7 @@ use core::borrow::Borrow;
 use std::collections::btree_map;
 
 use derive_more::Display;
-use iroha_ffi::ffi_export;
+use iroha_ffi::{ffi_export, IntoFfi};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -79,13 +79,14 @@ impl Limits {
     Default,
     PartialEq,
     Eq,
+    PartialOrd,
+    Ord,
     Decode,
     Encode,
     Deserialize,
     Serialize,
     IntoSchema,
-    PartialOrd,
-    Ord,
+    IntoFfi,
 )]
 #[serde(transparent)]
 #[allow(clippy::multiple_inherent_impl)]
@@ -97,7 +98,6 @@ pub struct Metadata {
 /// A path slice, composed of [`Name`]s.
 pub type Path = [Name];
 
-#[ffi_export]
 impl Metadata {
     /// Constructor.
     #[inline]

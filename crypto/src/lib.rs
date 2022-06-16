@@ -519,7 +519,6 @@ pub struct PrivateKey {
     payload: Vec<u8>,
 }
 
-#[ffi_export]
 #[allow(clippy::multiple_inherent_impl)]
 impl PrivateKey {
     /// Key payload
