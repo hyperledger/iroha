@@ -14,6 +14,7 @@ use crate::HashOf;
 #[derive(Debug)]
 pub struct MerkleTree<T> {
     root_node: Node<T>,
+    height: u32,
 }
 
 impl<T: IntoSchema> IntoSchema for MerkleTree<T> {
@@ -80,10 +81,12 @@ impl<T> FromIterator<HashOf<T>> for MerkleTree<T> {
         nodes.make_contiguous().sort_unstable_by_key(Node::hash);
 
         let n_leaves = nodes.len();
-        let mut base_len = 0;
+        let mut height = 0;
+        let mut base_len = 1;
         for depth in 0.. {
             base_len = 2_usize.pow(depth);
             if n_leaves <= base_len {
+                height = depth;
                 break;
             }
         }
@@ -91,17 +94,19 @@ impl<T> FromIterator<HashOf<T>> for MerkleTree<T> {
             nodes.push_back(Node::Empty);
         }
 
-        while nodes.len() > 1 {
-            if let Some(node_a) = nodes.pop_front() {
-                let pop_front = nodes.pop_front();
-                nodes.push_back(match pop_front {
-                    Some(node_b) => Node::from_nodes(node_a, node_b),
-                    None => Node::from_node(node_a),
-                });
+        while let Some(node_l) = nodes.pop_front() {
+            match nodes.pop_front() {
+                Some(node_r) => nodes.push_back(Node::from_nodes(node_l, node_r)),
+                None => {
+                    nodes.push_back(node_l);
+                    break;
+                }
             }
         }
+
         Self {
             root_node: nodes.pop_front().unwrap_or(Node::Empty),
+            height,
         }
     }
 }
@@ -111,12 +116,29 @@ impl<T> MerkleTree<T> {
     pub const fn new() -> Self {
         MerkleTree {
             root_node: Node::Empty,
+            height: 0,
         }
     }
 
     /// Get the hash of the `idx`-th leaf node.
     pub fn get_leaf(&self, idx: usize) -> Option<HashOf<T>> {
-        self.iter().nth(idx)
+        if 2_usize.pow(self.height) <= idx {
+            return None;
+        }
+        let mut node = &self.root_node;
+        let mut path = idx;
+        for depth in 1..=self.height {
+            let divisor = 2_usize.pow(self.height - depth);
+            if let Node::Subtree(subtree) = node {
+                match path.div_euclid(divisor) {
+                    0 => node = &*subtree.left,
+                    1 => node = &*subtree.right,
+                    _ => unreachable!(),
+                }
+            }
+            path %= divisor;
+        }
+        node.leaf_hash()
     }
 
     /// Get the hashes of the leaf nodes.
@@ -124,8 +146,8 @@ impl<T> MerkleTree<T> {
         self.nodes().filter_map(Node::leaf_hash)
     }
 
-    /// Get the hash of the root node.
-    pub const fn root_hash(&self) -> Option<HashOf<Self>> {
+    /// Get the hash of [`MerkleTree`] as the hash of its root node.
+    pub const fn hash(&self) -> Option<HashOf<Self>> {
         if let Some(hash) = self.root_node.hash() {
             return Some(hash.transmute());
         }
@@ -134,20 +156,14 @@ impl<T> MerkleTree<T> {
 
     /// Get a BFS iterator over the tree.
     fn nodes(&self) -> BreadthFirstNodeIterator<T> {
-        BreadthFirstNodeIterator::new(&self.root_node)
+        BreadthFirstNodeIterator::new(self)
     }
 
     /// Insert `hash` into the tree.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn add(&self, hash: HashOf<T>) -> Self {
-        self.iter().chain(core::iter::once(hash)).collect()
-    }
-}
-
-impl<T> Default for MerkleTree<T> {
-    fn default() -> Self {
-        MerkleTree::new()
+        self.iter().chain([hash]).collect()
     }
 }
 
@@ -158,15 +174,6 @@ impl<T> Node<T> {
             hash: Self::nodes_pair_hash(&left, &right),
             left: Box::new(left),
             right: Box::new(right),
-        })
-    }
-
-    #[cfg(feature = "std")]
-    fn from_node(left: Self) -> Self {
-        Self::Subtree(Subtree {
-            hash: left.hash(),
-            left: Box::new(left),
-            right: Box::new(Node::Empty),
         })
     }
 
@@ -215,10 +222,10 @@ impl<T> Node<T> {
 
 impl<'itm, T> BreadthFirstNodeIterator<'itm, T> {
     #[inline]
-    fn new(root: &'itm Node<T>) -> Self {
-        Self {
-            queue: VecDeque::from(vec![root]),
-        }
+    fn new(tree: &'itm MerkleTree<T>) -> Self {
+        let mut queue = VecDeque::with_capacity(2_usize.pow(tree.height));
+        queue.push_back(&tree.root_node);
+        Self { queue }
     }
 }
 
@@ -250,15 +257,7 @@ mod tests {
     use crate::Hash;
 
     impl<T> MerkleTree<T> {
-        fn size(&self) -> usize {
-            self.nodes().count()
-        }
-
-        fn depth(&self) -> u32 {
-            usize::BITS - self.size().leading_zeros()
-        }
-
-        fn leaves_at(&self) -> Vec<usize> {
+        fn leaf_indices(&self) -> Vec<usize> {
             self.nodes()
                 .enumerate()
                 .filter_map(|(i, node)| matches!(node, Node::Leaf(_)).then(|| i))
@@ -286,9 +285,9 @@ mod tests {
         //   /\      /\      /\      /\
         // #7  #8  #9  #a  #b  #c  #d  #e
         // 01  02  03  04  05  **  **  **
-        assert_eq!(tree.size(), 0b1111);
-        assert_eq!(tree.depth(), 4);
-        assert_eq!(tree.leaves_at(), (0x7..=0xb).collect::<Vec<_>>());
+        assert_eq!(tree.nodes().count(), 0b1111);
+        assert_eq!(tree.height, 3);
+        assert_eq!(tree.leaf_indices(), (0x7..=0xb).collect::<Vec<_>>());
     }
 
     #[test]
@@ -300,7 +299,7 @@ mod tests {
         hashes_randomized.shuffle(&mut rand::thread_rng());
         let tree = hashes_randomized.into_iter().collect::<MerkleTree<_>>();
 
-        for i in 0..N_LEAVES as usize {
+        for i in 0..N_LEAVES as usize * 2 {
             assert_eq!(tree.get_leaf(i).as_ref(), hashes_sorted.get(i))
         }
         for (testee_hash, tester_hash) in tree.iter().zip(hashes_sorted) {
@@ -322,7 +321,7 @@ mod tests {
             tree_reproduced = tree_reproduced.add(leaf_hash)
         }
 
-        assert_eq!(tree_reproduced.root_hash(), tree.root_hash());
+        assert_eq!(tree_reproduced.hash(), tree.hash());
         for (testee_node, tester_node) in tree_reproduced.nodes().zip(tree.nodes()) {
             assert_eq!(testee_node.hash(), tester_node.hash());
         }

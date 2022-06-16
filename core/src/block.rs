@@ -338,13 +338,13 @@ impl ChainedBlock {
             .iter()
             .map(VersionedValidTransaction::hash)
             .collect::<MerkleTree<_>>()
-            .root_hash()
+            .hash()
             .unwrap_or(Hash::zeroed().typed());
         header.rejected_transactions_hash = rejected
             .iter()
             .map(VersionedRejectedTransaction::hash)
             .collect::<MerkleTree<_>>()
-            .root_hash()
+            .hash()
             .unwrap_or(Hash::zeroed().typed());
         let event_recommendations = self.event_recommendations;
         // TODO: Validate Event recommendations somehow?
@@ -661,14 +661,12 @@ impl From<&ValidBlock> for Vec<Event> {
                 )
                 .into()
             }))
-            .chain(iter::once(
-                PipelineEvent::new(
-                    PipelineEntityKind::Block,
-                    PipelineStatus::Validating,
-                    block.hash().into(),
-                )
-                .into(),
-            ))
+            .chain([PipelineEvent::new(
+                PipelineEntityKind::Block,
+                PipelineStatus::Validating,
+                block.hash().into(),
+            )
+            .into()])
             .collect()
     }
 }
