@@ -366,9 +366,7 @@ TEST_F(OnDemandOsTest, RejectCommit) {
   ASSERT_EQ(2, boost::size(proposal->operator[](0).first->transactions()));
 
   proposal = os->onRequestProposal(commit_round);
-  ASSERT_TRUE(proposal);
-  ASSERT_TRUE(!proposal->empty());
-  ASSERT_EQ(2, boost::size(proposal->operator[](0).first->transactions()));
+  ASSERT_FALSE(proposal);
 }
 
 /**
