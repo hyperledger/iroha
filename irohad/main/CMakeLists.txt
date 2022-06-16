@@ -96,6 +96,7 @@ target_link_libraries(application
     generator
     async_subscription
     iroha_http_server
+    iroha_conf_loader
     )
 
 add_executable(irohad irohad.cpp)

@@ -25,14 +25,14 @@ namespace integration_framework::fake_peer {
         std::make_shared<BatchesCollection>(std::move(batches)));
   }
 
-  OnDemandOsNetworkNotifier::PackedProposalData
+  iroha::ordering::PackedProposalData
   OnDemandOsNetworkNotifier::waitForLocalProposal(
       iroha::consensus::Round const &round,
       std::chrono::milliseconds const & /*delay*/) {
     return onRequestProposal(round);
   }
 
-  OnDemandOsNetworkNotifier::PackedProposalData
+  iroha::ordering::PackedProposalData
   OnDemandOsNetworkNotifier::onRequestProposal(iroha::consensus::Round round) {
     {
       std::lock_guard<std::mutex> guard(rounds_subject_mutex_);
@@ -44,11 +44,11 @@ namespace integration_framework::fake_peer {
     if (behaviour) {
       auto opt_proposal = behaviour->processOrderingProposalRequest(round);
       if (opt_proposal) {
-        return std::make_pair(
+        return iroha::ordering::PackedProposalData {{std::make_pair(
             std::shared_ptr<const shared_model::interface::Proposal>(
                 std::static_pointer_cast<const shared_model::proto::Proposal>(
                     *opt_proposal)),
-            iroha::ordering::BloomFilter256{});
+            iroha::ordering::BloomFilter256{})}};
       }
     }
     return {};
@@ -71,6 +71,10 @@ namespace integration_framework::fake_peer {
 
   bool OnDemandOsNetworkNotifier::hasEnoughBatchesInCache() const {
     return false;
+  }
+
+  uint32_t OnDemandOsNetworkNotifier::availableTxsCountBatchesCache() {
+    return 0ul;
   }
 
   void OnDemandOsNetworkNotifier::processReceivedProposal(
