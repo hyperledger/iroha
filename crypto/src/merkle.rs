@@ -207,7 +207,7 @@ impl<T> Node<T> {
             .as_ref()
             .iter()
             .zip(right_hash.as_ref().iter())
-            .map(|(l, r)| l.saturating_add(*r))
+            .map(|(l, r)| l.wrapping_add(*r))
             .collect();
         Some(crate::Hash::new(sum).typed())
     }
