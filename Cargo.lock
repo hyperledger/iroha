@@ -3580,6 +3580,7 @@ dependencies = [
  "iroha_core",
  "iroha_data_model",
  "iroha_logger",
+ "iroha_permissions_validators",
  "rand 0.8.5",
  "tempfile",
  "tokio",

@@ -7,7 +7,6 @@ use iroha_client::client::{self, Client};
 use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain::{
-    self,
     key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
     transfer,
 };
@@ -127,10 +126,8 @@ fn register_role_with_empty_token_params() -> Result<()> {
 /// @s8sato added: This test represents #2081 case.
 #[test]
 fn register_and_grant_role_for_metadata_access() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new()
-        .with_instruction_validator(public_blockchain::default_permissions())
-        .with_query_validator(AllowAll)
-        .start_with_runtime();
+    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland")?;
@@ -162,17 +159,26 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
     let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+    let bob_id: <Account as Identifiable>::Id = "bob@wonderland".parse().expect("Valid");
+
+    // Registering Bob
+    let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
+    test_client.submit_blocking(register_bob)?;
 
     // Register root role
-    let register_role = RegisterBox::new(NewRole::new(role_id.clone()).build());
+    let register_role = RegisterBox::new(
+        NewRole::new(role_id.clone())
+            .add_permission(CanSetKeyValueInUserMetadata::new(alice_id))
+            .build(),
+    );
     test_client.submit_blocking(register_role)?;
 
     // Grant root role to Alice
-    let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
+    let grant_role = GrantBox::new(role_id.clone(), bob_id.clone());
     test_client.submit_blocking(grant_role)?;
 
     // Check that Alice has root role
-    let found_alice_roles = test_client.request(client::role::by_account_id(alice_id.clone()))?;
+    let found_alice_roles = test_client.request(client::role::by_account_id(bob_id.clone()))?;
     assert!(found_alice_roles.contains(&role_id));
 
     // Unregister root role
@@ -180,7 +186,7 @@ fn unregistered_role_removed_from_account() -> Result<()> {
     test_client.submit_blocking(unregister_role)?;
 
     // Check that Alice doesn't have the root role
-    let found_alice_roles = test_client.request(client::role::by_account_id(alice_id))?;
+    let found_alice_roles = test_client.request(client::role::by_account_id(bob_id))?;
     assert!(!found_alice_roles.contains(&role_id));
 
     Ok(())

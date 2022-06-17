@@ -631,9 +631,9 @@ where
             WithGenesis::<G>::None => None,
             WithGenesis::<G>::Has(genesis) => Some(genesis),
         };
-        let instruction_validator = self
-            .instruction_validator
-            .unwrap_or_else(|| AllowAll.into());
+        let instruction_validator = self.instruction_validator.unwrap_or_else(|| {
+            iroha_permissions_validators::public_blockchain::default_permissions()
+        });
         let query_validator = self.query_validator.unwrap_or_else(|| AllowAll.into());
         let temp_dir = self
             .temp_dir

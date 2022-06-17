@@ -6,6 +6,7 @@ use eyre::Result;
 use iroha_client::client;
 use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_data_model::prelude::*;
+use iroha_permissions_validators::public_blockchain::key_value::CanSetKeyValueInUserMetadata;
 use test_network::*;
 
 fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
@@ -118,10 +119,18 @@ fn find_roles_by_account_id() -> Result<()> {
     let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
 
     // Registering roles
+    println!("Registering roles");
     let register_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| RegisterBox::new(NewRole::new(role_id).build()).into())
+        .map(|role_id| {
+            RegisterBox::new(
+                NewRole::new(role_id)
+                    .add_permission(CanSetKeyValueInUserMetadata::new(alice_id.clone()))
+                    .build(),
+            )
+            .into()
+        })
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
 
