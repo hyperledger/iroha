@@ -1,13 +1,9 @@
 #![allow(clippy::restriction, clippy::pedantic)]
 
-use std::thread;
-
 use iroha_client::client;
 use iroha_core::prelude::*;
 use iroha_data_model::{prelude::*, Registered};
 use test_network::*;
-
-use super::Configuration;
 
 #[test]
 fn simulate_transfer_quantity() {
@@ -53,59 +49,44 @@ fn simulate_transfer<
 {
     let (_rt, _peer, mut iroha_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
-    let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(Domain::new("domain".parse().expect("Valid")));
-    let account1_id: AccountId = "account1@domain".parse().expect("Valid");
-    let account2_id: AccountId = "account2@domain".parse().expect("Valid");
-    let (public_key1, _) = KeyPair::generate()
+    let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
+    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
+    let (bob_public_key, _) = KeyPair::generate()
         .expect("Failed to generate KeyPair")
         .into();
-    let (public_key2, _) = KeyPair::generate()
-        .expect("Failed to generate KeyPair")
-        .into();
-    let create_account1 = RegisterBox::new(Account::new(account1_id.clone(), [public_key1]));
-    let create_account2 = RegisterBox::new(Account::new(account2_id.clone(), [public_key2]));
-    let asset_definition_id: AssetDefinitionId = "xor#domain".parse().expect("Valid");
+    let create_bob = RegisterBox::new(Account::new(bob_id.clone(), [bob_public_key]));
+    let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
     let create_asset = RegisterBox::new(value_type(asset_definition_id.clone()));
     let mint_asset = MintBox::new(
         Value::from(starting_amount),
-        IdBox::AssetId(AssetId::new(
-            asset_definition_id.clone(),
-            account1_id.clone(),
-        )),
+        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id.clone())),
     );
 
     iroha_client
-        .submit_all(vec![
-            create_domain.into(),
-            create_account1.into(),
-            create_account2.into(),
+        .submit_all_blocking(vec![
+            // create_alice.into(), We don't need to register Alice, because she is created in genesis
+            create_bob.into(),
             create_asset.into(),
             mint_asset.into(),
         ])
         .expect("Failed to prepare state.");
 
-    thread::sleep(pipeline_time * 2);
-
     //When
     let transfer_asset = TransferBox::new(
-        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), account1_id)),
+        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id)),
         Value::from(amount_to_transfer.clone()),
-        IdBox::AssetId(AssetId::new(
-            asset_definition_id.clone(),
-            account2_id.clone(),
-        )),
+        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
     );
     iroha_client
         .submit_till(
             transfer_asset,
-            client::asset::by_account_id(account2_id.clone()),
+            client::asset::by_account_id(bob_id.clone()),
             |result| {
                 result.iter().any(|asset| {
                     asset.id().definition_id == asset_definition_id
                         && *asset.value() == amount_to_transfer.clone().into()
-                        && asset.id().account_id == account2_id
+                        && asset.id().account_id == bob_id
                 })
             },
         )
