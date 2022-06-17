@@ -162,7 +162,7 @@ impl KeyGenConfiguration {
 /// Pair of Public and Private keys.
 #[derive(Debug, Clone, PartialEq, Eq, Getters, Serialize)]
 #[getset(get = "pub")]
-pub struct KeyPair {
+pub struct KeyPair<const HASH_LENGTH: usize> {
     /// Public Key.
     public_key: PublicKey,
     /// Private Key.
@@ -209,7 +209,7 @@ impl From<NoSuchAlgorithm> for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-impl KeyPair {
+impl<const HASH_LENGTH: usize> KeyPair<HASH_LENGTH> {
     /// Digest function
     pub fn digest_function(&self) -> Algorithm {
         self.private_key.digest_function()
@@ -258,7 +258,7 @@ impl KeyPair {
                     private_key,
                 };
 
-                SignatureOf::new(key_pair.clone(), &dummy_payload)?
+                SignatureOf::<_, HASH_LENGTH>::new(key_pair.clone(), &dummy_payload)?
                     .verify(&dummy_payload)
                     .map_err(|_err| Error::KeyGen(String::from("Key pair mismatch")))?;
 
@@ -309,7 +309,7 @@ impl KeyPair {
 }
 
 #[cfg(feature = "std")]
-impl<'de> Deserialize<'de> for KeyPair {
+impl<'de, const HASH_LENGTH: usize> Deserialize<'de> for KeyPair<HASH_LENGTH> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -323,12 +323,13 @@ impl<'de> Deserialize<'de> for KeyPair {
         }
 
         let key_pair = KeyPair::deserialize(deserializer)?;
-        Self::new(key_pair.public_key, key_pair.private_key).map_err(D::Error::custom)
+        Self::new(key_pair.public_key, key_pair.private_key)
+            .map_err(D::Error::custom)
     }
 }
 
-impl From<KeyPair> for (PublicKey, PrivateKey) {
-    fn from(key_pair: KeyPair) -> Self {
+impl<const HASH_LENGTH: usize> From<KeyPair<HASH_LENGTH>> for (PublicKey, PrivateKey) {
+    fn from(key_pair: KeyPair<HASH_LENGTH>) -> Self {
         (key_pair.public_key, key_pair.private_key)
     }
 }
@@ -569,9 +570,11 @@ mod tests {
 
     use super::*;
 
+    const HASH_LENGTH: usize = 32;
+
     #[test]
     fn key_pair_match() {
-        assert!(KeyPair::new("ed012059c8a4da1ebb5380f74aba51f502714652fdcce9611fafb9904e4a3c4d382774"
+        assert!(KeyPair::<HASH_LENGTH>::new("ed012059c8a4da1ebb5380f74aba51f502714652fdcce9611fafb9904e4a3c4d382774"
             .parse()
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
@@ -579,7 +582,7 @@ mod tests {
             "93ca389fc2979f3f7d2a7f8b76c70de6d5eaf5fa58d4f93cb8b0fb298d398acc59c8a4da1ebb5380f74aba51f502714652fdcce9611fafb9904e4a3c4d382774"
         ).expect("Private key not hex encoded")).is_ok());
 
-        assert!(KeyPair::new("ea0161040fcfade2fc5d9104a9acf9665ea545339ddf10ae50343249e01af3b8f885cd5d52956542cce8105db3a2ec4006e637a7177faaea228c311f907daafc254f22667f1a1812bb710c6f4116a1415275d27bb9fb884f37e8ef525cc31f3945e945fa"
+        assert!(KeyPair::<HASH_LENGTH>::new("ea0161040fcfade2fc5d9104a9acf9665ea545339ddf10ae50343249e01af3b8f885cd5d52956542cce8105db3a2ec4006e637a7177faaea228c311f907daafc254f22667f1a1812bb710c6f4116a1415275d27bb9fb884f37e8ef525cc31f3945e945fa"
             .parse()
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
@@ -590,7 +593,7 @@ mod tests {
 
     #[test]
     fn key_pair_mismatch() {
-        assert!(KeyPair::new("ed012059c8a4da1ebb5380f74aba51f502714652fdcce9611fafb9904e4a3c4d382774"
+        assert!(KeyPair::<HASH_LENGTH>::new("ed012059c8a4da1ebb5380f74aba51f502714652fdcce9611fafb9904e4a3c4d382774"
             .parse()
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
@@ -598,7 +601,7 @@ mod tests {
             "0000000000000000000000000000000049bf70187154c57b97af913163e8e875733b4eaf1f3f0689b31ce392129493e9"
         ).expect("Private key not hex encoded")).is_err());
 
-        assert!(KeyPair::new("ea0161040fcfade2fc5d9104a9acf9665ea545339ddf10ae50343249e01af3b8f885cd5d52956542cce8105db3a2ec4006e637a7177faaea228c311f907daafc254f22667f1a1812bb710c6f4116a1415275d27bb9fb884f37e8ef525cc31f3945e945fa"
+        assert!(KeyPair::<HASH_LENGTH>::new("ea0161040fcfade2fc5d9104a9acf9665ea545339ddf10ae50343249e01af3b8f885cd5d52956542cce8105db3a2ec4006e637a7177faaea228c311f907daafc254f22667f1a1812bb710c6f4116a1415275d27bb9fb884f37e8ef525cc31f3945e945fa"
             .parse()
             .expect("Public key not in mulithash format"),
         PrivateKey::from_hex(
