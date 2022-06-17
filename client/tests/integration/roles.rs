@@ -7,6 +7,7 @@ use iroha_client::client::{self, Client};
 use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain::{
+    self,
     key_value::{CanRemoveKeyValueInUserMetadata, CanSetKeyValueInUserMetadata},
     transfer,
 };
@@ -126,28 +127,29 @@ fn register_role_with_empty_token_params() -> Result<()> {
 /// @s8sato added: This test represents #2081 case.
 #[test]
 fn register_and_grant_role_for_metadata_access() -> Result<()> {
-    let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
-    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+    let (_rt, _peer, test_client) = <PeerBuilder>::new()
+        .with_instruction_validator(public_blockchain::default_permissions())
+        .with_query_validator(AllowAll)
+        .start_with_runtime();
 
+    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
     let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland")?;
+
     let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
     test_client.submit_blocking(register_bob)?;
 
     let role_id = <Role as Identifiable>::Id::from_str("USER_METADATA_ACCESS")?;
-
     let role = iroha_data_model::role::NewRole::new(role_id.clone())
-        .add_permission(CanSetKeyValueInUserMetadata::new(bob_id.clone()))
-        .add_permission(CanRemoveKeyValueInUserMetadata::new(bob_id))
+        .add_permission(CanSetKeyValueInUserMetadata::new(alice_id.clone()))
+        .add_permission(CanRemoveKeyValueInUserMetadata::new(alice_id))
         .build();
     let register_role = RegisterBox::new(role);
     test_client.submit_blocking(register_role)?;
 
-    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
-    let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
+    let grant_role = GrantBox::new(role_id.clone(), bob_id.clone());
     test_client.submit_blocking(grant_role)?;
 
-    let found_role_ids = test_client.request(client::role::by_account_id(alice_id))?;
-
+    let found_role_ids = test_client.request(client::role::by_account_id(bob_id))?;
     assert!(found_role_ids.contains(&role_id));
 
     Ok(())
