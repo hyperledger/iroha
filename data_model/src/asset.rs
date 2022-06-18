@@ -182,7 +182,10 @@ impl Ord for AssetDefinition {
     Deserialize,
     Serialize,
     IntoSchema,
+    IntoFfi,
+    TryFromFfi,
 )]
+#[repr(u8)]
 pub enum Mintable {
     /// Regular asset with elastic supply. Can be minted and burned.
     #[display(fmt = "+")]
@@ -240,7 +243,10 @@ pub struct Asset {
     Serialize,
     IntoSchema,
     EnumString,
+    IntoFfi,
+    TryFromFfi,
 )]
+#[repr(u8)]
 pub enum AssetValueType {
     /// Asset's Quantity.
     #[display(fmt = "q")]
@@ -269,7 +275,10 @@ pub enum AssetValueType {
     Serialize,
     FromVariant,
     IntoSchema,
+    IntoFfi,
+    TryFromFfi,
 )]
+#[repr(u8)]
 pub enum AssetValue {
     /// Asset's Quantity.
     #[display(fmt = "{_0}q")]

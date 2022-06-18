@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use proc_macro2::TokenStream;
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
-use syn::{parse_quote, Ident, ItemStruct};
-
-use crate::arg::Arg;
+use syn::{parse_quote, Ident, ItemStruct, Type};
 
 /// Type of accessor method derived for a structure
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -103,45 +101,37 @@ fn gen_ffi_fn_name(struct_name: &Ident, derive_method_name: &syn::Ident) -> syn:
     )
 }
 
-fn gen_null_ptr_check(arg: &Ident) -> TokenStream {
-    quote! {
-        if #arg.is_null() {
-            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-            return iroha_ffi::FfiResult::ArgIsNull;
-        }
-    }
-}
-
-fn gen_ffi_fn_args(handle: &Arg, field: &Arg, derive: Derive) -> TokenStream {
-    let (handle_name, handle_ffi_type) = (&handle.name, &handle.ffi_type);
-    let (field_name, field_ffi_type) = (&field.name, &field.ffi_type);
+fn gen_ffi_fn_args(handle: (&Ident, &Type), field: (&Ident, &Type), derive: Derive) -> TokenStream {
+    let (handle_name, handle_type) = (&handle.0, handle.1.clone());
+    let (field_name, field_type) = (&field.0, field.1.clone());
 
     match derive {
         Derive::Setter => quote! {
-            #handle_name: #handle_ffi_type, #field_name: #field_ffi_type
+            #handle_name: <#handle_type as iroha_ffi::IntoFfi>::FfiType,
+            #field_name: <#field_type as iroha_ffi::IntoFfi>::FfiType,
         },
         Derive::Getter | Derive::MutGetter => quote! {
-            #handle_name: #handle_ffi_type, #field_name: *mut #field_ffi_type
+            #handle_name: <#handle_type as iroha_ffi::IntoFfi>::FfiType,
+            #field_name: <#field_type as iroha_ffi::IntoFfi>::OutFfiType,
         },
     }
 }
 
-fn gen_ffi_fn_body(method_name: &Ident, handle: &Arg, field: &Arg, derive: Derive) -> TokenStream {
-    let handle_name = &handle.name;
-    let field_name = &field.name;
+fn gen_ffi_fn_body(
+    method_name: &Ident,
+    handle: (&Ident, &Type),
+    field: (&Ident, &Type),
+    derive: Derive,
+) -> TokenStream {
+    let (handle_name, handle_type) = (&handle.0, handle.1.clone());
+    let (field_name, field_type) = (&field.0, field.1.clone());
 
     match derive {
         Derive::Setter => {
-            let null_ptr_checks = vec![gen_null_ptr_check(handle_name)];
-
-            let handle_ffi_to_src = &handle.ffi_to_src;
-            let field_ffi_to_src = &field.ffi_to_src;
-
             quote! {
-                #( #null_ptr_checks )*
-
-                #handle_ffi_to_src
-                #field_ffi_to_src
+                // TODO: Handle unwrap
+                let #handle_name = <#handle_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name).unwrap();
+                let #field_name = <#field_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name).unwrap();
 
                 #handle_name.#method_name(#field_name);
 
@@ -149,23 +139,12 @@ fn gen_ffi_fn_body(method_name: &Ident, handle: &Arg, field: &Arg, derive: Deriv
             }
         }
         Derive::Getter | Derive::MutGetter => {
-            let null_ptr_checks = vec![
-                gen_null_ptr_check(handle_name),
-                gen_null_ptr_check(field_name),
-            ];
-
-            let handle_ffi_to_src = &handle.ffi_to_src;
-            let output_src_to_ffi = &field.src_to_ffi;
-
             quote! {
-                #( #null_ptr_checks )*
-
-                #handle_ffi_to_src
-                let __output_ptr = #field_name;
+                // TODO: Handle unwrap
+                let #handle_name = <#handle_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name).unwrap();
+                let __out_ptr = #field_name;
                 let #field_name = #handle_name.#method_name();
-                #output_src_to_ffi
-
-                __output_ptr.write(#field_name);
+                <#field_type as iroha_ffi::IntoFfi>::write_out(#field_name, __out_ptr);
                 iroha_ffi::FfiResult::Ok
             }
         }
@@ -173,34 +152,37 @@ fn gen_ffi_fn_body(method_name: &Ident, handle: &Arg, field: &Arg, derive: Deriv
 }
 
 fn gen_ffi_derive(struct_name: &Ident, field: &syn::Field, derive: Derive) -> syn::ItemFn {
+    let handle_name = Ident::new("__handle", proc_macro2::Span::call_site());
     let field_name = field.ident.as_ref().expect_or_abort("Defined");
 
-    let self_ty = parse_quote! {#struct_name};
+    //let field_name = match derive {
+    //    Derive::Setter => parse_quote! {field},
+    //    Derive::Getter | Derive::MutGetter => parse_quote! {output},
+    //};
     let field_ty = field.ty.clone();
-    let (handle, arg) = match derive {
-        Derive::Setter => (
-            Arg::handle(&self_ty, parse_quote! {&mut #struct_name}),
-            Arg::input(&self_ty, parse_quote! {field}, field_ty),
-        ),
-        Derive::Getter => (
-            Arg::handle(&self_ty, parse_quote! {&#struct_name}),
-            Arg::output(&self_ty, parse_quote! {output}, parse_quote! {&#field_ty}),
-        ),
+    let (handle_type, field_type) = match derive {
+        Derive::Setter => (parse_quote! {&mut #struct_name}, field_ty),
+        Derive::Getter => (parse_quote! {&#struct_name}, parse_quote! {&#field_ty}),
         Derive::MutGetter => (
-            Arg::handle(&self_ty, parse_quote! {&mut #struct_name}),
-            Arg::output(
-                &self_ty,
-                parse_quote! {output},
-                parse_quote! {&mut #field_ty},
-            ),
+            parse_quote! {&mut #struct_name},
+            parse_quote! {&mut #field_ty},
         ),
     };
 
     let derive_method_name = gen_derive_method_name(field_name, derive);
     let ffi_fn_name = gen_ffi_fn_name(struct_name, &derive_method_name);
     let ffi_fn_doc = gen_ffi_docs(struct_name, &derive_method_name);
-    let ffi_fn_args = gen_ffi_fn_args(&handle, &arg, derive);
-    let ffi_fn_body = gen_ffi_fn_body(&derive_method_name, &handle, &arg, derive);
+    let ffi_fn_args = gen_ffi_fn_args(
+        (&handle_name, &handle_type),
+        (field_name, &field_type),
+        derive,
+    );
+    let ffi_fn_body = gen_ffi_fn_body(
+        &derive_method_name,
+        (&handle_name, &handle_type),
+        (field_name, &field_type),
+        derive,
+    );
 
     parse_quote! {
         #[doc = #ffi_fn_doc]

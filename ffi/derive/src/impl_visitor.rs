@@ -2,14 +2,17 @@ use proc_macro2::Span;
 use proc_macro_error::{abort, OptionExt};
 use syn::{parse_quote, visit::Visit, Ident, Type};
 
-use crate::{arg::Arg, get_ident};
+use crate::get_ident;
 
 pub struct ImplDescriptor<'ast> {
+    /// Associated types used by this method
+    pub associated_types: Vec<(&'ast Ident, &'ast Type)>,
     /// Functions in the impl block
     pub fns: Vec<FnDescriptor<'ast>>,
 }
 
 pub struct FnDescriptor<'ast> {
+    // TODO: Not needed?
     /// Resolved type of the `Self` type
     pub self_ty: &'ast syn::Path,
 
@@ -18,14 +21,17 @@ pub struct FnDescriptor<'ast> {
     /// Name of the method in the original implementation
     pub method_name: &'ast Ident,
     /// Receiver argument, i.e. `self`
-    pub receiver: Option<Arg>,
+    pub receiver: Option<(Ident, Type)>,
     /// Input fn arguments
-    pub input_args: Vec<Arg>,
+    pub input_args: Vec<(&'ast Ident, &'ast Type)>,
     /// Output fn argument
-    pub output_arg: Option<Arg>,
+    pub output_arg: Option<(Ident, &'ast Type)>,
 }
 
 struct ImplVisitor<'ast> {
+    trait_name: Option<&'ast syn::Path>,
+    /// Associated types used by this method
+    associated_types: Vec<(&'ast Ident, &'ast Type)>,
     /// Resolved type of the `Self` type
     self_ty: Option<&'ast syn::Path>,
     /// Collection of FFI functions
@@ -33,6 +39,7 @@ struct ImplVisitor<'ast> {
 }
 
 struct FnVisitor<'ast> {
+    // TODO: Not needed?
     /// Resolved type of the `Self` type
     self_ty: &'ast syn::Path,
 
@@ -41,11 +48,11 @@ struct FnVisitor<'ast> {
     /// Name of the method in the original implementation
     method_name: Option<&'ast Ident>,
     /// Receiver argument, i.e. `self`
-    receiver: Option<Arg>,
+    receiver: Option<(Ident, Type)>,
     /// Input fn arguments
-    input_args: Vec<Arg>,
+    input_args: Vec<(&'ast Ident, &'ast Type)>,
     /// Output fn argument
-    output_arg: Option<Arg>,
+    output_arg: Option<(Ident, &'ast Type)>,
 
     /// Name of the argument being visited
     curr_arg_name: Option<&'ast Ident>,
@@ -60,15 +67,18 @@ impl<'ast> ImplDescriptor<'ast> {
     }
 
     fn from_visitor(visitor: ImplVisitor<'ast>) -> Self {
-        Self { fns: visitor.fns }
+        Self {
+            fns: visitor.fns,
+            associated_types: visitor.associated_types,
+        }
     }
 }
 
 impl<'ast> FnDescriptor<'ast> {
     fn from_impl_method(self_ty: &'ast syn::Path, node: &'ast syn::ImplItemMethod) -> Self {
         let mut visitor = FnVisitor::new(self_ty);
-        visitor.visit_impl_item_method(node);
 
+        visitor.visit_impl_item_method(node);
         FnDescriptor::from_visitor(visitor)
     }
 
@@ -91,6 +101,8 @@ impl<'ast> FnDescriptor<'ast> {
 impl<'ast> ImplVisitor<'ast> {
     const fn new() -> Self {
         Self {
+            trait_name: None,
+            associated_types: Vec::new(),
             self_ty: None,
             fns: vec![],
         }
@@ -124,10 +136,9 @@ impl<'ast> FnVisitor<'ast> {
         }
     }
 
-    fn add_input_arg(&mut self, src_type: Type) {
+    fn add_input_arg(&mut self, src_type: &'ast Type) {
         let arg_name = self.curr_arg_name.take().expect_or_abort("Defined");
-        self.input_args
-            .push(Arg::input(self.self_ty, arg_name.clone(), src_type));
+        self.input_args.push((arg_name, src_type));
     }
 
     /// Produces name of the return type. Name of the self argument is used for dummy
@@ -135,28 +146,28 @@ impl<'ast> FnVisitor<'ast> {
     /// used to signal that the self type passes through the method being transcribed
     fn gen_output_arg_name(&mut self, output_src_type: &Type) -> Ident {
         if let Some(receiver) = &mut self.receiver {
-            let self_src_ty = &mut receiver.src_type;
+            let self_src_ty = &mut receiver.1;
 
             if *self_src_ty == *output_src_type {
                 if matches!(self_src_ty, Type::Path(_)) {
                     // NOTE: `Self` is first consumed and then returned in the same method
-                    let name = core::mem::replace(&mut receiver.name, parse_quote! {irrelevant});
-                    *receiver = Arg::output(self.self_ty, name, parse_quote! {#self_src_ty});
+                    let name = core::mem::replace(&mut receiver.0, parse_quote! {irrelevant});
+                    *receiver = (name, parse_quote! {#self_src_ty});
                 }
 
-                return receiver.name.clone();
+                return receiver.0.clone();
             }
         }
 
         Ident::new("__output", Span::call_site())
     }
 
-    fn add_output_arg(&mut self, src_type: Type) {
+    fn add_output_arg(&mut self, src_type: &'ast Type) {
         assert!(self.curr_arg_name.is_none());
         assert!(self.output_arg.is_none());
 
-        let arg_name = self.gen_output_arg_name(&src_type);
-        self.output_arg = Some(Arg::output(self.self_ty, arg_name, src_type));
+        let arg_name = self.gen_output_arg_name(src_type);
+        self.output_arg = Some((arg_name, src_type));
     }
 
     fn visit_impl_item_method_attribute(&mut self, node: &'ast syn::Attribute) {
@@ -186,30 +197,32 @@ impl<'ast> Visit<'ast> for ImplVisitor<'ast> {
         if node.unsafety.is_some() {
             // NOTE: Its's irrelevant
         }
-        if let Some(trait_) = &node.trait_ {
-            abort!(trait_.1, "Only inherent impls are supported");
-        }
+        self.trait_name = node.trait_.as_ref().map(|trait_| &trait_.1);
         self.visit_self_type(&*node.self_ty);
 
         for it in &node.items {
-            self.visit_impl_item(it);
+            match it {
+                syn::ImplItem::Method(method) => {
+                    let self_ty = self.self_ty.expect_or_abort("Defined");
+                    self.fns
+                        .push(FnDescriptor::from_impl_method(self_ty, method))
+                }
+                syn::ImplItem::Type(type_) => {
+                    self.associated_types.push((&type_.ident, &type_.ty));
+                }
+                _ => abort!(
+                    node,
+                    "Only methods or types are supported inside impl blocks"
+                ),
+            }
         }
     }
-    fn visit_impl_item(&mut self, node: &'ast syn::ImplItem) {
-        let self_ty = self.self_ty.expect_or_abort("Defined");
-
-        match node {
-            syn::ImplItem::Method(method) => {
-                self.fns
-                    .push(FnDescriptor::from_impl_method(self_ty, method));
-            }
-            _ => abort!(node, "Only methods are supported inside impl blocks"),
-        }
+    fn visit_impl_item(&mut self, _: &'ast syn::ImplItem) {
+        unreachable!("You souldn't have used this method")
     }
 }
 
 impl<'ast> Visit<'ast> for FnVisitor<'ast> {
-    // NOTE: Cloning to not take ownership
     fn visit_impl_item_method(&mut self, node: &'ast syn::ImplItemMethod) {
         for attr in &node.attrs {
             self.visit_impl_item_method_attribute(attr);
@@ -268,7 +281,8 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
             },
         );
 
-        self.receiver = Some(Arg::handle(self.self_ty, src_type));
+        let handle_name = Ident::new("__handle", Span::call_site());
+        self.receiver = Some((handle_name, src_type));
     }
 
     fn visit_pat_type(&mut self, node: &'ast syn::PatType) {
@@ -282,7 +296,7 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
             abort!(node.pat, "Unsupported pattern in variable name binding");
         }
 
-        self.add_input_arg((*node.ty).clone());
+        self.add_input_arg(&*node.ty);
     }
 
     fn visit_pat_ident(&mut self, node: &'ast syn::PatIdent) {
@@ -306,17 +320,17 @@ impl<'ast> Visit<'ast> for FnVisitor<'ast> {
         match node {
             syn::ReturnType::Default => {}
             syn::ReturnType::Type(_, src_type) => {
-                self.add_output_arg((**src_type).clone());
+                self.add_output_arg(&**src_type);
             }
         }
 
         if let Some(receiver) = &self.receiver {
-            let self_src_type = &receiver.src_type;
+            let self_src_type = &receiver.1;
 
             if matches!(self_src_type, Type::Path(_)) {
                 let output_arg = self.output_arg.as_ref();
 
-                if output_arg.map_or(true, |out_arg| receiver.name != out_arg.name) {
+                if output_arg.map_or(true, |out_arg| receiver.0 != out_arg.0) {
                     abort!(self_src_type, "Methods which consume self not supported");
                 }
             }

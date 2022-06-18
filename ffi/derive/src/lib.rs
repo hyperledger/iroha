@@ -7,9 +7,8 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
-use syn::{parse_macro_input, parse_quote, Attribute, Ident, Item};
+use syn::{parse_macro_input, parse_quote, visit_mut::VisitMut, Attribute, Ident, Item};
 
-mod arg;
 mod derive;
 mod export;
 mod impl_visitor;
@@ -443,4 +442,36 @@ fn enum_size(enum_name: &Ident, repr: &[syn::NestedMeta]) -> TokenStream2 {
 
 fn get_ident(path: &syn::Path) -> &Ident {
     &path.segments.last().expect_or_abort("Defined").ident
+}
+
+/// Visitor for path types which replaces all occurrences of `Self` with a fully qualified type
+struct SelfResolver<'ast> {
+    self_ty: &'ast syn::Path,
+}
+
+impl<'ast> SelfResolver<'ast> {
+    pub fn new(self_ty: &'ast syn::Path) -> Self {
+        Self { self_ty }
+    }
+}
+
+impl VisitMut for SelfResolver<'_> {
+    fn visit_path_mut(&mut self, node: &mut syn::Path) {
+        if node.leading_colon.is_some() {
+            // NOTE: It's irrelevant
+        }
+        for segment in &mut node.segments {
+            self.visit_path_arguments_mut(&mut segment.arguments);
+        }
+
+        if node.segments[0].ident == "Self" {
+            let mut node_segments = self.self_ty.segments.clone();
+
+            for segment in core::mem::take(&mut node.segments).into_iter().skip(1) {
+                node_segments.push(segment);
+            }
+
+            node.segments = node_segments;
+        }
+    }
 }
