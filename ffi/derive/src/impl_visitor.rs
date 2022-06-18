@@ -103,7 +103,7 @@ impl<'ast> FnDescriptor<'ast> {
 }
 
 impl<'ast> ImplVisitor<'ast> {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             self_ty: None,
             fns: vec![],
@@ -164,13 +164,13 @@ impl FnArgDescriptor {
         false
     }
 
-    pub fn is_ffi_ptr(&self) -> bool {
+    pub const fn is_ffi_ptr(&self) -> bool {
         matches!(self.ffi_type, Type::Ptr(_))
     }
 }
 
 impl<'ast> FnVisitor<'ast> {
-    pub fn new(self_ty: &'ast syn::Path) -> Self {
+    pub const fn new(self_ty: &'ast syn::Path) -> Self {
         Self {
             self_ty,
 
@@ -598,7 +598,7 @@ pub struct SelfResolver<'ast> {
 }
 
 impl<'ast> SelfResolver<'ast> {
-    pub fn new(self_ty: &'ast syn::Path) -> Self {
+    pub const fn new(self_ty: &'ast syn::Path) -> Self {
         Self { self_ty }
     }
 }

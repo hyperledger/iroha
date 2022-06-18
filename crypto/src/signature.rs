@@ -91,7 +91,7 @@ impl Signature {
     /// Prefer creating new signatures with [`SignatureOf::new`] whenever possible
     #[inline]
     #[cfg_attr(not(feature = "std"), allow(dead_code))]
-    fn typed<T>(self) -> SignatureOf<T> {
+    const fn typed<T>(self) -> SignatureOf<T> {
         SignatureOf(self, PhantomData)
     }
 
@@ -216,7 +216,7 @@ impl<T> SignatureOf<T> {
     /// # Warning:
     ///
     /// This method uses [`core::mem::transmute`] internally
-    pub fn transmute_ref<F>(&self) -> &SignatureOf<F> {
+    pub const fn transmute_ref<F>(&self) -> &SignatureOf<F> {
         #[allow(unsafe_code, trivial_casts)]
         // SAFETY: transmuting is safe, because we're casting a
         // pointer of type `SignatureOf<T>` into a pointer of type
