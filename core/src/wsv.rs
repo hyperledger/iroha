@@ -489,6 +489,7 @@ impl WorldStateView {
     }
 
     /// Get all roles
+    #[inline]
     pub fn roles(&self) -> &crate::RolesMap {
         &self.world.roles
     }

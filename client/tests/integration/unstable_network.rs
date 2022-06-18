@@ -1,6 +1,6 @@
 #![allow(clippy::restriction)]
 
-use std::time::Duration;
+use std::{thread, time::Duration};
 
 use iroha_client::client::{self, Client};
 use iroha_config::logger;
@@ -77,13 +77,15 @@ fn unstable_network(
     });
     wait_for_genesis_committed(&network.clients(), n_offline_peers);
 
+    let pipeline_time = Configuration::pipeline_time();
+
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
-    let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
+    let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
     let register_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     iroha_client
         .submit_blocking(register_asset)
         .expect("Failed to register asset");
-    // Initially there are 0 xor
+    // Initially there are 0 camomile
     let mut account_has_quantity = 0;
 
     //When
@@ -97,10 +99,13 @@ fn unstable_network(
             )),
         );
         iroha_client
-            .submit_blocking(mint_asset)
+            .submit(mint_asset)
             .expect("Failed to create asset.");
         account_has_quantity += quantity;
+        thread::sleep(pipeline_time);
     }
+
+    thread::sleep(pipeline_time);
 
     //Then
     iroha_client

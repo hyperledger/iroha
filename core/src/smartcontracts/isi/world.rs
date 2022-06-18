@@ -123,7 +123,7 @@ pub mod isi {
             _authority: <Account as Identifiable>::Id,
             wsv: &WorldStateView,
         ) -> Result<(), Self::Error> {
-            let role = self.object;
+            let role = self.object.build();
 
             wsv.modify_world(|world| {
                 let role_id = role.id().clone();

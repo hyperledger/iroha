@@ -30,7 +30,7 @@ fn find_roles() -> Result<()> {
     let register_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| RegisterBox::new(NewRole::new(role_id).build()).into())
+        .map(|role_id| RegisterBox::new(Role::new(role_id)).into())
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
 
@@ -59,7 +59,7 @@ fn find_role_ids() -> Result<()> {
     let register_roles = role_ids
         .iter()
         .cloned()
-        .map(|role_id| RegisterBox::new(NewRole::new(role_id).build()).into())
+        .map(|role_id| RegisterBox::new(Role::new(role_id)).into())
         .collect::<Vec<_>>();
     test_client.submit_all_blocking(register_roles)?;
 
@@ -80,15 +80,16 @@ fn find_role_by_id() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
-    let role = NewRole::new(role_id.clone()).build();
+    let new_role = Role::new(role_id.clone());
 
     // Registering role
-    let register_role = RegisterBox::new(role.clone());
+    let register_role = RegisterBox::new(new_role.clone());
     test_client.submit_blocking(register_role)?;
 
     let found_role = test_client.request(client::role::by_id(role_id))?;
 
-    assert_eq!(found_role, role);
+    assert_eq!(found_role.id(), new_role.id());
+    assert!(found_role.permissions().next().is_none());
 
     Ok(())
 }
@@ -119,15 +120,13 @@ fn find_roles_by_account_id() -> Result<()> {
     let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
 
     // Registering roles
-    println!("Registering roles");
     let register_roles = role_ids
         .iter()
         .cloned()
         .map(|role_id| {
             RegisterBox::new(
-                NewRole::new(role_id)
-                    .add_permission(CanSetKeyValueInUserMetadata::new(alice_id.clone()))
-                    .build(),
+                Role::new(role_id)
+                    .add_permission(CanSetKeyValueInUserMetadata::new(alice_id.clone())),
             )
             .into()
         })
