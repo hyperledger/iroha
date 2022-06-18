@@ -88,14 +88,8 @@ impl Ord for Role {
 impl Role {
     /// Constructor.
     #[inline]
-    pub fn new(
-        id: <Self as Identifiable>::Id,
-        permissions: impl IntoIterator<Item = impl Into<PermissionToken>>,
-    ) -> <Self as Registered>::With {
-        Self {
-            id,
-            permissions: permissions.into_iter().map(Into::into).collect(),
-        }
+    pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
+        NewRole::new(id)
     }
 
     /// Get an iterator over [`permissions`](PermissionToken) of the `Role`
@@ -114,15 +108,34 @@ impl Identifiable for Role {
 }
 
 impl Registered for Role {
-    type With = Self;
+    type With = NewRole;
 }
 
 /// Builder for [`Role`]
 #[derive(
-    Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
+    Debug,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    Getters,
+    Decode,
+    Encode,
+    Deserialize,
+    Serialize,
+    IntoSchema,
 )]
 pub struct NewRole {
     inner: Role,
+}
+
+impl Identifiable for NewRole {
+    type Id = <Role as Identifiable>::Id;
+
+    #[inline]
+    fn id(&self) -> &Self::Id {
+        &self.inner.id
+    }
 }
 
 impl PartialOrd for NewRole {
@@ -142,7 +155,9 @@ impl Ord for NewRole {
 /// Builder for [`Role`]
 impl NewRole {
     /// Constructor
-    pub fn new(id: <Role as Identifiable>::Id) -> Self {
+    #[must_use]
+    #[inline]
+    fn new(id: <Role as Identifiable>::Id) -> Self {
         Self {
             inner: Role {
                 id,
@@ -153,6 +168,7 @@ impl NewRole {
 
     /// Add permission to the [`Role`]
     #[must_use]
+    #[inline]
     pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
         self.inner.permissions.insert(perm.into());
         self
@@ -160,6 +176,8 @@ impl NewRole {
 
     /// Construct [`Role`]
     #[must_use]
+    #[inline]
+    #[cfg(feature = "mutable_api")]
     pub fn build(self) -> Role {
         self.inner
     }

@@ -51,12 +51,12 @@ fn simulate_transfer<
     wait_for_genesis_committed(&vec![iroha_client.clone()], 0);
 
     let alice_id: AccountId = "alice@wonderland".parse().expect("Valid");
-    let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
+    let mouse_id: AccountId = "mouse@wonderland".parse().expect("Valid");
     let (bob_public_key, _) = KeyPair::generate()
         .expect("Failed to generate KeyPair")
         .into();
-    let create_bob = RegisterBox::new(Account::new(bob_id.clone(), [bob_public_key]));
-    let asset_definition_id: AssetDefinitionId = "xor#wonderland".parse().expect("Valid");
+    let create_mouse = RegisterBox::new(Account::new(mouse_id.clone(), [bob_public_key]));
+    let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
     let create_asset = RegisterBox::new(value_type(asset_definition_id.clone()));
     let mint_asset = MintBox::new(
         Value::from(starting_amount),
@@ -66,7 +66,7 @@ fn simulate_transfer<
     iroha_client
         .submit_all_blocking(vec![
             // create_alice.into(), We don't need to register Alice, because she is created in genesis
-            create_bob.into(),
+            create_mouse.into(),
             create_asset.into(),
             mint_asset.into(),
         ])
@@ -76,17 +76,17 @@ fn simulate_transfer<
     let transfer_asset = TransferBox::new(
         IdBox::AssetId(AssetId::new(asset_definition_id.clone(), alice_id)),
         Value::from(amount_to_transfer.clone()),
-        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), bob_id.clone())),
+        IdBox::AssetId(AssetId::new(asset_definition_id.clone(), mouse_id.clone())),
     );
     iroha_client
         .submit_till(
             transfer_asset,
-            client::asset::by_account_id(bob_id.clone()),
+            client::asset::by_account_id(mouse_id.clone()),
             |result| {
                 result.iter().any(|asset| {
                     asset.id().definition_id == asset_definition_id
                         && *asset.value() == amount_to_transfer.clone().into()
-                        && asset.id().account_id == bob_id
+                        && asset.id().account_id == mouse_id
                 })
             },
         )

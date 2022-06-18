@@ -139,11 +139,16 @@ where
             let role = wsv
                 .roles()
                 .get(&role_id)
-                .ok_or_else(|| "Role not found".to_owned())?;
+                .ok_or_else(|| format!("Role with id `{role_id}` not found"))?;
             let specialized_token = role
                 .permissions()
                 .find_map(|permission| T::try_from(permission.clone()).ok())
-                .ok_or_else(|| "Role doesn't contain requested permission token".to_owned())?;
+                .ok_or_else(|| {
+                    format!(
+                        "Role {} doesn't contain requested permission token",
+                        role.value()
+                    )
+                })?;
 
             Ok(specialized_token)
         }

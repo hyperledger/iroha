@@ -22,7 +22,7 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
     let alice_key_pair = get_key_pair();
     let key_pair_2 = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let asset_definition_id = AssetDefinitionId::from_str("xor#wonderland").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland").expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let set_signature_condition = MintBox::new(
         SignatureCheckCondition(
@@ -105,7 +105,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     thread::sleep(pipeline_time);
     let assets = iroha_client_1.request(request).expect("Query failed.");
     assert!(!assets.is_empty());
-    let xor_asset = &assets[1]; // 1 -- because Alice has roses from genesis
-    assert_eq!(asset_id, *xor_asset.id());
-    assert_eq!(AssetValue::Quantity(quantity), *xor_asset.value());
+    let camomile_asset = assets
+        .iter()
+        .find(|asset| *asset.id() == asset_id)
+        .expect("Failed to find expected asset");
+    assert_eq!(AssetValue::Quantity(quantity), *camomile_asset.value());
 }
