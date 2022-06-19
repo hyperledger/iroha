@@ -29,7 +29,7 @@ Postgres database server could be initialized and started manually without usual
    createuser -s iroha_user -p5433
 
 Selected port ``5433`` (default is 5432) and database user ``iroha_user`` are used by irohad to connect to database. 
-See `Configure`_. Maintenance database ``postgres`` is created by default, but if for some reason another name required, create it:
+(see `Configuration parameters <../configure/index.html>`_ for more reference). Maintenance database ``postgres`` is created by default, but if for some reason another name required, create it:
 
 .. code-block::shell
 
