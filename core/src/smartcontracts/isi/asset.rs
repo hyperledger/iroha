@@ -30,6 +30,8 @@ pub mod isi {
 
             match wsv.asset(asset_id) {
                 Err(e) if matches!(e, FindError::Asset(_)) => {
+                    assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
+
                     if wsv
                         .asset_or_insert(asset_id, self.object.value().clone())
                         .is_err()
@@ -355,6 +357,19 @@ pub mod isi {
         }
     }
 
+    /// Forbid minting asset with definition [`definition_id`]
+    fn forbid_minting(
+        definition_id: &AssetDefinitionId,
+        wsv: &WorldStateView,
+    ) -> Result<(), Error> {
+        wsv.modify_asset_definition_entry(definition_id, |entry| {
+            entry.forbid_minting()?;
+            Ok(AssetDefinitionEvent::MintabilityChanged(
+                definition_id.clone(),
+            ))
+        })
+    }
+
     /// Assert that this asset is `mintable`.
     fn assert_can_mint(
         definition_id: &AssetDefinitionId,
@@ -366,12 +381,26 @@ pub mod isi {
             Mintable::Infinitely => Ok(()),
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
             Mintable::Once => {
-                wsv.modify_asset_definition_entry(definition_id, |entry| {
-                    entry.forbid_minting()?;
-                    Ok(AssetDefinitionEvent::MintabilityChanged(
-                        definition_id.clone(),
-                    ))
-                })?;
+                forbid_minting(definition_id, wsv)?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Assert that this asset can be registered to an account.
+    fn assert_can_register(
+        definition_id: &AssetDefinitionId,
+        wsv: &WorldStateView,
+        value: &AssetValue,
+    ) -> Result<(), Error> {
+        let definition = assert_asset_type(definition_id, wsv, value.value_type())?;
+        match definition.mintable() {
+            Mintable::Infinitely => Ok(()),
+            Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
+            Mintable::Once => {
+                if !value.is_zero_value() {
+                    forbid_minting(definition_id, wsv)?;
+                }
                 Ok(())
             }
         }
