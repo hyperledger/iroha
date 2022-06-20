@@ -16,7 +16,7 @@ use super::prelude::*;
 pub mod isi {
     use super::*;
 
-    #[allow(clippy::panic_in_result_fn)]
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
     impl Execute for Register<Asset> {
         type Error = Error;
 
@@ -31,13 +31,8 @@ pub mod isi {
             match wsv.asset(asset_id) {
                 Err(e) if matches!(e, FindError::Asset(_)) => {
                     assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
-
-                    if wsv
-                        .asset_or_insert(asset_id, self.object.value().clone())
-                        .is_err()
-                    {
-                        unreachable!("Account is checked to exist")
-                    }
+                    wsv.asset_or_insert(asset_id, self.object.value().clone())
+                        .expect("Account exists");
                     Ok(())
                 }
                 Err(e) => Err(Error::Find(Box::new(e))),
