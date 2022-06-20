@@ -35,12 +35,8 @@ fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
         })
     })?;
 
-    let hash = test_client.submit(register_asset)?;
-
     // But registering an asset to account already having one should fail
-    test_client.poll_request(client::transaction::by_hash(*hash), |tx| {
-        matches!(tx, TransactionValue::RejectedTransaction(_))
-    })?;
+    assert!(test_client.submit_blocking(register_asset).is_err());
 
     Ok(())
 }

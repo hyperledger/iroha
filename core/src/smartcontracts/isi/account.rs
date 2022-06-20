@@ -28,7 +28,7 @@ pub mod isi {
             let asset_id = self.object.id();
 
             match wsv.asset(asset_id) {
-                Err(e) if matches!(e, FindError::Asset(_)) => {
+                Err(FindError::Asset(_)) => {
                     assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
                     wsv.asset_or_insert(asset_id, self.object.value().clone())
                         .expect("Account exists");
@@ -51,8 +51,9 @@ pub mod isi {
             let asset_id = self.object_id;
             let account_id = asset_id.account_id.clone();
 
-            wsv.modify_account(&account_id, |acct| {
-                acct.remove_asset(&asset_id)
+            wsv.modify_account(&account_id, |account| {
+                account
+                    .remove_asset(&asset_id)
                     .map(|asset| AccountEvent::Asset(AssetEvent::Removed(asset.id().clone())))
                     .ok_or_else(|| Error::Find(Box::new(FindError::Asset(asset_id))))
             })
