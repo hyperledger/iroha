@@ -234,7 +234,16 @@ impl Parse for DeclareVersionedArgs {
     }
 }
 
+fn get_box_path() -> proc_macro2::TokenStream {
+    #[cfg(feature = "std")]
+    quote! {std::boxed::Box}
+    #[cfg(not(feature = "std"))]
+    quote! {alloc::boxed::Box}
+}
+
 fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
+    let box_path = get_box_path();
+
     quote! (
         impl iroha_version::scale::DecodeVersioned for #enum_name {
             fn decode_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
@@ -246,10 +255,7 @@ fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
                         let mut input = input.clone();
                         Ok(Self::decode(&mut input)?)
                     } else {
-                        #[cfg(no_std)]
-                        use alloc::boxed::Box;
-
-                        Err(Error::UnsupportedVersion(Box::new(UnsupportedVersion::new(
+                        Err(Error::UnsupportedVersion(#box_path::new(UnsupportedVersion::new(
                             *version,
                             RawVersioned::ScaleBytes(input.to_vec())
                         ))))
@@ -273,10 +279,7 @@ fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
                             Err(Error::ExtraBytesLeft(input.len().try_into().expect("`u64` always fit in `usize`")))
                         }
                     } else {
-                        #[cfg(no_std)]
-                        use alloc::boxed::Box;
-
-                        Err(Error::UnsupportedVersion(Box::new(UnsupportedVersion::new(
+                        Err(Error::UnsupportedVersion(#box_path::new(UnsupportedVersion::new(
                             *version,
                             RawVersioned::ScaleBytes(input.to_vec())
                         ))))
@@ -298,6 +301,8 @@ fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
 }
 
 fn impl_json(enum_name: &Ident, version_field_name: &str) -> proc_macro2::TokenStream {
+    let box_path = get_box_path();
+
     quote!(
         impl<'a> iroha_version::json::DeserializeVersioned<'a> for #enum_name {
             fn from_versioned_json_str(input: &str) -> iroha_version::error::Result<Self> {
@@ -311,10 +316,7 @@ fn impl_json(enum_name: &Ident, version_field_name: &str) -> proc_macro2::TokenS
                         if Self::supported_versions().contains(&version) {
                             Ok(serde_json::from_str(input)?)
                         } else {
-                            #[cfg(no_std)]
-                            use alloc::boxed::Box;
-
-                            Err(Error::UnsupportedVersion(Box::new(
+                            Err(Error::UnsupportedVersion(#box_path::new(
                                 UnsupportedVersion::new(version, RawVersioned::Json(String::from(input)))
                             )))
                         }

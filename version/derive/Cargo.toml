@@ -9,6 +9,11 @@ edition = "2021"
 [lib]
 proc-macro = true
 
+[features]
+default = ["std"]
+# If disabled then `Box` will be used from `alloc` crate
+std = []
+
 [dependencies]
 syn = {version = "1", default-features = false, features = ["full"] }
 quote = "1.0"
