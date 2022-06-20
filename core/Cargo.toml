@@ -61,6 +61,7 @@ crossbeam-queue = "0.3"
 thiserror = "1.0.28"
 pin-project = "1"
 wasmtime = "0.36.0"
+byteorder = "1.4.3"
 
 # transitive dependencies
 anyhow = ">= 1.0"
