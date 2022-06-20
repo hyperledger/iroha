@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// Module which contains error and result for versioning
 pub mod error {
     #[cfg(not(feature = "std"))]
-    use alloc::{format, string::String, vec::Vec};
+    use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
     use core::fmt;
 
     use iroha_macro::FromVariant;
@@ -54,6 +54,8 @@ pub mod error {
         ParseInt,
         /// Input version unsupported
         UnsupportedVersion(UnsupportedVersion),
+        /// Buffer is not empty after decoding. Returned by `decode_all_versioned()`
+        ExtraBytesLeft(u64),
     }
 
     #[cfg(feature = "json")]
@@ -79,20 +81,21 @@ pub mod error {
     impl fmt::Display for Error {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             let msg = match self {
-                Self::NotVersioned => "Not a versioned object",
+                Self::NotVersioned => "Not a versioned object".to_owned(),
                 Self::UnsupportedJsonEncode => {
-                    "Cannot encode unsupported version from JSON to SCALE"
+                    "Cannot encode unsupported version from JSON to SCALE".to_owned()
                 }
-                Self::ExpectedJson => "Expected JSON object",
+                Self::ExpectedJson => "Expected JSON object".to_owned(),
                 Self::UnsupportedScaleEncode => {
-                    "Cannot encode unsupported version from SCALE to JSON"
+                    "Cannot encode unsupported version from SCALE to JSON".to_owned()
                 }
                 #[cfg(feature = "json")]
-                Self::Serde => "JSON (de)serialization issue",
+                Self::Serde => "JSON (de)serialization issue".to_owned(),
                 #[cfg(feature = "scale")]
-                Self::ParityScale => "Parity SCALE (de)serialization issue",
-                Self::ParseInt => "Problem with parsing integers",
-                Self::UnsupportedVersion(_) => "Input version unsupported",
+                Self::ParityScale => "Parity SCALE (de)serialization issue".to_owned(),
+                Self::ParseInt => "Problem with parsing integers".to_owned(),
+                Self::UnsupportedVersion(_) => "Input version unsupported".to_owned(),
+                Self::ExtraBytesLeft(n) => format!("Buffer contains {n} bytes after decoding"),
             };
 
             write!(f, "{}", msg)
@@ -198,6 +201,12 @@ pub mod scale {
         /// # Errors
         /// Will return error if version is unsupported or if input won't have enough bytes for decoding.
         fn decode_versioned(input: &[u8]) -> Result<Self>;
+
+        /// Use this function for versioned objects instead of `decode_all`.
+        ///
+        /// # Errors
+        /// Will return error if version is unsupported or if input won't have enough bytes for decoding.
+        fn decode_all_versioned(input: &[u8]) -> Result<Self>;
     }
 
     /// [`Encode`] versioned analog.
