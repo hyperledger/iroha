@@ -30,7 +30,7 @@ pub enum FfiResult {
     Ok = 0_i32,
 }
 
-/// Implement [`Handle`] for given types with first argument as the initial handle id.
+/// Implement [Handle] for given types with first argument as the initial handle id.
 #[macro_export]
 macro_rules! handles {
     ( $id:expr, $ty:ty $(, $other:ty)* $(,)? ) => {

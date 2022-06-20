@@ -92,13 +92,13 @@ pub mod ws {
     ///
     /// From data side, you should implement a state machine built on top of these traits:
     ///
-    /// - [`Init`] - it is designed to consume it's impl struct and produce a tuple, that has 2 items:
+    /// - [Init][conn_flow::Init] - it is designed to consume its impl struct and produce a tuple, that has 2 items:
     ///   **initial data** to establish WS connection, and the **handler** of the next flow stage - **handshake**.
     ///   Then, transportation side should open a connection, send first message into it, receive message from Iroha
     ///   and pass it into the next handler.
-    /// - [`Handshake`] - handles incoming message and ensures that it is OK. Which message is OK -
+    /// - [Handshake][conn_flow::Handshake] - handles incoming message and ensures that it is OK. Which message is OK -
     ///   implementation dependent. If it is OK, returns the handler for the next, final flow stage - **events**.
-    /// - [`Events`] - handles incoming messages and returns a **binary reply** back Iroha and **some decoded event**.
+    /// - [Events][conn_flow::Events] - handles incoming messages and returns a **binary reply** back Iroha and **some decoded event**.
     ///
     /// Here is an example of how to implement flow in a transport-agnostic manner:
     ///
