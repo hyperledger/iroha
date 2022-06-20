@@ -109,6 +109,40 @@ impl Broker {
             .fold(0, |p, (_, n)| p + if n.0.is_closed() { 0 } else { 1 })
     }
 
+    /// Synchronously send message via broker.
+    pub fn issue_send_sync<M: BrokerMessage + Send + Sync>(&self, m: &M) {
+        let mut entry = if let Entry::Occupied(entry) = self.entry(TypeId::of::<M>()) {
+            entry
+        } else {
+            return;
+        };
+
+        let closed = entry
+                .get()
+                .iter()
+                .filter_map(|(id, recipient)| Some((id, recipient.downcast_ref::<Recipient<M>>()?)))
+                .map(|(id, recipient)| {
+                    let m = m.clone();
+                    {
+                        if recipient.0.is_closed() {
+                            return Some(*id);
+                        }
+
+                        recipient.send_sync(m);
+                        None
+                    }
+                })
+                .collect::<SmallVec<[_; small::SMALL_SIZE]>>() // TODO: Revise using real-world benchmarks.
+                .into_iter()
+            .flatten();
+
+        let entry = entry.get_mut();
+
+        for c in closed {
+            entry.remove(&c);
+        }
+    }
+
     /// Send message via broker
     pub async fn issue_send<M: BrokerMessage + Send + Sync>(&self, m: M) {
         let mut entry = if let Entry::Occupied(entry) = self.entry(TypeId::of::<M>()) {

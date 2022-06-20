@@ -12,7 +12,7 @@ use iroha_actor::{broker::*, prelude::*};
 use iroha_core::{
     block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
-    kura::{Kura, KuraTrait},
+    kura::Kura,
     prelude::{World, WorldStateView},
     queue::Queue,
     smartcontracts::permissions::{IsInstructionAllowedBoxed, IsQueryAllowedBoxed},
@@ -61,11 +61,10 @@ impl Default for Arguments {
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configures, coordinates and manages transactions and queries processing, work of consensus and storage.
-pub struct Iroha<G = GenesisNetwork, K = Kura, S = Sumeragi<G, K>, B = BlockSynchronizer<S>>
+pub struct Iroha<G = GenesisNetwork, S = Sumeragi<G>, B = BlockSynchronizer<S>>
 where
     G: GenesisNetworkTrait,
-    K: KuraTrait,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    S: SumeragiTrait<GenesisNetwork = G>,
     B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     /// World state view
@@ -75,18 +74,17 @@ where
     /// Sumeragi consensus
     pub sumeragi: AlwaysAddr<S>,
     /// Kura - block storage
-    pub kura: AlwaysAddr<K>,
+    pub kura: Arc<Kura>,
     /// Block synchronization actor
     pub block_sync: AlwaysAddr<B>,
     /// Torii web server
     pub torii: Option<Torii>,
 }
 
-impl<G, S, K, B> Iroha<G, K, S, B>
+impl<G, S, B> Iroha<G, S, B>
 where
     G: GenesisNetworkTrait,
-    K: KuraTrait,
-    S: SumeragiTrait<GenesisNetwork = G, Kura = K>,
+    S: SumeragiTrait<GenesisNetwork = G>,
     B: BlockSynchronizerTrait<Sumeragi = S>,
 {
     /// To make `Iroha` peer work all actors should be started first.
@@ -203,9 +201,7 @@ where
 
         let queue = Arc::new(Queue::from_configuration(&config.queue, Arc::clone(&wsv)));
         let telemetry_started = Self::start_telemetry(telemetry, &config).await?;
-        let kura = K::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())
-            .await?
-            .preinit();
+        let kura = Kura::from_configuration(&config.kura, Arc::clone(&wsv), broker.clone())?;
 
         let sumeragi: AlwaysAddr<_> = S::from_configuration(
             &config.sumeragi,
@@ -216,7 +212,7 @@ where
             genesis,
             Arc::clone(&queue),
             broker.clone(),
-            kura.address.clone().expect_running().clone(),
+            Arc::clone(&kura),
             network_addr.clone(),
         )
         .wrap_err("Failed to initialize Sumeragi.")?
@@ -224,7 +220,7 @@ where
         .await
         .expect_running();
 
-        let kura = kura.start().await.expect_running();
+        kura.async_init_all_important().await;
         let block_sync = B::from_configuration(
             &config.block_sync,
             Arc::clone(&wsv),
