@@ -18,9 +18,6 @@ permissions:
 on:
   pull_request_target:
     branches: [main, support/1.*, edge, develop]
-    paths-ignore:
-      - '**.md'
-      - '**.rst'
 env:
   DOCKERHUB_ORG: hyperledger
 jobs:
