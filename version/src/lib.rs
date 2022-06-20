@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// Module which contains error and result for versioning
 pub mod error {
     #[cfg(not(feature = "std"))]
-    use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
+    use alloc::{borrow::ToOwned, boxed::Box, format, string::String, vec::Vec};
     use core::fmt;
 
     use iroha_macro::FromVariant;
@@ -53,7 +53,7 @@ pub mod error {
         /// Problem with parsing integers
         ParseInt,
         /// Input version unsupported
-        UnsupportedVersion(UnsupportedVersion),
+        UnsupportedVersion(Box<UnsupportedVersion>),
         /// Buffer is not empty after decoding. Returned by `decode_all_versioned()`
         ExtraBytesLeft(u64),
     }

@@ -246,7 +246,13 @@ fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
                         let mut input = input.clone();
                         Ok(Self::decode(&mut input)?)
                     } else {
-                        Err(Error::UnsupportedVersion(UnsupportedVersion::new(*version, RawVersioned::ScaleBytes(input.to_vec()))))
+                        #[cfg(no_std)]
+                        use alloc::boxed::Box;
+
+                        Err(Error::UnsupportedVersion(Box::new(UnsupportedVersion::new(
+                            *version,
+                            RawVersioned::ScaleBytes(input.to_vec())
+                        ))))
                     }
                 } else {
                     Err(Error::NotVersioned)
@@ -267,7 +273,13 @@ fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
                             Err(Error::ExtraBytesLeft(input.len().try_into().expect("`u64` always fit in `usize`")))
                         }
                     } else {
-                        Err(Error::UnsupportedVersion(UnsupportedVersion::new(*version, RawVersioned::ScaleBytes(input.to_vec()))))
+                        #[cfg(no_std)]
+                        use alloc::boxed::Box;
+
+                        Err(Error::UnsupportedVersion(Box::new(UnsupportedVersion::new(
+                            *version,
+                            RawVersioned::ScaleBytes(input.to_vec())
+                        ))))
                     }
                 } else {
                     Err(Error::NotVersioned)
@@ -299,9 +311,12 @@ fn impl_json(enum_name: &Ident, version_field_name: &str) -> proc_macro2::TokenS
                         if Self::supported_versions().contains(&version) {
                             Ok(serde_json::from_str(input)?)
                         } else {
-                            Err(Error::UnsupportedVersion(
+                            #[cfg(no_std)]
+                            use alloc::boxed::Box;
+
+                            Err(Error::UnsupportedVersion(Box::new(
                                 UnsupportedVersion::new(version, RawVersioned::Json(String::from(input)))
-                            ))
+                            )))
                         }
                     } else {
                         Err(Error::NotVersioned)
