@@ -79,11 +79,12 @@ fn gen_ffi_to_src_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
 
     if let Some(arg) = &fn_descriptor.receiver {
         let (arg_name, mut src_type) = (&arg.0, arg.1.clone());
-        SelfResolver::new(fn_descriptor.self_ty).visit_type_mut(&mut src_type);
 
         stmts = if matches!(arg.1, Type::Path(_)) {
             quote! {let __tmp_handle = #arg_name.read();}
         } else {
+            SelfResolver::new(fn_descriptor.self_ty).visit_type_mut(&mut src_type);
+
             quote! {
                 // TODO: Handle unwrap
                 let #arg_name = <#src_type as iroha_ffi::TryFromFfi>::try_from_ffi(#arg_name).unwrap();
@@ -94,6 +95,10 @@ fn gen_ffi_to_src_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
     for arg in &fn_descriptor.input_args {
         let (arg_name, mut src_type) = (&arg.0, arg.1.clone());
         SelfResolver::new(fn_descriptor.self_ty).visit_type_mut(&mut src_type);
+
+        if matches!(arg.1, Type::ImplTrait(_)) {
+            //ImplTraitResolver::new().visit_type(&mut src_type);
+        }
 
         stmts.extend(quote! {
             // TODO: Handle unwrap
@@ -158,6 +163,10 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
             }
         }
 
+        if matches!(out_src_type, Type::ImplTrait(_)) {
+            //ImplTraitResolver::new().visit_type(&mut out_src_type);
+        }
+
         return quote! {
             <#out_src_type as iroha_ffi::IntoFfi>::write_out(#arg_name, __out_ptr);
         };
@@ -169,11 +178,21 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
 fn gen_ffi_fn_arg(self_ty: &syn::Path, arg_name: &Ident, arg_type: &Type) -> TokenStream {
     let mut arg_type = arg_type.clone();
     SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
+
+    if matches!(arg_type, Type::ImplTrait(_)) {
+        //ImplTraitResolver::new().visit_type(&mut arg_type);
+    }
+
     quote! { #arg_name: <#arg_type as iroha_ffi::IntoFfi>::FfiType }
 }
 
 fn gen_ffi_fn_out_ptr_arg(self_ty: &syn::Path, arg_name: &Ident, arg_type: &Type) -> TokenStream {
     let mut arg_type = arg_type.clone();
     SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
+
+    if matches!(arg_type, Type::ImplTrait(_)) {
+        //ImplTraitResolver::new().visit_type(&mut arg_type);
+    }
+
     quote! { #arg_name: <#arg_type as iroha_ffi::IntoFfi>::OutFfiType }
 }

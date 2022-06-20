@@ -248,7 +248,8 @@ pub struct Account {
     /// Permissions tokens of this account
     permission_tokens: Permissions,
     /// Condition which checks if the account has the right signatures.
-    #[cfg_attr(feature = "mutable_api", getset(get = "pub", set = "pub"))]
+    #[getset(get = "pub")]
+    #[cfg_attr(feature = "mutable_api", getset(set = "pub"))]
     signature_check_condition: SignatureCheckCondition,
     /// Metadata of this account as a key-value store.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]

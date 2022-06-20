@@ -12,7 +12,6 @@ pub struct ImplDescriptor<'ast> {
 }
 
 pub struct FnDescriptor<'ast> {
-    // TODO: Not needed?
     /// Resolved type of the `Self` type
     pub self_ty: &'ast syn::Path,
 
@@ -39,7 +38,6 @@ struct ImplVisitor<'ast> {
 }
 
 struct FnVisitor<'ast> {
-    // TODO: Not needed?
     /// Resolved type of the `Self` type
     self_ty: &'ast syn::Path,
 

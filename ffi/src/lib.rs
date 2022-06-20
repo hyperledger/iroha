@@ -17,6 +17,8 @@
 pub use iroha_ffi_derive::*;
 pub use opaque_pointer;
 
+const NONE: isize = -1;
+
 // NOTE: Using `u32` to be compatible with WebAssembly.
 // Otherwise `u8` should be sufficient
 /// Type of the handle id
@@ -32,6 +34,93 @@ pub trait Handle {
 /// Indicates that type is converted into an opaque pointer when crossing the FFI boundary
 // TODO: Make it unsafe?
 pub trait Opaque {}
+
+pub trait OptionWrapped: Sized {
+    type FfiType;
+
+    fn into_ffi(source: Option<Self>) -> Self::FfiType;
+}
+
+/// Conversion into an FFI compatible representation that consumes the input value
+pub trait IntoFfi {
+    /// FFI compatible representation of `Self`
+    type FfiType;
+
+    /// FFI compatible representation of `Self` when it's an out-pointer
+    type OutFfiType;
+
+    /// Performs the conversion
+    fn into_ffi(self) -> Self::FfiType;
+
+    /// Performs the conversion and writes the result into out-pointer
+    unsafe fn write_out(self, out: Self::OutFfiType);
+}
+
+/// Conversion from an FFI compatible representation that consumes the input value
+pub trait TryFromFfi: IntoFfi + Sized {
+    /// Performs the fallible conversion
+    ///
+    /// # Errors
+    ///
+    /// * given pointer is null
+    /// * given id doesn't identify any known handle
+    /// * given id is not a valid enum discriminant
+    ///
+    /// # Safety
+    ///
+    /// All conversions from a pointer must ensure pointer validity beforehand
+    #[allow(unsafe_code)]
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult>;
+}
+
+/// FFI compatible tuple with 2 elements
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct Pair<K, V>(pub K, pub V);
+
+pub struct IteratorWrapper<T: IntoIterator>(T);
+
+#[derive(Clone)]
+#[repr(C)]
+pub struct BoxedSlice<T: IntoFfi>(*mut <T as IntoFfi>::FfiType, usize);
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+// NOTE: Returned size is isize to be able to support Option<&[T]>
+pub struct OutSlice<T: IntoFfi>(*mut <T as IntoFfi>::FfiType, usize, *mut isize);
+
+/// Result of execution of an FFI function
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// NOTE: Enum is `repr(i32)` becasuse WebAssembly supports only
+// u32/i32, u64/i64 natively. Otherwise, `repr(i8)` would suffice
+#[repr(i32)]
+pub enum FfiResult {
+    /// Indicates that the FFI function execution panicked
+    UnrecoverableError = -5_i32,
+    /// Handle id doesn't identify any known handles
+    UnknownHandle = -4_i32,
+    /// Executing the wrapped method on handle returned error
+    ExecutionFail = -3_i32,
+    /// Raw pointer input argument to FFI function was null
+    ArgIsNull = -2_i32,
+    /// Given bytes don't comprise a valid UTF8 string
+    Utf8Error = -1_i32,
+    /// FFI function executed successfully
+    Ok = 0_i32,
+}
+
+impl From<opaque_pointer::error::PointerError> for FfiResult {
+    fn from(source: opaque_pointer::error::PointerError) -> Self {
+        use opaque_pointer::error::PointerError::*;
+
+        match source {
+            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
+            Utf8Error(_) => Self::Utf8Error,
+            Null => Self::ArgIsNull,
+            Invalid => Self::UnknownHandle,
+        }
+    }
+}
 
 impl<T: Opaque> IntoFfi for &T {
     type FfiType = *const T;
@@ -71,72 +160,22 @@ impl<'a, T: Opaque> TryFromFfi for &'a mut T {
     }
 }
 
-/// Conversion into an FFI compatible representation that consumes the input value
-pub trait IntoFfi {
-    /// FFI compatible representation of `Self`
-    type FfiType;
+impl<'a, T: IntoIterator<Item = U>, U: IntoFfi> IntoFfi for IteratorWrapper<T> {
+    type FfiType = BoxedSlice<U>;
+    type OutFfiType = OutSlice<U>;
 
-    /// FFI compatible representation of `Self` when it's an out-pointer
-    type OutFfiType;
+    fn into_ffi(self) -> Self::FfiType {
+        BoxedSlice::from_iter(self.0)
+    }
 
-    /// Performs the conversion
-    fn into_ffi(self) -> Self::FfiType;
+    unsafe fn write_out(self, out: Self::OutFfiType) {
+        let slice = self.into_ffi();
 
-    /// Performs the conversion and writes the result into out-pointer
-    unsafe fn write_out(self, out: Self::OutFfiType);
-}
-
-/// Conversion from an FFI compatible representation that consumes the input value
-pub trait TryFromFfi: IntoFfi + Sized {
-    /// Performs the fallible conversion
-    ///
-    /// # Errors
-    ///
-    /// * given pointer is null
-    /// * given id doesn't identify any known handle
-    /// * given id is not a valid enum discriminant
-    ///
-    /// # Safety
-    ///
-    /// All conversions from a pointer must ensure pointer validity beforehand
-    #[allow(unsafe_code)]
-    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult>;
-}
-
-/// FFI compatible tuple with 2 elements
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Pair<K, V>(pub K, pub V);
-
-/// Result of execution of an FFI function
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// NOTE: Enum is `repr(i32)` becasuse WebAssembly supports only
-// u32/i32, u64/i64 natively. Otherwise, `repr(i8)` would suffice
-#[repr(i32)]
-pub enum FfiResult {
-    /// Indicates that the FFI function execution panicked
-    UnrecoverableError = -5_i32,
-    /// Handle id doesn't identify any known handles
-    UnknownHandle = -4_i32,
-    /// Executing the wrapped method on handle returned error
-    ExecutionFail = -3_i32,
-    /// Raw pointer input argument to FFI function was null
-    ArgIsNull = -2_i32,
-    /// Given bytes don't comprise a valid UTF8 string
-    Utf8Error = -1_i32,
-    /// FFI function executed successfully
-    Ok = 0_i32,
-}
-
-impl From<opaque_pointer::error::PointerError> for FfiResult {
-    fn from(source: opaque_pointer::error::PointerError) -> Self {
-        use opaque_pointer::error::PointerError::*;
-
-        match source {
-            // TODO: Implement error handling (https://github.com/hyperledger/iroha/issues/2252)
-            Utf8Error(_) => Self::Utf8Error,
-            Null => Self::ArgIsNull,
-            Invalid => Self::UnknownHandle,
+        out.2
+            .write(slice.len().try_into().expect("allocation too large"));
+        for (i, elem) in slice.into_iter().take(out.1).enumerate() {
+            let offset = i.try_into().expect("allocation too large");
+            out.0.offset(offset).write(elem);
         }
     }
 }
@@ -192,12 +231,6 @@ impl TryFromFfi for bool {
     }
 }
 
-pub trait OptionWrapped: Sized {
-    type FfiType;
-
-    fn into_ffi(source: Option<Self>) -> Self::FfiType;
-}
-
 impl<'a, T: Opaque> OptionWrapped for &'a T {
     type FfiType = *const T;
 
@@ -227,108 +260,72 @@ impl<T: OptionWrapped> IntoFfi for Option<T> {
     }
 }
 
-#[repr(C)]
-pub struct FfiSlice<T>(*const T, usize);
+impl<U: IntoFfi> FromIterator<U> for BoxedSlice<U> {
+    fn from_iter<T: IntoIterator<Item = U>>(iter: T) -> Self {
+        let source: Box<[_]> = iter.into_iter().map(IntoFfi::into_ffi).collect();
+        let mut source = core::mem::ManuallyDrop::new(source);
+        Self(source.as_mut_ptr(), source.len())
+    }
+}
 
-#[repr(C)]
-pub struct FfiSliceMut<T>(*mut T, usize);
+impl<T: IntoFfi> BoxedSlice<T> {
+    fn null() -> Self {
+        // TODO: size should be uninitialized and never read from
+        Self(core::ptr::null_mut(), 0)
+    }
 
-#[repr(C)]
-// TODO: Out slices shouldn't implement drop?
-pub struct OutFfiSlice<T>(*mut T, usize, *mut usize);
+    fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
 
-#[repr(C)]
-pub struct OutFfiSliceMut<T>(*mut T, usize, *mut usize);
-
-impl<T> FfiSlice<T> {
     fn len(&self) -> usize {
         self.1
     }
 }
 
-impl<T> FfiSliceMut<T> {
-    fn len(&self) -> usize {
-        self.1
-    }
-}
-
-impl<T> IntoIterator for FfiSlice<T> {
-    type Item = T;
-    type IntoIter = <Vec<T> as IntoIterator>::IntoIter;
+impl<T: IntoFfi> IntoIterator for BoxedSlice<T> {
+    type Item = T::FfiType;
+    type IntoIter = <Vec<Self::Item> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        let slice: Vec<_> = unsafe {
-            Box::<[T]>::from_raw(core::slice::from_raw_parts_mut(self.0 as *mut _, self.1))
-                .into_vec()
+        let slice = unsafe {
+            Box::<[_]>::from_raw(core::slice::from_raw_parts_mut(self.0, self.1)).into_vec()
         };
+
         slice.into_iter()
     }
 }
 
-impl<T> IntoIterator for FfiSliceMut<T> {
-    type Item = T;
-    type IntoIter = <Vec<T> as IntoIterator>::IntoIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let slice: Vec<_> = unsafe {
-            Box::<[T]>::from_raw(core::slice::from_raw_parts_mut(self.0, self.1)).into_vec()
-        };
-        slice.into_iter()
-    }
-}
-
-impl<T> Drop for FfiSliceMut<T> {
+#[cfg(not(feature = "client"))]
+impl<T: IntoFfi> Drop for BoxedSlice<T> {
     fn drop(&mut self) {
         if !self.0.is_null() {
             unsafe {
-                Box::<[T]>::from_raw(core::slice::from_raw_parts_mut(self.0, self.1));
+                Box::<[_]>::from_raw(core::slice::from_raw_parts_mut(self.0, self.1));
             };
         }
     }
 }
 
-impl<T> Drop for FfiSlice<T> {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe {
-                // TODO: This conversion should be valid? It's here to take ownership and drop the
-                // contents, pointer will not be modified
-                Box::<[T]>::from_raw(core::slice::from_raw_parts_mut(self.0 as *mut _, self.1));
-            }
-        }
+impl<T: IntoFfi> OutSlice<T> {
+    unsafe fn write_null(self) {
+        self.2.write(NONE);
     }
 }
-
-// TODO:
-//impl<'a, T> From<&'a [T]> for FfiSlice<T> where &'a T: IntoFfi {
-//    fn from(source: &'a [T]) -> Self {
-//        let source: Vec<_> = source.iter().map(IntoFfi::into_ffi).collect();
-//        FfiSlice(source.as_ptr() as *const _, source.len())
-//    }
-//}
 
 impl<'a, T> IntoFfi for &'a [T]
 where
     &'a T: IntoFfi,
 {
-    type FfiType = FfiSlice<<&'a T as IntoFfi>::FfiType>;
-    type OutFfiType = OutFfiSlice<<&'a T as IntoFfi>::FfiType>;
+    type FfiType = BoxedSlice<&'a T>;
+    type OutFfiType = OutSlice<&'a T>;
 
     fn into_ffi(self) -> Self::FfiType {
-        let source: Vec<_> = self.iter().map(IntoFfi::into_ffi).collect();
-
-        let source = core::mem::ManuallyDrop::new(source);
-        FfiSlice(source.as_ptr() as *const _, source.len())
+        IteratorWrapper(self).into_ffi()
     }
 
     unsafe fn write_out(self, out: Self::OutFfiType) {
-        let slice = self.into_ffi();
-
-        out.2.write(slice.len());
-        for (i, elem) in slice.into_iter().take(out.1).enumerate() {
-            let offset = i.try_into().expect("allocation too large");
-            out.0.offset(offset).write(elem);
-        }
+        IteratorWrapper(self).write_out(out)
     }
 }
 
@@ -336,62 +333,85 @@ impl<'a, T> IntoFfi for &'a mut [T]
 where
     &'a mut T: IntoFfi,
 {
-    type FfiType = FfiSliceMut<<&'a mut T as IntoFfi>::FfiType>;
-    type OutFfiType = OutFfiSliceMut<<&'a mut T as IntoFfi>::FfiType>;
+    type FfiType = BoxedSlice<&'a mut T>;
+    type OutFfiType = OutSlice<&'a mut T>;
 
     fn into_ffi(self) -> Self::FfiType {
-        let source: Vec<_> = self.iter_mut().map(IntoFfi::into_ffi).collect();
-
-        let mut source = core::mem::ManuallyDrop::new(source);
-        FfiSliceMut(source.as_mut_ptr() as *mut _, source.len())
+        IteratorWrapper(self).into_ffi()
     }
 
     unsafe fn write_out(self, out: Self::OutFfiType) {
-        let slice = self.into_ffi();
+        IteratorWrapper(self).write_out(out)
+    }
+}
 
-        out.2.write(slice.len());
-        for (i, elem) in slice.into_iter().take(out.1).enumerate() {
-            let offset = i.try_into().expect("allocation too large");
-            out.0.offset(offset).write(elem);
+impl<'a, T> TryFromFfi for &'a [T]
+where
+    &'a T: IntoFfi,
+{
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
+        if source.is_null() {
+            return Err(FfiResult::ArgIsNull);
         }
+
+        // TODO: Not good
+        Ok(core::slice::from_raw_parts(source.0 as *const _, source.1))
+    }
+}
+
+impl<'a, T> TryFromFfi for &'a mut [T]
+where
+    &'a mut T: TryFromFfi,
+{
+    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
+        if source.is_null() {
+            return Err(FfiResult::ArgIsNull);
+        }
+
+        unimplemented!()
+        //core::slice::from_raw_parts_mut(source.0, source.1).into_iter().map(TryFromFfi::try_from_ffi).collect()
     }
 }
 
 impl<'a, T> IntoFfi for Option<&'a [T]>
 where
-    // TODO: These bounds should be redundant but compiler complains
-    &'a [T]: IntoFfi<FfiType = FfiSlice<<&'a T as IntoFfi>::FfiType>>,
+    &'a [T]: IntoFfi<FfiType = BoxedSlice<&'a T>, OutFfiType = OutSlice<&'a T>>,
     &'a T: IntoFfi,
 {
     type FfiType = <&'a [T] as IntoFfi>::FfiType;
     type OutFfiType = <&'a [T] as IntoFfi>::OutFfiType;
 
     fn into_ffi(self) -> Self::FfiType {
-        // TODO: size should be uninitialized and not 0 as if it were an empty slice
-        self.map_or_else(|| FfiSlice(core::ptr::null(), 0), IntoFfi::into_ffi)
+        self.map_or_else(BoxedSlice::null, |item| IteratorWrapper(item).into_ffi())
     }
 
     unsafe fn write_out(self, out: Self::OutFfiType) {
-        unimplemented!()
+        if let Some(item) = self {
+            <&'a [T]>::write_out(item, out);
+        } else {
+            out.write_null()
+        }
     }
 }
 
 impl<'a, T> IntoFfi for Option<&'a mut [T]>
 where
-    // TODO: These bounds should be redundant but compiler complains
-    &'a mut [T]: IntoFfi<FfiType = FfiSlice<<&'a mut T as IntoFfi>::FfiType>>,
+    &'a mut [T]: IntoFfi<FfiType = BoxedSlice<&'a mut T>, OutFfiType = OutSlice<&'a mut T>>,
     &'a mut T: IntoFfi,
 {
     type FfiType = <&'a mut [T] as IntoFfi>::FfiType;
     type OutFfiType = <&'a mut [T] as IntoFfi>::OutFfiType;
 
     fn into_ffi(self) -> Self::FfiType {
-        // TODO: size should be uninitialized and not 0 as if it were an empty slice
-        self.map_or_else(|| FfiSlice(core::ptr::null_mut(), 0), IntoFfi::into_ffi)
+        self.map_or_else(BoxedSlice::null, |item| IteratorWrapper(item).into_ffi())
     }
 
     unsafe fn write_out(self, out: Self::OutFfiType) {
-        unimplemented!()
+        if let Some(item) = self {
+            <&'a mut [T]>::write_out(item, out);
+        } else {
+            out.write_null()
+        }
     }
 }
 
