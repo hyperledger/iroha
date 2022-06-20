@@ -12,7 +12,7 @@ use iroha_crypto::ursa::{
     keys::{PrivateKey, PublicKey},
 };
 use iroha_logger::{debug, error, info, trace, warn};
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{Decode, DecodeAll, Encode};
 use rand::{Rng, RngCore};
 use tokio::{
     io,
@@ -546,7 +546,11 @@ where
                     }
                 }
             };
-            let decoded: Result<T, _> = Decode::decode(&mut data.as_slice());
+            let mut decoded: Result<T, _> = DecodeAll::decode_all(data.as_slice());
+            if decoded.is_err() {
+                warn!("Error parsing message using all bytes");
+                decoded = Decode::decode(&mut data.as_slice());
+            }
             match decoded {
                 Ok(decoded_data) => {
                     let message_with_data =

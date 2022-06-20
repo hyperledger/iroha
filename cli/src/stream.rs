@@ -6,6 +6,7 @@ use core::result::Result;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
+use iroha_logger::prelude::tracing::log::warn;
 use iroha_version::prelude::*;
 
 #[cfg(test)]
@@ -113,9 +114,12 @@ pub trait Stream<R: DecodeVersioned>:
             return Err(Error::NonBinaryMessage);
         }
 
-        Ok(R::decode_versioned(
-            subscription_request_message.as_bytes(),
-        )?)
+        let mut res = R::decode_all_versioned(subscription_request_message.as_bytes());
+        if res.is_err() {
+            warn!("Can't decode message using all bytes");
+            res = R::decode_versioned(subscription_request_message.as_bytes());
+        }
+        Ok(res?)
     }
 }
 

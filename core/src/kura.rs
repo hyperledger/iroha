@@ -404,7 +404,13 @@ impl<IO: DiskIO> BlockStore<IO> {
         #[allow(clippy::cast_possible_truncation)]
         buffer.resize(len as usize, 0);
         let _len = file_stream.read_exact(&mut buffer).await?;
-        Ok(Some(VersionedCommittedBlock::decode_versioned(&buffer)?))
+
+        let mut res = VersionedCommittedBlock::decode_all_versioned(&buffer);
+        if res.is_err() {
+            warn!("Can't decode block using all bytes");
+            res = VersionedCommittedBlock::decode_versioned(&buffer);
+        }
+        Ok(Some(res?))
     }
 
     /// Converts raw file stream into stream of decoded blocks

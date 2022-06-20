@@ -39,6 +39,7 @@ macro_rules! add_state {
 pub mod body {
     use iroha_core::smartcontracts::query::Error as QueryError;
     use iroha_data_model::query::VersionedSignedQueryRequest;
+    use iroha_logger::warn;
 
     use super::*;
 
@@ -57,8 +58,12 @@ pub mod body {
         type Error = WarpQueryError;
 
         fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
-            let query = VersionedSignedQueryRequest::decode_versioned(body.as_ref())
-                .map_err(|e| WarpQueryError(Box::new(e).into()))?;
+            let mut query_res = VersionedSignedQueryRequest::decode_all_versioned(body.as_ref());
+            if query_res.is_err() {
+                warn!("Can't decode query using all bytes");
+                query_res = VersionedSignedQueryRequest::decode_versioned(body.as_ref());
+            }
+            let query = query_res.map_err(|e| WarpQueryError(Box::new(e).into()))?;
             let VersionedSignedQueryRequest::V1(query) = query;
             Ok(Self::try_from(query)?)
         }
@@ -74,7 +79,12 @@ pub mod body {
     pub fn versioned<T: DecodeVersioned>() -> impl Filter<Extract = (T,), Error = Rejection> + Copy
     {
         warp::body::bytes().and_then(|body: Bytes| async move {
-            DecodeVersioned::decode_versioned(body.as_ref()).map_err(warp::reject::custom)
+            let mut res = DecodeVersioned::decode_all_versioned(body.as_ref());
+            if res.is_err() {
+                warn!("Can't decode body using all bytes");
+                res = DecodeVersioned::decode_versioned(body.as_ref());
+            }
+            res.map_err(warp::reject::custom)
         })
     }
 }

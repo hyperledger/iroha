@@ -14,6 +14,7 @@ use iroha_data_model::{predicate::PredicateBox, prelude::*, query::SignedQueryRe
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
+use parity_scale_codec::DecodeAll;
 use rand::Rng;
 use serde::de::DeserializeOwned;
 use small::SmallStr;
@@ -62,15 +63,27 @@ where
             resp: &Response<Vec<u8>>,
         ) -> QueryHandlerResult<VersionedPaginatedQueryResult> {
             match resp.status() {
-                StatusCode::OK => VersionedPaginatedQueryResult::decode_versioned(resp.body())
-                    .wrap_err("Failed to decode response body as VersionedPaginatedQueryResult")
-                    .map_err(Into::into),
+                StatusCode::OK => {
+                    let mut res = VersionedPaginatedQueryResult::decode_all_versioned(resp.body());
+                    if res.is_err() {
+                        warn!("Can't decode query result using all bytes");
+                        res = VersionedPaginatedQueryResult::decode_versioned(resp.body());
+                    }
+                    res.wrap_err(
+                        "Failed to decode all response body as VersionedPaginatedQueryResult",
+                    )
+                    .map_err(Into::into)
+                }
                 StatusCode::BAD_REQUEST
                 | StatusCode::UNAUTHORIZED
                 | StatusCode::FORBIDDEN
                 | StatusCode::NOT_FOUND => {
-                    let err = QueryError::decode(&mut resp.body().as_ref())
-                        .wrap_err("Failed to decode response body as QueryError")?;
+                    let mut res = QueryError::decode_all(resp.body().as_ref());
+                    if res.is_err() {
+                        warn!("Can't decode query error using all bytes");
+                        res = QueryError::decode(&mut resp.body().as_ref());
+                    }
+                    let err = res.wrap_err("Failed to decode all response body as QueryError")?;
                     Err(ClientQueryError::QueryError(err))
                 }
                 _ => Err(ResponseReport::with_msg("Unexpected query response", resp).into()),
@@ -715,8 +728,12 @@ impl Client {
             .send()?;
 
             if response.status() == StatusCode::OK {
-                let pending_transactions =
-                    VersionedPendingTransactions::decode_versioned(response.body())?;
+                let mut res = VersionedPendingTransactions::decode_all_versioned(response.body());
+                if res.is_err() {
+                    warn!("Can't decode pending transactions using all bytes");
+                    res = VersionedPendingTransactions::decode_versioned(response.body());
+                }
+                let pending_transactions = res?;
                 let VersionedPendingTransactions::V1(pending_transactions) = pending_transactions;
                 let transaction = pending_transactions
                     .into_iter()
@@ -919,6 +936,15 @@ pub mod events_api {
             }
         }
 
+        fn decode_publisher_message(bytes: &[u8]) -> Result<VersionedEventPublisherMessage> {
+            let mut res = VersionedEventPublisherMessage::decode_all_versioned(bytes);
+            if res.is_err() {
+                warn!("Can't decode event publisher message using all bytes");
+                res = VersionedEventPublisherMessage::decode_versioned(bytes);
+            }
+            res.map_err(Into::into)
+        }
+
         /// Events API flow handshake handler
         #[derive(Copy, Clone)]
         pub struct Handshake;
@@ -931,7 +957,7 @@ pub mod events_api {
                 Self::Next: FlowEvents,
             {
                 if let EventPublisherMessage::SubscriptionAccepted =
-                    VersionedEventPublisherMessage::decode_versioned(&message)?.into_v1()
+                    decode_publisher_message(&message)?.into_v1()
                 {
                     return Ok(Events);
                 }
@@ -947,10 +973,9 @@ pub mod events_api {
             type Event = iroha_data_model::prelude::Event;
 
             fn message(&self, message: Vec<u8>) -> Result<EventData<Self::Event>> {
-                let event_socket_message =
-                    VersionedEventPublisherMessage::decode_versioned(&message)
-                        .map(iroha_data_model::events::VersionedEventPublisherMessage::into_v1)
-                        .map_err(Into::<eyre::Error>::into)?;
+                let event_socket_message = decode_publisher_message(&message)
+                    .map(iroha_data_model::events::VersionedEventPublisherMessage::into_v1)
+                    .map_err(Into::<eyre::Error>::into)?;
                 let event = match event_socket_message {
                     EventPublisherMessage::Event(event) => event,
                     msg => return Err(eyre!("Expected Event but got {:?}", msg)),
