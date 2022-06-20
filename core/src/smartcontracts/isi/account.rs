@@ -15,6 +15,50 @@ use crate::{ValidQuery, WorldStateView};
 pub mod isi {
     use super::{super::prelude::*, *};
 
+    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
+    impl Execute for Register<Asset> {
+        type Error = Error;
+
+        #[metrics(+"register_asset")]
+        fn execute(
+            self,
+            _authority: <Account as Identifiable>::Id,
+            wsv: &WorldStateView,
+        ) -> Result<(), Self::Error> {
+            let asset_id = self.object.id();
+
+            match wsv.asset(asset_id) {
+                Err(e) if matches!(e, FindError::Asset(_)) => {
+                    assert_can_register(&asset_id.definition_id, wsv, self.object.value())?;
+                    wsv.asset_or_insert(asset_id, self.object.value().clone())
+                        .expect("Account exists");
+                    Ok(())
+                }
+                Err(e) => Err(Error::Find(Box::new(e))),
+                Ok(_) => Err(Error::Repetition(
+                    InstructionType::Register,
+                    IdBox::AssetId(asset_id.clone()),
+                )),
+            }
+        }
+    }
+
+    impl Execute for Unregister<Asset> {
+        type Error = Error;
+
+        #[metrics(+"unregister_asset")]
+        fn execute(self, _authority: AccountId, wsv: &WorldStateView) -> Result<(), Self::Error> {
+            let asset_id = self.object_id;
+            let account_id = asset_id.account_id.clone();
+
+            wsv.modify_account(&account_id, |acct| {
+                acct.remove_asset(&asset_id)
+                    .map(|asset| AccountEvent::Asset(AssetEvent::Removed(asset.id().clone())))
+                    .ok_or_else(|| Error::Find(Box::new(FindError::Asset(asset_id))))
+            })
+        }
+    }
+
     impl Execute for Mint<Account, PublicKey> {
         type Error = Error;
 
@@ -224,6 +268,30 @@ pub mod isi {
 
                 Ok(AccountEvent::RoleRevoked(account_id))
             })
+        }
+    }
+
+    /// Assert that this asset can be registered to an account.
+    fn assert_can_register(
+        definition_id: &AssetDefinitionId,
+        wsv: &WorldStateView,
+        value: &AssetValue,
+    ) -> Result<(), Error> {
+        let definition = asset::isi::assert_asset_type(definition_id, wsv, value.value_type())?;
+        match definition.mintable() {
+            Mintable::Infinitely => Ok(()),
+            Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
+            Mintable::Once => {
+                if !value.is_zero_value() {
+                    wsv.modify_asset_definition_entry(definition_id, |entry| {
+                        entry.forbid_minting()?;
+                        Ok(AssetDefinitionEvent::MintabilityChanged(
+                            definition_id.clone(),
+                        ))
+                    })?;
+                }
+                Ok(())
+            }
         }
     }
 }

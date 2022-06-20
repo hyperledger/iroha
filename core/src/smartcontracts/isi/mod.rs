@@ -581,7 +581,7 @@ impl Execute for RevokeBox {
 
 pub mod prelude {
     //! Re-export important traits and types for glob import `(::*)`
-    pub use super::{account::isi::*, asset::isi::*, domain::isi::*, world::isi::*, *};
+    pub use super::*;
 }
 
 #[cfg(test)]
