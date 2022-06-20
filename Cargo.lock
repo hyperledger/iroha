@@ -1821,6 +1821,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "byte-unit",
+ "byteorder",
  "criterion",
  "crossbeam-queue",
  "dashmap",
@@ -2230,11 +2231,8 @@ name = "kura_inspector"
 version = "2.0.0-pre-rc.5"
 dependencies = [
  "clap 3.1.18",
- "futures-util",
- "iroha_config",
  "iroha_core",
- "tempfile",
- "tokio",
+ "iroha_version",
 ]
 
 [[package]]

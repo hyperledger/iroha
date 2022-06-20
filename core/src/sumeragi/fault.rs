@@ -7,13 +7,9 @@ use super::{config::SumeragiConfiguration, *};
 /// Fault injection for consensus tests
 pub trait FaultInjection: Send + Sync + Sized + 'static {
     /// A function to skip or modify a message.
-    fn faulty_message<G, K>(
-        sumeragi: &SumeragiWithFault<G, K, Self>,
-        msg: Message,
-    ) -> Option<Message>
+    fn faulty_message<G>(sumeragi: &SumeragiWithFault<G, Self>, msg: Message) -> Option<Message>
     where
-        G: GenesisNetworkTrait,
-        K: KuraTrait;
+        G: GenesisNetworkTrait;
 
     /// Allows controlling Sumeragi rounds by sending `Voting` message
     /// manually.
@@ -27,10 +23,9 @@ pub trait FaultInjection: Send + Sync + Sized + 'static {
 pub struct NoFault;
 
 impl FaultInjection for NoFault {
-    fn faulty_message<G, K>(_: &SumeragiWithFault<G, K, Self>, msg: Message) -> Option<Message>
+    fn faulty_message<G>(_: &SumeragiWithFault<G, Self>, msg: Message) -> Option<Message>
     where
         G: GenesisNetworkTrait,
-        K: KuraTrait,
     {
         Some(msg)
     }
@@ -41,10 +36,9 @@ impl FaultInjection for NoFault {
 }
 
 /// `Sumeragi` is the implementation of the consensus. This struct allows also to add fault injection for tests.
-pub struct SumeragiWithFault<G, K, F>
+pub struct SumeragiWithFault<G, F>
 where
     G: GenesisNetworkTrait,
-    K: KuraTrait,
     F: FaultInjection,
 {
     pub(crate) key_pair: KeyPair,
@@ -83,8 +77,8 @@ where
     pub genesis_network: Option<G>,
     /// Broker
     pub broker: Broker,
-    /// [`Kura`](crate::kura) actor address
-    pub kura: AlwaysAddr<K>,
+    /// Kura instance used for IO
+    pub kura: Arc<Kura>,
     /// [`iroha_p2p::Network`] actor address
     pub network: Addr<IrohaNetwork>,
     /// Buffer capacity of actor's MPSC channel
@@ -94,11 +88,8 @@ where
     pub(crate) gossip_period: Duration,
 }
 
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> SumeragiTrait
-    for SumeragiWithFault<G, K, F>
-{
+impl<G: GenesisNetworkTrait, F: FaultInjection> SumeragiTrait for SumeragiWithFault<G, F> {
     type GenesisNetwork = G;
-    type Kura = K;
 
     fn from_configuration(
         configuration: &SumeragiConfiguration,
@@ -109,7 +100,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> SumeragiTrait
         genesis_network: Option<G>,
         queue: Arc<Queue>,
         broker: Broker,
-        kura: AlwaysAddr<K>,
+        kura: Arc<Kura>,
         network: Addr<IrohaNetwork>,
     ) -> Result<Self> {
         let network_topology = Topology::builder()
@@ -150,7 +141,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> SumeragiTrait
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Actor for SumeragiWithFault<G, K, F> {
+impl<G: GenesisNetworkTrait, F: FaultInjection> Actor for SumeragiWithFault<G, F> {
     fn actor_channel_capacity(&self) -> u32 {
         self.actor_channel_capacity
     }
@@ -164,8 +155,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Actor for Sumeragi
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<InvalidatedBlockHashes>
-    for SumeragiWithFault<G, K, F>
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<InvalidatedBlockHashes>
+    for SumeragiWithFault<G, F>
 {
     type Result = Vec<HashOf<VersionedValidBlock>>;
 
@@ -175,8 +166,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<Invalidate
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> ContextHandler<Message>
-    for SumeragiWithFault<G, K, F>
+impl<G: GenesisNetworkTrait, F: FaultInjection> ContextHandler<Message>
+    for SumeragiWithFault<G, F>
 {
     type Result = ();
 
@@ -189,8 +180,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> ContextHandler<Mes
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> ContextHandler<RetrieveTransactions>
-    for SumeragiWithFault<G, K, F>
+impl<G: GenesisNetworkTrait, F: FaultInjection> ContextHandler<RetrieveTransactions>
+    for SumeragiWithFault<G, F>
 {
     type Result = ();
 
@@ -212,9 +203,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> ContextHandler<Ret
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<Gossip>
-    for SumeragiWithFault<G, K, F>
-{
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<Gossip> for SumeragiWithFault<G, F> {
     type Result = ();
 
     async fn handle(&mut self, Gossip: Gossip) {
@@ -226,9 +215,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<Gossip>
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<ConnectPeers>
-    for SumeragiWithFault<G, K, F>
-{
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<ConnectPeers> for SumeragiWithFault<G, F> {
     type Result = ();
 
     async fn handle(&mut self, ConnectPeers: ConnectPeers) {
@@ -237,8 +224,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<ConnectPee
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<UpdateTelemetry>
-    for SumeragiWithFault<G, K, F>
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<UpdateTelemetry>
+    for SumeragiWithFault<G, F>
 {
     type Result = ();
 
@@ -248,11 +235,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<UpdateTele
         #[allow(clippy::cast_possible_truncation)]
         let finalized_hash = self
             .kura
-            .send(GetBlockHash {
-                height: finalized_height as usize,
-            })
-            .await;
-        let finalized_hash = finalized_hash.as_ref().unwrap_or(block_hash);
+            .get_block_hash(finalized_height)
+            .unwrap_or(*block_hash);
         iroha_logger::telemetry!(
             msg = "system.interval",
             peers = self.topology.sorted_peers().len().saturating_sub(1),
@@ -266,8 +250,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<UpdateTele
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<GetNetworkTopology>
-    for SumeragiWithFault<G, K, F>
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<GetNetworkTopology>
+    for SumeragiWithFault<G, F>
 {
     type Result = Topology;
 
@@ -277,8 +261,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<GetNetwork
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<CurrentNetworkTopology>
-    for SumeragiWithFault<G, K, F>
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<CurrentNetworkTopology>
+    for SumeragiWithFault<G, F>
 {
     type Result = Topology;
 
@@ -288,9 +272,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<CurrentNet
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<CommitBlock>
-    for SumeragiWithFault<G, K, F>
-{
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<CommitBlock> for SumeragiWithFault<G, F> {
     type Result = ();
 
     async fn handle(&mut self, CommitBlock(block): CommitBlock) {
@@ -299,8 +281,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<CommitBloc
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<CheckReceiptTimeout>
-    for SumeragiWithFault<G, K, F>
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<CheckReceiptTimeout>
+    for SumeragiWithFault<G, F>
 {
     type Result = ();
 
@@ -315,8 +297,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<CheckRecei
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<CheckCreationTimeout>
-    for SumeragiWithFault<G, K, F>
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<CheckCreationTimeout>
+    for SumeragiWithFault<G, F>
 {
     type Result = ();
 
@@ -331,8 +313,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<CheckCreat
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<CheckCommitTimeout>
-    for SumeragiWithFault<G, K, F>
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<CheckCommitTimeout>
+    for SumeragiWithFault<G, F>
 {
     type Result = ();
 
@@ -346,9 +328,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<CheckCommi
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<IsLeader>
-    for SumeragiWithFault<G, K, F>
-{
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<IsLeader> for SumeragiWithFault<G, F> {
     type Result = bool;
 
     async fn handle(&mut self, IsLeader: IsLeader) -> Self::Result {
@@ -357,9 +337,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<IsLeader>
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<GetLeader>
-    for SumeragiWithFault<G, K, F>
-{
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<GetLeader> for SumeragiWithFault<G, F> {
     type Result = PeerId;
 
     async fn handle(&mut self, GetLeader: GetLeader) -> Self::Result {
@@ -368,8 +346,8 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<GetLeader>
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<NetworkMessage>
-    for SumeragiWithFault<G, K, F>
+impl<G: GenesisNetworkTrait, F: FaultInjection> Handler<NetworkMessage>
+    for SumeragiWithFault<G, F>
 {
     type Result = ();
 
@@ -384,7 +362,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Handler<NetworkMes
     }
 }
 
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> SumeragiWithFault<G, K, F> {
+impl<G: GenesisNetworkTrait, F: FaultInjection> SumeragiWithFault<G, F> {
     /// Initializes sumeragi with the `latest_block_hash` and `block_height` after Kura loads the blocks.
     pub fn init(&mut self, latest_block: HashOf<VersionedCommittedBlock>, block_height: u64) {
         self.block_height = block_height;
@@ -757,7 +735,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> SumeragiWithFault<
         );
         self.voting_block = None;
         self.votes_for_blocks.clear();
-        self.broker.issue_send(StoreBlock(block)).await;
+        self.kura.store_block_async(block).await;
         self.update_network_topology().await;
     }
 
@@ -880,7 +858,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> SumeragiWithFault<
     }
 }
 
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Debug for SumeragiWithFault<G, K, F> {
+impl<G: GenesisNetworkTrait, F: FaultInjection> Debug for SumeragiWithFault<G, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sumeragi")
             .field("public_key", &self.key_pair.public_key())
@@ -892,9 +870,7 @@ impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> Debug for Sumeragi
 }
 
 #[async_trait::async_trait]
-impl<G: GenesisNetworkTrait, K: KuraTrait, F: FaultInjection> ContextHandler<Init>
-    for SumeragiWithFault<G, K, F>
-{
+impl<G: GenesisNetworkTrait, F: FaultInjection> ContextHandler<Init> for SumeragiWithFault<G, F> {
     type Result = ();
 
     async fn handle(&mut self, ctx: &mut Context<Self>, Init { last_block, height }: Init) {

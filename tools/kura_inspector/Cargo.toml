@@ -8,11 +8,6 @@ edition = "2021"
 
 [dependencies]
 iroha_core = { path = "../../core" }
-iroha_config = { path = "../../config" }
+iroha_version = { path = "../../version" }
 
 clap = { version = "3.1.10", features = ["derive", "cargo"] }
-futures-util = "0.3"
-tokio = { version = "1.6.0", features = ["rt"]}
-
-[dev-dependencies]
-tempfile = "3"

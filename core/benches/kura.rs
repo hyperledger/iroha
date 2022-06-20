@@ -1,17 +1,18 @@
 #![allow(missing_docs, clippy::restriction)]
 
-use std::{num::NonZeroU64, str::FromStr as _, sync::Arc};
+use std::{str::FromStr as _, sync::Arc};
 
 use byte_unit::Byte;
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_core::{
-    kura::{config::KuraConfiguration, BlockStore},
+    kura::{BlockStoreTrait, StdFileBlockStore},
     prelude::*,
     tx::TransactionValidator,
     wsv::World,
 };
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::*;
+use iroha_version::scale::EncodeVersioned;
 use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_validators(n_validators: u32) {
@@ -54,22 +55,15 @@ async fn measure_block_size_for_n_validators(n_validators: u32) {
             .unwrap();
     }
     let block = block.commit();
-    let block_store = BlockStore::new(
-        dir.path(),
-        KuraConfiguration::default().blocks_per_storage_file,
-        iroha_core::kura::DefaultIO,
-    )
-    .await
-    .unwrap();
-    block_store.write(&block).await.unwrap();
-    let metadata = fs::metadata(
-        block_store
-            .get_block_path(NonZeroU64::new(2_u64).unwrap()) // TODO: Figure out why this fails with 1_u64
-            .await
-            .unwrap(),
-    )
-    .await
-    .unwrap();
+    let mut block_store = StdFileBlockStore::new(dir.path());
+    block_store.create_files_if_they_do_not_exist().unwrap();
+
+    let serialized_block: Vec<u8> = block.encode_versioned();
+    block_store
+        .append_block_to_chain(&serialized_block)
+        .unwrap();
+
+    let metadata = fs::metadata(dir.path().join("blocks.data")).await.unwrap();
     let file_size = Byte::from_bytes(u128::from(metadata.len())).get_appropriate_unit(false);
     println!("For {} validators: {}", n_validators, file_size);
 }
