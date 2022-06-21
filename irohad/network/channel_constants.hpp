@@ -9,7 +9,7 @@
 namespace iroha::network {
 
   /// Determines maximum packet size can be sent via grpc
-  static constexpr int k_max_msg_size = 128 * 1024 * 1024;
+  static constexpr int kMaxMessageSize = 128 * 1024 * 1024;
 
 }  // namespace iroha::network
 

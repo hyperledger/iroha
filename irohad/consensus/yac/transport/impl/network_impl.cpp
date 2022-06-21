@@ -23,10 +23,7 @@ using iroha::consensus::yac::NetworkImpl;
 // ----------| Public API |----------
 NetworkImpl::NetworkImpl(std::unique_ptr<ClientFactory> client_factory,
                          logger::LoggerPtr log)
-    : client_factory_(std::move(client_factory)), log_(std::move(log)) {
-
-
-}
+    : client_factory_(std::move(client_factory)), log_(std::move(log)) {}
 
 void NetworkImpl::stop() {
   std::lock_guard<std::mutex> stop_lock(stop_mutex_);
@@ -50,7 +47,7 @@ void NetworkImpl::sendState(const shared_model::interface::Peer &to,
   auto stream_writer = stubs_.exclusiveAccess(
       [&](auto &stubs) -> std::shared_ptr<::grpc::ClientWriterInterface<
                            ::iroha::consensus::yac::proto::State>> {
-        auto it = stubs.find(to.pubkey());
+        auto const it = stubs.find(to.pubkey());
         if (it == stubs.end() || std::get<0>(it->second) != to.address()) {
           if (it != stubs.end()) {
             // clear all

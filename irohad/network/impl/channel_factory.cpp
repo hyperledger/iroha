@@ -109,8 +109,8 @@ class ChannelFactory::ChannelArgumentsProvider {
                                                     *maybe_params_.value());
     }
 
-    args_.SetMaxSendMessageSize(k_max_msg_size);
-    args_.SetMaxReceiveMessageSize(k_max_msg_size);
+    args_.SetMaxSendMessageSize(kMaxMessageSize);
+    args_.SetMaxReceiveMessageSize(kMaxMessageSize);
     return args_;
   }
 

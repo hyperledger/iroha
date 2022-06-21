@@ -12,9 +12,9 @@
 #include <memory>
 #include <mutex>
 
-#include "interfaces/common_objects/peer.hpp"
 #include "common/common.hpp"
 #include "consensus/yac/vote_message.hpp"
+#include "interfaces/common_objects/peer.hpp"
 #include "logger/logger_fwd.hpp"
 #include "network/impl/client_factory.hpp"
 

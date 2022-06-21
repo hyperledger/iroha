@@ -62,8 +62,8 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
 
   builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, reuse_ ? 1 : 0);
   builder.AddListeningPort(server_address_, credentials_, &selected_port);
-  builder.SetMaxReceiveMessageSize(k_max_msg_size);
-  builder.SetMaxSendMessageSize(k_max_msg_size);
+  builder.SetMaxReceiveMessageSize(kMaxMessageSize);
+  builder.SetMaxSendMessageSize(kMaxMessageSize);
 
   for (auto &service : services_) {
     builder.RegisterService(service.get());
