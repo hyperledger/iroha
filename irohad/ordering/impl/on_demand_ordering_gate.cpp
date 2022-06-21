@@ -136,16 +136,17 @@ void OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) {
   if (not current_ledger_state_ || event.round != current_round_)
     return;
 
-  if (event.proposal_pack.empty())
-    return iroha::getSubscription()->notify(
-        iroha::EventTypes::kOnProposalSingleEvent,
-        std::make_tuple(
-            round, std::shared_ptr<const shared_model::interface::Proposal>{}));
-
-  proposal_cache_.insert(std::move(event.proposal_pack));
-  iroha::getSubscription()->notify(
-      iroha::EventTypes::kOnProposalSingleEvent,
-      std::make_tuple(round, proposal_cache_.get(event.round)));
+  iroha::ordering::SingleProposalEvent e;
+  if (!event.proposal_pack.empty()) {
+    proposal_cache_.insert(std::move(event.proposal_pack));
+    e = std::make_tuple(event.round, proposal_cache_.get(event.round));
+  } else {
+    e = std::make_tuple(
+        event.round,
+        std::shared_ptr<const shared_model::interface::Proposal>{});
+  }
+  iroha::getSubscription()->notify(iroha::EventTypes::kOnProposalSingleEvent,
+                                   std::move(e));
 }
 
 std::optional<iroha::network::OrderingEvent>
