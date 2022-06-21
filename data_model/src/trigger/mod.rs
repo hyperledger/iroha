@@ -20,42 +20,47 @@ pub mod set;
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "@@{id}")]
-pub struct Trigger<F: Filter> {
+pub struct Trigger<F: Filter, const HASH_LENGTH: usize> {
     /// [`Id`] of the [`Trigger`].
-    pub id: <Trigger<FilterBox> as Identifiable>::Id,
+    pub id: <Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH> as Identifiable>::Id,
     /// Action to be performed when the trigger matches.
-    pub action: action::Action<F>,
+    pub action: action::Action<F, HASH_LENGTH>,
 }
 
-impl Registered for Trigger<FilterBox> {
+impl<const HASH_LENGTH: usize> Registered for Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH> {
     type With = Self;
 }
 
-impl<F: Filter + PartialEq> PartialOrd for Trigger<F> {
+impl<F: Filter + PartialEq, const HASH_LENGTH: usize> PartialOrd for Trigger<F, HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.id.cmp(&other.id))
     }
 }
 
-impl<F: Filter + Eq> Ord for Trigger<F> {
+impl<F: Filter + Eq, const HASH_LENGTH: usize> Ord for Trigger<F, HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl<F: Filter> Trigger<F> {
+impl<F: Filter, const HASH_LENGTH: usize> Trigger<F, HASH_LENGTH> {
     /// Construct trigger, given name action and signatories.
-    pub fn new(id: <Trigger<FilterBox> as Identifiable>::Id, action: action::Action<F>) -> Self {
+    pub fn new(
+        id: <Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH> as Identifiable>::Id,
+        action: action::Action<F, HASH_LENGTH>,
+    ) -> Self {
         Self { id, action }
     }
 }
 
-impl TryFrom<Trigger<FilterBox>> for Trigger<DataEventFilter> {
+impl<const HASH_LENGTH: usize> TryFrom<Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>>
+    for Trigger<DataEventFilter<HASH_LENGTH>, HASH_LENGTH>
+{
     type Error = &'static str;
 
-    fn try_from(boxed: Trigger<FilterBox>) -> Result<Self, Self::Error> {
+    fn try_from(boxed: Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>) -> Result<Self, Self::Error> {
         if let FilterBox::Data(data_filter) = boxed.action.filter {
             let action = action::Action::new(
                 boxed.action.executable,
@@ -73,10 +78,12 @@ impl TryFrom<Trigger<FilterBox>> for Trigger<DataEventFilter> {
     }
 }
 
-impl TryFrom<Trigger<FilterBox>> for Trigger<PipelineEventFilter> {
+impl<const HASH_LENGTH: usize> TryFrom<Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>>
+    for Trigger<PipelineEventFilter<HASH_LENGTH>, HASH_LENGTH>
+{
     type Error = &'static str;
 
-    fn try_from(boxed: Trigger<FilterBox>) -> Result<Self, Self::Error> {
+    fn try_from(boxed: Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>) -> Result<Self, Self::Error> {
         if let FilterBox::Pipeline(pipeline_filter) = boxed.action.filter {
             let action = action::Action::new(
                 boxed.action.executable,
@@ -94,10 +101,12 @@ impl TryFrom<Trigger<FilterBox>> for Trigger<PipelineEventFilter> {
     }
 }
 
-impl TryFrom<Trigger<FilterBox>> for Trigger<TimeEventFilter> {
+impl<const HASH_LENGTH: usize> TryFrom<Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>>
+    for Trigger<TimeEventFilter, HASH_LENGTH>
+{
     type Error = &'static str;
 
-    fn try_from(boxed: Trigger<FilterBox>) -> Result<Self, Self::Error> {
+    fn try_from(boxed: Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>) -> Result<Self, Self::Error> {
         if let FilterBox::Time(time_filter) = boxed.action.filter {
             let action = action::Action::new(
                 boxed.action.executable,
@@ -115,10 +124,12 @@ impl TryFrom<Trigger<FilterBox>> for Trigger<TimeEventFilter> {
     }
 }
 
-impl TryFrom<Trigger<FilterBox>> for Trigger<ExecuteTriggerEventFilter> {
+impl<const HASH_LENGTH: usize> TryFrom<Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>>
+    for Trigger<ExecuteTriggerEventFilter, HASH_LENGTH>
+{
     type Error = &'static str;
 
-    fn try_from(boxed: Trigger<FilterBox>) -> Result<Self, Self::Error> {
+    fn try_from(boxed: Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>) -> Result<Self, Self::Error> {
         if let FilterBox::ExecuteTrigger(execute_trigger_filter) = boxed.action.filter {
             let action = action::Action::new(
                 boxed.action.executable,
@@ -136,7 +147,7 @@ impl TryFrom<Trigger<FilterBox>> for Trigger<ExecuteTriggerEventFilter> {
     }
 }
 
-impl Identifiable for Trigger<FilterBox> {
+impl<const HASH_LENGTH: usize> Identifiable for Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH> {
     type Id = Id;
 
     fn id(&self) -> &Self::Id {
@@ -176,9 +187,9 @@ pub mod action {
     use crate::HasMetadata;
 
     /// Trait for common methods for all [`Action`]'s
-    pub trait ActionTrait {
+    pub trait ActionTrait<const HASH_LENGTH: usize> {
         /// Get action executable
-        fn executable(&self) -> &Executable;
+        fn executable(&self) -> &Executable<HASH_LENGTH>;
 
         /// Get action repeats enum
         fn repeats(&self) -> &Repeats;
@@ -187,19 +198,19 @@ pub mod action {
         fn set_repeats(&mut self, repeats: Repeats);
 
         /// Get action technical account
-        fn technical_account(&self) -> &crate::account::Id;
+        fn technical_account(&self) -> &crate::account::Id<HASH_LENGTH>;
 
         /// Get action metadata
-        fn metadata(&self) -> &Metadata;
+        fn metadata(&self) -> &Metadata<HASH_LENGTH>;
 
         /// Check if action is mintable.
         fn mintable(&self) -> bool;
 
         /// Convert action to a boxed representation
-        fn into_boxed(self) -> Action<FilterBox>;
+        fn into_boxed(self) -> Action<FilterBox<HASH_LENGTH>, HASH_LENGTH>;
 
         /// Same as `into_boxed()` but clones `self`
-        fn clone_and_box(&self) -> Action<FilterBox>;
+        fn clone_and_box(&self) -> Action<FilterBox<HASH_LENGTH>, HASH_LENGTH>;
     }
 
     /// Designed to differentiate between oneshot and unlimited
@@ -215,9 +226,9 @@ pub mod action {
     /// be run before any of the ISIs are pushed into the queue of the
     /// next block.
     #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize, IntoSchema)]
-    pub struct Action<F: Filter> {
+    pub struct Action<F: Filter, const HASH_LENGTH: usize> {
         /// The executable linked to this action
-        pub executable: Executable,
+        pub executable: Executable<HASH_LENGTH>,
         /// The repeating scheme of the action. It's kept as part of the
         /// action and not inside the [`Trigger`] type, so that further
         /// sanity checking can be done.
@@ -225,25 +236,25 @@ pub mod action {
         /// Technical account linked to this trigger. The technical
         /// account must already exist in order for `Register<Trigger>` to
         /// work.
-        pub technical_account: crate::account::Id,
+        pub technical_account: crate::account::Id<HASH_LENGTH>,
         /// Defines events which trigger the `Action`
         pub filter: F,
         /// Metadata used as persistent storage for trigger data.
-        pub metadata: Metadata,
+        pub metadata: Metadata<HASH_LENGTH>,
     }
 
-    impl<F: Filter> HasMetadata for Action<F> {
-        fn metadata(&self) -> &crate::metadata::Metadata {
+    impl<F: Filter, const HASH_LENGTH: usize> HasMetadata for Action<F, HASH_LENGTH> {
+        fn metadata(&self) -> &crate::metadata::Metadata<HASH_LENGTH> {
             &self.metadata
         }
     }
 
-    impl<F: Filter> Action<F> {
+    impl<F: Filter, const HASH_LENGTH: usize> Action<F, HASH_LENGTH> {
         /// Construct an action given `executable`, `repeats`, `technical_account` and `filter`.
         pub fn new(
-            executable: impl Into<Executable>,
+            executable: impl Into<Executable<HASH_LENGTH>>,
             repeats: impl Into<Repeats>,
-            technical_account: crate::account::Id,
+            technical_account: crate::account::Id<HASH_LENGTH>,
             filter: F,
         ) -> Self {
             Self {
@@ -258,14 +269,16 @@ pub mod action {
 
         /// Add [`Metadata`] to the trigger replacing previously defined
         #[must_use]
-        pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        pub fn with_metadata(mut self, metadata: Metadata<HASH_LENGTH>) -> Self {
             self.metadata = metadata;
             self
         }
     }
 
-    impl<F: Filter + Into<FilterBox> + Clone> ActionTrait for Action<F> {
-        fn executable(&self) -> &Executable {
+    impl<F: Filter + Into<FilterBox<HASH_LENGTH>> + Clone, const HASH_LENGTH: usize> ActionTrait<HASH_LENGTH>
+        for Action<F, HASH_LENGTH>
+    {
+        fn executable(&self) -> &Executable<HASH_LENGTH> {
             &self.executable
         }
 
@@ -277,11 +290,11 @@ pub mod action {
             self.repeats = repeats;
         }
 
-        fn technical_account(&self) -> &crate::account::Id {
+        fn technical_account(&self) -> &crate::account::Id<HASH_LENGTH> {
             &self.technical_account
         }
 
-        fn metadata(&self) -> &Metadata {
+        fn metadata(&self) -> &Metadata<HASH_LENGTH> {
             &self.metadata
         }
 
@@ -289,8 +302,8 @@ pub mod action {
             self.filter.mintable()
         }
 
-        fn into_boxed(self) -> Action<FilterBox> {
-            Action::<FilterBox>::new(
+        fn into_boxed(self) -> Action<FilterBox<HASH_LENGTH>, HASH_LENGTH> {
+            Action::<FilterBox<HASH_LENGTH>, HASH_LENGTH>::new(
                 self.executable,
                 self.repeats,
                 self.technical_account,
@@ -298,8 +311,8 @@ pub mod action {
             )
         }
 
-        fn clone_and_box(&self) -> Action<FilterBox> {
-            Action::<FilterBox>::new(
+        fn clone_and_box(&self) -> Action<FilterBox<HASH_LENGTH>, HASH_LENGTH> {
+            Action::<FilterBox<HASH_LENGTH>, HASH_LENGTH>::new(
                 self.executable.clone(),
                 self.repeats.clone(),
                 self.technical_account.clone(),
@@ -308,7 +321,7 @@ pub mod action {
         }
     }
 
-    impl<F: Filter + PartialEq> PartialOrd for Action<F> {
+    impl<F: Filter + PartialEq, const HASH_LENGTH: usize> PartialOrd for Action<F, HASH_LENGTH> {
         fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
             // Exclude the executable. When debugging and replacing
             // the trigger, its position in Hash and Tree maps should
@@ -322,7 +335,7 @@ pub mod action {
     }
 
     #[allow(clippy::expect_used)]
-    impl<F: Filter + Eq> Ord for Action<F> {
+    impl<F: Filter + Eq, const HASH_LENGTH: usize> Ord for Action<F, HASH_LENGTH> {
         fn cmp(&self, other: &Self) -> cmp::Ordering {
             self.partial_cmp(other)
                 .expect("`PartialCmp::partial_cmp()` for `Action` should never return `None`")
@@ -378,24 +391,27 @@ pub mod prelude {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const HASH_LENGTH: usize = 32;
 
     #[test]
     fn trigger_with_filterbox_can_be_unboxed() {
         /// Should fail to compile if a new variant will be added to `FilterBox`
         #[allow(dead_code, clippy::unwrap_used)]
-        fn compile_time_check(boxed: Trigger<FilterBox>) {
+        fn compile_time_check(boxed: Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>) {
             match &boxed.action.filter {
-                FilterBox::Data(_) => Trigger::<DataEventFilter>::try_from(boxed)
+                FilterBox::Data(_) => Trigger::<DataEventFilter, HASH_LENGTH>::try_from(boxed)
                     .map(|_| ())
                     .unwrap(),
-                FilterBox::Pipeline(_) => Trigger::<PipelineEventFilter>::try_from(boxed)
-                    .map(|_| ())
-                    .unwrap(),
-                FilterBox::Time(_) => Trigger::<TimeEventFilter>::try_from(boxed)
+                FilterBox::Pipeline(_) => {
+                    Trigger::<PipelineEventFilter<HASH_LENGTH>, HASH_LENGTH>::try_from(boxed)
+                        .map(|_| ())
+                        .unwrap()
+                }
+                FilterBox::Time(_) => Trigger::<TimeEventFilter, HASH_LENGTH>::try_from(boxed)
                     .map(|_| ())
                     .unwrap(),
                 FilterBox::ExecuteTrigger(_) => {
-                    Trigger::<ExecuteTriggerEventFilter>::try_from(boxed)
+                    Trigger::<ExecuteTriggerEventFilter, HASH_LENGTH>::try_from(boxed)
                         .map(|_| ())
                         .unwrap()
                 }

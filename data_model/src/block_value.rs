@@ -20,31 +20,32 @@ use crate::{
     Debug, Clone, Display, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "Block №{height} (hash: {transactions_hash});")]
-pub struct BlockHeaderValue {
+pub struct BlockHeaderValue<const HASH_LENGTH: usize> {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
     /// a number of blocks in the chain up to the block.
     pub height: u64,
     /// Hash of a previous block in the chain.
     /// Is an array of zeros for the first block.
-    pub previous_block_hash: Hash,
+    pub previous_block_hash: Hash<HASH_LENGTH>,
     /// Hash of merkle tree root of the tree of valid transactions' hashes.
-    pub transactions_hash: HashOf<MerkleTree<VersionedTransaction>>,
+    pub transactions_hash: HashOf<MerkleTree<VersionedTransaction, HASH_LENGTH>, HASH_LENGTH>,
     /// Hash of merkle tree root of the tree of rejected transactions' hashes.
-    pub rejected_transactions_hash: HashOf<MerkleTree<VersionedTransaction>>,
+    pub rejected_transactions_hash:
+        HashOf<MerkleTree<VersionedTransaction, HASH_LENGTH>, HASH_LENGTH>,
     /// Hashes of the blocks that were rejected by consensus.
-    pub invalidated_blocks_hashes: Vec<Hash>,
+    pub invalidated_blocks_hashes: Vec<Hash<HASH_LENGTH>>,
     /// Hash of the most recent block
-    pub current_block_hash: Hash,
+    pub current_block_hash: Hash<HASH_LENGTH>,
 }
 
-impl PartialOrd for BlockHeaderValue {
+impl<const HASH_LENGTH: usize> PartialOrd for BlockHeaderValue<HASH_LENGTH> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.timestamp.cmp(&other.timestamp))
     }
 }
 
-impl Ord for BlockHeaderValue {
+impl<const HASH_LENGTH: usize> Ord for BlockHeaderValue<HASH_LENGTH> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.timestamp.cmp(&other.timestamp)
     }
@@ -55,9 +56,9 @@ impl Ord for BlockHeaderValue {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Serialize, Deserialize, IntoSchema,
 )]
 #[display(fmt = "({})", header)]
-pub struct BlockValue {
+pub struct BlockValue<const HASH_LENGTH: usize> {
     /// Header
-    pub header: BlockHeaderValue,
+    pub header: BlockHeaderValue<HASH_LENGTH>,
     /// Array of transactions
     pub transactions: Vec<VersionedValidTransaction>,
     /// Array of rejected transactions.

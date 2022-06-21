@@ -12,19 +12,19 @@ mod asset {
     #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[non_exhaustive]
     #[allow(missing_docs)]
-    pub enum AssetEvent {
-        Created(AssetId),
-        Deleted(AssetId),
-        Added(AssetId),
-        Removed(AssetId),
-        MetadataInserted(AssetId),
-        MetadataRemoved(AssetId),
+    pub enum AssetEvent<const HASH_LENGTH: usize> {
+        Created(AssetId<{ HASH_LENGTH }>),
+        Deleted(AssetId<{ HASH_LENGTH }>),
+        Added(AssetId<{ HASH_LENGTH }>),
+        Removed(AssetId<{ HASH_LENGTH }>),
+        MetadataInserted(AssetId<{ HASH_LENGTH }>),
+        MetadataRemoved(AssetId<{ HASH_LENGTH }>),
     }
 
-    impl Identifiable for AssetEvent {
-        type Id = AssetId;
+    impl<const HASH_LENGTH: usize> Identifiable for AssetEvent<HASH_LENGTH> {
+        type Id = AssetId<HASH_LENGTH>;
 
-        fn id(&self) -> &AssetId {
+        fn id(&self) -> &AssetId<HASH_LENGTH> {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
@@ -39,21 +39,21 @@ mod asset {
     #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[non_exhaustive]
     #[allow(missing_docs)]
-    pub enum AssetDefinitionEvent {
-        Created(AssetDefinitionId),
-        MintabilityChanged(AssetDefinitionId),
-        Deleted(AssetDefinitionId),
-        MetadataInserted(AssetDefinitionId),
-        MetadataRemoved(AssetDefinitionId),
+    pub enum AssetDefinitionEvent<const HASH_LENGTH: usize> {
+        Created(AssetDefinitionId<{ HASH_LENGTH }>),
+        MintabilityChanged(AssetDefinitionId<{ HASH_LENGTH }>),
+        Deleted(AssetDefinitionId<{ HASH_LENGTH }>),
+        MetadataInserted(AssetDefinitionId<{ HASH_LENGTH }>),
+        MetadataRemoved(AssetDefinitionId<{ HASH_LENGTH }>),
     }
     // NOTE: Whenever you add a new event here, please also update the
     // AssetDefinitionEventFilter enum and its `impl Filter for
     // AssetDefinitionEventFilter`.
 
-    impl Identifiable for AssetDefinitionEvent {
-        type Id = AssetDefinitionId;
+    impl<const HASH_LENGTH: usize> Identifiable for AssetDefinitionEvent<HASH_LENGTH> {
+        type Id = AssetDefinitionId<HASH_LENGTH>;
 
-        fn id(&self) -> &AssetDefinitionId {
+        fn id(&self) -> &AssetDefinitionId<HASH_LENGTH> {
             match self {
                 Self::Created(id)
                 | Self::Deleted(id)
@@ -122,8 +122,8 @@ mod account {
     #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[non_exhaustive]
     #[allow(missing_docs)]
-    pub enum AccountEvent {
-        Asset(AssetEvent),
+    pub enum AccountEvent<const HASH_LENGTH: usize> {
+        Asset(AssetEvent<{ HASH_LENGTH }>),
         Created(AccountId),
         Deleted(AccountId),
         AuthenticationAdded(AccountId),
@@ -136,7 +136,7 @@ mod account {
         MetadataRemoved(AccountId),
     }
 
-    impl Identifiable for AccountEvent {
+    impl<const HASH_LENGTH: usize> Identifiable for AccountEvent<HASH_LENGTH> {
         type Id = AccountId;
 
         fn id(&self) -> &AccountId {
@@ -166,16 +166,16 @@ mod domain {
     #[derive(Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[non_exhaustive]
     #[allow(missing_docs)]
-    pub enum DomainEvent {
-        Account(AccountEvent),
-        AssetDefinition(AssetDefinitionEvent),
+    pub enum DomainEvent<const HASH_LENGTH: usize> {
+        Account(AccountEvent<{ HASH_LENGTH }>),
+        AssetDefinition(AssetDefinitionEvent<{ HASH_LENGTH }>),
         Created(DomainId),
         Deleted(DomainId),
         MetadataInserted(DomainId),
         MetadataRemoved(DomainId),
     }
 
-    impl Identifiable for DomainEvent {
+    impl<const HASH_LENGTH: usize> Identifiable for DomainEvent<HASH_LENGTH> {
         type Id = DomainId;
 
         fn id(&self) -> &DomainId {
@@ -228,9 +228,9 @@ mod trigger {
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 #[allow(missing_docs)]
-pub enum WorldEvent {
+pub enum WorldEvent<const HASH_LENGTH: usize> {
     Peer(peer::PeerEvent),
-    Domain(domain::DomainEvent),
+    Domain(domain::DomainEvent<{ HASH_LENGTH }>),
     Role(role::RoleEvent),
     Trigger(trigger::TriggerEvent),
 }
@@ -239,25 +239,25 @@ pub enum WorldEvent {
 #[derive(
     Clone, PartialEq, Eq, Debug, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
-pub enum Event {
+pub enum Event<const HASH_LENGTH: usize> {
     /// Peer event
     Peer(peer::PeerEvent),
     /// Domain event
-    Domain(domain::DomainEvent),
+    Domain(domain::DomainEvent<{ HASH_LENGTH }>),
     /// Account event
-    Account(account::AccountEvent),
+    Account(account::AccountEvent<{ HASH_LENGTH }>),
     /// Asset definition event
-    AssetDefinition(asset::AssetDefinitionEvent),
+    AssetDefinition(asset::AssetDefinitionEvent<{ HASH_LENGTH }>),
     /// Asset event
-    Asset(asset::AssetEvent),
+    Asset(asset::AssetEvent<{ HASH_LENGTH }>),
     /// Trigger event
     Trigger(trigger::TriggerEvent),
     /// Role event
     Role(role::RoleEvent),
 }
 
-impl From<WorldEvent> for SmallVec<[Event; 3]> {
-    fn from(world_event: WorldEvent) -> Self {
+impl<const HASH_LENGTH: usize> From<WorldEvent<HASH_LENGTH>> for SmallVec<[Event<HASH_LENGTH>; 3]> {
+    fn from(world_event: WorldEvent<HASH_LENGTH>) -> Self {
         let mut events = SmallVec::new();
 
         match world_event {

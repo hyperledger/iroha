@@ -29,16 +29,16 @@ pub use crate::transaction::RejectionReason as PipelineRejectionReason;
     Serialize,
     Deserialize,
 )]
-pub struct EventFilter {
+pub struct EventFilter<const HASH_LENGTH: usize> {
     /// If `Some::<EntityKind>` filters by the [`EntityKind`]. If `None` accepts all the [`EntityKind`].
     pub entity_kind: Option<EntityKind>,
     /// If `Some::<StatusKind>` filters by the [`StatusKind`]. If `None` accepts all the [`StatusKind`].
     pub status_kind: Option<StatusKind>,
     /// If `Some::<Hash>` filters by the [`struct@Hash`]. If `None` accepts all the [`struct@Hash`].
-    pub hash: Option<Hash>,
+    pub hash: Option<Hash<HASH_LENGTH>>,
 }
 
-impl EventFilter {
+impl<const HASH_LENGTH: usize> EventFilter<HASH_LENGTH> {
     /// Construct [`EventFilter`].
     #[must_use]
     #[inline]
@@ -65,7 +65,7 @@ impl EventFilter {
     /// Filter by [`struct@Hash`].
     #[must_use]
     #[inline]
-    pub const fn hash(mut self, hash: Hash) -> Self {
+    pub const fn hash(mut self, hash: Hash<HASH_LENGTH>) -> Self {
         self.hash = Some(hash);
         self
     }
@@ -76,12 +76,12 @@ impl EventFilter {
     }
 }
 
-impl Filter for EventFilter {
-    type EventType = Event;
+impl<const HASH_LENGTH: usize> Filter for EventFilter<HASH_LENGTH> {
+    type EventType = Event<HASH_LENGTH>;
 
     /// Check if `self` accepts the `event`.
     #[inline]
-    fn matches(&self, event: &Event) -> bool {
+    fn matches(&self, event: &Self::EventType) -> bool {
         [
             Self::field_matches(&self.entity_kind, &event.entity_kind),
             Self::field_matches(&self.status_kind, &event.status.kind()),
@@ -117,18 +117,18 @@ pub enum EntityKind {
 
 /// Strongly-typed [`Event`], which tells the receiver the kind of entity that changed, the change, and the hash of the entity.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Event {
+pub struct Event<const HASH_LENGTH: usize> {
     /// [`EntityKind`] of the entity that caused this [`Event`].
     pub entity_kind: EntityKind,
     /// [`Status`] of the entity that caused this [`Event`].
     pub status: Status,
     /// [`struct@Hash`] of the entity that caused this [`Event`].
-    pub hash: Hash,
+    pub hash: Hash<HASH_LENGTH>,
 }
 
-impl Event {
+impl<const HASH_LENGTH: usize> Event<HASH_LENGTH> {
     /// Construct [`Event`].
-    pub const fn new(entity_kind: EntityKind, status: Status, hash: Hash) -> Self {
+    pub const fn new(entity_kind: EntityKind, status: Status, hash: Hash<HASH_LENGTH>) -> Self {
         Event {
             entity_kind,
             status,
@@ -204,6 +204,8 @@ mod tests {
 
     use super::*;
     use crate::transaction::{NotPermittedFail, RejectionReason::*, TransactionRejectionReason::*};
+    
+    const HASH_LENGTH: usize = 32;
 
     #[test]
     fn events_are_correctly_filtered() {
@@ -211,24 +213,24 @@ mod tests {
             Event {
                 entity_kind: EntityKind::Transaction,
                 status: Status::Validating,
-                hash: Hash::prehashed([0_u8; Hash::LENGTH]),
+                hash: Hash::prehashed([0_u8; HASH_LENGTH]),
             },
             Event {
                 entity_kind: EntityKind::Transaction,
                 status: Status::Rejected(Transaction(NotPermitted(NotPermittedFail {
                     reason: "Some reason".to_string(),
                 }))),
-                hash: Hash::prehashed([0_u8; Hash::LENGTH]),
+                hash: Hash::prehashed([0_u8; HASH_LENGTH]),
             },
             Event {
                 entity_kind: EntityKind::Transaction,
                 status: Status::Committed,
-                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
+                hash: Hash::prehashed([2_u8; HASH_LENGTH]),
             },
             Event {
                 entity_kind: EntityKind::Block,
                 status: Status::Committed,
-                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
+                hash: Hash::prehashed([2_u8; HASH_LENGTH]),
             },
         ];
         assert_eq!(
@@ -236,29 +238,29 @@ mod tests {
                 Event {
                     entity_kind: EntityKind::Transaction,
                     status: Status::Validating,
-                    hash: Hash::prehashed([0_u8; Hash::LENGTH]),
+                    hash: Hash::prehashed([0_u8; HASH_LENGTH]),
                 },
                 Event {
                     entity_kind: EntityKind::Transaction,
                     status: Status::Rejected(Transaction(NotPermitted(NotPermittedFail {
                         reason: "Some reason".to_string(),
                     }))),
-                    hash: Hash::prehashed([0_u8; Hash::LENGTH]),
+                    hash: Hash::prehashed([0_u8; HASH_LENGTH]),
                 },
             ],
             events
                 .iter()
                 .cloned()
                 .filter(|event| EventFilter::new()
-                    .hash(Hash::prehashed([0_u8; Hash::LENGTH]))
+                    .hash(Hash::prehashed([0_u8; HASH_LENGTH]))
                     .matches(event))
-                .collect::<Vec<Event>>()
+                .collect::<Vec<Event<HASH_LENGTH>>>()
         );
         assert_eq!(
             vec![Event {
                 entity_kind: EntityKind::Block,
                 status: Status::Committed,
-                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
+                hash: Hash::prehashed([2_u8; HASH_LENGTH]),
             }],
             events
                 .iter()
@@ -266,22 +268,22 @@ mod tests {
                 .filter(|event| EventFilter::new()
                     .entity_kind(EntityKind::Block)
                     .matches(event))
-                .collect::<Vec<Event>>()
+                .collect::<Vec<Event<HASH_LENGTH>>>()
         );
         assert_eq!(
             vec![Event {
                 entity_kind: EntityKind::Transaction,
                 status: Status::Committed,
-                hash: Hash::prehashed([2_u8; Hash::LENGTH]),
+                hash: Hash::prehashed([2_u8; HASH_LENGTH]),
             }],
             events
                 .iter()
                 .cloned()
                 .filter(|event| EventFilter::new()
                     .entity_kind(EntityKind::Transaction)
-                    .hash(Hash::prehashed([2_u8; Hash::LENGTH]))
+                    .hash(Hash::prehashed([2_u8; HASH_LENGTH]))
                     .matches(event))
-                .collect::<Vec<Event>>()
+                .collect::<Vec<Event<HASH_LENGTH>>>()
         );
         assert_eq!(
             events,
@@ -289,7 +291,7 @@ mod tests {
                 .iter()
                 .cloned()
                 .filter(|event| EventFilter::new().matches(event))
-                .collect::<Vec<Event>>()
+                .collect::<Vec<Event<HASH_LENGTH>>>()
         )
     }
 }

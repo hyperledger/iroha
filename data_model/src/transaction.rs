@@ -43,12 +43,12 @@ pub trait Txn {
     type HashOf: Txn;
 
     /// Returns payload of a transaction
-    fn payload(&self) -> &Payload;
+    fn payload<const HASH_LENGTH: usize>(&self) -> &Payload<HASH_LENGTH>;
 
     /// Calculate transaction [`Hash`](`iroha_crypto::Hash`).
     #[inline]
     #[cfg(feature = "std")]
-    fn hash(&self) -> iroha_crypto::HashOf<Self::HashOf>
+    fn hash<const HASH_LENGTH: usize>(&self) -> iroha_crypto::HashOf<Self::HashOf, HASH_LENGTH>
     where
         Self: Sized,
     {
@@ -123,14 +123,16 @@ pub trait Txn {
 
 /// Either ISI or Wasm binary
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub enum Executable {
+pub enum Executable<const HASH_LENGTH: usize> {
     /// Ordered set of instructions.
-    Instructions(Vec<Instruction>),
+    Instructions(Vec<Instruction<{ HASH_LENGTH }>>),
     /// WebAssembly smartcontract
     Wasm(WasmSmartContract),
 }
 
-impl<T: IntoIterator<Item = Instruction>> From<T> for Executable {
+impl<T: IntoIterator<Item = Instruction<HASH_LENGTH>>, const HASH_LENGTH: usize> From<T>
+    for Executable<HASH_LENGTH>
+{
     fn from(collection: T) -> Self {
         Self::Instructions(collection.into_iter().collect())
     }
@@ -154,11 +156,11 @@ impl AsRef<[u8]> for WasmSmartContract {
 
 /// Iroha [`Transaction`] payload.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Payload {
+pub struct Payload<const HASH_LENGTH: usize> {
     /// Account ID of transaction creator.
-    pub account_id: <Account as Identifiable>::Id,
+    pub account_id: <Account<HASH_LENGTH> as Identifiable>::Id,
     /// Instructions or WebAssembly smartcontract
-    pub instructions: Executable,
+    pub instructions: Executable<HASH_LENGTH>,
     /// Time of creation (unix time, in milliseconds).
     pub creation_time: u64,
     /// The transaction will be dropped after this time if it is still in a `Queue`.
@@ -166,12 +168,12 @@ pub struct Payload {
     /// Random value to make different hashes for transactions which occur repeatedly and simultaneously
     pub nonce: Option<u32>,
     /// Metadata.
-    pub metadata: UnlimitedMetadata,
+    pub metadata: UnlimitedMetadata<HASH_LENGTH>,
 }
 
-impl Payload {
+impl<const HASH_LENGTH: usize> Payload<HASH_LENGTH> {
     /// Used to compare the contents of the transaction independent of when it was created.
-    pub fn equals_excluding_creation_time(&self, other: &Payload) -> bool {
+    pub fn equals_excluding_creation_time(&self, other: &Payload<HASH_LENGTH>) -> bool {
         self.account_id == other.account_id
             && self.instructions == other.instructions
             && self.time_to_live_ms == other.time_to_live_ms
@@ -198,9 +200,9 @@ declare_versioned!(
     IntoSchema,
 );
 
-impl VersionedTransaction {
+impl<const HASH_LENGTH: usize> VersionedTransaction {
     /// Converts from `&VersionedTransaction` to V1 reference
-    pub const fn as_v1(&self) -> &Transaction {
+    pub const fn as_v1(&self) -> &Transaction<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
@@ -208,7 +210,7 @@ impl VersionedTransaction {
 
     /// Converts from `&mut VersionedTransaction` to V1 mutable reference
     #[inline]
-    pub fn as_mut_v1(&mut self) -> &mut Transaction {
+    pub fn as_mut_v1(&mut self) -> &mut Transaction<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
@@ -216,18 +218,18 @@ impl VersionedTransaction {
 
     /// Performs the conversion from `VersionedTransaction` to V1
     #[inline]
-    pub fn into_v1(self) -> Transaction {
+    pub fn into_v1(self) -> Transaction<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
     }
 }
 
-impl Txn for VersionedTransaction {
+impl<const HASH_LENGTH: usize> Txn for VersionedTransaction {
     type HashOf = Self;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &Payload<HASH_LENGTH> {
         match self {
             Self::V1(v1) => &v1.payload,
         }
@@ -257,21 +259,21 @@ impl From<VersionedValidTransaction> for VersionedTransaction {
 /// prohibited. Before any interactions `accept`.
 #[version(n = 1, versioned = "VersionedTransaction")]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Transaction {
+pub struct Transaction<const HASH_LENGTH: usize> {
     /// [`Transaction`] payload.
-    pub payload: Payload,
+    pub payload: Payload<HASH_LENGTH>,
     /// [`SignatureOf`] [`Payload`].
-    pub signatures: btree_set::BTreeSet<SignatureOf<Payload>>,
+    pub signatures: btree_set::BTreeSet<SignatureOf<Payload<HASH_LENGTH>, HASH_LENGTH>>,
 }
 
-impl Transaction {
+impl<const HASH_LENGTH: usize> Transaction<HASH_LENGTH> {
     /// Construct `Transaction`.
     #[inline]
     #[must_use]
     #[cfg(feature = "std")]
     pub fn new(
-        account_id: <Account as Identifiable>::Id,
-        instructions: Executable,
+        account_id: <Account<HASH_LENGTH> as Identifiable>::Id,
+        instructions: Executable<HASH_LENGTH>,
         proposed_ttl_ms: u64,
     ) -> Self {
         #[allow(clippy::cast_possible_truncation)]
@@ -293,7 +295,7 @@ impl Transaction {
     /// Adds metadata to the `Transaction`
     #[must_use]
     #[inline]
-    pub fn with_metadata(mut self, metadata: UnlimitedMetadata) -> Self {
+    pub fn with_metadata(mut self, metadata: UnlimitedMetadata<HASH_LENGTH>) -> Self {
         self.payload.metadata = metadata;
         self
     }
@@ -314,8 +316,8 @@ impl Transaction {
     #[cfg(feature = "std")]
     pub fn sign(
         mut self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<Transaction, iroha_crypto::Error> {
+        key_pair: iroha_crypto::KeyPair<HASH_LENGTH>,
+    ) -> Result<Transaction<HASH_LENGTH>, iroha_crypto::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
         self.signatures.insert(signature);
 
@@ -326,21 +328,21 @@ impl Transaction {
     }
 }
 
-impl Txn for Transaction {
+impl<const HASH_LENGTH: usize> Txn for Transaction<HASH_LENGTH> {
     type HashOf = Self;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &Payload<HASH_LENGTH> {
         &self.payload
     }
 }
 
 declare_versioned_with_scale!(VersionedPendingTransactions 1..2, Debug, Clone, FromVariant);
 
-impl VersionedPendingTransactions {
+impl<const HASH_LENGTH: usize> VersionedPendingTransactions {
     /// Converts from `&VersionedPendingTransactions` to V1 reference
     #[inline]
-    pub const fn as_v1(&self) -> &PendingTransactions {
+    pub const fn as_v1(&self) -> &PendingTransactions<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
@@ -348,7 +350,7 @@ impl VersionedPendingTransactions {
 
     /// Converts from `&mut VersionedPendingTransactions` to V1 mutable reference
     #[inline]
-    pub fn as_mut_v1(&mut self) -> &mut PendingTransactions {
+    pub fn as_mut_v1(&mut self) -> &mut PendingTransactions<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
@@ -356,15 +358,17 @@ impl VersionedPendingTransactions {
 
     /// Performs the conversion from `VersionedPendingTransactions` to V1
     #[inline]
-    pub fn into_v1(self) -> PendingTransactions {
+    pub fn into_v1(self) -> PendingTransactions<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
     }
 }
 
-impl FromIterator<Transaction> for VersionedPendingTransactions {
-    fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
+impl<const HASH_LENGTH: usize> FromIterator<Transaction<HASH_LENGTH>>
+    for VersionedPendingTransactions
+{
+    fn from_iter<T: IntoIterator<Item = Transaction<HASH_LENGTH>>>(iter: T) -> Self {
         PendingTransactions(iter.into_iter().collect()).into()
     }
 }
@@ -381,16 +385,18 @@ impl Reply for VersionedPendingTransactions {
 /// Represents a collection of transactions that the peer sends to describe its pending transactions in a queue.
 #[version_with_scale(n = 1, versioned = "VersionedPendingTransactions")]
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct PendingTransactions(pub Vec<Transaction>);
+pub struct PendingTransactions<const HASH_LENGTH: usize>(pub Vec<Transaction<HASH_LENGTH>>);
 
-impl FromIterator<Transaction> for PendingTransactions {
-    fn from_iter<T: IntoIterator<Item = Transaction>>(iter: T) -> Self {
+impl<const HASH_LENGTH: usize> FromIterator<Transaction<HASH_LENGTH>>
+    for PendingTransactions<HASH_LENGTH>
+{
+    fn from_iter<T: IntoIterator<Item = Transaction<HASH_LENGTH>>>(iter: T) -> Self {
         PendingTransactions(iter.into_iter().collect())
     }
 }
 
-impl IntoIterator for PendingTransactions {
-    type Item = Transaction;
+impl<const HASH_LENGTH: usize> IntoIterator for PendingTransactions<HASH_LENGTH> {
+    type Item = Transaction<HASH_LENGTH>;
 
     type IntoIter = vec::IntoIter<Self::Item>;
 
@@ -409,10 +415,10 @@ pub enum TransactionValue {
     RejectedTransaction(Box<VersionedRejectedTransaction>),
 }
 
-impl TransactionValue {
+impl<const HASH_LENGTH: usize> TransactionValue {
     /// Used to return payload of the transaction
     #[inline]
-    pub fn payload(&self) -> &Payload {
+    pub fn payload(&self) -> &Payload<HASH_LENGTH> {
         match self {
             TransactionValue::Transaction(tx) => tx.payload(),
             TransactionValue::RejectedTransaction(tx) => tx.payload(),
@@ -441,10 +447,10 @@ impl PartialOrd for TransactionValue {
 
 declare_versioned!(VersionedValidTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema);
 
-impl VersionedValidTransaction {
+impl<const HASH_LENGTH: usize> VersionedValidTransaction {
     /// Converts from `&VersionedValidTransaction` to V1 reference
     #[inline]
-    pub const fn as_v1(&self) -> &ValidTransaction {
+    pub const fn as_v1(&self) -> &ValidTransaction<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
@@ -452,7 +458,7 @@ impl VersionedValidTransaction {
 
     /// Converts from `&mut VersionedValidTransaction` to V1 mutable reference
     #[inline]
-    pub fn as_mut_v1(&mut self) -> &mut ValidTransaction {
+    pub fn as_mut_v1(&mut self) -> &mut ValidTransaction<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
@@ -460,18 +466,18 @@ impl VersionedValidTransaction {
 
     /// Performs the conversion from `VersionedValidTransaction` to V1
     #[inline]
-    pub fn into_v1(self) -> ValidTransaction {
+    pub fn into_v1(self) -> ValidTransaction<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
     }
 }
 
-impl Txn for VersionedValidTransaction {
+impl<const HASH_LENGTH: usize> Txn for VersionedValidTransaction {
     type HashOf = VersionedTransaction;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &Payload<HASH_LENGTH> {
         &self.as_v1().payload
     }
 }
@@ -479,28 +485,28 @@ impl Txn for VersionedValidTransaction {
 /// `ValidTransaction` represents trustfull Transaction state.
 #[version_with_scale(n = 1, versioned = "VersionedValidTransaction")]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct ValidTransaction {
+pub struct ValidTransaction<const HASH_LENGTH: usize> {
     /// The [`Transaction`]'s payload.
-    pub payload: Payload,
+    pub payload: Payload<HASH_LENGTH>,
     /// [`SignatureOf`] [`Payload`].
-    pub signatures: SignaturesOf<Payload>,
+    pub signatures: SignaturesOf<Payload<HASH_LENGTH>, HASH_LENGTH>,
 }
 
-impl Txn for ValidTransaction {
-    type HashOf = Transaction;
+impl<const HASH_LENGTH: usize> Txn for ValidTransaction<HASH_LENGTH> {
+    type HashOf = Transaction<HASH_LENGTH>;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &Payload<HASH_LENGTH> {
         &self.payload
     }
 }
 
 declare_versioned!(VersionedRejectedTransaction 1..2, Debug, Clone, PartialEq, Eq, FromVariant, IntoSchema);
 
-impl VersionedRejectedTransaction {
+impl<const HASH_LENGTH: usize> VersionedRejectedTransaction {
     /// Converts from `&VersionedRejectedTransaction` to V1 reference
     #[inline]
-    pub const fn as_v1(&self) -> &RejectedTransaction {
+    pub const fn as_v1(&self) -> &RejectedTransaction<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
@@ -508,7 +514,7 @@ impl VersionedRejectedTransaction {
 
     /// Converts from `&mut VersionedRejectedTransaction` to V1 mutable reference
     #[inline]
-    pub fn as_mut_v1(&mut self) -> &mut RejectedTransaction {
+    pub fn as_mut_v1(&mut self) -> &mut RejectedTransaction<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
@@ -516,18 +522,18 @@ impl VersionedRejectedTransaction {
 
     /// Performs the conversion from `VersionedRejectedTransaction` to V1
     #[inline]
-    pub fn into_v1(self) -> RejectedTransaction {
+    pub fn into_v1(self) -> RejectedTransaction<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
     }
 }
 
-impl Txn for VersionedRejectedTransaction {
+impl<const HASH_LENGTH: usize> Txn for VersionedRejectedTransaction {
     type HashOf = VersionedTransaction;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &Payload<HASH_LENGTH> {
         match self {
             Self::V1(v1) => &v1.payload,
         }
@@ -537,20 +543,20 @@ impl Txn for VersionedRejectedTransaction {
 /// [`RejectedTransaction`] represents transaction rejected by some validator at some stage of the pipeline.
 #[version(n = 1, versioned = "VersionedRejectedTransaction")]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct RejectedTransaction {
+pub struct RejectedTransaction<const HASH_LENGTH: usize> {
     /// The [`Transaction`]'s payload.
-    pub payload: Payload,
+    pub payload: Payload<HASH_LENGTH>,
     /// [`SignatureOf`] [`Transaction`].
-    pub signatures: SignaturesOf<Payload>,
+    pub signatures: SignaturesOf<Payload<HASH_LENGTH>, HASH_LENGTH>,
     /// The reason for rejecting this transaction during the validation pipeline.
-    pub rejection_reason: TransactionRejectionReason,
+    pub rejection_reason: TransactionRejectionReason<HASH_LENGTH>,
 }
 
-impl Txn for RejectedTransaction {
-    type HashOf = Transaction;
+impl<const HASH_LENGTH: usize> Txn for RejectedTransaction<HASH_LENGTH> {
+    type HashOf = Transaction<HASH_LENGTH>;
 
     #[inline]
-    fn payload(&self) -> &Payload {
+    fn payload(&self) -> &Payload<HASH_LENGTH> {
         &self.payload
     }
 }
@@ -573,14 +579,14 @@ impl std::error::Error for UnsatisfiedSignatureConditionFail {}
 
 /// Transaction was rejected because of one of its instructions failing.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct InstructionExecutionFail {
+pub struct InstructionExecutionFail<const HASH_LENGTH: usize> {
     /// Instruction which execution failed
-    pub instruction: Instruction,
+    pub instruction: Instruction<HASH_LENGTH>,
     /// Error which happened during execution
     pub reason: String,
 }
 
-impl Display for InstructionExecutionFail {
+impl<const HASH_LENGTH: usize> Display for InstructionExecutionFail<HASH_LENGTH> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         use Instruction::*;
         let kind = match self.instruction {
@@ -607,7 +613,7 @@ impl Display for InstructionExecutionFail {
     }
 }
 #[cfg(feature = "std")]
-impl std::error::Error for InstructionExecutionFail {}
+impl<const HASH_LENGTH: usize> std::error::Error for InstructionExecutionFail<HASH_LENGTH> {}
 
 /// Transaction was rejected because execution of `WebAssembly` binary failed
 #[derive(
@@ -674,7 +680,7 @@ impl std::error::Error for BlockRejectionReason {}
     IntoSchema,
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
-pub enum TransactionRejectionReason {
+pub enum TransactionRejectionReason<const HASH_LENGTH: usize> {
     /// Insufficient authorisation.
     #[display(fmt = "Transaction rejected due to insufficient authorisation")]
     NotPermitted(#[cfg_attr(feature = "std", source)] NotPermittedFail),
@@ -687,7 +693,9 @@ pub enum TransactionRejectionReason {
     LimitCheck(#[cfg_attr(feature = "std", source)] TransactionLimitError),
     /// Failed to execute instruction.
     #[display(fmt = "Transaction rejected due to failure in instruction execution")]
-    InstructionExecution(#[cfg_attr(feature = "std", source)] InstructionExecutionFail),
+    InstructionExecution(
+        #[cfg_attr(feature = "std", source)] InstructionExecutionFail<{ HASH_LENGTH }>,
+    ),
     /// Failed to execute WebAssembly binary.
     #[display(fmt = "Transaction rejected due to failure in WebAssembly execution")]
     WasmExecution(#[cfg_attr(feature = "std", source)] WasmExecutionFail),
@@ -711,13 +719,13 @@ pub enum TransactionRejectionReason {
     IntoSchema,
 )]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
-pub enum RejectionReason {
+pub enum RejectionReason<const HASH_LENGTH: usize> {
     /// The reason for rejecting the block.
     #[display(fmt = "Block was rejected")]
     Block(#[cfg_attr(feature = "std", source)] BlockRejectionReason),
     /// The reason for rejecting transaction.
     #[display(fmt = "Transaction was rejected")]
-    Transaction(#[cfg_attr(feature = "std", source)] TransactionRejectionReason),
+    Transaction(#[cfg_attr(feature = "std", source)] TransactionRejectionReason<{ HASH_LENGTH }>),
 }
 
 /// The prelude re-exports most commonly used traits, structs and macros from this module.

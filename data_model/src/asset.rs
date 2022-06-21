@@ -22,12 +22,15 @@ use crate::{
 
 /// [`AssetsMap`] provides an API to work with collection of key ([`Id`]) - value
 /// ([`Asset`]) pairs.
-pub type AssetsMap = btree_map::BTreeMap<<Asset as Identifiable>::Id, Asset>;
+pub type AssetsMap<const HASH_LENGTH: usize> =
+    btree_map::BTreeMap<<Asset<HASH_LENGTH> as Identifiable>::Id, Asset<HASH_LENGTH>>;
 
 /// [`AssetDefinitionsMap`] provides an API to work with collection of key ([`DefinitionId`]) - value
 /// (`AssetDefinition`) pairs.
-pub type AssetDefinitionsMap =
-    btree_map::BTreeMap<<AssetDefinition as Identifiable>::Id, AssetDefinitionEntry>;
+pub type AssetDefinitionsMap<const HASH_LENGTH: usize> = btree_map::BTreeMap<
+    <AssetDefinition<HASH_LENGTH> as Identifiable>::Id,
+    AssetDefinitionEntry<HASH_LENGTH>,
+>;
 
 /// Mintability logic error
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
@@ -60,22 +63,22 @@ impl std::error::Error for MintabilityError {}
 #[getset(get = "pub")]
 #[allow(clippy::multiple_inherent_impl)]
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
-pub struct AssetDefinitionEntry {
+pub struct AssetDefinitionEntry<const HASH_LENGTH: usize> {
     /// Asset definition.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-    definition: AssetDefinition,
+    definition: AssetDefinition<HASH_LENGTH>,
     /// The account that registered this asset.
-    registered_by: <Account as Identifiable>::Id,
+    registered_by: <Account<HASH_LENGTH> as Identifiable>::Id,
 }
 
-impl PartialOrd for AssetDefinitionEntry {
+impl<const HASH_LENGTH: usize> PartialOrd for AssetDefinitionEntry<HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for AssetDefinitionEntry {
+impl<const HASH_LENGTH: usize> Ord for AssetDefinitionEntry<HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.definition().cmp(other.definition())
@@ -83,11 +86,11 @@ impl Ord for AssetDefinitionEntry {
 }
 
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
-impl AssetDefinitionEntry {
+impl<const HASH_LENGTH: usize> AssetDefinitionEntry<HASH_LENGTH> {
     /// Constructor.
     pub const fn new(
-        definition: AssetDefinition,
-        registered_by: <Account as Identifiable>::Id,
+        definition: AssetDefinition<HASH_LENGTH>,
+        registered_by: <Account<HASH_LENGTH> as Identifiable>::Id,
     ) -> Self {
         Self {
             definition,
@@ -97,7 +100,7 @@ impl AssetDefinitionEntry {
 }
 
 #[cfg(feature = "mutable_api")]
-impl AssetDefinitionEntry {
+impl<const HASH_LENGTH: usize> AssetDefinitionEntry<HASH_LENGTH> {
     /// Turn off minting for this asset.
     ///
     /// # Errors
@@ -126,7 +129,7 @@ impl AssetDefinitionEntry {
 #[allow(clippy::multiple_inherent_impl)]
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 #[display(fmt = "{id} {value_type}{mintable}")]
-pub struct AssetDefinition {
+pub struct AssetDefinition<const HASH_LENGTH: usize> {
     /// An Identification of the [`AssetDefinition`].
     id: <Self as Identifiable>::Id,
     /// Type of [`AssetValue`]
@@ -137,23 +140,23 @@ pub struct AssetDefinition {
     mintable: Mintable,
     /// Metadata of this asset definition as a key-value store.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-    metadata: Metadata,
+    metadata: Metadata<HASH_LENGTH>,
 }
 
-impl HasMetadata for AssetDefinition {
-    fn metadata(&self) -> &Metadata {
+impl<const HASH_LENGTH: usize> HasMetadata for AssetDefinition<HASH_LENGTH> {
+    fn metadata(&self) -> &Metadata<HASH_LENGTH> {
         &self.metadata
     }
 }
 
-impl PartialOrd for AssetDefinition {
+impl<const HASH_LENGTH: usize> PartialOrd for AssetDefinition<HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for AssetDefinition {
+impl<const HASH_LENGTH: usize> Ord for AssetDefinition<HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.id().cmp(other.id())
@@ -209,12 +212,12 @@ pub enum Mintable {
 #[getset(get = "pub")]
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
 #[display(fmt = "{id}: {value}")]
-pub struct Asset {
+pub struct Asset<const HASH_LENGTH: usize> {
     /// Component Identification.
     #[getset(skip)]
     id: <Self as Identifiable>::Id,
     /// Asset's Quantity.
-    value: AssetValue,
+    value: AssetValue<HASH_LENGTH>,
 }
 
 /// Asset's inner value type.
@@ -263,7 +266,7 @@ pub enum AssetValueType {
     FromVariant,
     IntoSchema,
 )]
-pub enum AssetValue {
+pub enum AssetValue<const HASH_LENGTH: usize> {
     /// Asset's Quantity.
     #[display(fmt = "{_0}q")]
     Quantity(u32),
@@ -274,10 +277,10 @@ pub enum AssetValue {
     #[display(fmt = "{_0}f")]
     Fixed(fixed::Fixed),
     /// Asset's key-value structured data.
-    Store(Metadata),
+    Store(Metadata<HASH_LENGTH>),
 }
 
-impl AssetValue {
+impl<const HASH_LENGTH: usize> AssetValue<HASH_LENGTH> {
     /// Returns the asset type as a string.
     pub const fn value_type(&self) -> AssetValueType {
         match *self {
@@ -298,14 +301,14 @@ impl AssetValue {
     }
 }
 
-impl PartialOrd for Asset {
+impl<const HASH_LENGTH: usize> PartialOrd for Asset<HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Asset {
+impl<const HASH_LENGTH: usize> Ord for Asset<HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.id().cmp(other.id())
@@ -314,7 +317,7 @@ impl Ord for Asset {
 
 macro_rules! impl_try_as_for_asset_value {
     ( $($variant:ident( $ty:ty ),)* ) => {$(
-        impl TryAsMut<$ty> for AssetValue {
+        impl<const HASH_LENGTH: usize> TryAsMut<$ty> for AssetValue<HASH_LENGTH> {
             type Error = crate::EnumTryAsError<$ty, AssetValueType>;
 
             fn try_as_mut(&mut self) -> Result<&mut $ty, Self::Error> {
@@ -326,7 +329,7 @@ macro_rules! impl_try_as_for_asset_value {
             }
         }
 
-        impl TryAsRef<$ty> for AssetValue {
+        impl<const HASH_LENGTH: usize> TryAsRef<$ty> for AssetValue<HASH_LENGTH> {
             type Error = crate::EnumTryAsError<$ty, AssetValueType>;
 
             fn try_as_ref(&self) -> Result<& $ty, Self::Error> {
@@ -344,7 +347,7 @@ impl_try_as_for_asset_value! {
     Quantity(u32),
     BigQuantity(u128),
     Fixed(Fixed),
-    Store(Metadata),
+    Store(Metadata<{ HASH_LENGTH }>),
 }
 
 /// Identification of an Asset Definition. Consists of Asset's name and Domain's name.
@@ -372,11 +375,11 @@ impl_try_as_for_asset_value! {
     IntoSchema,
 )]
 #[display(fmt = "{name}#{domain_id}")]
-pub struct DefinitionId {
+pub struct DefinitionId<const HASH_LENGTH: usize> {
     /// Asset's name.
     pub name: Name,
     /// Domain's id.
-    pub domain_id: <Domain as Identifiable>::Id,
+    pub domain_id: <Domain<HASH_LENGTH> as Identifiable>::Id,
 }
 
 /// Identification of an Asset's components include Entity Id ([`Asset::Id`]) and [`Account::Id`].
@@ -396,11 +399,11 @@ pub struct DefinitionId {
     IntoSchema,
 )]
 #[display(fmt = "{definition_id}@{account_id}")] // TODO: change this?
-pub struct Id {
+pub struct Id<const HASH_LENGTH: usize> {
     /// Entity Identification.
-    pub definition_id: <AssetDefinition as Identifiable>::Id,
+    pub definition_id: <AssetDefinition<HASH_LENGTH> as Identifiable>::Id,
     /// Account Identification.
-    pub account_id: <Account as Identifiable>::Id,
+    pub account_id: <Account<HASH_LENGTH> as Identifiable>::Id,
 }
 
 /// Builder which can be submitted in a transaction to create a new [`AssetDefinition`]
@@ -409,44 +412,47 @@ pub struct Id {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "{id} {mintable}{value_type}")]
-pub struct NewAssetDefinition {
-    id: <AssetDefinition as Identifiable>::Id,
+pub struct NewAssetDefinition<const HASH_LENGTH: usize> {
+    id: <AssetDefinition<HASH_LENGTH> as Identifiable>::Id,
     value_type: AssetValueType,
     mintable: Mintable,
-    metadata: Metadata,
+    metadata: Metadata<HASH_LENGTH>,
 }
 
-impl Identifiable for NewAssetDefinition {
-    type Id = <AssetDefinition as Identifiable>::Id;
+impl<const HASH_LENGTH: usize> Identifiable for NewAssetDefinition<HASH_LENGTH> {
+    type Id = <AssetDefinition<HASH_LENGTH> as Identifiable>::Id;
 
     fn id(&self) -> &Self::Id {
         &self.id
     }
 }
 
-impl HasMetadata for NewAssetDefinition {
-    fn metadata(&self) -> &Metadata {
+impl<const HASH_LENGTH: usize> HasMetadata for NewAssetDefinition<HASH_LENGTH> {
+    fn metadata(&self) -> &Metadata<HASH_LENGTH> {
         &self.metadata
     }
 }
 
-impl PartialOrd for NewAssetDefinition {
+impl<const HASH_LENGTH: usize> PartialOrd for NewAssetDefinition<HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for NewAssetDefinition {
+impl<const HASH_LENGTH: usize> Ord for NewAssetDefinition<HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl NewAssetDefinition {
+impl<const HASH_LENGTH: usize> NewAssetDefinition<HASH_LENGTH> {
     /// Create a [`NewAssetDefinition`], reserved for internal use.
-    fn new(id: <AssetDefinition as Identifiable>::Id, value_type: AssetValueType) -> Self {
+    fn new(
+        id: <AssetDefinition<HASH_LENGTH> as Identifiable>::Id,
+        value_type: AssetValueType,
+    ) -> Self {
         Self {
             id,
             value_type,
@@ -459,7 +465,7 @@ impl NewAssetDefinition {
     #[inline]
     #[must_use]
     #[cfg(feature = "mutable_api")]
-    pub fn build(self) -> AssetDefinition {
+    pub fn build(self) -> AssetDefinition<HASH_LENGTH> {
         AssetDefinition {
             id: self.id,
             value_type: self.value_type,
@@ -470,7 +476,7 @@ impl NewAssetDefinition {
 }
 
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
-impl NewAssetDefinition {
+impl<const HASH_LENGTH: usize> NewAssetDefinition<HASH_LENGTH> {
     /// Set mintability to [`Mintable::Once`]
     #[inline]
     #[must_use]
@@ -482,14 +488,14 @@ impl NewAssetDefinition {
     /// Add [`Metadata`] to the asset definition replacing previously defined value
     #[inline]
     #[must_use]
-    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+    pub fn with_metadata(mut self, metadata: Metadata<HASH_LENGTH>) -> Self {
         self.metadata = metadata;
         self
     }
 }
 
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
-impl AssetDefinition {
+impl<const HASH_LENGTH: usize> AssetDefinition<HASH_LENGTH> {
     /// Construct builder for [`AssetDefinition`] identifiable by [`Id`].
     #[must_use]
     #[inline]
@@ -520,7 +526,7 @@ impl AssetDefinition {
 }
 
 #[cfg(feature = "mutable_api")]
-impl AssetDefinition {
+impl<const HASH_LENGTH: usize> AssetDefinition<HASH_LENGTH> {
     /// Stop minting on the [`AssetDefinition`] globally.
     ///
     /// # Errors
@@ -537,11 +543,11 @@ impl AssetDefinition {
 }
 
 #[cfg_attr(feature = "ffi_api", iroha_ffi::ffi_bindgen)]
-impl Asset {
+impl<const HASH_LENGTH: usize> Asset<HASH_LENGTH> {
     /// Constructor
     pub fn new(
-        id: <Asset as Identifiable>::Id,
-        value: impl Into<AssetValue>,
+        id: <Asset<HASH_LENGTH> as Identifiable>::Id,
+        value: impl Into<AssetValue<HASH_LENGTH>>,
     ) -> <Self as Registered>::With {
         Self {
             id,
@@ -550,11 +556,11 @@ impl Asset {
     }
 }
 
-impl<T> TryAsMut<T> for Asset
+impl<T, const HASH_LENGTH: usize> TryAsMut<T> for Asset<HASH_LENGTH>
 where
-    AssetValue: TryAsMut<T>,
+    AssetValue<HASH_LENGTH>: TryAsMut<T>,
 {
-    type Error = <AssetValue as TryAsMut<T>>::Error;
+    type Error = <AssetValue<HASH_LENGTH> as TryAsMut<T>>::Error;
 
     #[inline]
     fn try_as_mut(&mut self) -> Result<&mut T, Self::Error> {
@@ -562,11 +568,11 @@ where
     }
 }
 
-impl<T> TryAsRef<T> for Asset
+impl<T, const HASH_LENGTH: usize> TryAsRef<T> for Asset<HASH_LENGTH>
 where
-    AssetValue: TryAsRef<T>,
+    AssetValue<HASH_LENGTH>: TryAsRef<T>,
 {
-    type Error = <AssetValue as TryAsRef<T>>::Error;
+    type Error = <AssetValue<HASH_LENGTH> as TryAsRef<T>>::Error;
 
     #[inline]
     fn try_as_ref(&self) -> Result<&T, Self::Error> {
@@ -574,13 +580,13 @@ where
     }
 }
 
-impl DefinitionId {
+impl<const HASH_LENGTH: usize> DefinitionId<HASH_LENGTH> {
     /// Construct [`Id`] from an asset definition `name` and a `domain_name` if these names are valid.
     ///
     /// # Errors
     /// Fails if any sub-construction fails
     #[inline]
-    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
+    pub const fn new(name: Name, domain_id: <Domain<HASH_LENGTH> as Identifiable>::Id) -> Self {
         Self { name, domain_id }
     }
 
@@ -592,12 +598,12 @@ impl DefinitionId {
     }
 }
 
-impl Id {
+impl<const HASH_LENGTH: usize> Id<HASH_LENGTH> {
     /// Construct [`Id`] from [`DefinitionId`] and [`AccountId`].
     #[inline]
     pub const fn new(
-        definition_id: <AssetDefinition as Identifiable>::Id,
-        account_id: <Account as Identifiable>::Id,
+        definition_id: <AssetDefinition<HASH_LENGTH> as Identifiable>::Id,
+        account_id: <Account<HASH_LENGTH> as Identifiable>::Id,
     ) -> Self {
         Self {
             definition_id,
@@ -606,32 +612,32 @@ impl Id {
     }
 }
 
-impl Identifiable for Asset {
-    type Id = Id;
+impl<const HASH_LENGTH: usize> Identifiable for Asset<HASH_LENGTH> {
+    type Id = Id<HASH_LENGTH>;
 
     fn id(&self) -> &Self::Id {
         &self.id
     }
 }
 
-impl Registered for Asset {
+impl<const HASH_LENGTH: usize> Registered for Asset<HASH_LENGTH> {
     type With = Self;
 }
 
-impl Identifiable for AssetDefinition {
-    type Id = DefinitionId;
+impl<const HASH_LENGTH: usize> Identifiable for AssetDefinition<HASH_LENGTH> {
+    type Id = DefinitionId<HASH_LENGTH>;
 
     fn id(&self) -> &Self::Id {
         &self.id
     }
 }
 
-impl Registered for AssetDefinition {
-    type With = NewAssetDefinition;
+impl<const HASH_LENGTH: usize> Registered for AssetDefinition<HASH_LENGTH> {
+    type With = NewAssetDefinition<HASH_LENGTH>;
 }
 
-impl FromIterator<Asset> for Value {
-    fn from_iter<T: IntoIterator<Item = Asset>>(iter: T) -> Self {
+impl<const HASH_LENGTH: usize> FromIterator<Asset<HASH_LENGTH>> for Value<HASH_LENGTH> {
+    fn from_iter<T: IntoIterator<Item = Asset<HASH_LENGTH>>>(iter: T) -> Self {
         iter.into_iter()
             .map(Into::into)
             .collect::<Vec<Self>>()
@@ -639,8 +645,8 @@ impl FromIterator<Asset> for Value {
     }
 }
 
-impl FromIterator<AssetDefinition> for Value {
-    fn from_iter<T: IntoIterator<Item = AssetDefinition>>(iter: T) -> Self {
+impl<const HASH_LENGTH: usize> FromIterator<AssetDefinition<HASH_LENGTH>> for Value<HASH_LENGTH> {
+    fn from_iter<T: IntoIterator<Item = AssetDefinition<HASH_LENGTH>>>(iter: T) -> Self {
         iter.into_iter()
             .map(Into::into)
             .collect::<Vec<Self>>()
@@ -649,7 +655,7 @@ impl FromIterator<AssetDefinition> for Value {
 }
 
 /// Asset Identification is represented by `name#domain_name` string.
-impl FromStr for DefinitionId {
+impl<const HASH_LENGTH: usize> FromStr for DefinitionId<HASH_LENGTH> {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {

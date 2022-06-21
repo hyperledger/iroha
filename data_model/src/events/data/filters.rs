@@ -185,47 +185,113 @@ mod asset {
 
     use super::*;
 
-    entity_filter!(
-        #[derive(
-            Clone,
-            PartialOrd,
-            Ord,
-            PartialEq,
-            Eq,
-            Debug,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-            Hash,
-        )]
-        pub struct AssetFilter {
-            type EventType = AssetEvent;
-            type EventFilter = AssetEventFilter;
-        }
-    );
+    #[derive(
+        Clone,
+        Debug,
+        Decode,
+        Deserialize,
+        Encode,
+        Eq,
+        Hash,
+        IntoSchema,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize,
+    )]
+    pub struct AssetFilter<const HASH_LENGTH: usize> {
+        id_filter: FilterOpt<IdFilter<<AssetEvent<HASH_LENGTH> as Identifiable>::Id>>,
+        event_filter: FilterOpt<AssetEventFilter>,
+    }
 
-    entity_filter!(
-        #[derive(
-            Clone,
-            PartialOrd,
-            Ord,
-            PartialEq,
-            Eq,
-            Debug,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-            Hash,
-        )]
-        pub struct AssetDefinitionFilter {
-            type EventType = AssetDefinitionEvent;
-            type EventFilter = AssetDefinitionEventFilter;
+    impl<const HASH_LENGTH: usize> AssetFilter<HASH_LENGTH> {
+        ///Construct new AssetFilter
+        pub const fn new(
+            id_filter: FilterOpt<IdFilter<<AssetEvent<HASH_LENGTH> as Identifiable>::Id>>,
+            event_filter: FilterOpt<AssetEventFilter>,
+        ) -> Self {
+            Self {
+                id_filter,
+                event_filter,
+            }
         }
-    );
+
+        /// Get `id_filter`
+        #[inline]
+        pub const fn id_filter(
+            &self,
+        ) -> &FilterOpt<IdFilter<<AssetEvent<HASH_LENGTH> as Identifiable>::Id>> {
+            &self.id_filter
+        }
+
+        /// Get `event_filter`
+        #[inline]
+        pub const fn event_filter(&self) -> &FilterOpt<AssetEventFilter> {
+            &self.event_filter
+        }
+    }
+
+    impl<const HASH_LENGTH: usize> Filter for AssetFilter<HASH_LENGTH> {
+        type EventType = AssetEvent<HASH_LENGTH>;
+
+        fn matches(&self, entity: &Self::EventType) -> bool {
+            self.id_filter.matches(entity.id()) && self.event_filter.matches(entity)
+        }
+    }
+
+    #[derive(
+        Clone,
+        Debug,
+        Decode,
+        Deserialize,
+        Encode,
+        Eq,
+        Hash,
+        IntoSchema,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize,
+    )]
+    pub struct AssetDefinitionFilter<const HASH_LENGTH: usize> {
+        id_filter: FilterOpt<IdFilter<<AssetDefinitionEvent<HASH_LENGTH> as Identifiable>::Id>>,
+        event_filter: FilterOpt<AssetDefinitionEventFilter>,
+    }
+
+    impl<const HASH_LENGTH: usize> AssetDefinitionFilter<HASH_LENGTH> {
+        ///Construct new AssetDefinitionFilter
+        pub const fn new(
+            id_filter: FilterOpt<IdFilter<<AssetDefinitionEvent<HASH_LENGTH> as Identifiable>::Id>>,
+            event_filter: FilterOpt<AssetDefinitionEventFilter>,
+        ) -> Self {
+            Self {
+                id_filter,
+                event_filter,
+            }
+        }
+
+        /// Get `id_filter`
+        #[inline]
+        pub const fn id_filter(
+            &self,
+        ) -> &FilterOpt<IdFilter<<AssetDefinitionEvent<HASH_LENGTH> as Identifiable>::Id>> {
+            &self.id_filter
+        }
+
+        /// Get `event_filter`
+        #[inline]
+        pub const fn event_filter(&self) -> &FilterOpt<AssetDefinitionEventFilter> {
+            &self.event_filter
+        }
+    }
+
+    impl<const HASH_LENGTH: usize> Filter for AssetDefinitionFilter<HASH_LENGTH> {
+        type EventType = AssetDefinitionEvent<HASH_LENGTH>;
+
+        fn matches(&self, entity: &Self::EventType) -> bool {
+            self.id_filter.matches(entity.id()) && self.event_filter.matches(entity)
+        }
+    }
 
     #[derive(
         Copy,
@@ -252,10 +318,10 @@ mod asset {
         ByMetadataRemoved,
     }
 
-    impl Filter for AssetEventFilter {
-        type EventType = AssetEvent;
+    impl<const HASH_LENGTH: usize> Filter for AssetEventFilter {
+        type EventType = AssetEvent<HASH_LENGTH>;
 
-        fn matches(&self, event: &AssetEvent) -> bool {
+        fn matches(&self, event: &AssetEvent<HASH_LENGTH>) -> bool {
             matches!(
                 (self, event),
                 (Self::ByCreated, AssetEvent::Created(_))
@@ -292,10 +358,10 @@ mod asset {
         ByMetadataRemoved,
     }
 
-    impl Filter for AssetDefinitionEventFilter {
-        type EventType = AssetDefinitionEvent;
+    impl<const HASH_LENGTH: usize> Filter for AssetDefinitionEventFilter {
+        type EventType = AssetDefinitionEvent<HASH_LENGTH>;
 
-        fn matches(&self, event: &AssetDefinitionEvent) -> bool {
+        fn matches(&self, event: &AssetDefinitionEvent<HASH_LENGTH>) -> bool {
             matches!(
                 (self, event),
                 (Self::ByCreated, AssetDefinitionEvent::Created(_))
@@ -322,26 +388,59 @@ mod domain {
 
     use super::*;
 
-    entity_filter!(
-        #[derive(
-            Clone,
-            PartialOrd,
-            Ord,
-            PartialEq,
-            Eq,
-            Debug,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-            Hash,
-        )]
-        pub struct DomainFilter {
-            type EventType = DomainEvent;
-            type EventFilter = DomainEventFilter;
+    #[derive(
+        Clone,
+        Debug,
+        Decode,
+        Deserialize,
+        Encode,
+        Eq,
+        Hash,
+        IntoSchema,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize,
+    )]
+    pub struct DomainFilter<const HASH_LENGTH: usize> {
+        id_filter: FilterOpt<IdFilter<<DomainEvent<HASH_LENGTH> as Identifiable>::Id>>,
+        event_filter: FilterOpt<DomainEventFilter<HASH_LENGTH>>,
+    }
+
+    impl<const HASH_LENGTH: usize> DomainFilter<HASH_LENGTH> {
+        ///Construct new DomainFilter
+        pub const fn new(
+            id_filter: FilterOpt<IdFilter<<DomainEvent<HASH_LENGTH> as Identifiable>::Id>>,
+            event_filter: FilterOpt<DomainEventFilter<HASH_LENGTH>>,
+        ) -> Self {
+            Self {
+                id_filter,
+                event_filter,
+            }
         }
-    );
+
+        /// Get `id_filter`
+        #[inline]
+        pub const fn id_filter(
+            &self,
+        ) -> &FilterOpt<IdFilter<<DomainEvent<HASH_LENGTH> as Identifiable>::Id>> {
+            &self.id_filter
+        }
+
+        /// Get `event_filter`
+        #[inline]
+        pub const fn event_filter(&self) -> &FilterOpt<DomainEventFilter<HASH_LENGTH>> {
+            &self.event_filter
+        }
+    }
+
+    impl<const HASH_LENGTH: usize> Filter for DomainFilter<HASH_LENGTH> {
+        type EventType = DomainEvent<HASH_LENGTH>;
+
+        fn matches(&self, entity: &Self::EventType) -> bool {
+            self.id_filter.matches(entity.id()) && self.event_filter.matches(entity)
+        }
+    }
 
     #[derive(
         Clone,
@@ -360,13 +459,13 @@ mod domain {
     )]
     #[allow(clippy::enum_variant_names)]
     /// Filter for Domain events
-    pub enum DomainEventFilter {
+    pub enum DomainEventFilter<const HASH_LENGTH: usize> {
         /// Filter by Account event.
         /// `AcceptAll` value will accept all `Account` events that are related to Domain
-        ByAccount(FilterOpt<AccountFilter>),
+        ByAccount(FilterOpt<AccountFilter<{ HASH_LENGTH }>>),
         /// Filter by AssetDefinition event.
         /// `AcceptAll` value will accept all `AssetDefinition` events that are related to Domain
-        ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
+        ByAssetDefinition(FilterOpt<AssetDefinitionFilter<{ HASH_LENGTH }>>),
         /// Filter by Created event
         ByCreated,
         /// Filter by Deleted event
@@ -377,10 +476,10 @@ mod domain {
         ByMetadataRemoved,
     }
 
-    impl Filter for DomainEventFilter {
-        type EventType = DomainEvent;
+    impl<const HASH_LENGTH: usize> Filter for DomainEventFilter<HASH_LENGTH> {
+        type EventType = DomainEvent<HASH_LENGTH>;
 
-        fn matches(&self, event: &DomainEvent) -> bool {
+        fn matches(&self, event: &DomainEvent<HASH_LENGTH>) -> bool {
             match (self, event) {
                 (Self::ByAccount(filter_opt), DomainEvent::Account(account)) => {
                     filter_opt.matches(account)
@@ -404,26 +503,59 @@ mod account {
 
     use super::*;
 
-    entity_filter!(
-        #[derive(
-            Clone,
-            PartialOrd,
-            Ord,
-            PartialEq,
-            Eq,
-            Debug,
-            Decode,
-            Encode,
-            Deserialize,
-            Serialize,
-            IntoSchema,
-            Hash,
-        )]
-        pub struct AccountFilter {
-            type EventType = AccountEvent;
-            type EventFilter = AccountEventFilter;
+    #[derive(
+        Clone,
+        Debug,
+        Decode,
+        Deserialize,
+        Encode,
+        Eq,
+        Hash,
+        IntoSchema,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize,
+    )]
+    pub struct AccountFilter<const HASH_LENGTH: usize> {
+        id_filter: FilterOpt<IdFilter<<AccountEvent<HASH_LENGTH> as Identifiable>::Id>>,
+        event_filter: FilterOpt<AccountEventFilter<HASH_LENGTH>>,
+    }
+
+    impl<const HASH_LENGTH: usize> AccountFilter<HASH_LENGTH> {
+        ///Construct new AccountFilter
+        pub const fn new(
+            id_filter: FilterOpt<IdFilter<<AccountEvent<HASH_LENGTH> as Identifiable>::Id>>,
+            event_filter: FilterOpt<AccountEventFilter<HASH_LENGTH>>,
+        ) -> Self {
+            Self {
+                id_filter,
+                event_filter,
+            }
         }
-    );
+
+        /// Get `id_filter`
+        #[inline]
+        pub const fn id_filter(
+            &self,
+        ) -> &FilterOpt<IdFilter<<AccountEvent<HASH_LENGTH> as Identifiable>::Id>> {
+            &self.id_filter
+        }
+
+        /// Get `event_filter`
+        #[inline]
+        pub const fn event_filter(&self) -> &FilterOpt<AccountEventFilter<HASH_LENGTH>> {
+            &self.event_filter
+        }
+    }
+
+    impl<const HASH_LENGTH: usize> Filter for AccountFilter<HASH_LENGTH> {
+        type EventType = AccountEvent<HASH_LENGTH>;
+
+        fn matches(&self, entity: &Self::EventType) -> bool {
+            self.id_filter.matches(entity.id()) && self.event_filter.matches(entity)
+        }
+    }
 
     #[derive(
         Clone,
@@ -442,10 +574,10 @@ mod account {
     )]
     #[allow(clippy::enum_variant_names)]
     /// Filter for Account events
-    pub enum AccountEventFilter {
+    pub enum AccountEventFilter<const HASH_LENGTH: usize> {
         /// Filter by Asset event.
         /// `AcceptAll` value will accept all `Asset` events that are related to Account
-        ByAsset(FilterOpt<AssetFilter>),
+        ByAsset(FilterOpt<AssetFilter<{ HASH_LENGTH }>>),
         /// Filter by `Created` event
         ByCreated,
         /// Filter by `Deleted` event
@@ -468,10 +600,10 @@ mod account {
         ByMetadataRemoved,
     }
 
-    impl Filter for AccountEventFilter {
-        type EventType = AccountEvent;
+    impl<const HASH_LENGTH: usize> Filter for AccountEventFilter<HASH_LENGTH> {
+        type EventType = AccountEvent<HASH_LENGTH>;
 
-        fn matches(&self, event: &AccountEvent) -> bool {
+        fn matches(&self, event: &AccountEvent<HASH_LENGTH>) -> bool {
             match (self, event) {
                 (Self::ByAsset(filter_opt), AccountEvent::Asset(asset)) => {
                     filter_opt.matches(asset)
@@ -558,7 +690,7 @@ mod trigger {
 }
 
 /// Filter for all events
-pub type EventFilter = FilterOpt<EntityFilter>;
+pub type EventFilter<const HASH_LENGTH: usize> = FilterOpt<EntityFilter<HASH_LENGTH>>;
 
 #[derive(
     Clone,
@@ -614,27 +746,27 @@ impl<F: Filter> Filter for FilterOpt<F> {
 )]
 #[allow(clippy::enum_variant_names)]
 /// Filters event by entity
-pub enum EntityFilter {
+pub enum EntityFilter<const HASH_LENGTH: usize> {
     /// Filter by Peer entity. `AcceptAll` value will accept all `Peer` events
     ByPeer(FilterOpt<PeerFilter>),
     /// Filter by Domain entity. `AcceptAll` value will accept all `Domain` events
-    ByDomain(FilterOpt<DomainFilter>),
+    ByDomain(FilterOpt<DomainFilter<{ HASH_LENGTH }>>),
     /// Filter by Account entity. `AcceptAll` value will accept all `Account` events
-    ByAccount(FilterOpt<AccountFilter>),
+    ByAccount(FilterOpt<AccountFilter<{ HASH_LENGTH }>>),
     /// Filter by AssetDefinition entity. `AcceptAll` value will accept all `AssetDefinition` events
-    ByAssetDefinition(FilterOpt<AssetDefinitionFilter>),
+    ByAssetDefinition(FilterOpt<AssetDefinitionFilter<{ HASH_LENGTH }>>),
     /// Filter by Asset entity. `AcceptAll` value will accept all `Asset` events
-    ByAsset(FilterOpt<AssetFilter>),
+    ByAsset(FilterOpt<AssetFilter<{ HASH_LENGTH }>>),
     /// Filter by Trigger entity. `AcceptAll` value will accept all `Trigger` events
     ByTrigger(FilterOpt<TriggerFilter>),
     /// Filter by Role entity. `AcceptAll` value will accept all `Role` events
     ByRole(FilterOpt<RoleFilter>),
 }
 
-impl Filter for EntityFilter {
-    type EventType = Event;
+impl<const HASH_LENGTH: usize> Filter for EntityFilter<HASH_LENGTH> {
+    type EventType = Event<HASH_LENGTH>;
 
-    fn matches(&self, event: &Event) -> bool {
+    fn matches(&self, event: &Event<HASH_LENGTH>) -> bool {
         match (self, event) {
             (Self::ByPeer(filter_opt), Event::Peer(peer)) => filter_opt.matches(peer),
             (Self::ByDomain(filter_opt), Event::Domain(domain)) => filter_opt.matches(domain),

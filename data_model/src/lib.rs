@@ -392,14 +392,14 @@ impl IdentifiableBox {
 }
 
 /// Boxed [`Value`].
-pub type ValueBox = Box<Value>;
+pub type ValueBox<const HASH_LENGTH: usize> = Box<Value<HASH_LENGTH>>;
 
 /// Sized container for all possible values.
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
 #[allow(clippy::enum_variant_names)]
-pub enum Value {
+pub enum Value<const HASH_LENGTH: usize> {
     /// [`u32`] integer.
     U32(u32),
     /// [`u128`] integer.
@@ -416,7 +416,7 @@ pub enum Value {
     Vec(
         #[skip_from]
         #[skip_try_from]
-        Vec<Value>,
+        Vec<Value<HASH_LENGTH>>,
     ),
     /// Recursive inclusion of LimitedMetadata,
     LimitedMetadata(metadata::Metadata),
@@ -435,12 +435,12 @@ pub enum Value {
     /// [`PermissionToken`].
     PermissionToken(PermissionToken),
     /// [`struct@Hash`]
-    Hash(Hash),
+    Hash(Hash<HASH_LENGTH>),
     /// Block
-    Block(BlockValue),
+    Block(BlockValue<HASH_LENGTH>),
 }
 
-impl fmt::Display for Value {
+impl<const HASH_LENGTH: usize> fmt::Display for Value<HASH_LENGTH> {
     // TODO: Maybe derive
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -474,7 +474,7 @@ impl fmt::Display for Value {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl Value {
+impl<const HASH_LENGTH: usize> Value<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         use Value::*;
@@ -490,9 +490,9 @@ impl Value {
     }
 }
 
-impl<A: small::Array> From<SmallVec<A>> for Value
+impl<A: small::Array, const HASH_LENGTH: usize> From<SmallVec<A>> for Value<HASH_LENGTH>
 where
-    A::Item: Into<Value>,
+    A::Item: Into<Value<HASH_LENGTH>>,
 {
     fn from(sv: SmallVec<A>) -> Self {
         // This looks inefficient, but `Value` can only hold a
@@ -509,10 +509,10 @@ where
 macro_rules! from_and_try_from_value_idbox {
     ( $($variant:ident( $ty:ty ),)* $(,)? ) => {
         $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+            impl<const HASH_LENGTH: usize> TryFrom<Value<HASH_LENGTH>> for $ty {
+                type Error = ErrorTryFromEnum<Self, Value<HASH_LENGTH>>;
 
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
+                fn try_from(value: Value<HASH_LENGTH>) -> Result<Self, Self::Error> {
                     if let Value::Id(IdBox::$variant(id)) = value {
                         Ok(id)
                     } else {
@@ -521,7 +521,7 @@ macro_rules! from_and_try_from_value_idbox {
                 }
             }
 
-            impl From<$ty> for Value {
+            impl<const HASH_LENGTH: usize> From<$ty> for Value<HASH_LENGTH> {
                 fn from(id: $ty) -> Self {
                     Value::Id(IdBox::$variant(id))
                 }
@@ -547,10 +547,10 @@ from_and_try_from_value_idbox!(RoleId(role::Id),);
 macro_rules! from_and_try_from_value_identifiablebox {
     ( $( $variant:ident( Box< $ty:ty > ),)* $(,)? ) => {
         $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+            impl<const HASH_LENGTH: usize> TryFrom<Value<HASH_LENGTH>> for $ty {
+                type Error = ErrorTryFromEnum<Self, Value<HASH_LENGTH>>;
 
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
+                fn try_from(value: Value<HASH_LENGTH>) -> Result<Self, Self::Error> {
                     if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
                         Ok(*id)
                     } else {
@@ -559,7 +559,7 @@ macro_rules! from_and_try_from_value_identifiablebox {
                 }
             }
 
-            impl From<$ty> for Value {
+            impl<const HASH_LENGTH: usize> From<$ty> for Value<HASH_LENGTH> {
                 fn from(id: $ty) -> Self {
                     Value::Identifiable(IdentifiableBox::$variant(Box::new(id)))
                 }
@@ -570,10 +570,10 @@ macro_rules! from_and_try_from_value_identifiablebox {
 macro_rules! from_and_try_from_value_identifiable {
     ( $( $variant:ident( $ty:ty ), )* $(,)? ) => {
         $(
-            impl TryFrom<Value> for $ty {
-                type Error = ErrorTryFromEnum<Self, Value>;
+            impl<const HASH_LENGTH: usize> TryFrom<Value<HASH_LENGTH>> for $ty {
+                type Error = ErrorTryFromEnum<Self, Value<HASH_LENGTH>>;
 
-                fn try_from(value: Value) -> Result<Self, Self::Error> {
+                fn try_from(value: Value<HASH_LENGTH>) -> Result<Self, Self::Error> {
                     if let Value::Identifiable(IdentifiableBox::$variant(id)) = value {
                         Ok(id)
                     } else {
@@ -582,7 +582,7 @@ macro_rules! from_and_try_from_value_identifiable {
                 }
             }
 
-            impl From<$ty> for Value {
+            impl<const HASH_LENGTH: usize> From<$ty> for Value<HASH_LENGTH> {
                 fn from(id: $ty) -> Self {
                     Value::Identifiable(IdentifiableBox::$variant(id))
                 }
@@ -619,10 +619,10 @@ from_and_try_from_value_identifiable!(
 
 from_and_try_from_value_identifiable!(Role(Box<role::Role>),);
 
-impl TryFrom<Value> for RegistrableBox {
-    type Error = ErrorTryFromEnum<Self, Value>;
+impl<const HASH_LENGTH: usize> TryFrom<Value<HASH_LENGTH>> for RegistrableBox {
+    type Error = ErrorTryFromEnum<Self, Value<HASH_LENGTH>>;
 
-    fn try_from(source: Value) -> Result<Self, Self::Error> {
+    fn try_from(source: Value<HASH_LENGTH>) -> Result<Self, Self::Error> {
         if let Value::Identifiable(identifiable) = source {
             identifiable
                 .try_into()
@@ -633,7 +633,7 @@ impl TryFrom<Value> for RegistrableBox {
     }
 }
 
-impl From<RegistrableBox> for Value {
+impl<const HASH_LENGTH: usize> From<RegistrableBox> for Value<HASH_LENGTH> {
     fn from(source: RegistrableBox) -> Self {
         let identifiable = source.into();
         Value::Identifiable(identifiable)
@@ -675,19 +675,19 @@ impl From<RegistrableBox> for IdentifiableBox {
     }
 }
 
-impl<V: Into<Value>> From<Vec<V>> for Value {
-    fn from(values: Vec<V>) -> Value {
+impl<const HASH_LENGTH: usize, V: Into<Value<HASH_LENGTH>>> From<Vec<V>> for Value<HASH_LENGTH> {
+    fn from(values: Vec<V>) -> Value<HASH_LENGTH> {
         Value::Vec(values.into_iter().map(Into::into).collect())
     }
 }
 
-impl<V> TryFrom<Value> for Vec<V>
+impl<V, const HASH_LENGTH: usize> TryFrom<Value<HASH_LENGTH>> for Vec<V>
 where
-    Value: TryInto<V>,
+    Value<HASH_LENGTH>: TryInto<V>,
 {
-    type Error = ErrorTryFromEnum<Value, Self>;
+    type Error = ErrorTryFromEnum<Value<HASH_LENGTH>, Self>;
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+    fn try_from(value: Value<HASH_LENGTH>) -> Result<Self, Self::Error> {
         if let Value::Vec(vec) = value {
             return vec
                 .into_iter()
@@ -700,13 +700,13 @@ where
     }
 }
 
-impl<A: small::Array> TryFrom<Value> for small::SmallVec<A>
+impl<A: small::Array, const HASH_LENGTH: usize> TryFrom<Value<HASH_LENGTH>> for small::SmallVec<A>
 where
-    Value: TryInto<A::Item>,
+    Value<HASH_LENGTH>: TryInto<A::Item>,
 {
-    type Error = ErrorTryFromEnum<Value, Self>;
+    type Error = ErrorTryFromEnum<Value<HASH_LENGTH>, Self>;
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
+    fn try_from(value: Value<HASH_LENGTH>) -> Result<Self, Self::Error> {
         if let Value::Vec(vec) = value {
             return vec
                 .into_iter()

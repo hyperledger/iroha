@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use crate::{Name, Value};
 
 /// Collection of parameters by their names.
-pub type UnlimitedMetadata = btree_map::BTreeMap<Name, Value>;
+pub type UnlimitedMetadata<const HASH_LENGTH: usize> =
+    btree_map::BTreeMap<Name, Value<HASH_LENGTH>>;
 
 /// Limits for [`Metadata`].
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Decode, Encode, Deserialize, Serialize)]
@@ -89,15 +90,15 @@ impl Limits {
 #[serde(transparent)]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "Metadata")]
-pub struct Metadata {
-    map: btree_map::BTreeMap<Name, Value>,
+pub struct Metadata<const HASH_LENGTH: usize> {
+    map: btree_map::BTreeMap<Name, Value<HASH_LENGTH>>,
 }
 
 /// A path slice, composed of [`Name`]s.
 pub type Path = [Name];
 
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
-impl Metadata {
+impl<const HASH_LENGTH: usize> Metadata<HASH_LENGTH> {
     /// Constructor.
     #[inline]
     pub fn new() -> Self {
@@ -116,7 +117,7 @@ impl Metadata {
     /// incorrect (if e.g. any of interior path segments are not
     /// [`Metadata`] instances return `None`. Else borrow the value
     /// corresponding to that path.
-    pub fn nested_get(&self, path: &Path) -> Option<&Value> {
+    pub fn nested_get(&self, path: &Path) -> Option<&Value<HASH_LENGTH>> {
         let key = path.last()?;
         let mut map = &self.map;
         for k in path.iter().take(path.len() - 1) {
@@ -134,15 +135,15 @@ impl Metadata {
     }
 
     /// Iterate over key/value pairs stored in the internal map.
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&Name, &Value)> {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&Name, &Value<HASH_LENGTH>)> {
         self.map.iter()
     }
 }
 
-impl Metadata {
+impl<const HASH_LENGTH: usize> Metadata<HASH_LENGTH> {
     /// Get the `Some(&Value)` associated to `key`. Return `None` if not found.
     #[inline]
-    pub fn get<K: Ord + ?Sized>(&self, key: &K) -> Option<&Value>
+    pub fn get<K: Ord + ?Sized>(&self, key: &K) -> Option<&Value<HASH_LENGTH>>
     where
         Name: Borrow<K>,
     {
@@ -160,9 +161,9 @@ impl Metadata {
     pub fn nested_insert_with_limits(
         &mut self,
         path: &Path,
-        value: Value,
+        value: Value<HASH_LENGTH>,
         limits: Limits,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Value<HASH_LENGTH>>, Error> {
         if self.map.len() >= limits.max_len as usize {
             return Err(Error::OverallSize {
                 limits,
@@ -192,9 +193,9 @@ impl Metadata {
     pub fn insert_with_limits(
         &mut self,
         key: Name,
-        value: Value,
+        value: Value<HASH_LENGTH>,
         limits: Limits,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Value<HASH_LENGTH>>, Error> {
         if self.map.len() >= limits.max_len as usize && !self.map.contains_key(&key) {
             return Err(Error::OverallSize {
                 limits,
@@ -207,12 +208,12 @@ impl Metadata {
 }
 
 #[cfg(feature = "mutable_api")]
-impl Metadata {
+impl<const HASH_LENGTH: usize> Metadata<HASH_LENGTH> {
     /// Removes a key from the map, returning the owned
     /// `Some(value)` at the key if the key was previously in the
     /// map, else `None`.
     #[inline]
-    pub fn remove<K: Ord + ?Sized>(&mut self, key: &K) -> Option<Value>
+    pub fn remove<K: Ord + ?Sized>(&mut self, key: &K) -> Option<Value<HASH_LENGTH>>
     where
         Name: Borrow<K>,
     {
@@ -223,7 +224,7 @@ impl Metadata {
     /// malformed, or incorrect (if e.g. any of interior path segments
     /// are not [`Metadata`] instances) return `None`. Else return the
     /// owned value corresponding to that path.
-    pub fn nested_remove(&mut self, path: &Path) -> Option<Value> {
+    pub fn nested_remove(&mut self, path: &Path) -> Option<Value<HASH_LENGTH>> {
         let key = path.last()?;
         let mut map = &mut self.map;
         for k in path.iter().take(path.len() - 1) {
@@ -236,7 +237,11 @@ impl Metadata {
     }
 }
 
-fn check_size_limits(key: &Name, value: Value, limits: Limits) -> Result<(), Error> {
+fn check_size_limits<const HASH_LENGTH: usize>(
+    key: &Name,
+    value: Value<HASH_LENGTH>,
+    limits: Limits,
+) -> Result<(), Error> {
     let entry_bytes: Vec<u8> = (key, value).encode();
     let byte_size = entry_bytes.len();
     if byte_size > limits.max_entry_byte_size as usize {
@@ -312,7 +317,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             *metadata.nested_get(&path).unwrap(),
-            Value::from("Hello World".to_owned())
+            Value::<HASH_LENGTH>::from("Hello World".to_owned())
         );
         assert_eq!(metadata.nested_len(), 6); // Three nested path segments.
         metadata.nested_remove(&path);

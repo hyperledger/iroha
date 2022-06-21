@@ -29,38 +29,38 @@ use crate::Registered;
     FromVariant,
     IntoSchema,
 )]
-pub enum Instruction {
+pub enum Instruction<const HASH_LENGTH: usize> {
     /// `Register` variant.
-    Register(RegisterBox),
+    Register(RegisterBox<{ HASH_LENGTH }>),
     /// `Unregister` variant.
-    Unregister(UnregisterBox),
+    Unregister(UnregisterBox<{ HASH_LENGTH }>),
     /// `Mint` variant.
-    Mint(MintBox),
+    Mint(MintBox<{ HASH_LENGTH }>),
     /// `Burn` variant.
-    Burn(BurnBox),
+    Burn(BurnBox<{ HASH_LENGTH }>),
     /// `Transfer` variant.
-    Transfer(TransferBox),
+    Transfer(TransferBox<{ HASH_LENGTH }>),
     /// `If` variant.
-    If(Box<If>),
+    If(Box<If<{ HASH_LENGTH }>>),
     /// `Pair` variant.
-    Pair(Box<Pair>),
+    Pair(Box<Pair<{ HASH_LENGTH }>>),
     /// `Sequence` variant.
-    Sequence(SequenceBox),
+    Sequence(SequenceBox<{ HASH_LENGTH }>),
     /// `Fail` variant.
     Fail(FailBox),
     /// `SetKeyValue` variant.
-    SetKeyValue(SetKeyValueBox),
+    SetKeyValue(SetKeyValueBox<{ HASH_LENGTH }>),
     /// `RemoveKeyValue` variant.
-    RemoveKeyValue(RemoveKeyValueBox),
+    RemoveKeyValue(RemoveKeyValueBox<{ HASH_LENGTH }>),
     /// `Grant` variant.
-    Grant(GrantBox),
+    Grant(GrantBox<{ HASH_LENGTH }>),
     /// `Revoke` variant.
-    Revoke(RevokeBox),
+    Revoke(RevokeBox<{ HASH_LENGTH }>),
     /// `ExecuteTrigger` variant.
     ExecuteTrigger(ExecuteTriggerBox),
 }
 
-impl Instruction {
+impl<const HASH_LENGTH: usize> Instruction<HASH_LENGTH> {
     /// Calculates number of underneath instructions and expressions
     pub fn len(&self) -> usize {
         use Instruction::*;
@@ -89,13 +89,13 @@ impl Instruction {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "SET {key:?} = {value:?} IN {object_id:?}")]
-pub struct SetKeyValueBox {
+pub struct SetKeyValueBox<const HASH_LENGTH: usize> {
     /// Where to set this key value.
-    pub object_id: EvaluatesTo<IdBox>,
+    pub object_id: EvaluatesTo<IdBox, HASH_LENGTH>,
     /// Key string.
-    pub key: EvaluatesTo<Name>,
+    pub key: EvaluatesTo<Name, HASH_LENGTH>,
     /// Object to set as a value.
-    pub value: EvaluatesTo<Value>,
+    pub value: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
 }
 
 /// Sized structure for all possible key value pair remove instructions.
@@ -103,11 +103,11 @@ pub struct SetKeyValueBox {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "REMOVE {key:?} from {object_id:?}")]
-pub struct RemoveKeyValueBox {
+pub struct RemoveKeyValueBox<const HASH_LENGTH: usize> {
     /// From where to remove this key value.
-    pub object_id: EvaluatesTo<IdBox>,
+    pub object_id: EvaluatesTo<IdBox, HASH_LENGTH>,
     /// Key string.
-    pub key: EvaluatesTo<Name>,
+    pub key: EvaluatesTo<Name, HASH_LENGTH>,
 }
 
 /// Sized structure for all possible Registers.
@@ -115,9 +115,9 @@ pub struct RemoveKeyValueBox {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "REGISTER {object:?}")] // TODO: Display
-pub struct RegisterBox {
+pub struct RegisterBox<const HASH_LENGTH: usize> {
     /// The object that should be registered, should be uniquely identifiable by its id.
-    pub object: EvaluatesTo<RegistrableBox>,
+    pub object: EvaluatesTo<RegistrableBox<HASH_LENGTH>, HASH_LENGTH>,
 }
 
 /// Sized structure for all possible Unregisters.
@@ -125,9 +125,9 @@ pub struct RegisterBox {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "UNREGISTER {object_id:?}")] // TODO: Display
-pub struct UnregisterBox {
+pub struct UnregisterBox<const HASH_LENGTH: usize> {
     /// The id of the object that should be unregistered.
-    pub object_id: EvaluatesTo<IdBox>,
+    pub object_id: EvaluatesTo<IdBox, HASH_LENGTH>,
 }
 
 /// Sized structure for all possible Mints.
@@ -135,11 +135,11 @@ pub struct UnregisterBox {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "MINT {object:?} TO {destination_id:?}")] // TODO: Display
-pub struct MintBox {
+pub struct MintBox<const HASH_LENGTH: usize> {
     /// Object to mint.
-    pub object: EvaluatesTo<Value>,
+    pub object: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
     /// Entity to mint to.
-    pub destination_id: EvaluatesTo<IdBox>,
+    pub destination_id: EvaluatesTo<IdBox, HASH_LENGTH>,
 }
 
 /// Sized structure for all possible Burns.
@@ -147,11 +147,11 @@ pub struct MintBox {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "Burn {object:?} from {destination_id:?}")]
-pub struct BurnBox {
+pub struct BurnBox<const HASH_LENGTH: usize> {
     /// Object to burn.
-    pub object: EvaluatesTo<Value>,
+    pub object: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
     /// Entity to burn from.
-    pub destination_id: EvaluatesTo<IdBox>,
+    pub destination_id: EvaluatesTo<IdBox, HASH_LENGTH>,
 }
 
 /// Sized structure for all possible Transfers.
@@ -159,13 +159,13 @@ pub struct BurnBox {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "TRANSFER {object:?} FROM {source_id:?} TO {destination_id:?}")]
-pub struct TransferBox {
+pub struct TransferBox<const HASH_LENGTH: usize> {
     /// Entity to transfer from.
-    pub source_id: EvaluatesTo<IdBox>,
+    pub source_id: EvaluatesTo<IdBox, HASH_LENGTH>,
     /// Object to transfer.
-    pub object: EvaluatesTo<Value>,
+    pub object: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
     /// Entity to transfer to.
-    pub destination_id: EvaluatesTo<IdBox>,
+    pub destination_id: EvaluatesTo<IdBox, HASH_LENGTH>,
 }
 
 /// Composite instruction for a pair of instructions.
@@ -173,11 +173,11 @@ pub struct TransferBox {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "({left_instruction}, {right_instruction})")]
-pub struct Pair {
+pub struct Pair<const HASH_LENGTH: usize> {
     /// Left instruction
-    pub left_instruction: Instruction,
+    pub left_instruction: Instruction<HASH_LENGTH>,
     /// Right instruction
-    pub right_instruction: Instruction,
+    pub right_instruction: Instruction<HASH_LENGTH>,
 }
 
 /// Composite instruction for a sequence of instructions.
@@ -185,9 +185,9 @@ pub struct Pair {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "{instructions:?}")] // TODO: map to Display.
-pub struct SequenceBox {
+pub struct SequenceBox<const HASH_LENGTH: usize> {
     /// Sequence of Iroha Special Instructions to execute.
-    pub instructions: Vec<Instruction>,
+    pub instructions: Vec<Instruction<HASH_LENGTH>>,
 }
 
 /// Composite instruction for a conditional execution of other instructions.
@@ -197,13 +197,13 @@ pub struct SequenceBox {
 #[display(
     fmt = "IF {condition:?} THEN {then} ELSE {otherwise:?}", // TODO: Display
 )]
-pub struct If {
+pub struct If<const HASH_LENGTH: usize> {
     /// Condition to be checked.
-    pub condition: EvaluatesTo<bool>,
+    pub condition: EvaluatesTo<bool, HASH_LENGTH>,
     /// Instruction to be executed if condition pass.
-    pub then: Instruction,
+    pub then: Instruction<HASH_LENGTH>,
     /// Optional instruction to be executed if condition fail.
-    pub otherwise: Option<Instruction>,
+    pub otherwise: Option<Instruction<HASH_LENGTH>>,
 }
 
 /// Utilitary instruction to fail execution and submit an error `message`.
@@ -221,11 +221,11 @@ pub struct FailBox {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "GRANT {object:?} TO {destination_id:?}")]
-pub struct GrantBox {
+pub struct GrantBox<const HASH_LENGTH: usize> {
     /// Object to grant.
-    pub object: EvaluatesTo<Value>,
+    pub object: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
     /// Entity to which to grant this token.
-    pub destination_id: EvaluatesTo<IdBox>,
+    pub destination_id: EvaluatesTo<IdBox, HASH_LENGTH>,
 }
 
 /// Sized structure for all possible Grants.
@@ -233,18 +233,18 @@ pub struct GrantBox {
     Debug, Display, Clone, Serialize, Deserialize, Encode, Decode, PartialEq, Eq, IntoSchema,
 )]
 #[display(fmt = "REVOKE {object:?} FROM {destination_id:?}")]
-pub struct RevokeBox {
+pub struct RevokeBox<const HASH_LENGTH: usize> {
     /// Object to grant.
-    pub object: EvaluatesTo<Value>,
+    pub object: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
     /// Entity to which to grant this token.
-    pub destination_id: EvaluatesTo<IdBox>,
+    pub destination_id: EvaluatesTo<IdBox, HASH_LENGTH>,
 }
 
 /// Generic instruction to set value to the object.
 #[derive(Debug, Display, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct Set<O>
+pub struct Set<O, const HASH_LENGTH: usize>
 where
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Object to equate.
     pub object: O,
@@ -252,11 +252,11 @@ where
 
 /// Generic instruction to set key value at the object.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct SetKeyValue<O, K, V>
+pub struct SetKeyValue<O, K, V, const HASH_LENGTH: usize>
 where
     O: Identifiable,
-    K: Into<Value>,
-    V: Into<Value>,
+    K: Into<Value<HASH_LENGTH>>,
+    V: Into<Value<HASH_LENGTH>>,
 {
     /// Where to set key value.
     pub object_id: O::Id,
@@ -268,10 +268,10 @@ where
 
 /// Generic instruction to remove key value at the object.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct RemoveKeyValue<O, K>
+pub struct RemoveKeyValue<O, K, const HASH_LENGTH: usize>
 where
     O: Identifiable,
-    K: Into<Value>,
+    K: Into<Value<HASH_LENGTH>>,
 {
     /// From where to remove key value.
     pub object_id: O::Id,
@@ -301,10 +301,10 @@ where
 
 /// Generic instruction for a mint of an object to the identifiable destination.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct Mint<D, O>
+pub struct Mint<D, O, const HASH_LENGTH: usize>
 where
     D: Identifiable,
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Object which should be minted.
     pub object: O,
@@ -314,10 +314,10 @@ where
 
 /// Generic instruction for a burn of an object to the identifiable destination.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct Burn<D, O>
+pub struct Burn<D, O, const HASH_LENGTH: usize>
 where
     D: Identifiable,
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Object which should be burned.
     pub object: O,
@@ -327,9 +327,9 @@ where
 
 /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct Transfer<S: Identifiable, O, D: Identifiable>
+pub struct Transfer<S: Identifiable, O, D: Identifiable, const HASH_LENGTH: usize>
 where
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Source object `Id`.
     pub source_id: S::Id,
@@ -341,10 +341,10 @@ where
 
 /// Generic instruction for granting permission to an entity.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
-pub struct Grant<D, O>
+pub struct Grant<D, O, const HASH_LENGTH: usize>
 where
     D: Registered,
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Object to grant.
     pub object: O,
@@ -354,10 +354,10 @@ where
 
 /// Generic instruction for revoking permission from an entity.
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct Revoke<D, O>
+pub struct Revoke<D, O, const HASH_LENGTH: usize>
 where
     D: Registered,
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Object to revoke.
     pub object: O,
@@ -389,11 +389,11 @@ impl ExecuteTriggerBox {
     }
 }
 
-impl<O, K, V> SetKeyValue<O, K, V>
+impl<O, K, V, const HASH_LENGTH: usize> SetKeyValue<O, K, V, HASH_LENGTH>
 where
     O: Identifiable,
-    K: Into<Value>,
-    V: Into<Value>,
+    K: Into<Value<{ HASH_LENGTH }>>,
+    V: Into<Value<{ HASH_LENGTH }>>,
 {
     /// Construct [`SetKeyValue`].
     pub fn new(object_id: O::Id, key: K, value: V) -> Self {
@@ -405,10 +405,10 @@ where
     }
 }
 
-impl<O, K> RemoveKeyValue<O, K>
+impl<O, K, const HASH_LENGTH: usize> RemoveKeyValue<O, K, HASH_LENGTH>
 where
     O: Identifiable,
-    K: Into<Value>,
+    K: Into<Value<HASH_LENGTH>>,
 {
     /// Construct [`RemoveKeyValue`].
     pub fn new(object_id: O::Id, key: K) -> Self {
@@ -416,9 +416,9 @@ where
     }
 }
 
-impl<O> Set<O>
+impl<O, const HASH_LENGTH: usize> Set<O, HASH_LENGTH>
 where
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Construct [`Set`].
     pub fn new(object: O) -> Self {
@@ -446,10 +446,10 @@ where
     }
 }
 
-impl<D, O> Mint<D, O>
+impl<D, O, const HASH_LENGTH: usize> Mint<D, O, HASH_LENGTH>
 where
     D: Registered,
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Construct [`Mint`].
     pub fn new(object: O, destination_id: D::Id) -> Self {
@@ -460,10 +460,10 @@ where
     }
 }
 
-impl<D, O> Burn<D, O>
+impl<D, O, const HASH_LENGTH: usize> Burn<D, O, HASH_LENGTH>
 where
     D: Registered,
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Construct [`Burn`].
     pub fn new(object: O, destination_id: D::Id) -> Self {
@@ -474,11 +474,11 @@ where
     }
 }
 
-impl<S, O, D> Transfer<S, O, D>
+impl<S, O, D, const HASH_LENGTH: usize> Transfer<S, O, D, HASH_LENGTH>
 where
     S: Registered,
     D: Registered,
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Construct [`Transfer`].
     pub fn new(source_id: S::Id, object: O, destination_id: D::Id) -> Self {
@@ -490,10 +490,10 @@ where
     }
 }
 
-impl<D, O> Grant<D, O>
+impl<D, O, const HASH_LENGTH: usize> Grant<D, O, HASH_LENGTH>
 where
     D: Registered,
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Constructor.
     #[inline]
@@ -505,10 +505,10 @@ where
     }
 }
 
-impl<D, O> Revoke<D, O>
+impl<D, O, const HASH_LENGTH: usize> Revoke<D, O, HASH_LENGTH>
 where
     D: Registered,
-    O: Into<Value>,
+    O: Into<Value<HASH_LENGTH>>,
 {
     /// Constructor
     #[inline]
@@ -520,7 +520,7 @@ where
     }
 }
 
-impl RevokeBox {
+impl<const HASH_LENGTH: usize> RevokeBox<HASH_LENGTH> {
     /// Compute the number of contained instructions and expressions.
     #[inline]
     pub fn len(&self) -> usize {
@@ -528,7 +528,10 @@ impl RevokeBox {
     }
 
     /// Generic constructor.
-    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<IdBox>>>(
+    pub fn new<
+        P: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
+        I: Into<EvaluatesTo<IdBox, HASH_LENGTH>>,
+    >(
         object: P,
         destination_id: I,
     ) -> Self {
@@ -539,14 +542,17 @@ impl RevokeBox {
     }
 }
 
-impl GrantBox {
+impl<const HASH_LENGTH: usize> GrantBox<HASH_LENGTH> {
     /// Compute the number of contained instructions and expressions.
     pub fn len(&self) -> usize {
         self.object.len() + self.destination_id.len() + 1
     }
 
     /// Constructor.
-    pub fn new<P: Into<EvaluatesTo<Value>>, I: Into<EvaluatesTo<IdBox>>>(
+    pub fn new<
+        P: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
+        I: Into<EvaluatesTo<IdBox, HASH_LENGTH>>,
+    >(
         object: P,
         destination_id: I,
     ) -> Self {
@@ -557,7 +563,7 @@ impl GrantBox {
     }
 }
 
-impl SetKeyValueBox {
+impl<const HASH_LENGTH: usize> SetKeyValueBox<HASH_LENGTH> {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -566,9 +572,9 @@ impl SetKeyValueBox {
 
     /// Construct [`SetKeyValueBox`].
     pub fn new<
-        I: Into<EvaluatesTo<IdBox>>,
-        K: Into<EvaluatesTo<Name>>,
-        V: Into<EvaluatesTo<Value>>,
+        I: Into<EvaluatesTo<IdBox, HASH_LENGTH>>,
+        K: Into<EvaluatesTo<Name, HASH_LENGTH>>,
+        V: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
     >(
         object_id: I,
         key: K,
@@ -582,7 +588,7 @@ impl SetKeyValueBox {
     }
 }
 
-impl RemoveKeyValueBox {
+impl<const HASH_LENGTH: usize> RemoveKeyValueBox<HASH_LENGTH> {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -590,7 +596,10 @@ impl RemoveKeyValueBox {
     }
 
     /// Construct [`RemoveKeyValueBox`].
-    pub fn new<I: Into<EvaluatesTo<IdBox>>, K: Into<EvaluatesTo<Name>>>(
+    pub fn new<
+        I: Into<EvaluatesTo<IdBox, HASH_LENGTH>>,
+        K: Into<EvaluatesTo<Name, HASH_LENGTH>>,
+    >(
         object_id: I,
         key: K,
     ) -> Self {
@@ -601,7 +610,7 @@ impl RemoveKeyValueBox {
     }
 }
 
-impl RegisterBox {
+impl<const HASH_LENGTH: usize> RegisterBox<HASH_LENGTH> {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -609,14 +618,14 @@ impl RegisterBox {
     }
 
     /// Construct [`Register`].
-    pub fn new<O: Into<EvaluatesTo<RegistrableBox>>>(object: O) -> Self {
+    pub fn new<O: Into<EvaluatesTo<RegistrableBox, HASH_LENGTH>>>(object: O) -> Self {
         Self {
             object: object.into(),
         }
     }
 }
 
-impl UnregisterBox {
+impl<const HASH_LENGTH: usize> UnregisterBox<HASH_LENGTH> {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -624,14 +633,14 @@ impl UnregisterBox {
     }
 
     /// Construct [`Unregister`].
-    pub fn new<O: Into<EvaluatesTo<IdBox>>>(object_id: O) -> Self {
+    pub fn new<O: Into<EvaluatesTo<IdBox, HASH_LENGTH>>>(object_id: O) -> Self {
         Self {
             object_id: object_id.into(),
         }
     }
 }
 
-impl MintBox {
+impl<const HASH_LENGTH: usize> MintBox<HASH_LENGTH> {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -639,7 +648,10 @@ impl MintBox {
     }
 
     /// Construct [`Mint`].
-    pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
+    pub fn new<
+        O: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
+        D: Into<EvaluatesTo<IdBox, HASH_LENGTH>>,
+    >(
         object: O,
         destination_id: D,
     ) -> Self {
@@ -650,7 +662,7 @@ impl MintBox {
     }
 }
 
-impl BurnBox {
+impl<const HASH_LENGTH: usize> BurnBox<HASH_LENGTH> {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -658,7 +670,10 @@ impl BurnBox {
     }
 
     /// Construct [`Burn`].
-    pub fn new<O: Into<EvaluatesTo<Value>>, D: Into<EvaluatesTo<IdBox>>>(
+    pub fn new<
+        O: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
+        D: Into<EvaluatesTo<IdBox, HASH_LENGTH>>,
+    >(
         object: O,
         destination_id: D,
     ) -> Self {
@@ -669,7 +684,7 @@ impl BurnBox {
     }
 }
 
-impl TransferBox {
+impl<const HASH_LENGTH: usize> TransferBox<HASH_LENGTH> {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -678,9 +693,9 @@ impl TransferBox {
 
     /// Construct [`Transfer`].
     pub fn new<
-        S: Into<EvaluatesTo<IdBox>>,
-        O: Into<EvaluatesTo<Value>>,
-        D: Into<EvaluatesTo<IdBox>>,
+        S: Into<EvaluatesTo<IdBox, HASH_LENGTH>>,
+        O: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
+        D: Into<EvaluatesTo<IdBox, HASH_LENGTH>>,
     >(
         source_id: S,
         object: O,
@@ -694,7 +709,7 @@ impl TransferBox {
     }
 }
 
-impl Pair {
+impl<const HASH_LENGTH: usize> Pair<HASH_LENGTH> {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -702,7 +717,7 @@ impl Pair {
     }
 
     /// Construct [`Pair`].
-    pub fn new<LI: Into<Instruction>, RI: Into<Instruction>>(
+    pub fn new<LI: Into<Instruction<HASH_LENGTH>>, RI: Into<Instruction<HASH_LENGTH>>>(
         left_instruction: LI,
         right_instruction: RI,
     ) -> Self {
@@ -713,7 +728,7 @@ impl Pair {
     }
 }
 
-impl SequenceBox {
+impl<const HASH_LENGTH: usize> SequenceBox<HASH_LENGTH> {
     /// Length of contained instructions and queries.
     pub fn len(&self) -> usize {
         self.instructions
@@ -724,12 +739,12 @@ impl SequenceBox {
     }
 
     /// Construct [`SequenceBox`].
-    pub fn new(instructions: Vec<Instruction>) -> Self {
+    pub fn new(instructions: Vec<Instruction<HASH_LENGTH>>) -> Self {
         Self { instructions }
     }
 }
 
-impl If {
+impl<const HASH_LENGTH: usize> If<HASH_LENGTH> {
     /// Length of contained instructions and queries.
     #[inline]
     pub fn len(&self) -> usize {
@@ -738,7 +753,10 @@ impl If {
     }
 
     /// Construct [`If`].
-    pub fn new<C: Into<EvaluatesTo<bool>>, T: Into<Instruction>>(condition: C, then: T) -> Self {
+    pub fn new<C: Into<EvaluatesTo<bool, HASH_LENGTH>>, T: Into<Instruction<HASH_LENGTH>>>(
+        condition: C,
+        then: T,
+    ) -> Self {
         If {
             condition: condition.into(),
             then: then.into(),
@@ -747,9 +765,9 @@ impl If {
     }
     /// [`If`] constructor with `Otherwise` instruction.
     pub fn with_otherwise<
-        C: Into<EvaluatesTo<bool>>,
-        T: Into<Instruction>,
-        O: Into<Instruction>,
+        C: Into<EvaluatesTo<bool, HASH_LENGTH>>,
+        T: Into<Instruction<HASH_LENGTH>>,
+        O: Into<Instruction<HASH_LENGTH>>,
     >(
         condition: C,
         then: T,
@@ -784,12 +802,14 @@ mod tests {
 
     use super::*;
 
+    const HASH_LENGTH: usize = 32;
+
     fn if_instruction(
-        c: impl Into<ExpressionBox>,
-        then: Instruction,
-        otherwise: Option<Instruction>,
-    ) -> Instruction {
-        let condition: ExpressionBox = c.into();
+        c: impl Into<ExpressionBox<HASH_LENGTH>>,
+        then: Instruction<HASH_LENGTH>,
+        otherwise: Option<Instruction<HASH_LENGTH>>,
+    ) -> Instruction<HASH_LENGTH> {
+        let condition: ExpressionBox<HASH_LENGTH> = c.into();
         let condition = condition.into();
         If {
             condition,
@@ -799,7 +819,7 @@ mod tests {
         .into()
     }
 
-    fn fail() -> Instruction {
+    fn fail() -> Instruction<HASH_LENGTH> {
         FailBox {
             message: String::default(),
         }
@@ -816,7 +836,7 @@ mod tests {
 
     #[test]
     fn len_if_one_branch() {
-        let instructions = vec![if_instruction(
+        let instructions: Vec<Instruction<HASH_LENGTH>> = vec![if_instruction(
             ContextValue {
                 value_name: String::default(),
             },
@@ -830,7 +850,7 @@ mod tests {
 
     #[test]
     fn len_sequence_if() {
-        let instructions = vec![
+        let instructions: Vec<Instruction<HASH_LENGTH>> = vec![
             fail(),
             if_instruction(
                 ContextValue {

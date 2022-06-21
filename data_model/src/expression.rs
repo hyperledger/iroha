@@ -27,24 +27,29 @@ use super::{query::QueryBox, Value, ValueBox};
 pub type ValueName = String;
 
 /// Context, composed of (name, value) pairs.
-pub type Context = btree_map::BTreeMap<ValueName, Value>;
+pub type Context<const HASH_LENGTH: usize> = btree_map::BTreeMap<ValueName, Value<HASH_LENGTH>>;
 
 /// Boxed expression.
-pub type ExpressionBox = Box<Expression>;
+pub type ExpressionBox<const HASH_LENGTH: usize> = Box<Expression<HASH_LENGTH>>;
 
 /// Struct for type checking and converting expression results.
 #[derive(Debug, Display, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 #[serde(transparent)]
 #[display(fmt = "Expressions aren't `fmt::Display` yet :(")] // TODO: implement
-pub struct EvaluatesTo<V: TryFrom<Value>> {
+pub struct EvaluatesTo<V: TryFrom<Value<HASH_LENGTH>>, const HASH_LENGTH: usize> {
     /// Expression.
     #[serde(flatten)]
-    pub expression: ExpressionBox,
+    pub expression: ExpressionBox<HASH_LENGTH>,
     #[codec(skip)]
     _value_type: PhantomData<V>,
 }
 
-impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
+impl<
+        V: TryFrom<Value<HASH_LENGTH>>,
+        E: Into<ExpressionBox<HASH_LENGTH>>,
+        const HASH_LENGTH: usize,
+    > From<E> for EvaluatesTo<V, HASH_LENGTH>
+{
     fn from(expression: E) -> Self {
         Self {
             expression: expression.into(),
@@ -53,7 +58,7 @@ impl<V: TryFrom<Value>, E: Into<ExpressionBox>> From<E> for EvaluatesTo<V> {
     }
 }
 
-impl<V: TryFrom<Value>> EvaluatesTo<V> {
+impl<V: TryFrom<Value<HASH_LENGTH>>, const HASH_LENGTH: usize> EvaluatesTo<V, HASH_LENGTH> {
     /// Number of underneath expressions.
     #[inline]
     pub fn len(&self) -> usize {
@@ -61,7 +66,9 @@ impl<V: TryFrom<Value>> EvaluatesTo<V> {
     }
 }
 
-impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
+impl<V: IntoSchema + TryFrom<Value<HASH_LENGTH>>, const HASH_LENGTH: usize> IntoSchema
+    for EvaluatesTo<V, HASH_LENGTH>
+{
     fn type_name() -> String {
         format!("{}::EvaluatesTo<{}>", module_path!(), V::type_name())
     }
@@ -85,50 +92,50 @@ impl<V: IntoSchema + TryFrom<Value>> IntoSchema for EvaluatesTo<V> {
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
-pub enum Expression {
+pub enum Expression<const HASH_LENGTH: usize> {
     /// Add expression.
-    Add(Add),
+    Add(Add<{ HASH_LENGTH }>),
     /// Subtract expression.
-    Subtract(Subtract),
+    Subtract(Subtract<{ HASH_LENGTH }>),
     /// Multiply expression.
-    Multiply(Multiply),
+    Multiply(Multiply<{ HASH_LENGTH }>),
     /// Divide expression.
-    Divide(Divide),
+    Divide(Divide<{ HASH_LENGTH }>),
     /// Module expression.
-    Mod(Mod),
+    Mod(Mod<{ HASH_LENGTH }>),
     /// Raise to power expression.
-    RaiseTo(RaiseTo),
+    RaiseTo(RaiseTo<{ HASH_LENGTH }>),
     /// Greater expression.
-    Greater(Greater),
+    Greater(Greater<{ HASH_LENGTH }>),
     /// Less expression.
-    Less(Less),
+    Less(Less<{ HASH_LENGTH }>),
     /// Equal expression.
-    Equal(Equal),
+    Equal(Equal<{ HASH_LENGTH }>),
     /// Not expression.
-    Not(Not),
+    Not(Not<{ HASH_LENGTH }>),
     /// And expression.
-    And(And),
+    And(And<{ HASH_LENGTH }>),
     /// Or expression.
-    Or(Or),
+    Or(Or<{ HASH_LENGTH }>),
     /// If expression.
-    If(If),
+    If(If<{ HASH_LENGTH }>),
     /// Raw value.
-    Raw(ValueBox),
+    Raw(ValueBox<{ HASH_LENGTH }>),
     /// Query to Iroha state.
-    Query(QueryBox),
+    Query(QueryBox<{ HASH_LENGTH }>),
     /// Contains expression for vectors.
-    Contains(Contains),
+    Contains(Contains<{ HASH_LENGTH }>),
     /// Contains all expression for vectors.
-    ContainsAll(ContainsAll),
+    ContainsAll(ContainsAll<{ HASH_LENGTH }>),
     /// Contains any expression for vectors.
-    ContainsAny(ContainsAny),
+    ContainsAny(ContainsAny<{ HASH_LENGTH }>),
     /// Where expression to supply temporary values to local context.
-    Where(Where),
+    Where(Where<{ HASH_LENGTH }>),
     /// Get a temporary value by name
     ContextValue(ContextValue),
 }
 
-impl Expression {
+impl<const HASH_LENGTH: usize> Expression<HASH_LENGTH> {
     /// Number of underneath expressions.
     #[inline]
     pub fn len(&self) -> usize {
@@ -159,7 +166,7 @@ impl Expression {
     }
 }
 
-impl<T: Into<Value>> From<T> for ExpressionBox {
+impl<T: Into<Value<HASH_LENGTH>>, const HASH_LENGTH: usize> From<T> for ExpressionBox<HASH_LENGTH> {
     fn from(value: T) -> Self {
         Expression::Raw(Box::new(value.into())).into()
     }
@@ -187,7 +194,7 @@ impl ContextValue {
     }
 }
 
-impl From<ContextValue> for ExpressionBox {
+impl<const HASH_LENGTH: usize> From<ContextValue> for ExpressionBox<HASH_LENGTH> {
     fn from(expression: ContextValue) -> Self {
         Expression::ContextValue(expression).into()
     }
@@ -196,21 +203,24 @@ impl From<ContextValue> for ExpressionBox {
 /// Evaluates to the multiplication of right and left expressions.
 /// Works only for `Value::U32`
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Multiply {
+pub struct Multiply<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<u32>,
+    pub left: EvaluatesTo<u32, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<u32>,
+    pub right: EvaluatesTo<u32, HASH_LENGTH>,
 }
 
-impl Multiply {
+impl<const HASH_LENGTH: usize> Multiply<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Multiply` expression.
-    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
+    pub fn new(
+        left: impl Into<EvaluatesTo<u32, HASH_LENGTH>>,
+        right: impl Into<EvaluatesTo<u32, HASH_LENGTH>>,
+    ) -> Self {
         Self {
             left: left.into(),
             right: right.into(),
@@ -218,8 +228,8 @@ impl Multiply {
     }
 }
 
-impl From<Multiply> for ExpressionBox {
-    fn from(expression: Multiply) -> Self {
+impl<const HASH_LENGTH: usize> From<Multiply<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: Multiply<HASH_LENGTH>) -> Self {
         Expression::Multiply(expression).into()
     }
 }
@@ -227,21 +237,24 @@ impl From<Multiply> for ExpressionBox {
 /// Evaluates to the division of right and left expressions.
 /// Works only for `Value::U32`
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Divide {
+pub struct Divide<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<u32>,
+    pub left: EvaluatesTo<u32, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<u32>,
+    pub right: EvaluatesTo<u32, HASH_LENGTH>,
 }
 
-impl Divide {
+impl<const HASH_LENGTH: usize> Divide<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Multiply` expression.
-    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
+    pub fn new(
+        left: impl Into<EvaluatesTo<u32, HASH_LENGTH>>,
+        right: impl Into<EvaluatesTo<u32, HASH_LENGTH>>,
+    ) -> Self {
         Self {
             left: left.into(),
             right: right.into(),
@@ -249,8 +262,8 @@ impl Divide {
     }
 }
 
-impl From<Divide> for ExpressionBox {
-    fn from(expression: Divide) -> Self {
+impl<const HASH_LENGTH: usize> From<Divide<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: Divide<HASH_LENGTH>) -> Self {
         Expression::Divide(expression).into()
     }
 }
@@ -258,21 +271,24 @@ impl From<Divide> for ExpressionBox {
 /// Evaluates to the modulus of right and left expressions.
 /// Works only for `Value::U32`
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Mod {
+pub struct Mod<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<u32>,
+    pub left: EvaluatesTo<u32, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<u32>,
+    pub right: EvaluatesTo<u32, HASH_LENGTH>,
 }
 
-impl Mod {
+impl<const HASH_LENGTH: usize> Mod<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Mod` expression.
-    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
+    pub fn new(
+        left: impl Into<EvaluatesTo<u32, HASH_LENGTH>>,
+        right: impl Into<EvaluatesTo<u32, HASH_LENGTH>>,
+    ) -> Self {
         Self {
             left: left.into(),
             right: right.into(),
@@ -280,8 +296,8 @@ impl Mod {
     }
 }
 
-impl From<Mod> for ExpressionBox {
-    fn from(expression: Mod) -> Self {
+impl<const HASH_LENGTH: usize> From<Mod<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: Mod<HASH_LENGTH>) -> Self {
         Expression::Mod(expression).into()
     }
 }
@@ -289,21 +305,24 @@ impl From<Mod> for ExpressionBox {
 /// Evaluates to the right expression in power of left expressions.
 /// Works only for `Value::U32`
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct RaiseTo {
+pub struct RaiseTo<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<u32>,
+    pub left: EvaluatesTo<u32, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<u32>,
+    pub right: EvaluatesTo<u32, HASH_LENGTH>,
 }
 
-impl RaiseTo {
+impl<const HASH_LENGTH: usize> RaiseTo<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `RaiseTo` expression.
-    pub fn new(left: impl Into<EvaluatesTo<u32>>, right: impl Into<EvaluatesTo<u32>>) -> Self {
+    pub fn new(
+        left: impl Into<EvaluatesTo<u32, HASH_LENGTH>>,
+        right: impl Into<EvaluatesTo<u32, HASH_LENGTH>>,
+    ) -> Self {
         Self {
             left: left.into(),
             right: right.into(),
@@ -311,8 +330,8 @@ impl RaiseTo {
     }
 }
 
-impl From<RaiseTo> for ExpressionBox {
-    fn from(expression: RaiseTo) -> Self {
+impl<const HASH_LENGTH: usize> From<RaiseTo<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: RaiseTo<HASH_LENGTH>) -> Self {
         Expression::RaiseTo(expression).into()
     }
 }
@@ -320,21 +339,24 @@ impl From<RaiseTo> for ExpressionBox {
 /// Evaluates to the sum of right and left expressions.
 /// Works only for `Value::U32`
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Add {
+pub struct Add<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<u32>,
+    pub left: EvaluatesTo<u32, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<u32>,
+    pub right: EvaluatesTo<u32, HASH_LENGTH>,
 }
 
-impl Add {
+impl<const HASH_LENGTH: usize> Add<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Add` expression.
-    pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
+    pub fn new<L: Into<EvaluatesTo<u32, HASH_LENGTH>>, R: Into<EvaluatesTo<u32, HASH_LENGTH>>>(
+        left: L,
+        right: R,
+    ) -> Self {
         Self {
             left: left.into(),
             right: right.into(),
@@ -342,8 +364,8 @@ impl Add {
     }
 }
 
-impl From<Add> for ExpressionBox {
-    fn from(expression: Add) -> Self {
+impl<const HASH_LENGTH: usize> From<Add<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: Add<HASH_LENGTH>) -> Self {
         Expression::Add(expression).into()
     }
 }
@@ -351,21 +373,24 @@ impl From<Add> for ExpressionBox {
 /// Evaluates to the difference of right and left expressions.
 /// Works only for `Value::U32`
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Subtract {
+pub struct Subtract<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<u32>,
+    pub left: EvaluatesTo<u32, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<u32>,
+    pub right: EvaluatesTo<u32, HASH_LENGTH>,
 }
 
-impl Subtract {
+impl<const HASH_LENGTH: usize> Subtract<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Subtract` expression.
-    pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
+    pub fn new<L: Into<EvaluatesTo<u32, HASH_LENGTH>>, R: Into<EvaluatesTo<u32, HASH_LENGTH>>>(
+        left: L,
+        right: R,
+    ) -> Self {
         Self {
             left: left.into(),
             right: right.into(),
@@ -373,8 +398,8 @@ impl Subtract {
     }
 }
 
-impl From<Subtract> for ExpressionBox {
-    fn from(expression: Subtract) -> Self {
+impl<const HASH_LENGTH: usize> From<Subtract<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: Subtract<HASH_LENGTH>) -> Self {
         Expression::Subtract(expression).into()
     }
 }
@@ -382,21 +407,24 @@ impl From<Subtract> for ExpressionBox {
 /// Returns whether the `left` expression is greater than the `right`.
 /// Works only for `Value::U32`.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Greater {
+pub struct Greater<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<u32>,
+    pub left: EvaluatesTo<u32, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<u32>,
+    pub right: EvaluatesTo<u32, HASH_LENGTH>,
 }
 
-impl Greater {
+impl<const HASH_LENGTH: usize> Greater<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Greater` expression.
-    pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
+    pub fn new<L: Into<EvaluatesTo<u32, HASH_LENGTH>>, R: Into<EvaluatesTo<u32, HASH_LENGTH>>>(
+        left: L,
+        right: R,
+    ) -> Self {
         Self {
             left: left.into(),
             right: right.into(),
@@ -404,8 +432,8 @@ impl Greater {
     }
 }
 
-impl From<Greater> for ExpressionBox {
-    fn from(expression: Greater) -> Self {
+impl<const HASH_LENGTH: usize> From<Greater<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: Greater<HASH_LENGTH>) -> Self {
         Expression::Greater(expression).into()
     }
 }
@@ -413,21 +441,24 @@ impl From<Greater> for ExpressionBox {
 /// Returns whether the `left` expression is less than the `right`.
 /// Works only for `Value::U32`.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Less {
+pub struct Less<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<u32>,
+    pub left: EvaluatesTo<u32, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<u32>,
+    pub right: EvaluatesTo<u32, HASH_LENGTH>,
 }
 
-impl Less {
+impl<const HASH_LENGTH: usize> Less<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Less` expression.
-    pub fn new<L: Into<EvaluatesTo<u32>>, R: Into<EvaluatesTo<u32>>>(left: L, right: R) -> Self {
+    pub fn new<L: Into<EvaluatesTo<u32, HASH_LENGTH>>, R: Into<EvaluatesTo<u32, HASH_LENGTH>>>(
+        left: L,
+        right: R,
+    ) -> Self {
         Self {
             left: left.into(),
             right: right.into(),
@@ -435,8 +466,8 @@ impl Less {
     }
 }
 
-impl From<Less> for ExpressionBox {
-    fn from(expression: Less) -> Self {
+impl<const HASH_LENGTH: usize> From<Less<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: Less<HASH_LENGTH>) -> Self {
         Expression::Less(expression).into()
     }
 }
@@ -444,48 +475,51 @@ impl From<Less> for ExpressionBox {
 /// Negates the result of the `expression`.
 /// Works only for `Value::Bool`.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Not {
+pub struct Not<const HASH_LENGTH: usize> {
     /// Expression that should evaluate to `Value::Bool`.
-    pub expression: EvaluatesTo<bool>,
+    pub expression: EvaluatesTo<bool, HASH_LENGTH>,
 }
 
-impl Not {
+impl<const HASH_LENGTH: usize> Not<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.expression.len() + 1
     }
 
     /// Constructs `Not` expression.
-    pub fn new<E: Into<EvaluatesTo<bool>>>(expression: E) -> Self {
+    pub fn new<E: Into<EvaluatesTo<bool, HASH_LENGTH>>>(expression: E) -> Self {
         Self {
             expression: expression.into(),
         }
     }
 }
 
-impl From<Not> for ExpressionBox {
-    fn from(expression: Not) -> Self {
+impl<const HASH_LENGTH: usize> From<Not<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: Not<HASH_LENGTH>) -> Self {
         Expression::Not(expression).into()
     }
 }
 
 /// Applies the logical `and` to two `Value::Bool` operands.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct And {
+pub struct And<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<bool>,
+    pub left: EvaluatesTo<bool, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<bool>,
+    pub right: EvaluatesTo<bool, HASH_LENGTH>,
 }
 
-impl And {
+impl<const HASH_LENGTH: usize> And<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `And` expression.
-    pub fn new<L: Into<EvaluatesTo<bool>>, R: Into<EvaluatesTo<bool>>>(left: L, right: R) -> Self {
+    pub fn new<L: Into<EvaluatesTo<bool, HASH_LENGTH>>, R: Into<EvaluatesTo<bool, HASH_LENGTH>>>(
+        left: L,
+        right: R,
+    ) -> Self {
         Self {
             left: left.into(),
             right: right.into(),
@@ -493,29 +527,32 @@ impl And {
     }
 }
 
-impl From<And> for ExpressionBox {
-    fn from(expression: And) -> Self {
+impl<const HASH_LENGTH: usize> From<And<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: And<HASH_LENGTH>) -> Self {
         Expression::And(expression).into()
     }
 }
 
 /// Applies the logical `or` to two `Value::Bool` operands.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Or {
+pub struct Or<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<bool>,
+    pub left: EvaluatesTo<bool, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<bool>,
+    pub right: EvaluatesTo<bool, HASH_LENGTH>,
 }
 
-impl Or {
+impl<const HASH_LENGTH: usize> Or<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Or` expression.
-    pub fn new<L: Into<EvaluatesTo<bool>>, R: Into<EvaluatesTo<bool>>>(left: L, right: R) -> Self {
+    pub fn new<L: Into<EvaluatesTo<bool, HASH_LENGTH>>, R: Into<EvaluatesTo<bool, HASH_LENGTH>>>(
+        left: L,
+        right: R,
+    ) -> Self {
         Self {
             left: left.into(),
             right: right.into(),
@@ -523,8 +560,8 @@ impl Or {
     }
 }
 
-impl From<Or> for ExpressionBox {
-    fn from(expression: Or) -> Self {
+impl<const HASH_LENGTH: usize> From<Or<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: Or<HASH_LENGTH>) -> Self {
         Expression::Or(expression).into()
     }
 }
@@ -532,19 +569,19 @@ impl From<Or> for ExpressionBox {
 /// Builder for [`If`] expression.
 #[derive(Debug)]
 #[must_use = ".build() not used"]
-pub struct IfBuilder {
+pub struct IfBuilder<const HASH_LENGTH: usize> {
     /// Condition expression, which should evaluate to `Value::Bool`.
     /// If it is `true` then the evaluated `then_expression` will be returned, else - evaluated `else_expression`.
-    pub condition: EvaluatesTo<bool>,
+    pub condition: EvaluatesTo<bool, HASH_LENGTH>,
     /// Expression evaluated and returned if the condition is `true`.
-    pub then_expression: Option<EvaluatesTo<Value>>,
+    pub then_expression: Option<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
     /// Expression evaluated and returned if the condition is `false`.
-    pub else_expression: Option<EvaluatesTo<Value>>,
+    pub else_expression: Option<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
 }
 
-impl IfBuilder {
+impl<const HASH_LENGTH: usize> IfBuilder<HASH_LENGTH> {
     ///Sets the `condition`.
-    pub fn condition<C: Into<EvaluatesTo<bool>>>(condition: C) -> Self {
+    pub fn condition<C: Into<EvaluatesTo<bool, HASH_LENGTH>>>(condition: C) -> Self {
         IfBuilder {
             condition: condition.into(),
             then_expression: None,
@@ -553,7 +590,10 @@ impl IfBuilder {
     }
 
     /// Sets `then_expression`.
-    pub fn then_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
+    pub fn then_expression<E: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>>(
+        self,
+        expression: E,
+    ) -> Self {
         IfBuilder {
             then_expression: Some(expression.into()),
             ..self
@@ -561,7 +601,10 @@ impl IfBuilder {
     }
 
     /// Sets `else_expression`.
-    pub fn else_expression<E: Into<EvaluatesTo<Value>>>(self, expression: E) -> Self {
+    pub fn else_expression<E: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>>(
+        self,
+        expression: E,
+    ) -> Self {
         IfBuilder {
             else_expression: Some(expression.into()),
             ..self
@@ -573,7 +616,7 @@ impl IfBuilder {
     /// # Errors
     ///
     /// Fails if some of fields are not filled.
-    pub fn build(self) -> Result<If, &'static str> {
+    pub fn build(self) -> Result<If<HASH_LENGTH>, &'static str> {
         if let (Some(then_expression), Some(else_expression)) =
             (self.then_expression, self.else_expression)
         {
@@ -587,16 +630,16 @@ impl IfBuilder {
 /// If expression. Returns either a result of `then_expression`, or a result of `else_expression`
 /// based on the `condition`.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct If {
+pub struct If<const HASH_LENGTH: usize> {
     /// Condition expression, which should evaluate to `Value::Bool`.
-    pub condition: EvaluatesTo<bool>,
+    pub condition: EvaluatesTo<bool, HASH_LENGTH>,
     /// Expression evaluated and returned if the condition is `true`.
-    pub then_expression: EvaluatesTo<Value>,
+    pub then_expression: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
     /// Expression evaluated and returned if the condition is `false`.
-    pub else_expression: EvaluatesTo<Value>,
+    pub else_expression: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
 }
 
-impl If {
+impl<const HASH_LENGTH: usize> If<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.condition.len() + self.then_expression.len() + self.else_expression.len() + 1
@@ -604,9 +647,9 @@ impl If {
 
     /// Constructs `If` expression.
     pub fn new<
-        C: Into<EvaluatesTo<bool>>,
-        T: Into<EvaluatesTo<Value>>,
-        E: Into<EvaluatesTo<Value>>,
+        C: Into<EvaluatesTo<bool, HASH_LENGTH>>,
+        T: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
+        E: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
     >(
         condition: C,
         then_expression: T,
@@ -620,8 +663,8 @@ impl If {
     }
 }
 
-impl From<If> for ExpressionBox {
-    fn from(if_expression: If) -> Self {
+impl<const HASH_LENGTH: usize> From<If<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(if_expression: If<HASH_LENGTH>) -> Self {
         Expression::If(if_expression).into()
     }
 }
@@ -629,21 +672,24 @@ impl From<If> for ExpressionBox {
 /// `Contains` expression.
 /// Returns `true` if `collection` contains an `element`, `false` otherwise.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Contains {
+pub struct Contains<const HASH_LENGTH: usize> {
     /// Expression, which should evaluate to `Value::Vec`.
-    pub collection: EvaluatesTo<Vec<Value>>,
+    pub collection: EvaluatesTo<Vec<Value<HASH_LENGTH>>, HASH_LENGTH>,
     /// Element expression.
-    pub element: EvaluatesTo<Value>,
+    pub element: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
 }
 
-impl Contains {
+impl<const HASH_LENGTH: usize> Contains<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.collection.len() + self.element.len() + 1
     }
 
     /// Constructs `Contains` expression.
-    pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Value>>>(
+    pub fn new<
+        C: Into<EvaluatesTo<Vec<Value<HASH_LENGTH>>, HASH_LENGTH>>,
+        E: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
+    >(
         collection: C,
         element: E,
     ) -> Self {
@@ -654,8 +700,8 @@ impl Contains {
     }
 }
 
-impl From<Contains> for ExpressionBox {
-    fn from(expression: Contains) -> Self {
+impl<const HASH_LENGTH: usize> From<Contains<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: Contains<HASH_LENGTH>) -> Self {
         Expression::Contains(expression).into()
     }
 }
@@ -663,21 +709,24 @@ impl From<Contains> for ExpressionBox {
 /// `Contains` expression.
 /// Returns `true` if `collection` contains all `elements`, `false` otherwise.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct ContainsAll {
+pub struct ContainsAll<const HASH_LENGTH: usize> {
     /// Expression, which should evaluate to `Value::Vec`.
-    pub collection: EvaluatesTo<Vec<Value>>,
+    pub collection: EvaluatesTo<Vec<Value<HASH_LENGTH>>, HASH_LENGTH>,
     /// Expression, which should evaluate to `Value::Vec`.
-    pub elements: EvaluatesTo<Vec<Value>>,
+    pub elements: EvaluatesTo<Vec<Value<HASH_LENGTH>>, HASH_LENGTH>,
 }
 
-impl ContainsAll {
+impl<const HASH_LENGTH: usize> ContainsAll<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.collection.len() + self.elements.len() + 1
     }
 
     /// Constructs `Contains` expression.
-    pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
+    pub fn new<
+        C: Into<EvaluatesTo<Vec<Value<HASH_LENGTH>>, HASH_LENGTH>>,
+        E: Into<EvaluatesTo<Vec<Value<HASH_LENGTH>>, HASH_LENGTH>>,
+    >(
         collection: C,
         elements: E,
     ) -> Self {
@@ -688,8 +737,8 @@ impl ContainsAll {
     }
 }
 
-impl From<ContainsAll> for ExpressionBox {
-    fn from(expression: ContainsAll) -> Self {
+impl<const HASH_LENGTH: usize> From<ContainsAll<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: ContainsAll<HASH_LENGTH>) -> Self {
         Expression::ContainsAll(expression).into()
     }
 }
@@ -697,21 +746,24 @@ impl From<ContainsAll> for ExpressionBox {
 /// `Contains` expression.
 /// Returns `true` if `collection` contains any element out of the `elements`, `false` otherwise.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct ContainsAny {
+pub struct ContainsAny<const HASH_LENGTH: usize> {
     /// Expression, which should evaluate to `Value::Vec`.
-    pub collection: EvaluatesTo<Vec<Value>>,
+    pub collection: EvaluatesTo<Vec<Value<HASH_LENGTH>>, HASH_LENGTH>,
     /// Expression, which should evaluate to `Value::Vec`.
-    pub elements: EvaluatesTo<Vec<Value>>,
+    pub elements: EvaluatesTo<Vec<Value<HASH_LENGTH>>, HASH_LENGTH>,
 }
 
-impl ContainsAny {
+impl<const HASH_LENGTH: usize> ContainsAny<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.collection.len() + self.elements.len() + 1
     }
 
     /// Constructs `Contains` expression.
-    pub fn new<C: Into<EvaluatesTo<Vec<Value>>>, E: Into<EvaluatesTo<Vec<Value>>>>(
+    pub fn new<
+        C: Into<EvaluatesTo<Vec<Value<HASH_LENGTH>>, HASH_LENGTH>>,
+        E: Into<EvaluatesTo<Vec<Value<HASH_LENGTH>>, HASH_LENGTH>>,
+    >(
         collection: C,
         elements: E,
     ) -> Self {
@@ -722,29 +774,32 @@ impl ContainsAny {
     }
 }
 
-impl From<ContainsAny> for ExpressionBox {
-    fn from(expression: ContainsAny) -> Self {
+impl<const HASH_LENGTH: usize> From<ContainsAny<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(expression: ContainsAny<HASH_LENGTH>) -> Self {
         Expression::ContainsAny(expression).into()
     }
 }
 
 /// Returns `true` if `left` operand is equal to the `right` operand.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Equal {
+pub struct Equal<const HASH_LENGTH: usize> {
     /// Left operand.
-    pub left: EvaluatesTo<Value>,
+    pub left: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
     /// Right operand.
-    pub right: EvaluatesTo<Value>,
+    pub right: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
 }
 
-impl Equal {
+impl<const HASH_LENGTH: usize> Equal<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub fn len(&self) -> usize {
         self.left.len() + self.right.len() + 1
     }
 
     /// Constructs `Or` expression.
-    pub fn new<L: Into<EvaluatesTo<Value>>, R: Into<EvaluatesTo<Value>>>(
+    pub fn new<
+        L: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
+        R: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
+    >(
         left: L,
         right: R,
     ) -> Self {
@@ -755,25 +810,25 @@ impl Equal {
     }
 }
 
-impl From<Equal> for ExpressionBox {
-    fn from(equal: Equal) -> Self {
+impl<const HASH_LENGTH: usize> From<Equal<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(equal: Equal<HASH_LENGTH>) -> Self {
         Expression::Equal(equal).into()
     }
 }
 
 /// [`Where`] builder.
 #[derive(Debug)]
-pub struct WhereBuilder {
+pub struct WhereBuilder<const HASH_LENGTH: usize> {
     /// Expression to be evaluated.
-    expression: EvaluatesTo<Value>,
+    expression: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
     /// Context values for the context binded to their `String` names.
-    values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
+    values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
 }
 
-impl WhereBuilder {
+impl<const HASH_LENGTH: usize> WhereBuilder<HASH_LENGTH> {
     /// Sets the `expression` to be evaluated.
     #[must_use]
-    pub fn evaluate<E: Into<EvaluatesTo<Value>>>(expression: E) -> Self {
+    pub fn evaluate<E: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>>(expression: E) -> Self {
         Self {
             expression: expression.into(),
             values: btree_map::BTreeMap::new(),
@@ -782,7 +837,7 @@ impl WhereBuilder {
 
     /// Binds `expression` result to a `value_name`, by which it will be reachable from the main expression.
     #[must_use]
-    pub fn with_value<E: Into<EvaluatesTo<Value>>>(
+    pub fn with_value<E: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>>(
         mut self,
         value_name: ValueName,
         expression: E,
@@ -794,7 +849,7 @@ impl WhereBuilder {
     /// Returns a [`Where`] expression.
     #[inline]
     #[must_use]
-    pub fn build(self) -> Where {
+    pub fn build(self) -> Where<HASH_LENGTH> {
         Where::new(self.expression, self.values)
     }
 }
@@ -802,14 +857,14 @@ impl WhereBuilder {
 /// Adds a local context of `values` for the `expression`.
 /// It is similar to *Haskell's where syntax* although, evaluated eagerly.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Where {
+pub struct Where<const HASH_LENGTH: usize> {
     /// Expression to be evaluated.
-    pub expression: EvaluatesTo<Value>,
+    pub expression: EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>,
     /// Context values for the context binded to their `String` names.
-    pub values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
+    pub values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
 }
 
-impl Where {
+impl<const HASH_LENGTH: usize> Where<HASH_LENGTH> {
     /// Number of underneath expressions.
     #[must_use]
     #[inline]
@@ -819,9 +874,9 @@ impl Where {
 
     /// Constructs `Or` expression.
     #[must_use]
-    pub fn new<E: Into<EvaluatesTo<Value>>>(
+    pub fn new<E: Into<EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>>(
         expression: E,
-        values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value>>,
+        values: btree_map::BTreeMap<ValueName, EvaluatesTo<Value<HASH_LENGTH>, HASH_LENGTH>>,
     ) -> Self {
         Self {
             expression: expression.into(),
@@ -830,21 +885,21 @@ impl Where {
     }
 }
 
-impl From<Where> for ExpressionBox {
-    fn from(where_expression: Where) -> Self {
+impl<const HASH_LENGTH: usize> From<Where<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(where_expression: Where<HASH_LENGTH>) -> Self {
         Expression::Where(where_expression).into()
     }
 }
 
-impl QueryBox {
+impl<const HASH_LENGTH: usize> QueryBox<HASH_LENGTH> {
     /// Number of underneath expressions.
     pub const fn len(&self) -> usize {
         1
     }
 }
 
-impl From<QueryBox> for ExpressionBox {
-    fn from(query: QueryBox) -> Self {
+impl<const HASH_LENGTH: usize> From<QueryBox<HASH_LENGTH>> for ExpressionBox<HASH_LENGTH> {
+    fn from(query: QueryBox<HASH_LENGTH>) -> Self {
         Expression::Query(query).into()
     }
 }

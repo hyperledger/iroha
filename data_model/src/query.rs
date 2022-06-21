@@ -25,49 +25,49 @@ use crate::{
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
-pub enum QueryBox {
+pub enum QueryBox<const HASH_LENGTH: usize> {
     /// [`FindAllAccounts`] variant.
     FindAllAccounts(FindAllAccounts),
     /// [`FindAccountById`] variant.
-    FindAccountById(FindAccountById),
+    FindAccountById(FindAccountById<{ HASH_LENGTH }>),
     /// [`FindAccountKeyValueByIdAndKey`] variant.
-    FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey),
+    FindAccountKeyValueByIdAndKey(FindAccountKeyValueByIdAndKey<{ HASH_LENGTH }>),
     /// [`FindAccountsByName`] variant.
-    FindAccountsByName(FindAccountsByName),
+    FindAccountsByName(FindAccountsByName<{ HASH_LENGTH }>),
     /// [`FindAccountsByDomainId`] variant.
-    FindAccountsByDomainId(FindAccountsByDomainId),
+    FindAccountsByDomainId(FindAccountsByDomainId<{ HASH_LENGTH }>),
     /// [`FindAccountsWithAsset`] variant.
-    FindAccountsWithAsset(FindAccountsWithAsset),
+    FindAccountsWithAsset(FindAccountsWithAsset<{ HASH_LENGTH }>),
     /// [`FindAllAssets`] variant.
     FindAllAssets(FindAllAssets),
     /// [`FindAllAssetsDefinitions`] variant.
     FindAllAssetsDefinitions(FindAllAssetsDefinitions),
     /// [`FindAssetById`] variant.
-    FindAssetById(FindAssetById),
+    FindAssetById(FindAssetById<{ HASH_LENGTH }>),
     /// [`FindAssetDefinitionById`] variant.
-    FindAssetDefinitionById(FindAssetDefinitionById),
+    FindAssetDefinitionById(FindAssetDefinitionById<{ HASH_LENGTH }>),
     /// [`FindAssetsByName`] variant.
-    FindAssetsByName(FindAssetsByName),
+    FindAssetsByName(FindAssetsByName<{ HASH_LENGTH }>),
     /// [`FindAssetsByAccountId`] variant.
-    FindAssetsByAccountId(FindAssetsByAccountId),
+    FindAssetsByAccountId(FindAssetsByAccountId<{ HASH_LENGTH }>),
     /// [`FindAssetsByAssetDefinitionId`] variant.
-    FindAssetsByAssetDefinitionId(FindAssetsByAssetDefinitionId),
+    FindAssetsByAssetDefinitionId(FindAssetsByAssetDefinitionId<{ HASH_LENGTH }>),
     /// [`FindAssetsByDomainId`] variant.
-    FindAssetsByDomainId(FindAssetsByDomainId),
+    FindAssetsByDomainId(FindAssetsByDomainId<{ HASH_LENGTH }>),
     /// [`FindAssetsByDomainIdAndAssetDefinitionId`] variant.
-    FindAssetsByDomainIdAndAssetDefinitionId(FindAssetsByDomainIdAndAssetDefinitionId),
+    FindAssetsByDomainIdAndAssetDefinitionId(FindAssetsByDomainIdAndAssetDefinitionId<{ HASH_LENGTH }>),
     /// [`FindAssetQuantityById`] variant.
-    FindAssetQuantityById(FindAssetQuantityById),
+    FindAssetQuantityById(FindAssetQuantityById<{ HASH_LENGTH }>),
     /// [`FindAssetKeyValueByIdAndKey`] variant.
-    FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey),
+    FindAssetKeyValueByIdAndKey(FindAssetKeyValueByIdAndKey<{ HASH_LENGTH }>),
     /// [`FindAssetKeyValueByIdAndKey`] variant.
-    FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey),
+    FindAssetDefinitionKeyValueByIdAndKey(FindAssetDefinitionKeyValueByIdAndKey<{ HASH_LENGTH }>),
     /// [`FindAllDomains`] variant.
     FindAllDomains(FindAllDomains),
     /// [`FindDomainById`] variant.
-    FindDomainById(FindDomainById),
+    FindDomainById(FindDomainById<{ HASH_LENGTH }>),
     /// [`FindDomainKeyValueByIdAndKey`] variant.
-    FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey),
+    FindDomainKeyValueByIdAndKey(FindDomainKeyValueByIdAndKey<{ HASH_LENGTH }>),
     /// [`FindAllPeers`] variant.
     FindAllPeers(FindAllPeers),
     /// [`FindAllBlocks`] variant.
@@ -75,57 +75,57 @@ pub enum QueryBox {
     /// [`FindAllTransactions`] variant.
     FindAllTransactions(FindAllTransactions),
     /// [`FindTransactionsByAccountId`] variant.
-    FindTransactionsByAccountId(FindTransactionsByAccountId),
+    FindTransactionsByAccountId(FindTransactionsByAccountId<{ HASH_LENGTH }>),
     /// [`FindTransactionByHash`] variant.
-    FindTransactionByHash(FindTransactionByHash),
+    FindTransactionByHash(FindTransactionByHash<{ HASH_LENGTH }>),
     /// [`FindPermissionTokensByAccountId`] variant.
-    FindPermissionTokensByAccountId(FindPermissionTokensByAccountId),
+    FindPermissionTokensByAccountId(FindPermissionTokensByAccountId<{ HASH_LENGTH }>),
     /// [`FindAllActiveTriggerIds`] variant.
     FindAllActiveTriggerIds(FindAllActiveTriggerIds),
     /// [`FindTriggerById`] variant.
-    FindTriggerById(FindTriggerById),
+    FindTriggerById(FindTriggerById<{ HASH_LENGTH }>),
     /// [`FindTriggerKeyValueByIdAndKey`] variant.
-    FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey),
+    FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey<{ HASH_LENGTH }>),
     /// [`FindTriggersByDomainId`] variant.
-    FindTriggersByDomainId(FindTriggersByDomainId),
+    FindTriggersByDomainId(FindTriggersByDomainId<{ HASH_LENGTH }>),
     /// [`FindAllRoles`] variant.
     FindAllRoles(FindAllRoles),
     /// [`FindAllRoleIds`] variant.
     FindAllRoleIds(FindAllRoleIds),
     /// [`FindRoleByRoleId`] variant.
-    FindRoleByRoleId(FindRoleByRoleId),
+    FindRoleByRoleId(FindRoleByRoleId<{ HASH_LENGTH }>),
     /// [`FindRolesByAccountId`] variant.
-    FindRolesByAccountId(FindRolesByAccountId),
+    FindRolesByAccountId(FindRolesByAccountId<{ HASH_LENGTH }>),
 }
 
 /// Trait for typesafe query output
-pub trait Query {
+pub trait Query<const HASH_LENGTH: usize> {
     /// Output type of query
-    type Output: Into<Value> + TryFrom<Value>;
+    type Output: Into<Value<HASH_LENGTH>> + TryFrom<Value<HASH_LENGTH>>;
 }
 
-impl Query for QueryBox {
-    type Output = Value;
+impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for QueryBox<HASH_LENGTH> {
+    type Output = Value<HASH_LENGTH>;
 }
 
 /// Payload of a query.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct Payload {
+pub struct Payload<const HASH_LENGTH: usize> {
     /// Timestamp of the query creation.
     #[codec(compact)]
     pub timestamp_ms: u128,
     /// Query definition.
-    pub query: QueryBox,
+    pub query: QueryBox<HASH_LENGTH>,
     /// Account id of the user who will sign this query.
-    pub account_id: <Account as Identifiable>::Id,
+    pub account_id: <Account<HASH_LENGTH> as Identifiable>::Id,
     /// The filter applied to the result on the server-side.
     pub filter: PredicateBox,
 }
 
-impl Payload {
+impl<const HASH_LENGTH: usize> Payload<HASH_LENGTH> {
     /// Hash of this payload.
     #[cfg(feature = "std")]
-    pub fn hash(&self) -> iroha_crypto::HashOf<Self> {
+    pub fn hash(&self) -> iroha_crypto::HashOf<Self, HASH_LENGTH> {
         iroha_crypto::HashOf::new(self)
     }
 }
@@ -133,9 +133,9 @@ impl Payload {
 /// I/O ready structure to send queries.
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize)]
 #[cfg(feature = "warp")]
-pub struct QueryRequest {
+pub struct QueryRequest<const HASH_LENGTH: usize> {
     /// Payload
-    pub payload: Payload,
+    pub payload: Payload<HASH_LENGTH>,
 }
 
 #[cfg(feature = "warp")]
@@ -144,11 +144,11 @@ declare_versioned_with_scale!(VersionedSignedQueryRequest 1..2, Debug, Clone, ir
 /// I/O ready structure to send queries.
 #[version_with_scale(n = 1, versioned = "VersionedSignedQueryRequest")]
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct SignedQueryRequest {
+pub struct SignedQueryRequest<const HASH_LENGTH: usize> {
     /// Payload
-    pub payload: Payload,
+    pub payload: Payload<HASH_LENGTH>,
     /// Signature of the client who sends this query.
-    pub signature: SignatureOf<Payload>,
+    pub signature: SignatureOf<Payload<HASH_LENGTH>, HASH_LENGTH>,
 }
 
 declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
@@ -156,16 +156,16 @@ declare_versioned_with_scale!(VersionedQueryResult 1..2, Debug, Clone, iroha_mac
 /// Sized container for all possible Query results.
 #[version_with_scale(n = 1, versioned = "VersionedQueryResult")]
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct QueryResult(pub Value);
+pub struct QueryResult<const HASH_LENGTH: usize>(pub Value<HASH_LENGTH>);
 
 declare_versioned_with_scale!(VersionedPaginatedQueryResult 1..2, Debug, Clone, iroha_macro::FromVariant, IntoSchema);
 
 /// Paginated Query Result
 #[version_with_scale(n = 1, versioned = "VersionedPaginatedQueryResult")]
 #[derive(Debug, Clone, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-pub struct PaginatedQueryResult {
+pub struct PaginatedQueryResult<const HASH_LENGTH: usize> {
     /// The result of the query execution.
-    pub result: QueryResult,
+    pub result: QueryResult<HASH_LENGTH>,
     /// The filter that was applied to the Query result. Returned as a sanity check, but also to ease debugging on the front-end.
     pub filter: PredicateBox,
     /// pagination
@@ -175,11 +175,11 @@ pub struct PaginatedQueryResult {
 }
 
 #[cfg(all(feature = "std", feature = "warp"))]
-impl QueryRequest {
+impl<const HASH_LENGTH: usize> QueryRequest<HASH_LENGTH> {
     /// Constructs a new request with the `query`.
     pub fn new(
-        query: QueryBox,
-        account_id: <Account as Identifiable>::Id,
+        query: QueryBox<HASH_LENGTH>,
+        account_id: <Account<HASH_LENGTH> as Identifiable>::Id,
         filter: PredicateBox,
     ) -> Self {
         let timestamp_ms = crate::current_time().as_millis();
@@ -199,8 +199,8 @@ impl QueryRequest {
     /// Fails if signature creation fails.
     pub fn sign(
         self,
-        key_pair: iroha_crypto::KeyPair,
-    ) -> Result<SignedQueryRequest, iroha_crypto::Error> {
+        key_pair: iroha_crypto::KeyPair<HASH_LENGTH>,
+    ) -> Result<SignedQueryRequest<HASH_LENGTH>, iroha_crypto::Error> {
         let signature = SignatureOf::new(key_pair, &self.payload)?;
         Ok(SignedQueryRequest {
             payload: self.payload,
@@ -237,8 +237,8 @@ pub mod role {
     )]
     pub struct FindAllRoles;
 
-    impl Query for FindAllRoles {
-        type Output = Vec<Role>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllRoles {
+        type Output = Vec<Role<HASH_LENGTH>>;
     }
 
     /// `FindAllRoles` Iroha Query will find all `Roles`s presented.
@@ -257,30 +257,30 @@ pub mod role {
     )]
     pub struct FindAllRoleIds;
 
-    impl Query for FindAllRoleIds {
-        type Output = Vec<<Role as Identifiable>::Id>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllRoleIds {
+        type Output = Vec<<Role<HASH_LENGTH> as Identifiable>::Id>;
     }
 
     /// `FindRoleByRoleId` Iroha Query to find the [`Role`] which has the given [`Id`](crate::role::Id)
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindRoleByRoleId {
+    pub struct FindRoleByRoleId<const HASH_LENGTH: usize> {
         /// `Id` of the `Role` to find
-        pub id: EvaluatesTo<<Role as Identifiable>::Id>,
+        pub id: EvaluatesTo<<Role<HASH_LENGTH> as Identifiable>::Id, HASH_LENGTH>,
     }
 
-    impl Query for FindRoleByRoleId {
-        type Output = Role;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindRoleByRoleId<HASH_LENGTH> {
+        type Output = Role<HASH_LENGTH>;
     }
 
     /// `FindRolesByAccountId` Iroha Query will find an [`Role`]s for a specified account.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindRolesByAccountId {
+    pub struct FindRolesByAccountId<const HASH_LENGTH: usize> {
         /// `Id` of an account to find.
-        pub id: EvaluatesTo<<Account as Identifiable>::Id>,
+        pub id: EvaluatesTo<<Account<HASH_LENGTH> as Identifiable>::Id, HASH_LENGTH>,
     }
 
-    impl Query for FindRolesByAccountId {
-        type Output = Vec<<Role as Identifiable>::Id>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindRolesByAccountId<HASH_LENGTH> {
+        type Output = Vec<<Role<HASH_LENGTH> as Identifiable>::Id>;
     }
 
     impl FindAllRoles {
@@ -297,17 +297,21 @@ pub mod role {
         }
     }
 
-    impl FindRoleByRoleId {
+    impl<const HASH_LENGTH: usize> FindRoleByRoleId<HASH_LENGTH> {
         /// Construct [`FindRoleByRoleId`].
-        pub fn new(id: impl Into<EvaluatesTo<<Role as Identifiable>::Id>>) -> Self {
+        pub fn new(
+            id: impl Into<EvaluatesTo<<Role<HASH_LENGTH> as Identifiable>::Id, HASH_LENGTH>>,
+        ) -> Self {
             let id = id.into();
             FindRoleByRoleId { id }
         }
     }
 
-    impl FindRolesByAccountId {
+    impl<const HASH_LENGTH: usize> FindRolesByAccountId<HASH_LENGTH> {
         /// Construct [`FindRolesByAccountId`].
-        pub fn new(account_id: impl Into<EvaluatesTo<<Account as Identifiable>::Id>>) -> Self {
+        pub fn new(
+            account_id: impl Into<EvaluatesTo<<Account<HASH_LENGTH> as Identifiable>::Id, HASH_LENGTH>>,
+        ) -> Self {
             let account_id = account_id.into();
             FindRolesByAccountId { id: account_id }
         }
@@ -333,13 +337,13 @@ pub mod permissions {
 
     /// `FindPermissionTokensByAccountId` Iroha Query will find an `Role`s for a specified account.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindPermissionTokensByAccountId {
+    pub struct FindPermissionTokensByAccountId<const HASH_LENGTH: usize> {
         /// `Id` of an account to find.
-        pub id: EvaluatesTo<AccountId>,
+        pub id: EvaluatesTo<AccountId<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindPermissionTokensByAccountId {
-        type Output = Vec<PermissionToken>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindPermissionTokensByAccountId<HASH_LENGTH> {
+        type Output = Vec<PermissionToken<HASH_LENGTH>>;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this module.
@@ -377,69 +381,69 @@ pub mod account {
     )]
     pub struct FindAllAccounts;
 
-    impl Query for FindAllAccounts {
-        type Output = Vec<Account>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllAccounts {
+        type Output = Vec<Account<HASH_LENGTH>>;
     }
 
     /// `FindAccountById` Iroha Query will find an `Account` by it's identification.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAccountById {
+    pub struct FindAccountById<const HASH_LENGTH: usize> {
         /// `Id` of an account to find.
-        pub id: EvaluatesTo<AccountId>,
+        pub id: EvaluatesTo<AccountId<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindAccountById {
-        type Output = Account;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAccountById<HASH_LENGTH> {
+        type Output = Account<HASH_LENGTH>;
     }
 
     /// `FindAccountById` Iroha Query will find a [`Value`] of the key-value metadata pair
     /// in the specified account.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAccountKeyValueByIdAndKey {
+    pub struct FindAccountKeyValueByIdAndKey<const HASH_LENGTH: usize> {
         /// `Id` of an account to find.
-        pub id: EvaluatesTo<AccountId>,
+        pub id: EvaluatesTo<AccountId<HASH_LENGTH>, HASH_LENGTH>,
         /// Key of the specific key-value in the Account's metadata.
-        pub key: EvaluatesTo<Name>,
+        pub key: EvaluatesTo<Name, HASH_LENGTH>,
     }
 
-    impl Query for FindAccountKeyValueByIdAndKey {
-        type Output = Value;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAccountKeyValueByIdAndKey<HASH_LENGTH> {
+        type Output = Value<HASH_LENGTH>;
     }
 
     /// `FindAccountsByName` Iroha Query will get `Account`s name as input and
     /// find all `Account`s with this name.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAccountsByName {
+    pub struct FindAccountsByName<const HASH_LENGTH: usize> {
         /// `name` of accounts to find.
-        pub name: EvaluatesTo<Name>,
+        pub name: EvaluatesTo<Name, HASH_LENGTH>,
     }
 
-    impl Query for FindAccountsByName {
-        type Output = Vec<Account>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAccountsByName<HASH_LENGTH> {
+        type Output = Vec<Account<HASH_LENGTH>>;
     }
 
     /// `FindAccountsByDomainId` Iroha Query will get `Domain`s id as input and
     /// find all `Account`s under this `Domain`.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAccountsByDomainId {
+    pub struct FindAccountsByDomainId<const HASH_LENGTH: usize> {
         /// `Id` of the domain under which accounts should be found.
-        pub domain_id: EvaluatesTo<DomainId>,
+        pub domain_id: EvaluatesTo<DomainId, HASH_LENGTH>,
     }
 
-    impl Query for FindAccountsByDomainId {
-        type Output = Vec<Account>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAccountsByDomainId<HASH_LENGTH> {
+        type Output = Vec<Account<HASH_LENGTH>>;
     }
 
     /// `FindAccountsWithAsset` Iroha Query will get `AssetDefinition`s id as input and
     /// find all `Account`s storing `Asset` with such definition.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAccountsWithAsset {
+    pub struct FindAccountsWithAsset<const HASH_LENGTH: usize> {
         /// `Id` of the definition of the asset which should be stored in founded accounts.
-        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindAccountsWithAsset {
-        type Output = Vec<Account>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAccountsWithAsset<HASH_LENGTH> {
+        type Output = Vec<Account<HASH_LENGTH>>;
     }
 
     impl FindAllAccounts {
@@ -449,19 +453,19 @@ pub mod account {
         }
     }
 
-    impl FindAccountById {
+    impl<const HASH_LENGTH: usize> FindAccountById<HASH_LENGTH> {
         /// Construct [`FindAccountById`].
-        pub fn new(id: impl Into<EvaluatesTo<AccountId>>) -> Self {
+        pub fn new(id: impl Into<EvaluatesTo<AccountId<HASH_LENGTH>, HASH_LENGTH>>) -> Self {
             let id = id.into();
             FindAccountById { id }
         }
     }
 
-    impl FindAccountKeyValueByIdAndKey {
+    impl<const HASH_LENGTH: usize> FindAccountKeyValueByIdAndKey<HASH_LENGTH> {
         /// Construct [`FindAccountById`].
         pub fn new(
-            id: impl Into<EvaluatesTo<AccountId>>,
-            key: impl Into<EvaluatesTo<Name>>,
+            id: impl Into<EvaluatesTo<AccountId<HASH_LENGTH>, HASH_LENGTH>>,
+            key: impl Into<EvaluatesTo<Name, HASH_LENGTH>>,
         ) -> Self {
             let id = id.into();
             let key = key.into();
@@ -469,25 +473,27 @@ pub mod account {
         }
     }
 
-    impl FindAccountsByName {
+    impl<const HASH_LENGTH: usize> FindAccountsByName<HASH_LENGTH> {
         /// Construct [`FindAccountsByName`].
-        pub fn new(name: impl Into<EvaluatesTo<Name>>) -> Self {
+        pub fn new(name: impl Into<EvaluatesTo<Name, HASH_LENGTH>>) -> Self {
             let name = name.into();
             FindAccountsByName { name }
         }
     }
 
-    impl FindAccountsByDomainId {
+    impl<const HASH_LENGTH: usize> FindAccountsByDomainId<HASH_LENGTH> {
         /// Construct [`FindAccountsByDomainId`].
-        pub fn new(domain_id: impl Into<EvaluatesTo<DomainId>>) -> Self {
+        pub fn new(domain_id: impl Into<EvaluatesTo<DomainId, HASH_LENGTH>>) -> Self {
             let domain_id = domain_id.into();
             FindAccountsByDomainId { domain_id }
         }
     }
 
-    impl FindAccountsWithAsset {
+    impl<const HASH_LENGTH: usize> FindAccountsWithAsset<HASH_LENGTH> {
         /// Construct [`FindAccountsWithAsset`].
-        pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+        pub fn new(
+            asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId<HASH_LENGTH>, HASH_LENGTH>>,
+        ) -> Self {
             let asset_definition_id = asset_definition_id.into();
             FindAccountsWithAsset {
                 asset_definition_id,
@@ -534,8 +540,8 @@ pub mod asset {
     )]
     pub struct FindAllAssets;
 
-    impl Query for FindAllAssets {
-        type Output = Vec<Asset>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllAssets {
+        type Output = Vec<Asset<HASH_LENGTH>>;
     }
 
     /// `FindAllAssetsDefinitions` Iroha Query will find all `AssetDefinition`s presented
@@ -555,133 +561,137 @@ pub mod asset {
     )]
     pub struct FindAllAssetsDefinitions;
 
-    impl Query for FindAllAssetsDefinitions {
-        type Output = Vec<AssetDefinition>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllAssetsDefinitions {
+        type Output = Vec<AssetDefinition<HASH_LENGTH>>;
     }
 
     /// `FindAssetById` Iroha Query will find an `Asset` by it's identification in Iroha `Peer`.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAssetById {
+    pub struct FindAssetById<const HASH_LENGTH: usize> {
         /// `Id` of an `Asset` to find.
-        pub id: EvaluatesTo<AssetId>,
+        pub id: EvaluatesTo<AssetId<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindAssetById {
-        type Output = Asset;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAssetById<HASH_LENGTH> {
+        type Output = Asset<HASH_LENGTH>;
     }
 
     /// `FindAssetDefinitionById` Iroha Query will find an `AssetDefinition` by it's identification in Iroha `Peer`.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAssetDefinitionById {
+    pub struct FindAssetDefinitionById<const HASH_LENGTH: usize> {
         /// `Id` of an `AssetDefinition` to find.
-        pub id: EvaluatesTo<AssetDefinitionId>,
+        pub id: EvaluatesTo<AssetDefinitionId<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindAssetDefinitionById {
-        type Output = AssetDefinition;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAssetDefinitionById<HASH_LENGTH> {
+        type Output = AssetDefinition<HASH_LENGTH>;
     }
 
     /// `FindAssetsByName` Iroha Query will get `Asset`s name as input and
     /// find all `Asset`s with it in Iroha `Peer`.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAssetsByName {
+    pub struct FindAssetsByName<const HASH_LENGTH: usize> {
         /// `Name` of `Asset`s to find.
-        pub name: EvaluatesTo<Name>,
+        pub name: EvaluatesTo<Name, HASH_LENGTH>,
     }
 
-    impl Query for FindAssetsByName {
-        type Output = Vec<Asset>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAssetsByName<HASH_LENGTH> {
+        type Output = Vec<Asset<HASH_LENGTH>>;
     }
 
     /// `FindAssetsByAccountId` Iroha Query will get `AccountId` as input and find all `Asset`s
     /// owned by the `Account` in Iroha Peer.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAssetsByAccountId {
+    pub struct FindAssetsByAccountId<const HASH_LENGTH: usize> {
         /// `AccountId` under which assets should be found.
-        pub account_id: EvaluatesTo<AccountId>,
+        pub account_id: EvaluatesTo<AccountId<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindAssetsByAccountId {
-        type Output = Vec<Asset>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAssetsByAccountId<HASH_LENGTH> {
+        type Output = Vec<Asset<HASH_LENGTH>>;
     }
 
     /// `FindAssetsByAssetDefinitionId` Iroha Query will get `AssetDefinitionId` as input and
     /// find all `Asset`s with this `AssetDefinition` in Iroha Peer.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAssetsByAssetDefinitionId {
+    pub struct FindAssetsByAssetDefinitionId<const HASH_LENGTH: usize> {
         /// `AssetDefinitionId` with type of `Asset`s should be found.
-        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindAssetsByAssetDefinitionId {
-        type Output = Vec<Asset>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAssetsByAssetDefinitionId<HASH_LENGTH> {
+        type Output = Vec<Asset<HASH_LENGTH>>;
     }
 
     /// `FindAssetsByDomainId` Iroha Query will get `Domain`s id as input and
     /// find all `Asset`s under this `Domain` in Iroha `Peer`.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAssetsByDomainId {
+    pub struct FindAssetsByDomainId<const HASH_LENGTH: usize> {
         /// `Id` of the domain under which assets should be found.
-        pub domain_id: EvaluatesTo<DomainId>,
+        pub domain_id: EvaluatesTo<DomainId, HASH_LENGTH>,
     }
 
-    impl Query for FindAssetsByDomainId {
-        type Output = Vec<Asset>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAssetsByDomainId<HASH_LENGTH> {
+        type Output = Vec<Asset<HASH_LENGTH>>;
     }
 
     /// `FindAssetsByDomainIdAndAssetDefinitionId` Iroha Query will get `Domain`'s id and
     /// `AssetDefinitionId` as inputs and find all `Asset`s under the `Domain`
     /// with this `AssetDefinition` in Iroha `Peer`.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAssetsByDomainIdAndAssetDefinitionId {
+    pub struct FindAssetsByDomainIdAndAssetDefinitionId<const HASH_LENGTH: usize> {
         /// `Id` of the domain under which assets should be found.
-        pub domain_id: EvaluatesTo<DomainId>,
+        pub domain_id: EvaluatesTo<DomainId, HASH_LENGTH>,
         /// `AssetDefinitionId` assets of which type should be found.
-        pub asset_definition_id: EvaluatesTo<AssetDefinitionId>,
+        pub asset_definition_id: EvaluatesTo<AssetDefinitionId<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindAssetsByDomainIdAndAssetDefinitionId {
-        type Output = Vec<Asset>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH>
+        for FindAssetsByDomainIdAndAssetDefinitionId<HASH_LENGTH>
+    {
+        type Output = Vec<Asset<HASH_LENGTH>>;
     }
 
     /// `FindAssetQuantityById` Iroha Query will get `AssetId` as input and find `Asset::quantity`
     /// parameter's value if `Asset` is presented in Iroha Peer.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAssetQuantityById {
+    pub struct FindAssetQuantityById<const HASH_LENGTH: usize> {
         /// `Id` of an `Asset` to find quantity of.
-        pub id: EvaluatesTo<AssetId>,
+        pub id: EvaluatesTo<AssetId<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindAssetQuantityById {
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAssetQuantityById<HASH_LENGTH> {
         type Output = u32;
     }
 
-    /// `FindAssetKeyValueByIdAndKey` Iroha Query will get `AssetId` and key as input and find [`Value`]
-    /// of the key-value pair stored in this asset.
+    /// `FindAssetKeyValueByIdAndKey` Iroha Query will get `AssetId` and key as input and find
+    /// [`Value`] of the key-value pair stored in this asset.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAssetKeyValueByIdAndKey {
+    pub struct FindAssetKeyValueByIdAndKey<const HASH_LENGTH: usize> {
         /// `Id` of an `Asset` acting as `Store`.
-        pub id: EvaluatesTo<AssetId>,
+        pub id: EvaluatesTo<AssetId<HASH_LENGTH>, HASH_LENGTH>,
         /// The key of the key-value pair stored in the asset.
-        pub key: EvaluatesTo<Name>,
+        pub key: EvaluatesTo<Name, HASH_LENGTH>,
     }
 
-    impl Query for FindAssetKeyValueByIdAndKey {
-        type Output = Value;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAssetKeyValueByIdAndKey<HASH_LENGTH> {
+        type Output = Value<HASH_LENGTH>;
     }
 
-    /// `FindAssetDefinitionKeyValueByIdAndKey` Iroha Query will get `AssetDefinitionId` and key as input and find [`Value`]
-    /// of the key-value pair stored in this asset definition.
+    /// `FindAssetDefinitionKeyValueByIdAndKey` Iroha Query will get `AssetDefinitionId` and key as
+    /// input and find [`Value`] of the key-value pair stored in this asset definition.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindAssetDefinitionKeyValueByIdAndKey {
+    pub struct FindAssetDefinitionKeyValueByIdAndKey<const HASH_LENGTH: usize> {
         /// `Id` of an `Asset` acting as `Store`.
-        pub id: EvaluatesTo<AssetDefinitionId>,
+        pub id: EvaluatesTo<AssetDefinitionId<HASH_LENGTH>, HASH_LENGTH>,
         /// The key of the key-value pair stored in the asset.
-        pub key: EvaluatesTo<Name>,
+        pub key: EvaluatesTo<Name, HASH_LENGTH>,
     }
 
-    impl Query for FindAssetDefinitionKeyValueByIdAndKey {
-        type Output = Value;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH>
+        for FindAssetDefinitionKeyValueByIdAndKey<HASH_LENGTH>
+    {
+        type Output = Value<HASH_LENGTH>;
     }
 
     impl FindAllAssets {
@@ -698,41 +708,47 @@ pub mod asset {
         }
     }
 
-    impl FindAssetById {
+    impl<const HASH_LENGTH: usize> FindAssetById<HASH_LENGTH> {
         /// Construct [`FindAssetById`].
-        pub fn new(id: impl Into<EvaluatesTo<AssetId>>) -> Self {
+        pub fn new(id: impl Into<EvaluatesTo<AssetId<HASH_LENGTH>, HASH_LENGTH>>) -> Self {
             let id = id.into();
             Self { id }
         }
     }
 
-    impl FindAssetDefinitionById {
+    impl<const HASH_LENGTH: usize> FindAssetDefinitionById<HASH_LENGTH> {
         /// Construct [`FindAssetDefinitionById`].
-        pub fn new(id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+        pub fn new(
+            id: impl Into<EvaluatesTo<AssetDefinitionId<HASH_LENGTH>, HASH_LENGTH>>,
+        ) -> Self {
             let id = id.into();
             Self { id }
         }
     }
 
-    impl FindAssetsByName {
+    impl<const HASH_LENGTH: usize> FindAssetsByName<HASH_LENGTH> {
         /// Construct [`FindAssetsByName`].
-        pub fn new(name: impl Into<EvaluatesTo<Name>>) -> Self {
+        pub fn new(name: impl Into<EvaluatesTo<Name, HASH_LENGTH>>) -> Self {
             let name = name.into();
             Self { name }
         }
     }
 
-    impl FindAssetsByAccountId {
+    impl<const HASH_LENGTH: usize> FindAssetsByAccountId<HASH_LENGTH> {
         /// Construct [`FindAssetsByAccountId`].
-        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
+        pub fn new(
+            account_id: impl Into<EvaluatesTo<AccountId<HASH_LENGTH>, HASH_LENGTH>>,
+        ) -> Self {
             let account_id = account_id.into();
             FindAssetsByAccountId { account_id }
         }
     }
 
-    impl FindAssetsByAssetDefinitionId {
+    impl<const HASH_LENGTH: usize> FindAssetsByAssetDefinitionId<HASH_LENGTH> {
         /// Construct [`FindAssetsByAssetDefinitionId`].
-        pub fn new(asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>) -> Self {
+        pub fn new(
+            asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId<HASH_LENGTH>, HASH_LENGTH>>,
+        ) -> Self {
             let asset_definition_id = asset_definition_id.into();
             FindAssetsByAssetDefinitionId {
                 asset_definition_id,
@@ -740,19 +756,19 @@ pub mod asset {
         }
     }
 
-    impl FindAssetsByDomainId {
+    impl<const HASH_LENGTH: usize> FindAssetsByDomainId<HASH_LENGTH> {
         /// Construct [`FindAssetsByDomainId`].
-        pub fn new(domain_id: impl Into<EvaluatesTo<DomainId>>) -> Self {
+        pub fn new(domain_id: impl Into<EvaluatesTo<DomainId, HASH_LENGTH>>) -> Self {
             let domain_id = domain_id.into();
             Self { domain_id }
         }
     }
 
-    impl FindAssetsByDomainIdAndAssetDefinitionId {
+    impl<const HASH_LENGTH: usize> FindAssetsByDomainIdAndAssetDefinitionId<HASH_LENGTH> {
         /// Construct [`FindAssetsByDomainIdAndAssetDefinitionId`].
         pub fn new(
-            domain_id: impl Into<EvaluatesTo<DomainId>>,
-            asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId>>,
+            domain_id: impl Into<EvaluatesTo<DomainId, HASH_LENGTH>>,
+            asset_definition_id: impl Into<EvaluatesTo<AssetDefinitionId<HASH_LENGTH>, HASH_LENGTH>>,
         ) -> Self {
             let domain_id = domain_id.into();
             let asset_definition_id = asset_definition_id.into();
@@ -763,17 +779,20 @@ pub mod asset {
         }
     }
 
-    impl FindAssetQuantityById {
+    impl<const HASH_LENGTH: usize> FindAssetQuantityById<HASH_LENGTH> {
         /// Construct [`FindAssetQuantityById`].
-        pub fn new(id: impl Into<EvaluatesTo<AssetId>>) -> Self {
+        pub fn new(id: impl Into<EvaluatesTo<AssetId<HASH_LENGTH>, HASH_LENGTH>>) -> Self {
             let id = id.into();
             FindAssetQuantityById { id }
         }
     }
 
-    impl FindAssetKeyValueByIdAndKey {
+    impl<const HASH_LENGTH: usize> FindAssetKeyValueByIdAndKey<HASH_LENGTH> {
         /// Construct [`FindAssetKeyValueByIdAndKey`].
-        pub fn new(id: impl Into<EvaluatesTo<AssetId>>, key: impl Into<EvaluatesTo<Name>>) -> Self {
+        pub fn new(
+            id: impl Into<EvaluatesTo<AssetId<HASH_LENGTH>, HASH_LENGTH>>,
+            key: impl Into<EvaluatesTo<Name, HASH_LENGTH>>,
+        ) -> Self {
             let id = id.into();
             let key = key.into();
             Self { id, key }
@@ -821,19 +840,19 @@ pub mod domain {
     )]
     pub struct FindAllDomains;
 
-    impl Query for FindAllDomains {
-        type Output = Vec<Domain>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllDomains {
+        type Output = Vec<Domain<HASH_LENGTH>>;
     }
 
     /// `FindDomainById` Iroha Query will find a `Domain` by it's identification in Iroha `Peer`.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindDomainById {
+    pub struct FindDomainById<const HASH_LENGTH: usize> {
         /// `Id` of the domain to find.
-        pub id: EvaluatesTo<DomainId>,
+        pub id: EvaluatesTo<DomainId, HASH_LENGTH>,
     }
 
-    impl Query for FindDomainById {
-        type Output = Domain;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindDomainById<HASH_LENGTH> {
+        type Output = Domain<HASH_LENGTH>;
     }
 
     impl FindAllDomains {
@@ -843,9 +862,9 @@ pub mod domain {
         }
     }
 
-    impl FindDomainById {
+    impl<const HASH_LENGTH: usize> FindDomainById<HASH_LENGTH> {
         /// Construct [`FindDomainById`].
-        pub fn new(id: impl Into<EvaluatesTo<DomainId>>) -> Self {
+        pub fn new(id: impl Into<EvaluatesTo<DomainId, HASH_LENGTH>>) -> Self {
             let id = id.into();
             FindDomainById { id }
         }
@@ -854,18 +873,18 @@ pub mod domain {
     /// `FindDomainKeyValueByIdAndKey` Iroha Query will find a [`Value`] of the key-value metadata pair
     /// in the specified domain.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindDomainKeyValueByIdAndKey {
+    pub struct FindDomainKeyValueByIdAndKey<const HASH_LENGTH: usize> {
         /// `Id` of an domain to find.
-        pub id: EvaluatesTo<DomainId>,
+        pub id: EvaluatesTo<DomainId, HASH_LENGTH>,
         /// Key of the specific key-value in the domain's metadata.
-        pub key: EvaluatesTo<Name>,
+        pub key: EvaluatesTo<Name, HASH_LENGTH>,
     }
 
-    impl FindDomainKeyValueByIdAndKey {
+    impl<const HASH_LENGTH: usize> FindDomainKeyValueByIdAndKey<HASH_LENGTH> {
         /// Construct [`FindDomainKeyValueByIdAndKey`].
         pub fn new(
-            id: impl Into<EvaluatesTo<DomainId>>,
-            key: impl Into<EvaluatesTo<Name>>,
+            id: impl Into<EvaluatesTo<DomainId, HASH_LENGTH>>,
+            key: impl Into<EvaluatesTo<Name, HASH_LENGTH>>,
         ) -> Self {
             let id = id.into();
             let key = key.into();
@@ -873,8 +892,8 @@ pub mod domain {
         }
     }
 
-    impl Query for FindDomainKeyValueByIdAndKey {
-        type Output = Value;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindDomainKeyValueByIdAndKey<HASH_LENGTH> {
+        type Output = Value<HASH_LENGTH>;
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
@@ -912,7 +931,7 @@ pub mod peer {
     )]
     pub struct FindAllPeers;
 
-    impl Query for FindAllPeers {
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllPeers {
         type Output = Vec<Peer>;
     }
 
@@ -932,7 +951,7 @@ pub mod peer {
     )]
     pub struct FindAllParameters;
 
-    impl Query for FindAllParameters {
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllParameters {
         type Output = Vec<Parameter>;
     }
 
@@ -987,52 +1006,52 @@ pub mod trigger {
     )]
     pub struct FindAllActiveTriggerIds;
 
-    impl Query for FindAllActiveTriggerIds {
-        type Output = Vec<<Trigger<FilterBox> as Identifiable>::Id>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllActiveTriggerIds {
+        type Output = Vec<<Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH> as Identifiable>::Id>;
     }
 
     /// Find Trigger given its ID.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindTriggerById {
+    pub struct FindTriggerById<const HASH_LENGTH: usize> {
         /// The Identification of the trigger to be found.
-        pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
+        pub id: EvaluatesTo<<Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH> as Identifiable>::Id, HASH_LENGTH>,
     }
 
-    impl Query for FindTriggerById {
-        type Output = Trigger<FilterBox>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindTriggerById<HASH_LENGTH> {
+        type Output = Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>;
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     /// Find Trigger's metadata key-value pairs.
-    pub struct FindTriggerKeyValueByIdAndKey {
+    pub struct FindTriggerKeyValueByIdAndKey<const HASH_LENGTH: usize> {
         /// The Identification of the trigger to be found.
-        pub id: EvaluatesTo<<Trigger<FilterBox> as Identifiable>::Id>,
+        pub id: EvaluatesTo<<Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH> as Identifiable>::Id, HASH_LENGTH>,
         /// The key inside the metadata dictionary to be returned.
-        pub key: EvaluatesTo<Name>,
+        pub key: EvaluatesTo<Name, HASH_LENGTH>,
     }
 
-    impl Query for FindTriggerKeyValueByIdAndKey {
-        type Output = Value;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindTriggerKeyValueByIdAndKey<HASH_LENGTH> {
+        type Output = Value<HASH_LENGTH>;
     }
 
     /// Find Triggers given domain ID.
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindTriggersByDomainId {
+    pub struct FindTriggersByDomainId<const HASH_LENGTH: usize> {
         /// `DomainId` under which triggers should be found.
-        pub domain_id: EvaluatesTo<DomainId>,
+        pub domain_id: EvaluatesTo<DomainId, HASH_LENGTH>,
     }
 
-    impl FindTriggersByDomainId {
+    impl<const HASH_LENGTH: usize> FindTriggersByDomainId<HASH_LENGTH> {
         /// Construct [`FindTriggersByDomainId`].
-        pub fn new(domain_id: impl Into<EvaluatesTo<DomainId>>) -> Self {
+        pub fn new(domain_id: impl Into<EvaluatesTo<DomainId, HASH_LENGTH>>) -> Self {
             Self {
                 domain_id: domain_id.into(),
             }
         }
     }
 
-    impl Query for FindTriggersByDomainId {
-        type Output = Vec<Trigger<FilterBox>>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindTriggersByDomainId<HASH_LENGTH> {
+        type Output = Vec<Trigger<FilterBox<HASH_LENGTH>, HASH_LENGTH>>;
     }
 
     pub mod prelude {
@@ -1078,7 +1097,7 @@ pub mod transaction {
     /// `FindAllTransactions` Iroha Query will list all transactions included in blockchain
     pub struct FindAllTransactions;
 
-    impl Query for FindAllTransactions {
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllTransactions {
         type Output = Vec<TransactionValue>;
     }
 
@@ -1092,18 +1111,18 @@ pub mod transaction {
     /// `FindTransactionsByAccountId` Iroha Query will find all transaction included in blockchain
     /// for the account
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindTransactionsByAccountId {
+    pub struct FindTransactionsByAccountId<const HASH_LENGTH: usize> {
         /// Signer's `AccountId` under which transactions should be found.
-        pub account_id: EvaluatesTo<AccountId>,
+        pub account_id: EvaluatesTo<AccountId<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindTransactionsByAccountId {
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindTransactionsByAccountId<HASH_LENGTH> {
         type Output = Vec<TransactionValue>;
     }
 
-    impl FindTransactionsByAccountId {
+    impl<const HASH_LENGTH: usize> FindTransactionsByAccountId<HASH_LENGTH> {
         ///Construct [`FindTransactionsByAccountId`].
-        pub fn new(account_id: impl Into<EvaluatesTo<AccountId>>) -> Self {
+        pub fn new(account_id: impl Into<EvaluatesTo<AccountId<HASH_LENGTH>, HASH_LENGTH>>) -> Self {
             let account_id = account_id.into();
             FindTransactionsByAccountId { account_id }
         }
@@ -1112,18 +1131,18 @@ pub mod transaction {
     /// `FindTransactionByHash` Iroha Query will find a transaction (if any)
     /// with corresponding hash value
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
-    pub struct FindTransactionByHash {
+    pub struct FindTransactionByHash<const HASH_LENGTH: usize> {
         /// Transaction hash.
-        pub hash: EvaluatesTo<Hash>,
+        pub hash: EvaluatesTo<Hash<HASH_LENGTH>, HASH_LENGTH>,
     }
 
-    impl Query for FindTransactionByHash {
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindTransactionByHash<HASH_LENGTH> {
         type Output = TransactionValue;
     }
 
-    impl FindTransactionByHash {
+    impl<const HASH_LENGTH: usize> FindTransactionByHash<HASH_LENGTH> {
         ///Construct [`FindTransactionByHash`].
-        pub fn new(hash: impl Into<EvaluatesTo<Hash>>) -> Self {
+        pub fn new(hash: impl Into<EvaluatesTo<Hash<HASH_LENGTH>, HASH_LENGTH>>) -> Self {
             let hash = hash.into();
             FindTransactionByHash { hash }
         }
@@ -1166,8 +1185,8 @@ pub mod block {
     /// `FindAllBlocks` Iroha Query will list all blocks
     pub struct FindAllBlocks;
 
-    impl Query for FindAllBlocks {
-        type Output = Vec<BlockValue>;
+    impl<const HASH_LENGTH: usize> Query<HASH_LENGTH> for FindAllBlocks {
+        type Output = Vec<BlockValue<HASH_LENGTH>>;
     }
 
     impl FindAllBlocks {

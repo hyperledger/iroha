@@ -38,15 +38,15 @@ pub struct RepeatsOverflowError;
 /// Specialized structure that maps event filters to Triggers.
 /// TODO: trigger strong-typing
 #[derive(Debug, Default)]
-pub struct Set {
+pub struct Set<const HASH_LENGTH: usize> {
     /// Triggers using [`DataEventFilter`]
-    data_triggers: DashMap<Id, Action<DataEventFilter>>,
+    data_triggers: DashMap<Id, Action<DataEventFilter, HASH_LENGTH>>,
     /// Triggers using [`PipelineEventFilter`]
-    pipeline_triggers: DashMap<Id, Action<PipelineEventFilter>>,
+    pipeline_triggers: DashMap<Id, Action<PipelineEventFilter<HASH_LENGTH>, HASH_LENGTH>>,
     /// Triggers using [`TimeEventFilter`]
-    time_triggers: DashMap<Id, Action<TimeEventFilter>>,
+    time_triggers: DashMap<Id, Action<TimeEventFilter, HASH_LENGTH>>,
     /// Triggers using [`ExecuteTriggerEventFilter`]
-    by_call_triggers: DashMap<Id, Action<ExecuteTriggerEventFilter>>,
+    by_call_triggers: DashMap<Id, Action<ExecuteTriggerEventFilter, HASH_LENGTH>>,
     /// Trigger ids with type of events they process
     ids: DashMap<Id, EventType>,
     /// List of actions that should be triggered by events provided by `handle_*` methods.
@@ -55,7 +55,7 @@ pub struct Set {
     matched_ids: RwLock<Vec<(EventType, Id)>>,
 }
 
-impl Clone for Set {
+impl<const HASH_LENGTH: usize> Clone for Set<HASH_LENGTH> {
     fn clone(&self) -> Self {
         Self {
             data_triggers: self.data_triggers.clone(),
@@ -68,32 +68,38 @@ impl Clone for Set {
     }
 }
 
-impl Set {
+impl<const HASH_LENGTH: usize> Set<HASH_LENGTH> {
     /// Add trigger with [`DataEventFilter`]
     ///
     /// Returns `false` if trigger with such id already exists
-    pub fn add_data_trigger(&self, trigger: Trigger<DataEventFilter>) -> bool {
+    pub fn add_data_trigger(&self, trigger: Trigger<DataEventFilter, HASH_LENGTH>) -> bool {
         self.add_to(trigger, EventType::Data, &self.data_triggers)
     }
 
     /// Add trigger with [`PipelineEventFilter`]
     ///
     /// Returns `false` if trigger with such id already exists
-    pub fn add_pipeline_trigger(&self, trigger: Trigger<PipelineEventFilter>) -> bool {
+    pub fn add_pipeline_trigger(
+        &self,
+        trigger: Trigger<PipelineEventFilter<HASH_LENGTH>, HASH_LENGTH>,
+    ) -> bool {
         self.add_to(trigger, EventType::Pipeline, &self.pipeline_triggers)
     }
 
     /// Add trigger with [`TimeEventFilter`]
     ///
     /// Returns `false` if trigger with such id already exists
-    pub fn add_time_trigger(&self, trigger: Trigger<TimeEventFilter>) -> bool {
+    pub fn add_time_trigger(&self, trigger: Trigger<TimeEventFilter, HASH_LENGTH>) -> bool {
         self.add_to(trigger, EventType::Time, &self.time_triggers)
     }
 
     /// Add trigger with [`ExecuteTriggerEventFilter`]
     ///
     /// Returns `false` if trigger with such id already exists
-    pub fn add_by_call_trigger(&self, trigger: Trigger<ExecuteTriggerEventFilter>) -> bool {
+    pub fn add_by_call_trigger(
+        &self,
+        trigger: Trigger<ExecuteTriggerEventFilter, HASH_LENGTH>,
+    ) -> bool {
         self.add_to(trigger, EventType::ExecuteTrigger, &self.by_call_triggers)
     }
 
@@ -102,9 +108,9 @@ impl Set {
     /// Returns `false` if trigger with such id already exists
     fn add_to<F: Filter>(
         &self,
-        trigger: Trigger<F>,
+        trigger: Trigger<F, HASH_LENGTH>,
         event_type: EventType,
-        map: &DashMap<Id, Action<F>>,
+        map: &DashMap<Id, Action<F, HASH_LENGTH>>,
     ) -> bool {
         if self.contains(&trigger.id) {
             return false;
@@ -125,7 +131,7 @@ impl Set {
     /// Returns [`None`] if [`Set`] doesn't contain the trigger with the given `id`.
     pub fn inspect<F, R>(&self, id: &Id, f: F) -> Option<R>
     where
-        F: Fn(&dyn ActionTrait) -> R,
+        F: Fn(&dyn ActionTrait<HASH_LENGTH>) -> R,
     {
         self.ids.get(id).map(|event_type| match event_type.value() {
             EventType::Data => self
@@ -220,7 +226,7 @@ impl Set {
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
     /// This actions will be inspected in the next [`Set::handle_data_event()`] call
-    pub fn handle_data_event(&self, event: &DataEvent) {
+    pub fn handle_data_event(&self, event: &DataEvent<HASH_LENGTH>) {
         self.handle_event(&self.data_triggers, event, EventType::Data)
     }
 
@@ -228,7 +234,7 @@ impl Set {
     ///
     /// Finds all actions, that are triggered by `event` and stores them.
     /// This actions will be inspected in the next [`Set::inspect_matched()`] call
-    pub fn handle_pipeline_event(&self, event: &PipelineEvent) {
+    pub fn handle_pipeline_event(&self, event: &PipelineEvent<HASH_LENGTH>) {
         self.handle_event(&self.pipeline_triggers, event, EventType::Pipeline)
     }
 
@@ -269,7 +275,7 @@ impl Set {
     /// Handle generic event
     fn handle_event<F, E>(
         &self,
-        triggers: &DashMap<Id, Action<F>>,
+        triggers: &DashMap<Id, Action<F, HASH_LENGTH>>,
         event: &E,
         event_type: EventType,
     ) where
@@ -307,7 +313,7 @@ impl Set {
     /// Repeats count of failed actions won't be decreased.
     pub async fn inspect_matched<F, E>(&self, f: F) -> std::result::Result<(), Vec<E>>
     where
-        F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send + Copy,
+        F: Fn(&dyn ActionTrait<HASH_LENGTH>) -> std::result::Result<(), E> + Send + Copy,
         E: Send + Sync,
     {
         let (succeed, res) = self.map_matched(f).await;
@@ -338,7 +344,7 @@ impl Set {
     /// and result with errors vector if there are some
     async fn map_matched<F, E>(&self, f: F) -> (Vec<Id>, std::result::Result<(), Vec<E>>)
     where
-        F: Fn(&dyn ActionTrait) -> std::result::Result<(), E> + Send + Copy,
+        F: Fn(&dyn ActionTrait<HASH_LENGTH>) -> std::result::Result<(), E> + Send + Copy,
         E: Send + Sync,
     {
         let succeed = Arc::new(RwLock::new(Vec::new()));
@@ -346,7 +352,7 @@ impl Set {
 
         let succeed_clone = Arc::clone(&succeed);
         let errors_clone = Arc::clone(&errors);
-        let apply_f = move |id: Id, action: &dyn ActionTrait| {
+        let apply_f = move |id: Id, action: &dyn ActionTrait<HASH_LENGTH>| {
             if let Repeats::Exactly(atomic) = action.repeats() {
                 if atomic.get() == 0 {
                     return;
@@ -418,7 +424,7 @@ impl Set {
     }
 
     /// Remove actions with zero execution count from `triggers`
-    fn remove_zeros<F: Filter>(&self, triggers: &DashMap<Id, Action<F>>) {
+    fn remove_zeros<F: Filter>(&self, triggers: &DashMap<Id, Action<F, HASH_LENGTH>>) {
         let to_remove: Vec<Id> = triggers
             .iter()
             .filter_map(|entry| {

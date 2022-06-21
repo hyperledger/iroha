@@ -47,7 +47,7 @@ impl GenesisDomain {
 }
 
 #[cfg(feature = "mutable_api")]
-impl From<GenesisDomain> for Domain {
+impl<const HASH_LENGTH: usize> From<GenesisDomain> for Domain<HASH_LENGTH> {
     fn from(domain: GenesisDomain) -> Self {
         #[cfg(not(feature = "std"))]
         use alloc::collections::btree_map;
@@ -58,7 +58,7 @@ impl From<GenesisDomain> for Domain {
         Self {
             id: Id::from_str(GENESIS_DOMAIN_NAME).expect("Valid"),
             accounts: core::iter::once((
-                <Account as Identifiable>::Id::genesis(),
+                <Account<HASH_LENGTH> as Identifiable>::Id::genesis(),
                 crate::account::GenesisAccount::new(domain.genesis_key).into(),
             ))
             .collect(),
@@ -75,40 +75,40 @@ impl From<GenesisDomain> for Domain {
 )]
 #[allow(clippy::multiple_inherent_impl)]
 #[display(fmt = "[{id}]")]
-pub struct NewDomain {
+pub struct NewDomain<const HASH_LENGTH: usize> {
     /// The identification associated to the domain builder.
-    id: <Domain as Identifiable>::Id,
+    id: <Domain<HASH_LENGTH> as Identifiable>::Id,
     /// The (IPFS) link to the logo of this domain.
     logo: Option<IpfsPath>,
     /// metadata associated to the domain builder.
-    metadata: Metadata,
+    metadata: Metadata<HASH_LENGTH>,
 }
 
-impl HasMetadata for NewDomain {
+impl<const HASH_LENGTH: usize> HasMetadata for NewDomain<HASH_LENGTH> {
     #[inline]
-    fn metadata(&self) -> &crate::metadata::Metadata {
+    fn metadata(&self) -> &crate::metadata::Metadata<HASH_LENGTH> {
         &self.metadata
     }
 }
 
-impl PartialOrd for NewDomain {
+impl<const HASH_LENGTH: usize> PartialOrd for NewDomain<HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for NewDomain {
+impl<const HASH_LENGTH: usize> Ord for NewDomain<HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl NewDomain {
+impl<const HASH_LENGTH: usize> NewDomain<HASH_LENGTH> {
     /// Create a [`NewDomain`], reserved for internal use.
     #[must_use]
-    fn new(id: <Domain as Identifiable>::Id) -> Self {
+    fn new(id: <Domain<HASH_LENGTH> as Identifiable>::Id) -> Self {
         Self {
             id,
             logo: None,
@@ -119,7 +119,7 @@ impl NewDomain {
     /// Construct [`Domain`]
     #[must_use]
     #[cfg(feature = "mutable_api")]
-    pub fn build(self) -> Domain {
+    pub fn build(self) -> Domain<HASH_LENGTH> {
         Domain {
             id: self.id,
             accounts: AccountsMap::default(),
@@ -131,7 +131,7 @@ impl NewDomain {
 }
 
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
-impl NewDomain {
+impl<const HASH_LENGTH: usize> NewDomain<HASH_LENGTH> {
     /// Add [`logo`](IpfsPath) to the domain replacing previously defined value
     #[must_use]
     pub fn with_logo(mut self, logo: IpfsPath) -> Self {
@@ -141,14 +141,14 @@ impl NewDomain {
 
     /// Add [`Metadata`] to the domain replacing previously defined value
     #[must_use]
-    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+    pub fn with_metadata(mut self, metadata: Metadata<HASH_LENGTH>) -> Self {
         self.metadata = metadata;
         self
     }
 }
 
-impl Identifiable for NewDomain {
-    type Id = <Domain as Identifiable>::Id;
+impl<const HASH_LENGTH: usize> Identifiable for NewDomain<HASH_LENGTH> {
+    type Id = <Domain<HASH_LENGTH> as Identifiable>::Id;
 
     fn id(&self) -> &Self::Id {
         &self.id
@@ -173,11 +173,11 @@ impl Identifiable for NewDomain {
 #[allow(clippy::multiple_inherent_impl)]
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 #[display(fmt = "[{id}]")]
-pub struct Domain {
+pub struct Domain<const HASH_LENGTH: usize> {
     /// Identification of this [`Domain`].
     id: <Self as Identifiable>::Id,
     /// [`Account`]s of the domain.
-    accounts: AccountsMap,
+    accounts: AccountsMap<HASH_LENGTH>,
     /// [`Asset`](AssetDefinition)s defined of the `Domain`.
     asset_definitions: AssetDefinitionsMap,
     /// IPFS link to the `Domain` logo
@@ -185,17 +185,17 @@ pub struct Domain {
     logo: Option<IpfsPath>,
     /// [`Metadata`] of this `Domain` as a key-value store.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-    metadata: Metadata,
+    metadata: Metadata<HASH_LENGTH>,
 }
 
-impl HasMetadata for Domain {
+impl<const HASH_LENGTH: usize> HasMetadata for Domain<HASH_LENGTH> {
     #[inline]
-    fn metadata(&self) -> &crate::metadata::Metadata {
+    fn metadata(&self) -> &crate::metadata::Metadata<HASH_LENGTH> {
         &self.metadata
     }
 }
 
-impl Identifiable for Domain {
+impl<const HASH_LENGTH: usize> Identifiable for Domain<HASH_LENGTH> {
     type Id = Id;
 
     fn id(&self) -> &Self::Id {
@@ -203,18 +203,18 @@ impl Identifiable for Domain {
     }
 }
 
-impl Registered for Domain {
-    type With = NewDomain;
+impl<const HASH_LENGTH: usize> Registered for Domain<HASH_LENGTH> {
+    type With = NewDomain<HASH_LENGTH>;
 }
 
-impl PartialOrd for Domain {
+impl<const HASH_LENGTH: usize> PartialOrd for Domain<HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Domain {
+impl<const HASH_LENGTH: usize> Ord for Domain<HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.id().cmp(other.id())
@@ -222,7 +222,7 @@ impl Ord for Domain {
 }
 
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
-impl Domain {
+impl<const HASH_LENGTH: usize> Domain<HASH_LENGTH> {
     /// Construct builder for [`Domain`] identifiable by [`Id`].
     pub fn new(id: <Self as Identifiable>::Id) -> <Self as Registered>::With {
         <Self as Registered>::With::new(id)
@@ -230,7 +230,10 @@ impl Domain {
 
     /// Return a reference to the [`Account`] corresponding to the account id.
     #[inline]
-    pub fn account(&self, account_id: &<Account as Identifiable>::Id) -> Option<&Account> {
+    pub fn account(
+        &self,
+        account_id: &<Account<HASH_LENGTH> as Identifiable>::Id,
+    ) -> Option<&Account<HASH_LENGTH>> {
         self.accounts.get(account_id)
     }
 
@@ -245,13 +248,13 @@ impl Domain {
 
     /// Get an iterator over [`Account`]s of the `Domain`
     #[inline]
-    pub fn accounts(&self) -> impl ExactSizeIterator<Item = &Account> {
+    pub fn accounts(&self) -> impl ExactSizeIterator<Item = &Account<HASH_LENGTH>> {
         self.accounts.values()
     }
 
     /// Return `true` if the `Domain` contains [`Account`]
     #[inline]
-    pub fn contains_account(&self, account_id: &<Account as Identifiable>::Id) -> bool {
+    pub fn contains_account(&self, account_id: &<Account<HASH_LENGTH> as Identifiable>::Id) -> bool {
         self.accounts.contains_key(account_id)
     }
 
@@ -263,19 +266,19 @@ impl Domain {
 }
 
 #[cfg(feature = "mutable_api")]
-impl Domain {
+impl<const HASH_LENGTH: usize> Domain<HASH_LENGTH> {
     /// Return a mutable reference to the [`Account`] corresponding to the account id.
     #[inline]
     pub fn account_mut(
         &mut self,
-        account_id: &<Account as Identifiable>::Id,
-    ) -> Option<&mut Account> {
+        account_id: &<Account<HASH_LENGTH> as Identifiable>::Id,
+    ) -> Option<&mut Account<HASH_LENGTH>> {
         self.accounts.get_mut(account_id)
     }
 
     /// Add [`Account`] into the [`Domain`] returning previous account stored under the same id
     #[inline]
-    pub fn add_account(&mut self, account: Account) -> Option<Account> {
+    pub fn add_account(&mut self, account: Account<HASH_LENGTH>) -> Option<Account<HASH_LENGTH>> {
         self.accounts.insert(account.id().clone(), account)
     }
 
@@ -283,14 +286,14 @@ impl Domain {
     #[inline]
     pub fn remove_account(
         &mut self,
-        account_id: &<Account as Identifiable>::Id,
-    ) -> Option<Account> {
+        account_id: &<Account<HASH_LENGTH> as Identifiable>::Id,
+    ) -> Option<Account<HASH_LENGTH>> {
         self.accounts.remove(account_id)
     }
 
     /// Get a mutable iterator over accounts of the domain
     #[inline]
-    pub fn accounts_mut(&mut self) -> impl ExactSizeIterator<Item = &mut Account> {
+    pub fn accounts_mut(&mut self) -> impl ExactSizeIterator<Item = &mut Account<HASH_LENGTH>> {
         self.accounts.values_mut()
     }
 
@@ -309,7 +312,7 @@ impl Domain {
     pub fn add_asset_definition(
         &mut self,
         asset_definition: AssetDefinition,
-        registered_by: <Account as Identifiable>::Id,
+        registered_by: <Account<HASH_LENGTH> as Identifiable>::Id,
     ) -> Option<AssetDefinitionEntry> {
         let asset_definition = AssetDefinitionEntry::new(asset_definition, registered_by);
 
@@ -327,8 +330,8 @@ impl Domain {
     }
 }
 
-impl FromIterator<Domain> for crate::Value {
-    fn from_iter<T: IntoIterator<Item = Domain>>(iter: T) -> Self {
+impl<const HASH_LENGTH: usize> FromIterator<Domain<HASH_LENGTH>> for crate::Value<HASH_LENGTH> {
+    fn from_iter<T: IntoIterator<Item = Domain<HASH_LENGTH>>>(iter: T) -> Self {
         iter.into_iter()
             .map(Into::into)
             .collect::<Vec<Self>>()

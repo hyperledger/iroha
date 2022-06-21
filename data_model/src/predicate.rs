@@ -53,7 +53,10 @@ impl PredicateBox {
     #[must_use]
     #[inline]
     /// Filter [`Value`] using `self`.
-    pub fn filter(&self, value: Value) -> Value {
+    pub fn filter<const HASH_LENGTH: usize>(
+        &self,
+        value: Value<HASH_LENGTH>,
+    ) -> Value<HASH_LENGTH> {
         match value {
             Value::Vec(v) => Value::Vec(v.into_iter().filter(|val| self.applies(val)).collect()),
             other => other,
@@ -74,9 +77,9 @@ impl Default for PredicateBox {
     }
 }
 
-impl PredicateTrait<Value> for PredicateBox {
+impl<const HASH_LENGTH: usize> PredicateTrait<Value<HASH_LENGTH>> for PredicateBox {
     #[inline] // This is not a simple function, but it allows you to inline the logic and optimise away the logical operations.
-    fn applies(&self, input: &Value) -> bool {
+    fn applies(&self, input: &Value<HASH_LENGTH>) -> bool {
         match self {
             PredicateBox::And(vector) => vector.iter().all(|pred| pred.applies(input)),
             PredicateBox::Or(vector) => vector.iter().any(|pred| pred.applies(input)),
@@ -93,12 +96,14 @@ pub mod test {
     use super::{value, PredicateBox};
     use crate::{PredicateTrait as _, Value};
 
+    const HASH_LENGTH: usize = 32;
+
     #[test]
     fn pass() {
         let t = PredicateBox::new(value::Predicate::Pass);
         let f = t.clone().negate();
-        let v_t = Value::from(true);
-        let v_f = Value::from(false);
+        let v_t = Value::<HASH_LENGTH>::from(true);
+        let v_f = Value::<HASH_LENGTH>::from(false);
         println!("t: {t:?}, f: {f:?}");
 
         assert!(t.applies(&v_t));
@@ -111,7 +116,7 @@ pub mod test {
     fn truth_table() {
         let t = PredicateBox::new(value::Predicate::Pass);
         let f = t.clone().negate();
-        let v = Value::from(true);
+        let v = Value::<HASH_LENGTH>::from(true);
 
         assert!(!PredicateBox::and(t.clone(), f.clone()).applies(&v));
         assert!(PredicateBox::and(t.clone(), t.clone()).applies(&v));
@@ -511,9 +516,9 @@ pub mod numerical {
         }
     }
 
-    impl PredicateTrait<Value> for Range {
+    impl<const HASH_LENGTH: usize> PredicateTrait<Value<HASH_LENGTH>> for Range {
         #[inline]
-        fn applies(&self, input: &Value) -> bool {
+        fn applies(&self, input: &Value<HASH_LENGTH>) -> bool {
             match input {
                 Value::U32(quantity) => match self {
                     Range::U32(predicate) => predicate.applies(quantity),
@@ -624,8 +629,8 @@ pub mod value {
         Pass,
     }
 
-    impl PredicateTrait<Value> for Predicate {
-        fn applies(&self, input: &Value) -> bool {
+    impl<const HASH_LENGTH: usize> PredicateTrait<Value<HASH_LENGTH>> for Predicate {
+        fn applies(&self, input: &Value<HASH_LENGTH>) -> bool {
             // Large jump table. Do not inline.
             match self {
                 Predicate::Identifiable(pred) => match input {

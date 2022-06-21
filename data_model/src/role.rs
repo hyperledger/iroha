@@ -61,23 +61,23 @@ pub struct Id {
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 #[display(fmt = "{id}")]
 #[getset(get = "pub")]
-pub struct Role {
+pub struct Role<const HASH_LENGTH: usize> {
     /// Unique name of the role.
     #[getset(skip)]
     id: <Self as Identifiable>::Id,
     /// Permission tokens.
     #[getset(skip)]
-    permissions: Permissions,
+    permissions: Permissions<HASH_LENGTH>,
 }
 
-impl PartialOrd for Role {
+impl<const HASH_LENGTH: usize> PartialOrd for Role<HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Role {
+impl<const HASH_LENGTH: usize> Ord for Role<HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.id().cmp(other.id())
@@ -85,12 +85,12 @@ impl Ord for Role {
 }
 
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
-impl Role {
+impl<const HASH_LENGTH: usize> Role<HASH_LENGTH> {
     /// Constructor.
     #[inline]
     pub fn new(
         id: <Self as Identifiable>::Id,
-        permissions: impl IntoIterator<Item = impl Into<PermissionToken>>,
+        permissions: impl IntoIterator<Item = impl Into<PermissionToken<HASH_LENGTH>>>,
     ) -> <Self as Registered>::With {
         Self {
             id,
@@ -100,12 +100,12 @@ impl Role {
 
     /// Get an iterator over [`permissions`](PermissionToken) of the `Role`
     #[inline]
-    pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
+    pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken<HASH_LENGTH>> {
         self.permissions.iter()
     }
 }
 
-impl Identifiable for Role {
+impl<const HASH_LENGTH: usize> Identifiable for Role<HASH_LENGTH> {
     type Id = Id;
 
     fn id(&self) -> &Self::Id {
@@ -113,7 +113,7 @@ impl Identifiable for Role {
     }
 }
 
-impl Registered for Role {
+impl<const HASH_LENGTH: usize> Registered for Role<HASH_LENGTH> {
     type With = Self;
 }
 
@@ -121,18 +121,18 @@ impl Registered for Role {
 #[derive(
     Debug, Clone, PartialEq, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-pub struct NewRole {
-    inner: Role,
+pub struct NewRole<const HASH_LENGTH: usize> {
+    inner: Role<HASH_LENGTH>,
 }
 
-impl PartialOrd for NewRole {
+impl<const HASH_LENGTH: usize> PartialOrd for NewRole<HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for NewRole {
+impl<const HASH_LENGTH: usize> Ord for NewRole<HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.inner.cmp(&other.inner)
@@ -140,9 +140,9 @@ impl Ord for NewRole {
 }
 
 /// Builder for [`Role`]
-impl NewRole {
+impl<const HASH_LENGTH: usize> NewRole<HASH_LENGTH> {
     /// Constructor
-    pub fn new(id: <Role as Identifiable>::Id) -> Self {
+    pub fn new(id: <Role<HASH_LENGTH> as Identifiable>::Id) -> Self {
         Self {
             inner: Role {
                 id,
@@ -153,14 +153,14 @@ impl NewRole {
 
     /// Add permission to the [`Role`]
     #[must_use]
-    pub fn add_permission(mut self, perm: impl Into<PermissionToken>) -> Self {
+    pub fn add_permission(mut self, perm: impl Into<PermissionToken<HASH_LENGTH>>) -> Self {
         self.inner.permissions.insert(perm.into());
         self
     }
 
     /// Construct [`Role`]
     #[must_use]
-    pub fn build(self) -> Role {
+    pub fn build(self) -> Role<HASH_LENGTH> {
         self.inner
     }
 }

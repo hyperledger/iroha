@@ -32,7 +32,8 @@ use crate::{
 
 /// `AccountsMap` provides an API to work with collection of key (`Id`) - value
 /// (`Account`) pairs.
-pub type AccountsMap = btree_map::BTreeMap<<Account as Identifiable>::Id, Account>;
+pub type AccountsMap<const HASH_LENGTH: usize> =
+    btree_map::BTreeMap<<Account<HASH_LENGTH> as Identifiable>::Id, Account<HASH_LENGTH>>;
 
 // The size of the array must be fixed. If we use more than `1` we
 // waste all of that space for all non-multisig accounts. If we
@@ -66,7 +67,7 @@ impl GenesisAccount {
 }
 
 #[cfg(feature = "mutable_api")]
-impl From<GenesisAccount> for Account {
+impl<const HASH_LENGTH: usize> From<GenesisAccount> for Account<HASH_LENGTH> {
     #[inline]
     fn from(account: GenesisAccount) -> Self {
         Account::new(Id::genesis(), [account.public_key]).build()
@@ -77,27 +78,29 @@ impl From<GenesisAccount> for Account {
 #[derive(
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
-pub struct SignatureCheckCondition(pub EvaluatesTo<bool>);
+pub struct SignatureCheckCondition<const HASH_LENGTH: usize>(pub EvaluatesTo<bool, HASH_LENGTH>);
 
-impl SignatureCheckCondition {
+impl<const HASH_LENGTH: usize> SignatureCheckCondition<HASH_LENGTH> {
     /// Gets reference to the raw `ExpressionBox`.
     #[inline]
-    pub const fn as_expression(&self) -> &crate::expression::ExpressionBox {
+    pub const fn as_expression(&self) -> &crate::expression::ExpressionBox<HASH_LENGTH> {
         let Self(condition) = self;
         &condition.expression
     }
 }
 
 // TODO: derive
-impl From<EvaluatesTo<bool>> for SignatureCheckCondition {
+impl<const HASH_LENGTH: usize> From<EvaluatesTo<bool, HASH_LENGTH>>
+    for SignatureCheckCondition<HASH_LENGTH>
+{
     #[inline]
-    fn from(condition: EvaluatesTo<bool>) -> Self {
+    fn from(condition: EvaluatesTo<bool, HASH_LENGTH>) -> Self {
         SignatureCheckCondition(condition)
     }
 }
 
 /// Default signature condition check for accounts. Returns true if any of the signatories have signed a transaction.
-impl Default for SignatureCheckCondition {
+impl<const HASH_LENGTH: usize> Default for SignatureCheckCondition<HASH_LENGTH> {
     #[inline]
     fn default() -> Self {
         Self(
@@ -116,46 +119,46 @@ impl Default for SignatureCheckCondition {
     Debug, Display, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema,
 )]
 #[display(fmt = "[{id}]")]
-pub struct NewAccount {
+pub struct NewAccount<const HASH_LENGTH: usize> {
     /// Identification
-    id: <NewAccount as Identifiable>::Id,
+    id: <NewAccount<HASH_LENGTH> as Identifiable>::Id,
     /// Signatories, i.e. signatures attached to this message.
     signatories: Signatories,
     /// Metadata that should be submitted with the builder
-    metadata: Metadata,
+    metadata: Metadata<HASH_LENGTH>,
 }
 
-impl Identifiable for NewAccount {
-    type Id = <Account as Identifiable>::Id;
+impl<const HASH_LENGTH: usize> Identifiable for NewAccount<HASH_LENGTH> {
+    type Id = <Account<HASH_LENGTH> as Identifiable>::Id;
 
     fn id(&self) -> &Self::Id {
         &self.id
     }
 }
 
-impl PartialOrd for NewAccount {
+impl<const HASH_LENGTH: usize> PartialOrd for NewAccount<HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for NewAccount {
+impl<const HASH_LENGTH: usize> Ord for NewAccount<HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl HasMetadata for NewAccount {
-    fn metadata(&self) -> &Metadata {
+impl<const HASH_LENGTH: usize> HasMetadata for NewAccount<HASH_LENGTH> {
+    fn metadata(&self) -> &Metadata<HASH_LENGTH> {
         &self.metadata
     }
 }
 
-impl NewAccount {
+impl<const HASH_LENGTH: usize> NewAccount<HASH_LENGTH> {
     fn new(
-        id: <Account as Identifiable>::Id,
+        id: <Account<HASH_LENGTH> as Identifiable>::Id,
         signatories: impl IntoIterator<Item = PublicKey>,
     ) -> Self {
         Self {
@@ -168,7 +171,7 @@ impl NewAccount {
     /// Construct [`Account`]
     #[must_use]
     #[cfg(feature = "mutable_api")]
-    pub fn build(self) -> Account {
+    pub fn build(self) -> Account<HASH_LENGTH> {
         Account {
             id: self.id,
             signatories: self.signatories,
@@ -182,10 +185,10 @@ impl NewAccount {
 }
 
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
-impl NewAccount {
+impl<const HASH_LENGTH: usize> NewAccount<HASH_LENGTH> {
     /// Add [`Metadata`] to the account replacing previously defined
     #[must_use]
-    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+    pub fn with_metadata(mut self, metadata: Metadata<HASH_LENGTH>) -> Self {
         self.metadata = metadata;
         self
     }
@@ -210,26 +213,26 @@ impl NewAccount {
 #[allow(clippy::multiple_inherent_impl)]
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
 #[display(fmt = "({id})")] // TODO: Add more?
-pub struct Account {
+pub struct Account<const HASH_LENGTH: usize> {
     /// An Identification of the [`Account`].
     id: <Self as Identifiable>::Id,
     /// Asset's in this [`Account`].
-    assets: AssetsMap,
+    assets: AssetsMap<HASH_LENGTH>,
     /// [`Account`]'s signatories.
     signatories: Signatories,
     /// Permissions tokens of this account
-    permission_tokens: Permissions,
+    permission_tokens: Permissions<HASH_LENGTH>,
     /// Condition which checks if the account has the right signatures.
     #[cfg_attr(feature = "mutable_api", getset(get = "pub", set = "pub"))]
-    signature_check_condition: SignatureCheckCondition,
+    signature_check_condition: SignatureCheckCondition<HASH_LENGTH>,
     /// Metadata of this account as a key-value store.
     #[cfg_attr(feature = "mutable_api", getset(get_mut = "pub"))]
-    metadata: Metadata,
+    metadata: Metadata<HASH_LENGTH>,
     /// Roles of this account, they are tags for sets of permissions stored in `World`.
     roles: RoleIds,
 }
 
-impl Identifiable for Account {
+impl<const HASH_LENGTH: usize> Identifiable for Account<HASH_LENGTH> {
     type Id = Id;
 
     fn id(&self) -> &Self::Id {
@@ -237,24 +240,24 @@ impl Identifiable for Account {
     }
 }
 
-impl HasMetadata for Account {
-    fn metadata(&self) -> &Metadata {
+impl<const HASH_LENGTH: usize> HasMetadata for Account<HASH_LENGTH> {
+    fn metadata(&self) -> &Metadata<HASH_LENGTH> {
         &self.metadata
     }
 }
 
-impl Registered for Account {
-    type With = NewAccount;
+impl<const HASH_LENGTH: usize> Registered for Account<HASH_LENGTH> {
+    type With = NewAccount<HASH_LENGTH>;
 }
 
-impl PartialOrd for Account {
+impl<const HASH_LENGTH: usize> PartialOrd for Account<HASH_LENGTH> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Account {
+impl<const HASH_LENGTH: usize> Ord for Account<HASH_LENGTH> {
     #[inline]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.id().cmp(other.id())
@@ -262,7 +265,7 @@ impl Ord for Account {
 }
 
 #[cfg_attr(feature = "ffi_api", ffi_bindgen)]
-impl Account {
+impl<const HASH_LENGTH: usize> Account<HASH_LENGTH> {
     /// Construct builder for [`Account`] identifiable by [`Id`] containing the given signatories.
     #[must_use]
     pub fn new(
@@ -280,7 +283,7 @@ impl Account {
 
     /// Return a reference to the [`Asset`] corresponding to the asset id.
     #[inline]
-    pub fn asset(&self, asset_id: &AssetId) -> Option<&Asset> {
+    pub fn asset(&self, asset_id: &AssetId<HASH_LENGTH>) -> Option<&Asset<HASH_LENGTH>> {
         self.assets.get(asset_id)
     }
 
@@ -298,13 +301,13 @@ impl Account {
 
     /// Return `true` if `Account` contains permission token
     #[inline]
-    pub fn contains_permission(&self, token: &PermissionToken) -> bool {
+    pub fn contains_permission(&self, token: &PermissionToken<HASH_LENGTH>) -> bool {
         self.permission_tokens.contains(token)
     }
 
     /// Get an iterator over [`permissions`](PermissionToken) of the `Account`
     #[inline]
-    pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken> {
+    pub fn permissions(&self) -> impl ExactSizeIterator<Item = &PermissionToken<HASH_LENGTH>> {
         self.permission_tokens.iter()
     }
 
@@ -322,7 +325,7 @@ impl Account {
 }
 
 #[cfg(feature = "mutable_api")]
-impl Account {
+impl<const HASH_LENGTH: usize> Account<HASH_LENGTH> {
     /// Add [`signatory`](PublicKey) into the [`Account`].
     ///
     /// If `Account` did not have this signatory present, `true` is returned.
@@ -340,19 +343,19 @@ impl Account {
 
     /// Return a mutable reference to the [`Asset`] corresponding to the asset id
     #[inline]
-    pub fn asset_mut(&mut self, asset_id: &AssetId) -> Option<&mut Asset> {
+    pub fn asset_mut(&mut self, asset_id: &AssetId<HASH_LENGTH>) -> Option<&mut Asset<HASH_LENGTH>> {
         self.assets.get_mut(asset_id)
     }
 
     /// Add [`Asset`] into the [`Account`] returning previous asset stored under the same id
     #[inline]
-    pub fn add_asset(&mut self, asset: Asset) -> Option<Asset> {
+    pub fn add_asset(&mut self, asset: Asset<HASH_LENGTH>) -> Option<Asset<HASH_LENGTH>> {
         self.assets.insert(asset.id().clone(), asset)
     }
 
     /// Remove asset from the [`Account`] and return it
     #[inline]
-    pub fn remove_asset(&mut self, asset_id: &AssetId) -> Option<Asset> {
+    pub fn remove_asset(&mut self, asset_id: &AssetId<HASH_LENGTH>) -> Option<Asset<HASH_LENGTH>> {
         self.assets.remove(asset_id)
     }
 
@@ -361,13 +364,13 @@ impl Account {
     /// If `Account` did not have this permission present, `true` is returned.
     /// If `Account` did have this permission present, `false` is returned.
     #[inline]
-    pub fn add_permission(&mut self, token: PermissionToken) -> bool {
+    pub fn add_permission(&mut self, token: PermissionToken<HASH_LENGTH>) -> bool {
         self.permission_tokens.insert(token)
     }
 
     /// Remove a permission from the `Account` and return whether the permission was present in the `Account`
     #[inline]
-    pub fn remove_permission(&mut self, token: &PermissionToken) -> bool {
+    pub fn remove_permission(&mut self, token: &PermissionToken<HASH_LENGTH>) -> bool {
         self.permission_tokens.remove(token)
     }
 
@@ -387,8 +390,8 @@ impl Account {
     }
 }
 
-impl FromIterator<Account> for crate::Value {
-    fn from_iter<T: IntoIterator<Item = Account>>(iter: T) -> Self {
+impl<const HASH_LENGTH: usize> FromIterator<Account<HASH_LENGTH>> for crate::Value<HASH_LENGTH> {
+    fn from_iter<T: IntoIterator<Item = Account<HASH_LENGTH>>>(iter: T) -> Self {
         iter.into_iter()
             .map(Into::into)
             .collect::<Vec<Self>>()
@@ -421,14 +424,14 @@ impl FromIterator<Account> for crate::Value {
     IntoSchema,
 )]
 #[display(fmt = "{name}@{domain_id}")]
-pub struct Id {
+pub struct Id<const HASH_LENGTH: usize> {
     /// [`Account`]'s name.
     pub name: Name,
     /// [`Account`]'s [`Domain`](`crate::domain::Domain`)'s id.
-    pub domain_id: <Domain as Identifiable>::Id,
+    pub domain_id: <Domain<HASH_LENGTH> as Identifiable>::Id,
 }
 
-impl Id {
+impl<const HASH_LENGTH: usize> Id<HASH_LENGTH> {
     pub(crate) const fn empty() -> Self {
         Self {
             name: Name::empty(),
@@ -439,7 +442,7 @@ impl Id {
     /// Construct [`Id`] from an account `name` and a `domain_name` if
     /// these names are valid.
     #[inline]
-    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
+    pub const fn new(name: Name, domain_id: <Domain<HASH_LENGTH> as Identifiable>::Id) -> Self {
         Self { name, domain_id }
     }
 
@@ -456,7 +459,7 @@ impl Id {
 }
 
 /// Account Identification is represented by `name@domain_name` string.
-impl FromStr for Id {
+impl<const HASH_LENGTH: usize> FromStr for Id<HASH_LENGTH> {
     type Err = ParseError;
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {

@@ -106,11 +106,11 @@ impl Id {
     }
 }
 
-impl FromIterator<Id> for Value {
+impl<const HASH_LENGTH: usize> FromIterator<Id> for Value<HASH_LENGTH> {
     fn from_iter<T: IntoIterator<Item = Id>>(iter: T) -> Self {
         iter.into_iter()
             .map(Into::into)
-            .collect::<Vec<Value>>()
+            .collect::<Vec<Value<HASH_LENGTH>>>()
             .into()
     }
 }

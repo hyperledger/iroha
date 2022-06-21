@@ -16,23 +16,23 @@ pub mod time;
 
 declare_versioned_with_scale!(VersionedEventPublisherMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
 
-impl VersionedEventPublisherMessage {
+impl<const HASH_LENGTH: usize> VersionedEventPublisherMessage {
     /// Converts from `&VersionedEventPublisherMessage` to V1 reference
-    pub const fn as_v1(&self) -> &EventPublisherMessage {
+    pub const fn as_v1(&self) -> &EventPublisherMessage<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
     /// Converts from `&mut VersionedEventPublisherMessage` to V1 mutable reference
-    pub fn as_mut_v1(&mut self) -> &mut EventPublisherMessage {
+    pub fn as_mut_v1(&mut self) -> &mut EventPublisherMessage<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
     }
 
     /// Performs the conversion from `VersionedEventPublisherMessage` to V1
-    pub fn into_v1(self) -> EventPublisherMessage {
+    pub fn into_v1(self) -> EventPublisherMessage<HASH_LENGTH> {
         match self {
             Self::V1(v1) => v1,
         }
@@ -42,13 +42,13 @@ impl VersionedEventPublisherMessage {
 /// Message sent by the stream producer
 #[version_with_scale(n = 1, versioned = "VersionedEventPublisherMessage")]
 #[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
-pub enum EventPublisherMessage {
+pub enum EventPublisherMessage<const HASH_LENGTH: usize> {
     /// Reply sent by the peer.
     /// The message means that event stream connection is initialized and will be supplying
     /// events starting with the next message.
     SubscriptionAccepted,
     /// Event sent by the peer.
-    Event(Event),
+    Event(Event<{ HASH_LENGTH }>),
 }
 
 declare_versioned_with_scale!(VersionedEventSubscriberMessage 1..2, Debug, Clone, FromVariant, IntoSchema);
@@ -79,10 +79,10 @@ impl VersionedEventSubscriberMessage {
 /// Message sent by the stream consumer
 #[version_with_scale(n = 1, versioned = "VersionedEventSubscriberMessage")]
 #[derive(Debug, Clone, Decode, Encode, FromVariant, IntoSchema)]
-pub enum EventSubscriberMessage {
+pub enum EventSubscriberMessage<const HASH_LENGTH: usize> {
     /// Request sent by the client to subscribe to events.
     //TODO: Sign request?
-    SubscriptionRequest(FilterBox),
+    SubscriptionRequest(FilterBox<{ HASH_LENGTH }>),
     /// Acknowledgment of receiving event sent from the peer.
     EventReceived,
 }
@@ -91,11 +91,11 @@ pub enum EventSubscriberMessage {
 #[derive(
     Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, FromVariant, IntoSchema,
 )]
-pub enum Event {
+pub enum Event<const HASH_LENGTH: usize> {
     /// Pipeline event.
-    Pipeline(pipeline::Event),
+    Pipeline(pipeline::Event<{ HASH_LENGTH }>),
     /// Data event.
-    Data(data::Event),
+    Data(data::Event<{ HASH_LENGTH }>),
     /// Time event.
     Time(time::Event),
     /// Trigger execution event.
@@ -161,9 +161,9 @@ pub trait Filter {
     Serialize,
     Deserialize,
 )]
-pub enum FilterBox {
+pub enum FilterBox<const HASH_LENGTH: usize> {
     /// Listen to pipeline events with filter.
-    Pipeline(pipeline::EventFilter),
+    Pipeline(pipeline::EventFilter<{ HASH_LENGTH }>),
     /// Listen to data events with filter.
     Data(data::EventFilter),
     /// Listen to time events with filter.
@@ -172,11 +172,11 @@ pub enum FilterBox {
     ExecuteTrigger(execute_trigger::EventFilter),
 }
 
-impl Filter for FilterBox {
-    type EventType = Event;
+impl<const HASH_LENGTH: usize> Filter for FilterBox<HASH_LENGTH> {
+    type EventType = Event<HASH_LENGTH>;
 
     /// Apply filter to event.
-    fn matches(&self, event: &Event) -> bool {
+    fn matches(&self, event: &Event<HASH_LENGTH>) -> bool {
         match (event, self) {
             (Event::Pipeline(event), FilterBox::Pipeline(filter)) => filter.matches(event),
             (Event::Data(event), FilterBox::Data(filter)) => filter.matches(event),
