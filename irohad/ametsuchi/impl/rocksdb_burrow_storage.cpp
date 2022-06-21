@@ -12,6 +12,7 @@
 #include "common/obj_utils.hpp"
 #include "common/result.hpp"
 #include "common/to_lower.hpp"
+#include "datetime/time.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace iroha::expected;
@@ -104,23 +105,29 @@ Result<void, std::string> RocksdbBurrowStorage::setStorage(
 
 Result<void, std::string> RocksdbBurrowStorage::initCallId() {
   if (!call_id_cache_) {
-    RDB_ERROR_CHECK_TO_STR(
-        forCallEngineCallIds<kDbOperation::kCheck, kDbEntry::kMustNotExist>(
+    RDB_TRY_GET_VALUE_OR_STR_ERR(
+        opt_call_id_curr,
+        forCallEngineCallIds<kDbOperation::kGet, kDbEntry::kCanExist>(
             common_, tx_hash_, cmd_index_));
+    if (opt_call_id_curr) {
+      call_id_cache_ = *opt_call_id_curr;
+      return {};
+    }
+
     RDB_TRY_GET_VALUE_OR_STR_ERR(
         opt_call_id,
         forCallEngineNextCallIds<kDbOperation::kGet, kDbEntry::kCanExist>(
             common_));
     if (opt_call_id)
-      call_id_cache_ = std::make_pair(*opt_call_id, 0ull);
+      call_id_cache_ = *opt_call_id;
     else
-      call_id_cache_ = std::make_pair(0ull, 0ull);
+      call_id_cache_ = 0ull;
 
-    common_.encode(call_id_cache_->first);
+    common_.encode(*call_id_cache_);
     RDB_ERROR_CHECK_TO_STR(forCallEngineCallIds<kDbOperation::kPut>(
         common_, tx_hash_, cmd_index_));
 
-    common_.encode(call_id_cache_->first + 1ull);
+    common_.encode(*call_id_cache_ + 1ull);
     RDB_ERROR_CHECK_TO_STR(
         forCallEngineNextCallIds<kDbOperation::kPut>(common_));
   }
@@ -152,7 +159,7 @@ Result<void, std::string> RocksdbBurrowStorage::storeLog(
   common_.valueBuffer() += '#';
   common_.valueBuffer() += data;
   RDB_ERROR_CHECK_TO_STR(forCallEngineLogs<kDbOperation::kPut>(
-      common_, call_id_cache_->first, call_id_cache_->second++));
+      common_, *call_id_cache_, iroha::time::nowUs()));
 
   for (uint64_t ix = 0; ix < topics.size(); ++ix) {
     auto const &topic = topics[ix];
