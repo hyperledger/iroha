@@ -1,0 +1,55 @@
+***************
+*** 1702,1708 ****
+   "test_network",
+   "thiserror",
+   "tokio",
+-  "unique_port",
+   "warp",
+  ]
+  
+--- 1702,1707 ----
+   "test_network",
+   "thiserror",
+   "tokio",
+   "warp",
+  ]
+  
+***************
+*** 3572,3578 ****
+  name = "test_network"
+  version = "2.0.0-pre-rc.5"
+  dependencies = [
+-  "async-trait",
+   "eyre",
+   "futures",
+   "iroha",
+--- 3571,3576 ----
+  name = "test_network"
+  version = "2.0.0-pre-rc.5"
+  dependencies = [
+   "eyre",
+   "futures",
+   "iroha",
+***************
+*** 3581,3591 ****
+   "iroha_core",
+   "iroha_data_model",
+   "iroha_logger",
+-  "once_cell",
+   "rand 0.8.5",
+   "tempfile",
+   "tokio",
+-  "unique_port",
+  ]
+  
+  [[package]]
+--- 3579,3587 ----
+   "iroha_core",
+   "iroha_data_model",
+   "iroha_logger",
+   "rand 0.8.5",
+   "tempfile",
+   "tokio",
+  ]
+  
+  [[package]]
