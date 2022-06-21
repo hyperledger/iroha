@@ -17,10 +17,10 @@
 #include "logger/logger_fwd.hpp"
 #include "main/subscription.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "ordering/impl/proposal_cache.hpp"
 #include "ordering/impl/round_switch.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
 #include "ordering/on_demand_os_transport.hpp"
-#include "ordering/impl/proposal_cache.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -61,7 +61,8 @@ namespace iroha {
        * Handle an incoming proposal from ordering service
        */
       void processProposalRequest(ProposalEvent &&event);
-      std::optional<network::OrderingEvent> processProposalEvent(SingleProposalEvent &&event);
+      std::optional<network::OrderingEvent> processProposalEvent(
+          SingleProposalEvent &&event);
 
       void stop() override;
 
@@ -90,7 +91,7 @@ namespace iroha {
       std::shared_ptr<const shared_model::interface::Proposal>
       removeReplaysAndDuplicates(
           std::shared_ptr<const shared_model::interface::Proposal> proposal)
-      const;
+          const;
 
       logger::LoggerPtr log_;
 

@@ -44,7 +44,7 @@ namespace integration_framework::fake_peer {
     if (behaviour) {
       auto opt_proposal = behaviour->processOrderingProposalRequest(round);
       if (opt_proposal) {
-        return iroha::ordering::PackedProposalData {{std::make_pair(
+        return iroha::ordering::PackedProposalData{{std::make_pair(
             std::shared_ptr<const shared_model::interface::Proposal>(
                 std::static_pointer_cast<const shared_model::proto::Proposal>(
                     *opt_proposal)),

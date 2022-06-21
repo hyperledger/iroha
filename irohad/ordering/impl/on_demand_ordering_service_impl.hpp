@@ -26,8 +26,7 @@ namespace iroha {
   namespace ordering {
     namespace detail {
       using ProposalMapType =
-          std::map<consensus::BlockRoundType,
-                   PackedProposalData>;
+          std::map<consensus::BlockRoundType, PackedProposalData>;
     }  // namespace detail
 
     class OnDemandOrderingServiceImpl : public OnDemandOrderingService {

@@ -164,8 +164,11 @@ TEST_F(OnDemandOsTest, OverflowRound) {
   ASSERT_TRUE(os->onRequestProposal(target_round));
   ASSERT_TRUE(os->onRequestProposal(target_round)->size() == 1);
   ASSERT_EQ(transaction_limit,
-            os->onRequestProposal(target_round)->operator[](0).first->transactions().size());
-
+            os->onRequestProposal(target_round)
+                ->
+                operator[](0)
+                .first->transactions()
+                .size());
 }
 
 /**

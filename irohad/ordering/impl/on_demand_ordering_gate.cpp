@@ -131,8 +131,7 @@ void OnDemandOrderingGate::stop() {
   }
 }
 
-void
-OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) {
+void OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) {
   if (not current_ledger_state_ || event.round != current_round_)
     return;
 
@@ -149,7 +148,8 @@ OnDemandOrderingGate::processProposalRequest(ProposalEvent &&event) {
 }
 
 std::optional<iroha::network::OrderingEvent>
-OnDemandOrderingGate::processProposalEvent(iroha::ordering::SingleProposalEvent &&event) {
+OnDemandOrderingGate::processProposalEvent(
+    iroha::ordering::SingleProposalEvent &&event) {
   auto const &round = std::get<0>(event);
   auto const &proposal = std::get<1>(event);
 
@@ -157,13 +157,11 @@ OnDemandOrderingGate::processProposalEvent(iroha::ordering::SingleProposalEvent 
     return std::nullopt;
 
   if (!proposal)
-    return network::OrderingEvent{
-        std::nullopt, round, current_ledger_state_};
+    return network::OrderingEvent{std::nullopt, round, current_ledger_state_};
 
   auto result = removeReplaysAndDuplicates(std::move(proposal));
   if (boost::empty(result->transactions()))
-    return network::OrderingEvent{
-        std::nullopt, round, current_ledger_state_};
+    return network::OrderingEvent{std::nullopt, round, current_ledger_state_};
 
   shared_model::interface::types::SharedTxsCollectionType transactions;
   for (auto &transaction : result->transactions())

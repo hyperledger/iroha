@@ -76,15 +76,15 @@ void OnDemandConnectionManager::onBatchesToWholeNetwork(
 }
 
 void OnDemandConnectionManager::onRequestProposal(
-    consensus::Round round,
-    PackedProposalData ref_proposal) {
+    consensus::Round round, PackedProposalData ref_proposal) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed))
     return;
 
-  log_->debug("onRequestProposal, {} : number elements in reference proposal {}",
-              round,
-              ref_proposal ? ref_proposal.value().size() : 0ull);
+  log_->debug(
+      "onRequestProposal, {} : number elements in reference proposal {}",
+      round,
+      ref_proposal ? ref_proposal.value().size() : 0ull);
   if (auto &connection = connections_.peers[kIssuer])
     (*connection)->onRequestProposal(round, std::move(ref_proposal));
 }

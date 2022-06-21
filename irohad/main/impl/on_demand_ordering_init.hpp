@@ -14,8 +14,8 @@
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "main/subscription_fwd.hpp"
-#include "ordering/impl/round_switch.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "ordering/impl/round_switch.hpp"
 
 namespace grpc {
   class Service;

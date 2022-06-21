@@ -57,9 +57,8 @@ namespace iroha {
         void onBatches(CollectionType batches) override;
         void onBatchesToWholeNetwork(CollectionType batches) override;
 
-        void onRequestProposal(
-            consensus::Round round,
-            PackedProposalData ref_proposal) override;
+        void onRequestProposal(consensus::Round round,
+                               PackedProposalData ref_proposal) override;
 
         std::chrono::milliseconds getRequestDelay() const override;
 

@@ -138,7 +138,7 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
 OnDemandOrderingServiceImpl::~OnDemandOrderingServiceImpl() {
 #if USE_BLOOM_FILTER
   remote_proposal_observer_->unsubscribe();
-#endif//USE_BLOOM_FILTER
+#endif  // USE_BLOOM_FILTER
 }
 
 // -------------------------| OnDemandOrderingService |-------------------------
@@ -252,8 +252,8 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
 
     bool const is_current_round_or_next_pack =
         (round.block_round == current_round_.block_round
-         ? (round.reject_round - current_round_.reject_round)
-         : (round.block_round - current_round_.block_round))
+             ? (round.reject_round - current_round_.reject_round)
+             : (round.block_round - current_round_.block_round))
         <= max_proposal_pack_ + 2ull;
 
     if (is_current_round_or_next_pack) {
@@ -330,7 +330,8 @@ OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
 void OnDemandOrderingServiceImpl::tryErase(
     const consensus::Round &current_round) {
   // find first round that is not less than current_round
-  auto current_proposal_it = proposal_map_.lower_bound(current_round.block_round);
+  auto current_proposal_it =
+      proposal_map_.lower_bound(current_round.block_round);
   // save at most number_of_proposals_ rounds that are less than current_round
   for (size_t i = 0; i < number_of_proposals_
        and current_proposal_it != proposal_map_.begin();

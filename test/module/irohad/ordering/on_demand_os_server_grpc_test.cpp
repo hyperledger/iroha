@@ -264,13 +264,13 @@ TEST_F(OnDemandOsServerGrpcTest, DiffCalculation_noIntersection) {
   std::chrono::milliseconds delay(0);
 
   auto m = std::make_pair(std::shared_ptr<shared_model::interface::Proposal>(
-      std::make_shared<shared_model::proto::Proposal>(
-          std::get<0>(proposal_pack_2))),
-                 std::get<1>(proposal_pack_2));
+                              std::make_shared<shared_model::proto::Proposal>(
+                                  std::get<0>(proposal_pack_2))),
+                          std::get<1>(proposal_pack_2));
   m.first->mut_transactions()[0].storeBatchHash(hashes_2[0]);
   m.first->mut_transactions()[1].storeBatchHash(hashes_2[1]);
 
-  PackedProposalData result {{std::move(m)}};
+  PackedProposalData result{{std::move(m)}};
 
   EXPECT_CALL(*notification, waitForLocalProposal(round, delay))
       .WillOnce(Return(ByMove(result)));

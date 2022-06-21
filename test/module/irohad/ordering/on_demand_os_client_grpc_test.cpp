@@ -175,14 +175,13 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposal) {
   auto creator = "test";
   proto::ProposalResponse response;
   auto prop = response.add_proposal();
-  prop
-      ->add_transactions()
+  prop->add_transactions()
       ->mutable_payload()
       ->mutable_reduced_payload()
       ->set_creator_account_id(creator);
 #if USE_BLOOM_FILTER
   prop->set_proposal_hash("hash_1");
-#endif//USE_BLOOM_FILTER
+#endif  // USE_BLOOM_FILTER
   EXPECT_CALL(*stub, RequestProposal(_, _, _))
       .WillOnce(DoAll(SaveClientContextDeadline(&deadline),
                       SaveArg<1>(&request),

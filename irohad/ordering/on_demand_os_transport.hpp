@@ -63,9 +63,8 @@ namespace iroha {
          * Calculated as block_height + 1
          * @param proposal data with Bloom filter
          */
-        virtual void onRequestProposal(
-            consensus::Round round,
-            PackedProposalData ref_proposal) = 0;
+        virtual void onRequestProposal(consensus::Round round,
+                                       PackedProposalData ref_proposal) = 0;
 
         /**
          * @return delay proposal to wait for.

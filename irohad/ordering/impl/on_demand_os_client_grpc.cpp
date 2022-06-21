@@ -151,9 +151,8 @@ std::chrono::milliseconds OnDemandOsClientGrpc::getRequestDelay() const {
   return proposal_request_timeout_;
 }
 
-void OnDemandOsClientGrpc::onRequestProposal(
-    consensus::Round round,
-    PackedProposalData ref_proposal) {
+void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round,
+                                             PackedProposalData ref_proposal) {
   // Cancel an unfinished request
   if (auto maybe_context = context_.lock()) {
     maybe_context->TryCancel();
@@ -260,7 +259,7 @@ void OnDemandOsClientGrpc::onRequestProposal(
                     remote_proposal ? remote_proposal->createdTime() : 0ull});
           } else
 #endif  // USE_BLOOM_FILTER
-          if (remote_proposal->transactions().empty()) {
+              if (remote_proposal->transactions().empty()) {
             maybe_log->info("Transactions sequence in proposal is empty");
             break;
           }

@@ -143,7 +143,8 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
 
   ordering_gate->processRoundSwitch(event);
 
-  auto val = ordering_gate->processProposalEvent(std::make_tuple(round, proposal));
+  auto val =
+      ordering_gate->processProposalEvent(std::make_tuple(round, proposal));
 
   ASSERT_EQ(*proposal, *getProposalUnsafe(*val));
   EXPECT_EQ(val->ledger_state->ledger_peers, event.ledger_state->ledger_peers);
@@ -173,7 +174,8 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
 
   ordering_gate->processRoundSwitch(event);
 
-  auto val = ordering_gate->processProposalEvent(std::make_tuple(round, proposal));
+  auto val =
+      ordering_gate->processProposalEvent(std::make_tuple(round, proposal));
 
   ASSERT_EQ(*proposal, *getProposalUnsafe(*val));
   EXPECT_EQ(val->ledger_state->ledger_peers, event.ledger_state->ledger_peers);
@@ -196,8 +198,8 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
-  auto val =
-      ordering_gate->processProposalEvent(std::make_tuple(round, PROPOSAL_OR_EMPTY(proposal)));
+  auto val = ordering_gate->processProposalEvent(
+      std::make_tuple(round, PROPOSAL_OR_EMPTY(proposal)));
 
   ASSERT_FALSE(val->proposal);
 }
@@ -219,8 +221,8 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
-  auto val =
-      ordering_gate->processProposalEvent(std::make_tuple(round, PROPOSAL_OR_EMPTY(proposal)));
+  auto val = ordering_gate->processProposalEvent(
+      std::make_tuple(round, PROPOSAL_OR_EMPTY(proposal)));
 
   ASSERT_FALSE(val->proposal);
 }
@@ -273,7 +275,8 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
-  auto val = ordering_gate->processProposalEvent(std::make_tuple(round, PROPOSAL_OR_EMPTY(arriving_proposal)));
+  auto val = ordering_gate->processProposalEvent(
+      std::make_tuple(round, PROPOSAL_OR_EMPTY(arriving_proposal)));
   ASSERT_TRUE(val);
 }
 
@@ -324,7 +327,8 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
 
   ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 
-  auto val = ordering_gate->processProposalEvent(std::make_tuple(round, PROPOSAL_OR_EMPTY(arriving_proposal)));
+  auto val = ordering_gate->processProposalEvent(
+      std::make_tuple(round, PROPOSAL_OR_EMPTY(arriving_proposal)));
   ASSERT_TRUE(val);
 }
 

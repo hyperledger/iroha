@@ -9,9 +9,9 @@
 #include <map>
 #include <memory>
 
-#include "interfaces/iroha_internal/proposal.hpp"
-#include "consensus/round.hpp"
 #include "common/common.hpp"
+#include "consensus/round.hpp"
+#include "interfaces/iroha_internal/proposal.hpp"
 
 namespace iroha::ordering {
 
@@ -33,17 +33,19 @@ namespace iroha::ordering {
     void insert(
         std::vector<std::shared_ptr<shared_model::interface::Proposal const>>
             &&proposal_pack) {
-      cached_data_.exclusiveAccess([proposal_pack{std::move(proposal_pack)}](
-                                       auto &cache) mutable {
-        assert(cache.empty());
-        cache = std::move(proposal_pack);
-        std::sort(cache.rbegin(), cache.rend(), [](auto const &l, auto const &r) {
-          return l->height() < r->height();
-        });
-      });
+      cached_data_.exclusiveAccess(
+          [proposal_pack{std::move(proposal_pack)}](auto &cache) mutable {
+            assert(cache.empty());
+            cache = std::move(proposal_pack);
+            std::sort(
+                cache.rbegin(), cache.rend(), [](auto const &l, auto const &r) {
+                  return l->height() < r->height();
+                });
+          });
     }
 
-    std::shared_ptr<shared_model::interface::Proposal const> get(consensus::Round const &round) {
+    std::shared_ptr<shared_model::interface::Proposal const> get(
+        consensus::Round const &round) {
       return cached_data_.exclusiveAccess(
           [&](auto &cache)
               -> std::shared_ptr<shared_model::interface::Proposal const> {
@@ -61,6 +63,6 @@ namespace iroha::ordering {
     }
   };
 
-}
+}  // namespace iroha::ordering
 
-#endif//IROHA_PROPOSAL_CACHE_HPP
+#endif  // IROHA_PROPOSAL_CACHE_HPP
