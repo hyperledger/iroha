@@ -615,7 +615,7 @@ impl Client {
     /// Create a request with pagination and add the filter.
     ///
     /// # Errors
-    /// Forwards from [`prepare_query_request`].
+    /// Forwards from [`Self::prepare_query_request`].
     pub fn request_with_pagination_and_filter<R>(
         &self,
         request: R,

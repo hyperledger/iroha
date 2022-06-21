@@ -20,7 +20,7 @@ pub struct WithValidators<O: NeedsPermission, V: IsAllowed<O> + Into<IsAllowedBo
 }
 
 /// Helper struct for [`Validator`].
-/// Contains final [`build()`] step
+/// Contains final [`build()`][ShouldSucceedValidator::build()] step
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct ShouldSucceedValidator<
@@ -34,7 +34,7 @@ pub struct ShouldSucceedValidator<
 }
 
 impl Validator {
-    /// Returns new [`ValidatorBuilderWithValidators`] with provided `validator`
+    /// Returns new [`ValidatorBuilderWithValidators`][WithValidators] with provided `validator`
     pub fn with_validator<O, V, E>(validator: impl Into<V>) -> WithValidators<O, V>
     where
         O: NeedsPermission,
@@ -47,7 +47,7 @@ impl Validator {
         WithValidators::new(validator)
     }
 
-    /// Returns new [`ValidatorBuilderWithValidators`]
+    /// Returns new [`ValidatorBuilderWithValidators`][WithValidators]
     /// with provided recursive instruction `validator`
     pub fn with_recursive_validator(
         validator: impl Into<IsInstructionAllowedBoxed>,
