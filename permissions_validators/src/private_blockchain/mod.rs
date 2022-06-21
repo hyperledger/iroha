@@ -75,6 +75,8 @@ mod tests {
         denoland: (DomainId, Domain),
         /// World state view contains wonderland and denoland domains.
         wsv: WorldStateView,
+        /// A trigger that mints Gold asset and created by Alice
+        mintbox_gold_trigger_id: TriggerId,
     }
 
     impl TestEnv {
@@ -125,10 +127,30 @@ mod tests {
 
             denoland.add_account(carol);
 
-            let wsv = WorldStateView::new(World::with(
-                [wonderland.clone(), denoland.clone()],
-                Vec::new(),
-            ));
+            let world = World::with([wonderland.clone(), denoland.clone()], Vec::new());
+
+            let wsv = WorldStateView::new(world);
+
+            let mintbox_gold_trigger_id =
+                TriggerId::from_str("mint_box_gold_asset").expect("Valid");
+
+            wsv.modify_triggers(|triggers| {
+                let trigger_instructions = vec![MintBox::new(1_u32, gold_asset_id.clone()).into()];
+                let trigger: Trigger<FilterBox> = Trigger::new(
+                    mintbox_gold_trigger_id.clone(),
+                    Action::new(
+                        Executable::from(trigger_instructions),
+                        Repeats::Indefinitely,
+                        alice_id.clone(),
+                        FilterBox::Time(TimeEventFilter(ExecutionTime::PreCommit)),
+                    ),
+                );
+
+                triggers.add_time_trigger(trigger.try_into().expect("Valid"));
+
+                Ok(TriggerEvent::Created(mintbox_gold_trigger_id.clone()))
+            })
+            .expect("Valid");
 
             Self {
                 alice_id,
@@ -142,6 +164,7 @@ mod tests {
                 bronze_asset_definition_id,
                 wonderland: (wonderland_id, wonderland),
                 denoland: (denoland_id, denoland),
+                mintbox_gold_trigger_id,
                 wsv,
             }
         }
@@ -950,6 +973,807 @@ mod tests {
                     .is_err());
                 assert!(only_accounts_data
                     .check(&carol_id, &find_bronze_key_value, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_all_domains() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_all_domains = QueryBox::FindAllDomains(FindAllDomains::new());
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_all_domains, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_all_domains, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_all_domains, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_all_domains, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_all_domains, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_all_domains, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_domain_by_id() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wonderland: (wonderland_id, _),
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_wonderland = QueryBox::FindDomainById(FindDomainById::new(wonderland_id));
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_wonderland, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_wonderland, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_wonderland, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_wonderland, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_wonderland, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_wonderland, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_domain_key_value_by_id_and_key() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wonderland: (wonderland_id, _),
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_wonderland_key_value = QueryBox::FindDomainKeyValueByIdAndKey(
+                FindDomainKeyValueByIdAndKey::new(wonderland_id, "foo".to_string()),
+            );
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_wonderland_key_value, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_wonderland_key_value, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_wonderland_key_value, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_wonderland_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_wonderland_key_value, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_wonderland_key_value, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_all_peers() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_all_peers = QueryBox::FindAllPeers(FindAllPeers::new());
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                // Always allow do it for any account.
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_all_peers, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_all_peers, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_all_peers, &wsv)
+                    .is_ok());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                // Always returns an error for any account.
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_all_peers, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_all_peers, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_all_peers, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_all_blocks() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_all_blocks = QueryBox::FindAllBlocks(FindAllBlocks::new());
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                // Always returns an error for any account.
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_all_blocks, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_all_blocks, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_all_blocks, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                // Always returns an error for any account.
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_all_blocks, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_all_blocks, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_all_blocks, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_all_transactions() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_all_transactions = QueryBox::FindAllTransactions(FindAllTransactions::new());
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                // Always returns an error for any account.
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_all_transactions, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_all_transactions, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_all_transactions, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                // Always returns an error for any account.
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_all_transactions, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_all_transactions, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_all_transactions, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_transactions_by_account_id() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_alice_transactions = QueryBox::FindTransactionsByAccountId(
+                FindTransactionsByAccountId::new(alice_id.clone()),
+            );
+            let find_bob_transactions = QueryBox::FindTransactionsByAccountId(
+                FindTransactionsByAccountId::new(bob_id.clone()),
+            );
+            let find_carol_transactions = QueryBox::FindTransactionsByAccountId(
+                FindTransactionsByAccountId::new(carol_id.clone()),
+            );
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_alice_transactions, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_carol_transactions, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_alice_transactions, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_bob_transactions, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_alice_transactions, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_carol_transactions, &wsv)
+                    .is_ok());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_alice_transactions, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_carol_transactions, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_alice_transactions, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_bob_transactions, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_alice_transactions, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_carol_transactions, &wsv)
+                    .is_ok());
+            }
+        }
+
+        #[test]
+        fn find_transaction_by_hash() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_alice_transaction =
+                QueryBox::FindTransactionByHash(FindTransactionByHash::new(Hash::new(&[])));
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                // Always allow for any account.
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_alice_transaction, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_alice_transaction, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_alice_transaction, &wsv)
+                    .is_ok());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                // Always allow for any account.
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_alice_transaction, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_alice_transaction, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_alice_transaction, &wsv)
+                    .is_ok());
+            }
+        }
+
+        #[test]
+        fn find_permission_tokens_by_account_id() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_alice_permission_tokens =
+                QueryBox::FindPermissionTokensByAccountId(FindPermissionTokensByAccountId {
+                    id: alice_id.clone().into(),
+                });
+            let find_bob_permission_tokens =
+                QueryBox::FindPermissionTokensByAccountId(FindPermissionTokensByAccountId {
+                    id: bob_id.clone().into(),
+                });
+            let find_carol_permission_tokens =
+                QueryBox::FindPermissionTokensByAccountId(FindPermissionTokensByAccountId {
+                    id: carol_id.clone().into(),
+                });
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_alice_permission_tokens, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_carol_permission_tokens, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_alice_permission_tokens, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_bob_permission_tokens, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_alice_permission_tokens, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_carol_permission_tokens, &wsv)
+                    .is_ok());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_alice_permission_tokens, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_carol_permission_tokens, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_alice_permission_tokens, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_bob_permission_tokens, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_alice_permission_tokens, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_carol_permission_tokens, &wsv)
+                    .is_ok());
+            }
+        }
+
+        #[test]
+        fn find_all_active_trigger_ids() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_all_active_triggers =
+                QueryBox::FindAllActiveTriggerIds(FindAllActiveTriggerIds {});
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                // Always allow for any account.
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_all_active_triggers, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_all_active_triggers, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_all_active_triggers, &wsv)
+                    .is_ok());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                // Always returns an error for any account.
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_all_active_triggers, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_all_active_triggers, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_all_active_triggers, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_trigger_by_id() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                mintbox_gold_trigger_id,
+                ..
+            } = TestEnv::new();
+
+            let find_trigger = QueryBox::FindTriggerById(FindTriggerById {
+                id: mintbox_gold_trigger_id.into(),
+            });
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_trigger, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_trigger, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_trigger, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_trigger, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_trigger, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_trigger, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_trigger_key_value_by_id_and_key() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                mintbox_gold_trigger_id,
+                ..
+            } = TestEnv::new();
+
+            let find_trigger =
+                QueryBox::FindTriggerKeyValueByIdAndKey(FindTriggerKeyValueByIdAndKey {
+                    id: mintbox_gold_trigger_id.into(),
+                    key: "foo".to_string().into(),
+                });
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_trigger, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_trigger, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_trigger, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_trigger, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_trigger, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_trigger, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_triggers_by_domain_id() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wonderland: (wonderland_id, _),
+                denoland: (denoland_id, _),
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_trigger_by_wonderland =
+                QueryBox::FindTriggersByDomainId(FindTriggersByDomainId::new(wonderland_id));
+            let find_trigger_by_denoland =
+                QueryBox::FindTriggersByDomainId(FindTriggersByDomainId::new(denoland_id));
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_trigger_by_wonderland, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_trigger_by_denoland, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_trigger_by_wonderland, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_trigger_by_denoland, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_trigger_by_wonderland, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_trigger_by_denoland, &wsv)
+                    .is_ok());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_trigger_by_wonderland, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_trigger_by_denoland, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_trigger_by_wonderland, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_trigger_by_denoland, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_trigger_by_wonderland, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_trigger_by_denoland, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_all_roles() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_all_roles = QueryBox::FindAllRoles(FindAllRoles::new());
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_all_roles, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_all_roles, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_all_roles, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_all_roles, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_all_roles, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_all_roles, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_all_role_ids() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_all_role_ids = QueryBox::FindAllRoleIds(FindAllRoleIds::new());
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_all_role_ids, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_all_role_ids, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_all_role_ids, &wsv)
+                    .is_ok());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_all_role_ids, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_all_role_ids, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_all_role_ids, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_roles_by_account_id() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_by_alice =
+                QueryBox::FindRolesByAccountId(FindRolesByAccountId::new(alice_id.clone()));
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_by_alice, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_by_alice, &wsv)
+                    .is_ok());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_by_alice, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_by_alice, &wsv)
+                    .is_ok());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_by_alice, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_by_alice, &wsv)
+                    .is_err());
+            }
+        }
+
+        #[test]
+        fn find_role_by_role_id() {
+            let TestEnv {
+                alice_id,
+                bob_id,
+                carol_id,
+                wsv,
+                ..
+            } = TestEnv::new();
+
+            let find_by_admin =
+                QueryBox::FindRoleByRoleId(FindRoleByRoleId::new("admin".to_string()));
+
+            {
+                let only_accounts_domain: IsQueryAllowedBoxed = query::OnlyAccountsDomain.into();
+
+                assert!(only_accounts_domain
+                    .check(&alice_id, &find_by_admin, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&bob_id, &find_by_admin, &wsv)
+                    .is_err());
+                assert!(only_accounts_domain
+                    .check(&carol_id, &find_by_admin, &wsv)
+                    .is_err());
+            }
+
+            {
+                let only_accounts_data: IsQueryAllowedBoxed = query::OnlyAccountsData.into();
+
+                assert!(only_accounts_data
+                    .check(&alice_id, &find_by_admin, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&bob_id, &find_by_admin, &wsv)
+                    .is_err());
+                assert!(only_accounts_data
+                    .check(&carol_id, &find_by_admin, &wsv)
                     .is_err());
             }
         }
