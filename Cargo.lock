@@ -1866,7 +1866,6 @@ dependencies = [
  "iroha_schema",
  "openssl-sys",
  "parity-scale-codec",
- "rand 0.8.5",
  "serde",
  "serde_json",
  "ursa",
