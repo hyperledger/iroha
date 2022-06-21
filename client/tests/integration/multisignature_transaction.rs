@@ -19,28 +19,23 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     wait_for_genesis_committed(&network.clients(), 0);
     let pipeline_time = Configuration::pipeline_time();
 
-    let create_domain = RegisterBox::new(Domain::new(DomainId::from_str("domain").expect("Valid")));
-    let account_id = AccountId::from_str("account@domain").expect("Valid");
-    let key_pair_1 = KeyPair::generate().expect("Failed to generate KeyPair.");
+    let alice_id = AccountId::from_str("alice@wonderland").expect("Valid");
+    let alice_key_pair = get_key_pair();
     let key_pair_2 = KeyPair::generate().expect("Failed to generate KeyPair.");
-    let create_account = RegisterBox::new(Account::new(
-        account_id.clone(),
-        [key_pair_1.public_key().clone()],
-    ));
-    let asset_definition_id = AssetDefinitionId::from_str("xor#domain").expect("Valid");
+    let asset_definition_id = AssetDefinitionId::from_str("camomile#wonderland").expect("Valid");
     let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
     let set_signature_condition = MintBox::new(
         SignatureCheckCondition(
             ContainsAll::new(
                 ContextValue::new(TRANSACTION_SIGNATORIES_VALUE),
                 vec![
-                    key_pair_1.public_key().clone(),
+                    alice_key_pair.public_key().clone(),
                     key_pair_2.public_key().clone(),
                 ],
             )
             .into(),
         ),
-        IdBox::AccountId(account_id.clone()),
+        IdBox::AccountId(alice_id.clone()),
     );
 
     let mut client_configuration = ClientConfiguration::test(
@@ -49,24 +44,16 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     );
     let iroha_client = Client::new(&client_configuration).expect("Invalid client configuration");
     iroha_client
-        .submit_all(vec![
-            create_domain.into(),
-            create_account.into(),
-            create_asset.into(),
-            set_signature_condition.into(),
-        ])
+        .submit_all_blocking(vec![create_asset.into(), set_signature_condition.into()])
         .expect("Failed to prepare state.");
-    thread::sleep(pipeline_time * 2);
 
     //When
     let quantity: u32 = 200;
-    let mint_asset = MintBox::new(
-        Value::U32(quantity),
-        IdBox::AssetId(AssetId::new(asset_definition_id, account_id.clone())),
-    );
+    let asset_id = AssetId::new(asset_definition_id, alice_id.clone());
+    let mint_asset = MintBox::new(Value::U32(quantity), IdBox::AssetId(asset_id.clone()));
 
-    let (public_key1, private_key1) = key_pair_1.into();
-    client_configuration.account_id = account_id.clone();
+    let (public_key1, private_key1) = alice_key_pair.into();
+    client_configuration.account_id = alice_id.clone();
     client_configuration.public_key = public_key1;
     client_configuration.private_key = private_key1;
     let iroha_client = Client::new(&client_configuration).expect("Invalid client configuration");
@@ -88,11 +75,14 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
         "http://".to_owned() + &network.peers.values().last().unwrap().api_address,
     );
     let iroha_client_1 = Client::new(&client_configuration).expect("Invalid client configuration");
-    let request = client::asset::by_account_id(account_id);
-    assert!(iroha_client_1
-        .request(request.clone())
-        .expect("Query failed.")
-        .is_empty());
+    let request = client::asset::by_account_id(alice_id);
+    assert_eq!(
+        iroha_client_1
+            .request(request.clone())
+            .expect("Query failed.")
+            .len(),
+        1 // Alice has roses from Genesis
+    );
     let (public_key2, private_key2) = key_pair_2.into();
     client_configuration.public_key = public_key2;
     client_configuration.private_key = private_key2;
@@ -115,5 +105,9 @@ fn multisignature_transactions_should_wait_for_all_signatures() {
     thread::sleep(pipeline_time);
     let assets = iroha_client_1.request(request).expect("Query failed.");
     assert!(!assets.is_empty());
-    assert_eq!(AssetValue::Quantity(quantity), *assets[0].value());
+    let camomile_asset = assets
+        .iter()
+        .find(|asset| *asset.id() == asset_id)
+        .expect("Failed to find expected asset");
+    assert_eq!(AssetValue::Quantity(quantity), *camomile_asset.value());
 }

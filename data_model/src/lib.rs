@@ -355,6 +355,8 @@ pub enum IdentifiableBox {
     NewAccount(Box<<account::Account as Registered>::With>),
     /// [`NewAssetDefinition`](`asset::NewAssetDefinition`) variant.
     NewAssetDefinition(Box<<asset::AssetDefinition as Registered>::With>),
+    /// [`NewRole`](`role::NewRole`) variant.
+    NewRole(Box<<role::Role as Registered>::With>),
     /// [`Peer`](`peer::Peer`) variant.
     Peer(Box<peer::Peer>),
     /// [`Domain`](`domain::Domain`) variant.
@@ -380,6 +382,7 @@ impl IdentifiableBox {
             IdentifiableBox::NewDomain(a) => a.id().clone().into(),
             IdentifiableBox::NewAccount(a) => a.id().clone().into(),
             IdentifiableBox::NewAssetDefinition(a) => a.id().clone().into(),
+            IdentifiableBox::NewRole(a) => a.id().clone().into(),
             IdentifiableBox::Peer(a) => a.id().clone().into(),
             IdentifiableBox::Domain(a) => a.id().clone().into(),
             IdentifiableBox::Account(a) => a.id().clone().into(),
@@ -537,9 +540,8 @@ from_and_try_from_value_idbox!(
     AssetId(asset::Id),
     AssetDefinitionId(asset::DefinitionId),
     TriggerId(trigger::Id),
+    RoleId(role::Id),
 );
-
-from_and_try_from_value_idbox!(RoleId(role::Id),);
 
 // TODO: Should we wrap String with new type in order to convert like here?
 //from_and_try_from_value_idbox!((DomainName(Name), ErrorValueTryFromDomainName),);
@@ -595,15 +597,15 @@ from_and_try_from_value_identifiablebox!(
     NewDomain(Box<domain::NewDomain>),
     NewAccount(Box<account::NewAccount>),
     NewAssetDefinition(Box<asset::NewAssetDefinition>),
+    NewRole(Box<role::NewRole>),
     Peer(Box<peer::Peer>),
     Domain(Box<domain::Domain>),
     Account(Box<account::Account>),
     AssetDefinition(Box<asset::AssetDefinition>),
     Asset(Box<asset::Asset>),
     Trigger(Box<trigger::Trigger<FilterBox>>),
+    Role(Box<role::Role>),
 );
-
-from_and_try_from_value_identifiablebox!(Role(Box<role::Role>),);
 
 from_and_try_from_value_identifiable!(
     NewDomain(Box<domain::NewDomain>),
@@ -651,9 +653,9 @@ impl TryFrom<IdentifiableBox> for RegistrableBox {
             NewDomain(domain) => Ok(RegistrableBox::Domain(domain)),
             NewAccount(account) => Ok(RegistrableBox::Account(account)),
             NewAssetDefinition(asset) => Ok(RegistrableBox::AssetDefinition(asset)),
+            NewRole(role) => Ok(RegistrableBox::Role(role)),
             Asset(asset) => Ok(RegistrableBox::Asset(asset)),
             Trigger(trigger) => Ok(RegistrableBox::Trigger(trigger)),
-            Role(role) => Ok(RegistrableBox::Role(role)),
             _ => Err(Self::Error::default()),
         }
     }
@@ -668,9 +670,9 @@ impl From<RegistrableBox> for IdentifiableBox {
             Domain(domain) => IdentifiableBox::NewDomain(domain),
             Account(account) => IdentifiableBox::NewAccount(account),
             AssetDefinition(asset) => IdentifiableBox::NewAssetDefinition(asset),
+            Role(role) => IdentifiableBox::NewRole(role),
             Asset(asset) => IdentifiableBox::Asset(asset),
             Trigger(trigger) => IdentifiableBox::Trigger(trigger),
-            Role(role) => IdentifiableBox::Role(role),
         }
     }
 }

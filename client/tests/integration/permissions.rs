@@ -185,7 +185,7 @@ fn permissions_checked_before_transaction_execution() {
     let isi = [
         // Grant instruction is not allowed
         Instruction::Grant(GrantBox::new(
-            private_blockchain::register::CAN_REGISTER_DOMAINS_TOKEN.clone(),
+            PermissionToken::from(private_blockchain::register::CanRegisterDomains::new()),
             IdBox::AccountId("alice@wonderland".parse().expect("Valid")),
         )),
         Instruction::Register(RegisterBox::new(Domain::new(

@@ -117,28 +117,54 @@ pub fn default_permissions() -> IsInstructionAllowedBoxed {
         .build()
 }
 
-/// Extracts specialized token from `GrantBox`
+/// Extracts specialized token from [`GrantBox`]
 ///
 /// # Errors
 /// - Cannot evaluate `instruction`
-/// - `instruction` doesn't evaluate to `PermissionToken`
+/// - `instruction` doesn't evaluate to [`RoleId`] or [`PermissionToken`]
+/// - There is no such role
+/// - Role doesn't contain requested specialized token
 /// - Generic `PermissionToken` can't be converted to requested specialized token.
 pub fn extract_specialized_token<T>(instruction: &GrantBox, wsv: &WorldStateView) -> Result<T>
 where
     T: TryFrom<PermissionToken, Error = PredefinedTokenConversionError>,
 {
-    let permission_token: PermissionToken = instruction
+    let value = instruction
         .object
         .evaluate(wsv, &Context::new())
-        .map_err(|e| e.to_string())?
-        .try_into()
-        .map_err(|e: ErrorTryFromEnum<_, _>| e.to_string())?;
+        .map_err(|e| e.to_string())?;
 
-    let specialized_token: T = permission_token
-        .try_into()
-        .map_err(|e: PredefinedTokenConversionError| e.to_string())?;
+    match value {
+        Value::Id(IdBox::RoleId(role_id)) => {
+            let role = wsv
+                .roles()
+                .get(&role_id)
+                .ok_or_else(|| format!("Role with id `{role_id}` not found"))?;
+            let specialized_token = role
+                .permissions()
+                .find_map(|permission| T::try_from(permission.clone()).ok())
+                .ok_or_else(|| {
+                    format!(
+                        "Role {} doesn't contain requested permission token",
+                        role.value()
+                    )
+                })?;
 
-    Ok(specialized_token)
+            Ok(specialized_token)
+        }
+        Value::PermissionToken(permission_token) => {
+            let specialized_token: T = permission_token
+                .try_into()
+                .map_err(|e: PredefinedTokenConversionError| e.to_string())?;
+
+            Ok(specialized_token)
+        }
+        _ => Err(
+            "Provided `Grant` instruction contains unsupported object type"
+                .to_owned()
+                .into(),
+        ),
+    }
 }
 
 /// Checks that asset creator is `authority` in the supplied `definition_id`.

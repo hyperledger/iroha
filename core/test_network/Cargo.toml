@@ -16,6 +16,7 @@ iroha_data_model = { version = "=2.0.0-pre-rc.5", path = "../../data_model" }
 iroha_logger = { version = "=2.0.0-pre-rc.5", path = "../../logger" }
 iroha_actor = { version = "=2.0.0-pre-rc.5", path = "../../actor" }
 iroha = { path = "../../cli", features = ["test-network"] }
+iroha_permissions_validators = { version = "=2.0.0-pre-rc.5", path = "../../permissions_validators" }
 
 eyre = "0.6.5"
 tempfile = "3"

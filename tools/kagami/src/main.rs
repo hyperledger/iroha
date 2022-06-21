@@ -38,13 +38,13 @@ pub trait RunArgs<T: Write> {
 #[structopt(name = "kagami", version, author)]
 pub enum Args {
     /// Generate cryptographic key pairs
-    Crypto(crypto::Args),
+    Crypto(Box<crypto::Args>),
     /// Generate the schema used for code generation in Iroha SDKs
     Schema(schema::Args),
     /// Generate the default genesis block that is used in tests
     Genesis(genesis::Args),
     /// Generate a Markdown reference of configuration parameters
-    Docs(docs::Args),
+    Docs(Box<docs::Args>),
     /// Generate a list of predefined permission tokens and their parameters
     Tokens(tokens::Args),
 }
@@ -303,47 +303,88 @@ mod docs {
 mod tokens {
     use std::collections::HashMap;
 
-    use color_eyre::eyre::{bail, eyre, WrapErr};
-    use iroha_permissions_validators::public_blockchain::PredefinedPermissionToken;
+    use clap::ArgEnum;
+    use color_eyre::{
+        eyre::{bail, eyre, WrapErr},
+        Result,
+    };
+    use iroha_permissions_validators::{
+        private_blockchain::register::CanRegisterDomains,
+        public_blockchain::PredefinedPermissionToken,
+    };
     use iroha_schema::{IntoSchema, Metadata};
 
     use super::*;
 
     #[derive(StructOpt, Debug, Clone, Copy)]
-    pub struct Args;
+    pub struct Args {
+        #[structopt(arg_enum, default_value = "public")]
+        /// Whether to list private or public blockchain tokens
+        blockchain: Blockchain,
+    }
+
+    #[derive(ArgEnum, Debug, Clone, Copy)]
+    pub enum Blockchain {
+        Private,
+        Public,
+    }
+
+    fn public_blockchain_tokens() -> Result<HashMap<String, HashMap<String, String>>> {
+        let mut schema = PredefinedPermissionToken::get_schema();
+
+        let enum_variants = match schema
+            .remove("iroha_permissions_validators::public_blockchain::PredefinedPermissionToken")
+            .ok_or_else(|| eyre!("Token enum is not in schema"))?
+        {
+            Metadata::Enum(meta) => meta.variants,
+            _ => bail!("Expected enum"),
+        };
+
+        enum_variants
+            .into_iter()
+            .map(|variant| {
+                let ty = variant.ty.ok_or_else(|| eyre!("Empty enum variant"))?;
+                let fields = match schema
+                    .remove(&ty)
+                    .ok_or_else(|| eyre!("Token is not in schema"))?
+                {
+                    Metadata::Struct(meta) => meta
+                        .declarations
+                        .into_iter()
+                        .map(|decl| (decl.name, decl.ty))
+                        .collect::<HashMap<_, _>>(),
+                    _ => bail!("Token is not a struct"),
+                };
+                Ok((ty, fields))
+            })
+            .collect::<Result<HashMap<_, _>, _>>()
+    }
+
+    fn private_blockchain_tokens() -> Result<HashMap<String, HashMap<String, String>>> {
+        let schema = CanRegisterDomains::get_schema();
+
+        schema
+            .into_iter()
+            .map(|(ty, meta)| {
+                let fields = match meta {
+                    Metadata::Struct(meta) => meta
+                        .declarations
+                        .into_iter()
+                        .map(|decl| (decl.name, decl.ty))
+                        .collect::<HashMap<_, _>>(),
+                    _ => bail!("Token is not a struct"),
+                };
+                Ok((ty, fields))
+            })
+            .collect::<Result<HashMap<_, _>, _>>()
+    }
 
     impl<T: Write> RunArgs<T> for Args {
         fn run(self, writer: &mut BufWriter<T>) -> Outcome {
-            let mut schema = PredefinedPermissionToken::get_schema();
-
-            let enum_variants = match schema
-                .remove(
-                    "iroha_permissions_validators::public_blockchain::PredefinedPermissionToken",
-                )
-                .ok_or_else(|| eyre!("Token enum not in schema"))?
-            {
-                Metadata::Enum(meta) => meta.variants,
-                _ => bail!("Expected enum"),
+            let token_map = match self.blockchain {
+                Blockchain::Private => private_blockchain_tokens()?,
+                Blockchain::Public => public_blockchain_tokens()?,
             };
-
-            let token_map = enum_variants
-                .into_iter()
-                .map(|variant| {
-                    let ty = variant.ty.ok_or_else(|| eyre!("Empty enum variant"))?;
-                    let fields = match schema
-                        .remove(&ty)
-                        .ok_or_else(|| eyre!("Token not in schema"))?
-                    {
-                        Metadata::Struct(meta) => meta
-                            .declarations
-                            .into_iter()
-                            .map(|decl| (decl.name, decl.ty))
-                            .collect::<HashMap<_, _>>(),
-                        _ => bail!("Token is not a struct"),
-                    };
-                    Ok((ty, fields))
-                })
-                .collect::<Result<HashMap<_, _>, _>>()?;
 
             write!(
                 writer,

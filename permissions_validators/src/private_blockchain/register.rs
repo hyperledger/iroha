@@ -1,13 +1,12 @@
 //! Module with permissions for registering.
 
-use std::str::FromStr as _;
-
 use super::*;
 
-/// Can register domains permission token name.
-#[allow(clippy::expect_used)]
-pub static CAN_REGISTER_DOMAINS_TOKEN: Lazy<Name> =
-    Lazy::new(|| Name::from_str("can_register_domains").expect("this mustn't panic"));
+declare_token!(
+    /// Can register domains.
+    CanRegisterDomains {},
+    "can_register_domains"
+);
 
 /// Prohibits registering domains.
 #[derive(Debug, Copy, Clone, Serialize)]
@@ -20,14 +19,15 @@ impl IsAllowed<Instruction> for ProhibitRegisterDomains {
         &self,
         _authority: &AccountId,
         instruction: &Instruction,
-        _wsv: &WorldStateView,
+        wsv: &WorldStateView,
     ) -> Result<(), DenialReason> {
-        let _register_box = if let Instruction::Register(register) = instruction {
-            register
-        } else {
-            return Ok(());
-        };
-        Err("Domain registration is prohibited.".to_owned().into())
+        if let Instruction::Register(register) = instruction {
+            if let Ok(RegistrableBox::Domain(_)) = register.object.evaluate(wsv, &Context::new()) {
+                return Err("Domain registration is prohibited.".to_owned().into());
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -44,6 +44,6 @@ impl HasToken for GrantedAllowedRegisterDomains {
         _instruction: &Instruction,
         _wsv: &WorldStateView,
     ) -> Result<PermissionToken, String> {
-        Ok(PermissionToken::new(CAN_REGISTER_DOMAINS_TOKEN.clone()))
+        Ok(CanRegisterDomains::new().into())
     }
 }

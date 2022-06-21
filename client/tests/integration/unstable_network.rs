@@ -80,9 +80,13 @@ fn unstable_network(
     let pipeline_time = Configuration::pipeline_time();
 
     let account_id: AccountId = "alice@wonderland".parse().expect("Valid");
-    let asset_definition_id: AssetDefinitionId = "rose#wonderland".parse().expect("Valid");
-    // Initially there are 13 roses.
-    let mut account_has_quantity = 13;
+    let asset_definition_id: AssetDefinitionId = "camomile#wonderland".parse().expect("Valid");
+    let register_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    iroha_client
+        .submit_blocking(register_asset)
+        .expect("Failed to register asset");
+    // Initially there are 0 camomile
+    let mut account_has_quantity = 0;
 
     //When
     for _i in 0..n_transactions {

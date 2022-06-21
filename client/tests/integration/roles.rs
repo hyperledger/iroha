@@ -30,26 +30,27 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
-    let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland")?;
+    let mouse_id = <Account as Identifiable>::Id::from_str("mouse@wonderland")?;
     let rose_definition_id = <AssetDefinition as Identifiable>::Id::from_str("rose#wonderland")?;
     let alice_rose_id =
         <Asset as Identifiable>::Id::new(rose_definition_id.clone(), alice_id.clone());
-    let bob_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, bob_id.clone());
+    let mouse_rose_id = <Asset as Identifiable>::Id::new(rose_definition_id, mouse_id.clone());
     let role_id = <Role as Identifiable>::Id::from_str("non_privileged_user")?;
     let rose_value = get_asset_value(&mut test_client, alice_rose_id.clone())?;
 
     // Alice already has roses from genesis
     assert!(rose_value > COUNT + 1);
 
-    // Registering Bob
-    let register_bob = RegisterBox::new(Account::new(bob_id, []));
-    test_client.submit_blocking(register_bob)?;
+    // Registering Mouse
+    let register_mouse = RegisterBox::new(Account::new(mouse_id, []));
+    test_client.submit_blocking(register_mouse)?;
 
     // Registering new role which sets `Transfer` execution count limit to
     // `COUNT` for every `PERIOD_MS` milliseconds
     let permission_token =
         transfer::CanTransferOnlyFixedNumberOfTimesPerPeriod::new(PERIOD_MS.into(), COUNT);
-    let register_role = RegisterBox::new(Role::new(role_id.clone(), vec![permission_token]));
+    let register_role =
+        RegisterBox::new(Role::new(role_id.clone()).add_permission(permission_token));
     test_client.submit_blocking(register_role)?;
 
     // Granting new role to Alice
@@ -57,14 +58,15 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     test_client.submit_blocking(grant_role)?;
 
     // Exhausting limit
-    let transfer_rose = TransferBox::new(alice_rose_id.clone(), Value::U32(1), bob_rose_id.clone());
+    let transfer_rose =
+        TransferBox::new(alice_rose_id.clone(), Value::U32(1), mouse_rose_id.clone());
     for _ in 0..COUNT {
         test_client.submit_blocking(transfer_rose.clone())?;
     }
     let new_alice_rose_value = get_asset_value(&mut test_client, alice_rose_id.clone())?;
-    let new_bob_rose_value = get_asset_value(&mut test_client, bob_rose_id.clone())?;
+    let new_mouse_rose_value = get_asset_value(&mut test_client, mouse_rose_id.clone())?;
     assert_eq!(new_alice_rose_value, rose_value - COUNT);
-    assert_eq!(new_bob_rose_value, COUNT);
+    assert_eq!(new_mouse_rose_value, COUNT);
 
     // Checking that Alice can't do one more transfer
     if test_client.submit_blocking(transfer_rose.clone()).is_ok() {
@@ -74,12 +76,12 @@ fn add_role_to_limit_transfer_count() -> Result<()> {
     // Waiting for a new period
     std::thread::sleep(Duration::from_millis(PERIOD_MS));
 
-    // Transferring one more rose from Alice to Bob
+    // Transferring one more rose from Alice to Mouse
     test_client.submit_blocking(transfer_rose)?;
     let new_alice_rose_value = get_asset_value(&mut test_client, alice_rose_id)?;
-    let new_bob_rose_value = get_asset_value(&mut test_client, bob_rose_id)?;
+    let new_mouse_rose_value = get_asset_value(&mut test_client, mouse_rose_id)?;
     assert_eq!(new_alice_rose_value, rose_value - COUNT - 1);
-    assert_eq!(new_bob_rose_value, COUNT + 1);
+    assert_eq!(new_mouse_rose_value, COUNT + 1);
 
     Ok(())
 }
@@ -95,7 +97,7 @@ fn register_empty_role() -> Result<()> {
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
     let role_id = "root".parse().expect("Valid");
-    let register_role = RegisterBox::new(NewRole::new(role_id).build());
+    let register_role = RegisterBox::new(Role::new(role_id));
 
     test_client.submit(register_role)?;
     Ok(())
@@ -108,7 +110,7 @@ fn register_role_with_empty_token_params() -> Result<()> {
 
     let role_id = "root".parse().expect("Valid");
     let token = PermissionToken::new("token".parse().expect("Valid"));
-    let role = NewRole::new(role_id).add_permission(token).build();
+    let role = Role::new(role_id).add_permission(token);
 
     test_client.submit(RegisterBox::new(role))?;
     Ok(())
@@ -129,25 +131,23 @@ fn register_and_grant_role_for_metadata_access() -> Result<()> {
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
-    let bob_id = <Account as Identifiable>::Id::from_str("bob@wonderland")?;
-    let register_bob = RegisterBox::new(Account::new(bob_id.clone(), []));
-    test_client.submit_blocking(register_bob)?;
+    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
+    let mouse_id = <Account as Identifiable>::Id::from_str("mouse@wonderland")?;
+
+    let register_mouse = RegisterBox::new(Account::new(mouse_id.clone(), []));
+    test_client.submit_blocking(register_mouse)?;
 
     let role_id = <Role as Identifiable>::Id::from_str("USER_METADATA_ACCESS")?;
-
-    let role = iroha_data_model::role::NewRole::new(role_id.clone())
-        .add_permission(CanSetKeyValueInUserMetadata::new(bob_id.clone()))
-        .add_permission(CanRemoveKeyValueInUserMetadata::new(bob_id))
-        .build();
+    let role = iroha_data_model::role::Role::new(role_id.clone())
+        .add_permission(CanSetKeyValueInUserMetadata::new(alice_id.clone()))
+        .add_permission(CanRemoveKeyValueInUserMetadata::new(alice_id));
     let register_role = RegisterBox::new(role);
     test_client.submit_blocking(register_role)?;
 
-    let alice_id = <Account as Identifiable>::Id::from_str("alice@wonderland")?;
-    let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
+    let grant_role = GrantBox::new(role_id.clone(), mouse_id.clone());
     test_client.submit_blocking(grant_role)?;
 
-    let found_role_ids = test_client.request(client::role::by_account_id(alice_id))?;
-
+    let found_role_ids = test_client.request(client::role::by_account_id(mouse_id))?;
     assert!(found_role_ids.contains(&role_id));
 
     Ok(())
@@ -160,25 +160,32 @@ fn unregistered_role_removed_from_account() -> Result<()> {
 
     let role_id: <Role as Identifiable>::Id = "root".parse().expect("Valid");
     let alice_id: <Account as Identifiable>::Id = "alice@wonderland".parse().expect("Valid");
+    let mouse_id: <Account as Identifiable>::Id = "mouse@wonderland".parse().expect("Valid");
+
+    // Registering Mouse
+    let register_mouse = RegisterBox::new(Account::new(mouse_id.clone(), []));
+    test_client.submit_blocking(register_mouse)?;
 
     // Register root role
-    let register_role = RegisterBox::new(NewRole::new(role_id.clone()).build());
+    let register_role = RegisterBox::new(
+        Role::new(role_id.clone()).add_permission(CanSetKeyValueInUserMetadata::new(alice_id)),
+    );
     test_client.submit_blocking(register_role)?;
 
-    // Grant root role to Alice
-    let grant_role = GrantBox::new(role_id.clone(), alice_id.clone());
+    // Grant root role to Mouse
+    let grant_role = GrantBox::new(role_id.clone(), mouse_id.clone());
     test_client.submit_blocking(grant_role)?;
 
-    // Check that Alice has root role
-    let found_alice_roles = test_client.request(client::role::by_account_id(alice_id.clone()))?;
+    // Check that Mouse has root role
+    let found_alice_roles = test_client.request(client::role::by_account_id(mouse_id.clone()))?;
     assert!(found_alice_roles.contains(&role_id));
 
     // Unregister root role
     let unregister_role = UnregisterBox::new(role_id.clone());
     test_client.submit_blocking(unregister_role)?;
 
-    // Check that Alice doesn't have the root role
-    let found_alice_roles = test_client.request(client::role::by_account_id(alice_id))?;
+    // Check that Mouse doesn't have the root role
+    let found_alice_roles = test_client.request(client::role::by_account_id(mouse_id))?;
     assert!(!found_alice_roles.contains(&role_id));
 
     Ok(())
