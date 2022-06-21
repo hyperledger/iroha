@@ -32,3 +32,6 @@ jobs:
       - name: Verify iroha_data_model still supports no_std
         run: cargo nono check --package iroha_data_model --no-default-features
         if: always()
+      - name: Documentation check
+        run: if cargo doc -q 2>&1 | grep '^'; then exit 1; fi
+        if: always()
