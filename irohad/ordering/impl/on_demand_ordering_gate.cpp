@@ -6,6 +6,7 @@
 #include "ordering/impl/on_demand_ordering_gate.hpp"
 
 #include <iterator>
+#include <tuple>
 
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/indexed.hpp>

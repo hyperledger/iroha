@@ -24,8 +24,8 @@ namespace iroha::ordering {
     ProposalCache(ProposalCache const &) = delete;
     ProposalCache &operator=(ProposalCache const &) = delete;
 
-    ProposalCache(ProposalCache &&) = default;
-    ProposalCache &operator=(ProposalCache &&) = default;
+    ProposalCache(ProposalCache &&) = delete;
+    ProposalCache &operator=(ProposalCache &&) = delete;
 
     ProposalCache() = default;
 
