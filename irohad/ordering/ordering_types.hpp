@@ -14,28 +14,19 @@ namespace iroha::ordering {
 
 #define USE_BLOOM_FILTER 0
 
-  static constexpr uint64_t kBloomFilterOrder = 32 * 1024ull;
-  using BloomFilter256 =
-      shared_model::
-          crypto::BloomFilter<shared_model::crypto::Hash,
-                              kBloomFilterOrder,
-                              shared_model::crypto::
-                                  Iroha2BloomHasher64<0, kBloomFilterOrder / 8>,
-                              shared_model::crypto::
-                                  Iroha2BloomHasher64<1, kBloomFilterOrder / 8>,
-                              shared_model::crypto::
-                                  Iroha2BloomHasher64<2, kBloomFilterOrder / 8>,
-                              shared_model::crypto::
-                                  Iroha2BloomHasher64<3, kBloomFilterOrder / 8>,
-                              shared_model::crypto::
-                                  Iroha2BloomHasher64<4, kBloomFilterOrder / 8>,
-                              shared_model::crypto::
-                                  Iroha2BloomHasher64<5, kBloomFilterOrder / 8>,
-                              shared_model::crypto::
-                                  Iroha2BloomHasher64<6,
-                                                      kBloomFilterOrder / 8> /*,
-          shared_model::crypto::Iroha2BloomHasher64<7, kBloomFilterOrder /
-          8>*/>;
+  static constexpr uint64_t kBloomFilterOrder = 32ull * 1024ull;
+  static constexpr uint64_t kBloomFilterSize = kBloomFilterOrder / 8ull;
+
+  using BloomFilter256 = shared_model::crypto::BloomFilter<
+      shared_model::crypto::Hash,
+      kBloomFilterOrder,
+      shared_model::crypto::Iroha2BloomHasher64<0, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<1, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<2, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<3, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<4, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<5, kBloomFilterSize>,
+      shared_model::crypto::Iroha2BloomHasher64<6, kBloomFilterSize>>;
 
   struct RemoteProposalDownloadedEvent {
     std::shared_ptr<shared_model::interface::Proposal const> local;
