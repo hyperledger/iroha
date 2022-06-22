@@ -47,6 +47,18 @@ pub enum ValidatorType {
     /// [`Expression`] variant
     Expression,
 }
+
+/// Verdict returned by validators
+#[derive(Debug, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
+pub enum ValidatorVerdict {
+    /// Instruction is allowed
+    Allow,
+    /// Instruction is denied
+    Deny(DenialReason),
+    /// Instruction is skipped cause it is not supported by the validator
+    Skip,
+}
+
 pub mod error {
     //! Contains errors structures
 
@@ -63,7 +75,7 @@ pub mod error {
     pub type ValidatorTypeMismatch = Mismatch<ValidatorType>;
 
     /// Reason for prohibiting the execution of the particular instruction.
-    #[derive(Debug, Clone, thiserror::Error, Decode, Encode, IntoSchema)]
+    #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Decode, Encode, IntoSchema)]
     #[allow(variant_size_differences)]
     pub enum DenialReason {
         /// [`ValidatorTypeMismatch`] variant
