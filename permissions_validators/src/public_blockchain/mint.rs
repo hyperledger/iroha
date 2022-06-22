@@ -4,7 +4,7 @@ use iroha_data_model::asset::DefinitionId;
 use super::*;
 
 declare_token!(
-    /// Can mint asset with the corresponding asset definition.
+    /// Can register and mint assets with the corresponding asset definition.
     CanMintUserAssetDefinitions {
         /// Asset definition id
         asset_definition_id ("asset_definition_id"): DefinitionId,
@@ -25,26 +25,53 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<()> {
-        let mint_box = if let Instruction::Mint(mint) = instruction {
-            mint
-        } else {
-            return Ok(());
-        };
-        let destination_id = mint_box
-            .destination_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
-        let asset_id: AssetId = try_into_or_exit!(destination_id);
-        let registered_by_signer_account = wsv
-            .asset_definition_entry(&asset_id.definition_id)
-            .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
-            .unwrap_or(false);
-        if !registered_by_signer_account {
-            return Err("Can't mint assets registered by other accounts."
-                .to_owned()
-                .into());
+        match instruction {
+            Instruction::Register(register) => {
+                if let RegistrableBox::Asset(asset) = register
+                    .object
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
+                {
+                    let registered_by_signer_account = wsv
+                        .asset_definition_entry(&asset.id().definition_id)
+                        .map(|asset_definition_entry| {
+                            asset_definition_entry.registered_by() == authority
+                        })
+                        .unwrap_or(false);
+
+                    if !registered_by_signer_account {
+                        return Err(
+                            "Can't register assets with definitions registered by other accounts."
+                                .to_owned()
+                                .into(),
+                        );
+                    }
+                }
+                Ok(())
+            }
+            Instruction::Mint(mint_box) => {
+                let destination_id = mint_box
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let asset_id: AssetId = try_into_or_exit!(destination_id);
+                let registered_by_signer_account = wsv
+                    .asset_definition_entry(&asset_id.definition_id)
+                    .map(|asset_definition_entry| {
+                        asset_definition_entry.registered_by() == authority
+                    })
+                    .unwrap_or(false);
+                if !registered_by_signer_account {
+                    return Err(
+                        "Can't mint assets with definitions registered by other accounts."
+                            .to_owned()
+                            .into(),
+                    );
+                }
+                Ok(())
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 }
 
@@ -62,21 +89,32 @@ impl HasToken for GrantedByAssetCreator {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
-        let mint_box = if let Instruction::Mint(mint) = instruction {
-            mint
-        } else {
-            return Err("Instruction is not mint.".to_owned());
-        };
-        let destination_id = mint_box
-            .destination_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
-        let asset_id: AssetId = if let Ok(dest_id) = destination_id.try_into() {
-            dest_id
-        } else {
-            return Err("Destination is not an Asset.".to_owned());
-        };
-        Ok(CanMintUserAssetDefinitions::new(asset_id.definition_id).into())
+        match instruction {
+            Instruction::Register(register) => {
+                if let RegistrableBox::Asset(asset) = register
+                    .object
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
+                {
+                    Ok(CanMintUserAssetDefinitions::new(asset.id().definition_id.clone()).into())
+                } else {
+                    Err("Expected the register asset instruction".to_owned())
+                }
+            }
+            Instruction::Mint(mint_box) => {
+                let destination_id = mint_box
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let asset_id: AssetId = if let Ok(dest_id) = destination_id.try_into() {
+                    dest_id
+                } else {
+                    return Err("Destination is not an Asset.".to_owned());
+                };
+                Ok(CanMintUserAssetDefinitions::new(asset_id.definition_id).into())
+            }
+            _ => Err("Expected mint or register asset instruction".to_owned()),
+        }
     }
 }
 
