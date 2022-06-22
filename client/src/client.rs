@@ -65,12 +65,12 @@ where
             match resp.status() {
                 StatusCode::OK => {
                     let mut res = VersionedPaginatedQueryResult::decode_all_versioned(resp.body());
-                    if res.is_err() {
-                        warn!("Can't decode query result using all bytes");
+                    if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
+                        warn!(left_bytes = %left, "Can't decode query result, not all bytes were consumed");
                         res = VersionedPaginatedQueryResult::decode_versioned(resp.body());
                     }
                     res.wrap_err(
-                        "Failed to decode all response body as VersionedPaginatedQueryResult",
+                        "Failed to decode the whole response body as `VersionedPaginatedQueryResult`",
                     )
                     .map_err(Into::into)
                 }
@@ -80,10 +80,11 @@ where
                 | StatusCode::NOT_FOUND => {
                     let mut res = QueryError::decode_all(resp.body().as_ref());
                     if res.is_err() {
-                        warn!("Can't decode query error using all bytes");
+                        warn!("Can't decode query error, not all bytes were consumed");
                         res = QueryError::decode(&mut resp.body().as_ref());
                     }
-                    let err = res.wrap_err("Failed to decode all response body as QueryError")?;
+                    let err =
+                        res.wrap_err("Failed to decode the whole response body as `QueryError`")?;
                     Err(ClientQueryError::QueryError(err))
                 }
                 _ => Err(ResponseReport::with_msg("Unexpected query response", resp).into()),
@@ -729,8 +730,8 @@ impl Client {
 
             if response.status() == StatusCode::OK {
                 let mut res = VersionedPendingTransactions::decode_all_versioned(response.body());
-                if res.is_err() {
-                    warn!("Can't decode pending transactions using all bytes");
+                if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
+                    warn!(left_bytes = %left, "Can't decode pending transactions, not all bytes were consumed");
                     res = VersionedPendingTransactions::decode_versioned(response.body());
                 }
                 let pending_transactions = res?;
@@ -938,8 +939,8 @@ pub mod events_api {
 
         fn decode_publisher_message(bytes: &[u8]) -> Result<VersionedEventPublisherMessage> {
             let mut res = VersionedEventPublisherMessage::decode_all_versioned(bytes);
-            if res.is_err() {
-                warn!("Can't decode event publisher message using all bytes");
+            if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
+                warn!(left_bytes = %left, "Can't decode event publisher message, not all bytes were consumed");
                 res = VersionedEventPublisherMessage::decode_versioned(bytes);
             }
             res.map_err(Into::into)

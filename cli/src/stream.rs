@@ -6,7 +6,7 @@ use core::result::Result;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use iroha_logger::prelude::tracing::log::warn;
+use iroha_logger::prelude::*;
 use iroha_version::prelude::*;
 
 #[cfg(test)]
@@ -115,8 +115,8 @@ pub trait Stream<R: DecodeVersioned>:
         }
 
         let mut res = R::decode_all_versioned(subscription_request_message.as_bytes());
-        if res.is_err() {
-            warn!("Can't decode message using all bytes");
+        if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
+            warn!(left_bytes = %left, "Can't decode whole message, not all bytes were consumed");
             res = R::decode_versioned(subscription_request_message.as_bytes());
         }
         Ok(res?)

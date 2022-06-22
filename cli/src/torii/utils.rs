@@ -80,8 +80,8 @@ pub mod body {
     {
         warp::body::bytes().and_then(|body: Bytes| async move {
             let mut res = DecodeVersioned::decode_all_versioned(body.as_ref());
-            if res.is_err() {
-                warn!("Can't decode body using all bytes");
+            if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
+                warn!(left_bytes = %left, "Can't decode body, not all bytes were consumed");
                 res = DecodeVersioned::decode_versioned(body.as_ref());
             }
             res.map_err(warp::reject::custom)

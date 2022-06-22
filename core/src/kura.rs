@@ -406,8 +406,8 @@ impl<IO: DiskIO> BlockStore<IO> {
         let _len = file_stream.read_exact(&mut buffer).await?;
 
         let mut res = VersionedCommittedBlock::decode_all_versioned(&buffer);
-        if res.is_err() {
-            warn!("Can't decode block using all bytes");
+        if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
+            warn!(left_bytes = %left, "Failed to decode block, not all bytes were consumed");
             res = VersionedCommittedBlock::decode_versioned(&buffer);
         }
         Ok(Some(res?))

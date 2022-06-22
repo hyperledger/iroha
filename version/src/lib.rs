@@ -93,7 +93,7 @@ pub mod error {
                 Self::Serde => "JSON (de)serialization issue".to_owned(),
                 #[cfg(feature = "scale")]
                 Self::ParityScale => "Parity SCALE (de)serialization issue".to_owned(),
-                Self::ParseInt => "Problem with parsing integers".to_owned(),
+                Self::ParseInt => "Issue with parsing integers".to_owned(),
                 Self::UnsupportedVersion(_) => "Input version unsupported".to_owned(),
                 Self::ExtraBytesLeft(n) => format!("Buffer contains {n} bytes after decoding"),
             };
@@ -199,13 +199,16 @@ pub mod scale {
         /// Use this function for versioned objects instead of `decode`.
         ///
         /// # Errors
-        /// Will return error if version is unsupported or if input won't have enough bytes for decoding.
+        /// - Version is unsupported
+        /// - Input won't have enough bytes for decoding
         fn decode_versioned(input: &[u8]) -> Result<Self>;
 
         /// Use this function for versioned objects instead of `decode_all`.
         ///
         /// # Errors
-        /// Will return error if version is unsupported or if input won't have enough bytes for decoding.
+        /// - Version is unsupported
+        /// - Input won't have enough bytes for decoding
+        /// - Input has extra bytes
         fn decode_all_versioned(input: &[u8]) -> Result<Self>;
     }
 
