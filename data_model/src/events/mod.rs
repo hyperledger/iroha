@@ -1,7 +1,7 @@
 //! Events for streaming API.
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 use iroha_macro::FromVariant;
 use iroha_schema::prelude::*;
