@@ -290,7 +290,7 @@ pub mod isi {
     impl_asset_instruction_info!(Fixed, AssetValueType::Fixed, Fixed::ZERO);
 
     /// Asserts that asset definition with [`definition_id`] has asset type [`expected_value_type`].
-    fn assert_asset_type(
+    pub(crate) fn assert_asset_type(
         definition_id: &AssetDefinitionId,
         wsv: &WorldStateView,
         expected_value_type: AssetValueType,
@@ -318,15 +318,12 @@ pub mod isi {
         match definition.mintable() {
             Mintable::Infinitely => Ok(()),
             Mintable::Not => Err(Error::Mintability(MintabilityError::MintUnmintable)),
-            Mintable::Once => {
-                wsv.modify_asset_definition_entry(definition_id, |entry| {
-                    entry.forbid_minting()?;
-                    Ok(AssetDefinitionEvent::MintabilityChanged(
-                        definition_id.clone(),
-                    ))
-                })?;
-                Ok(())
-            }
+            Mintable::Once => wsv.modify_asset_definition_entry(definition_id, |entry| {
+                entry.forbid_minting()?;
+                Ok(AssetDefinitionEvent::MintabilityChanged(
+                    definition_id.clone(),
+                ))
+            }),
         }
     }
 

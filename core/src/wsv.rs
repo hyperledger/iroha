@@ -264,7 +264,8 @@ impl WorldStateView {
     ///
     /// # Errors
     /// - No such [`Asset`]
-    /// - No [`Account`] to which the [`Asset`] is associated.
+    /// - The [`Account`] with which the [`Asset`] is associated doesn't exist.
+    /// - The [`Domain`] with which the [`Account`] is associated doesn't exist.
     pub fn asset(&self, id: &<Asset as Identifiable>::Id) -> Result<Asset, FindError> {
         self.map_account(&id.account_id, |account| -> Result<Asset, FindError> {
             account
