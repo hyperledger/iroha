@@ -14,7 +14,7 @@ use crate::HashOf;
 pub struct MerkleTree<T>(Vec<Option<HashOf<T>>>);
 
 /// Iterator over leaves of [`MerkleTree`]
-struct LeavesIterator<'item, T> {
+pub struct LeafHashIterator<'item, T> {
     tree: &'item MerkleTree<T>,
     next: usize,
 }
@@ -111,6 +111,15 @@ impl<T> FromIterator<HashOf<T>> for MerkleTree<T> {
     }
 }
 
+impl<'item, T> IntoIterator for &'item MerkleTree<T> {
+    type Item = HashOf<T>;
+    type IntoIter = LeafHashIterator<'item, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        LeafHashIterator::new(self)
+    }
+}
+
 impl<T: IntoSchema> IntoSchema for MerkleTree<T> {
     fn type_name() -> String {
         format!("{}::MerkleTree<{}>", module_path!(), T::type_name())
@@ -152,11 +161,6 @@ impl<T> MerkleTree<T> {
             return *node;
         }
         None
-    }
-
-    /// Iterate over leaf hashes.
-    pub fn iter(&self) -> impl Iterator<Item = &HashOf<T>> + '_ {
-        LeavesIterator::new(self)
     }
 
     /// Add `hash` to the tail of the tree.
@@ -230,13 +234,13 @@ impl<T> MerkleTree<T> {
     }
 }
 
-impl<'item, T> Iterator for LeavesIterator<'item, T> {
-    type Item = &'item HashOf<T>;
+impl<'item, T> Iterator for LeafHashIterator<'item, T> {
+    type Item = HashOf<T>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let opt = match self.tree.get(self.next) {
-            Some(node) => node.as_ref(),
+            Some(node) => *node,
             None => return None,
         };
         self.next += 1;
@@ -244,7 +248,7 @@ impl<'item, T> Iterator for LeavesIterator<'item, T> {
     }
 }
 
-impl<'item, T> LeavesIterator<'item, T> {
+impl<'item, T> LeafHashIterator<'item, T> {
     #[inline]
     fn new(tree: &'item MerkleTree<T>) -> Self {
         Self {
@@ -296,8 +300,8 @@ mod tests {
         for i in 0..N_LEAVES as usize * 2 {
             assert_eq!(tree.get_leaf_hash(i).as_ref(), hashes.get(i))
         }
-        for (testee_hash, tester_hash) in tree.iter().zip(hashes) {
-            assert_eq!(*testee_hash, tester_hash);
+        for (testee_hash, tester_hash) in tree.into_iter().zip(hashes) {
+            assert_eq!(testee_hash, tester_hash);
         }
     }
 
@@ -314,7 +318,7 @@ mod tests {
         }
 
         assert_eq!(tree_reproduced.hash(), tree.hash());
-        for (testee_leaf, tester_leaf) in tree_reproduced.iter().zip(tree.iter()) {
+        for (testee_leaf, tester_leaf) in tree_reproduced.into_iter().zip(tree.into_iter()) {
             assert_eq!(testee_leaf, tester_leaf);
         }
     }
