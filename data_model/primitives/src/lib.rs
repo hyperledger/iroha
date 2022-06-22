@@ -13,6 +13,7 @@
 extern crate alloc;
 
 pub mod atomic;
+pub mod conststr;
 pub mod fixed;
 pub mod small;
 
