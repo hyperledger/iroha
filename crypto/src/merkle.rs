@@ -14,8 +14,8 @@ use crate::HashOf;
 pub struct MerkleTree<T>(Vec<Option<HashOf<T>>>);
 
 /// Iterator over leaves of [`MerkleTree`]
-pub struct LeafHashIterator<'item, T> {
-    tree: &'item MerkleTree<T>,
+pub struct LeafHashIterator<T> {
+    tree: MerkleTree<T>,
     next: usize,
 }
 
@@ -111,9 +111,9 @@ impl<T> FromIterator<HashOf<T>> for MerkleTree<T> {
     }
 }
 
-impl<'item, T> IntoIterator for &'item MerkleTree<T> {
+impl<T> IntoIterator for MerkleTree<T> {
     type Item = HashOf<T>;
-    type IntoIter = LeafHashIterator<'item, T>;
+    type IntoIter = LeafHashIterator<T>;
 
     fn into_iter(self) -> Self::IntoIter {
         LeafHashIterator::new(self)
@@ -234,7 +234,7 @@ impl<T> MerkleTree<T> {
     }
 }
 
-impl<'item, T> Iterator for LeafHashIterator<'item, T> {
+impl<T> Iterator for LeafHashIterator<T> {
     type Item = HashOf<T>;
 
     #[inline]
@@ -248,13 +248,11 @@ impl<'item, T> Iterator for LeafHashIterator<'item, T> {
     }
 }
 
-impl<'item, T> LeafHashIterator<'item, T> {
+impl<T> LeafHashIterator<T> {
     #[inline]
-    fn new(tree: &'item MerkleTree<T>) -> Self {
-        Self {
-            tree,
-            next: 2_usize.pow(tree.height()) - 1,
-        }
+    fn new(tree: MerkleTree<T>) -> Self {
+        let next = 2_usize.pow(tree.height()) - 1;
+        Self { tree, next }
     }
 }
 
