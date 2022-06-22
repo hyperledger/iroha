@@ -341,7 +341,7 @@ pub enum Value {
     /// [`struct@Hash`]
     Hash(Hash),
     /// Block
-    Block(BlockValue),
+    Block(Box<BlockValue>),
 }
 
 impl fmt::Display for Value {

@@ -1514,7 +1514,7 @@ pub mod block {
     pub struct FindAllBlocks;
 
     impl Query for FindAllBlocks {
-        type Output = Vec<BlockValue>;
+        type Output = Vec<Box<BlockValue>>;
     }
 
     impl FindAllBlocks {

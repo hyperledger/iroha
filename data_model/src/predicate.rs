@@ -605,7 +605,6 @@ pub mod numerical {
 pub mod value {
     //!  raw predicates applied to `Value`.
     use super::*;
-    use crate::prelude::BlockValue;
 
     /// A predicate designed for general processing of `Value`.
     #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, IntoSchema)]
@@ -678,10 +677,7 @@ pub mod value {
                 Predicate::Numerical(pred) => pred.applies(input),
                 Predicate::Display(pred) => pred.applies(&input.to_string()),
                 Predicate::TimeStamp(pred) => match input {
-                    Value::Block(block) => {
-                        let BlockValue { header, .. } = block;
-                        pred.applies(&header.timestamp)
-                    }
+                    Value::Block(block) => pred.applies(&block.header.timestamp),
                     _ => false,
                 },
                 Predicate::Pass => true,
