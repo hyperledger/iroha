@@ -10,9 +10,8 @@ use iroha_core::{
 };
 use iroha_data_model::{prelude::*, ParseError};
 use small::SmallStr;
-use test_network::{Peer as TestPeer, PeerBuilder, TestRuntime};
+use test_network::{prepare_test_for_nextest, Peer as TestPeer, PeerBuilder, TestRuntime};
 use tokio::runtime::Runtime;
-use unique_port::generate_unique_start_port;
 
 fn asset_id_new(
     definition_name: &str,
@@ -144,7 +143,7 @@ mod register {
 #[allow(unused_must_use)]
 #[test]
 fn find_rate_and_make_exchange_isi_should_succeed() {
-    unique_port::set_port_index(generate_unique_start_port!());
+    prepare_test_for_nextest!();
     let kp = KeyPair::new(
         PublicKey::from_str(
             r#"ed01207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"#,

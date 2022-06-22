@@ -7,14 +7,13 @@ use iroha_client::client;
 use iroha_core::prelude::*;
 use iroha_data_model::prelude::*;
 use test_network::*;
-use unique_port::generate_unique_start_port;
 
 use super::Configuration;
 
 #[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
 ) -> Result<()> {
-    unique_port::set_port_index(generate_unique_start_port!());
+    prepare_test_for_nextest!();
     // Given
     let (_rt, network, iroha_client) = <Network>::start_test_with_runtime(4, 1);
     wait_for_genesis_committed(&network.clients(), 0);

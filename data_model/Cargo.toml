@@ -54,7 +54,6 @@ iroha = { path = "../cli" }
 hex = { version = "0.4.0", default-features = false, features = ["alloc", "serde"] }
 
 test_network = { path = "../core/test_network", version = "=2.0.0-pre-rc.5" }
-unique_port = "0.2.0"
 
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}
 trybuild = "1.0.53"

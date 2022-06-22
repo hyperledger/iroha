@@ -4,11 +4,10 @@ use iroha_client::client;
 use iroha_data_model::prelude::*;
 use test_network::*;
 use tokio::runtime::Runtime;
-use unique_port::generate_unique_start_port;
 
 #[test]
 fn genesis_block_is_commited_with_some_offline_peers() {
-    unique_port::set_port_index(generate_unique_start_port!());
+    prepare_test_for_nextest!();
     // Given
     let rt = Runtime::test();
 

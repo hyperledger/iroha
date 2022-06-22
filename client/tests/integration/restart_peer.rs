@@ -9,13 +9,12 @@ use iroha_data_model::prelude::*;
 use tempfile::TempDir;
 use test_network::{Peer as TestPeer, *};
 use tokio::runtime::Runtime;
-use unique_port::generate_unique_start_port;
 
 use super::Configuration;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
-    unique_port::set_port_index(generate_unique_start_port!());
+    prepare_test_for_nextest!();
     let temp_dir = Arc::new(TempDir::new()?);
 
     let mut configuration = Configuration::test();
