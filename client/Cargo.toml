@@ -42,6 +42,7 @@ iroha_permissions_validators = { version = "=2.0.0-pre-rc.5", path = "../permiss
 iroha = { path = "../cli", features = ["dev-telemetry", "telemetry"] }
 
 test_network = { version = "=2.0.0-pre-rc.5", path = "../core/test_network" }
+unique_port = "0.2.0"
 
 parity-scale-codec = { version = "2.3.1", default-features = false, features = ["derive"] }
 tokio = { version = "1.6.0", features = ["rt", "rt-multi-thread"]}

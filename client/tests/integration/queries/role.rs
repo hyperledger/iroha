@@ -8,6 +8,7 @@ use iroha_core::smartcontracts::isi::query::Error as QueryError;
 use iroha_data_model::prelude::*;
 use iroha_permissions_validators::public_blockchain::key_value::CanSetKeyValueInUserMetadata;
 use test_network::*;
+use unique_port::generate_unique_start_port;
 
 fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
     [
@@ -21,7 +22,7 @@ fn create_role_ids() -> [<Role as Identifiable>::Id; 5] {
 
 #[test]
 fn find_roles() -> Result<()> {
-    unique_port::set_offset(generate_offset!()).unwrap();
+    unique_port::set_port_index(generate_unique_start_port!());
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -51,7 +52,7 @@ fn find_roles() -> Result<()> {
 
 #[test]
 fn find_role_ids() -> Result<()> {
-    unique_port::set_offset(generate_offset!()).unwrap();
+    unique_port::set_port_index(generate_unique_start_port!());
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -78,7 +79,7 @@ fn find_role_ids() -> Result<()> {
 
 #[test]
 fn find_role_by_id() -> Result<()> {
-    unique_port::set_offset(generate_offset!()).unwrap();
+    unique_port::set_port_index(generate_unique_start_port!());
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -99,7 +100,7 @@ fn find_role_by_id() -> Result<()> {
 
 #[test]
 fn find_unregistered_role_by_id() {
-    unique_port::set_offset(generate_offset!()).unwrap();
+    unique_port::set_port_index(generate_unique_start_port!());
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -117,7 +118,7 @@ fn find_unregistered_role_by_id() {
 
 #[test]
 fn find_roles_by_account_id() -> Result<()> {
-    unique_port::set_offset(generate_offset!()).unwrap();
+    unique_port::set_port_index(generate_unique_start_port!());
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 

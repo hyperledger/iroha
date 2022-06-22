@@ -64,3 +64,4 @@ color-eyre = "0.5.11"
 
 [dev-dependencies]
 test_network = { version = "=2.0.0-pre-rc.5", path = "../core/test_network" }
+unique_port = "0.2.0"

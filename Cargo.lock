@@ -1703,6 +1703,7 @@ dependencies = [
  "test_network",
  "thiserror",
  "tokio",
+ "unique_port 0.2.0",
  "warp",
 ]
 
@@ -1776,6 +1777,7 @@ dependencies = [
  "tracing-flame",
  "tracing-subscriber 0.3.11",
  "tungstenite 0.16.0",
+ "unique_port 0.2.0",
 ]
 
 [[package]]
@@ -1850,7 +1852,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
- "unique_port",
+ "unique_port 0.1.1",
  "wasmtime",
 ]
 
@@ -1897,6 +1899,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "trybuild",
+ "unique_port 0.2.0",
  "warp",
 ]
 
@@ -2014,7 +2017,7 @@ dependencies = [
  "rand 0.8.5",
  "thiserror",
  "tokio",
- "unique_port",
+ "unique_port 0.1.1",
 ]
 
 [[package]]
@@ -3586,6 +3589,7 @@ dependencies = [
  "rand 0.8.5",
  "tempfile",
  "tokio",
+ "unique_port 0.2.0",
 ]
 
 [[package]]
@@ -4025,6 +4029,15 @@ name = "unique_port"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d79d1fad39d9571050e827f7a33fde5a50952f50e3ccbc007a6566881b17df5d"
+dependencies = [
+ "once_cell",
+]
+
+[[package]]
+name = "unique_port"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "addcbf13a0059acde3897f2187f88d74bf7d71a4f3073a1a788bf4d266825c79"
 dependencies = [
  "once_cell",
 ]

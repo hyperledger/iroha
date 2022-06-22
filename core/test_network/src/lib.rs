@@ -28,8 +28,6 @@ use tokio::{
     time,
 };
 
-pub mod unique_port;
-
 #[derive(Debug, Clone, Copy)]
 struct ShutdownRuntime;
 
