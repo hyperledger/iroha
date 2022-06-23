@@ -22,20 +22,35 @@ mod checks;
 pub mod combinators;
 mod has_token;
 mod is_allowed;
+pub mod judge;
 pub mod roles;
 
 /// Result type for permission validators
 pub type Result<T> = std::result::Result<T, DenialReason>;
 
 /// Operation for which the permission should be checked.
-pub trait NeedsPermission: Debug {}
+pub trait NeedsPermission: Debug {
+    fn required_validator_type() -> ValidatorType;
+}
 
-impl NeedsPermission for Instruction {}
+impl NeedsPermission for Instruction {
+    fn required_validator_type() -> ValidatorType {
+        ValidatorType::Instruction
+    }
+}
 
-impl NeedsPermission for QueryBox {}
+impl NeedsPermission for QueryBox {
+    fn required_validator_type() -> ValidatorType {
+        ValidatorType::Query
+    }
+}
 
 // Expression might contain a query, therefore needs to be checked.
-impl NeedsPermission for Expression {}
+impl NeedsPermission for Expression {
+    fn required_validator_type() -> ValidatorType {
+        ValidatorType::Expression
+    }
+}
 
 /// Type of object validator can check
 #[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display, Encode, Decode, IntoSchema)]
@@ -57,6 +72,15 @@ pub enum ValidatorVerdict {
     Deny(DenialReason),
     /// Instruction is skipped cause it is not supported by the validator
     Skip,
+}
+
+impl From<Result> for ValidatorVerdict {
+    fn from(result: Result) -> Self {
+        match result {
+            Ok(_) => ValidatorVerdict::Allow,
+            Err(reason) => ValidatorVerdict::Deny(reason),
+        }
+    }
 }
 
 pub mod error {
@@ -142,7 +166,7 @@ mod tests {
             _authority: &AccountId,
             instruction: &Instruction,
             _wsv: &WorldStateView,
-        ) -> Result<()> {
+        ) -> ValidatorVerdict {
             match instruction {
                 Instruction::Burn(_) => Err("Denying sequence isi.".to_owned().into()),
                 _ => Ok(()),
@@ -159,7 +183,7 @@ mod tests {
             authority: &AccountId,
             _instruction: &Instruction,
             _wsv: &WorldStateView,
-        ) -> Result<()> {
+        ) -> ValidatorVerdict {
             if authority.name.as_ref() == "alice" {
                 Err("Alice account is denied.".to_owned().into())
             } else {

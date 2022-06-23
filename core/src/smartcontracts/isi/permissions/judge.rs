@@ -21,12 +21,30 @@ impl<T: Judge<O>, O: NeedsPermission> IsAllowed<O> for T {
     }
 }
 
-pub struct AtLeastOneAllow<O: NeedsPermission> {
-    pub validators: Vec<Box<dyn IsAllowed<O> + Send + Sync>>,
+macro_rules! impl_judge {
+    ($j:ty<$($o:ty),* $(,)?>) => {
+        $(
+            impl Judge<$o> for $t {
+                fn judge(
+                    &self,
+                    authority: &AccountId,
+                    operation: &$v,
+                    wsv: &WorldStateView,
+                ) -> std::result::Result<(), DenialReason> {
+                    self.check_type(<$o as NeedsPermission>::required_validator_type())?;
+                    T::judge(self, authority, operation, wsv)
+                }
+            }
+        )*
+    };
 }
 
-impl<O: NeedsPermission> Judge<O> for AtLeastOneAllow<O> {
-    fn judge(
+pub struct AtLeastOneAllow {
+    pub(crate) validators: Vec<IsAllowedBoxed>,
+}
+
+impl AtLeastOneAllow {
+    fn impl_judge<O: NeedsPermission>(
         &self,
         authority: &AccountId,
         operation: &O,
@@ -48,14 +66,38 @@ impl<O: NeedsPermission> Judge<O> for AtLeastOneAllow<O> {
             "None of the validators has allowed operation {operation:?}: {deny_messages:#?}",
         )))
     }
+
+    fn check_type(&self, validator_type: ValidatorType) -> Result<()> {
+        if let Ok(self_type) = self.validator_type() {
+            if self_type != validator_type {
+                return Err(ValidatorTypeMismatch {
+                    expected: validator_type,
+                    actual: self_type,
+                }
+                .into());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validator_type(&self) -> Result<ValidatorType> {
+        self.validators
+            .first()
+            .map_or(Err(DenialReason::NoValidatorsProvided), |first| {
+                Ok(first.validator_type())
+            })
+    }
 }
 
-pub struct NoDenies<O: NeedsPermission> {
-    pub validators: Vec<Box<dyn IsAllowed<O> + Send + Sync>>,
+impl_judge!(AtLeastOneAllow<Instruction, Query, Expression>);
+
+pub struct NoDenies {
+    pub(crate) validators: Vec<IsAllowedBoxed>,
 }
 
-impl<O: NeedsPermission> Judge<O> for NoDenies<O> {
-    fn judge(
+impl NoDenies {
+    fn impl_judge<O: NeedsPermission>(
         &self,
         authority: &AccountId,
         operation: &O,
@@ -71,4 +113,28 @@ impl<O: NeedsPermission> Judge<O> for NoDenies<O> {
 
         Ok(())
     }
+
+    fn check_type(&self, validator_type: ValidatorType) -> Result<()> {
+        if let Ok(self_type) = self.validator_type() {
+            if self_type != validator_type {
+                return Err(ValidatorTypeMismatch {
+                    expected: validator_type,
+                    actual: self_type,
+                }
+                .into());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validator_type(&self) -> Result<ValidatorType> {
+        self.validators
+            .first()
+            .map_or(Err(DenialReason::NoValidatorsProvided), |first| {
+                Ok(first.validator_type())
+            })
+    }
 }
+
+impl_judge!(NoDenies<Instruction, Query, Expression>);
