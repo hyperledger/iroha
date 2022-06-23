@@ -7,10 +7,10 @@
 #define AMETSUCHI_DATABASE_CACHE_HPP
 
 #include <algorithm>
+#include <deque>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <deque>
 
 #include "common/common.hpp"
 #include "common/radix_tree.hpp"
@@ -32,7 +32,8 @@ namespace iroha::ametsuchi {
     /// Should be merged from X = N to X = 0.
     /// std::optional represents that value can be deleted.
     /// Uses stack representation of layers.
-    std::deque<std::unique_ptr<iroha::RadixTree<std::optional<Type>>>> intermediate_cache_;
+    std::deque<std::unique_ptr<iroha::RadixTree<std::optional<Type>>>>
+        intermediate_cache_;
 
     auto cachebleSearch(std::string_view key) const {
       auto it = std::lower_bound(
@@ -49,7 +50,8 @@ namespace iroha::ametsuchi {
     }
 
     void pushLayer() {
-      intermediate_cache_.emplace_back(std::make_unique<iroha::RadixTree<std::optional<Type>>>());
+      intermediate_cache_.emplace_back(
+          std::make_unique<iroha::RadixTree<std::optional<Type>>>());
     }
 
     /// Remove last layer except first one.
@@ -63,14 +65,11 @@ namespace iroha::ametsuchi {
       pushLayer();
     }
 
-    void mergeMove(
-      std::unique_ptr<iroha::RadixTree<std::optional<Type>>> &from, 
-      std::unique_ptr<iroha::RadixTree<std::optional<Type>>> &to
-      ) {
+    void mergeMove(std::unique_ptr<iroha::RadixTree<std::optional<Type>>> &from,
+                   std::unique_ptr<iroha::RadixTree<std::optional<Type>>> &to) {
       from->filterEnumerate(
           nullptr, 0ul, [&](std::string_view key, std::optional<Type> *value) {
-              to->template insert(
-                  key.data(), key.size(), std::move(*value));
+            to->template insert(key.data(), key.size(), std::move(*value));
           });
     }
 
@@ -109,7 +108,9 @@ namespace iroha::ametsuchi {
       checkStates();
 
       /// Search in intermediate layers at first
-      for (auto it = intermediate_cache_.rbegin(); it != intermediate_cache_.rend(); ++it)
+      for (auto it = intermediate_cache_.rbegin();
+           it != intermediate_cache_.rend();
+           ++it)
         if (auto *ptr = (*it)->find(key.data(), key.size()))
           return *ptr ? std::forward<Func>(func)(**ptr) : false;
 
@@ -127,7 +128,8 @@ namespace iroha::ametsuchi {
       assert(isCacheable(key));
 
       /// insert to the last layer.
-      intermediate_cache_.back()->template insert(key.data(), key.size(), value);
+      intermediate_cache_.back()->template insert(
+          key.data(), key.size(), value);
     }
 
     void setCommit(std::string_view key, std::string_view const &value) {
@@ -138,7 +140,8 @@ namespace iroha::ametsuchi {
         assert(c->find(key.data(), key.size()) == nullptr);
       }
 
-      /// Since this data is present in database, we store it directly in database representation.
+      /// Since this data is present in database, we store it directly in
+      /// database representation.
       db_representation_cache_->template insert(key.data(), key.size(), value);
     }
 
@@ -148,7 +151,8 @@ namespace iroha::ametsuchi {
       assert(isCacheable(key));
 
       /// Insert erase state in last layer.
-      return intermediate_cache_.back()->template insert(key.data(), key.size(), std::nullopt);
+      return intermediate_cache_.back()->template insert(
+          key.data(), key.size(), std::nullopt);
     }
 
     void filterDelete(std::string_view filter) {
@@ -215,7 +219,9 @@ namespace iroha::ametsuchi {
       /// Commits all data from intermediate layers to DB representation
       for (auto &it : intermediate_cache_)
         it->filterEnumerate(
-            nullptr, 0ul, [&](std::string_view key, std::optional<Type> *value) {
+            nullptr,
+            0ul,
+            [&](std::string_view key, std::optional<Type> *value) {
               if (*value)
                 db_representation_cache_->template insert(
                     key.data(), key.size(), std::move(**value));

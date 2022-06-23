@@ -81,16 +81,14 @@ class RocksDBTest : public ::testing::Test {
   std::string const value5_ = "vaLUe5";
 };
 
-#define KEY_EXIST_WITH_VALUE(K,V) \
-  ASSERT_TRUE(dbc.get(K, [](auto const &value){ \
-    assert(value == V); \
-    return true; \
+#define KEY_EXIST_WITH_VALUE(K, V)               \
+  ASSERT_TRUE(dbc.get(K, [](auto const &value) { \
+    assert(value == V);                          \
+    return true;                                 \
   }))
 
 #define KEY_NOT_EXIST(K) \
-  ASSERT_FALSE(dbc.get(K, [](auto const &){ \
-    return true; \
-  }))
+  ASSERT_FALSE(dbc.get(K, [](auto const &) { return true; }))
 
 TEST_F(RocksDBTest, DatabaseCacheSimpleTest) {
   iroha::ametsuchi::DatabaseCache<std::string> dbc;
