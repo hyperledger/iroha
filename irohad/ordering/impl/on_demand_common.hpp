@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "consensus/round.hpp"
 
@@ -15,22 +16,23 @@ namespace shared_model::interface {
   class Proposal;
 }
 
-namespace iroha {
-  namespace ordering {
+namespace iroha::ordering {
 
-    extern const consensus::RejectRoundType kFirstRejectRound;
+  extern const consensus::RejectRoundType kFirstRejectRound;
+  consensus::Round nextCommitRound(const consensus::Round &round);
+  consensus::Round nextRejectRound(const consensus::Round &round);
 
-    consensus::Round nextCommitRound(const consensus::Round &round);
+  struct ProposalEvent {
+    using ProposalPack =
+        std::vector<std::shared_ptr<shared_model::interface::Proposal const>>;
+    ProposalPack proposal_pack;
+    consensus::Round round;
+  };
 
-    consensus::Round nextRejectRound(const consensus::Round &round);
+  using SingleProposalEvent =
+      std::tuple<consensus::Round,
+                 std::shared_ptr<const shared_model::interface::Proposal>>;
 
-    struct ProposalEvent {
-      std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
-          proposal;
-      consensus::Round round;
-    };
-
-  }  // namespace ordering
-}  // namespace iroha
+}  // namespace iroha::ordering
 
 #endif  // IROHA_ON_DEMAND_COMMON_HPP

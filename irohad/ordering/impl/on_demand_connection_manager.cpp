@@ -76,20 +76,17 @@ void OnDemandConnectionManager::onBatchesToWholeNetwork(
 }
 
 void OnDemandConnectionManager::onRequestProposal(
-    consensus::Round round,
-    std::optional<
-        std::pair<std::shared_ptr<shared_model::interface::Proposal const>,
-                  BloomFilter256>> proposal) {
+    consensus::Round round, PackedProposalData ref_proposal) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed))
     return;
 
-  assert(!proposal || proposal.value().first);
-  log_->debug("onRequestProposal, {} : {}",
-              round,
-              proposal ? proposal.value().first->toString() : "NULL_OPT");
+  log_->debug(
+      "onRequestProposal, {} : number elements in reference proposal {}",
+      round,
+      ref_proposal ? ref_proposal.value().size() : 0ull);
   if (auto &connection = connections_.peers[kIssuer])
-    (*connection)->onRequestProposal(round, std::move(proposal));
+    (*connection)->onRequestProposal(round, std::move(ref_proposal));
 }
 
 void OnDemandConnectionManager::initializeConnections(

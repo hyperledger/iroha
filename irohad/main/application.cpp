@@ -744,6 +744,7 @@ Irohad::RunResult Irohad::initOrderingGate() {
 
   ordering_gate = ordering_init->initOrderingGate(
       config_.max_proposal_size,
+      config_.getMaxpProposalPack(),
       std::chrono::milliseconds(
           config_.proposal_creation_timeout.value_or(kMaxRoundsDelayDefault)
           * kProposalDelayMultiplier),
