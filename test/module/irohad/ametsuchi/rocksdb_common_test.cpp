@@ -81,6 +81,199 @@ class RocksDBTest : public ::testing::Test {
   std::string const value5_ = "vaLUe5";
 };
 
+#define KEY_EXIST_WITH_VALUE(K,V) \
+  ASSERT_TRUE(dbc.get(K, [](auto const &value){ \
+    assert(value == V); \
+    return true; \
+  }))
+
+#define KEY_NOT_EXIST(K) \
+  ASSERT_FALSE(dbc.get(K, [](auto const &){ \
+    return true; \
+  }))
+
+TEST_F(RocksDBTest, DatabaseCacheSimpleTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheSimpleDeleteTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.erase("ww");
+  KEY_NOT_EXIST("ww");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheFilterDeletePosTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.filterDelete("w");
+  KEY_NOT_EXIST("ww");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheFilterDeleteNegTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.filterDelete("q");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheCommitTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.commit();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheRollbackTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.rollback();
+  KEY_NOT_EXIST("ww");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  dbc.commit();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheRollbackToSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  dbc.rollbackToSavepoint();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_NOT_EXIST("wq");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheReleaseSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  dbc.releaseSavepoint();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheRollbackSavepointAfetrReleaseSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  dbc.releaseSavepoint();
+  dbc.rollbackToSavepoint();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheRollbackAfterReleaseSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  /// Twice! Second one should do nothing.
+  dbc.releaseSavepoint();
+  dbc.releaseSavepoint();
+
+  dbc.rollback();
+  KEY_NOT_EXIST("ww");
+  KEY_NOT_EXIST("wq");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheMultipleRollbacksToSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  /// Twice! Second one should do nothing.
+  dbc.rollbackToSavepoint();
+  dbc.rollbackToSavepoint();
+
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_NOT_EXIST("wq");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheCommitAfterRollbackToSavepointTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  dbc.savepoint();
+  dbc.set("wq", "2");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_EXIST_WITH_VALUE("wq", "2");
+
+  dbc.rollbackToSavepoint();
+  dbc.commit();
+
+  KEY_EXIST_WITH_VALUE("ww", "1");
+  KEY_NOT_EXIST("wq");
+}
+
+TEST_F(RocksDBTest, DatabaseCacheDropTest) {
+  iroha::ametsuchi::DatabaseCache<std::string> dbc;
+  dbc.addCacheblePath("w");
+
+  dbc.set("ww", "1");
+  KEY_EXIST_WITH_VALUE("ww", "1");
+
+  dbc.commit();
+  KEY_EXIST_WITH_VALUE("ww", "1");
+
+  dbc.drop();
+  KEY_NOT_EXIST("ww");
+}
+
 TEST_F(RocksDBTest, DatabaseCacheTest) {
   iroha::ametsuchi::DatabaseCache<std::string> dbc;
   dbc.addCacheblePath("wSc");
