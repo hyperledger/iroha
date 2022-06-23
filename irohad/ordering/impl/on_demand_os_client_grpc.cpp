@@ -222,7 +222,7 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round,
         for (auto const &proposal : response.proposal()) {
 #if USE_BLOOM_FILTER
           if (proposal.proposal_hash().empty()) {
-            assert(!"Should have proposal hash!");
+            assert(!"Must have proposal hash!");
             maybe_log->info("Remote node {} has no proposal.", context->peer());
             iroha::getSubscription()->notify(
                 iroha::EventTypes::kOnProposalResponse,
