@@ -5,7 +5,6 @@
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
 pub use checks::*;
-pub use combinators::ValidatorApplyOr as _;
 use error::*;
 pub use has_token::*;
 use iroha_data_model::prelude::*;
@@ -133,8 +132,8 @@ pub mod prelude {
 
     pub use super::{
         builder::Validator as ValidatorBuilder,
-        combinators::{AllowAll, ValidatorApplyOr as _},
         error::DenialReason,
+        judge::AllowAll,
         roles::{IsGrantAllowed, IsGrantAllowedBoxed, IsRevokeAllowed, IsRevokeAllowedBoxed},
         HasTokenBoxed, IsAllowedBoxed,
     };

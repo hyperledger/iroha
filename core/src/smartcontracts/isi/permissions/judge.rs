@@ -1,16 +1,41 @@
 use super::*;
 
 pub trait Judge<O: NeedsPermission> {
-    fn judge(
+    fn judge_type_independent(
         &self,
         authority: &AccountId,
         operation: &O,
         wsv: &WorldStateView,
     ) -> std::result::Result<(), DenialReason>;
+
+    fn judge(
+        &self,
+        authority: &AccountId,
+        operation: &O,
+        wsv: &WorldStateView,
+    ) -> std::result::Result<(), DenialReason> {
+        let expected_type = O::required_validator_type();
+        if self.validator_type() != expected_type {
+            // Technically we can return `ValidatorVerdict::Skip` or
+            // `ValidatorVerdict::Deny` here, but error of that kind is
+            // probably a programmer error, so we want to know about it as soon
+            // as possible
+            panic!(
+                "Validator type mismatch: expected {}, got {}",
+                expected_type,
+                self.validator_type()
+            );
+
+            self.judge_type_independent(authority, operation, wsv)
+        }
+    }
+
+    /// Get type of validator
+    fn validator_type(&self) -> ValidatorType;
 }
 
 /// Every [`Judge`] is also a `Validator`
-impl<T: Judge<O>, O: NeedsPermission> IsAllowed<O> for T {
+impl<J: Judge<O>, O: NeedsPermission> IsAllowed<O> for J {
     fn check(
         &self,
         authority: &AccountId,
@@ -19,32 +44,18 @@ impl<T: Judge<O>, O: NeedsPermission> IsAllowed<O> for T {
     ) -> ValidatorVerdict {
         self.judge(authority, operation, wsv).into()
     }
-}
 
-macro_rules! impl_judge {
-    ($j:ty<$($o:ty),* $(,)?>) => {
-        $(
-            impl Judge<$o> for $t {
-                fn judge(
-                    &self,
-                    authority: &AccountId,
-                    operation: &$v,
-                    wsv: &WorldStateView,
-                ) -> std::result::Result<(), DenialReason> {
-                    self.check_type(<$o as NeedsPermission>::required_validator_type())?;
-                    T::judge(self, authority, operation, wsv)
-                }
-            }
-        )*
-    };
+    fn validator_type(&self) -> ValidatorType {
+        Judge::validator_type(&self)
+    }
 }
 
 pub struct AtLeastOneAllow {
     pub(crate) validators: Vec<IsAllowedBoxed>,
 }
 
-impl AtLeastOneAllow {
-    fn impl_judge<O: NeedsPermission>(
+impl<O: NeedsPermission> Judge<O> for AtLeastOneAllow {
+    fn judge_type_independent(
         &self,
         authority: &AccountId,
         operation: &O,
@@ -67,37 +78,21 @@ impl AtLeastOneAllow {
         )))
     }
 
-    fn check_type(&self, validator_type: ValidatorType) -> Result<()> {
-        if let Ok(self_type) = self.validator_type() {
-            if self_type != validator_type {
-                return Err(ValidatorTypeMismatch {
-                    expected: validator_type,
-                    actual: self_type,
-                }
-                .into());
-            }
-        }
-
-        Ok(())
-    }
-
-    fn validator_type(&self) -> Result<ValidatorType> {
+    fn validator_type(&self) -> ValidatorType {
+        // Since [`Self`] can be constructed only with TODO it's always panic-safe
         self.validators
             .first()
-            .map_or(Err(DenialReason::NoValidatorsProvided), |first| {
-                Ok(first.validator_type())
-            })
+            .expect("Expected at least one validator for `AtLeastOneAllow` judge")
+            .validator_type()
     }
 }
-
-impl_judge!(AtLeastOneAllow<Instruction, Query, Expression>);
 
 pub struct NoDenies {
     pub(crate) validators: Vec<IsAllowedBoxed>,
 }
 
-impl NoDenies {
-    fn impl_judge<O: NeedsPermission>(
+impl<O: NeedsPermission> Judge<O> for NoDenies {
+    fn judge_type_independent(
         &self,
         authority: &AccountId,
         operation: &O,
@@ -114,27 +109,50 @@ impl NoDenies {
         Ok(())
     }
 
-    fn check_type(&self, validator_type: ValidatorType) -> Result<()> {
-        if let Ok(self_type) = self.validator_type() {
-            if self_type != validator_type {
-                return Err(ValidatorTypeMismatch {
-                    expected: validator_type,
-                    actual: self_type,
-                }
-                .into());
-            }
-        }
-
-        Ok(())
-    }
-
-    fn validator_type(&self) -> Result<ValidatorType> {
+    fn validator_type(&self) -> ValidatorType {
+        // Since [`Self`] can be constructed only with TODO it's always panic-safe
         self.validators
             .first()
-            .map_or(Err(DenialReason::NoValidatorsProvided), |first| {
-                Ok(first.validator_type())
-            })
+            .expect("Expected at least one validator for `AtLeastOneAllow` judge")
+            .validator_type()
     }
 }
 
-impl_judge!(NoDenies<Instruction, Query, Expression>);
+/// Allows all operations to be executed for all possible values. Mostly for tests and simple cases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub struct AllowAll;
+
+impl<O: NeedsPermission> Judge<O> for AllowAll {
+    fn judge_type_independent(
+        &self,
+        authority: &AccountId,
+        operation: &O,
+        wsv: &WorldStateView,
+    ) -> std::result::Result<(), DenialReason> {
+        Ok(())
+    }
+
+    fn validator_type(&self) -> ValidatorType {
+        O::required_validator_type()
+    }
+}
+
+/// Disallows all operations to be executed for all possible
+/// values. Mostly for tests and simple cases.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct DenyAll;
+
+impl<O: NeedsPermission> Judge<O> for DenyAll {
+    fn judge_type_independent(
+        &self,
+        authority: &AccountId,
+        operation: &O,
+        wsv: &WorldStateView,
+    ) -> std::result::Result<(), DenialReason> {
+        Err("All operations are denied.".to_owned().into())
+    }
+
+    fn validator_type(&self) -> ValidatorType {
+        O::required_validator_type()
+    }
+}
