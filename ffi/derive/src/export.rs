@@ -86,8 +86,9 @@ fn gen_ffi_to_src_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
             SelfResolver::new(fn_descriptor.self_ty).visit_type_mut(&mut src_type);
 
             quote! {
+                let mut receiver_store = Default::default();
                 // TODO: Handle unwrap
-                let #arg_name = <#src_type as iroha_ffi::TryFromFfi>::try_from_ffi(#arg_name).unwrap();
+                let #arg_name = <#src_type as iroha_ffi::TryFromFfi>::try_from_ffi(#arg_name, &mut receiver_store).unwrap();
             }
         };
     }
@@ -100,9 +101,12 @@ fn gen_ffi_to_src_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
             //ImplTraitResolver::new().visit_type(&mut src_type);
         }
 
+        let store_name = Ident::new(&format!("{}_store", arg_name), Span::call_site());
+
         stmts.extend(quote! {
+            let mut #store_name = Default::default();
             // TODO: Handle unwrap
-            let #arg_name = <#src_type as iroha_ffi::TryFromFfi>::try_from_ffi(#arg_name).unwrap();
+            let #arg_name = <#src_type as iroha_ffi::TryFromFfi>::try_from_ffi(#arg_name, &mut #store_name).unwrap();
         });
     }
 
@@ -168,7 +172,8 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
         }
 
         return quote! {
-            <#out_src_type as iroha_ffi::IntoFfi>::write_out(#arg_name, __out_ptr);
+            let mut output_store = Default::default();
+            <#out_src_type as iroha_ffi::IntoFfi>::write_out(#arg_name, &mut output_store, __out_ptr);
         };
     }
 

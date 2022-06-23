@@ -126,25 +126,31 @@ fn gen_ffi_fn_body(
     let (handle_name, handle_type) = (&handle.0, handle.1.clone());
     let (field_name, field_type) = (&field.0, field.1.clone());
 
+    let handle = quote! {
+        let mut handle_store = Default::default();
+        // TODO: Handle unwrap
+        let #handle_name = <#handle_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name, &mut handle_store).unwrap();
+    };
+
     match derive {
         Derive::Setter => {
             quote! {
+                #handle
+                let mut field_store = Default::default();
                 // TODO: Handle unwrap
-                let #handle_name = <#handle_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name).unwrap();
-                let #field_name = <#field_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name).unwrap();
-
+                let #field_name = <#field_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name, &mut field_store).unwrap();
                 #handle_name.#method_name(#field_name);
-
                 iroha_ffi::FfiResult::Ok
             }
         }
         Derive::Getter | Derive::MutGetter => {
             quote! {
-                // TODO: Handle unwrap
-                let #handle_name = <#handle_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name).unwrap();
+                #handle
+
                 let __out_ptr = #field_name;
                 let #field_name = #handle_name.#method_name();
-                <#field_type as iroha_ffi::IntoFfi>::write_out(#field_name, __out_ptr);
+                let mut output_store = Default::default();
+                <#field_type as iroha_ffi::IntoFfi>::write_out(#field_name, &mut output_store, __out_ptr);
                 iroha_ffi::FfiResult::Ok
             }
         }

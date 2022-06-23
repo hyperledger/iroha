@@ -6,13 +6,12 @@
 //! owned type -> opaque pointer
 //! reference -> raw pointer
 //!
+//! enum -> int
+//! bool -> u8
+//!
 //! # Conversions (WebAssembly):
 //! u8, u16 -> u32
 //! i8, i16 -> i32
-//!
-//! # Conversions (input only):
-//! enum -> int
-//! bool -> u8
 
 pub use iroha_ffi_derive::*;
 pub use opaque_pointer;
@@ -35,10 +34,20 @@ pub trait Handle {
 // TODO: Make it unsafe?
 pub trait Opaque {}
 
-pub trait OptionWrapped: Sized {
+pub trait OptionWrapped: IntoFfi + Sized {
     type FfiType;
+    type OutFfiType;
+    type Store;
 
-    fn into_ffi(source: Option<Self>) -> Self::FfiType;
+    fn into_ffi(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+    ) -> <Self as OptionWrapped>::FfiType;
+    unsafe fn write_out(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+        out: <Self as OptionWrapped>::OutFfiType,
+    );
 }
 
 /// Conversion into an FFI compatible representation that consumes the input value
@@ -49,15 +58,19 @@ pub trait IntoFfi {
     /// FFI compatible representation of `Self` when it's an out-pointer
     type OutFfiType;
 
+    type Store: Default;
+
     /// Performs the conversion
-    fn into_ffi(self) -> Self::FfiType;
+    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType;
 
     /// Performs the conversion and writes the result into out-pointer
-    unsafe fn write_out(self, out: Self::OutFfiType);
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType);
 }
 
 /// Conversion from an FFI compatible representation that consumes the input value
 pub trait TryFromFfi: IntoFfi + Sized {
+    type Store: Default;
+
     /// Performs the fallible conversion
     ///
     /// # Errors
@@ -70,7 +83,10 @@ pub trait TryFromFfi: IntoFfi + Sized {
     ///
     /// All conversions from a pointer must ensure pointer validity beforehand
     #[allow(unsafe_code)]
-    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult>;
+    unsafe fn try_from_ffi(
+        source: Self::FfiType,
+        store: &mut <Self as TryFromFfi>::Store,
+    ) -> Result<Self, FfiResult>;
 }
 
 /// FFI compatible tuple with 2 elements
@@ -82,7 +98,8 @@ pub struct IteratorWrapper<T: IntoIterator>(T);
 
 #[derive(Clone)]
 #[repr(C)]
-pub struct BoxedSlice<T: IntoFfi>(*mut <T as IntoFfi>::FfiType, usize);
+// TODO: Add SliceMut?
+pub struct Slice<T: IntoFfi>(*mut <T as IntoFfi>::FfiType, usize);
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -125,54 +142,75 @@ impl From<opaque_pointer::error::PointerError> for FfiResult {
 impl<T: Opaque> IntoFfi for &T {
     type FfiType = *const T;
     type OutFfiType = *mut Self::FfiType;
+    type Store = ();
 
-    fn into_ffi(self) -> Self::FfiType {
-        self as Self::FfiType
+    fn into_ffi(self, _: &mut Self::Store) -> Self::FfiType {
+        Self::FfiType::from(self)
     }
 
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        out.write(self.into_ffi())
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        out.write(self.into_ffi(store));
     }
 }
 
 impl<T: Opaque> IntoFfi for &mut T {
     type FfiType = *mut T;
     type OutFfiType = *mut Self::FfiType;
+    type Store = ();
 
-    fn into_ffi(self) -> Self::FfiType {
-        self as Self::FfiType
+    fn into_ffi(self, _: &mut Self::Store) -> Self::FfiType {
+        Self::FfiType::from(self)
     }
 
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        out.write(self.into_ffi())
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        out.write(self.into_ffi(store));
     }
 }
 
-impl<'a, T: Opaque> TryFromFfi for &'a T {
-    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
+impl<T: Opaque> TryFromFfi for &T {
+    type Store = ();
+
+    unsafe fn try_from_ffi(
+        source: Self::FfiType,
+        _: &mut <Self as TryFromFfi>::Store,
+    ) -> Result<Self, FfiResult> {
         source.as_ref().ok_or(FfiResult::ArgIsNull)
     }
 }
 
-impl<'a, T: Opaque> TryFromFfi for &'a mut T {
-    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
+impl<T: Opaque> TryFromFfi for &mut T {
+    type Store = ();
+
+    unsafe fn try_from_ffi(
+        source: Self::FfiType,
+        _: &mut <Self as TryFromFfi>::Store,
+    ) -> Result<Self, FfiResult> {
         source.as_mut().ok_or(FfiResult::ArgIsNull)
     }
 }
 
-impl<'a, T: IntoIterator<Item = U>, U: IntoFfi> IntoFfi for IteratorWrapper<T> {
-    type FfiType = BoxedSlice<U>;
+impl<T: IntoIterator<Item = U>, U: IntoFfi> IntoFfi for IteratorWrapper<T> {
+    type FfiType = Slice<U>;
     type OutFfiType = OutSlice<U>;
+    type Store = (Vec<U::FfiType>, Vec<U::Store>);
 
-    fn into_ffi(self) -> Self::FfiType {
-        BoxedSlice::from_iter(self.0)
+    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+        let iter = self.0;
+
+        iter.into_iter().for_each(|item| {
+            let mut item_store = Default::default();
+            store.0.push(item.into_ffi(&mut item_store));
+            store.1.push(item_store);
+        });
+
+        Slice(store.0.as_mut_ptr(), store.0.len())
     }
 
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        let slice = self.into_ffi();
+    #[allow(clippy::expect_used)]
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        let slice = self.into_ffi(store);
 
-        out.2
-            .write(slice.len().try_into().expect("allocation too large"));
+        out.2.write(slice.len() as isize);
         for (i, elem) in slice.into_iter().take(out.1).enumerate() {
             let offset = i.try_into().expect("allocation too large");
             out.0.offset(offset).write(elem);
@@ -180,95 +218,72 @@ impl<'a, T: IntoIterator<Item = U>, U: IntoFfi> IntoFfi for IteratorWrapper<T> {
     }
 }
 
-impl IntoFfi for &u8 {
-    type FfiType = *const u8;
-    type OutFfiType = *mut Self::FfiType;
+impl<T: Opaque> OptionWrapped for &T {
+    type FfiType = <Self as IntoFfi>::FfiType;
+    type OutFfiType = <Self as IntoFfi>::OutFfiType;
+    type Store = <Self as IntoFfi>::Store;
 
-    fn into_ffi(self) -> Self::FfiType {
-        self as *const _
+    fn into_ffi(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+    ) -> <Self as OptionWrapped>::FfiType {
+        source.map_or_else(core::ptr::null, |item| IntoFfi::into_ffi(item, store))
     }
-
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        out.write(self.into_ffi())
-    }
-}
-
-impl IntoFfi for u8 {
-    type FfiType = Self;
-    type OutFfiType = *mut Self::FfiType;
-
-    fn into_ffi(self) -> Self::FfiType {
-        self
-    }
-
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        out.write(self.into_ffi())
+    unsafe fn write_out(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+        out: <Self as OptionWrapped>::OutFfiType,
+    ) {
+        if let Some(item) = source {
+            IntoFfi::write_out(item, store, out);
+        } else {
+            out.write(core::ptr::null())
+        }
     }
 }
 
-impl TryFromFfi for u8 {
-    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
-        Ok(source)
+impl<T: Opaque> OptionWrapped for &mut T {
+    type FfiType = <Self as IntoFfi>::FfiType;
+    type OutFfiType = <Self as IntoFfi>::OutFfiType;
+    type Store = <Self as IntoFfi>::Store;
+
+    fn into_ffi(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+    ) -> <Self as OptionWrapped>::FfiType {
+        source.map_or_else(core::ptr::null_mut, |item| IntoFfi::into_ffi(item, store))
+    }
+    unsafe fn write_out(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+        out: <Self as OptionWrapped>::OutFfiType,
+    ) {
+        if let Some(item) = source {
+            IntoFfi::write_out(item, store, out);
+        } else {
+            out.write(core::ptr::null_mut())
+        }
     }
 }
 
-impl IntoFfi for bool {
-    type FfiType = u8;
-    type OutFfiType = *mut Self::FfiType;
+impl<T: OptionWrapped> IntoFfi for Option<T>
+where
+    <T as OptionWrapped>::Store: Default,
+{
+    type FfiType = <T as OptionWrapped>::FfiType;
+    type OutFfiType = <T as OptionWrapped>::OutFfiType;
+    type Store = <T as OptionWrapped>::Store;
 
-    fn into_ffi(self) -> Self::FfiType {
-        IntoFfi::into_ffi(self as u8)
+    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+        OptionWrapped::into_ffi(self, store)
     }
 
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        out.write(self.into_ffi())
-    }
-}
-
-impl TryFromFfi for bool {
-    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
-        Ok(source != 0)
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        OptionWrapped::write_out(self, store, out)
     }
 }
 
-impl<'a, T: Opaque> OptionWrapped for &'a T {
-    type FfiType = *const T;
-
-    fn into_ffi(source: Option<Self>) -> Self::FfiType {
-        source.map_or_else(core::ptr::null, IntoFfi::into_ffi)
-    }
-}
-
-impl<'a, T: Opaque> OptionWrapped for &'a mut T {
-    type FfiType = *mut T;
-
-    fn into_ffi(source: Option<Self>) -> Self::FfiType {
-        source.map_or_else(core::ptr::null_mut, IntoFfi::into_ffi)
-    }
-}
-
-impl<T: OptionWrapped> IntoFfi for Option<T> {
-    type FfiType = T::FfiType;
-    type OutFfiType = *mut Self::FfiType;
-
-    fn into_ffi(self) -> Self::FfiType {
-        OptionWrapped::into_ffi(self)
-    }
-
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        out.write(self.into_ffi())
-    }
-}
-
-impl<U: IntoFfi> FromIterator<U> for BoxedSlice<U> {
-    fn from_iter<T: IntoIterator<Item = U>>(iter: T) -> Self {
-        let source: Box<[_]> = iter.into_iter().map(IntoFfi::into_ffi).collect();
-        let mut source = core::mem::ManuallyDrop::new(source);
-        Self(source.as_mut_ptr(), source.len())
-    }
-}
-
-impl<T: IntoFfi> BoxedSlice<T> {
+impl<T: IntoFfi> Slice<T> {
     fn null() -> Self {
         // TODO: size should be uninitialized and never read from
         Self(core::ptr::null_mut(), 0)
@@ -283,7 +298,7 @@ impl<T: IntoFfi> BoxedSlice<T> {
     }
 }
 
-impl<T: IntoFfi> IntoIterator for BoxedSlice<T> {
+impl<T: IntoFfi> IntoIterator for Slice<T> {
     type Item = T::FfiType;
     type IntoIter = <Vec<Self::Item> as IntoIterator>::IntoIter;
 
@@ -296,124 +311,438 @@ impl<T: IntoFfi> IntoIterator for BoxedSlice<T> {
     }
 }
 
-#[cfg(not(feature = "client"))]
-impl<T: IntoFfi> Drop for BoxedSlice<T> {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe {
-                Box::<[_]>::from_raw(core::slice::from_raw_parts_mut(self.0, self.1));
-            };
-        }
-    }
-}
-
 impl<T: IntoFfi> OutSlice<T> {
     unsafe fn write_null(self) {
         self.2.write(NONE);
     }
 }
 
-impl<'a, T> IntoFfi for &'a [T]
+impl<'slice, T> IntoFfi for &'slice [T]
 where
-    &'a T: IntoFfi,
+    &'slice T: IntoFfi,
 {
-    type FfiType = BoxedSlice<&'a T>;
-    type OutFfiType = OutSlice<&'a T>;
+    type FfiType = Slice<&'slice T>;
+    type OutFfiType = OutSlice<&'slice T>;
+    type Store = (
+        Vec<<&'slice T as IntoFfi>::FfiType>,
+        Vec<<&'slice T as IntoFfi>::Store>,
+    );
 
-    fn into_ffi(self) -> Self::FfiType {
-        IteratorWrapper(self).into_ffi()
+    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+        IteratorWrapper(self).into_ffi(store)
     }
 
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        IteratorWrapper(self).write_out(out)
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        IteratorWrapper(self).write_out(store, out)
     }
 }
 
-impl<'a, T> IntoFfi for &'a mut [T]
+impl<'slice, T> IntoFfi for &'slice mut [T]
 where
-    &'a mut T: IntoFfi,
+    &'slice mut T: IntoFfi,
 {
-    type FfiType = BoxedSlice<&'a mut T>;
-    type OutFfiType = OutSlice<&'a mut T>;
+    type FfiType = Slice<&'slice mut T>;
+    type OutFfiType = OutSlice<&'slice mut T>;
+    type Store = (
+        Vec<<&'slice mut T as IntoFfi>::FfiType>,
+        Vec<<&'slice mut T as IntoFfi>::Store>,
+    );
 
-    fn into_ffi(self) -> Self::FfiType {
-        IteratorWrapper(self).into_ffi()
+    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+        IteratorWrapper(self).into_ffi(store)
     }
 
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        IteratorWrapper(self).write_out(out)
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        IteratorWrapper(self).write_out(store, out)
     }
 }
 
-impl<'a, T> TryFromFfi for &'a [T]
+//impl<'slice, T> TryFromFfi for &'slice [T]
+//where
+//    T: TryFromFfi,
+//    <&'slice T as IntoFfi>::FfiType: Copy,
+//{
+//    unsafe fn try_from_ffi(
+//        source: Self::FfiType,
+//        store: &mut MaybeUninit<Self::Store>,
+//    ) -> Result<Self, FfiResult> {
+//        if source.is_null() {
+//            return Err(FfiResult::ArgIsNull);
+//        }
+//
+//        let vec: Vec<_> = core::slice::from_raw_parts(source.0, source.1)
+//            .iter()
+//            .map(|&item| {
+//                let mut inner_store = MaybeUninit::uninit();
+//
+//                Ok((
+//                    <&'slice T>::try_from_ffi(item, &mut inner_store)?,
+//                    inner_store.assume_init(),
+//                ))
+//            })
+//            .collect::<Result<_, FfiResult>>()?;
+//
+//        store.as_mut_ptr().write(vec);
+//
+//        Ok(store)
+//    }
+//}
+
+//impl<'slice, T> TryFromFfi for &'slice mut [T]
+//where
+//    &'slice mut T: TryFromFfi,
+//    <&'slice mut T as IntoFfi>::FfiType: Copy,
+//{
+//    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
+//        if source.is_null() {
+//            return Err(FfiResult::ArgIsNull);
+//        }
+//
+//        unimplemented!()
+//        //core::slice::from_raw_parts_mut(source.0, source.1).into_iter().map(TryFromFfi::try_from_ffi).collect()
+//    }
+//}
+
+impl<'slice, T> IntoFfi for Option<&'slice [T]>
 where
-    &'a T: IntoFfi,
+    &'slice [T]: IntoFfi<FfiType = Slice<&'slice T>, OutFfiType = OutSlice<&'slice T>>,
+    &'slice T: IntoFfi,
 {
-    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
-        if source.is_null() {
-            return Err(FfiResult::ArgIsNull);
+    type FfiType = <&'slice [T] as IntoFfi>::FfiType;
+    type OutFfiType = <&'slice [T] as IntoFfi>::OutFfiType;
+    type Store = <&'slice [T] as IntoFfi>::Store;
+
+    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+        self.map_or_else(Slice::null, |item| item.into_ffi(store))
+    }
+
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        self.map_or_else(
+            || out.write_null(),
+            |item| IntoFfi::write_out(item, store, out),
+        );
+    }
+}
+
+impl<'slice, T> IntoFfi for Option<&'slice mut [T]>
+where
+    &'slice mut [T]: IntoFfi<FfiType = Slice<&'slice mut T>, OutFfiType = OutSlice<&'slice mut T>>,
+    &'slice mut T: IntoFfi,
+{
+    type FfiType = <&'slice mut [T] as IntoFfi>::FfiType;
+    type OutFfiType = <&'slice mut [T] as IntoFfi>::OutFfiType;
+    type Store = <&'slice mut [T] as IntoFfi>::Store;
+
+    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+        self.map_or_else(Slice::null, |item| item.into_ffi(store))
+    }
+
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        if let Some(item) = self {
+            IntoFfi::write_out(item, store, out);
+        } else {
+            out.write_null()
         }
-
-        // TODO: Not good
-        Ok(core::slice::from_raw_parts(source.0 as *const _, source.1))
     }
 }
 
-impl<'a, T> TryFromFfi for &'a mut [T]
-where
-    &'a mut T: TryFromFfi,
-{
-    unsafe fn try_from_ffi(source: Self::FfiType) -> Result<Self, FfiResult> {
-        if source.is_null() {
-            return Err(FfiResult::ArgIsNull);
-        }
+impl IntoFfi for bool {
+    type FfiType = u8;
+    type OutFfiType = *mut Self::FfiType;
+    type Store = ();
 
+    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+        u8::from(self).into_ffi(store)
+    }
+
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        out.write(self.into_ffi(store))
+    }
+}
+
+impl IntoFfi for &bool {
+    type FfiType = *const u8;
+    type OutFfiType = *mut Self::FfiType;
+    type Store = Vec<u8>;
+
+    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+        store.push((*self).into());
+        let elem = store.last().expect("Defined");
+        IntoFfi::into_ffi(elem, &mut ())
+    }
+
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        out.write(self.into_ffi(store))
+    }
+}
+
+impl IntoFfi for &mut bool {
+    type FfiType = *mut u8;
+    type OutFfiType = *mut Self::FfiType;
+    type Store = Vec<u8>;
+
+    fn into_ffi(self, store: &mut Self::Store) -> Self::FfiType {
+        store.push((*self).into());
+        let elem = store.last_mut().expect("Defined");
+        IntoFfi::into_ffi(elem, &mut ())
+    }
+
+    unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+        out.write(self.into_ffi(store))
+    }
+}
+
+impl OptionWrapped for bool {
+    type FfiType = *mut <Self as IntoFfi>::FfiType;
+    type OutFfiType = *mut <Self as OptionWrapped>::FfiType;
+    type Store = Vec<u8>;
+
+    fn into_ffi(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+    ) -> <Self as OptionWrapped>::FfiType {
+        source.map_or_else(core::ptr::null_mut, |item| {
+            store.push(<u8>::from(item));
+            let elem = store.last_mut().expect("Defined");
+            IntoFfi::into_ffi(elem, &mut ())
+        })
+    }
+    unsafe fn write_out(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+        out: <Self as OptionWrapped>::OutFfiType,
+    ) {
+        if let Some(item) = source {
+            let mut new_out = core::mem::MaybeUninit::<u8>::uninit();
+            IntoFfi::write_out(item, &mut (), new_out.as_mut_ptr());
+            store.push(new_out.assume_init());
+            let elem = store.last_mut().expect("Defined");
+
+            out.write(elem);
+        } else {
+            out.write(core::ptr::null_mut())
+        }
+    }
+}
+
+impl OptionWrapped for &bool {
+    type FfiType = <Self as IntoFfi>::FfiType;
+    type OutFfiType = <Self as IntoFfi>::OutFfiType;
+    type Store = <Self as IntoFfi>::Store;
+
+    fn into_ffi(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+    ) -> <Self as OptionWrapped>::FfiType {
+        source.map_or_else(core::ptr::null, |item| IntoFfi::into_ffi(item, store))
+    }
+    unsafe fn write_out(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+        out: <Self as OptionWrapped>::OutFfiType,
+    ) {
+        if let Some(item) = source {
+            IntoFfi::write_out(item, store, out);
+        } else {
+            out.write(core::ptr::null());
+        }
+    }
+}
+
+impl OptionWrapped for &mut bool {
+    type FfiType = <Self as IntoFfi>::FfiType;
+    type OutFfiType = <Self as IntoFfi>::OutFfiType;
+    type Store = <Self as IntoFfi>::Store;
+
+    fn into_ffi(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+    ) -> <Self as OptionWrapped>::FfiType {
+        source.map_or_else(core::ptr::null_mut, |item| IntoFfi::into_ffi(item, store))
+    }
+    unsafe fn write_out(
+        source: Option<Self>,
+        store: &mut <Self as OptionWrapped>::Store,
+        out: <Self as OptionWrapped>::OutFfiType,
+    ) {
+        if let Some(item) = source {
+            IntoFfi::write_out(item, store, out);
+        } else {
+            out.write(core::ptr::null_mut());
+        }
+    }
+}
+
+impl TryFromFfi for bool {
+    type Store = ();
+
+    unsafe fn try_from_ffi(
+        source: Self::FfiType,
+        _: &mut <Self as TryFromFfi>::Store,
+    ) -> Result<Self, FfiResult> {
+        Ok(source != 0)
+    }
+}
+
+impl<'a> TryFromFfi for &'a bool {
+    type Store = Vec<bool>;
+
+    unsafe fn try_from_ffi(
+        source: Self::FfiType,
+        store: &mut <Self as TryFromFfi>::Store,
+    ) -> Result<Self, FfiResult> {
         unimplemented!()
-        //core::slice::from_raw_parts_mut(source.0, source.1).into_iter().map(TryFromFfi::try_from_ffi).collect()
+        //let source = source.as_ref().ok_or(FfiResult::ArgIsNull)?;
+        //store.push(TryFromFfi::try_from_ffi(*source, &mut ())?);
+        //Ok(store.last().expect("Defined"))
     }
 }
 
-impl<'a, T> IntoFfi for Option<&'a [T]>
-where
-    &'a [T]: IntoFfi<FfiType = BoxedSlice<&'a T>, OutFfiType = OutSlice<&'a T>>,
-    &'a T: IntoFfi,
-{
-    type FfiType = <&'a [T] as IntoFfi>::FfiType;
-    type OutFfiType = <&'a [T] as IntoFfi>::OutFfiType;
+impl TryFromFfi for &mut bool {
+    type Store = Vec<bool>;
 
-    fn into_ffi(self) -> Self::FfiType {
-        self.map_or_else(BoxedSlice::null, |item| IteratorWrapper(item).into_ffi())
+    unsafe fn try_from_ffi(
+        source: Self::FfiType,
+        store: &mut <Self as TryFromFfi>::Store,
+    ) -> Result<Self, FfiResult> {
+        unimplemented!()
+        //let source = source.as_ref().ok_or(FfiResult::ArgIsNull)?;
+        //store.push(TryFromFfi::try_from_ffi(*source, &mut ())?);
+        //Ok(store.last_mut().expect("Defined"))
     }
+}
 
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        if let Some(item) = self {
-            <&'a [T]>::write_out(item, out);
-        } else {
-            out.write_null()
+macro_rules! primitive_impls {
+    ( $( $ty:ty ),+ $(,)? ) => { $(
+        impl IntoFfi for $ty {
+            type FfiType = Self;
+            type OutFfiType = *mut Self::FfiType;
+            type Store = ();
+
+            fn into_ffi(self, _: &mut Self::Store) -> Self::FfiType {
+                self
+            }
+
+            unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+                out.write(self.into_ffi(store))
+            }
         }
-    }
-}
 
-impl<'a, T> IntoFfi for Option<&'a mut [T]>
-where
-    &'a mut [T]: IntoFfi<FfiType = BoxedSlice<&'a mut T>, OutFfiType = OutSlice<&'a mut T>>,
-    &'a mut T: IntoFfi,
-{
-    type FfiType = <&'a mut [T] as IntoFfi>::FfiType;
-    type OutFfiType = <&'a mut [T] as IntoFfi>::OutFfiType;
+        impl IntoFfi for &$ty {
+            type FfiType = *const $ty;
+            type OutFfiType = *mut Self::FfiType;
+            type Store = ();
 
-    fn into_ffi(self) -> Self::FfiType {
-        self.map_or_else(BoxedSlice::null, |item| IteratorWrapper(item).into_ffi())
-    }
+            fn into_ffi(self, _: &mut Self::Store) -> Self::FfiType {
+                Self::FfiType::from(self)
+            }
 
-    unsafe fn write_out(self, out: Self::OutFfiType) {
-        if let Some(item) = self {
-            <&'a mut [T]>::write_out(item, out);
-        } else {
-            out.write_null()
+            unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+                out.write(self.into_ffi(store))
+            }
         }
-    }
+
+        impl IntoFfi for &mut $ty {
+            type FfiType = *mut $ty;
+            type OutFfiType = *mut Self::FfiType;
+            type Store = ();
+
+            fn into_ffi(self, _: &mut Self::Store) -> Self::FfiType {
+                Self::FfiType::from(self)
+            }
+
+            unsafe fn write_out(self, store: &mut Self::Store, out: Self::OutFfiType) {
+                out.write(self.into_ffi(store))
+            }
+        }
+
+        impl OptionWrapped for $ty {
+            type FfiType = *mut <Self as IntoFfi>::FfiType;
+            type OutFfiType = *mut <Self as OptionWrapped>::FfiType;
+            type Store = Vec<Self>;
+
+            fn into_ffi(source: Option<Self>, store: &mut <Self as OptionWrapped>::Store) -> <Self as OptionWrapped>::FfiType {
+                source.map_or_else(core::ptr::null_mut, |item| {
+                    store.push(item);
+                    let elem = store.last_mut().expect("Defined");
+                    IntoFfi::into_ffi(elem, &mut ())
+                })
+            }
+            unsafe fn write_out(source: Option<Self>, store: &mut <Self as OptionWrapped>::Store, out: <Self as OptionWrapped>::OutFfiType) {
+                if let Some(item) = source {
+                    let mut new_out = core::mem::MaybeUninit::<$ty>::uninit();
+                    IntoFfi::write_out(item, &mut (), new_out.as_mut_ptr());
+                    store.push(new_out.assume_init());
+                    let elem = store.last_mut().expect("Defined");
+
+                    out.write(elem);
+                } else {
+                    out.write(core::ptr::null_mut())
+                }
+            }
+        }
+
+        impl OptionWrapped for &$ty {
+            type FfiType = <Self as IntoFfi>::FfiType;
+            type OutFfiType = <Self as IntoFfi>::OutFfiType;
+            type Store = <Self as IntoFfi>::Store;
+
+            fn into_ffi(source: Option<Self>, store: &mut <Self as OptionWrapped>::Store) -> <Self as OptionWrapped>::FfiType {
+                source.map_or_else(core::ptr::null, |item| IntoFfi::into_ffi(item, store))
+            }
+            unsafe fn write_out(source: Option<Self>, store: &mut <Self as OptionWrapped>::Store, out: <Self as OptionWrapped>::OutFfiType) {
+                if let Some(item) = source {
+                    IntoFfi::write_out(item, store, out);
+                } else {
+                    out.write(core::ptr::null());
+                }
+            }
+        }
+
+        impl OptionWrapped for &mut $ty {
+            type FfiType = <Self as IntoFfi>::FfiType;
+            type OutFfiType = <Self as IntoFfi>::OutFfiType;
+            type Store = <Self as IntoFfi>::Store;
+
+            fn into_ffi(source: Option<Self>, store: &mut <Self as OptionWrapped>::Store) -> <Self as OptionWrapped>::FfiType {
+                source.map_or_else(core::ptr::null_mut, |item| IntoFfi::into_ffi(item, store))
+            }
+            unsafe fn write_out(source: Option<Self>, store: &mut <Self as OptionWrapped>::Store, out: <Self as OptionWrapped>::OutFfiType) {
+                if let Some(item) = source {
+                    IntoFfi::write_out(item, store, out);
+                } else {
+                    out.write(core::ptr::null_mut());
+                }
+            }
+        }
+
+        impl TryFromFfi for $ty {
+            type Store = ();
+
+            unsafe fn try_from_ffi(source: Self::FfiType, _: &mut <Self as TryFromFfi>::Store) -> Result<Self, FfiResult> {
+                Ok(source)
+            }
+        }
+
+        impl TryFromFfi for &$ty {
+            type Store = ();
+
+            unsafe fn try_from_ffi(source: Self::FfiType, _: &mut <Self as TryFromFfi>::Store) -> Result<Self, FfiResult> {
+                source.as_ref().ok_or(FfiResult::ArgIsNull)
+            }
+        }
+
+        impl TryFromFfi for &mut $ty {
+            type Store = ();
+
+            unsafe fn try_from_ffi(source: Self::FfiType, _: &mut <Self as TryFromFfi>::Store) -> Result<Self, FfiResult> {
+                source.as_mut().ok_or(FfiResult::ArgIsNull)
+            }
+        } )+
+    };
 }
+
+primitive_impls! {u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f32, f64}
 
 /// Implement [`Handle`] for given types with first argument as the initial handle id.
 #[macro_export]
