@@ -63,6 +63,17 @@ namespace iroha::ametsuchi {
       pushLayer();
     }
 
+    void mergeMove(
+      std::unique_ptr<iroha::RadixTree<std::optional<Type>>> &from, 
+      std::unique_ptr<iroha::RadixTree<std::optional<Type>>> &to
+      ) {
+      from->filterEnumerate(
+          nullptr, 0ul, [&](std::string_view key, std::optional<Type> *value) {
+              to->template insert(
+                  key.data(), key.size(), std::move(*value));
+          });
+    }
+
    public:
     DatabaseCache(DatabaseCache const &) = delete;
     DatabaseCache &operator=(DatabaseCache const &) = delete;
@@ -123,7 +134,9 @@ namespace iroha::ametsuchi {
       /// Check state correctness.
       checkStates();
       assert(isCacheable(key));
-      assert(tmp_cache_->find(key.data(), key.size()) == nullptr);
+      for (auto &c : intermediate_cache_) {
+        assert(c->find(key.data(), key.size()) == nullptr);
+      }
 
       /// Since this data is present in database, we store it directly in database representation.
       db_representation_cache_->template insert(key.data(), key.size(), value);
@@ -145,15 +158,27 @@ namespace iroha::ametsuchi {
       /// Mark values that are present in all caches deleted.
       db_representation_cache_->filterEnumerate(
           filter.data(), filter.size(), [&](std::string_view key, Type *) {
-            intermediate_cache_.back()->template insert(key.data(), key.size(), std::nullopt);
+            intermediate_cache_.back()->template insert(
+                key.data(), key.size(), std::nullopt);
           });
 
-      1
-      for (auto &it : intermediate_cache_)
-        it->filterEnumerate(
-            filter.data(), filter.size(), [&](std::string_view key, Type *) {
-              intermediate_cache_.back()->template insert(key.data(), key.size(), std::nullopt);
-            });
+      if (intermediate_cache_.size() > 1)
+        for (size_t ix = 0; ix < intermediate_cache_.size() - 1ull; ++ix)
+          intermediate_cache_[ix]->filterEnumerate(
+              filter.data(),
+              filter.size(),
+              [&](std::string_view key, std::optional<Type> *) {
+                intermediate_cache_.back()->template insert(
+                    key.data(), key.size(), std::nullopt);
+              });
+
+      intermediate_cache_.back()->filterEnumerate(
+          filter.data(),
+          filter.size(),
+          [&](std::string_view key, std::optional<Type> *value) {
+            assert(value);
+            *value = std::nullopt;
+          });
     }
 
     void savepoint() {
@@ -161,7 +186,14 @@ namespace iroha::ametsuchi {
     }
 
     void releaseSavepoint() {
-1
+      if (intermediate_cache_.size() <= 1)
+        return;
+
+      auto &from = intermediate_cache_.back();
+      auto &to = *(intermediate_cache_.rbegin() + 1ull);
+
+      mergeMove(from, to);
+      popLayer();
     }
 
     void rollbackToSavepoint() {
