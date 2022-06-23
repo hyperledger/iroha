@@ -65,6 +65,7 @@ namespace {
 
 OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t transaction_limit,
+    uint32_t max_proposal_pack,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
@@ -72,9 +73,11 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     size_t number_of_proposals)
     : transaction_limit_(transaction_limit),
       number_of_proposals_(number_of_proposals),
+      max_proposal_pack_(max_proposal_pack),
       proposal_factory_(std::move(proposal_factory)),
       tx_cache_(std::move(tx_cache)),
       log_(std::move(log)) {
+#if USE_BLOOM_FILTER
   remote_proposal_observer_ =
       SubscriberCreator<bool, RemoteProposalDownloadedEvent>::template create<
           iroha::EventTypes::kRemoteProposalDiff>(
@@ -129,10 +132,13 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
                   ProposalEvent{std::nullopt, ev.round});
             }
           });
+#endif  // USE_BLOOM_FILTER
 }
 
 OnDemandOrderingServiceImpl::~OnDemandOrderingServiceImpl() {
+#if USE_BLOOM_FILTER
   remote_proposal_observer_->unsubscribe();
+#endif  // USE_BLOOM_FILTER
 }
 
 // -------------------------| OnDemandOrderingService |-------------------------
@@ -176,6 +182,10 @@ bool OnDemandOrderingServiceImpl::isEmptyBatchesCache() {
   return batches_cache_.isEmpty();
 }
 
+uint32_t OnDemandOrderingServiceImpl::availableTxsCountBatchesCache() {
+  return batches_cache_.availableTxsCount();
+}
+
 bool OnDemandOrderingServiceImpl::hasEnoughBatchesInCache() const {
   return batches_cache_.availableTxsCount() >= transaction_limit_;
 }
@@ -185,7 +195,7 @@ void OnDemandOrderingServiceImpl::forCachedBatches(
   batches_cache_.forCachedBatches(f);
 }
 
-OnDemandOrderingServiceImpl::PackedProposalData
+iroha::ordering::PackedProposalData
 OnDemandOrderingServiceImpl::waitForLocalProposal(
     consensus::Round const &round, std::chrono::milliseconds const &delay) {
   if (!hasProposal(round) && !hasEnoughBatchesInCache()) {
@@ -202,15 +212,19 @@ OnDemandOrderingServiceImpl::waitForLocalProposal(
                 maybe_scheduler->dispose();
             });
     auto proposals_subscription =
-        SubscriberCreator<bool, consensus::Round>::template create<
-            EventTypes::kOnPackProposal>(
-            static_cast<iroha::SubscriptionEngineHandlers>(*tid),
-            [round, scheduler(utils::make_weak(scheduler))](auto,
-                                                            auto packed_round) {
-              if (auto maybe_scheduler = scheduler.lock();
-                  maybe_scheduler and round == packed_round)
-                maybe_scheduler->dispose();
-            });
+        SubscriberCreator<bool, std::pair<consensus::Round, size_t>>::
+            template create<EventTypes::kOnPackProposal>(
+                static_cast<iroha::SubscriptionEngineHandlers>(*tid),
+                [round, scheduler(utils::make_weak(scheduler))](
+                    auto, auto packed_round_and_count) {
+                  if (auto maybe_scheduler = scheduler.lock(); maybe_scheduler
+                      and (round.block_round
+                               >= packed_round_and_count.first.block_round
+                           && round.block_round
+                               < packed_round_and_count.first.block_round
+                                   + packed_round_and_count.second))
+                    maybe_scheduler->dispose();
+                });
     scheduler->addDelayed(delay, [scheduler(utils::make_weak(scheduler))] {
       if (auto maybe_scheduler = scheduler.lock()) {
         maybe_scheduler->dispose();
@@ -224,27 +238,28 @@ OnDemandOrderingServiceImpl::waitForLocalProposal(
   return onRequestProposal(round);
 }
 
-OnDemandOrderingServiceImpl::PackedProposalData
+iroha::ordering::PackedProposalData
 OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
   log_->debug("Requesting a proposal for round {}", round);
-  OnDemandOrderingServiceImpl::PackedProposalData result;
+  PackedProposalData result;
   do {
     std::lock_guard<std::mutex> lock(proposals_mutex_);
-    auto it = proposal_map_.find(round);
+    auto it = proposal_map_.find(round.block_round);
     if (it != proposal_map_.end()) {
       result = it->second;
       break;
     }
 
-    bool const is_current_round_or_next2 =
+    bool const is_current_round_or_next_pack =
         (round.block_round == current_round_.block_round
              ? (round.reject_round - current_round_.reject_round)
              : (round.block_round - current_round_.block_round))
-        <= 2ull;
+        <= max_proposal_pack_ + 2ull;
 
-    if (is_current_round_or_next2) {
+    if (is_current_round_or_next_pack) {
       result = packNextProposals(round);
-      proposal_map_.emplace(round, result);
+      if (result)
+        proposal_map_.emplace(round.block_round, result);
       getSubscription()->notify(EventTypes::kOnPackProposal, round);
     }
   } while (false);
@@ -276,30 +291,47 @@ OnDemandOrderingServiceImpl::tryCreateProposal(
   return proposal;
 }
 
-OnDemandOrderingServiceImpl::PackedProposalData
+iroha::ordering::PackedProposalData
 OnDemandOrderingServiceImpl::packNextProposals(const consensus::Round &round) {
-  auto now = iroha::time::now();
+  auto const available_txs_count = availableTxsCountBatchesCache();
+  auto const full_proposals_count = available_txs_count / transaction_limit_;
+  auto const number_of_packs =
+      (available_txs_count
+       + (full_proposals_count > 0 ? 0 : transaction_limit_ - 1))
+      / transaction_limit_;
+
+  PackedProposalContainer outcome;
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> txs;
   BloomFilter256 bf;
 
-  if (!isEmptyBatchesCache())
+  for (uint32_t ix = 0; ix < number_of_packs; ++ix) {
+    assert(!isEmptyBatchesCache());
     batches_cache_.getTransactions(
         transaction_limit_, txs, bf, [&](auto const &batch) {
           assert(batch);
           return batchAlreadyProcessed(*batch);
         });
 
-  log_->debug("Packed proposal contains: {} transactions.", txs.size());
-  if (auto result = tryCreateProposal(round, txs, now))
-    return std::make_pair(std::move(result).value(), bf);
+    log_->debug(
+        "Packed proposal {} contains: {} transactions.", ix, txs.size());
+    if (auto result = tryCreateProposal(
+            consensus::Round(round.block_round + ix,
+                             ix == 0 ? round.reject_round : 0),
+            txs,
+            iroha::time::now()))
+      outcome.emplace_back(std::make_pair(std::move(result).value(), bf));
+    else
+      break;
+  }
 
-  return std::nullopt;
+  return outcome.empty() ? PackedProposalData{} : std::move(outcome);
 }
 
 void OnDemandOrderingServiceImpl::tryErase(
     const consensus::Round &current_round) {
   // find first round that is not less than current_round
-  auto current_proposal_it = proposal_map_.lower_bound(current_round);
+  auto current_proposal_it =
+      proposal_map_.lower_bound(current_round.block_round);
   // save at most number_of_proposals_ rounds that are less than current_round
   for (size_t i = 0; i < number_of_proposals_
        and current_proposal_it != proposal_map_.begin();
@@ -348,7 +380,7 @@ bool OnDemandOrderingServiceImpl::batchAlreadyProcessed(
 
 bool OnDemandOrderingServiceImpl::hasProposal(consensus::Round round) const {
   std::lock_guard<std::mutex> lock(proposals_mutex_);
-  return proposal_map_.find(round) != proposal_map_.end();
+  return proposal_map_.find(round.block_round) != proposal_map_.end();
 }
 
 void OnDemandOrderingServiceImpl::processReceivedProposal(

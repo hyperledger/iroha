@@ -174,12 +174,14 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposal) {
   proto::ProposalRequest request;
   auto creator = "test";
   proto::ProposalResponse response;
-  response.mutable_proposal()
-      ->add_transactions()
+  auto prop = response.add_proposal();
+  prop->add_transactions()
       ->mutable_payload()
       ->mutable_reduced_payload()
       ->set_creator_account_id(creator);
-  response.set_proposal_hash("hash_1");
+#if USE_BLOOM_FILTER
+  prop->set_proposal_hash("hash_1");
+#endif  // USE_BLOOM_FILTER
   EXPECT_CALL(*stub, RequestProposal(_, _, _))
       .WillOnce(DoAll(SaveClientContextDeadline(&deadline),
                       SaveArg<1>(&request),
@@ -191,9 +193,10 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposal) {
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);
   ASSERT_EQ(request.round().reject_round(), round.reject_round);
-  ASSERT_TRUE(received_event.proposal);
+  ASSERT_TRUE(!received_event.proposal_pack.empty());
+  ASSERT_TRUE(received_event.proposal_pack[0]);
   ASSERT_EQ(
-      received_event.proposal.value()->transactions()[0].creatorAccountId(),
+      received_event.proposal_pack[0]->transactions()[0].creatorAccountId(),
       creator);
 }
 
@@ -219,5 +222,5 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposalNone) {
   ASSERT_EQ(timepoint + timeout, deadline);
   ASSERT_EQ(request.round().block_round(), round.block_round);
   ASSERT_EQ(request.round().reject_round(), round.reject_round);
-  ASSERT_FALSE(received_event.proposal);
+  ASSERT_TRUE(received_event.proposal_pack.empty());
 }

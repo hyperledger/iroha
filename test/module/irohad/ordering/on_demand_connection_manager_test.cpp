@@ -109,11 +109,10 @@ TEST_F(OnDemandConnectionManagerTest, onBatches) {
 TEST_F(OnDemandConnectionManagerTest, onRequestProposal) {
   consensus::Round round{};
   auto proposal = std::make_shared<const MockProposal>();
-  auto p = std::make_optional(std::make_pair(
+  auto p = std::make_optional(PackedProposalContainer{std::make_pair(
       std::shared_ptr<const shared_model::interface::Proposal>{proposal},
-      ordering::BloomFilter256{}));
+      ordering::BloomFilter256{})});
 
-  EXPECT_CALL(*proposal, toString()).Times(1);
   EXPECT_CALL(*connections[OnDemandConnectionManager::kIssuer],
               onRequestProposal(round, p))
       .Times(1);
