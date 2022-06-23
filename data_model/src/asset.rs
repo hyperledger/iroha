@@ -14,6 +14,7 @@ use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
+use internment::Intern;
 
 use crate::{
     account::prelude::*, domain::prelude::*, fixed, fixed::Fixed, metadata::Metadata, HasMetadata,
@@ -580,8 +581,14 @@ impl DefinitionId {
     /// # Errors
     /// Fails if any sub-construction fails
     #[inline]
-    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
-        Self { name, domain_id }
+    pub fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
+        let name_intern = Intern::new(name);
+        let domain_intern = Intern::new(domain_id);
+        Self {
+            name: (*name_intern).clone(),
+            domain_id: (*domain_intern).clone(),
+        }
+        // Self { name, domain_id }
     }
 
     pub(crate) const fn empty() -> Self {
@@ -595,7 +602,7 @@ impl DefinitionId {
 impl Id {
     /// Construct [`Id`] from [`DefinitionId`] and [`AccountId`].
     #[inline]
-    pub const fn new(
+    pub fn new(
         definition_id: <AssetDefinition as Identifiable>::Id,
         account_id: <Account as Identifiable>::Id,
     ) -> Self {

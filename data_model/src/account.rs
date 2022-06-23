@@ -10,6 +10,7 @@ use alloc::{
 use core::str::FromStr;
 #[cfg(feature = "std")]
 use std::collections::{btree_map, btree_set};
+use internment::Intern;
 
 use derive_more::Display;
 use getset::{Getters, MutGetters, Setters};
@@ -439,8 +440,10 @@ impl Id {
     /// Construct [`Id`] from an account `name` and a `domain_name` if
     /// these names are valid.
     #[inline]
-    pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
-        Self { name, domain_id }
+    pub fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
+        let intern_domain = Intern::new(domain_id);
+        Self { name, domain_id: (*intern_domain).clone() }
+        // Self { name, domain_id }
     }
 
     /// Construct [`Id`] of the genesis account.
