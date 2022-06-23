@@ -5,6 +5,7 @@ use alloc::{format, string::String, vec::Vec};
 use core::{ops::RangeInclusive, str::FromStr};
 
 use derive_more::{DebugCustom, Display};
+use iroha_ffi::{IntoFfi, TryFromFfi};
 use iroha_primitives::conststr::ConstString;
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode, Input};
@@ -16,9 +17,22 @@ use crate::{ParseError, ValidationError};
 /// [`Domain`](`crate::domain::Domain`)'s name or
 /// [`Account`](`crate::account::Account`)'s name.
 #[derive(
-    DebugCustom, Display, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Serialize, IntoSchema,
+    DebugCustom,
+    Display,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Encode,
+    Serialize,
+    IntoSchema,
+    IntoFfi,
+    TryFromFfi,
 )]
 #[repr(transparent)]
+// TODO: This struct doesn't have to be opaque
 pub struct Name(ConstString);
 
 impl Name {

@@ -1,7 +1,7 @@
 use proc_macro2::{Span, TokenStream};
-use proc_macro_error::OptionExt;
+use proc_macro_error::{abort, OptionExt};
 use quote::quote;
-use syn::{parse_quote, visit_mut::VisitMut, Ident, Type};
+use syn::{parse_quote, visit_mut::VisitMut, Ident, PathArguments::AngleBracketed, Type};
 
 use crate::{impl_visitor::FnDescriptor, SelfResolver};
 
@@ -37,7 +37,13 @@ pub fn gen_ffi_fn(fn_descriptor: &FnDescriptor) -> TokenStream {
         #[no_mangle]
         unsafe extern "C" fn #ffi_fn_name(#(#self_arg,)* #(#fn_args,)* #output_arg) -> iroha_ffi::FfiResult {
             let res = std::panic::catch_unwind(|| {
-                #ffi_fn_body
+                let fn_body = || #ffi_fn_body;
+
+                if let Err(err) = fn_body() {
+                    return err;
+                }
+
+                iroha_ffi::FfiResult::Ok
             });
 
             match res {
@@ -70,7 +76,7 @@ fn gen_fn_body(fn_descriptor: &FnDescriptor) -> syn::Block {
         #method_call_stmt
         #output_assignment
 
-        iroha_ffi::FfiResult::Ok
+        Ok(())
     }}
 }
 
@@ -87,8 +93,7 @@ fn gen_ffi_to_src_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
 
             quote! {
                 let mut receiver_store = Default::default();
-                // TODO: Handle unwrap
-                let #arg_name = <#src_type as iroha_ffi::TryFromFfi>::try_from_ffi(#arg_name, &mut receiver_store).unwrap();
+                let #arg_name = <#src_type as iroha_ffi::TryFromFfi>::try_from_ffi(#arg_name, &mut receiver_store)?;
             }
         };
     }
@@ -105,8 +110,7 @@ fn gen_ffi_to_src_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
 
         stmts.extend(quote! {
             let mut #store_name = Default::default();
-            // TODO: Handle unwrap
-            let #arg_name = <#src_type as iroha_ffi::TryFromFfi>::try_from_ffi(#arg_name, &mut #store_name).unwrap();
+            let #arg_name = <#src_type as iroha_ffi::TryFromFfi>::try_from_ffi(#arg_name, &mut #store_name)?;
         });
     }
 
@@ -173,7 +177,8 @@ fn gen_output_assignment_stmts(fn_descriptor: &FnDescriptor) -> TokenStream {
 
         return quote! {
             let mut output_store = Default::default();
-            <#out_src_type as iroha_ffi::IntoFfi>::write_out(#arg_name, &mut output_store, __out_ptr);
+            let #arg_name = <#out_src_type as iroha_ffi::IntoFfi>::into_ffi(#arg_name, &mut output_store);
+            <<#out_src_type as iroha_ffi::IntoFfi>::FfiType as iroha_ffi::ReprC>::write_out(#arg_name, __out_ptr);
         };
     }
 
@@ -185,7 +190,7 @@ fn gen_ffi_fn_arg(self_ty: &syn::Path, arg_name: &Ident, arg_type: &Type) -> Tok
     SelfResolver::new(self_ty).visit_type_mut(&mut arg_type);
 
     if matches!(arg_type, Type::ImplTrait(_)) {
-        //ImplTraitResolver::new().visit_type(&mut arg_type);
+        //ImplTraitResolver::new().visit_type(&mut out_src_type);
     }
 
     quote! { #arg_name: <#arg_type as iroha_ffi::IntoFfi>::FfiType }
@@ -199,5 +204,5 @@ fn gen_ffi_fn_out_ptr_arg(self_ty: &syn::Path, arg_name: &Ident, arg_type: &Type
         //ImplTraitResolver::new().visit_type(&mut arg_type);
     }
 
-    quote! { #arg_name: <#arg_type as iroha_ffi::IntoFfi>::OutFfiType }
+    quote! { #arg_name: <<#arg_type as iroha_ffi::IntoFfi>::FfiType as iroha_ffi::ReprC>::OutPtr }
 }

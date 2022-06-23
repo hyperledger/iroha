@@ -194,30 +194,21 @@ fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
     quote! {
         impl iroha_ffi::Opaque for #name { }
 
-        impl iroha_ffi::OptionWrapped for #name {
+        impl iroha_ffi::FromOption for #name {
             type FfiType = <Self as iroha_ffi::IntoFfi>::FfiType;
-            type OutFfiType = <Self as iroha_ffi::IntoFfi>::OutFfiType;
             type Store = <Self as iroha_ffi::IntoFfi>::Store;
 
             fn into_ffi(source: Option<Self>, store: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::IntoFfi>::FfiType {
                 source.map_or_else(core::ptr::null_mut, |item| iroha_ffi::IntoFfi::into_ffi(item, store))
             }
-            unsafe fn write_out(source: Option<Self>, store: &mut <Self as iroha_ffi::IntoFfi>::Store, out: <Self as iroha_ffi::IntoFfi>::OutFfiType) {
-                out.write(source.into_ffi(store))
-            }
         }
 
         impl iroha_ffi::IntoFfi for #name {
             type FfiType = *mut Self;
-            type OutFfiType = *mut <Self as iroha_ffi::IntoFfi>::FfiType;
             type Store = ();
 
             fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::IntoFfi>::FfiType {
-                iroha_ffi::opaque_pointer::raw(self)
-            }
-
-            unsafe fn write_out(self, store: &mut <Self as iroha_ffi::IntoFfi>::Store, out: <Self as iroha_ffi::IntoFfi>::OutFfiType) {
-                out.write(self.into_ffi(store))
+                Box::into_raw(Box::new(self))
             }
         }
     }
@@ -225,96 +216,64 @@ fn derive_into_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
 
 fn derive_try_from_ffi_for_opaque_item(name: &Ident) -> TokenStream2 {
     quote! {
-        impl iroha_ffi::TryFromFfi for #name {
+        impl iroha_ffi::TryFromFfi<'_> for #name {
             type Store = ();
 
             unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::TryFromFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {
-                Ok(iroha_ffi::opaque_pointer::own_back(source)?)
+                if source.is_null() {
+                    return Err(iroha_ffi::FfiResult::ArgIsNull);
+                }
+
+                Ok(*Box::from_raw(source))
             }
         }
     }
 }
 
-fn derive_into_ffi_for_item(name: &Ident) -> TokenStream2 {
+fn derive_into_ffi_for_item(_: &Ident) -> TokenStream2 {
     quote! {
         //impl iroha_ffi::IntoFfi for #name {
         //    type FfiType = Self;
-        //    type OutFfiType = *mut <Self as IntoFfi>::FfiType;
         //    type Store = ();
 
         //    fn into_ffi(self, _: &mut <Self as IntoFfi>::Store) -> <Self as IntoFfi>::FfiType {
         //        self
         //    }
-
-        //    unsafe fn write_out(self, store: &mut <Self as IntoFfi>::Store, out: <Self as IntoFfi>::OutFfiType) {
-        //        out.write(self.into_ffi(store))
-        //    }
         //}
 
         //impl iroha_ffi::IntoFfi for &#name {
         //    type FfiType = *const #name::FfiType;
-        //    type OutFfiType = *mut <Self as IntoFfi>::FfiType;
         //    type Store = ();
 
         //    fn into_ffi(self, _: &mut <Self as IntoFfi>::Store) -> <Self as IntoFfi>::FfiType {
         //        self as <Self as IntoFfi>::FfiType
-        //    }
-
-        //    unsafe fn write_out(self, store: &mut <Self as IntoFfi>::Store, out: <Self as IntoFfi>::OutFfiType) {
-        //        out.write(self.into_ffi(store))
         //    }
         //}
 
         //impl iroha_ffi::IntoFfi for &mut #name {
         //    type FfiType = *mut #name::FfiType;
-        //    type OutFfiType = *mut <Self as IntoFfi>::FfiType;
         //    type Store = ();
 
         //    fn into_ffi(self, _: &mut <Self as IntoFfi>::Store) -> <Self as IntoFfi>::FfiType {
         //        self as <Self as IntoFfi>::FfiType
         //    }
-
-        //    unsafe fn write_out(self, store: &mut <Self as IntoFfi>::Store, out: <Self as IntoFfi>::OutFfiType) {
-        //        out.write(self.into_ffi(store))
-        //    }
         //}
 
-        //impl OptionWrapped for #name {
+        //impl FromOption for #name {
         //    fn into_ffi(source: Option<Self>, store: &mut <Self as IntoFfi>::Store) -> <Self as IntoFfi>::FfiType {
         //        source.map_or_else(core::ptr::null, |item| IntoFfi::into_ffi(item, store))
         //    }
-        //    unsafe fn write_out(source: Option<Self>, store: &mut <Self as IntoFfi>::Store, out: <Self as IntoFfi>::OutFfiType) {
-        //        if let Some(item) = source {
-        //            IntoFfi::write_out(item, store, out);
-        //        } else {
-        //            out.write(core::ptr::null())
-        //        }
-        //    }
         //}
 
-        //impl OptionWrapped for &#name {
+        //impl FromOption for &#name {
         //    fn into_ffi(source: Option<Self>, store: &mut <Self as IntoFfi>::Store) -> <Self as IntoFfi>::FfiType {
         //        source.map_or_else(core::ptr::null, |item| IntoFfi::into_ffi(item, store))
         //    }
-        //    unsafe fn write_out(source: Option<Self>, store: &mut <Self as IntoFfi>::Store, out: <Self as IntoFfi>::OutFfiType) {
-        //        if let Some(item) = source {
-        //            IntoFfi::write_out(item, store, out);
-        //        } else {
-        //            out.write(core::ptr::null())
-        //        }
-        //    }
         //}
 
-        //impl OptionWrapped for &mut @name {
+        //impl FromOption for &mut @name {
         //    fn into_ffi(source: Option<Self>, store: &mut <Self as IntoFfi>::Store) -> <Self as IntoFfi>::FfiType {
         //        source.map_or_else(core::ptr::null_mut, |item| IntoFfi::into_ffi(item, store))
-        //    }
-        //    unsafe fn write_out(source: Option<Self>, store: &mut <Self as IntoFfi>::Store, out: <Self as IntoFfi>::OutFfiType) {
-        //        if let Some(item) = source {
-        //            IntoFfi::write_out(item, store, out);
-        //        } else {
-        //            out.write(core::ptr::null_mut())
-        //        }
         //    }
         //}
 
@@ -323,21 +282,21 @@ fn derive_into_ffi_for_item(name: &Ident) -> TokenStream2 {
     unimplemented!("Difficult to implement");
 }
 
-fn derive_try_from_ffi_for_item(name: &Ident) -> TokenStream2 {
+fn derive_try_from_ffi_for_item(_: &Ident) -> TokenStream2 {
     quote! {
-        //impl iroha_ffi::TryFromFfi for #name {
+        //impl iroha_ffi::TryFromFfi<'_> for #name {
         //    unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {
         //        Ok(source)
         //    }
         //}
 
-        //impl<'a> iroha_ffi::TryFromFfi for &'a #name {
+        //impl<'a> iroha_ffi::TryFromFfi<'_> for &'a #name {
         //    unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {
         //        source.as_ref().ok_or(iroha_ffi::FfiResult::ArgIsNull)
         //    }
         //}
 
-        //impl<'a> iroha_ffi::TryFromFfi for &'a mut #name {
+        //impl<'a> iroha_ffi::TryFromFfi<'_> for &'a mut #name {
         //    unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {
         //        source.as_mut().ok_or(iroha_ffi::FfiResult::ArgIsNull)
         //    }
@@ -352,106 +311,43 @@ fn gen_fieldless_enum_into_ffi(enum_name: &Ident, repr: &[syn::NestedMeta]) -> T
     quote! {
         impl iroha_ffi::IntoFfi for #enum_name {
             type FfiType = #ffi_type;
-            type OutFfiType = *mut <Self as iroha_ffi::IntoFfi>::FfiType;
             type Store = ();
 
             fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::IntoFfi>::FfiType {
                 self as <Self as iroha_ffi::IntoFfi>::FfiType
             }
-
-            unsafe fn write_out(self, store: &mut <Self as iroha_ffi::IntoFfi>::Store, out: <Self as iroha_ffi::IntoFfi>::OutFfiType) {
-                out.write(self.into_ffi(store))
-            }
         }
 
         impl iroha_ffi::IntoFfi for &#enum_name {
             type FfiType = *const #ffi_type;
-            type OutFfiType = *mut <Self as iroha_ffi::IntoFfi>::FfiType;
             type Store = ();
 
             fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::IntoFfi>::FfiType {
                 self as *const #enum_name as <Self as iroha_ffi::IntoFfi>::FfiType
             }
-
-            unsafe fn write_out(self, store: &mut <Self as iroha_ffi::IntoFfi>::Store, out: <Self as iroha_ffi::IntoFfi>::OutFfiType) {
-                out.write(self.into_ffi(store))
-            }
         }
 
         impl iroha_ffi::IntoFfi for &mut #enum_name {
             type FfiType = *mut #ffi_type;
-            type OutFfiType = *mut <Self as iroha_ffi::IntoFfi>::FfiType;
             type Store = ();
 
             fn into_ffi(self, _: &mut <Self as iroha_ffi::IntoFfi>::Store) -> <Self as iroha_ffi::IntoFfi>::FfiType {
                 self as *mut #enum_name as <Self as iroha_ffi::IntoFfi>::FfiType
             }
-
-            unsafe fn write_out(self, store: &mut <Self as iroha_ffi::IntoFfi>::Store, out: <Self as iroha_ffi::IntoFfi>::OutFfiType) {
-                out.write(self.into_ffi(store))
-            }
         }
 
-        impl iroha_ffi::OptionWrapped for #enum_name {
+        impl iroha_ffi::FromOption for #enum_name {
             type FfiType = *mut <Self as iroha_ffi::IntoFfi>::FfiType;
-            type OutFfiType = *mut <Self as iroha_ffi::OptionWrapped>::FfiType;
             type Store = Vec<#ffi_type>;
 
-            fn into_ffi(source: Option<Self>, store: &mut <Self as iroha_ffi::OptionWrapped>::Store) -> <Self as iroha_ffi::OptionWrapped>::FfiType {
+            fn into_ffi(source: Option<Self>, store: &mut <Self as iroha_ffi::FromOption>::Store) -> <Self as iroha_ffi::FromOption>::FfiType {
                 source.map_or_else(core::ptr::null_mut, |item| {
                     store.push(item as #ffi_type);
                     let elem = store.last_mut().expect("Defined");
                     iroha_ffi::IntoFfi::into_ffi(elem, &mut ())
                 })
             }
-            unsafe fn write_out(source: Option<Self>, store: &mut <Self as iroha_ffi::OptionWrapped>::Store, out: <Self as iroha_ffi::OptionWrapped>::OutFfiType) {
-                if let Some(item) = source {
-                    let mut new_out = core::mem::MaybeUninit::<#ffi_type>::uninit();
-                    iroha_ffi::IntoFfi::write_out(item, &mut (), new_out.as_mut_ptr());
-                    store.push(new_out.assume_init());
-                    let elem = store.last_mut().expect("Defined");
-
-                    out.write(elem);
-                } else {
-                    out.write(core::ptr::null_mut())
-                }
-            }
         }
-
-        impl iroha_ffi::OptionWrapped for &#enum_name {
-            type FfiType = <Self as iroha_ffi::IntoFfi>::FfiType;
-            type OutFfiType = <Self as iroha_ffi::IntoFfi>::OutFfiType;
-            type Store = <Self as iroha_ffi::IntoFfi>::Store;
-
-            fn into_ffi(source: Option<Self>, store: &mut <Self as iroha_ffi::OptionWrapped>::Store) -> <Self as iroha_ffi::OptionWrapped>::FfiType {
-                source.map_or_else(core::ptr::null, |item| iroha_ffi::IntoFfi::into_ffi(item, store))
-            }
-            unsafe fn write_out(source: Option<Self>, store: &mut <Self as iroha_ffi::OptionWrapped>::Store, out: <Self as iroha_ffi::OptionWrapped>::OutFfiType) {
-                if let Some(item) = source {
-                    iroha_ffi::IntoFfi::write_out(item, store, out);
-                } else {
-                    out.write(core::ptr::null());
-                }
-            }
-        }
-
-        impl iroha_ffi::OptionWrapped for &mut #enum_name {
-            type FfiType = <Self as iroha_ffi::IntoFfi>::FfiType;
-            type OutFfiType = <Self as iroha_ffi::IntoFfi>::OutFfiType;
-            type Store = <Self as iroha_ffi::IntoFfi>::Store;
-
-            fn into_ffi(source: Option<Self>, store: &mut <Self as iroha_ffi::OptionWrapped>::Store) -> <Self as iroha_ffi::OptionWrapped>::FfiType {
-                source.map_or_else(core::ptr::null_mut, |item| iroha_ffi::IntoFfi::into_ffi(item, store))
-            }
-            unsafe fn write_out(source: Option<Self>, store: &mut <Self as iroha_ffi::OptionWrapped>::Store, out: <Self as iroha_ffi::OptionWrapped>::OutFfiType) {
-                if let Some(item) = source {
-                    iroha_ffi::IntoFfi::write_out(item, store, out);
-                } else {
-                    out.write(core::ptr::null_mut());
-                }
-            }
-        }
-
     }
 }
 
@@ -478,7 +374,7 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
         );
 
     quote! {
-        impl iroha_ffi::TryFromFfi for #enum_name {
+        impl iroha_ffi::TryFromFfi<'_> for #enum_name {
             type Store = ();
 
             unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::TryFromFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {
@@ -492,7 +388,7 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
             }
         }
 
-        impl<'a> iroha_ffi::TryFromFfi for &'a #enum_name {
+        impl<'a> iroha_ffi::TryFromFfi<'_> for &'a #enum_name {
             type Store = ();
 
             unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::TryFromFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {
@@ -507,7 +403,7 @@ fn gen_fieldless_enum_try_from_ffi(enum_name: &Ident, enum_: &syn::DataEnum) -> 
             }
         }
 
-        impl<'a> iroha_ffi::TryFromFfi for &'a mut #enum_name {
+        impl<'a> iroha_ffi::TryFromFfi<'_> for &'a mut #enum_name {
             type Store = ();
 
             unsafe fn try_from_ffi(source: <Self as iroha_ffi::IntoFfi>::FfiType, _: &mut <Self as iroha_ffi::TryFromFfi>::Store) -> Result<Self, iroha_ffi::FfiResult> {

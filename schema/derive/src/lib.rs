@@ -116,14 +116,15 @@ fn metadata(data: &Data) -> TokenStream2 {
     };
 
     quote! {
-        let _ = map
-            .entry(<Self as iroha_schema::IntoSchema>::type_name())
-            .or_insert_with(|| #expr);
         #(
             if !map.contains_key(&<#types as iroha_schema::IntoSchema>::type_name()) {
                 <#types as iroha_schema::IntoSchema>::schema(map);
             }
         )*
+
+        let _ = map
+            .entry(<Self as iroha_schema::IntoSchema>::type_name())
+            .or_insert_with(|| #expr);
     }
 }
 

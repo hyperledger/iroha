@@ -112,7 +112,7 @@ fn gen_ffi_fn_args(handle: (&Ident, &Type), field: (&Ident, &Type), derive: Deri
         },
         Derive::Getter | Derive::MutGetter => quote! {
             #handle_name: <#handle_type as iroha_ffi::IntoFfi>::FfiType,
-            #field_name: <#field_type as iroha_ffi::IntoFfi>::OutFfiType,
+            #field_name: <<#field_type as iroha_ffi::IntoFfi>::FfiType as iroha_ffi::ReprC>::OutPtr,
         },
     }
 }
@@ -126,33 +126,33 @@ fn gen_ffi_fn_body(
     let (handle_name, handle_type) = (&handle.0, handle.1.clone());
     let (field_name, field_type) = (&field.0, field.1.clone());
 
-    let handle = quote! {
+    let into_handle = quote! {
         let mut handle_store = Default::default();
-        // TODO: Handle unwrap
-        let #handle_name = <#handle_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name, &mut handle_store).unwrap();
+        let #handle_name = <#handle_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name, &mut handle_store)?;
     };
 
     match derive {
         Derive::Setter => {
-            quote! {
-                #handle
+            quote! {{
+                #into_handle
+
                 let mut field_store = Default::default();
-                // TODO: Handle unwrap
-                let #field_name = <#field_type as iroha_ffi::TryFromFfi>::try_from_ffi(#handle_name, &mut field_store).unwrap();
+                let #field_name = <#field_type as iroha_ffi::TryFromFfi>::try_from_ffi(#field_name, &mut field_store)?;
                 #handle_name.#method_name(#field_name);
-                iroha_ffi::FfiResult::Ok
-            }
+                Ok(())
+            }}
         }
         Derive::Getter | Derive::MutGetter => {
-            quote! {
-                #handle
+            quote! {{
+                #into_handle
 
                 let __out_ptr = #field_name;
                 let #field_name = #handle_name.#method_name();
                 let mut output_store = Default::default();
-                <#field_type as iroha_ffi::IntoFfi>::write_out(#field_name, &mut output_store, __out_ptr);
-                iroha_ffi::FfiResult::Ok
-            }
+                let #field_name = <#field_type as iroha_ffi::IntoFfi>::into_ffi(#field_name, &mut output_store);
+                <<#field_type as iroha_ffi::IntoFfi>::FfiType as iroha_ffi::ReprC>::write_out(#field_name, __out_ptr);
+                Ok(())
+            }}
         }
     }
 }
@@ -161,10 +161,6 @@ fn gen_ffi_derive(struct_name: &Ident, field: &syn::Field, derive: Derive) -> sy
     let handle_name = Ident::new("__handle", proc_macro2::Span::call_site());
     let field_name = field.ident.as_ref().expect_or_abort("Defined");
 
-    //let field_name = match derive {
-    //    Derive::Setter => parse_quote! {field},
-    //    Derive::Getter | Derive::MutGetter => parse_quote! {output},
-    //};
     let field_ty = field.ty.clone();
     let (handle_type, field_type) = match derive {
         Derive::Setter => (parse_quote! {&mut #struct_name}, field_ty),
@@ -195,7 +191,13 @@ fn gen_ffi_derive(struct_name: &Ident, field: &syn::Field, derive: Derive) -> sy
         #[no_mangle]
         unsafe extern "C" fn #ffi_fn_name(#ffi_fn_args) -> iroha_ffi::FfiResult {
             let res = std::panic::catch_unwind(|| {
-                #ffi_fn_body
+                let fn_body = || #ffi_fn_body;
+
+                if let Err(err) = fn_body() {
+                    return err;
+                }
+
+                iroha_ffi::FfiResult::Ok
             });
 
             match res {
