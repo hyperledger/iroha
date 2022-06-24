@@ -14,6 +14,7 @@ use super::Configuration;
 
 #[test]
 fn restarted_peer_should_have_the_same_asset_amount() -> Result<()> {
+    prepare_test_for_nextest!();
     let temp_dir = Arc::new(TempDir::new()?);
 
     let mut configuration = Configuration::test();

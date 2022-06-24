@@ -1700,9 +1700,9 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "serde_json",
+ "test_network",
  "thiserror",
  "tokio",
- "unique_port",
  "warp",
 ]
 
@@ -1850,7 +1850,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
- "unique_port",
  "wasmtime",
 ]
 
@@ -2012,9 +2011,9 @@ dependencies = [
  "iroha_macro",
  "parity-scale-codec",
  "rand 0.8.5",
+ "test_network",
  "thiserror",
  "tokio",
- "unique_port",
 ]
 
 [[package]]
@@ -3572,6 +3571,7 @@ dependencies = [
 name = "test_network"
 version = "2.0.0-pre-rc.5"
 dependencies = [
+ "async-trait",
  "eyre",
  "futures",
  "iroha",
@@ -3581,6 +3581,7 @@ dependencies = [
  "iroha_data_model",
  "iroha_logger",
  "iroha_permissions_validators",
+ "once_cell",
  "rand 0.8.5",
  "tempfile",
  "tokio",
@@ -4021,9 +4022,8 @@ checksum = "957e51f3646910546462e67d5f7599b9e4fb8acdd304b087a6494730f9eebf04"
 
 [[package]]
 name = "unique_port"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d79d1fad39d9571050e827f7a33fde5a50952f50e3ccbc007a6566881b17df5d"
+version = "0.2.1"
+source = "git+https://github.com/ales-tsurko/iroha2-unique_port?rev=09e95bb3608626c995b8e7e51c64ba7486c88948#09e95bb3608626c995b8e7e51c64ba7486c88948"
 dependencies = [
  "once_cell",
 ]

@@ -10,11 +10,13 @@ use super::Configuration;
 
 #[test]
 fn connected_peers_with_f_2_1_2() {
+    prepare_test_for_nextest!();
     connected_peers_with_f(2)
 }
 
 #[test]
 fn connected_peers_with_f_1_0_1() {
+    prepare_test_for_nextest!();
     connected_peers_with_f(1)
 }
 

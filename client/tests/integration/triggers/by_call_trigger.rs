@@ -11,6 +11,7 @@ const TRIGGER_NAME: &str = "mint_rose";
 
 #[test]
 fn call_execute_trigger() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -35,6 +36,7 @@ fn call_execute_trigger() -> Result<()> {
 
 #[test]
 fn execute_trigger_should_produce_event() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -70,6 +72,7 @@ fn execute_trigger_should_produce_event() -> Result<()> {
 
 #[test]
 fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -97,6 +100,7 @@ fn infinite_recursion_should_produce_one_call_per_block() -> Result<()> {
 
 #[test]
 fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -151,6 +155,7 @@ fn trigger_failure_should_not_cancel_other_triggers_execution() -> Result<()> {
 
 #[test]
 fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -193,6 +198,7 @@ fn trigger_should_not_be_executed_with_zero_repeats_count() -> Result<()> {
 
 #[test]
 fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -238,6 +244,7 @@ fn trigger_should_be_able_to_modify_its_own_repeats_count() -> Result<()> {
 
 #[test]
 fn unregister_trigger() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
