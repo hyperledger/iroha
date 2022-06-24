@@ -41,13 +41,15 @@ namespace iroha::consensus::yac {
      * @param to - peer recipient
      * @param state - message for sending
      */
-    virtual void sendState(const shared_model::interface::Peer &to,
-                           std::shared_ptr<iroha::consensus::yac::proto::State> const &state) = 0;
+    virtual void sendState(
+        const shared_model::interface::Peer &to,
+        std::shared_ptr<iroha::consensus::yac::proto::State> const &state) = 0;
 
     /**
      * Creates a serialized message for propagation.
      */
-    virtual std::shared_ptr<iroha::consensus::yac::proto::State> prepareYacState(const std::vector<VoteMessage> &state) = 0;
+    virtual std::shared_ptr<iroha::consensus::yac::proto::State>
+    prepareYacState(const std::vector<VoteMessage> &state) = 0;
 
     /// Prevent any new outgoing network activity. Be passive.
     virtual void stop() = 0;

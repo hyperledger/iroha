@@ -288,8 +288,9 @@ void Yac::tryPropagateBack(const std::vector<VoteMessage> &state) {
           log_->info(
               "Propagate state {} directly to {}", last_round, from->address());
           auto votes = [](const auto &state) { return state.votes; };
-          this->propagateStateDirectly(*from,
-                                       network_->prepareYacState(visit_in_place(last_state, votes)));
+          this->propagateStateDirectly(
+              *from,
+              network_->prepareYacState(visit_in_place(last_state, votes)));
         };
       };
     }

@@ -30,7 +30,8 @@ void NetworkImpl::stop() {
   stop_requested_ = true;
 }
 
-std::shared_ptr<iroha::consensus::yac::proto::State> NetworkImpl::prepareYacState(const std::vector<VoteMessage> &state) {
+std::shared_ptr<iroha::consensus::yac::proto::State>
+NetworkImpl::prepareYacState(const std::vector<VoteMessage> &state) {
   auto request = std::make_shared<proto::State>();
   for (const auto &vote : state) {
     auto pb_vote = request->add_votes();
@@ -39,8 +40,9 @@ std::shared_ptr<iroha::consensus::yac::proto::State> NetworkImpl::prepareYacStat
   return request;
 }
 
-void NetworkImpl::sendState(const shared_model::interface::Peer &to,
-                            std::shared_ptr<iroha::consensus::yac::proto::State> const &request) {
+void NetworkImpl::sendState(
+    const shared_model::interface::Peer &to,
+    std::shared_ptr<iroha::consensus::yac::proto::State> const &request) {
   std::lock_guard<std::mutex> stop_lock(stop_mutex_);
   if (stop_requested_) {
     log_->warn("Not sending state to {} because stop was requested.", to);
@@ -61,11 +63,12 @@ void NetworkImpl::sendState(const shared_model::interface::Peer &to,
       [request{request},
        client(std::move(client)),
        log(utils::make_weak(log_)),
-       log_sending_msg(fmt::format("Send votes bundle[size={}] for Round {}:{} to {}",
-                                   request->votes().size(),
-                                   request->votes().at(0).hash().vote_round().block_round(),
-                                   request->votes().at(0).hash().vote_round().reject_round(),
-                                   to))] {
+       log_sending_msg(fmt::format(
+           "Send votes bundle[size={}] for Round {}:{} to {}",
+           request->votes().size(),
+           request->votes().at(0).hash().vote_round().block_round(),
+           request->votes().at(0).hash().vote_round().reject_round(),
+           to))] {
         assert(request);
         auto maybe_log = log.lock();
         if (not maybe_log)
