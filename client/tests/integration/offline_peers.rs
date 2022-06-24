@@ -7,6 +7,7 @@ use tokio::runtime::Runtime;
 
 #[test]
 fn genesis_block_is_commited_with_some_offline_peers() {
+    prepare_test_for_nextest!();
     // Given
     let rt = Runtime::test();
 
