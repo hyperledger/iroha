@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 
 use iroha_cli_derive::generate_endpoints;
-use iroha_version::scale::DecodeVersioned;
+use iroha_version::prelude::*;
 use parity_scale_codec::Encode;
 use warp::{hyper::body::Bytes, reply::Response, Filter, Rejection, Reply};
 
@@ -58,12 +58,8 @@ pub mod body {
         type Error = WarpQueryError;
 
         fn try_from(body: &Bytes) -> Result<Self, Self::Error> {
-            let mut query_res = VersionedSignedQueryRequest::decode_all_versioned(body.as_ref());
-            if query_res.is_err() {
-                warn!("Can't decode query using all bytes");
-                query_res = VersionedSignedQueryRequest::decode_versioned(body.as_ref());
-            }
-            let query = query_res.map_err(|e| WarpQueryError(Box::new(e).into()))?;
+            let res = try_decode_all_or_just_decode!(VersionedSignedQueryRequest, body.as_ref());
+            let query = res.map_err(|e| WarpQueryError(Box::new(e).into()))?;
             let VersionedSignedQueryRequest::V1(query) = query;
             Ok(Self::try_from(query)?)
         }
@@ -79,12 +75,7 @@ pub mod body {
     pub fn versioned<T: DecodeVersioned>() -> impl Filter<Extract = (T,), Error = Rejection> + Copy
     {
         warp::body::bytes().and_then(|body: Bytes| async move {
-            let mut res = DecodeVersioned::decode_all_versioned(body.as_ref());
-            if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
-                warn!(left_bytes = %left, "Can't decode body, not all bytes were consumed");
-                res = DecodeVersioned::decode_versioned(body.as_ref());
-            }
-            res.map_err(warp::reject::custom)
+            try_decode_all_or_just_decode!(T as "Body", body.as_ref()).map_err(warp::reject::custom)
         })
     }
 }

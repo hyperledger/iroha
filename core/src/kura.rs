@@ -18,7 +18,10 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_crypto::{HashOf, MerkleTree};
 use iroha_logger::prelude::*;
-use iroha_version::scale::{DecodeVersioned, EncodeVersioned};
+use iroha_version::{
+    scale::{DecodeVersioned, EncodeVersioned},
+    try_decode_all_or_just_decode,
+};
 use pin_project::pin_project;
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -405,12 +408,8 @@ impl<IO: DiskIO> BlockStore<IO> {
         buffer.resize(len as usize, 0);
         let _len = file_stream.read_exact(&mut buffer).await?;
 
-        let mut res = VersionedCommittedBlock::decode_all_versioned(&buffer);
-        if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
-            warn!(left_bytes = %left, "Failed to decode block, not all bytes were consumed");
-            res = VersionedCommittedBlock::decode_versioned(&buffer);
-        }
-        Ok(Some(res?))
+        let block = try_decode_all_or_just_decode!(VersionedCommittedBlock, &buffer)?;
+        Ok(Some(block))
     }
 
     /// Converts raw file stream into stream of decoded blocks

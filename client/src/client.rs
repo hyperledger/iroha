@@ -64,11 +64,8 @@ where
         ) -> QueryHandlerResult<VersionedPaginatedQueryResult> {
             match resp.status() {
                 StatusCode::OK => {
-                    let mut res = VersionedPaginatedQueryResult::decode_all_versioned(resp.body());
-                    if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
-                        warn!(left_bytes = %left, "Can't decode query result, not all bytes were consumed");
-                        res = VersionedPaginatedQueryResult::decode_versioned(resp.body());
-                    }
+                    let res =
+                        try_decode_all_or_just_decode!(VersionedPaginatedQueryResult, resp.body());
                     res.wrap_err(
                         "Failed to decode the whole response body as `VersionedPaginatedQueryResult`",
                     )
@@ -729,12 +726,8 @@ impl Client {
             .send()?;
 
             if response.status() == StatusCode::OK {
-                let mut res = VersionedPendingTransactions::decode_all_versioned(response.body());
-                if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
-                    warn!(left_bytes = %left, "Can't decode pending transactions, not all bytes were consumed");
-                    res = VersionedPendingTransactions::decode_versioned(response.body());
-                }
-                let pending_transactions = res?;
+                let pending_transactions =
+                    try_decode_all_or_just_decode!(VersionedPendingTransactions, response.body())?;
                 let VersionedPendingTransactions::V1(pending_transactions) = pending_transactions;
                 let transaction = pending_transactions
                     .into_iter()
@@ -937,15 +930,6 @@ pub mod events_api {
             }
         }
 
-        fn decode_publisher_message(bytes: &[u8]) -> Result<VersionedEventPublisherMessage> {
-            let mut res = VersionedEventPublisherMessage::decode_all_versioned(bytes);
-            if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
-                warn!(left_bytes = %left, "Can't decode event publisher message, not all bytes were consumed");
-                res = VersionedEventPublisherMessage::decode_versioned(bytes);
-            }
-            res.map_err(Into::into)
-        }
-
         /// Events API flow handshake handler
         #[derive(Copy, Clone)]
         pub struct Handshake;
@@ -958,7 +942,8 @@ pub mod events_api {
                 Self::Next: FlowEvents,
             {
                 if let EventPublisherMessage::SubscriptionAccepted =
-                    decode_publisher_message(&message)?.into_v1()
+                    try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &message)?
+                        .into_v1()
                 {
                     return Ok(Events);
                 }
@@ -974,9 +959,9 @@ pub mod events_api {
             type Event = iroha_data_model::prelude::Event;
 
             fn message(&self, message: Vec<u8>) -> Result<EventData<Self::Event>> {
-                let event_socket_message = decode_publisher_message(&message)
-                    .map(iroha_data_model::events::VersionedEventPublisherMessage::into_v1)
-                    .map_err(Into::<eyre::Error>::into)?;
+                let event_socket_message =
+                    try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &message)?
+                        .into_v1();
                 let event = match event_socket_message {
                     EventPublisherMessage::Event(event) => event,
                     msg => return Err(eyre!("Expected Event but got {:?}", msg)),

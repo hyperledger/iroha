@@ -114,12 +114,10 @@ pub trait Stream<R: DecodeVersioned>:
             return Err(Error::NonBinaryMessage);
         }
 
-        let mut res = R::decode_all_versioned(subscription_request_message.as_bytes());
-        if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
-            warn!(left_bytes = %left, "Can't decode whole message, not all bytes were consumed");
-            res = R::decode_versioned(subscription_request_message.as_bytes());
-        }
-        Ok(res?)
+        Ok(try_decode_all_or_just_decode!(
+            R as "Message",
+            subscription_request_message.as_bytes()
+        )?)
     }
 }
 
