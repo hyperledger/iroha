@@ -17,6 +17,11 @@ async fn main() -> Result<(), color_eyre::Report> {
 
     if std::env::args().any(|a| is_submit(&a)) {
         args.submit_genesis = true;
+        if let Ok(genesis_path) = std::env::var("IROHA2_GENESIS_PATH") {
+            args.genesis_path = Some(std::path::PathBuf::from_str(&genesis_path)?);
+        }
+    } else {
+        args.genesis_path = None;
     }
 
     for arg in std::env::args().skip(1) {
@@ -46,10 +51,6 @@ async fn main() -> Result<(), color_eyre::Report> {
                 "Failed to retrieve required environment variable: {var_name}"
             ))?;
         }
-    }
-
-    if let Ok(genesis_path) = std::env::var("IROHA2_GENESIS_PATH") {
-        args.genesis_path = std::path::PathBuf::from_str(&genesis_path)?;
     }
 
     <iroha::Iroha>::new(&args, default_permissions(), AllowAll.into())

@@ -39,8 +39,8 @@ pub mod torii;
 pub struct Arguments {
     /// Set this flag on the peer that should submit genesis on the network initial start.
     pub submit_genesis: bool,
-    /// Set custom genesis file path.
-    pub genesis_path: PathBuf,
+    /// Set custom genesis file path. `None` if `submit_genesis` set to `false`.
+    pub genesis_path: Option<PathBuf>,
     /// Set custom config file path.
     pub config_path: PathBuf,
 }
@@ -53,7 +53,7 @@ impl Default for Arguments {
     fn default() -> Self {
         Self {
             submit_genesis: SUBMIT_GENESIS,
-            genesis_path: GENESIS_PATH.into(),
+            genesis_path: Some(GENESIS_PATH.into()),
             config_path: CONFIGURATION_PATH.into(),
         }
     }
@@ -117,13 +117,17 @@ where
         iroha_logger::info!("Hyperledgerいろは2にようこそ！");
         iroha_logger::info!("(translation) Welcome to Hyperledger Iroha 2!");
 
-        let genesis = G::from_configuration(
-            args.submit_genesis,
-            RawGenesisBlock::from_path(&args.genesis_path)?,
-            &config.genesis,
-            &config.sumeragi.transaction_limits,
-        )
-        .wrap_err("Failed to initialize genesis.")?;
+        let genesis = if let Some(genesis_path) = &args.genesis_path {
+            G::from_configuration(
+                args.submit_genesis,
+                RawGenesisBlock::from_path(genesis_path)?,
+                &Some(config.genesis.clone()),
+                &config.sumeragi.transaction_limits,
+            )
+            .wrap_err("Failed to initialize genesis.")?
+        } else {
+            None
+        };
 
         Self::with_genesis(
             genesis,
