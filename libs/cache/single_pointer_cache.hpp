@@ -11,43 +11,43 @@
 
 namespace iroha::cache {
 
+  /**
+   * Thread-safely stores and returns shared pointer to an element of template
+   * type
+   */
+  template <typename DataType>
+  struct SinglePointerCache final {
     /**
-     * Thread-safely stores and returns shared pointer to an element of template
-     * type
+     * Pointer to data type
      */
-    template <typename DataType>
-    struct SinglePointerCache final {
-      /**
-       * Pointer to data type
-       */
-      using DataPointer = std::shared_ptr<std::decay_t<DataType>>;
+    using DataPointer = std::shared_ptr<std::decay_t<DataType>>;
 
-      /**
-       * Insert data to the cache
-       * @param pointer to the data to be inserted
-       */
-      void insert(DataPointer data) {
-        stored_data_ = std::move(data);
-      }
+    /**
+     * Insert data to the cache
+     * @param pointer to the data to be inserted
+     */
+    void insert(DataPointer data) {
+      stored_data_ = std::move(data);
+    }
 
-      /**
-       * Get data from the cache
-       * @return pointer to the stored data
-       */
-      DataPointer get() const {
-        return stored_data_;
-      }
+    /**
+     * Get data from the cache
+     * @return pointer to the stored data
+     */
+    DataPointer get() const {
+      return stored_data_;
+    }
 
-      /**
-       * Delete data inside the cache
-       */
-      void release() {
-        stored_data_.reset();
-      }
+    /**
+     * Delete data inside the cache
+     */
+    void release() {
+      stored_data_.reset();
+    }
 
-     private:
-      DataPointer stored_data_;
-    };
+   private:
+    DataPointer stored_data_;
+  };
 
 }  // namespace iroha::cache
 
