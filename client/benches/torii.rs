@@ -32,7 +32,7 @@ fn query_requests(criterion: &mut Criterion) {
             "wonderland".parse().expect("Valid"),
             get_key_pair().public_key().clone(),
         ),
-        &configuration.genesis,
+        &Some(configuration.genesis.clone()),
         &configuration.sumeragi.transaction_limits,
     )
     .expect("genesis creation failed");
@@ -131,7 +131,7 @@ fn instruction_submits(criterion: &mut Criterion) {
             "wonderland".parse().expect("Valid"),
             configuration.public_key.clone(),
         ),
-        &configuration.genesis,
+        &Some(configuration.genesis.clone()),
         &configuration.sumeragi.transaction_limits,
     )
     .expect("failed to create genesis");

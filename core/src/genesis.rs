@@ -46,7 +46,7 @@ pub trait GenesisNetworkTrait:
     fn from_configuration(
         submit_genesis: bool,
         raw_block: RawGenesisBlock,
-        genesis_config: &GenesisConfiguration,
+        genesis_config: &Option<GenesisConfiguration>,
         transaction_limits: &TransactionLimits,
     ) -> Result<Option<Self>>;
 
@@ -166,9 +166,11 @@ impl GenesisNetworkTrait for GenesisNetwork {
     fn from_configuration(
         submit_genesis: bool,
         raw_block: RawGenesisBlock,
-        genesis_config: &GenesisConfiguration,
+        genesis_config: &Option<GenesisConfiguration>,
         tx_limits: &TransactionLimits,
     ) -> Result<Option<GenesisNetwork>> {
+        #![allow(clippy::unwrap_in_result)]
+        #![allow(clippy::expect_used)]
         if !submit_genesis {
             iroha_logger::debug!("Not submitting genesis");
             return Ok(None);
@@ -180,8 +182,14 @@ impl GenesisNetworkTrait for GenesisNetwork {
                 .iter()
                 .map(|raw_transaction| {
                     let genesis_key_pair = KeyPair::new(
-                        genesis_config.account_public_key.clone(),
                         genesis_config
+                            .as_ref()
+                            .expect("Should be `Some` when `submit_genesis` is true")
+                            .account_public_key
+                            .clone(),
+                        genesis_config
+                            .as_ref()
+                            .expect("Should be `Some` when `submit_genesis` is true")
                             .account_private_key
                             .clone()
                             .ok_or_else(|| eyre!("Genesis account private key is empty."))?,
@@ -198,9 +206,18 @@ impl GenesisNetworkTrait for GenesisNetwork {
                     .ok()
                 })
                 .collect(),
-            wait_for_peers_retry_count_limit: genesis_config.wait_for_peers_retry_count_limit,
-            wait_for_peers_retry_period_ms: genesis_config.wait_for_peers_retry_period_ms,
-            genesis_submission_delay_ms: genesis_config.genesis_submission_delay_ms,
+            wait_for_peers_retry_count_limit: genesis_config
+                .as_ref()
+                .expect("Should be `Some` when `submit_genesis` is true")
+                .wait_for_peers_retry_count_limit,
+            wait_for_peers_retry_period_ms: genesis_config
+                .as_ref()
+                .expect("Should be `Some` when `submit_genesis` is true")
+                .wait_for_peers_retry_period_ms,
+            genesis_submission_delay_ms: genesis_config
+                .as_ref()
+                .expect("Should be `Some` when `submit_genesis` is true")
+                .genesis_submission_delay_ms,
         }))
     }
 
@@ -489,11 +506,11 @@ mod tests {
         let _genesis_block = GenesisNetwork::from_configuration(
             true,
             RawGenesisBlock::default(),
-            &GenesisConfiguration {
+            &Some(GenesisConfiguration {
                 account_public_key: public_key,
                 account_private_key: Some(private_key),
                 ..GenesisConfiguration::default()
-            },
+            }),
             &tx_limits,
         )?;
         Ok(())
