@@ -12,11 +12,13 @@ const PEER_COUNT: usize = 7;
 
 #[test]
 fn transaction_with_no_instructions_should_be_committed() -> Result<()> {
+    prepare_test_for_nextest!();
     test_with_instruction_and_status(None, PipelineStatusKind::Committed)
 }
 
 #[test]
 fn transaction_with_fail_instruction_should_be_rejected() -> Result<()> {
+    prepare_test_for_nextest!();
     let fail = FailBox::new("Should be rejected");
     test_with_instruction_and_status(Some(fail.into()), PipelineStatusKind::Rejected)
 }

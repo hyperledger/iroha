@@ -63,4 +63,4 @@ thiserror = "1.0.28"
 color-eyre = "0.5.11"
 
 [dev-dependencies]
-unique_port = "0.1.0"
+test_network = { version = "=2.0.0-pre-rc.5", path = "../core/test_network" }

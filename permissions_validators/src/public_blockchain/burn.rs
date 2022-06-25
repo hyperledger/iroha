@@ -5,7 +5,7 @@ use iroha_data_model::asset::DefinitionId;
 use super::*;
 
 declare_token!(
-    /// Can burn asset with the corresponding asset definition.
+    /// Can burn and unregister assets with the corresponding asset definition.
     CanBurnAssetWithDefinition {
         /// Asset definition id.
         asset_definition_id ("asset_definition_id"): DefinitionId,
@@ -35,26 +35,50 @@ impl IsAllowed<Instruction> for OnlyAssetsCreatedByThisAccount {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<()> {
-        let burn_box = if let Instruction::Burn(burn) = instruction {
-            burn
-        } else {
-            return Ok(());
-        };
-        let destination_id = burn_box
-            .destination_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
-        let asset_id: AssetId = try_into_or_exit!(destination_id);
-        let registered_by_signer_account = wsv
-            .asset_definition_entry(&asset_id.definition_id)
-            .map(|asset_definition_entry| asset_definition_entry.registered_by() == authority)
-            .unwrap_or(false);
-        if !registered_by_signer_account {
-            return Err("Can't burn assets registered by other accounts."
-                .to_owned()
-                .into());
+        match instruction {
+            Instruction::Unregister(unregister) => {
+                if let IdBox::AssetId(asset_id) = unregister
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
+                {
+                    let registered_by_signer_account = wsv
+                        .asset_definition_entry(&asset_id.definition_id)
+                        .map(|asset_definition_entry| {
+                            asset_definition_entry.registered_by() == authority
+                        })
+                        .unwrap_or(false);
+                    if !registered_by_signer_account {
+                        return Err(
+                            "Can't unregister assets with definitions registered by other accounts.".to_owned().into()
+                        );
+                    }
+                }
+                Ok(())
+            }
+            Instruction::Burn(burn_box) => {
+                let destination_id = burn_box
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let asset_id: AssetId = try_into_or_exit!(destination_id);
+                let registered_by_signer_account = wsv
+                    .asset_definition_entry(&asset_id.definition_id)
+                    .map(|asset_definition_entry| {
+                        asset_definition_entry.registered_by() == authority
+                    })
+                    .unwrap_or(false);
+                if !registered_by_signer_account {
+                    return Err(
+                        "Can't burn assets with definitions registered by other accounts."
+                            .to_owned()
+                            .into(),
+                    );
+                }
+                Ok(())
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 }
 
@@ -72,22 +96,33 @@ impl HasToken for GrantedByAssetCreator {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
-        let burn_box = if let Instruction::Burn(burn) = instruction {
-            burn
-        } else {
-            return Err("Instruction is not burn.".to_owned());
-        };
-        let destination_id = burn_box
-            .destination_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
-        let asset_id: AssetId = if let Ok(dest_id) = destination_id.try_into() {
-            dest_id
-        } else {
-            return Err("Destination is not an Asset.".to_owned());
-        };
+        match instruction {
+            Instruction::Unregister(unregister) => {
+                if let IdBox::AssetId(asset_id) = unregister
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
+                {
+                    Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id).into())
+                } else {
+                    Err("Expected the unregister asset instruction".to_owned())
+                }
+            }
+            Instruction::Burn(burn_box) => {
+                let destination_id = burn_box
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let asset_id: AssetId = if let Ok(dest_id) = destination_id.try_into() {
+                    dest_id
+                } else {
+                    return Err("Destination is not an Asset.".to_owned());
+                };
 
-        Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id).into())
+                Ok(CanBurnAssetWithDefinition::new(asset_id.definition_id).into())
+            }
+            _ => Err("Expected burn or unregister asset instruction".to_owned()),
+        }
     }
 }
 
@@ -124,20 +159,34 @@ impl IsAllowed<Instruction> for OnlyOwnedAssets {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> Result<()> {
-        let burn_box = if let Instruction::Burn(burn) = instruction {
-            burn
-        } else {
-            return Ok(());
-        };
-        let destination_id = burn_box
-            .destination_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
-        let asset_id: AssetId = try_into_or_exit!(destination_id);
-        if &asset_id.account_id != authority {
-            return Err("Can't burn assets from another account.".to_owned().into());
+        match instruction {
+            Instruction::Unregister(unregister) => {
+                if let IdBox::AssetId(asset_id) = unregister
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
+                {
+                    if &asset_id.account_id != authority {
+                        return Err("Can't unregister assets from another account."
+                            .to_owned()
+                            .into());
+                    }
+                }
+                Ok(())
+            }
+            Instruction::Burn(burn_box) => {
+                let destination_id = burn_box
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let asset_id: AssetId = try_into_or_exit!(destination_id);
+                if &asset_id.account_id != authority {
+                    return Err("Can't burn assets from another account.".to_owned().into());
+                }
+                Ok(())
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 }
 
@@ -154,21 +203,32 @@ impl HasToken for GrantedByAssetOwner {
         instruction: &Instruction,
         wsv: &WorldStateView,
     ) -> std::result::Result<PermissionToken, String> {
-        let burn_box = if let Instruction::Burn(burn_box) = instruction {
-            burn_box
-        } else {
-            return Err("Instruction is not burn.".to_owned());
-        };
-        let destination_id = burn_box
-            .destination_id
-            .evaluate(wsv, &Context::new())
-            .map_err(|e| e.to_string())?;
-        let destination_id: AssetId = if let Ok(dest_id) = destination_id.try_into() {
-            dest_id
-        } else {
-            return Err("Source id is not an AssetId.".to_owned());
-        };
-        Ok(CanBurnUserAssets::new(destination_id).into())
+        match instruction {
+            Instruction::Unregister(unregister) => {
+                if let IdBox::AssetId(asset_id) = unregister
+                    .object_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?
+                {
+                    Ok(CanBurnUserAssets::new(asset_id).into())
+                } else {
+                    Err("Expected the unregister asset instruction".to_owned())
+                }
+            }
+            Instruction::Burn(burn_box) => {
+                let destination_id = burn_box
+                    .destination_id
+                    .evaluate(wsv, &Context::new())
+                    .map_err(|e| e.to_string())?;
+                let destination_id: AssetId = if let Ok(dest_id) = destination_id.try_into() {
+                    dest_id
+                } else {
+                    return Err("Source id is not an AssetId.".to_owned());
+                };
+                Ok(CanBurnUserAssets::new(destination_id).into())
+            }
+            _ => Err("Expected burn or unregister asset instruction".to_owned()),
+        }
     }
 }
 

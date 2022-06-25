@@ -27,6 +27,7 @@ fn account_keys_count(client: &mut Client, account_id: AccountId) -> usize {
 
 #[test]
 fn public_keys_cannot_be_burned_to_nothing() {
+    prepare_test_for_nextest!();
     const KEYS_COUNT: usize = 3;
     let bob_id: AccountId = "bob@wonderland".parse().expect("Valid");
     let bob_keys_count = |client: &mut Client| account_keys_count(client, bob_id.clone());

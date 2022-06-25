@@ -20,6 +20,7 @@ use iroha_p2p::{
     *,
 };
 use parity_scale_codec::{Decode, Encode};
+use test_network::{prepare_test_for_nextest, unique_port};
 use tokio::time::Duration;
 
 #[derive(iroha_actor::Message, Clone, Debug, Decode, Encode)]
@@ -48,6 +49,7 @@ fn setup_logger() {
 /// are properly sent and received using encryption and serialization/deserialization.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn network_create() {
+    prepare_test_for_nextest!();
     let delay = Duration::from_millis(200);
     setup_logger();
     info!("Starting network tests...");
@@ -114,6 +116,7 @@ impl Handler<TestMessage> for TestActor {
 /// This peer connects to our second network, emulating some distant peer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_networks() {
+    prepare_test_for_nextest!();
     let delay = Duration::from_millis(200);
     setup_logger();
     let public_key1 = iroha_crypto::PublicKey::from_str(
@@ -197,6 +200,7 @@ async fn two_networks() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn multiple_networks() {
+    prepare_test_for_nextest!();
     let log_config = Configuration {
         max_log_level: Level(logger::Level::TRACE).into(),
         compact_mode: false,

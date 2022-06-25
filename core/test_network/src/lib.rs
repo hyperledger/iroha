@@ -27,6 +27,19 @@ use tokio::{
     task::{self, JoinHandle},
     time,
 };
+pub use unique_port;
+
+/// Prevent port collisions in `unique_port`, when using `cargo nextest`.
+#[macro_export]
+macro_rules! prepare_test_for_nextest {
+    () => {{
+        if std::env::var("NEXTEST").is_ok() {
+            use $crate::unique_port::{generate_unique_start_port, set_port_index};
+            set_port_index(generate_unique_start_port!())
+                .expect("Can't set port index for unique_port");
+        }
+    }};
+}
 
 #[derive(Debug, Clone, Copy)]
 struct ShutdownRuntime;
@@ -105,7 +118,7 @@ impl<G: GenesisNetworkTrait> TestGenesis for G {
         G::from_configuration(
             submit_genesis,
             genesis,
-            &cfg.genesis,
+            &Some(cfg.genesis),
             &cfg.sumeragi.transaction_limits,
         )
         .expect("Failed to init genesis")

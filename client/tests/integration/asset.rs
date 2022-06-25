@@ -10,7 +10,75 @@ use test_network::*;
 use super::Configuration;
 
 #[test]
+fn client_register_asset_should_add_asset_once_but_not_twice() -> Result<()> {
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    // Given
+    let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+
+    let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").expect("Valid");
+    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let register_asset = RegisterBox::new(Asset::new(
+        AssetId::new(asset_definition_id.clone(), account_id.clone()),
+        AssetValue::Quantity(0),
+    ));
+
+    test_client.submit_all(vec![create_asset.into(), register_asset.clone().into()])?;
+
+    // Registering an asset to an account which doesn't have one
+    // should result in asset being created
+    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
+        result.iter().any(|asset| {
+            asset.id().definition_id == asset_definition_id
+                && *asset.value() == AssetValue::Quantity(0)
+        })
+    })?;
+
+    // But registering an asset to account already having one should fail
+    assert!(test_client.submit_blocking(register_asset).is_err());
+
+    Ok(())
+}
+
+#[test]
+fn unregister_asset_should_remove_asset_from_account() -> Result<()> {
+    let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
+    wait_for_genesis_committed(&vec![test_client.clone()], 0);
+
+    // Given
+    let account_id = AccountId::from_str("alice@wonderland").expect("Valid");
+
+    let asset_definition_id = AssetDefinitionId::from_str("test_asset#wonderland").expect("Valid");
+    let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
+    let create_asset = RegisterBox::new(AssetDefinition::quantity(asset_definition_id.clone()));
+    let register_asset = RegisterBox::new(Asset::new(asset_id.clone(), AssetValue::Quantity(0)));
+    let unregister_asset = UnregisterBox::new(asset_id);
+
+    test_client.submit_all(vec![create_asset.into(), register_asset.into()])?;
+
+    // Wait for asset to be registered
+    test_client.poll_request(client::asset::by_account_id(account_id.clone()), |result| {
+        result
+            .iter()
+            .any(|asset| asset.id().definition_id == asset_definition_id)
+    })?;
+
+    test_client.submit(unregister_asset)?;
+
+    // ... and check that it is removed after Unregister
+    test_client.poll_request(client::asset::by_account_id(account_id), |result| {
+        result
+            .iter()
+            .all(|asset| asset.id().definition_id != asset_definition_id)
+    })?;
+
+    Ok(())
+}
+
+#[test]
 fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -42,6 +110,7 @@ fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() ->
 
 #[test]
 fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
     wait_for_genesis_committed(&vec![test_client.clone()], 0);
 
@@ -73,6 +142,7 @@ fn client_add_big_asset_quantity_to_existing_asset_should_increase_asset_amount(
 
 #[test]
 fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, mut test_client) = <PeerBuilder>::new().start_with_runtime();
 
     // Given
@@ -125,6 +195,7 @@ fn client_add_asset_with_decimal_should_increase_asset_amount() -> Result<()> {
 
 #[test]
 fn client_add_asset_with_name_length_more_than_limit_should_not_commit_transaction() -> Result<()> {
+    prepare_test_for_nextest!();
     let (_rt, _peer, test_client) = <PeerBuilder>::new().start_with_runtime();
     let pipeline_time = Configuration::pipeline_time();
 

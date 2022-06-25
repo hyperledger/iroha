@@ -20,6 +20,7 @@ use iroha_core::{
 };
 use iroha_data_model::{account::GENESIS_ACCOUNT_NAME, predicate::PredicateBox, prelude::*};
 use iroha_version::prelude::*;
+use test_network::{prepare_test_for_nextest, unique_port};
 use tokio::time;
 use warp::test::WsClient;
 
@@ -83,6 +84,7 @@ async fn create_torii() -> (Torii, KeyPair) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn create_and_start_torii() {
+    prepare_test_for_nextest!();
     let (torii, _) = create_torii().await;
 
     let result = time::timeout(Duration::from_millis(50), torii.start()).await;
@@ -92,6 +94,7 @@ async fn create_and_start_torii() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn torii_pagination() {
+    prepare_test_for_nextest!();
     let (torii, keys) = create_torii().await;
 
     let get_domains = |start, limit| {
@@ -312,6 +315,7 @@ fn asset_id(name: &str, account: &str) -> AssetId {
 
 #[tokio::test]
 async fn find_asset() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
@@ -338,6 +342,7 @@ async fn find_asset() {
 
 #[tokio::test]
 async fn find_asset_with_no_mint() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
@@ -360,6 +365,7 @@ async fn find_asset_with_no_mint() {
 
 #[tokio::test]
 async fn find_asset_with_no_asset_definition() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
@@ -382,6 +388,7 @@ async fn find_asset_with_no_asset_definition() {
 
 #[tokio::test]
 async fn find_asset_with_no_account() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
     // .given(register_account("alice"))
@@ -404,6 +411,7 @@ async fn find_asset_with_no_account() {
 
 #[tokio::test]
 async fn find_asset_with_no_domain() {
+    prepare_test_for_nextest!();
     QuerySet::new()
     // .given(register_domain())
     // .given(register_account("alice"))
@@ -426,6 +434,7 @@ async fn find_asset_with_no_domain() {
 
 #[tokio::test]
 async fn find_asset_definition() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
         .given(register_asset_definition("rose"))
@@ -439,6 +448,7 @@ async fn find_asset_definition() {
 
 #[tokio::test]
 async fn find_asset_definition_with_no_asset_definition() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
     // .given(register_asset_definition("rose"))
@@ -459,6 +469,7 @@ async fn find_asset_definition_with_no_asset_definition() {
 
 #[tokio::test]
 async fn find_asset_definition_with_no_domain() {
+    prepare_test_for_nextest!();
     QuerySet::new()
     // .given(register_domain())
     // .given(register_asset_definition("rose"))
@@ -479,6 +490,7 @@ async fn find_asset_definition_with_no_domain() {
 
 #[tokio::test]
 async fn find_account() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
@@ -495,6 +507,7 @@ async fn find_account() {
 
 #[tokio::test]
 async fn find_account_with_no_account() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
     // .given(register_account("alice"))
@@ -515,6 +528,7 @@ async fn find_account_with_no_account() {
 
 #[tokio::test]
 async fn find_account_with_no_domain() {
+    prepare_test_for_nextest!();
     QuerySet::new()
     // .given(register_domain())
     // .given(register_account("alice"))
@@ -535,6 +549,7 @@ async fn find_account_with_no_domain() {
 
 #[tokio::test]
 async fn find_domain() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
         .query(QueryBox::FindDomainById(FindDomainById::new(
@@ -547,6 +562,7 @@ async fn find_domain() {
 
 #[tokio::test]
 async fn find_domain_with_no_domain() {
+    prepare_test_for_nextest!();
     QuerySet::new()
     // .given(register_domain())
         .query(QueryBox::FindDomainById(FindDomainById::new(
@@ -573,6 +589,7 @@ fn query() -> QueryBox {
 
 #[tokio::test]
 async fn query_with_wrong_signatory() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
@@ -601,6 +618,7 @@ async fn query_with_wrong_signature() {
 
 #[tokio::test]
 async fn query_with_wrong_signature_and_no_permission() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
@@ -615,6 +633,7 @@ async fn query_with_wrong_signature_and_no_permission() {
 
 #[tokio::test]
 async fn query_with_no_permission() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
         .given(register_account("alice"))
@@ -629,6 +648,7 @@ async fn query_with_no_permission() {
 
 #[tokio::test]
 async fn query_with_no_permission_and_no_find() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
     // .given(register_account("alice"))
@@ -643,6 +663,7 @@ async fn query_with_no_permission_and_no_find() {
 
 #[tokio::test]
 async fn query_with_no_find() {
+    prepare_test_for_nextest!();
     QuerySet::new()
         .given(register_domain())
     // .given(register_account("alice"))
@@ -680,6 +701,7 @@ fn new_dummy() -> ValidBlock {
 
 #[tokio::test]
 async fn blocks_stream() {
+    prepare_test_for_nextest!();
     const BLOCK_COUNT: usize = 4;
 
     let (torii, _) = create_torii().await;
@@ -747,6 +769,7 @@ fn domains(
 
 #[test]
 fn hash_should_be_the_same() {
+    prepare_test_for_nextest!();
     let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
     let mut config = get_config(
         get_trusted_peers(Some(key_pair.public_key())),
@@ -789,6 +812,7 @@ fn hash_should_be_the_same() {
 
 #[tokio::test]
 async fn test_subscription_websocket_clean_closing() {
+    prepare_test_for_nextest!();
     use iroha_data_model::events::{pipeline, FilterBox};
     use warp::filters::ws;
 
