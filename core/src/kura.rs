@@ -186,7 +186,7 @@ impl<IO: DiskIO> Handler<GetBlockHash> for KuraWithIO<IO> {
             return None;
         }
         // Block height starts with 1
-        self.merkle_tree.get_leaf(height - 1)
+        self.merkle_tree.get_leaf_hash(height - 1)
     }
 }
 
@@ -235,7 +235,7 @@ impl<IO: DiskIO> KuraWithIO<IO> {
     ) -> Result<HashOf<VersionedCommittedBlock>> {
         match self.block_store.write(&block).await {
             Ok(block_hash) => {
-                self.merkle_tree = self.merkle_tree.add(block_hash);
+                self.merkle_tree.add(block_hash);
                 self.broker.issue_send(ContinueSync).await;
                 Ok(block_hash)
             }
