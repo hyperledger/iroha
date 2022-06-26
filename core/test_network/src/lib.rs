@@ -269,7 +269,7 @@ where
         let mut configuration = default_configuration.unwrap_or_else(Configuration::test);
         configuration.sumeragi.trusted_peers.peers = peers
             .values()
-            .chain(std::iter::once(&genesis))
+            .chain([&genesis])
             .map(|peer| peer.id.clone())
             .collect();
 

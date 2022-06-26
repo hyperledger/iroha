@@ -440,7 +440,7 @@ impl BlockSigned {
                 network_topology
                     .validating_peers()
                     .iter()
-                    .chain(std::iter::once(network_topology.leader()))
+                    .chain([network_topology.leader()])
                     .chain(network_topology.peers_set_b()),
             )
             .await;
