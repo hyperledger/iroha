@@ -2,18 +2,40 @@
 
 use super::*;
 
+pub trait GetValidatorType {
+    fn get_validator_type(&self) -> ValidatorType;
+}
+
 /// Implement this to provide custom permission checks for the Iroha based blockchain.
-pub trait IsAllowed<O: NeedsPermission>: Debug {
+pub trait IsAllowed: GetValidatorType + Debug {
+    type Operation: NeedsPermission;
+
     /// Checks if the `authority` is allowed to perform `instruction`
     /// given the current state of `wsv`.
     ///
-    /// # Errors
+    /// # Denial reasons
     /// If the execution of `instruction` under given `authority` with
     /// the current state of `wsv` is disallowed.
-    fn check(&self, authority: &AccountId, operation: &O, wsv: &WorldStateView) -> Result<()>;
+    fn check(
+        &self,
+        authority: &AccountId,
+        operation: &Self::Operation,
+        wsv: &WorldStateView,
+    ) -> ValidatorVerdict;
 }
 
 /// Box with permissions validator.
+///
+/// # Panics
+///
+/// If you try to call [`IsAllowed::check`] with wrong type of `operation` it will panic.
+///
+/// It's a programmer responsibility to control data flow such way that it's impossible to run
+/// validation with incompatible types. Using *validator* of one type to check `operation` of
+/// another type can't be legal behaviour and should be tracked as soon as possible.
+///
+/// This error can't be resolved at compile time because that will require to introduce generics
+/// which would be a big problem for *validator* deserialization.
 #[derive(Debug, FromVariant)]
 pub enum IsAllowedBoxed {
     /// [`Instruction`] validator
@@ -24,9 +46,8 @@ pub enum IsAllowedBoxed {
     Expression(IsExpressionAllowedBoxed),
 }
 
-impl IsAllowedBoxed {
-    /// Get type of validator inside [`IsAllowedBoxed`]
-    pub fn validator_type(&self) -> ValidatorType {
+impl GetValidatorType for IsAllowedBoxed {
+    fn get_validator_type(&self) -> ValidatorType {
         match self {
             IsAllowedBoxed::Instruction(_) => ValidatorType::Instruction,
             IsAllowedBoxed::Query(_) => ValidatorType::Query,
@@ -35,74 +56,44 @@ impl IsAllowedBoxed {
     }
 }
 
-impl IsAllowed<Instruction> for IsAllowedBoxed {
+impl IsAllowed for IsAllowedBoxed {
+    type Operation = NeedsPermissionBox;
+
     fn check(
         &self,
         authority: &AccountId,
-        operation: &Instruction,
+        operation: &Self::Operation,
         wsv: &WorldStateView,
-    ) -> Result<()> {
-        if let IsAllowedBoxed::Instruction(instruction) = self {
-            instruction.check(authority, operation, wsv)
-        } else {
-            Err(ValidatorTypeMismatch {
-                expected: ValidatorType::Instruction,
-                actual: self.validator_type(),
+    ) -> ValidatorVerdict {
+        match (self, operation) {
+            (
+                IsAllowedBoxed::Instruction(validator),
+                NeedsPermissionBox::Instruction(instruction),
+            ) => validator.check(authority, instruction, wsv),
+            (IsAllowedBoxed::Query(validator), NeedsPermissionBox::Query(query)) => {
+                validator.check(authority, query, wsv)
             }
-            .into())
-        }
-    }
-}
-
-impl IsAllowed<QueryBox> for IsAllowedBoxed {
-    fn check(
-        &self,
-        authority: &AccountId,
-        operation: &QueryBox,
-        wsv: &WorldStateView,
-    ) -> Result<()> {
-        if let IsAllowedBoxed::Query(query) = self {
-            query.check(authority, operation, wsv)
-        } else {
-            Err(ValidatorTypeMismatch {
-                expected: ValidatorType::Query,
-                actual: self.validator_type(),
+            (IsAllowedBoxed::Expression(validator), NeedsPermissionBox::Expression(expression)) => {
+                validator.check(authority, expression, wsv)
             }
-            .into())
+            // Technically we can return `ValidatorVerdict::Skip` or
+            // `ValidatorVerdict::Deny` here, but error of that kind is
+            // probably a programmer error, so we want to know about it as soon
+            // as possible
+            _ => panic!(
+                "Validator type mismatch: expected {}, got {}",
+                operation.required_validator_type(),
+                self.get_validator_type()
+            ),
         }
-    }
-}
-
-impl IsAllowed<Expression> for IsAllowedBoxed {
-    fn check(
-        &self,
-        authority: &AccountId,
-        operation: &Expression,
-        wsv: &WorldStateView,
-    ) -> Result<()> {
-        if let IsAllowedBoxed::Expression(expression) = self {
-            expression.check(authority, operation, wsv)
-        } else {
-            Err(ValidatorTypeMismatch {
-                expected: ValidatorType::Expression,
-                actual: self.validator_type(),
-            }
-            .into())
-        }
-    }
-}
-
-impl<O: NeedsPermission> IsAllowed<O> for Box<dyn IsAllowed<O> + Send + Sync> {
-    fn check(&self, authority: &AccountId, operation: &O, wsv: &WorldStateView) -> Result<()> {
-        IsAllowed::check(self.as_ref(), authority, operation, wsv)
     }
 }
 
 /// Box with permissions validator for [`Instruction`].
-pub type IsInstructionAllowedBoxed = Box<dyn IsAllowed<Instruction> + Send + Sync>;
+pub type IsInstructionAllowedBoxed = Box<dyn IsAllowed<Operation = Instruction> + Send + Sync>;
 
 /// Box with permissions validator for [`QueryBox`].
-pub type IsQueryAllowedBoxed = Box<dyn IsAllowed<QueryBox> + Send + Sync>;
+pub type IsQueryAllowedBoxed = Box<dyn IsAllowed<Operation = QueryBox> + Send + Sync>;
 
 /// Box with permissions validator for [`Expression`].
-pub type IsExpressionAllowedBoxed = Box<dyn IsAllowed<Expression> + Send + Sync>;
+pub type IsExpressionAllowedBoxed = Box<dyn IsAllowed<Operation = Expression> + Send + Sync>;

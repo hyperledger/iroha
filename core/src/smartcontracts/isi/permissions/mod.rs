@@ -2,7 +2,7 @@
 
 //! This module contains permissions related Iroha functionality.
 
-use std::{fmt::Debug, marker::PhantomData, sync::Arc};
+use std::{fmt::Debug, marker::PhantomData};
 
 pub use checks::*;
 use error::*;
@@ -29,25 +29,42 @@ pub type Result<T> = std::result::Result<T, DenialReason>;
 
 /// Operation for which the permission should be checked.
 pub trait NeedsPermission: Debug {
-    fn required_validator_type() -> ValidatorType;
+    fn required_validator_type(&self) -> ValidatorType;
 }
 
 impl NeedsPermission for Instruction {
-    fn required_validator_type() -> ValidatorType {
+    fn required_validator_type(&self) -> ValidatorType {
         ValidatorType::Instruction
     }
 }
 
 impl NeedsPermission for QueryBox {
-    fn required_validator_type() -> ValidatorType {
+    fn required_validator_type(&self) -> ValidatorType {
         ValidatorType::Query
     }
 }
 
 // Expression might contain a query, therefore needs to be checked.
 impl NeedsPermission for Expression {
-    fn required_validator_type() -> ValidatorType {
+    fn required_validator_type(&self) -> ValidatorType {
         ValidatorType::Expression
+    }
+}
+
+#[derive(Debug, FromVariant)]
+pub enum NeedsPermissionBox {
+    Instruction(Instruction),
+    Query(QueryBox),
+    Expression(Expression),
+}
+
+impl NeedsPermission for NeedsPermissionBox {
+    fn required_validator_type(&self) -> ValidatorType {
+        match self {
+            NeedsPermissionBox::Instruction(_) => ValidatorType::Instruction,
+            NeedsPermissionBox::Query(_) => ValidatorType::Query,
+            NeedsPermissionBox::Expression(_) => ValidatorType::Expression,
+        }
     }
 }
 
@@ -73,8 +90,8 @@ pub enum ValidatorVerdict {
     Skip,
 }
 
-impl From<Result> for ValidatorVerdict {
-    fn from(result: Result) -> Self {
+impl From<Result<()>> for ValidatorVerdict {
+    fn from(result: Result<()>) -> Self {
         match result {
             Ok(_) => ValidatorVerdict::Allow,
             Err(reason) => ValidatorVerdict::Deny(reason),
@@ -147,7 +164,7 @@ mod tests {
 
     use iroha_data_model::{expression::prelude::*, isi::*};
 
-    use super::{builder::Validator as ValidatorBuilder, combinators::DenyAll, *};
+    use super::{builder::Validator as ValidatorBuilder, judge::DenyAll, *};
     use crate::wsv::World;
 
     #[derive(Debug, Clone, Serialize)]
@@ -159,7 +176,15 @@ mod tests {
         }
     }
 
-    impl IsAllowed<Instruction> for DenyBurn {
+    impl GetValidatorType for DenyBurn {
+        fn get_validator_type(&self) -> ValidatorType {
+            ValidatorType::Instruction
+        }
+    }
+
+    impl IsAllowed for DenyBurn {
+        type Operation = Instruction;
+
         fn check(
             &self,
             _authority: &AccountId,
@@ -176,7 +201,15 @@ mod tests {
     #[derive(Debug, Clone, Serialize)]
     struct DenyAlice;
 
-    impl IsAllowed<Instruction> for DenyAlice {
+    impl GetValidatorType for DenyAlice {
+        fn get_validator_type(&self) -> ValidatorType {
+            ValidatorType::Instruction
+        }
+    }
+
+    impl IsAllowed for DenyAlice {
+        type Operation = Instruction;
+
         fn check(
             &self,
             authority: &AccountId,
