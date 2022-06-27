@@ -64,148 +64,14 @@ namespace {
     maybe_log->info("RPC succeeded(SendBatches): {}", context.peer());
     return true;
   }
-}  // namespace
 
-OnDemandOsClientGrpc::OnDemandOsClientGrpc(
-    std::shared_ptr<proto::OnDemandOrdering::StubInterface> stub,
-    std::shared_ptr<TransportFactoryType> proposal_factory,
-    std::function<TimepointType()> time_provider,
-    std::chrono::milliseconds proposal_request_timeout,
-    logger::LoggerPtr log,
-    std::shared_ptr<ExecutorKeeper> os_execution_keepers,
-    std::string peer_name)
-    : log_(std::move(log)),
-      stub_(std::move(stub)),
-      proposal_factory_(std::move(proposal_factory)),
-      time_provider_(std::move(time_provider)),
-      proposal_request_timeout_(proposal_request_timeout),
-      os_execution_keepers_(std::move(os_execution_keepers)),
-      peer_name_(std::move(peer_name)) {
-  assert(os_execution_keepers_);
-}
-
-OnDemandOsClientGrpc::~OnDemandOsClientGrpc() {
-  if (auto sh_ctx = context_.lock())
-    sh_ctx->TryCancel();
-}
-
-void OnDemandOsClientGrpc::onBatchesToWholeNetwork(CollectionType batches) {
-  assert(!"This code should not be called.");
-}
-
-void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
-  std::shared_ptr<proto::BatchesRequest> request;
-  for (auto &batch : batches) {
-    if (!request)
-      request = std::make_shared<proto::BatchesRequest>();
-
-    for (auto &transaction : batch->transactions()) {
-      *(*request).add_transactions() = std::move(
-          static_cast<shared_model::proto::Transaction *>(transaction.get())
-              ->getTransport());
-    }
-
-    if (request->ByteSizeLong() >= 2ull * 1024 * 1024) {
-      log_->debug("execute for called");
-      os_execution_keepers_->executeFor(
-          peer_name_,
-          [peer_name(peer_name_),
-           request(std::move(*request)),
-           wos_execution_keepers(utils::make_weak(os_execution_keepers_)),
-           time_provider(time_provider_),
-           stub(utils::make_weak(stub_)),
-           log(utils::make_weak(log_))]() mutable {
-            sendBatches(std::move(peer_name),
-                        wos_execution_keepers,
-                        std::move(request),
-                        time_provider,
-                        stub,
-                        log);
-          });
-      request.reset();
-    }
-  }
-
-  if (request) {
-    log_->debug("execute for called");
-    os_execution_keepers_->executeFor(
-        peer_name_,
-        [peer_name(peer_name_),
-         request(std::move(*request)),
-         wos_execution_keepers(utils::make_weak(os_execution_keepers_)),
-         time_provider(time_provider_),
-         stub(utils::make_weak(stub_)),
-         log(utils::make_weak(log_))]() mutable {
-          sendBatches(std::move(peer_name),
-                      wos_execution_keepers,
-                      std::move(request),
-                      time_provider,
-                      stub,
-                      log);
-        });
-  }
-}
-
-std::chrono::milliseconds OnDemandOsClientGrpc::getRequestDelay() const {
-  return proposal_request_timeout_;
-}
-
-void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round,
-                                             PackedProposalData ref_proposal) {
-  // Cancel an unfinished request
-  if (auto maybe_context = context_.lock()) {
-    maybe_context->TryCancel();
-  }
-
-  auto context = std::make_shared<grpc::ClientContext>();
-  context_ = context;
-  proto::ProposalRequest request;
-  request.mutable_round()->set_block_round(round.block_round);
-  request.mutable_round()->set_reject_round(round.reject_round);
-
-#if USE_BLOOM_FILTER
-  if (ref_proposal.has_value())
-    request.set_bloom_filter(
-        std::string(ref_proposal.value().second.load().data(),
-                    ref_proposal.value().second.load().size()));
-#endif  // USE_BLOOM_FILTER
-
-  getSubscription()->dispatcher()->add(
-      getSubscription()->dispatcher()->kExecuteInPool,
-      [round,
-       ref_proposal{std::move(ref_proposal)},
-       time_provider(time_provider_),
-       proposal_request_timeout(proposal_request_timeout_),
-       context(std::move(context)),
-       request(std::move(request)),
-       stub(utils::make_weak(stub_)),
-       log(utils::make_weak(log_)),
-       proposal_factory(utils::make_weak(proposal_factory_))] {
-        auto maybe_stub = stub.lock();
-        auto maybe_log = log.lock();
-        auto maybe_proposal_factory = proposal_factory.lock();
-        if (not(maybe_stub and maybe_log and maybe_proposal_factory)) {
-          return;
-        }
-
-        /// make request
-        context->set_deadline(time_provider() + proposal_request_timeout);
-        proto::ProposalResponse response;
-        maybe_log->info("Requesting proposal");
-        auto status =
-            maybe_stub->RequestProposal(context.get(), request, &response);
-        if (not status.ok()) {
-          maybe_log->warn(
-              "RPC failed: {} {}", context->peer(), status.error_message());
-          iroha::getSubscription()->notify(
-              iroha::EventTypes::kOnProposalResponse,
-              ProposalEvent{ProposalEvent::ProposalPack{}, round});
-          return;
-        } else {
-          maybe_log->info("RPC succeeded(RequestingProposal): {}",
-                          context->peer());
-        }
-
+  void handleProposalResponse(
+      logger::LoggerPtr &log,
+      std::shared_ptr<iroha::ordering::transport::OnDemandOsClientGrpc::
+                          TransportFactoryType> &proposal_factory,
+      iroha::ordering::proto::ProposalResponse const &response,
+      iroha::consensus::Round const &round,
+      PackedProposalData ref_proposal) {
         if (response.proposal().empty()) {
           maybe_log->info("No proposals in response for round {}.", round);
           iroha::getSubscription()->notify(
@@ -269,6 +135,124 @@ void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round,
         iroha::getSubscription()->notify(
             iroha::EventTypes::kOnProposalResponse,
             ProposalEvent{std::move(proposal_pack), round});
+  }
+}  // namespace
+
+OnDemandOsClientGrpc::OnDemandOsClientGrpc(
+    std::shared_ptr<proto::OnDemandOrdering::StubInterface> stub,
+    std::shared_ptr<TransportFactoryType> proposal_factory,
+    std::function<TimepointType()> time_provider,
+    std::chrono::milliseconds proposal_request_timeout,
+    logger::LoggerPtr log,
+    std::shared_ptr<ExecutorKeeper> os_execution_keepers,
+    std::string peer_name)
+    : log_(std::move(log)),
+      stub_(std::move(stub)),
+      proposal_factory_(std::move(proposal_factory)),
+      time_provider_(std::move(time_provider)),
+      proposal_request_timeout_(proposal_request_timeout),
+      os_execution_keepers_(std::move(os_execution_keepers)),
+      peer_name_(std::move(peer_name)) {
+  assert(os_execution_keepers_);
+}
+
+OnDemandOsClientGrpc::~OnDemandOsClientGrpc() {
+  if (auto sh_ctx = context_.lock())
+    sh_ctx->TryCancel();
+}
+
+void OnDemandOsClientGrpc::onBatchesToWholeNetwork(CollectionType batches) {
+  assert(!"This code should not be called.");
+}
+
+void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
+  proto::BatchesRequest request;
+  for (auto &batch : batches)
+    for (auto &transaction : batch->transactions())
+      *request.add_transactions() = std::move(
+          static_cast<shared_model::proto::Transaction *>(transaction.get())
+              ->getTransport());
+
+  os_execution_keepers_->executeFor(
+      peer_name_,
+      [peer_name(peer_name_),
+       request(std::move(request)),
+       wos_execution_keepers(utils::make_weak(os_execution_keepers_)),
+       time_provider(time_provider_),
+       stub(utils::make_weak(stub_)),
+       log(utils::make_weak(log_))]() mutable {
+        sendBatches(std::move(peer_name),
+                    wos_execution_keepers,
+                    std::move(request),
+                    time_provider,
+                    stub,
+                    log);
+      });
+}
+
+std::chrono::milliseconds OnDemandOsClientGrpc::getRequestDelay() const {
+  return proposal_request_timeout_;
+}
+
+void OnDemandOsClientGrpc::onRequestProposal(consensus::Round round,
+                                             PackedProposalData ref_proposal) {
+  // Cancel an unfinished request
+  if (auto maybe_context = context_.lock()) {
+    maybe_context->TryCancel();
+  }
+
+  auto context = std::make_shared<grpc::ClientContext>();
+  context_ = context;
+
+  getSubscription()->dispatcher()->add(
+      getSubscription()->dispatcher()->kExecuteInPool,
+      [round,
+       ref_proposal{std::move(ref_proposal)},
+       time_provider(time_provider_),
+       proposal_request_timeout(proposal_request_timeout_),
+       context(std::move(context)),
+       stub(utils::make_weak(stub_)),
+       log(utils::make_weak(log_)),
+       proposal_factory(utils::make_weak(proposal_factory_))] {
+        auto maybe_stub = stub.lock();
+        auto maybe_log = log.lock();
+        auto maybe_proposal_factory = proposal_factory.lock();
+        if (not(maybe_stub and maybe_log and maybe_proposal_factory)) {
+          return;
+        }
+
+        /// create request
+        proto::ProposalRequest request;
+        request.mutable_round()->set_block_round(round.block_round);
+        request.mutable_round()->set_reject_round(round.reject_round);
+#if USE_BLOOM_FILTER
+        if (ref_proposal.has_value())
+          request.set_bloom_filter(
+              std::string(ref_proposal.value().second.load().data(),
+                          ref_proposal.value().second.load().size()));
+#endif  // USE_BLOOM_FILTER
+
+        /// make request
+        context->set_deadline(time_provider() + proposal_request_timeout);
+        proto::ProposalResponse response;
+
+        maybe_log->info("Requesting proposal for round {} from peer {}",
+                        round,
+                        context->peer());
+        if (auto status =
+                maybe_stub->RequestProposal(context.get(), request, &response);
+            !status.ok()) {
+          maybe_log->warn("RPC failed: {}", status.error_message());
+          iroha::getSubscription()->notify(
+              iroha::EventTypes::kOnProposalResponse,
+              ProposalEvent{ProposalEvent::ProposalPack{}, round});
+          return;
+        }
+
+        /// handle response
+        maybe_log->info("RPC succeeded(RequestingProposal)");
+        handleProposalResponse(
+            maybe_log, maybe_proposal_factory, response, round, std::move(ref_proposal));
       });
 }
 
