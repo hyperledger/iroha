@@ -62,6 +62,8 @@ pub fn version_with_json(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// Adds support for both scale codec and json serialization. To declare only with json support use [`declare_versioned_with_json`](`declare_versioned_with_json()`), for scale - [`declare_versioned_with_scale`](`declare_versioned_with_json()`).
 ///
+/// It's a user responsibility to export `Box` so that this macro works properly
+///
 /// ### Arguments
 /// 1. positional `versioned_enum_name`
 /// 2. positional `supported_version_range`
@@ -246,7 +248,34 @@ fn impl_decode_versioned(enum_name: &Ident) -> proc_macro2::TokenStream {
                         let mut input = input.clone();
                         Ok(Self::decode(&mut input)?)
                     } else {
-                        Err(Error::UnsupportedVersion(UnsupportedVersion::new(*version, RawVersioned::ScaleBytes(input.to_vec()))))
+                        Err(Error::UnsupportedVersion(Box::new(UnsupportedVersion::new(
+                            *version,
+                            RawVersioned::ScaleBytes(input.to_vec())
+                        ))))
+                    }
+                } else {
+                    Err(Error::NotVersioned)
+                }
+            }
+
+            fn decode_all_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
+                use iroha_version::{error::Error, Version, UnsupportedVersion, RawVersioned};
+                use parity_scale_codec::Decode;
+
+                if let Some(version) = input.first() {
+                    if Self::supported_versions().contains(version) {
+                        let mut input = input.clone();
+                        let obj = Self::decode(&mut input)?;
+                        if input.is_empty() {
+                            Ok(obj)
+                        } else {
+                            Err(Error::ExtraBytesLeft(input.len().try_into().expect("`u64` always fit in `usize`")))
+                        }
+                    } else {
+                        Err(Error::UnsupportedVersion(Box::new(UnsupportedVersion::new(
+                            *version,
+                            RawVersioned::ScaleBytes(input.to_vec())
+                        ))))
                     }
                 } else {
                     Err(Error::NotVersioned)
@@ -278,9 +307,9 @@ fn impl_json(enum_name: &Ident, version_field_name: &str) -> proc_macro2::TokenS
                         if Self::supported_versions().contains(&version) {
                             Ok(serde_json::from_str(input)?)
                         } else {
-                            Err(Error::UnsupportedVersion(
+                            Err(Error::UnsupportedVersion(Box::new(
                                 UnsupportedVersion::new(version, RawVersioned::Json(String::from(input)))
-                            ))
+                            )))
                         }
                     } else {
                         Err(Error::NotVersioned)

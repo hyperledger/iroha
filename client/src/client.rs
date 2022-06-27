@@ -14,6 +14,7 @@ use iroha_data_model::{predicate::PredicateBox, prelude::*, query::SignedQueryRe
 use iroha_logger::prelude::*;
 use iroha_telemetry::metrics::Status;
 use iroha_version::prelude::*;
+use parity_scale_codec::DecodeAll;
 use rand::Rng;
 use serde::de::DeserializeOwned;
 use small::SmallStr;
@@ -62,15 +63,25 @@ where
             resp: &Response<Vec<u8>>,
         ) -> QueryHandlerResult<VersionedPaginatedQueryResult> {
             match resp.status() {
-                StatusCode::OK => VersionedPaginatedQueryResult::decode_versioned(resp.body())
-                    .wrap_err("Failed to decode response body as VersionedPaginatedQueryResult")
-                    .map_err(Into::into),
+                StatusCode::OK => {
+                    let res =
+                        try_decode_all_or_just_decode!(VersionedPaginatedQueryResult, resp.body());
+                    res.wrap_err(
+                        "Failed to decode the whole response body as `VersionedPaginatedQueryResult`",
+                    )
+                    .map_err(Into::into)
+                }
                 StatusCode::BAD_REQUEST
                 | StatusCode::UNAUTHORIZED
                 | StatusCode::FORBIDDEN
                 | StatusCode::NOT_FOUND => {
-                    let err = QueryError::decode(&mut resp.body().as_ref())
-                        .wrap_err("Failed to decode response body as QueryError")?;
+                    let mut res = QueryError::decode_all(resp.body().as_ref());
+                    if res.is_err() {
+                        warn!("Can't decode query error, not all bytes were consumed");
+                        res = QueryError::decode(&mut resp.body().as_ref());
+                    }
+                    let err =
+                        res.wrap_err("Failed to decode the whole response body as `QueryError`")?;
                     Err(ClientQueryError::QueryError(err))
                 }
                 _ => Err(ResponseReport::with_msg("Unexpected query response", resp).into()),
@@ -716,7 +727,7 @@ impl Client {
 
             if response.status() == StatusCode::OK {
                 let pending_transactions =
-                    VersionedPendingTransactions::decode_versioned(response.body())?;
+                    try_decode_all_or_just_decode!(VersionedPendingTransactions, response.body())?;
                 let VersionedPendingTransactions::V1(pending_transactions) = pending_transactions;
                 let transaction = pending_transactions
                     .into_iter()
@@ -931,7 +942,8 @@ pub mod events_api {
                 Self::Next: FlowEvents,
             {
                 if let EventPublisherMessage::SubscriptionAccepted =
-                    VersionedEventPublisherMessage::decode_versioned(&message)?.into_v1()
+                    try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &message)?
+                        .into_v1()
                 {
                     return Ok(Events);
                 }
@@ -948,9 +960,8 @@ pub mod events_api {
 
             fn message(&self, message: Vec<u8>) -> Result<EventData<Self::Event>> {
                 let event_socket_message =
-                    VersionedEventPublisherMessage::decode_versioned(&message)
-                        .map(iroha_data_model::events::VersionedEventPublisherMessage::into_v1)
-                        .map_err(Into::<eyre::Error>::into)?;
+                    try_decode_all_or_just_decode!(VersionedEventPublisherMessage, &message)?
+                        .into_v1();
                 let event = match event_socket_message {
                     EventPublisherMessage::Event(event) => event,
                     msg => return Err(eyre!("Expected Event but got {:?}", msg)),
