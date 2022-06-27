@@ -133,11 +133,6 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
 
   OnDemandOrderingService::BatchesSetType transactions;
-  EXPECT_CALL(*notification, getRequestDelay())
-      .WillOnce(Return(std::chrono::milliseconds(1)));
-  EXPECT_CALL(*ordering_service, forCachedBatches(_))
-      .WillOnce(InvokeArgument<0>(transactions));
-
   ordering::PackedProposalData p{};
   EXPECT_CALL(*notification, onRequestProposal(round, p)).Times(1);
 
@@ -332,37 +327,6 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
   auto val = ordering_gate->processProposalEvent(
       std::make_tuple(round, PROPOSAL_OR_EMPTY(arriving_proposal)));
   ASSERT_TRUE(val);
-}
-
-/**
- * @given initialized ordering gate
- * @when block event with no batches is emitted @and cache contains batch1 and
- * batch2 on the head
- * @then batch1 and batch2 are propagated to network
- */
-TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
-  // prepare internals of mock batches
-  shared_model::interface::types::HashType hash1(std::string("hash1"));
-  auto tx1 = createMockTransactionWithHash(hash1);
-
-  shared_model::interface::types::HashType hash2(std::string("hash2"));
-  auto tx2 = createMockTransactionWithHash(hash2);
-
-  // prepare batches
-  auto batch1 = createMockBatchWithTransactions({tx1}, "a");
-  auto batch2 = createMockBatchWithTransactions({tx2}, "b");
-
-  OnDemandOrderingService::BatchesSetType collection{batch1, batch2};
-  OnDemandOrderingService::BatchesSetType collection2{batch1, batch2};
-  EXPECT_CALL(*notification, getRequestDelay())
-      .WillOnce(Return(std::chrono::milliseconds(1)));
-  EXPECT_CALL(*ordering_service, forCachedBatches(_))
-      .WillOnce(InvokeArgument<0>(collection2));
-
-  EXPECT_CALL(*notification, onBatches(UnorderedElementsAreArray(collection)))
-      .Times(1);
-
-  ordering_gate->processRoundSwitch(RoundSwitch(round, ledger_state));
 }
 
 /**
