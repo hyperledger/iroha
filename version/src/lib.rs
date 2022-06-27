@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// Module which contains error and result for versioning
 pub mod error {
     #[cfg(not(feature = "std"))]
-    use alloc::{format, string::String, vec::Vec};
+    use alloc::{borrow::ToOwned, boxed::Box, format, string::String, vec::Vec};
     use core::fmt;
 
     use iroha_macro::FromVariant;
@@ -53,7 +53,9 @@ pub mod error {
         /// Problem with parsing integers
         ParseInt,
         /// Input version unsupported
-        UnsupportedVersion(UnsupportedVersion),
+        UnsupportedVersion(Box<UnsupportedVersion>),
+        /// Buffer is not empty after decoding. Returned by `decode_all_versioned()`
+        ExtraBytesLeft(u64),
     }
 
     #[cfg(feature = "json")]
@@ -79,20 +81,23 @@ pub mod error {
     impl fmt::Display for Error {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             let msg = match self {
-                Self::NotVersioned => "Not a versioned object",
+                Self::NotVersioned => "Not a versioned object".to_owned(),
                 Self::UnsupportedJsonEncode => {
-                    "Cannot encode unsupported version from JSON to SCALE"
+                    "Cannot encode unsupported version from JSON to SCALE".to_owned()
                 }
-                Self::ExpectedJson => "Expected JSON object",
+                Self::ExpectedJson => "Expected JSON object".to_owned(),
                 Self::UnsupportedScaleEncode => {
-                    "Cannot encode unsupported version from SCALE to JSON"
+                    "Cannot encode unsupported version from SCALE to JSON".to_owned()
                 }
                 #[cfg(feature = "json")]
-                Self::Serde => "JSON (de)serialization issue",
+                Self::Serde => "JSON (de)serialization issue".to_owned(),
                 #[cfg(feature = "scale")]
-                Self::ParityScale => "Parity SCALE (de)serialization issue",
-                Self::ParseInt => "Problem with parsing integers",
-                Self::UnsupportedVersion(_) => "Input version unsupported",
+                Self::ParityScale => "Parity SCALE (de)serialization issue".to_owned(),
+                Self::ParseInt => "Issue with parsing integers".to_owned(),
+                Self::UnsupportedVersion(v) => {
+                    format!("Input version {} is unsupported", v.version)
+                }
+                Self::ExtraBytesLeft(n) => format!("Buffer contains {n} bytes after decoding"),
             };
 
             write!(f, "{}", msg)
@@ -196,14 +201,59 @@ pub mod scale {
         /// Use this function for versioned objects instead of `decode`.
         ///
         /// # Errors
-        /// Will return error if version is unsupported or if input won't have enough bytes for decoding.
+        /// - Version is unsupported
+        /// - Input won't have enough bytes for decoding
         fn decode_versioned(input: &[u8]) -> Result<Self>;
+
+        /// Use this function for versioned objects instead of `decode_all`.
+        ///
+        /// # Errors
+        /// - Version is unsupported
+        /// - Input won't have enough bytes for decoding
+        /// - Input has extra bytes
+        fn decode_all_versioned(input: &[u8]) -> Result<Self>;
     }
 
     /// [`Encode`] versioned analog.
     pub trait EncodeVersioned: Encode + Version {
         /// Use this function for versioned objects instead of `encode`.
         fn encode_versioned(&self) -> Vec<u8>;
+    }
+
+    /// Try to decode type `t` from input `i` with [`DecodeVersioned::decode_all_versioned`]
+    /// and if it failed then print warning message to the log
+    /// and use [`DecodeVersioned::decode_versioned`].
+    ///
+    /// Implemented as a macro so that warning message will be displayed
+    /// with the file name of calling side.
+    ///
+    /// Will be removed in favor of just [`DecodeVersioned::decode_all_versioned`] in the future.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// // Will print `Can't decode `i32`, not all bytes were consumed`
+    /// let n = try_decode_all_or_just_decode!(i32, &bytes)?;
+    ///
+    /// // Will print `Can't decode `Message`, not all bytes were consumed`
+    /// let t = try_decode_all_or_just_decode!(T as "Message", &message_bytes)?;
+    /// ```
+    #[macro_export]
+    macro_rules! try_decode_all_or_just_decode {
+        ($t:ty, $i:expr) => {
+            try_decode_all_or_just_decode!(impl $t, $i, stringify!(t))
+        };
+        ($t:ty as $l:literal, $i:expr) => {
+            try_decode_all_or_just_decode!(impl $t, $i, $l)
+        };
+        (impl $t:ty, $i:expr, $n:expr) => {{
+            let mut res = <$t as DecodeVersioned>::decode_all_versioned($i);
+            if let Err(iroha_version::error::Error::ExtraBytesLeft(left)) = res {
+                warn!(left_bytes = %left, "Can't decode `{}`, not all bytes were consumed", $n);
+                res = <$t as DecodeVersioned>::decode_versioned($i);
+            }
+            res
+        }};
     }
 }
 
