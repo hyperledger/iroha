@@ -71,12 +71,13 @@ namespace {
                           TransportFactoryType> &proposal_factory,
       iroha::ordering::proto::ProposalResponse const &response,
       iroha::consensus::Round const &round,
-      PackedProposalData ref_proposal) {
+      iroha::ordering::PackedProposalData ref_proposal) {
     if (response.proposal().empty()) {
-      maybe_log->info("No proposals in response for round {}.", round);
+      log->info("No proposals in response for round {}.", round);
       iroha::getSubscription()->notify(
           iroha::EventTypes::kOnProposalResponse,
-          ProposalEvent{ProposalEvent::ProposalPack{}, round});
+          iroha::ordering::ProposalEvent{
+              iroha::ordering::ProposalEvent::ProposalPack{}, round});
       return;
     }
 
@@ -88,18 +89,19 @@ namespace {
 #if USE_BLOOM_FILTER
       if (proposal.proposal_hash().empty()) {
         assert(!"Must have proposal hash!");
-        maybe_log->info("Remote node {} has no proposal.", context->peer());
-        iroha::getSubscription()->notify(iroha::EventTypes::kOnProposalResponse,
-                                         ProposalEvent{std::nullopt, round});
+        log->info("Remote node {} has no proposal.", context->peer());
+        iroha::getSubscription()->notify(
+            iroha::EventTypes::kOnProposalResponse,
+            iroha::ordering::ProposalEvent{std::nullopt, round});
         return;
       }
 #endif  // USE_BLOOM_FILTER
 
       /// parse request
       std::shared_ptr<shared_model::interface::Proposal const> remote_proposal;
-      if (auto proposal_result = maybe_proposal_factory->build(proposal);
-          expected::hasError(proposal_result)) {
-        maybe_log->warn("{}", proposal_result.assumeError().error);
+      if (auto proposal_result = proposal_factory->build(proposal);
+          iroha::expected::hasError(proposal_result)) {
+        log->warn("{}", proposal_result.assumeError().error);
         break;
       } else
         remote_proposal = std::move(proposal_result).assumeValue();
@@ -122,7 +124,7 @@ namespace {
       } else
 #endif  // USE_BLOOM_FILTER
           if (remote_proposal->transactions().empty()) {
-        maybe_log->info("Transactions sequence in proposal is empty");
+        log->info("Transactions sequence in proposal is empty");
         break;
       }
 
@@ -131,7 +133,7 @@ namespace {
 
     iroha::getSubscription()->notify(
         iroha::EventTypes::kOnProposalResponse,
-        ProposalEvent{std::move(proposal_pack), round});
+        iroha::ordering::ProposalEvent{std::move(proposal_pack), round});
   }
 }  // namespace
 
