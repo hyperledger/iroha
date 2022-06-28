@@ -583,13 +583,6 @@ impl DefinitionId {
     pub const fn new(name: Name, domain_id: <Domain as Identifiable>::Id) -> Self {
         Self { name, domain_id }
     }
-
-    pub(crate) const fn empty() -> Self {
-        Self {
-            name: Name::empty(),
-            domain_id: DomainId::empty(),
-        }
-    }
 }
 
 impl Id {
@@ -654,7 +647,9 @@ impl FromStr for DefinitionId {
 
     fn from_str(string: &str) -> Result<Self, Self::Err> {
         if string.is_empty() {
-            return Ok(Self::empty());
+            return Err(ParseError {
+                reason: "`DefinitionId` cannot be empty",
+            });
         }
 
         let vector: Vec<&str> = string.split('#').collect();
