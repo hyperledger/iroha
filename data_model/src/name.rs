@@ -22,10 +22,6 @@ use crate::{ParseError, ValidationError};
 pub struct Name(ConstString);
 
 impl Name {
-    // pub(crate) const fn empty() -> Self {
-    // Self(ConstString::new())
-    // }
-
     /// Check if `range` contains the number of chars in the inner `String` of this [`Name`].
     ///
     /// # Errors
