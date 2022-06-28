@@ -1,8 +1,18 @@
 //! Contains functions to check permission
 
+use judge::JudgeBox;
+
 use super::*;
 
-/// Verify that the given instruction is allowed to execute
+/// Verify that the given `instruction` is allowed to execute
+///
+/// # Panic
+///
+/// Function will panic if at least one the the following invariants is not met:
+/// - Calling [`GetValidatorType::get_validator_type`]
+/// on `is_instruction_allowed` should return [`ValidatorType::Instruction`]
+/// - Calling [`GetValidatorType::get_validator_type`]
+/// on `is_query_allowed` should return [`ValidatorType::Query`]
 ///
 /// # Errors
 ///
@@ -11,10 +21,13 @@ use super::*;
 pub fn check_instruction_permissions(
     account_id: &AccountId,
     instruction: &Instruction,
-    is_instruction_allowed: &IsInstructionAllowedBoxed,
-    is_query_allowed: &IsQueryAllowedBoxed,
+    is_instruction_allowed: &JudgeBox,
+    is_query_allowed: &JudgeBox,
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
+    assert_judge_type(is_instruction_allowed, ValidatorType::Instruction);
+    assert_judge_type(is_query_allowed, ValidatorType::Query);
+
     let granted_instructions = &super::roles::unpack_if_role_grant(instruction.clone(), wsv)
         .expect("Infallible. Evaluations have been checked by instruction execution.");
     check_permissions_directly(
@@ -45,12 +58,12 @@ pub fn check_instruction_permissions(
 fn check_permissions_directly(
     account_id: &AccountId,
     instructions: &[Instruction],
-    is_instruction_allowed: &IsInstructionAllowedBoxed,
+    is_instruction_allowed: &JudgeBox,
     wsv: &WorldStateView,
 ) -> std::result::Result<(), TransactionRejectionReason> {
     for isi in instructions {
         is_instruction_allowed
-            .check(account_id, isi, wsv)
+            .judge(account_id, &isi.clone().into(), wsv)
             .map_err(|reason| NotPermittedFail {
                 reason: reason.to_string(),
             })
@@ -67,19 +80,26 @@ fn check_permissions_directly(
 /// 2^13 calls were tested and are ok. This is within default
 /// instruction limit.
 ///
+/// # Panic
+///
+/// Function will panic if calling [`GetValidatorType::get_validator_type`]
+/// on `is_query_allowed` doesn't return [`ValidatorType::Query`]
+///
 /// # Errors
 /// If a user is not allowed to execute one of the inner queries,
-/// given the current `validator`.
+/// given the current `judge`.
 pub fn check_query_in_expression(
     authority: &AccountId,
     expression: &Expression,
     wsv: &WorldStateView,
-    validator: &IsQueryAllowedBoxed,
+    is_query_allowed: &JudgeBox,
 ) -> Result<()> {
+    assert_judge_type(is_query_allowed, ValidatorType::Query);
+
     macro_rules! check_binary_expression {
         ($e:ident) => {
-            check_query_in_expression(authority, &($e).left.expression, wsv, validator).and(
-                check_query_in_expression(authority, &($e).right.expression, wsv, validator),
+            check_query_in_expression(authority, &($e).left.expression, wsv, is_query_allowed).and(
+                check_query_in_expression(authority, &($e).right.expression, wsv, is_query_allowed),
             )
         };
     }
@@ -94,57 +114,75 @@ pub fn check_query_in_expression(
         Expression::Greater(expression) => check_binary_expression!(expression),
         Expression::Less(expression) => check_binary_expression!(expression),
         Expression::Equal(expression) => check_binary_expression!(expression),
-        Expression::Not(expression) => {
-            check_query_in_expression(authority, &expression.expression.expression, wsv, validator)
-        }
+        Expression::Not(expression) => check_query_in_expression(
+            authority,
+            &expression.expression.expression,
+            wsv,
+            is_query_allowed,
+        ),
         Expression::And(expression) => check_binary_expression!(expression),
         Expression::Or(expression) => check_binary_expression!(expression),
-        Expression::If(expression) => {
-            check_query_in_expression(authority, &expression.condition.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &expression.then_expression.expression,
-                    wsv,
-                    validator,
-                ))
-                .and(check_query_in_expression(
-                    authority,
-                    &expression.else_expression.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Expression::Query(query) => validator.check(authority, query, wsv),
-        Expression::Contains(expression) => {
-            check_query_in_expression(authority, &expression.collection.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &expression.element.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Expression::ContainsAll(expression) => {
-            check_query_in_expression(authority, &expression.collection.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &expression.elements.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Expression::ContainsAny(expression) => {
-            check_query_in_expression(authority, &expression.collection.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &expression.elements.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Expression::Where(expression) => {
-            check_query_in_expression(authority, &expression.expression.expression, wsv, validator)
-        }
+        Expression::If(expression) => check_query_in_expression(
+            authority,
+            &expression.condition.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &expression.then_expression.expression,
+            wsv,
+            is_query_allowed,
+        ))
+        .and(check_query_in_expression(
+            authority,
+            &expression.else_expression.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Expression::Query(query) => is_query_allowed.judge(authority, &query.clone().into(), wsv),
+        Expression::Contains(expression) => check_query_in_expression(
+            authority,
+            &expression.collection.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &expression.element.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Expression::ContainsAll(expression) => check_query_in_expression(
+            authority,
+            &expression.collection.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &expression.elements.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Expression::ContainsAny(expression) => check_query_in_expression(
+            authority,
+            &expression.collection.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &expression.elements.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Expression::Where(expression) => check_query_in_expression(
+            authority,
+            &expression.expression.expression,
+            wsv,
+            is_query_allowed,
+        ),
         Expression::ContextValue(_) | Expression::Raw(_) => Ok(()),
     }
 }
@@ -157,121 +195,172 @@ pub fn check_query_in_expression(
 /// 2^13 calls were tested and are ok. This is within default
 /// instruction limit.
 ///
+/// # Panic
+///
+/// Function will panic if at least one the the following invariants is not met:
+/// - Calling [`GetValidatorType::get_validator_type`]
+/// on `is_query_allowed` should return [`ValidatorType::Query`]
+///
 /// # Errors
 /// If a user is not allowed to execute one of the inner queries,
-/// given the current `validator`.
+/// given the current `judge`.
 #[allow(clippy::too_many_lines)]
 pub fn check_query_in_instruction(
     authority: &AccountId,
     instruction: &Instruction,
     wsv: &WorldStateView,
-    validator: &IsQueryAllowedBoxed,
+    is_query_allowed: &JudgeBox,
 ) -> Result<()> {
+    assert_judge_type(is_query_allowed, ValidatorType::Query);
+
     match instruction {
-        Instruction::Register(instruction) => {
-            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
-        }
-        Instruction::Unregister(instruction) => {
-            check_query_in_expression(authority, &instruction.object_id.expression, wsv, validator)
-        }
-        Instruction::Mint(instruction) => {
-            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &instruction.destination_id.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Instruction::Burn(instruction) => {
-            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &instruction.destination_id.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Instruction::Transfer(instruction) => {
-            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &instruction.destination_id.expression,
-                    wsv,
-                    validator,
-                ))
-                .and(check_query_in_expression(
-                    authority,
-                    &instruction.source_id.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Instruction::SetKeyValue(instruction) => {
-            check_query_in_expression(authority, &instruction.object_id.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &instruction.key.expression,
-                    wsv,
-                    validator,
-                ))
-                .and(check_query_in_expression(
-                    authority,
-                    &instruction.value.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Instruction::RemoveKeyValue(instruction) => {
-            check_query_in_expression(authority, &instruction.object_id.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &instruction.key.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Instruction::Grant(instruction) => {
-            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &instruction.destination_id.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Instruction::Revoke(instruction) => {
-            check_query_in_expression(authority, &instruction.object.expression, wsv, validator)
-                .and(check_query_in_expression(
-                    authority,
-                    &instruction.destination_id.expression,
-                    wsv,
-                    validator,
-                ))
-        }
-        Instruction::If(if_box) => {
-            check_query_in_instruction(authority, &if_box.then, wsv, validator).and_then(|_| {
-                match &if_box.otherwise {
-                    Some(this_instruction) => {
-                        check_query_in_instruction(authority, this_instruction, wsv, validator)
-                    }
-                    None => Ok(()),
-                }
-            })
-        }
+        Instruction::Register(instruction) => check_query_in_expression(
+            authority,
+            &instruction.object.expression,
+            wsv,
+            is_query_allowed,
+        ),
+        Instruction::Unregister(instruction) => check_query_in_expression(
+            authority,
+            &instruction.object_id.expression,
+            wsv,
+            is_query_allowed,
+        ),
+        Instruction::Mint(instruction) => check_query_in_expression(
+            authority,
+            &instruction.object.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &instruction.destination_id.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Instruction::Burn(instruction) => check_query_in_expression(
+            authority,
+            &instruction.object.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &instruction.destination_id.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Instruction::Transfer(instruction) => check_query_in_expression(
+            authority,
+            &instruction.object.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &instruction.destination_id.expression,
+            wsv,
+            is_query_allowed,
+        ))
+        .and(check_query_in_expression(
+            authority,
+            &instruction.source_id.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Instruction::SetKeyValue(instruction) => check_query_in_expression(
+            authority,
+            &instruction.object_id.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &instruction.key.expression,
+            wsv,
+            is_query_allowed,
+        ))
+        .and(check_query_in_expression(
+            authority,
+            &instruction.value.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Instruction::RemoveKeyValue(instruction) => check_query_in_expression(
+            authority,
+            &instruction.object_id.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &instruction.key.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Instruction::Grant(instruction) => check_query_in_expression(
+            authority,
+            &instruction.object.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &instruction.destination_id.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Instruction::Revoke(instruction) => check_query_in_expression(
+            authority,
+            &instruction.object.expression,
+            wsv,
+            is_query_allowed,
+        )
+        .and(check_query_in_expression(
+            authority,
+            &instruction.destination_id.expression,
+            wsv,
+            is_query_allowed,
+        )),
+        Instruction::If(if_box) => check_query_in_instruction(
+            authority,
+            &if_box.then,
+            wsv,
+            is_query_allowed,
+        )
+        .and_then(|_| match &if_box.otherwise {
+            Some(this_instruction) => {
+                check_query_in_instruction(authority, this_instruction, wsv, is_query_allowed)
+            }
+            None => Ok(()),
+        }),
         Instruction::Pair(pair_box) => {
-            check_query_in_instruction(authority, &pair_box.left_instruction, wsv, validator).and(
-                check_query_in_instruction(authority, &pair_box.right_instruction, wsv, validator),
-            )
+            check_query_in_instruction(authority, &pair_box.left_instruction, wsv, is_query_allowed)
+                .and(check_query_in_instruction(
+                    authority,
+                    &pair_box.right_instruction,
+                    wsv,
+                    is_query_allowed,
+                ))
         }
         Instruction::Sequence(sequence_box) => {
             sequence_box
                 .instructions
                 .iter()
                 .try_for_each(|this_instruction| {
-                    check_query_in_instruction(authority, this_instruction, wsv, validator)
+                    check_query_in_instruction(authority, this_instruction, wsv, is_query_allowed)
                 })
         }
         Instruction::Fail(_) | Instruction::ExecuteTrigger(_) => Ok(()),
+    }
+}
+
+fn assert_judge_type(judge: &JudgeBox, expected_type: ValidatorType) {
+    let actual_type = judge.get_validator_type();
+    if actual_type != expected_type {
+        panic!(
+            "Judge expected to have `{expected_type:?}` validator type, \"
+             but got `{actual_type:?}`",
+        );
     }
 }
